@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today9" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today10" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,6 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -30,10 +31,10 @@
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260517d"></script>
+    <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517d"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -917,16 +918,21 @@
         const headline = (() => {
           if (typeof headlineRaw === "string") return headlineRaw;
           if (!headlineRaw || typeof headlineRaw !== "object") return "";
-          // Build a brief summary string from known fields.
+          // Build a brief summary string from known fields. Guard each
+          // line so missing/zero values don't produce noisy "VIX 0.00"
+          // or "Breadth 0/0 sectors green" placeholders (the brief
+          // endpoint returns null when the field hasn't been computed).
           const parts = [];
           if (headlineRaw.regime) parts.push(`Regime: ${String(headlineRaw.regime).replace(/_/g, " ")}`);
-          if (Number.isFinite(Number(headlineRaw.vix))) parts.push(`VIX ${Number(headlineRaw.vix).toFixed(2)}`);
+          const vixNum = Number(headlineRaw.vix);
+          if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
           if (headlineRaw.breadth && typeof headlineRaw.breadth === "object") {
             const g = Number(headlineRaw.breadth.green);
             const t = Number(headlineRaw.breadth.total);
-            if (Number.isFinite(g) && Number.isFinite(t)) parts.push(`Breadth ${g}/${t} sectors green`);
+            if (Number.isFinite(g) && Number.isFinite(t) && t > 0) parts.push(`Breadth ${g}/${t} sectors green`);
           }
-          if (Number.isFinite(Number(headlineRaw.openTrades))) parts.push(`${Number(headlineRaw.openTrades)} open trades`);
+          const openN = Number(headlineRaw.openTrades);
+          if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open trades`);
           return parts.join(" \u00b7 ");
         })();
 
@@ -1049,8 +1055,13 @@
       // ── Market Pulse — port from AT's Market Pulse row.
       // User feedback: 'The Today Page should use the Market Pulse Tiles.'
       function MarketState({ data, onSelectTicker }) {
-        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
-        const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
+        // Order mirrors the AT Market Pulse row: equity indices first,
+        // VIX, crypto pair (BTC + ETH), then commodity ETFs (gold, oil).
+        // User requested ETH and an oil-equivalent tile alongside the
+        // existing ones so the strip reads as a single-glance regime
+        // snapshot. Up to 8 tiles fit comfortably at desktop width.
+        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
+        const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
         if (order.length === 0) return null;
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
@@ -1319,6 +1330,7 @@
       // ── computeInsightChips — mirrors index-react.source.html lines 19357-19660 ─
       function computeInsightChips(allTickers, opts) {
         const isAdmin = !!(opts && opts.isAdmin);
+        const savedSet = (opts && opts.savedSet) instanceof Set ? opts.savedSet : new Set();
         const all = (Array.isArray(allTickers) ? allTickers : [])
           .filter((t) => t && Number.isFinite(Number(t.ltf_score)));
         if (all.length === 0) return [];
@@ -1344,6 +1356,33 @@
           row: "focus", isDefault: true,
           tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered.",
         });
+
+        // ── Saved — user's starred tickers (top-level, always first) ──
+        if (savedSet.size > 0) {
+          const savedTickers = allTickers.filter((t) => savedSet.has(TT_NORM_TICKER(t?.ticker)));
+          chips.push({
+            id: "saved", label: "Saved", count: savedTickers.length,
+            tickers: savedTickers.map((t) => t.ticker),
+            row: "focus",
+            tooltip: "Your starred tickers (★). Toggle on any card.",
+          });
+        }
+
+        // ── TT Selected — UPTICKS + GRNI + GRNJ + GRNY universe ──
+        if (typeof window.isTickerTTSelected === "function") {
+          const ttSelected = allTickers.filter((t) => {
+            const s = String(t?.ticker || "");
+            return s && window.isTickerTTSelected(s);
+          });
+          if (ttSelected.length > 0) {
+            chips.push({
+              id: "tt_selected", label: "TT Selected", count: ttSelected.length,
+              tickers: ttSelected.map((t) => t.ticker),
+              row: "focus",
+              tooltip: "Hand-picked TT universe (UPTICKS + Granny Shots).",
+            });
+          }
+        }
 
         // ── Actionable ──
         const actionable = allTickers.filter((t) => ACTIONABLE_STAGES.has(String(t.kanban_stage || "").toLowerCase()));
@@ -2605,7 +2644,8 @@
             return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff };
           });
         }, [data, tradeByTicker]);
-        const chips   = useMemo(() => computeInsightChips(allTickers, { isAdmin }), [allTickers, isAdmin]);
+        const { saved: savedSet } = useSavedTickers();
+        const chips   = useMemo(() => computeInsightChips(allTickers, { isAdmin, savedSet }), [allTickers, isAdmin, savedSet]);
         const visible = useMemo(() => applyFilters(allTickers, filters, chips),     [allTickers, filters, chips]);
         const rankedTickers = useMemo(() => {
           const TT = window.TimedBubbleChart;

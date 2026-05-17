@@ -34,7 +34,19 @@ async function fetchAllMeta() {
 }
 async function fetchHistory() {
   try {
-    const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=500`, {
+    const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=1000`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+async function fetchLedgerSummary() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/ledger/summary`, {
       credentials: "include",
       cache: "no-store"
     });
@@ -70,7 +82,8 @@ async function fetchUniverseChanges() {
 }
 function ModelStatus({
   allMeta,
-  history
+  history,
+  summary
 }) {
   const builtAt = Number(allMeta?.built_at);
   const tickerCount = Number(allMeta?.count) || (allMeta?.data ? Object.keys(allMeta.data).length : 0);
@@ -84,9 +97,11 @@ function ModelStatus({
     return m || null;
   }, [history]);
   const closedCount = useMemo(() => {
+    const fromSummary = Number(summary?.totals?.closedTrades);
+    if (Number.isFinite(fromSummary) && fromSummary >= 0) return fromSummary;
     if (!Array.isArray(history)) return 0;
     return history.filter(t => Number.isFinite(Number(t?.pnl)) && t?.exit_ts).length;
-  }, [history]);
+  }, [history, summary]);
   const healthOk = Number.isFinite(builtAt) && Date.now() - builtAt < 30 * 60 * 1000;
   const healthLabel = healthOk ? "Healthy" : Number.isFinite(builtAt) ? "Stale snapshot" : "Unknown";
   return h("section", {
@@ -295,8 +310,36 @@ function BriefThesis({
   const b = past4 ? brief.brief.evening || brief.brief.morning : brief.brief.morning || brief.brief.evening;
   if (!b) return null;
   const headline = b?.infographic?.headline;
-  const headlineStr = typeof headline === "string" ? headline : headline && typeof headline === "object" ? `Regime ${headline.regime || "—"} · VIX ${Number(headline.vix || 0).toFixed(2)} · Breadth ${headline.breadth || "—"} · ${headline.openTrades || 0} open` : "";
-  const synopsis = String(b?.synopsis || b?.summary || "").trim();
+  const headlineStr = (() => {
+    if (typeof headline === "string") return headline;
+    if (!headline || typeof headline !== "object") return "";
+    const parts = [];
+    if (headline.regime) parts.push(`Regime: ${String(headline.regime).replace(/_/g, " ")}`);
+    const vixNum = Number(headline.vix);
+    if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
+    if (headline.breadth && typeof headline.breadth === "object") {
+      const g = Number(headline.breadth.green);
+      const t = Number(headline.breadth.total);
+      if (Number.isFinite(g) && Number.isFinite(t) && t > 0) {
+        parts.push(`Breadth ${g}/${t} sectors green`);
+      }
+    } else if (typeof headline.breadth === "string") {
+      parts.push(`Breadth: ${headline.breadth}`);
+    }
+    const openN = Number(headline.openTrades);
+    if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open`);
+    return parts.join(" \u00b7 ");
+  })();
+  const rawContent = String(b?.content || b?.synopsis || b?.summary || "").trim();
+  const renderedHtml = (() => {
+    if (!rawContent) return "";
+    if (typeof window !== "undefined" && window.marked?.parse) {
+      try {
+        return window.marked.parse(rawContent);
+      } catch (_) {}
+    }
+    return null;
+  })();
   const date = String(b?.date || brief?.brief?.date || "");
   return h("section", {
     className: "tt-row"
@@ -312,13 +355,30 @@ function BriefThesis({
       fontWeight: 700,
       marginBottom: 8
     }
-  }, headlineStr), synopsis && h("div", {
+  }, headlineStr), renderedHtml ? h("div", {
+    className: "brief-commentary",
     style: {
       fontSize: 13,
       color: "var(--tt-text-muted)",
-      lineHeight: 1.55
+      lineHeight: 1.6
+    },
+    dangerouslySetInnerHTML: {
+      __html: renderedHtml
     }
-  }, synopsis), h("div", {
+  }) : rawContent ? h("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.6,
+      whiteSpace: "pre-wrap"
+    }
+  }, rawContent.slice(0, 800) + (rawContent.length > 800 ? "…" : "")) : h("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text-dim)",
+      fontStyle: "italic"
+    }
+  }, "Brief commentary will appear here once today's run completes."), h("div", {
     style: {
       fontSize: 11,
       color: "var(--tt-text-faint)",
@@ -486,6 +546,7 @@ function UniverseChanges({
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [brief, setBrief] = useState(null);
   const [universeChanges, setUniverseChanges] = useState(null);
   const [error, setError] = useState(null);
@@ -494,12 +555,13 @@ function InsightsApp() {
     let alive = true;
     (async () => {
       try {
-        const [a, h_, b, u] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges()]);
+        const [a, h_, b, u, s] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(), fetchLedgerSummary()]);
         if (!alive) return;
         if (a) setAllMeta(a);
         if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
         if (b?.ok) setBrief(b);
         if (u?.ok) setUniverseChanges(u.events || []);
+        if (s?.ok) setSummary(s);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -521,7 +583,8 @@ function InsightsApp() {
     className: "sub"
   }, "How the model is performing under the hood. The engine analyses each setup type and learns from outcomes; this page surfaces a high-level view. ", "Every closed trade contributes back to the AI CIO's weekly retrospective — patterns that work get more weight, patterns that don't get tightened."))), h(ModelStatus, {
     allMeta,
-    history
+    history,
+    summary
   }), h(BriefThesis, {
     brief
   }), h("section", {

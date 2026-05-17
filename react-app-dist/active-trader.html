@@ -10,12 +10,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at5" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at6" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -24,10 +25,10 @@
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260517d"></script>
+    <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517d"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -153,6 +154,14 @@
         margin-bottom: 12px;
       }
       .at-brief-row:last-child { margin-bottom: 0; }
+      .at-brief-narrative {
+        font-size: 14px;
+        line-height: 1.55;
+        color: var(--tt-text);
+        margin: 0 0 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--tt-border);
+      }
       .at-brief-label {
         font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
         color: var(--tt-text-dim);
@@ -270,6 +279,12 @@
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
+      /* Bubble map row */
+      .at-bubble-row { margin-top: 32px; }
+      @media (max-width: 720px) {
+        .at-bubble-row .tt-card > div { height: 460px !important; }
+      }
+
       /* Loading bar */
       .tt-loadbar {
         position: fixed; top: 0; left: 0; right: 0;
@@ -323,7 +338,7 @@
       </main>
     </div>
 
-    <script src="active-trader.compiled.1cd214f6d3.js"></script>
+    <script src="active-trader.compiled.5a5ef9df8f.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

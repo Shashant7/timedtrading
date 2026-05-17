@@ -239,13 +239,15 @@ function BriefPreview({
     if (!headlineRaw || typeof headlineRaw !== "object") return "";
     const parts = [];
     if (headlineRaw.regime) parts.push(`Regime: ${String(headlineRaw.regime).replace(/_/g, " ")}`);
-    if (Number.isFinite(Number(headlineRaw.vix))) parts.push(`VIX ${Number(headlineRaw.vix).toFixed(2)}`);
+    const vixNum = Number(headlineRaw.vix);
+    if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
     if (headlineRaw.breadth && typeof headlineRaw.breadth === "object") {
       const g = Number(headlineRaw.breadth.green);
       const t = Number(headlineRaw.breadth.total);
-      if (Number.isFinite(g) && Number.isFinite(t)) parts.push(`Breadth ${g}/${t} sectors green`);
+      if (Number.isFinite(g) && Number.isFinite(t) && t > 0) parts.push(`Breadth ${g}/${t} sectors green`);
     }
-    if (Number.isFinite(Number(headlineRaw.openTrades))) parts.push(`${Number(headlineRaw.openTrades)} open trades`);
+    const openN = Number(headlineRaw.openTrades);
+    if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open trades`);
     return parts.join(" \u00b7 ");
   })();
   const closingRaw = info.closingLine;
@@ -412,8 +414,8 @@ function MarketState({
   data,
   onSelectTicker
 }) {
-  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
-  const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
+  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
+  const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
   if (order.length === 0) return null;
   return h("section", {
     className: "tt-row"
@@ -717,6 +719,7 @@ const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend
 const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
 function computeInsightChips(allTickers, opts) {
   const isAdmin = !!(opts && opts.isAdmin);
+  const savedSet = (opts && opts.savedSet) instanceof Set ? opts.savedSet : new Set();
   const all = (Array.isArray(allTickers) ? allTickers : []).filter(t => t && Number.isFinite(Number(t.ltf_score)));
   if (all.length === 0) return [];
   const TT = window.TimedBubbleChart || {};
@@ -743,6 +746,33 @@ function computeInsightChips(allTickers, opts) {
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
   });
+  if (savedSet.size > 0) {
+    const savedTickers = allTickers.filter(t => savedSet.has(TT_NORM_TICKER(t?.ticker)));
+    chips.push({
+      id: "saved",
+      label: "Saved",
+      count: savedTickers.length,
+      tickers: savedTickers.map(t => t.ticker),
+      row: "focus",
+      tooltip: "Your starred tickers (★). Toggle on any card."
+    });
+  }
+  if (typeof window.isTickerTTSelected === "function") {
+    const ttSelected = allTickers.filter(t => {
+      const s = String(t?.ticker || "");
+      return s && window.isTickerTTSelected(s);
+    });
+    if (ttSelected.length > 0) {
+      chips.push({
+        id: "tt_selected",
+        label: "TT Selected",
+        count: ttSelected.length,
+        tickers: ttSelected.map(t => t.ticker),
+        row: "focus",
+        tooltip: "Hand-picked TT universe (UPTICKS + Granny Shots)."
+      });
+    }
+  }
   const actionable = allTickers.filter(t => ACTIONABLE_STAGES.has(String(t.kanban_stage || "").toLowerCase()));
   if (actionable.length > 0) {
     chips.push({
@@ -2252,9 +2282,13 @@ function TodayApp() {
       };
     });
   }, [data, tradeByTicker]);
+  const {
+    saved: savedSet
+  } = useSavedTickers();
   const chips = useMemo(() => computeInsightChips(allTickers, {
-    isAdmin
-  }), [allTickers, isAdmin]);
+    isAdmin,
+    savedSet
+  }), [allTickers, isAdmin, savedSet]);
   const visible = useMemo(() => applyFilters(allTickers, filters, chips), [allTickers, filters, chips]);
   const rankedTickers = useMemo(() => {
     const TT = window.TimedBubbleChart;

@@ -10,13 +10,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at5" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at6" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -25,10 +26,10 @@
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260517d"></script>
+    <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517d"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -154,6 +155,14 @@
         margin-bottom: 12px;
       }
       .at-brief-row:last-child { margin-bottom: 0; }
+      .at-brief-narrative {
+        font-size: 14px;
+        line-height: 1.55;
+        color: var(--tt-text);
+        margin: 0 0 14px;
+        padding-bottom: 14px;
+        border-bottom: 1px solid var(--tt-border);
+      }
       .at-brief-label {
         font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
         color: var(--tt-text-dim);
@@ -270,6 +279,12 @@
       .lane.exit             { --lane-accent: var(--tt-dn-soft); }
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
+
+      /* Bubble map row */
+      .at-bubble-row { margin-top: 32px; }
+      @media (max-width: 720px) {
+        .at-bubble-row .tt-card > div { height: 460px !important; }
+      }
 
       /* Loading bar */
       .tt-loadbar {
@@ -965,7 +980,55 @@
           );
         };
 
+        // ── Narrative: what is the model doing right now? ──
+        // Lightweight aggregation: counts per lane + cumulative open
+        // P&L + how many positions are in profit. The user wanted a
+        // sentence or two that frames the board ("the model is
+        // holding 5 winners and defending 2"). This is computed from
+        // the same lane state so it can never drift from the cards.
+        const narrative = (() => {
+          let winners = 0, losers = 0, totalPl = 0, plKnown = 0;
+          for (const o of openLanes) {
+            const sym = String(o.t.ticker || "").toUpperCase();
+            const trade = tradeByTicker?.get?.(sym);
+            const px = Number(o.t?.price ?? o.t?.close);
+            const ep = Number(trade?.entry_price ?? trade?.entryPrice);
+            if (!(Number.isFinite(px) && Number.isFinite(ep) && ep > 0)) continue;
+            const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+            const pl = ((px - ep) / ep) * 100 * dirMul;
+            plKnown += 1;
+            totalPl += pl;
+            if (pl > 0) winners += 1;
+            else if (pl < 0) losers += 1;
+          }
+          const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+          const parts = [];
+          if (openCount === 0) {
+            parts.push("No open trades right now — the model is in scouting mode.");
+          } else {
+            const verbs = [];
+            if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
+            if (lanes.defend.length > 0) verbs.push(`defending ${lanes.defend.length}`);
+            if (lanes.trim.length > 0) verbs.push(`trimming ${lanes.trim.length}`);
+            parts.push(`The model is ${verbs.join(", ")}.`);
+            if (Number.isFinite(avgPl)) {
+              const direction = avgPl >= 0 ? "in aggregate profit" : "drawing down";
+              parts.push(`Average open P&L ${avgPl >= 0 ? "+" : ""}${avgPl.toFixed(2)}% (${winners} winning · ${losers} red).`);
+            }
+          }
+          if (lanes.enter.length > 0) {
+            parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
+          } else if (lanes.setup.length > 0) {
+            parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
+          }
+          if (lanes.exit.length > 0) {
+            parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
+          }
+          return parts.join(" ");
+        })();
+
         return h("section", { className: "at-brief" },
+          narrative && h("p", { className: "at-brief-narrative" }, narrative),
           h("div", { className: "at-brief-row" },
             h("span", { className: "at-brief-label" }, "Market"),
             h("span", { className: `at-pill ${regime.cls}` },
@@ -988,6 +1051,81 @@
             lanes.setup.length > 0 && h("span", { className: "at-brief-chip" }, `Setup ${lanes.setup.length}`),
             lanes.enter.length > 0 && h("span", { className: "at-brief-chip" }, `In Review ${lanes.enter.length}`),
             lanes.new.length > 0   && h("span", { className: "at-brief-chip" }, `Initiated ${lanes.new.length}`),
+          ),
+        );
+      }
+
+      // ── ATBubbleMap — renders the shared BubbleChart filtered to
+      //    the AT board's tickers (those in any kanban lane). Lets
+      //    users see where the model's open / pipeline names sit on
+      //    momentum × trend without leaving the page.
+      function ATBubbleMap({ allTickers, data, onSelectTicker }) {
+        const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
+        const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
+        const [hovered, setHovered] = useState(null);
+
+        const visible = useMemo(() => {
+          // Anything with a real kanban_stage = "in the AT board".
+          // We also keep tickers with non-zero scores so the user can
+          // see context (S&P pulse sectors) without the chart going empty.
+          const arr = (allTickers || []).filter((t) => {
+            const ks = String(t?.kanban_stage || "").toLowerCase();
+            if (ks && ks !== "null") return true;
+            return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+          });
+          return arr.slice(0, 250);
+        }, [allTickers]);
+
+        const rankedTickers = useMemo(() => {
+          if (!getRankedTickers || !data) return [];
+          try { return getRankedTickers(data) || []; } catch { return []; }
+        }, [data]);
+        const rankedTickerPositions = useMemo(() => {
+          const m = new Map();
+          rankedTickers.forEach((t, idx) => { if (t?.ticker) m.set(t.ticker, idx + 1); });
+          return m;
+        }, [rankedTickers]);
+
+        if (!SharedChart || visible.length === 0) return null;
+
+        return h("section", { className: "tt-row at-bubble-row" },
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "ACTIVE TRADER BUBBLE MAP"),
+              h("div", { className: "tt-sec-h" }, "Where every AT board ticker sits on momentum × trend"),
+            ),
+            h("div", {
+              style: { display: "flex", gap: 12, fontSize: 11, color: "var(--tt-text-muted)", flexWrap: "wrap" },
+            },
+              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#22c55e", marginRight: 4 } }), "Bull aligned"),
+              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f5c25c", marginRight: 4 } }), "Pullback"),
+              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f43f5e", marginRight: 4 } }), "Bear aligned"),
+            ),
+          ),
+          h("div", { className: "tt-card", style: { padding: 0, overflow: "hidden", borderRadius: 14 } },
+            h("div", { style: { height: 620, position: "relative" } },
+              h(SharedChart, {
+                tickers: visible,
+                allData: data,
+                rankedTickers,
+                rankedTickerPositions,
+                hoveredTicker: hovered,
+                onHover: setHovered,
+                onBubbleClick: (sym) => {
+                  if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                  else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                },
+                onBackgroundClick: () => {},
+                selectedTicker: null,
+                selectedTrail: null,
+                isTimeTravelActive: false,
+                highlightTrailPoint: null,
+                thesisMode: false,
+                forwardReturns: null,
+                activeInsightTickers: null,
+                layoutMode: "score",
+              }),
+            ),
           ),
         );
       }
@@ -1127,6 +1265,10 @@
                   h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: lanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                   h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: lanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                 ],
+            // Bubble map of the AT board's tickers — momentum × trend
+            // overview underneath the kanban so users can spot
+            // clustering / outliers without leaving the page.
+            !loading && h(ATBubbleMap, { allTickers, data, onSelectTicker: onOpen }),
           ),
           // Right rail slide-in. The Overlay component lives in
           // shared-rail-bootstrap.js and reuses the same factory the

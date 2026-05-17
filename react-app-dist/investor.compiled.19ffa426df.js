@@ -99,6 +99,124 @@ function useSparklineCache() {
     ensure
   };
 }
+function InvBubbleMap({
+  data,
+  onSelectTicker
+}) {
+  const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
+  const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
+  const [hovered, setHovered] = useState(null);
+  const visible = useMemo(() => {
+    if (!data) return [];
+    const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
+      ticker: String(k).toUpperCase(),
+      ...(v || {})
+    }).filter(t => {
+      const stage = String(t?.investor_stage || "").toLowerCase();
+      if (stage && stage !== "null") return true;
+      return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+    });
+    return arr.slice(0, 250);
+  }, [data]);
+  const rankedTickers = useMemo(() => {
+    if (!getRankedTickers || !data) return [];
+    try {
+      return getRankedTickers(data) || [];
+    } catch {
+      return [];
+    }
+  }, [data]);
+  const rankedTickerPositions = useMemo(() => {
+    const m = new Map();
+    rankedTickers.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickers]);
+  if (!SharedChart || visible.length === 0) return null;
+  return h("section", {
+    className: "tt-row inv-bubble-row"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "INVESTOR BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where the long-horizon universe sits on momentum × trend")), h("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      flexWrap: "wrap"
+    }
+  }, h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#22c55e",
+      marginRight: 4
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#f5c25c",
+      marginRight: 4
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#f43f5e",
+      marginRight: 4
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-card",
+    style: {
+      padding: 0,
+      overflow: "hidden",
+      borderRadius: 14
+    }
+  }, h("div", {
+    style: {
+      height: 620,
+      position: "relative"
+    }
+  }, h(SharedChart, {
+    tickers: visible,
+    allData: data,
+    rankedTickers,
+    rankedTickerPositions,
+    hoveredTicker: hovered,
+    onHover: setHovered,
+    onBubbleClick: sym => {
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    },
+    onBackgroundClick: () => {},
+    selectedTicker: null,
+    selectedTrail: null,
+    isTimeTravelActive: false,
+    highlightTrailPoint: null,
+    thesisMode: false,
+    forwardReturns: null,
+    activeInsightTickers: null,
+    layoutMode: "score"
+  }))));
+}
 function InvestorApp() {
   const {
     saved,
@@ -157,6 +275,8 @@ function InvestorApp() {
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
   const RailOverlay = window.TimedRightRail?.Overlay || null;
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterGroup, setFilterGroup] = useState(null);
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -167,12 +287,63 @@ function InvestorApp() {
     className: "label"
   }, "INVESTOR"), h("h1", null, "Long-horizon positions"), h("div", {
     className: "sub"
-  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), panelMounted ? h(window.InvestorPanel, {
+  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), h("section", {
+    className: "tt-row inv-controls"
+  }, h("div", {
+    className: "inv-search-wrap"
+  }, h("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    className: "inv-search-icon"
+  }, h("circle", {
+    cx: 11,
+    cy: 11,
+    r: 8
+  }), h("line", {
+    x1: 21,
+    y1: 21,
+    x2: 16.65,
+    y2: 16.65
+  })), h("input", {
+    type: "text",
+    className: "inv-search",
+    placeholder: "Search ticker (e.g. NVDA, AAPL, GOOGL, MSFT)",
+    value: searchQuery,
+    onChange: e => setSearchQuery(e.target.value),
+    "aria-label": "Search Investor tickers"
+  }), searchQuery && h("button", {
+    className: "inv-search-clear",
+    onClick: () => setSearchQuery(""),
+    "aria-label": "Clear search",
+    title: "Clear"
+  }, "×")), h("div", {
+    className: "inv-filter-chips"
+  }, h("button", {
+    className: "inv-chip" + (filterGroup === null ? " active" : ""),
+    onClick: () => setFilterGroup(null)
+  }, "All"), h("button", {
+    className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
+    onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
+    title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
+  }, "Actionable"), h("button", {
+    className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
+    onClick: () => setFilterGroup("SAVED"),
+    title: "Your saved tickers (star icon on any card)",
+    disabled: !saved || saved.size === 0
+  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), panelMounted ? h(window.InvestorPanel, {
     apiBase: API_BASE,
     onSelectTicker,
     savedTickers: saved,
     toggleSavedTicker: toggleSaved,
-    selectedTicker: null
+    selectedTicker: null,
+    searchQuery,
+    filterGroup
   }) : h("div", null, h("div", {
     className: "tt-card tt-card-pad",
     style: {
@@ -197,7 +368,10 @@ function InvestorApp() {
     style: {
       width: 240
     }
-  }))))))), RailOverlay && railTickerObj && h(RailOverlay, {
+  })))))), data && h(InvBubbleMap, {
+    data,
+    onSelectTicker
+  })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: data,
     onClose: onCloseRail

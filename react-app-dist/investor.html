@@ -10,12 +10,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv3" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260517a"></script>
@@ -25,10 +26,10 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260517d"></script>
+    <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517d"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -116,6 +117,99 @@
       .inv-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
       .inv-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .inv-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
+
+      /* Investor search + filter row */
+      .inv-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .inv-search-wrap {
+        position: relative;
+        flex: 1 1 320px;
+        max-width: 480px;
+        display: flex;
+        align-items: center;
+      }
+      .inv-search-icon {
+        position: absolute;
+        left: 12px;
+        color: var(--tt-text-dim);
+        pointer-events: none;
+      }
+      .inv-search {
+        width: 100%;
+        height: 36px;
+        padding: 0 36px 0 36px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        font-family: var(--tt-font);
+        font-size: 13px;
+        color: var(--tt-text);
+        transition: border-color 120ms ease, background 120ms ease;
+      }
+      .inv-search::placeholder { color: var(--tt-text-faint); }
+      .inv-search:focus {
+        outline: none;
+        border-color: var(--tt-border-hi);
+        background: var(--tt-bg-elev);
+      }
+      .inv-search-clear {
+        position: absolute;
+        right: 6px;
+        width: 24px;
+        height: 24px;
+        background: transparent;
+        border: 0;
+        color: var(--tt-text-dim);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      .inv-search-clear:hover {
+        color: var(--tt-text);
+        background: var(--tt-bg-elev);
+      }
+      .inv-filter-chips {
+        display: inline-flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .inv-chip {
+        font-family: var(--tt-font);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 12px;
+        background: var(--tt-bg-surface);
+        color: var(--tt-text-muted);
+        border: 1px solid var(--tt-border);
+        border-radius: 999px;
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .inv-chip:hover:not(:disabled) {
+        color: var(--tt-text);
+        background: var(--tt-bg-elev);
+      }
+      .inv-chip.active {
+        color: var(--tt-accent);
+        background: var(--tt-accent-dim);
+        border-color: rgba(245,194,92,0.30);
+      }
+      .inv-chip:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      /* Bubble map row at the bottom of the page */
+      .inv-bubble-row { margin-top: 32px; }
+      @media (max-width: 720px) {
+        .inv-bubble-row .tt-card > div { height: 460px !important; }
+      }
       @media (max-width: 720px) {
         .inv-hero { grid-template-columns: 1fr; }
         .inv-hero h1 { font-size: 18px; }
@@ -174,7 +268,7 @@
       </main>
     </div>
 
-    <script src="investor.compiled.7808ec24b5.js"></script>
+    <script src="investor.compiled.19ffa426df.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

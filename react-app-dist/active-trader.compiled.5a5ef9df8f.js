@@ -789,9 +789,53 @@ function ATBrief({
       className: `pl ${pl >= 0 ? "up" : "down"}`
     }, plStr));
   };
+  const narrative = (() => {
+    let winners = 0,
+      losers = 0,
+      totalPl = 0,
+      plKnown = 0;
+    for (const o of openLanes) {
+      const sym = String(o.t.ticker || "").toUpperCase();
+      const trade = tradeByTicker?.get?.(sym);
+      const px = Number(o.t?.price ?? o.t?.close);
+      const ep = Number(trade?.entry_price ?? trade?.entryPrice);
+      if (!(Number.isFinite(px) && Number.isFinite(ep) && ep > 0)) continue;
+      const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
+      const pl = (px - ep) / ep * 100 * dirMul;
+      plKnown += 1;
+      totalPl += pl;
+      if (pl > 0) winners += 1;else if (pl < 0) losers += 1;
+    }
+    const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+    const parts = [];
+    if (openCount === 0) {
+      parts.push("No open trades right now — the model is in scouting mode.");
+    } else {
+      const verbs = [];
+      if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
+      if (lanes.defend.length > 0) verbs.push(`defending ${lanes.defend.length}`);
+      if (lanes.trim.length > 0) verbs.push(`trimming ${lanes.trim.length}`);
+      parts.push(`The model is ${verbs.join(", ")}.`);
+      if (Number.isFinite(avgPl)) {
+        const direction = avgPl >= 0 ? "in aggregate profit" : "drawing down";
+        parts.push(`Average open P&L ${avgPl >= 0 ? "+" : ""}${avgPl.toFixed(2)}% (${winners} winning · ${losers} red).`);
+      }
+    }
+    if (lanes.enter.length > 0) {
+      parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
+    } else if (lanes.setup.length > 0) {
+      parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
+    }
+    if (lanes.exit.length > 0) {
+      parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
+    }
+    return parts.join(" ");
+  })();
   return h("section", {
     className: "at-brief"
-  }, h("div", {
+  }, narrative && h("p", {
+    className: "at-brief-narrative"
+  }, narrative), h("div", {
     className: "at-brief-row"
   }, h("span", {
     className: "at-brief-label"
@@ -819,6 +863,121 @@ function ATBrief({
   }, `In Review ${lanes.enter.length}`), lanes.new.length > 0 && h("span", {
     className: "at-brief-chip"
   }, `Initiated ${lanes.new.length}`)));
+}
+function ATBubbleMap({
+  allTickers,
+  data,
+  onSelectTicker
+}) {
+  const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
+  const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
+  const [hovered, setHovered] = useState(null);
+  const visible = useMemo(() => {
+    const arr = (allTickers || []).filter(t => {
+      const ks = String(t?.kanban_stage || "").toLowerCase();
+      if (ks && ks !== "null") return true;
+      return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+    });
+    return arr.slice(0, 250);
+  }, [allTickers]);
+  const rankedTickers = useMemo(() => {
+    if (!getRankedTickers || !data) return [];
+    try {
+      return getRankedTickers(data) || [];
+    } catch {
+      return [];
+    }
+  }, [data]);
+  const rankedTickerPositions = useMemo(() => {
+    const m = new Map();
+    rankedTickers.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickers]);
+  if (!SharedChart || visible.length === 0) return null;
+  return h("section", {
+    className: "tt-row at-bubble-row"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "ACTIVE TRADER BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every AT board ticker sits on momentum × trend")), h("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      flexWrap: "wrap"
+    }
+  }, h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#22c55e",
+      marginRight: 4
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#f5c25c",
+      marginRight: 4
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#f43f5e",
+      marginRight: 4
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-card",
+    style: {
+      padding: 0,
+      overflow: "hidden",
+      borderRadius: 14
+    }
+  }, h("div", {
+    style: {
+      height: 620,
+      position: "relative"
+    }
+  }, h(SharedChart, {
+    tickers: visible,
+    allData: data,
+    rankedTickers,
+    rankedTickerPositions,
+    hoveredTicker: hovered,
+    onHover: setHovered,
+    onBubbleClick: sym => {
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    },
+    onBackgroundClick: () => {},
+    selectedTicker: null,
+    selectedTrail: null,
+    isTimeTravelActive: false,
+    highlightTrailPoint: null,
+    thesisMode: false,
+    forwardReturns: null,
+    activeInsightTickers: null,
+    layoutMode: "score"
+  }))));
 }
 function ActiveTraderApp() {
   const [data, setData] = useState(null);
@@ -1059,7 +1218,11 @@ function ActiveTraderApp() {
     onToggleSaved: toggleSaved,
     onOpen,
     tradeByTicker
-  })]), RailOverlay && railTickerObj && h(RailOverlay, {
+  })], !loading && h(ATBubbleMap, {
+    allTickers,
+    data,
+    onSelectTicker: onOpen
+  })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: data,
     onClose: onCloseRail

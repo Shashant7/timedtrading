@@ -910,10 +910,12 @@
       // 2. Clear CF_Authorization cookie client-side (may not work if HttpOnly).
       // 3. Use hidden iframe to hit /cdn-cgi/access/logout which clears the
       //    HttpOnly CF_Authorization cookie server-side (Set-Cookie response).
-      // 4. After iframe loads (cookie cleared), redirect to /index-react.html
-      //    with a cache-buster query param. This forces a fresh server request
-      //    that CF Access can intercept at the CDN level, showing the identity
-      //    provider login page (Google SSO).
+      // 4. After iframe loads (cookie cleared), redirect to /today.html
+      //    (the new product landing page — was /index-react.html before
+      //    the journey-page split) with a cache-buster query param.
+      //    This forces a fresh server request that CF Access can
+      //    intercept at the CDN level, showing the identity provider
+      //    login page (Google SSO).
       //    NOTE: Never redirect to /cdn-cgi/access/login — it requires
       //    server-generated JWT params and breaks from client-side JS.
       clearSession();
@@ -931,8 +933,10 @@
       const doRedirect = () => {
         if (redirected) return;
         redirected = true;
-        // Cache-busted URL forces a fresh server request that CF Access intercepts
-        window.location.href = "/index-react.html?_auth=" + Date.now();
+        // Cache-busted URL forces a fresh server request that CF Access
+        // intercepts. /today.html is the new product landing page so
+        // logged-in users land on the daily-ingest digest first.
+        window.location.href = "/today.html?_auth=" + Date.now();
       };
       try {
         const iframe = document.createElement("iframe");
@@ -959,9 +963,18 @@
         document.body.dataset.userRole = isAdmin ? "admin" : (user.role || "member");
         document.body.dataset.userTier = user.tier || "free";
         document.body.dataset.isPro = isPro ? "true" : "false";
+        document.body.dataset.isAdmin = isAdmin ? "true" : "false";
 
         // Expose globals for component-level gating
         Object.defineProperty(window, '_ttIsPro', { get() { return document.body.dataset.isPro === "true"; }, configurable: true });
+        Object.defineProperty(window, '_ttIsAdmin', { get() { return document.body.dataset.isAdmin === "true"; }, configurable: true });
+
+        // Let nav extras (badges + admin dropdown) re-run after auth.
+        try {
+          window.dispatchEvent(new CustomEvent("tt-auth-bootstrap-updated", {
+            detail: { user, isAdmin, isPro },
+          }));
+        } catch (_) {}
       }
     }, [user]);
 

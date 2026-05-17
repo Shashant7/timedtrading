@@ -10,13 +10,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins5" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517a" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -177,6 +179,41 @@
       .tbl-scroll::-webkit-scrollbar { width: 6px; }
       .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 
+      /* AI CIO commentary — markdown rendered from brief.content */
+      .brief-commentary {
+        max-height: 320px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.10) transparent;
+      }
+      .brief-commentary::-webkit-scrollbar { width: 6px; }
+      .brief-commentary::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
+      .brief-commentary h2, .brief-commentary h3 {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--tt-text);
+        margin: 14px 0 6px;
+        letter-spacing: 0.02em;
+      }
+      .brief-commentary h2:first-child, .brief-commentary h3:first-child { margin-top: 0; }
+      .brief-commentary p { margin: 0 0 10px; }
+      .brief-commentary ul, .brief-commentary ol { margin: 0 0 10px 18px; padding: 0; }
+      .brief-commentary li { margin-bottom: 4px; }
+      .brief-commentary strong { color: var(--tt-text); font-weight: 700; }
+      .brief-commentary em { color: var(--tt-text-muted); }
+      .brief-commentary code {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        background: var(--tt-bg-elev);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--tt-accent);
+      }
+      .brief-commentary a {
+        color: var(--tt-cyan);
+        text-decoration: underline;
+      }
+
       /* Mini win-rate bar inside cells */
       .wr-bar {
         position: relative;
@@ -295,8 +332,22 @@
         } catch (_) { return null; }
       }
       async function fetchHistory() {
+        // Raise from 500 → 1000 (server max) so the setup breakdown
+        // sees the full population, not just the last 500 trades.
+        // The ModelStatus card pulls its count from /timed/ledger/summary
+        // (which has the authoritative totals) so this list is for
+        // breakdown display + recent-trade timestamps only.
         try {
-          const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=500`, {
+          const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=1000`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+      async function fetchLedgerSummary() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/ledger/summary`, {
             credentials: "include", cache: "no-store",
           });
           if (!r.ok) return null;
@@ -323,7 +374,7 @@
       }
 
       // ── ModelStatus — top status cards ─────────────────────────
-      function ModelStatus({ allMeta, history }) {
+      function ModelStatus({ allMeta, history, summary }) {
         const builtAt = Number(allMeta?.built_at);
         const tickerCount = Number(allMeta?.count) || (allMeta?.data ? Object.keys(allMeta.data).length : 0);
         const lastTradeTs = useMemo(() => {
@@ -335,10 +386,16 @@
           }
           return m || null;
         }, [history]);
+        // Prefer /timed/ledger/summary.totals.closedTrades — it sees the
+        // full population, while `history` is paginated. The previous
+        // implementation read closedCount from `history` and capped at
+        // the page limit (488 / 500) which understated the real count.
         const closedCount = useMemo(() => {
+          const fromSummary = Number(summary?.totals?.closedTrades);
+          if (Number.isFinite(fromSummary) && fromSummary >= 0) return fromSummary;
           if (!Array.isArray(history)) return 0;
           return history.filter((t) => Number.isFinite(Number(t?.pnl)) && t?.exit_ts).length;
-        }, [history]);
+        }, [history, summary]);
 
         const healthOk = Number.isFinite(builtAt) && (Date.now() - builtAt) < 30 * 60 * 1000;
         const healthLabel = healthOk ? "Healthy" : Number.isFinite(builtAt) ? "Stale snapshot" : "Unknown";
@@ -476,6 +533,12 @@
       }
 
       // ── BriefThesis — pulls the latest daily brief commentary for users.
+      // V2 (2026-05-17): renders the brief.content markdown (the actual
+      // commentary the AI CIO writes). The previous version read
+      // brief.synopsis / brief.summary — neither of which the worker
+      // emits — so this card was always empty. It also rendered
+      // headline.breadth directly which is an object {green,total}
+      // and crashed React (#31) or printed "[object Object]".
       function BriefThesis({ brief }) {
         if (!brief?.brief) {
           return h("section", { className: "tt-row" },
@@ -491,13 +554,44 @@
         const past4 = _ny.getHours() >= 16;
         const b = past4 ? (brief.brief.evening || brief.brief.morning) : (brief.brief.morning || brief.brief.evening);
         if (!b) return null;
+
+        // Headline summary — guard each field so null/zero/object
+        // shapes don't print noise like "VIX 0.00" or
+        // "Breadth [object Object]".
         const headline = b?.infographic?.headline;
-        const headlineStr = typeof headline === "string"
-          ? headline
-          : (headline && typeof headline === "object"
-              ? `Regime ${headline.regime || "—"} · VIX ${Number(headline.vix || 0).toFixed(2)} · Breadth ${headline.breadth || "—"} · ${headline.openTrades || 0} open`
-              : "");
-        const synopsis = String(b?.synopsis || b?.summary || "").trim();
+        const headlineStr = (() => {
+          if (typeof headline === "string") return headline;
+          if (!headline || typeof headline !== "object") return "";
+          const parts = [];
+          if (headline.regime) parts.push(`Regime: ${String(headline.regime).replace(/_/g, " ")}`);
+          const vixNum = Number(headline.vix);
+          if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
+          if (headline.breadth && typeof headline.breadth === "object") {
+            const g = Number(headline.breadth.green);
+            const t = Number(headline.breadth.total);
+            if (Number.isFinite(g) && Number.isFinite(t) && t > 0) {
+              parts.push(`Breadth ${g}/${t} sectors green`);
+            }
+          } else if (typeof headline.breadth === "string") {
+            parts.push(`Breadth: ${headline.breadth}`);
+          }
+          const openN = Number(headline.openTrades);
+          if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open`);
+          return parts.join(" \u00b7 ");
+        })();
+
+        // Commentary body — the worker emits `content` (markdown). Earlier
+        // versions of this page read `synopsis` / `summary` which the
+        // worker never sets, so the card came up empty. Render markdown
+        // through marked if it's loaded, otherwise plain text.
+        const rawContent = String(b?.content || b?.synopsis || b?.summary || "").trim();
+        const renderedHtml = (() => {
+          if (!rawContent) return "";
+          if (typeof window !== "undefined" && window.marked?.parse) {
+            try { return window.marked.parse(rawContent); } catch (_) { /* fall through */ }
+          }
+          return null;
+        })();
         const date = String(b?.date || brief?.brief?.date || "");
 
         return h("section", { className: "tt-row" },
@@ -505,7 +599,15 @@
           h("div", { className: "tt-sec-h" }, "What the model is thinking today" + (date ? ` · ${date}` : "")),
           h("div", { className: "tt-card tt-card-pad" },
             headlineStr && h("div", { style: { fontSize: 14, fontWeight: 700, marginBottom: 8 } }, headlineStr),
-            synopsis && h("div", { style: { fontSize: 13, color: "var(--tt-text-muted)", lineHeight: 1.55 } }, synopsis),
+            renderedHtml
+              ? h("div", {
+                  className: "brief-commentary",
+                  style: { fontSize: 13, color: "var(--tt-text-muted)", lineHeight: 1.6 },
+                  dangerouslySetInnerHTML: { __html: renderedHtml },
+                })
+              : rawContent
+                ? h("div", { style: { fontSize: 13, color: "var(--tt-text-muted)", lineHeight: 1.6, whiteSpace: "pre-wrap" } }, rawContent.slice(0, 800) + (rawContent.length > 800 ? "…" : ""))
+                : h("div", { style: { fontSize: 13, color: "var(--tt-text-dim)", fontStyle: "italic" } }, "Brief commentary will appear here once today's run completes."),
             h("div", { style: { fontSize: 11, color: "var(--tt-text-faint)", marginTop: 10 } },
               h("a", { href: "/daily-brief.html", style: { color: "var(--tt-cyan)", textDecoration: "underline" } }, "Read the full brief →"),
             ),
@@ -651,6 +753,7 @@
       function InsightsApp() {
         const [allMeta, setAllMeta] = useState(null);
         const [history, setHistory] = useState(null);
+        const [summary, setSummary] = useState(null);
         const [brief, setBrief] = useState(null);
         const [universeChanges, setUniverseChanges] = useState(null);
         const [error, setError] = useState(null);
@@ -660,8 +763,9 @@
           let alive = true;
           (async () => {
             try {
-              const [a, h_, b, u] = await Promise.all([
+              const [a, h_, b, u, s] = await Promise.all([
                 fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(),
+                fetchLedgerSummary(),
               ]);
               if (!alive) return;
               if (a) setAllMeta(a);
@@ -669,6 +773,7 @@
               else if (h_) setHistory([]);
               if (b?.ok) setBrief(b);
               if (u?.ok) setUniverseChanges(u.events || []);
+              if (s?.ok) setSummary(s);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
@@ -689,7 +794,7 @@
                 ),
               ),
             ),
-            h(ModelStatus, { allMeta, history }),
+            h(ModelStatus, { allMeta, history, summary }),
             h(BriefThesis, { brief }),
             h("section", { className: "tt-row" },
               h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 } },

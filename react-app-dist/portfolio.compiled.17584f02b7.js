@@ -45,6 +45,31 @@ async function fetchPositions() {
     return null;
   }
 }
+async function fetchInvestorPositions() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/investor/positions`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+async function fetchPriceMap() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/all?slim=1`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j?.data || null;
+  } catch (_) {
+    return null;
+  }
+}
 async function fetchHistoryByMode(mode) {
   const qs = mode === "investor" ? "?mode=investor&limit=500" : "?limit=500";
   try {
@@ -443,46 +468,149 @@ function PerformanceSection({
 }
 function OpenPositions({
   trades,
+  investorPositions,
+  priceMap,
   onSelectTicker
 }) {
   const rows = useMemo(() => {
-    if (!Array.isArray(trades)) return [];
-    return trades.filter(t => {
-      const s = String(t?.status || "").toUpperCase();
-      return s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
-    }).sort((a, b) => Number(b?.entry_ts || b?.entryTs || 0) - Number(a?.entry_ts || a?.entryTs || 0));
-  }, [trades]);
+    const out = [];
+    if (Array.isArray(trades)) {
+      for (const t of trades) {
+        const s = String(t?.status || "").toUpperCase();
+        const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
+        if (!isOpen) continue;
+        const sym = String(t?.ticker || "").toUpperCase();
+        const dir = String(t?.direction || "").toUpperCase() || "LONG";
+        const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry) || null;
+        const shares = Number(t?.shares) || null;
+        const cur = Number(priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+        const dirMul = dir === "SHORT" ? -1 : 1;
+        const plPct = cur && ep && ep > 0 ? (cur - ep) / ep * 100 * dirMul : null;
+        const plDollar = cur && ep && shares ? (cur - ep) * shares * dirMul : null;
+        out.push({
+          _key: `t-${sym}-${t.entry_ts || t.entryTs || ""}`,
+          mode: "trader",
+          modeLabel: "Active Trader",
+          modeCls: "mode-trader",
+          sym,
+          dir,
+          ep,
+          entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
+          sl: Number(t?.sl ?? t?.stop_loss) || null,
+          tp: Number(t?.tp ?? t?.take_profit) || null,
+          cur,
+          plPct,
+          plDollar,
+          status: s || "OPEN"
+        });
+      }
+    }
+    if (Array.isArray(investorPositions)) {
+      for (const p of investorPositions) {
+        if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+        const sym = String(p?.ticker || "").toUpperCase();
+        const ep = Number(p?.avg_entry) || null;
+        const cur = Number(p?.currentPrice ?? priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+        const plPct = Number(p?.unrealizedPnlPct);
+        const plDollar = Number(p?.unrealizedPnl);
+        out.push({
+          _key: `i-${sym}-${p.first_entry_ts || ""}`,
+          mode: "investor",
+          modeLabel: "Investor",
+          modeCls: "mode-investor",
+          sym,
+          dir: "LONG",
+          ep,
+          entryTs: Number(p?.first_entry_ts ?? 0),
+          sl: null,
+          tp: null,
+          cur,
+          plPct: Number.isFinite(plPct) ? plPct : null,
+          plDollar: Number.isFinite(plDollar) ? plDollar : null,
+          status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase()
+        });
+      }
+    }
+    out.sort((a, b) => {
+      const aHas = Number.isFinite(a.plDollar);
+      const bHas = Number.isFinite(b.plDollar);
+      if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+      if (aHas) return -1;
+      if (bHas) return 1;
+      return b.entryTs - a.entryTs;
+    });
+    return out;
+  }, [trades, investorPositions, priceMap]);
+  const totals = useMemo(() => {
+    let traderPl = 0,
+      investorPl = 0,
+      n = 0;
+    for (const r of rows) {
+      if (!Number.isFinite(r.plDollar)) continue;
+      if (r.mode === "trader") traderPl += r.plDollar;else investorPl += r.plDollar;
+      n += 1;
+    }
+    return {
+      traderPl,
+      investorPl,
+      totalPl: traderPl + investorPl,
+      n
+    };
+  }, [rows]);
+  const fmtPnl = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}` : "—";
   return h("section", {
     className: "tt-row"
   }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      marginBottom: 8,
+      flexWrap: "wrap",
+      gap: 10
+    }
+  }, h("div", null, h("div", {
     className: "tt-sec-title"
   }, "OPEN POSITIONS"), h("div", {
     className: "tt-sec-h"
-  }, "Currently held by the model"), h("div", {
+  }, "Currently held — both modes")), totals.n > 0 && h("div", {
+    className: "open-pl-row"
+  }, h("span", null, "Trader ", h("strong", {
+    className: totals.traderPl >= 0 ? "up" : "dn"
+  }, fmtPnl(totals.traderPl))), h("span", null, "Investor ", h("strong", {
+    className: totals.investorPl >= 0 ? "up" : "dn"
+  }, fmtPnl(totals.investorPl))), h("span", null, "Total ", h("strong", {
+    className: totals.totalPl >= 0 ? "up" : "dn"
+  }, fmtPnl(totals.totalPl))))), h("div", {
     className: "tbl-scroll"
   }, h("table", {
     className: "tbl"
-  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Direction"), h("th", null, "Entry"), h("th", null, "Entry Date"), h("th", null, "Stop"), h("th", null, "Take Profit"), h("th", null, "Status"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
+  }, h("thead", null, h("tr", null, h("th", null, "Mode"), h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Current"), h("th", null, "Open P&L %"), h("th", null, "Open P&L $"), h("th", null, "Entry Date"), h("th", null, "Status"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: 7
-  }, "No open positions.")) : rows.map(t => {
-    const sym = String(t?.ticker || "").toUpperCase();
-    const dir = String(t?.direction || "").toUpperCase();
-    const isLong = dir === "LONG";
+    colSpan: 9
+  }, "No open positions.")) : rows.map(r => {
     const openTicker = () => {
-      if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      if (typeof onSelectTicker === "function") onSelectTicker(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
     };
+    const plPctCls = r.plPct == null ? "" : r.plPct >= 0 ? "up" : "dn";
+    const plDollarCls = r.plDollar == null ? "" : r.plDollar >= 0 ? "up" : "dn";
     return h("tr", {
-      key: `${sym}-${t.entry_ts || t.entryTs || sym}`
-    }, h("td", {
+      key: r._key
+    }, h("td", null, h("span", {
+      className: `mode-pill ${r.modeCls}`
+    }, r.modeLabel)), h("td", {
       className: "sym",
       onClick: openTicker,
       style: {
         cursor: "pointer"
       }
-    }, sym), h("td", {
-      className: isLong ? "up" : "dn"
-    }, dir || "—"), h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))), h("td", null, fmtDate(Number(t?.entry_ts ?? t?.entryTs))), h("td", null, fmtUsdDec(Number(t?.sl ?? t?.stop_loss))), h("td", null, fmtUsdDec(Number(t?.tp ?? t?.take_profit))), h("td", null, String(t?.status || "OPEN").toUpperCase()));
+    }, r.sym), h("td", {
+      className: r.dir === "LONG" ? "up" : "dn"
+    }, r.dir), h("td", null, fmtUsdDec(r.ep)), h("td", null, fmtUsdDec(r.cur)), h("td", {
+      className: plPctCls
+    }, Number.isFinite(r.plPct) ? `${r.plPct >= 0 ? "+" : ""}${r.plPct.toFixed(2)}%` : "—"), h("td", {
+      className: plDollarCls
+    }, fmtPnl(r.plDollar)), h("td", null, fmtDate(r.entryTs)), h("td", null, r.status));
   })))));
 }
 function TradeHistory({
@@ -541,6 +669,8 @@ function TradeHistory({
 function PortfolioApp() {
   const [eq, setEq] = useState(null);
   const [positions, setPositions] = useState(null);
+  const [investorPositions, setInvestorPositions] = useState(null);
+  const [priceMap, setPriceMap] = useState(null);
   const [traderHistory, setTraderHistory] = useState(null);
   const [investorHistory, setInvestorHistory] = useState(null);
   const [monthlyMode, setMonthlyMode] = useState("trader");
@@ -550,16 +680,20 @@ function PortfolioApp() {
     let alive = true;
     (async () => {
       try {
-        const [e, p, ht, hi, all] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetch(`${API_BASE}/timed/all`, {
+        const [e, p, invPos, ht, hi, all] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchInvestorPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetch(`${API_BASE}/timed/all`, {
           cache: "no-store",
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null)]);
         if (!alive) return;
         if (e?.ok) setEq(e);else setError("Failed to load equity curve");
         if (p?.ok) setPositions(p.trades || []);
+        if (invPos?.ok) setInvestorPositions(invPos.positions || []);
         if (ht?.ok) setTraderHistory(ht.trades || []);
         if (hi?.ok) setInvestorHistory(hi.trades || []);
-        if (all?.ok) setAllData(all.data || {});
+        if (all?.ok) {
+          setAllData(all.data || {});
+          setPriceMap(all.data || {});
+        }
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -643,8 +777,10 @@ function PortfolioApp() {
     color: "#a78bfa",
     payload: investorPayload,
     history: investorHistory
-  }))), positions ? h(OpenPositions, {
+  }))), positions || investorPositions ? h(OpenPositions, {
     trades: positions,
+    investorPositions,
+    priceMap,
     onSelectTicker
   }) : h("section", {
     className: "tt-row"
