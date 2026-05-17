@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today8" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -952,30 +952,104 @@
       }
 
       // ── Index card ─────────────────────────────────────────────
-      function IndexCard({ sym, t }) {
-        const dc = getDailyChange(t || {});
+      // ── MarketPulseTile — production ds-tickercard layout (logo +
+      //    symbol + dot + big price + change + 1H sparkline). Matches
+      //    AT's Market Pulse row exactly.
+      function MarketPulseTile({ sym, t }) {
+        const SYM = String(sym || "").toUpperCase();
+        // /timed/all values lack a 'ticker' field — synthesise it from
+        // the key so getDailyChange + DS helpers work.
+        const tx = t && typeof t === "object"
+          ? (t.ticker ? t : { ticker: SYM, ...t })
+          : { ticker: SYM };
+        const dc = getDailyChange(tx);
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-        const price = Number(t?.price);
-        const dir = dayPct == null ? "" : dayPct > 0 ? "up" : "dn";
-        return h("a", { className: "idx-card", href: `/index-react.html?ticker=${encodeURIComponent(sym)}` },
-          h("span", { className: "name" }, sym),
-          h("span", { className: "px" }, Number.isFinite(price) ? fmtUsd(price) : "—"),
-          h("span", { className: `chg ${dir}` }, dayPct != null ? (dayPct >= 0 ? "▲ " : "▼ ") + fmtPct(dayPct) : "—"),
+        const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+        const price = Number(tx.price);
+        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+
+        // 1H sparkline (uses the same cache /active-trader and /investor use).
+        const sparkSrc = (window._dsSparklineCache && window._dsSparklineCache[SYM]) || null;
+        useEffect(() => {
+          if (typeof window._dsEnsureSparkline === "function") window._dsEnsureSparkline(SYM);
+        }, [SYM]);
+        const sparkPoints = (sparkSrc && sparkSrc.length >= 2)
+          ? sparkSrc
+          : [price || 0, price || 0];
+        const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+          : "";
+
+        const onClick = (e) => {
+          e.preventDefault();
+          window.location.href = `/index-react.html?ticker=${encodeURIComponent(SYM)}`;
+        };
+
+        return h("button", {
+          onClick,
+          className: "ds-tickercard",
+          style: { textAlign: "left", padding: "var(--ds-space-3)" },
+          title: `Open ${SYM} in Active Trader detail`,
+        },
+          h("div", { className: "ds-tickercard__head" },
+            h("div", {
+              className: "ds-tickercard__logo",
+              ref: (el) => {
+                if (el && !el.dataset.dsInit && window.DS) {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(SYM, { size: 22 })); } catch (_) {}
+                }
+              },
+              style: { width: 22, height: 22 },
+            }, SYM.slice(0, 2)),
+            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, SYM),
+            dayPct != null && h("span", {
+              style: {
+                marginLeft: 4,
+                width: 6, height: 6, borderRadius: "50%",
+                background: dir === "up" ? "var(--ds-up)" : dir === "dn" ? "var(--ds-dn)" : "var(--ds-text-muted)",
+                opacity: 0.7,
+              },
+            }),
+          ),
+          h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
+            Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",
+          ),
+          dayPct != null && h("div", {
+            className: `ds-tickercard__change ds-tickercard__change--${dir}`,
+            style: { fontSize: 12 },
+          },
+            dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆",
+            " ",
+            `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`,
+            Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
+              style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
+            }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`),
+          ),
+          sparkSvg && h("div", {
+            className: "ds-tickercard__spark",
+            dangerouslySetInnerHTML: { __html: sparkSvg },
+          }),
         );
       }
 
-      // ── Market state ───────────────────────────────────────────
+      // ── Market Pulse — port from AT's Market Pulse row.
+      // User feedback: 'The Today Page should use the Market Pulse Tiles.'
       function MarketState({ data }) {
-        // Use whichever index symbols are actually populated.
-        // Universe has SPY/QQQ/IWM/DIA/SPX/VIXY but not raw VIX.
-        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "DIA"];
-        const order = candidates.filter(sym => data?.[sym]).slice(0, 4);
+        const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "GLD", "USO", "SLV"];
+        const order = candidates.filter(sym => data?.[sym]).slice(0, 6);
         if (order.length === 0) return null;
         return h("section", { className: "tt-row" },
-          h("div", { className: "tt-sec-title" }, "MARKET STATE"),
+          h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
           h("div", { className: "tt-sec-h" }, "Where the indices stand"),
-          h("div", { className: "tt-grid tt-grid-4" },
-            order.map(sym => h(IndexCard, { key: sym, sym, t: data[sym] })),
+          h("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+              gap: 12,
+            },
+          },
+            order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym] })),
           ),
         );
       }
@@ -1999,8 +2073,7 @@
         return { cache, ensure };
       }
 
-      function Viewport({ visible, rankedTickerPositions, query }) {
-        const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
+      function Viewport({ visible, rankedTickerPositions, query, sparkCache, ensureSpark }) {
         const { saved, toggle: toggleSaved } = useSavedTickers();
 
         const ranked = useMemo(() => {
@@ -2062,7 +2135,7 @@
       // beside the Bubble Map (right), mirroring Active Trader's split
       // experience. On narrow screens (<1100px) they stack vertically.
       // ═══════════════════════════════════════════════════════════
-      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions }) {
+      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark }) {
         return h("section", { className: "tt-row" },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
             h("div", null,
@@ -2078,7 +2151,7 @@
             ),
           ),
           h("div", { className: "bmv-split" },
-            h(Viewport, { visible, rankedTickerPositions, query }),
+            h(Viewport, { visible, rankedTickerPositions, query, sparkCache, ensureSpark }),
             h("div", { className: "bmv-bubble" },
               h(SharedBubbleMapSection, {
                 allTickers, visible, query, data,
@@ -2471,9 +2544,23 @@
         // on Today + DEFEND on AT).
         const isAdmin = !!window._ttIsAdmin;
         const tradeByTicker = useOpenTrades(!!data);
+        // Set up 1H sparkline cache at TodayApp level so it's installed for
+        // every DS card (Market Pulse tiles + Viewport cards). Lifted from
+        // Viewport so MarketPulseTile can read window._dsEnsureSparkline /
+        // _dsSparklineCache at mount time, before Viewport mounts.
+        const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
         const allTickers = useMemo(() => {
           if (!data) return [];
-          const raw = Object.values(data).filter((t) => t && t.ticker);
+          // /timed/all returns { SYM: { ... } } — VALUES don't carry a `ticker`
+          // field; the symbol is the KEY. Mirror index-react.source.html line
+          // 4904 — `out.push({ ticker, ...d })` — so every entry has both.
+          // Without this the previous filter `t && t.ticker` dropped every
+          // scored entry, leaving Today with only /timed/tickers placeholders
+          // (which DO carry a ticker field) — symptom: '45 tickers' visible
+          // when the universe is actually 240+.
+          const raw = Object.entries(data)
+            .filter(([k, v]) => !!k && v && typeof v === "object")
+            .map(([k, v]) => v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) });
           return raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const trade = tradeByTicker.get(sym) || null;
@@ -2541,6 +2628,8 @@
                   data,
                   rankedTickers,
                   rankedTickerPositions,
+                  sparkCache,
+                  ensureSpark,
                 })
               : h(BubbleViewportSkeleton, null),
             data
