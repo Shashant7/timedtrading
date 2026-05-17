@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1005,7 +1005,13 @@
 
         const allTickers = useMemo(() => {
           if (!data) return [];
-          const raw = Object.values(data).filter((t) => t && t.ticker);
+          // /timed/all returns { SYM: { ts, price, htf_score, ..., kanban_stage } }
+          // — the VALUES don't carry a `ticker` field; the symbol is the KEY.
+          // Mirror index-react.source.html line 4904 — `out.push({ ticker, ...d })` —
+          // so every ticker object has both the field and the data.
+          const raw = Object.entries(data)
+            .filter(([k, v]) => !!k && v && typeof v === "object")
+            .map(([k, v]) => v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) });
           return raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const trade = tradeByTicker.get(sym) || null;

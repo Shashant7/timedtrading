@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -490,12 +490,50 @@
       }
 
       // ── EquityCurveCard — header + 4 stats + chart.
-      function EquityCurveCard({ title, sub, color, payload }) {
+      // Compact format used by the headline KPI strip
+      // ($139,514.11 → $139.6K, $4,567.99 → $4.6K).
+      const fmtUsdK = (n) => {
+        if (!Number.isFinite(n)) return "—";
+        const sign = n < 0 ? "-" : "";
+        const abs = Math.abs(n);
+        if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 1 : 2)}K`;
+        return `${sign}$${abs.toFixed(0)}`;
+      };
+      const fmtUsdSigned = (n) => {
+        if (!Number.isFinite(n)) return "—";
+        const sign = n >= 0 ? "+" : "-";
+        return `${sign}${fmtUsdK(Math.abs(n))}`;
+      };
+
+      function EquityCurveCard({ title, sub, color, payload, history }) {
         const points = payload?.points || [];
         const sm = payload?.summary || {};
         const totalRet = Number(sm.totalReturnPct);
         const maxDd   = Number(sm.maxDrawdownPct);
         const sharpe  = Number(sm.sharpe);
+        const account = Number(sm.endEquity);
+        const startCash = Number(sm.startCash) || 100000;
+        const totalPnl = Number.isFinite(account) ? account - startCash : null;
+        const realized = Number(sm.cumRealized);
+        const openPnl = (Number.isFinite(totalPnl) && Number.isFinite(realized)) ? totalPnl - realized : null;
+
+        // Headline metrics — match the legacy /simulation-dashboard layout
+        // (Account / Total P&L / Open P&L / Closed / Realized). Derived
+        // from the equity-curve summary + the loaded trade history.
+        const closedCount = Array.isArray(history)
+          ? history.filter((t) => Number.isFinite(Number(t?.pnl)) && t?.exit_ts).length
+          : 0;
+        const winLoss = (() => {
+          if (!Array.isArray(history)) return { wins: 0, losses: 0 };
+          let wins = 0, losses = 0;
+          for (const t of history) {
+            const pnl = Number(t?.pnl);
+            if (!Number.isFinite(pnl) || !t?.exit_ts) continue;
+            if (pnl > 0) wins++; else if (pnl < 0) losses++;
+          }
+          return { wins, losses };
+        })();
+
         return h("section", { className: "eq-card" },
           h("div", { className: "eq-header" },
             h("div", null,
@@ -506,11 +544,51 @@
               points.length > 0 ? `${fmtDate(points[0].date)} → ${fmtDate(points[points.length - 1].date)}` : "—",
             ),
           ),
-          h("div", { className: "eq-stats" },
-            h("div", { className: "eq-stat" },
-              h("div", { className: "eq-stat-label" }, "Equity"),
-              h("div", { className: "eq-stat-value" }, fmtUsd(sm.endEquity)),
+          // ── Headline KPI strip (5 cards) — matches /simulation-dashboard
+          //    PortfolioColumn exactly: Account · Total P&L · Open P&L ·
+          //    Closed · Realized.
+          h("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(5, 1fr)",
+              gap: 8,
+              margin: "10px 0 14px",
+            },
+          },
+            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+              h("div", { className: "eq-stat-label" }, "Account"),
+              h("div", { className: "eq-stat-value", style: { fontSize: 16 } }, fmtUsdK(account)),
             ),
+            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+              h("div", { className: "eq-stat-label" }, "Total P&L"),
+              h("div", { className: `eq-stat-value ${totalPnl >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+                fmtUsdSigned(totalPnl),
+              ),
+            ),
+            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+              h("div", { className: "eq-stat-label" }, "Open P&L"),
+              h("div", { className: `eq-stat-value ${openPnl == null ? "" : openPnl >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+                openPnl == null ? "—" : fmtUsdSigned(openPnl),
+              ),
+            ),
+            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+              h("div", { className: "eq-stat-label" }, "Closed"),
+              h("div", { className: "eq-stat-value", style: { fontSize: 16 } },
+                String(closedCount),
+                h("span", { style: { color: "var(--tt-text-faint)", fontSize: 11, marginLeft: 6 } },
+                  `${winLoss.wins}W / ${winLoss.losses}L`,
+                ),
+              ),
+            ),
+            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+              h("div", { className: "eq-stat-label" }, "Realized"),
+              h("div", { className: `eq-stat-value ${realized >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+                fmtUsdSigned(realized),
+              ),
+            ),
+          ),
+          // Existing performance summary row (Total Return %, Max DD %, Sharpe, Days).
+          h("div", { className: "eq-stats" },
             h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Total Return"),
               h("div", { className: `eq-stat-value ${totalRet >= 0 ? "up" : "dn"}` }, fmtPct(totalRet)),
@@ -522,6 +600,10 @@
             h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Sharpe"),
               h("div", { className: "eq-stat-value" }, Number.isFinite(sharpe) ? sharpe.toFixed(2) : "—"),
+            ),
+            h("div", { className: "eq-stat" },
+              h("div", { className: "eq-stat-label" }, "Days"),
+              h("div", { className: "eq-stat-value" }, Number(sm.totalDays) || points.length || "—"),
             ),
           ),
           h(EquityChart, { points, color }),
@@ -738,12 +820,14 @@
                       sub: "Swing — 1 to 10 day holds",
                       color: "#34d399",
                       payload: traderPayload,
+                      history: traderHistory,
                     }),
                     h(EquityCurveCard, {
                       title: "Investor",
                       sub: "Long-horizon — weeks to months",
                       color: "#a78bfa",
                       payload: investorPayload,
+                      history: investorHistory,
                     }),
                   ),
             ),
