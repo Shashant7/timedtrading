@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today3" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -501,6 +501,68 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+      /* Loading bar — slim gold strip across the top of the page while
+         /timed/all + /timed/tickers + brief + earnings + cal are in flight.
+         Stays visible until `data` lands so users don't sit on a blank page. */
+      .tt-loadbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: rgba(245,194,92,0.12);
+        z-index: 9000;
+        overflow: hidden;
+      }
+      .tt-loadbar::after {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, var(--tt-accent), transparent);
+        animation: tt-loadbar 1.4s ease-in-out infinite;
+      }
+      @keyframes tt-loadbar {
+        0%   { left: -30%; }
+        100% { left: 100%; }
+      }
+
+      /* Skeleton building blocks — match the final layout closely so the
+         page doesn't visually jump when real content arrives. */
+      .sk-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 16px 18px;
+      }
+      .sk-line { height: 12px; }
+      .sk-row { display: flex; gap: 12px; align-items: center; }
+      .sk-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+      @media (max-width: 919px) { .sk-grid-4 { grid-template-columns: 1fr 1fr; } }
+      .sk-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .sk-bubble-shell {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 1100px) { .sk-bubble-shell { grid-template-columns: 1fr; } }
+      .sk-card-md {
+        height: 150px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .sk-bubble-pane {
+        height: 700px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .sk-heat {
+        height: 260px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
       /* Brief preview specifics */
       .brief-head {
         font-size: 15px;
@@ -746,6 +808,31 @@
           },
         });
         return r.ok ? r.json() : { ok: false };
+      }
+      // /timed/tickers returns the full known-symbol roster (≈240). AT calls
+      // this alongside /timed/all and merges placeholders for any symbol
+      // that's in the roster but doesn't yet have scored data — that's how
+      // the "Tickers 242" count appears even though only ~40 currently have
+      // active scores. Without this, Today caps its universe at the scored
+      // subset (42) and chips like Indexes / S&P Sectors come back 0.
+      async function fetchTickerUniverse() {
+        const ts = Date.now();
+        try {
+          const r = await fetch(`${API_BASE}/timed/tickers?_t=${ts}`, {
+            credentials: "include",
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+              "Cache-Control": "no-cache, no-store, must-revalidate",
+              Pragma: "no-cache",
+            },
+          });
+          if (!r.ok) return null;
+          const j = await r.json();
+          return Array.isArray(j?.tickers) ? j.tickers : null;
+        } catch (_) {
+          return null;
+        }
       }
       async function fetchBrief() {
         const r = await fetch(`${API_BASE}/timed/daily-brief`, { credentials: "include" });
@@ -2339,9 +2426,26 @@
           let alive = true;
           (async () => {
             try {
-              const [a, b, e, c] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal()]);
+              const [a, b, e, c, universe] = await Promise.all([
+                fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(),
+                fetchTickerUniverse(),
+              ]);
               if (!alive) return;
-              if (a?.ok) setData(a.data || {});
+              // Merge /timed/tickers placeholders into /timed/all data so the
+              // universe count matches AT (≈240 vs the ~42 scored tickers).
+              // Placeholder shape `{ ticker: SYM }` mirrors AT's
+              // mergeUniversePlaceholders (index-react.source.html line 1475).
+              if (a?.ok) {
+                const merged = { ...(a.data || {}) };
+                if (Array.isArray(universe)) {
+                  for (const sym of universe) {
+                    const T = String(sym || "").trim().toUpperCase();
+                    if (!T) continue;
+                    if (!merged[T]) merged[T] = { ticker: T };
+                  }
+                }
+                setData(merged);
+              }
               if (b?.ok) {
                 const _now = new Date();
                 const _ny = new Date(_now.toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -2397,36 +2501,129 @@
           );
         }
 
-        return h("main", null,
-          // ── Digest (passive read) ──
-          h(StatusHeader, { cal, briefDate: brief?.date }),
-          brief && h(BriefPreview, { brief }),
-          data && h(MarketState, { data }),
-          brief && h(MacroStrip, { brief }),
-          data && h(TopMovers, { data }),
-          earnings && h(EarningsStrip, { earnings }),
-          // ── Analysis (interactive) ── unified controls drive Bubble Map + Viewport + Heat Map
-          data && h(AnalysisControls, {
-            chips,
-            totalCount: allTickers.length,
-            visibleCount: visible.length,
-            filters,
-            setFilters,
-          }),
-          // Bubble Map + Viewport — side-by-side layout (Viewport on the
-          // left mirrors Active Trader; collapses below the chart on small
-          // screens). Both fed from the same `visible` set so they stay in
-          // sync with the active chip filter + search.
-          data && h(BubbleMapViewportSplit, {
-            allTickers,
-            visible,
-            query: filters.query,
-            data,
-            rankedTickers,
-            rankedTickerPositions,
-          }),
-          data && h(UniverseHeatmap, { visible, query: filters.query }),
-          h(EndCTA, null),
+        // Loading = neither brief NOR data has landed yet. Page was
+        // previously near-blank until both arrived (several hundred ms).
+        // Skeletons keep the page populated so users see structure
+        // immediately instead of an empty white-on-black void.
+        const loading = !data && !brief;
+
+        return h(React.Fragment, null,
+          loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading today's data" }),
+          h("main", null,
+            // ── Digest (passive read) — render skeletons until each part lands ──
+            h(StatusHeader, { cal, briefDate: brief?.date }),
+            brief
+              ? h(BriefPreview, { brief })
+              : h(BriefSkeleton, null),
+            data
+              ? h(MarketState, { data })
+              : h(MarketStateSkeleton, null),
+            brief && h(MacroStrip, { brief }),
+            data && h(TopMovers, { data }),
+            earnings && h(EarningsStrip, { earnings }),
+            // ── Analysis (interactive) ──
+            data
+              ? h(AnalysisControls, {
+                  chips,
+                  totalCount: allTickers.length,
+                  visibleCount: visible.length,
+                  filters,
+                  setFilters,
+                })
+              : h(AnalysisControlsSkeleton, null),
+            data
+              ? h(BubbleMapViewportSplit, {
+                  allTickers,
+                  visible,
+                  query: filters.query,
+                  data,
+                  rankedTickers,
+                  rankedTickerPositions,
+                })
+              : h(BubbleViewportSkeleton, null),
+            data
+              ? h(UniverseHeatmap, { visible, query: filters.query })
+              : h(HeatmapSkeleton, null),
+            h(EndCTA, null),
+          ),
+        );
+      }
+
+      // ── Skeleton components — visual placeholders that match the final
+      //    layout footprint so the page doesn't reflow when content arrives.
+      function BriefSkeleton() {
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-card tt-card-pad" },
+            h("div", { className: "sk", style: { width: 200, height: 11, marginBottom: 12 } }),
+            h("div", { className: "sk", style: { width: "62%", height: 18, marginBottom: 14 } }),
+            h("div", { className: "sk", style: { width: "78%", height: 14, marginBottom: 8 } }),
+            h("div", { className: "sk", style: { width: "44%", height: 14, marginBottom: 14 } }),
+            h("div", { className: "sk", style: { width: 130, height: 32, borderRadius: 8 } }),
+          ),
+        );
+      }
+      function MarketStateSkeleton() {
+        return h("section", { className: "tt-row" },
+          h("div", { style: { marginBottom: 10 } },
+            h("div", { className: "sk", style: { width: 110, height: 10, marginBottom: 8 } }),
+            h("div", { className: "sk", style: { width: 240, height: 18 } }),
+          ),
+          h("div", { className: "sk-grid-4" },
+            [0,1,2,3].map((i) =>
+              h("div", { key: i, className: "tt-card tt-card-pad" },
+                h("div", { className: "sk", style: { width: 40,  height: 10, marginBottom: 10 } }),
+                h("div", { className: "sk", style: { width: 100, height: 22, marginBottom: 10 } }),
+                h("div", { className: "sk", style: { width: 64,  height: 12 } }),
+              ),
+            ),
+          ),
+        );
+      }
+      function AnalysisControlsSkeleton() {
+        return h("section", { className: "analysis-controls" },
+          h("div", { className: "ac-head" },
+            h("div", null,
+              h("div", { className: "sk", style: { width: 90,  height: 11, marginBottom: 8 } }),
+              h("div", { className: "sk", style: { width: 280, height: 16 } }),
+            ),
+            h("div", { className: "sk", style: { width: 110, height: 12 } }),
+          ),
+          h("div", { className: "sk", style: { width: "100%", height: 38, borderRadius: 10, margin: "12px 0 14px" } }),
+          [0,1,2,3].map((i) =>
+            h("div", { key: i, className: "ac-row" },
+              h("div", { className: "sk", style: { width: 60, height: 10 } }),
+              h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+                [0,1,2,3,4].map((j) =>
+                  h("div", { key: j, className: "sk", style: { width: 78 + (j % 3) * 12, height: 22, borderRadius: 999 } }),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      function BubbleViewportSkeleton() {
+        return h("section", { className: "tt-row" },
+          h("div", { style: { marginBottom: 10 } },
+            h("div", { className: "sk", style: { width: 80,  height: 10, marginBottom: 8 } }),
+            h("div", { className: "sk", style: { width: 300, height: 16 } }),
+          ),
+          h("div", { className: "sk-bubble-shell" },
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+              [0,1,2,3,4].map((i) =>
+                h("div", { key: i, className: "sk sk-card-md" }),
+              ),
+            ),
+            h("div", { className: "sk sk-bubble-pane" }),
+          ),
+        );
+      }
+      function HeatmapSkeleton() {
+        return h("section", { className: "tt-row" },
+          h("div", { style: { marginBottom: 10 } },
+            h("div", { className: "sk", style: { width: 80, height: 10, marginBottom: 8 } }),
+            h("div", { className: "sk", style: { width: 220, height: 16 } }),
+          ),
+          h("div", { className: "sk sk-heat" }),
         );
       }
 
