@@ -56,6 +56,18 @@ async function fetchBrief() {
     return null;
   }
 }
+async function fetchUniverseChanges() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/universe/changes?days=30&limit=20`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
 function ModelStatus({
   allMeta,
   history
@@ -311,21 +323,155 @@ function BriefThesis({
     }
   }, "Read the full brief →"))));
 }
+function UniverseChanges({
+  events
+}) {
+  if (!Array.isArray(events) || events.length === 0) {
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "TT UNIVERSE CHANGES"), h("div", {
+      className: "tt-sec-h"
+    }, "Adds, removes, and rebalances over the last 30 days"), h("div", {
+      className: "tt-card tt-card-pad",
+      style: {
+        color: "var(--tt-text-dim)",
+        fontSize: 13
+      }
+    }, "No universe changes in the last 30 days. When the ETF holdings refresh or an admin adds / removes a ticker, those events will appear here."));
+  }
+  const fmtDate = d => String(d || "—");
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "TT UNIVERSE CHANGES"), h("div", {
+    className: "tt-sec-h"
+  }, `Adds, removes, and rebalances · last 30 days (${events.length})`), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10
+    }
+  }, events.map((e, i) => h("div", {
+    key: `${e.etf}-${e.date}-${i}`,
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 8
+    }
+  }, h("div", null, h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 700,
+      fontSize: 12,
+      color: "var(--tt-text)"
+    }
+  }, e.etf), e.is_rebalance && h("span", {
+    style: {
+      marginLeft: 8,
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      padding: "2px 6px",
+      borderRadius: 4,
+      color: "var(--tt-accent)",
+      background: "var(--tt-accent-dim)",
+      border: "1px solid rgba(245,194,92,0.30)",
+      textTransform: "uppercase"
+    }
+  }, "REBALANCE"), h("span", {
+    style: {
+      color: "var(--tt-text-faint)",
+      marginLeft: 8,
+      fontSize: 11
+    }
+  }, fmtDate(e.date))), h("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-dim)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `${e.ticker_count} tickers`)), (e.added.length > 0 || e.removed.length > 0 || e.reweighted.length > 0) && h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6
+    }
+  }, e.added.length > 0 && h("span", {
+    style: {
+      fontSize: 11,
+      fontFamily: "var(--tt-font-mono)",
+      padding: "3px 8px",
+      borderRadius: 6,
+      color: "var(--tt-up-soft)",
+      background: "var(--tt-up-bg)",
+      border: "1px solid rgba(34,197,94,0.25)"
+    },
+    title: e.added.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
+  }, `+${e.added.length} added · `, e.added.slice(0, 6).map((a, idx) => h("span", {
+    key: idx,
+    style: {
+      marginRight: 6
+    }
+  }, typeof a === "string" ? a : a?.ticker || "?")), e.added.length > 6 && h("span", null, `+${e.added.length - 6} more`)), e.removed.length > 0 && h("span", {
+    style: {
+      fontSize: 11,
+      fontFamily: "var(--tt-font-mono)",
+      padding: "3px 8px",
+      borderRadius: 6,
+      color: "var(--tt-dn-soft)",
+      background: "var(--tt-dn-bg)",
+      border: "1px solid rgba(244,63,94,0.25)"
+    },
+    title: e.removed.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
+  }, `−${e.removed.length} removed · `, e.removed.slice(0, 6).map((a, idx) => h("span", {
+    key: idx,
+    style: {
+      marginRight: 6
+    }
+  }, typeof a === "string" ? a : a?.ticker || "?")), e.removed.length > 6 && h("span", null, `+${e.removed.length - 6} more`)), e.reweighted.length > 0 && h("span", {
+    style: {
+      fontSize: 11,
+      fontFamily: "var(--tt-font-mono)",
+      padding: "3px 8px",
+      borderRadius: 6,
+      color: "var(--tt-accent)",
+      background: "var(--tt-accent-dim)",
+      border: "1px solid rgba(245,194,92,0.30)"
+    },
+    title: e.reweighted.map(a => typeof a === "string" ? a : a?.ticker || JSON.stringify(a)).join(", ")
+  }, `~${e.reweighted.length} reweighted`)), e.source && h("div", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-faint)",
+      marginTop: 8
+    }
+  }, "Source: ", e.source)))));
+}
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
   const [brief, setBrief] = useState(null);
+  const [universeChanges, setUniverseChanges] = useState(null);
   const [error, setError] = useState(null);
   const [dim, setDim] = useState("setup_name");
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [a, h_, b] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief()]);
+        const [a, h_, b, u] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges()]);
         if (!alive) return;
         if (a) setAllMeta(a);
         if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
         if (b?.ok) setBrief(b);
+        if (u?.ok) setUniverseChanges(u.events || []);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -381,6 +527,14 @@ function InsightsApp() {
     className: "sk",
     style: {
       height: 280,
+      borderRadius: 12
+    }
+  }), universeChanges !== null ? h(UniverseChanges, {
+    events: universeChanges
+  }) : h("div", {
+    className: "sk",
+    style: {
+      height: 180,
       borderRadius: 12
     }
   }), error && h("div", {
