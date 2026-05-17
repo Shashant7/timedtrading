@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today3" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -500,6 +500,68 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+      /* Loading bar — slim gold strip across the top of the page while
+         /timed/all + /timed/tickers + brief + earnings + cal are in flight.
+         Stays visible until `data` lands so users don't sit on a blank page. */
+      .tt-loadbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: rgba(245,194,92,0.12);
+        z-index: 9000;
+        overflow: hidden;
+      }
+      .tt-loadbar::after {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, var(--tt-accent), transparent);
+        animation: tt-loadbar 1.4s ease-in-out infinite;
+      }
+      @keyframes tt-loadbar {
+        0%   { left: -30%; }
+        100% { left: 100%; }
+      }
+
+      /* Skeleton building blocks — match the final layout closely so the
+         page doesn't visually jump when real content arrives. */
+      .sk-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 16px 18px;
+      }
+      .sk-line { height: 12px; }
+      .sk-row { display: flex; gap: 12px; align-items: center; }
+      .sk-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+      @media (max-width: 919px) { .sk-grid-4 { grid-template-columns: 1fr 1fr; } }
+      .sk-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+      .sk-bubble-shell {
+        display: grid;
+        grid-template-columns: 300px 1fr;
+        gap: 12px;
+      }
+      @media (max-width: 1100px) { .sk-bubble-shell { grid-template-columns: 1fr; } }
+      .sk-card-md {
+        height: 150px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .sk-bubble-pane {
+        height: 700px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .sk-heat {
+        height: 260px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
       /* Brief preview specifics */
       .brief-head {
         font-size: 15px;
@@ -635,7 +697,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.ed945f3566.js"></script>
+    <script src="today.compiled.c46901c6c8.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

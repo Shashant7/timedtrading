@@ -112,6 +112,25 @@ async function fetchAll() {
     ok: false
   };
 }
+async function fetchTickerUniverse() {
+  const ts = Date.now();
+  try {
+    const r = await fetch(`${API_BASE}/timed/tickers?_t=${ts}`, {
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache"
+      }
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return Array.isArray(j?.tickers) ? j.tickers : null;
+  } catch (_) {
+    return null;
+  }
+}
 async function fetchBrief() {
   const r = await fetch(`${API_BASE}/timed/daily-brief`, {
     credentials: "include"
@@ -2051,9 +2070,23 @@ function TodayApp() {
     let alive = true;
     (async () => {
       try {
-        const [a, b, e, c] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal()]);
+        const [a, b, e, c, universe] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(), fetchTickerUniverse()]);
         if (!alive) return;
-        if (a?.ok) setData(a.data || {});
+        if (a?.ok) {
+          const merged = {
+            ...(a.data || {})
+          };
+          if (Array.isArray(universe)) {
+            for (const sym of universe) {
+              const T = String(sym || "").trim().toUpperCase();
+              if (!T) continue;
+              if (!merged[T]) merged[T] = {
+                ticker: T
+              };
+            }
+          }
+          setData(merged);
+        }
         if (b?.ok) {
           const _now = new Date();
           const _ny = new Date(_now.toLocaleString("en-US", {
@@ -2118,36 +2151,246 @@ function TodayApp() {
       }
     }, "Couldn't load today's data: " + error));
   }
-  return h("main", null, h(StatusHeader, {
+  const loading = !data && !brief;
+  return h(React.Fragment, null, loading && h("div", {
+    className: "tt-loadbar",
+    role: "progressbar",
+    "aria-label": "Loading today's data"
+  }), h("main", null, h(StatusHeader, {
     cal,
     briefDate: brief?.date
-  }), brief && h(BriefPreview, {
+  }), brief ? h(BriefPreview, {
     brief
-  }), data && h(MarketState, {
+  }) : h(BriefSkeleton, null), data ? h(MarketState, {
     data
-  }), brief && h(MacroStrip, {
+  }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
     brief
   }), data && h(TopMovers, {
     data
   }), earnings && h(EarningsStrip, {
     earnings
-  }), data && h(AnalysisControls, {
+  }), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
     visibleCount: visible.length,
     filters,
     setFilters
-  }), data && h(BubbleMapViewportSplit, {
+  }) : h(AnalysisControlsSkeleton, null), data ? h(BubbleMapViewportSplit, {
     allTickers,
     visible,
     query: filters.query,
     data,
     rankedTickers,
     rankedTickerPositions
-  }), data && h(UniverseHeatmap, {
+  }) : h(BubbleViewportSkeleton, null), data ? h(UniverseHeatmap, {
     visible,
     query: filters.query
-  }), h(EndCTA, null));
+  }) : h(HeatmapSkeleton, null), h(EndCTA, null)));
+}
+function BriefSkeleton() {
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 200,
+      height: 11,
+      marginBottom: 12
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: "62%",
+      height: 18,
+      marginBottom: 14
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: "78%",
+      height: 14,
+      marginBottom: 8
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: "44%",
+      height: 14,
+      marginBottom: 14
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 130,
+      height: 32,
+      borderRadius: 8
+    }
+  })));
+}
+function MarketStateSkeleton() {
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 110,
+      height: 10,
+      marginBottom: 8
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 240,
+      height: 18
+    }
+  })), h("div", {
+    className: "sk-grid-4"
+  }, [0, 1, 2, 3].map(i => h("div", {
+    key: i,
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 40,
+      height: 10,
+      marginBottom: 10
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 100,
+      height: 22,
+      marginBottom: 10
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 64,
+      height: 12
+    }
+  })))));
+}
+function AnalysisControlsSkeleton() {
+  return h("section", {
+    className: "analysis-controls"
+  }, h("div", {
+    className: "ac-head"
+  }, h("div", null, h("div", {
+    className: "sk",
+    style: {
+      width: 90,
+      height: 11,
+      marginBottom: 8
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 280,
+      height: 16
+    }
+  })), h("div", {
+    className: "sk",
+    style: {
+      width: 110,
+      height: 12
+    }
+  })), h("div", {
+    className: "sk",
+    style: {
+      width: "100%",
+      height: 38,
+      borderRadius: 10,
+      margin: "12px 0 14px"
+    }
+  }), [0, 1, 2, 3].map(i => h("div", {
+    key: i,
+    className: "ac-row"
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 60,
+      height: 10
+    }
+  }), h("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, [0, 1, 2, 3, 4].map(j => h("div", {
+    key: j,
+    className: "sk",
+    style: {
+      width: 78 + j % 3 * 12,
+      height: 22,
+      borderRadius: 999
+    }
+  }))))));
+}
+function BubbleViewportSkeleton() {
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 80,
+      height: 10,
+      marginBottom: 8
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 300,
+      height: 16
+    }
+  })), h("div", {
+    className: "sk-bubble-shell"
+  }, h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10
+    }
+  }, [0, 1, 2, 3, 4].map(i => h("div", {
+    key: i,
+    className: "sk sk-card-md"
+  }))), h("div", {
+    className: "sk sk-bubble-pane"
+  })));
+}
+function HeatmapSkeleton() {
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 80,
+      height: 10,
+      marginBottom: 8
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 220,
+      height: 16
+    }
+  })), h("div", {
+    className: "sk sk-heat"
+  }));
 }
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {
