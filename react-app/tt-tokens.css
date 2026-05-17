@@ -1242,6 +1242,51 @@ input, button, select, textarea {
   .rail-close { top: 10px; right: 10px; left: auto; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * MOBILE TOP NAV — slim header
+ *
+ * On mobile (<768px) the primary nav lives in the bottom tab-bar
+ * (tt-bottom-nav.js — Today / Trader / Investor / Portfolio /
+ * Insights / Learn). The top nav should NOT duplicate those links;
+ * it just carries the logo + the right-side widgets (Discord
+ * indicator, Alerts bell, Avatar).
+ *
+ * Without this rule, .nav-links wraps under the brand on small
+ * screens and pushes the page content way down — exactly the
+ * "Header at the top showing the Nav, which it shouldn't" issue
+ * the user reported.
+ * ═══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  .nav-links { display: none !important; }
+
+  /* Tighten the top row so the slim header reads as a hero strip,
+     not a heavy block. */
+  nav.topnav .nav-row {
+    padding: 10px 14px !important;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+
+  /* Slim the brand: smaller logo + word stays a single line. */
+  nav.topnav .nav-brand { font-size: 13px; gap: 8px; }
+  nav.topnav .nav-brand svg { width: 26px !important; height: 26px !important; }
+
+  /* Discord button shrinks to icon-only. The component renders
+     a button with `<span class="tt-waitlist-label">…</span>` for the
+     text; on mobile we hide that span. The legacy index-react
+     mobile CSS already does this — bring the rule into the shared
+     stylesheet so the journey pages get it too. */
+  .tt-waitlist-label { display: none !important; }
+  .tt-nav-widget--discord button { padding: 5px 8px !important; min-width: 32px; }
+
+  /* Compact right-side widgets so all three (Discord, Bell, Avatar)
+     fit on the same row alongside the brand. */
+  .tt-nav-widgets { gap: 6px !important; margin-left: auto !important; }
+}
+
+/* (Bottom tab-bar self-hides on desktop via its own .tt-bn media
+   query — see tt-bottom-nav.js, no shared rule needed.) */
+
 /* ───────────────────────────────────────────────────────────────────────
  * RIGHT-RAIL WORKSPACE LAYOUT
  * Mirror of /index-react.source.html lines 256-360. When the rail's

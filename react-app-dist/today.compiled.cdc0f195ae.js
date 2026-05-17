@@ -517,6 +517,138 @@ function MacroStrip({
     }, (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"));
   })));
 }
+function FocusRail({
+  data,
+  onSelectTicker
+}) {
+  const lanes = useMemo(() => {
+    if (!data) return [];
+    const all = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
+      ticker: String(k).toUpperCase(),
+      ...(v || {})
+    }).filter(t => t && t.ticker);
+    const TT = window.TimedBubbleChart || {};
+    const entryType = TT.entryType || (() => ({
+      corridor: false
+    }));
+    const completionForSize = TT.completionForSize || (t => Number(t?.completion) || 0);
+    const topRank = all.filter(t => Number(t.rank_position) > 0).sort((a, b) => Number(a.rank_position) - Number(b.rank_position)).slice(0, 8);
+    const highRr = all.filter(t => {
+      const rr = Number(t.rr) || 0;
+      const comp = completionForSize(t);
+      const flags = t.flags || {};
+      const ent = entryType(t);
+      const timing = ent?.corridor || flags.flip_watch || flags.sq30_release;
+      return rr >= 2.0 && comp <= 0.45 && timing;
+    }).sort((a, b) => (Number(b.rr) || 0) - (Number(a.rr) || 0)).slice(0, 8);
+    const squeeze = all.filter(t => {
+      const flags = t.flags || {};
+      return flags.sq30_on || flags.sq30_release;
+    }).sort((a, b) => {
+      const ra = a.flags?.sq30_release ? 1 : 0;
+      const rb = b.flags?.sq30_release ? 1 : 0;
+      if (ra !== rb) return rb - ra;
+      return (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0);
+    }).slice(0, 8);
+    const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
+    const earlySetup = all.filter(t => {
+      const ent = entryType(t);
+      const stage = String(t.kanban_stage || "").toLowerCase();
+      return ent?.corridor && ENTRY_STAGES.has(stage);
+    }).sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0)).slice(0, 8);
+    return [{
+      id: "rank",
+      label: "TOP RANK",
+      sub: "Best composite score",
+      items: topRank,
+      accent: "accent"
+    }, {
+      id: "rr",
+      label: "HIGH R:R",
+      sub: "RR ≥ 2.0 + early",
+      items: highRr,
+      accent: "up"
+    }, {
+      id: "squeeze",
+      label: "SQUEEZE",
+      sub: "On / released — primed to break",
+      items: squeeze,
+      accent: "cyan"
+    }, {
+      id: "setup",
+      label: "ENTRY ZONE",
+      sub: "In corridor + entry stage",
+      items: earlySetup,
+      accent: "violet"
+    }].filter(lane => lane.items.length > 0);
+  }, [data]);
+  if (lanes.length === 0) return null;
+  const fmtMetric = (t, laneId) => {
+    if (laneId === "rank") {
+      const r = Number(t.rank_position);
+      return Number.isFinite(r) ? `R${r}` : "";
+    }
+    if (laneId === "rr") {
+      const rr = Number(t.rr);
+      return Number.isFinite(rr) ? `${rr.toFixed(1)}R` : "";
+    }
+    if (laneId === "squeeze") {
+      const f = t.flags || {};
+      return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
+    }
+    if (laneId === "setup") {
+      const dir = String(t.state || "").startsWith("HTF_BULL") ? "L" : String(t.state || "").startsWith("HTF_BEAR") ? "S" : "·";
+      return dir;
+    }
+    return "";
+  };
+  return h("section", {
+    className: "tt-row focus-rail"
+  }, h("div", {
+    className: "focus-rail-head"
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "FOCUS"), h("h2", {
+    className: "tt-sec-h2"
+  }, "Actionable tickers worth a look"), h("p", {
+    className: "tt-sec-sub"
+  }, "Top ranks · best R:R · squeeze candidates · corridor entries — straight from the scoring snapshot."))), h("div", {
+    className: "focus-rail-grid"
+  }, lanes.map(lane => h("div", {
+    key: lane.id,
+    className: `focus-lane focus-lane--${lane.accent}`
+  }, h("div", {
+    className: "focus-lane-head"
+  }, h("span", {
+    className: "focus-lane-label"
+  }, lane.label), h("span", {
+    className: "focus-lane-count"
+  }, lane.items.length)), h("div", {
+    className: "focus-lane-sub"
+  }, lane.sub), h("div", {
+    className: "focus-lane-chips"
+  }, lane.items.slice(0, 6).map(t => {
+    const sym = String(t.ticker || "").toUpperCase();
+    const metric = fmtMetric(t, lane.id);
+    const dc = getDailyChange(t);
+    const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+    const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
+    return h("button", {
+      key: `${lane.id}-${sym}`,
+      className: "focus-chip",
+      onClick: () => {
+        if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      },
+      title: `${sym}${metric ? " · " + metric : ""}${pct != null ? " · " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}`
+    }, h("span", {
+      className: "focus-chip-sym"
+    }, sym), metric && h("span", {
+      className: "focus-chip-metric"
+    }, metric), pct != null && h("span", {
+      className: `focus-chip-pct ${pctCls}`
+    }, (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%"));
+  }))))));
+}
 function MoverRow({
   rk,
   t,
@@ -2379,7 +2511,10 @@ function TodayApp() {
     briefDate: brief?.date
   }), brief ? h(BriefPreview, {
     brief
-  }) : h(BriefSkeleton, null), data ? h(MarketState, {
+  }) : h(BriefSkeleton, null), data && h(FocusRail, {
+    data,
+    onSelectTicker
+  }), data ? h(MarketState, {
     data,
     onSelectTicker
   }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {

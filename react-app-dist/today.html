@@ -35,7 +35,7 @@
     <script src="shared-rail-helpers.js?v=20260517e"></script>
     <script src="shared-right-rail.compiled.js?v=20260517c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517e"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517f"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -381,6 +381,106 @@
       .ac-chip.active.pull  .ac-count,
       .ac-chip.active       .ac-count { color: inherit; opacity: 0.7; }
 
+      /* FocusRail — categorized actionable tickers */
+      .focus-rail {
+        margin-bottom: 28px;
+      }
+      .focus-rail-head {
+        margin-bottom: 12px;
+      }
+      .focus-rail-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      @media (max-width: 1024px) {
+        .focus-rail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 640px) {
+        .focus-rail-grid { grid-template-columns: 1fr; }
+      }
+      .focus-lane {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        position: relative;
+      }
+      .focus-lane::before {
+        content: "";
+        position: absolute;
+        top: 12px; bottom: 12px; left: 0;
+        width: 3px;
+        border-radius: 2px;
+        background: var(--lane-accent, var(--tt-text-faint));
+      }
+      .focus-lane--accent  { --lane-accent: var(--tt-accent); }
+      .focus-lane--up      { --lane-accent: var(--tt-up-soft); }
+      .focus-lane--cyan    { --lane-accent: var(--tt-cyan); }
+      .focus-lane--violet  { --lane-accent: var(--tt-violet); }
+      .focus-lane-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 6px;
+      }
+      .focus-lane-label {
+        font-family: var(--tt-font);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--lane-accent, var(--tt-text-dim));
+      }
+      .focus-lane-count {
+        font-family: var(--tt-font-mono);
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+      }
+      .focus-lane-sub {
+        font-size: 11px;
+        color: var(--tt-text-muted);
+        margin-bottom: 4px;
+      }
+      .focus-lane-chips {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .focus-chip {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        color: var(--tt-text);
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+        text-align: left;
+      }
+      .focus-chip:hover {
+        background: var(--tt-bg-surface);
+        border-color: var(--tt-border-hi);
+      }
+      .focus-chip-sym {
+        font-family: var(--tt-font);
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .focus-chip-metric {
+        font-size: 10.5px;
+        color: var(--tt-text-muted);
+      }
+      .focus-chip-pct.up { color: var(--tt-up); }
+      .focus-chip-pct.dn { color: var(--tt-dn); }
+
       /* Bubble Map */
       .bm-stage {
         position: relative;
@@ -711,7 +811,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.24387c21b0.js"></script>
+    <script src="today.compiled.cdc0f195ae.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
