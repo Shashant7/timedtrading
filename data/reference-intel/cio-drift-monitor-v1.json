@@ -1,6 +1,6 @@
 {
-  "generated_at_utc": "2026-05-17T08:32:27.850798+00:00",
-  "source": "api",
+  "generated_at_utc": "2026-05-17T19:37:31.505333+00:00",
+  "source": "d1",
   "window_sizes": {
     "recent": 400,
     "prior": 400
@@ -16,7 +16,7 @@
     "avg_edge_score": 0.0
   },
   "prior": {
-    "decision_rows": 100,
+    "decision_rows": 400,
     "rows_with_outcome": 0,
     "approve_adjust_rows": 0,
     "reject_rows": 0,

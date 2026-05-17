@@ -131,6 +131,37 @@
         color: var(--tt-text, #e5e7eb);
         background: var(--tt-bg-surface, rgba(255,255,255,0.025));
       }
+
+      /* Journey-nav strip prepended on admin pages */
+      .tt-journey-strip {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+        background: rgba(10,12,16,0.65);
+        flex-wrap: wrap;
+      }
+      .tt-journey-link {
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--tt-text-muted, #9ca3af);
+        text-decoration: none;
+        padding: 5px 10px;
+        border-radius: 7px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .tt-journey-link:hover {
+        color: var(--tt-text, #e5e7eb);
+        background: var(--tt-bg-surface, rgba(255,255,255,0.025));
+      }
+      .tt-journey-link.active {
+        color: var(--tt-accent, #f5c25c);
+        background: var(--tt-accent-dim, rgba(245,194,92,0.14));
+        font-weight: 600;
+      }
+      .tt-journey-link--learn { color: var(--tt-up-soft, #34d399); }
+      .tt-journey-link--faq   { color: var(--tt-cyan, #22d3ee); }
     `;
     document.head.appendChild(el);
   }
@@ -308,6 +339,58 @@
   // resolves (e.g. show the avatar + alerts bell after login).
   const _navRoots = new Map();
 
+  // V15 P0.7.183 (2026-05-17) — Inject the journey-page primary nav
+  // (Today / Active Trader / Investor / Portfolio / Insights / Learn
+  // / FAQ) at the start of any admin page's <nav> so users on
+  // /system-intelligence, /screener, /ticker-management, /trade-
+  // autopsy etc. can navigate back to the user-facing surfaces
+  // without falling into the legacy /index-react.html.
+  // Admin-only links (System Intelligence, Screener, …) stay where
+  // they were — we just prepend the journey row.
+  const JOURNEY_LINKS = [
+    { href: "/today.html",         label: "Today",         match: ["/today"] },
+    { href: "/active-trader.html", label: "Active Trader", match: ["/active-trader"] },
+    { href: "/investor.html",      label: "Investor",      match: ["/investor"] },
+    { href: "/portfolio.html",     label: "Portfolio",     match: ["/portfolio"] },
+    { href: "/insights.html",      label: "Insights",      match: ["/insights"] },
+    { href: "/learn.html",         label: "Learn",         match: ["/learn"], extraCls: "learn" },
+    { href: "/faq.html",           label: "FAQ",           match: ["/faq"],   extraCls: "faq" },
+  ];
+
+  function injectJourneyLinks() {
+    // Only run on admin pages — journey pages already have these
+    // links in their HTML, no need to duplicate.
+    const path = (window.location?.pathname || "").toLowerCase();
+    const JOURNEY_PATHS = new Set(["/today.html", "/active-trader.html", "/investor.html", "/portfolio.html", "/insights.html", "/learn.html", "/faq.html"]);
+    if (JOURNEY_PATHS.has(path)) return;
+
+    // Find the first <nav> on the page (admin pages render their nav
+    // through React but the rendered DOM has a top-level <nav>).
+    const nav = document.querySelector("nav");
+    if (!nav) return;
+    if (nav.querySelector(".tt-journey-strip")) return; // already injected
+
+    // Skip splash / standalone pages where injecting nav makes no sense.
+    if (path === "/" || path === "/splash.html") return;
+
+    const strip = document.createElement("div");
+    strip.className = "tt-journey-strip";
+    strip.setAttribute("aria-label", "Primary navigation");
+
+    for (const link of JOURNEY_LINKS) {
+      const a = document.createElement("a");
+      a.href = link.href;
+      a.textContent = link.label;
+      a.className = "tt-journey-link" + (link.extraCls ? " tt-journey-link--" + link.extraCls : "");
+      const matches = (link.match || []).some((m) => path.startsWith(m));
+      if (matches) a.classList.add("active");
+      strip.appendChild(a);
+    }
+
+    // Insert at the very top of the nav, before any existing children.
+    nav.insertBefore(strip, nav.firstChild);
+  }
+
   function getCurrentUser() {
     // V15 P0.7.182 (2026-05-17) — getStoredSession returns the user
     // object directly (the user fields are top-level — email,
@@ -397,6 +480,7 @@
     ensureStyles();
     injectAdminMenu();
     injectRightWidgets();
+    injectJourneyLinks();
 
     // Badges — kick off in parallel; render whichever returns.
     fetchOpenTradeCount().then((n) => {
@@ -406,6 +490,22 @@
       setBadge("Investor", n, "up");
     });
   }
+
+  // Admin pages render their nav through React, so the <nav> element
+  // may not exist when init() first fires. Re-attempt journey-link
+  // injection every 200ms for the first 3s in case React was still
+  // mounting.
+  (function pollForNav() {
+    let tries = 0;
+    const id = setInterval(() => {
+      tries += 1;
+      const nav = document.querySelector("nav");
+      if (nav && !nav.querySelector(".tt-journey-strip")) {
+        injectJourneyLinks();
+      }
+      if (tries > 15) clearInterval(id);
+    }, 200);
+  })();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

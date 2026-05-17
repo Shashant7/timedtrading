@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today12" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today13" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -19,7 +19,7 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517c" defer></script>
+    <script src="tt-nav-extras.js?v=20260517d" defer></script>
     <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
@@ -382,7 +382,22 @@
       .ac-chip.active.pull  .ac-count,
       .ac-chip.active       .ac-count { color: inherit; opacity: 0.7; }
 
-      /* FocusRail — categorized actionable tickers */
+      /* Additive add-on chips (Saved + TT Selected) — render with a
+         "+" prefix when inactive and "✓" when applied. Use a violet
+         accent so they read as distinct from the mutually-exclusive
+         primary chips. */
+      .ac-chip--addon {
+        border-style: dashed;
+      }
+      .ac-chip--addon.active {
+        color: var(--tt-violet);
+        background: var(--tt-violet-dim);
+        border-color: rgba(167,139,250,0.40);
+        border-style: solid;
+      }
+      .ac-chip--addon.active .ac-count { color: inherit; opacity: 0.7; }
+
+      /* FocusRail — categorized actionable tickers (pass5) */
       .focus-rail {
         margin-bottom: 28px;
       }
@@ -801,6 +816,7 @@
           <a href="/investor.html" class="nav-link">Investor</a>
           <a href="/portfolio.html" class="nav-link">Portfolio</a>
           <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
           <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
@@ -2008,6 +2024,7 @@
       function applyFilters(tickers, f, chips) {
         const q = String(f?.query || "").trim().toUpperCase();
         const activeId = f?.activeChip || null;
+        const addOns = (f?.addOns instanceof Set) ? f.addOns : new Set();
         // Null / "all" / "__cleared__" → no chip narrowing, show every ticker.
         // This is what the Clear Filters button resets to, mirroring AT's
         // "Clear filter" pill behaviour.
@@ -2018,10 +2035,25 @@
           ? new Set(chip.tickers.map((s) => TT_NORM_TICKER(s)))
           : null;
 
+        // V15 P0.7.183 (2026-05-17) — Saved + TT Selected are now
+        // ADDITIVE filters. Each enabled add-on is INTERSECTED with the
+        // primary chip selection. So "Focus + Saved" = tickers that
+        // are BOTH in the focus universe AND starred.
+        const addOnSets = [];
+        for (const addOnId of addOns) {
+          const ac = (chips || []).find((c) => c.id === addOnId);
+          if (ac && Array.isArray(ac.tickers) && ac.tickers.length > 0) {
+            addOnSets.push(new Set(ac.tickers.map((s) => TT_NORM_TICKER(s))));
+          }
+        }
+
         return tickers.filter((t) => {
           if (!t || !t.ticker) return false;
           const sym = TT_NORM_TICKER(t.ticker);
           if (chipSet && !chipSet.has(sym)) return false;
+          for (const s of addOnSets) {
+            if (!s.has(sym)) return false;
+          }
           if (q && !sym.includes(q)) return false;
           return true;
         });
@@ -2034,24 +2066,38 @@
       // Only one chip is active at a time across all rows.
       function AnalysisControls({ chips, totalCount, visibleCount, filters, setFilters }) {
         const { query, activeChip } = filters;
+        const addOns = (filters?.addOns instanceof Set) ? filters.addOns : new Set();
         const setQ = (v) => setFilters((f) => ({ ...f, query: v }));
         const setChip = (id) => setFilters((f) => ({ ...f, activeChip: id }));
-        // Clear filters → bypass chip narrowing (activeChip = "all" is the
-        // explicit "no chip" sentinel that applyFilters interprets as "show
-        // every ticker") and wipe the search text. Mirrors AT's
-        // "Clear filter" pill behaviour (visible top-right of the analysis
-        // controls in the AT screenshot).
-        const clearAll = () => setFilters({ activeChip: "all", query: "" });
-        const isCleared = activeChip === "all" || activeChip == null;
-        const isFiltered = !isCleared || String(query || "").trim().length > 0;
+        // Toggle a Saved / TT Selected add-on. Each can be enabled
+        // alongside the primary chip selection — they layer on top
+        // as intersection filters.
+        const toggleAddOn = (id) => setFilters((f) => {
+          const cur = f?.addOns instanceof Set ? new Set(f.addOns) : new Set();
+          if (cur.has(id)) cur.delete(id); else cur.add(id);
+          return { ...f, addOns: cur };
+        });
+        // Clear filters → reset to the default Focus chip and wipe
+        // search + all add-ons.
+        const clearAll = () => setFilters({ activeChip: "focus", query: "", addOns: new Set() });
+        const isCleared = activeChip === "focus" || activeChip === "all" || activeChip == null;
+        const isFiltered = !isCleared || String(query || "").trim().length > 0 || addOns.size > 0;
+
+        // V15 P0.7.183 — Saved + TT Selected are pulled OUT of the
+        // mutually-exclusive chip rows and rendered as ADDITIVE
+        // toggles in their own row above the primary chips. They
+        // layer on top of the active chip.
+        const ADDITIVE_IDS = new Set(["saved", "tt_selected"]);
+        const additiveChips = chips.filter((c) => ADDITIVE_IDS.has(c.id));
+        const primaryChips = chips.filter((c) => !ADDITIVE_IDS.has(c.id));
 
         const rows = useMemo(() => {
           const byRow = { focus: [], momentum: [], structure: [], context: [] };
-          for (const c of chips) {
+          for (const c of primaryChips) {
             if (byRow[c.row]) byRow[c.row].push(c);
           }
           return byRow;
-        }, [chips]);
+        }, [primaryChips]);
 
         const renderChip = (c) => {
           const isActive = activeChip === c.id;
@@ -2063,6 +2109,20 @@
             onClick: () => setChip(c.id),
             title: c.tooltip || c.label,
           },
+            c.label,
+            c.count != null && h("span", { className: "ac-count" }, c.count),
+          );
+        };
+
+        const renderAddOn = (c) => {
+          const isOn = addOns.has(c.id);
+          return h("button", {
+            key: c.id,
+            className: `ac-chip ac-chip--addon${isOn ? " active" : ""}`,
+            onClick: () => toggleAddOn(c.id),
+            title: (c.tooltip || c.label) + (isOn ? " · click to remove" : " · click to layer on top"),
+          },
+            isOn ? "✓ " : "+ ",
             c.label,
             c.count != null && h("span", { className: "ac-count" }, c.count),
           );
@@ -2086,7 +2146,7 @@
               isFiltered && h("button", {
                 className: "ac-clear",
                 onClick: clearAll,
-                title: "Clear active chip + search · show every ticker",
+                title: "Reset to Focus · clear search + add-ons",
               }, "✕ Clear filters"),
               h("span", null,
                 h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers",
@@ -2105,6 +2165,13 @@
               "aria-label": "Search ticker symbol",
             }),
             query && h("button", { className: "ac-search-clear", onClick: () => setQ("") }, "clear"),
+          ),
+          // Additive add-ons row — Saved + TT Selected toggle on top
+          // of the primary chip. Renders only when the chips exist
+          // (Saved is conditional on having starred tickers).
+          additiveChips.length > 0 && h("div", { className: "ac-row" },
+            h("div", { className: "ac-row-label" }, "Layer"),
+            h("div", { className: "ac-chips" }, additiveChips.map(renderAddOn)),
           ),
           h(Row, { label: "Focus",     items: rows.focus }),
           h(Row, { label: "Momentum",  items: rows.momentum }),
@@ -2826,15 +2893,21 @@
         const [error, setError] = useState(null);
 
         // Unified analysis filter state — controls Bubble Map + Heat Map + Viewport.
-        // `activeChip = "all"` is the cleared / no-chip state (show every
-        // ticker). The Focus chip is still available + visually marked
-        // as the default suggestion, but defaulting to it on initial load
-        // narrowed the page to just 2 tickers (BTC + ETH) when /timed/all
-        // returned a small subset — confusing first-paint experience.
-        // Start cleared so users see the full universe immediately.
+        // V15 P0.7.183 (2026-05-17) — Default chip is now "focus" (the
+        // Kanban + Market Pulse + open-position universe) per user
+        // feedback "Bubble Map should default on Focus." The original
+        // cleared default (`activeChip: "all"`) surfaced every ticker
+        // on first paint, which was noisy.
+        //
+        // `activeChip` is the primary filter (mutually-exclusive Focus
+        // / Actionable / Early LONG / etc.). `addOns` is a SET of
+        // ADDITIVE filters layered on top — Saved + TT Selected can
+        // be toggled alongside the active chip. Per user: "TT
+        // Selected and Saved should be additive filter options."
         const [filters, setFilters] = useState({
           query: "",
-          activeChip: "all",
+          activeChip: "focus",
+          addOns: new Set(),
         });
 
         useEffect(() => {

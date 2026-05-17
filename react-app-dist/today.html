@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today12" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today13" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
@@ -18,7 +18,7 @@
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517c" defer></script>
+    <script src="tt-nav-extras.js?v=20260517d" defer></script>
     <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
@@ -381,7 +381,22 @@
       .ac-chip.active.pull  .ac-count,
       .ac-chip.active       .ac-count { color: inherit; opacity: 0.7; }
 
-      /* FocusRail — categorized actionable tickers */
+      /* Additive add-on chips (Saved + TT Selected) — render with a
+         "+" prefix when inactive and "✓" when applied. Use a violet
+         accent so they read as distinct from the mutually-exclusive
+         primary chips. */
+      .ac-chip--addon {
+        border-style: dashed;
+      }
+      .ac-chip--addon.active {
+        color: var(--tt-violet);
+        background: var(--tt-violet-dim);
+        border-color: rgba(167,139,250,0.40);
+        border-style: solid;
+      }
+      .ac-chip--addon.active .ac-count { color: inherit; opacity: 0.7; }
+
+      /* FocusRail — categorized actionable tickers (pass5) */
       .focus-rail {
         margin-bottom: 28px;
       }
@@ -800,6 +815,7 @@
           <a href="/investor.html" class="nav-link">Investor</a>
           <a href="/portfolio.html" class="nav-link">Portfolio</a>
           <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
           <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
@@ -811,7 +827,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.cdc0f195ae.js"></script>
+    <script src="today.compiled.a735c14026.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

@@ -1271,12 +1271,23 @@ function useOpenTrades(enabled) {
 function applyFilters(tickers, f, chips) {
   const q = String(f?.query || "").trim().toUpperCase();
   const activeId = f?.activeChip || null;
+  const addOns = f?.addOns instanceof Set ? f.addOns : new Set();
   const chip = activeId && activeId !== "all" ? (chips || []).find(c => c.id === activeId) : null;
   const chipSet = chip && Array.isArray(chip.tickers) && chip.tickers.length > 0 ? new Set(chip.tickers.map(s => TT_NORM_TICKER(s))) : null;
+  const addOnSets = [];
+  for (const addOnId of addOns) {
+    const ac = (chips || []).find(c => c.id === addOnId);
+    if (ac && Array.isArray(ac.tickers) && ac.tickers.length > 0) {
+      addOnSets.push(new Set(ac.tickers.map(s => TT_NORM_TICKER(s))));
+    }
+  }
   return tickers.filter(t => {
     if (!t || !t.ticker) return false;
     const sym = TT_NORM_TICKER(t.ticker);
     if (chipSet && !chipSet.has(sym)) return false;
+    for (const s of addOnSets) {
+      if (!s.has(sym)) return false;
+    }
     if (q && !sym.includes(q)) return false;
     return true;
   });
@@ -1292,6 +1303,7 @@ function AnalysisControls({
     query,
     activeChip
   } = filters;
+  const addOns = filters?.addOns instanceof Set ? filters.addOns : new Set();
   const setQ = v => setFilters(f => ({
     ...f,
     query: v
@@ -1300,12 +1312,24 @@ function AnalysisControls({
     ...f,
     activeChip: id
   }));
-  const clearAll = () => setFilters({
-    activeChip: "all",
-    query: ""
+  const toggleAddOn = id => setFilters(f => {
+    const cur = f?.addOns instanceof Set ? new Set(f.addOns) : new Set();
+    if (cur.has(id)) cur.delete(id);else cur.add(id);
+    return {
+      ...f,
+      addOns: cur
+    };
   });
-  const isCleared = activeChip === "all" || activeChip == null;
-  const isFiltered = !isCleared || String(query || "").trim().length > 0;
+  const clearAll = () => setFilters({
+    activeChip: "focus",
+    query: "",
+    addOns: new Set()
+  });
+  const isCleared = activeChip === "focus" || activeChip === "all" || activeChip == null;
+  const isFiltered = !isCleared || String(query || "").trim().length > 0 || addOns.size > 0;
+  const ADDITIVE_IDS = new Set(["saved", "tt_selected"]);
+  const additiveChips = chips.filter(c => ADDITIVE_IDS.has(c.id));
+  const primaryChips = chips.filter(c => !ADDITIVE_IDS.has(c.id));
   const rows = useMemo(() => {
     const byRow = {
       focus: [],
@@ -1313,11 +1337,11 @@ function AnalysisControls({
       structure: [],
       context: []
     };
-    for (const c of chips) {
+    for (const c of primaryChips) {
       if (byRow[c.row]) byRow[c.row].push(c);
     }
     return byRow;
-  }, [chips]);
+  }, [primaryChips]);
   const renderChip = c => {
     const isActive = activeChip === c.id;
     const tone = c.row === "focus" && c.isDefault && isActive ? "pull" : null;
@@ -1328,6 +1352,17 @@ function AnalysisControls({
       onClick: () => setChip(c.id),
       title: c.tooltip || c.label
     }, c.label, c.count != null && h("span", {
+      className: "ac-count"
+    }, c.count));
+  };
+  const renderAddOn = c => {
+    const isOn = addOns.has(c.id);
+    return h("button", {
+      key: c.id,
+      className: `ac-chip ac-chip--addon${isOn ? " active" : ""}`,
+      onClick: () => toggleAddOn(c.id),
+      title: (c.tooltip || c.label) + (isOn ? " · click to remove" : " · click to layer on top")
+    }, isOn ? "✓ " : "+ ", c.label, c.count != null && h("span", {
       className: "ac-count"
     }, c.count));
   };
@@ -1357,7 +1392,7 @@ function AnalysisControls({
   }, isFiltered && h("button", {
     className: "ac-clear",
     onClick: clearAll,
-    title: "Clear active chip + search · show every ticker"
+    title: "Reset to Focus · clear search + add-ons"
   }, "✕ Clear filters"), h("span", null, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers"))), h("div", {
     className: "ac-search"
   }, h("span", {
@@ -1373,7 +1408,13 @@ function AnalysisControls({
   }), query && h("button", {
     className: "ac-search-clear",
     onClick: () => setQ("")
-  }, "clear")), h(Row, {
+  }, "clear")), additiveChips.length > 0 && h("div", {
+    className: "ac-row"
+  }, h("div", {
+    className: "ac-row-label"
+  }, "Layer"), h("div", {
+    className: "ac-chips"
+  }, additiveChips.map(renderAddOn))), h(Row, {
     label: "Focus",
     items: rows.focus
   }), h(Row, {
@@ -2380,7 +2421,8 @@ function TodayApp() {
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     query: "",
-    activeChip: "all"
+    activeChip: "focus",
+    addOns: new Set()
   });
   useEffect(() => {
     let alive = true;

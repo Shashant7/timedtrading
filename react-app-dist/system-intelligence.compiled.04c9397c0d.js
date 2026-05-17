@@ -3177,6 +3177,160 @@ function HistoryTab({
     className: "text-right pl-2 text-[10px] text-blue-400 hover:text-blue-300"
   }, "View")))))));
 }
+function EffectiveModelConfig({
+  appliedAt
+}) {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(false);
+  const refresh = async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/model-config?prefix=deep_audit_`, {
+        credentials: "include"
+      });
+      if (!res.ok) {
+        if (res.status === 404) {
+          setError("Endpoint not deployed yet — re-deploy worker to see effective config here.");
+          return;
+        }
+        setError(`HTTP ${res.status}`);
+        return;
+      }
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.items)) {
+        setItems(json.items);
+      } else {
+        setError(json.error || "Unexpected response shape");
+      }
+    } catch (e) {
+      setError(String(e?.message || e));
+    }
+  };
+  useEffect(() => {
+    refresh();
+  }, [appliedAt]);
+  const fmtTs = s => {
+    if (!s) return "—";
+    try {
+      return new Date(s).toLocaleString();
+    } catch {
+      return String(s);
+    }
+  };
+  const fmtVal = v => {
+    if (v == null) return "—";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "number") return String(v);
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) {
+      if (v.length === 0) return "[]";
+      const sample = v.slice(0, 12).join(", ");
+      return v.length > 12 ? `[${sample}, … +${v.length - 12} more]` : `[${sample}]`;
+    }
+    return JSON.stringify(v);
+  };
+  return React.createElement("div", {
+    className: "si-card",
+    style: {
+      marginBottom: "var(--ds-space-4)"
+    }
+  }, React.createElement("div", {
+    className: "si-card__head",
+    style: {
+      cursor: "pointer"
+    },
+    onClick: () => setOpen(!open)
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Effective model_config"), React.createElement("div", {
+    className: "si-card__title"
+  }, items == null ? "Loading…" : items.length === 0 ? "No deep_audit_* keys persisted" : `${items.length} deep_audit_* keys in model_config`), React.createElement("div", {
+    className: "si-card__subtitle"
+  }, "What the scoring cron is actually reading after the last Apply.")), React.createElement("button", {
+    className: "si-action",
+    onClick: e => {
+      e.stopPropagation();
+      refresh();
+    }
+  }, "Refresh"), React.createElement("button", {
+    className: "si-action",
+    onClick: e => {
+      e.stopPropagation();
+      setOpen(!open);
+    }
+  }, open ? "Hide" : "Show")), error && React.createElement("div", {
+    className: "si-banner si-banner--warn",
+    style: {
+      marginTop: "var(--ds-space-2)"
+    }
+  }, React.createElement("span", {
+    style: {
+      color: "var(--ds-accent)",
+      fontSize: "var(--ds-fs-meta)"
+    }
+  }, error)), open && items && items.length > 0 && React.createElement("div", {
+    style: {
+      marginTop: "var(--ds-space-3)",
+      maxHeight: 320,
+      overflowY: "auto"
+    }
+  }, React.createElement("table", {
+    className: "w-full",
+    style: {
+      fontSize: "var(--ds-fs-caption)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, React.createElement("thead", null, React.createElement("tr", {
+    style: {
+      color: "var(--ds-text-muted)",
+      textAlign: "left"
+    }
+  }, React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "Key"), React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "Value"), React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "Updated"), React.createElement("th", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, "By"))), React.createElement("tbody", null, items.map(it => React.createElement("tr", {
+    key: it.key,
+    style: {
+      borderTop: "1px solid var(--ds-stroke)"
+    }
+  }, React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      color: "var(--ds-text-display)"
+    }
+  }, it.key), React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      color: "var(--ds-up)",
+      maxWidth: 360,
+      wordBreak: "break-word"
+    }
+  }, fmtVal(it.value)), React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      color: "var(--ds-text-muted)"
+    }
+  }, fmtTs(it.updated_at)), React.createElement("td", {
+    style: {
+      padding: "6px 8px",
+      color: "var(--ds-text-faint)"
+    }
+  }, it.updated_by || "—")))))));
+}
 function DeepAuditTab() {
   const [audit, setAudit] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -3338,7 +3492,9 @@ function DeepAuditTab() {
       fontSize: "var(--ds-fs-body)",
       fontWeight: 600
     }
-  }, appliedMsg)), React.createElement("div", {
+  }, appliedMsg)), React.createElement(EffectiveModelConfig, {
+    appliedAt: appliedMsg ? Date.now() : 0
+  }), React.createElement("div", {
     className: "si-subtabs"
   }, subTabs.map(t => React.createElement("button", {
     key: t.id,

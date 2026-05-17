@@ -15,6 +15,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="ds-components.js?v=20260503a"></script>
     <script src="auth-gate.js?v=20260220a"></script>
+    <script src="tt-nav-extras.js?v=20260517d" defer></script>
     <script>
       tailwind.config = {
         theme: { extend: { fontFamily: { sans: ["Inter", "system-ui", "sans-serif"] } } },
@@ -2449,6 +2450,112 @@ function HistoryTab({ onViewReport }) {
 // ═══════════════════════════════════════════════════════════════
 // DEEP AUDIT TAB
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// EffectiveModelConfig — shows what is ACTUALLY persisted in
+// model_config so the user can verify their Apply clicks landed.
+// Pulls GET /timed/admin/model-config (added in P0.7.183) and
+// renders the keys + values + last-updated timestamps. Auto-
+// refreshes whenever `appliedAt` (a sibling timestamp prop)
+// changes — i.e. right after an Apply click.
+// ═══════════════════════════════════════════════════════════════
+function EffectiveModelConfig({ appliedAt }) {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  const refresh = async () => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/model-config?prefix=deep_audit_`, { credentials: "include" });
+      if (!res.ok) {
+        // Fall back to no prefix if prefix isn't supported (older worker).
+        if (res.status === 404) {
+          setError("Endpoint not deployed yet — re-deploy worker to see effective config here.");
+          return;
+        }
+        setError(`HTTP ${res.status}`);
+        return;
+      }
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.items)) {
+        setItems(json.items);
+      } else {
+        setError(json.error || "Unexpected response shape");
+      }
+    } catch (e) { setError(String(e?.message || e)); }
+  };
+
+  useEffect(() => { refresh(); }, [appliedAt]);
+
+  const fmtTs = (s) => {
+    if (!s) return "—";
+    try { return new Date(s).toLocaleString(); } catch { return String(s); }
+  };
+  const fmtVal = (v) => {
+    if (v == null) return "—";
+    if (typeof v === "boolean") return v ? "true" : "false";
+    if (typeof v === "number") return String(v);
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) {
+      if (v.length === 0) return "[]";
+      const sample = v.slice(0, 12).join(", ");
+      return v.length > 12 ? `[${sample}, … +${v.length - 12} more]` : `[${sample}]`;
+    }
+    return JSON.stringify(v);
+  };
+
+  return (
+    <div className="si-card" style={{ marginBottom: "var(--ds-space-4)" }}>
+      <div className="si-card__head" style={{ cursor: "pointer" }} onClick={() => setOpen(!open)}>
+        <div>
+          <div className="si-card__eyebrow">Effective model_config</div>
+          <div className="si-card__title">
+            {items == null ? "Loading…" : items.length === 0 ? "No deep_audit_* keys persisted" : `${items.length} deep_audit_* keys in model_config`}
+          </div>
+          <div className="si-card__subtitle">
+            What the scoring cron is actually reading after the last Apply.
+          </div>
+        </div>
+        <button className="si-action" onClick={(e) => { e.stopPropagation(); refresh(); }}>Refresh</button>
+        <button className="si-action" onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+          {open ? "Hide" : "Show"}
+        </button>
+      </div>
+      {error && (
+        <div className="si-banner si-banner--warn" style={{ marginTop: "var(--ds-space-2)" }}>
+          <span style={{ color: "var(--ds-accent)", fontSize: "var(--ds-fs-meta)" }}>{error}</span>
+        </div>
+      )}
+      {open && items && items.length > 0 && (
+        <div style={{ marginTop: "var(--ds-space-3)", maxHeight: 320, overflowY: "auto" }}>
+          <table className="w-full" style={{ fontSize: "var(--ds-fs-caption)", fontFamily: "var(--tt-font-mono)" }}>
+            <thead>
+              <tr style={{ color: "var(--ds-text-muted)", textAlign: "left" }}>
+                <th style={{ padding: "6px 8px" }}>Key</th>
+                <th style={{ padding: "6px 8px" }}>Value</th>
+                <th style={{ padding: "6px 8px" }}>Updated</th>
+                <th style={{ padding: "6px 8px" }}>By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.key} style={{ borderTop: "1px solid var(--ds-stroke)" }}>
+                  <td style={{ padding: "6px 8px", color: "var(--ds-text-display)" }}>{it.key}</td>
+                  <td style={{ padding: "6px 8px", color: "var(--ds-up)", maxWidth: 360, wordBreak: "break-word" }}>
+                    {fmtVal(it.value)}
+                  </td>
+                  <td style={{ padding: "6px 8px", color: "var(--ds-text-muted)" }}>{fmtTs(it.updated_at)}</td>
+                  <td style={{ padding: "6px 8px", color: "var(--ds-text-faint)" }}>{it.updated_by || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DeepAuditTab() {
   const [audit, setAudit] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -2548,6 +2655,12 @@ function DeepAuditTab() {
           <span style={{color:"var(--ds-up)", fontSize:"var(--ds-fs-body)", fontWeight:600}}>{appliedMsg}</span>
         </div>
       )}
+
+      {/* V15 P0.7.183 — Effective model_config panel so the user
+          can confirm what's actually persisted after an Apply.
+          Pulls from GET /timed/admin/model-config?prefix=deep_audit_
+          and lists keys + updated_at. */}
+      <EffectiveModelConfig appliedAt={appliedMsg ? Date.now() : 0} />
 
       <div className="si-subtabs">
         {subTabs.map(t => (
