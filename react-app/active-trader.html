@@ -10,14 +10,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at7" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -280,10 +282,51 @@
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
-      /* Bubble map row */
-      .at-bubble-row { margin-top: 32px; }
+      /* ── Bubble Map row ───────────────────────────────────────────
+         User feedback: the AT bubble map looked squished. Now sized
+         at min(82vh, 900px) on desktop, 60vh on tablet, 70vh on
+         mobile — gives the chart real space to breathe and labels
+         room to land without colliding. */
+      .at-bubble-row { margin-top: 40px; }
+      .at-bubble-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .at-bubble-legend {
+        display: flex;
+        gap: 14px;
+        font-size: 11.5px;
+        color: var(--tt-text-muted);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .at-bubble-legend .bdot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      .at-bubble-card {
+        padding: 0;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+      .at-bubble-stage {
+        position: relative;
+        height: min(82vh, 900px);
+        min-height: 600px;
+      }
+      @media (max-width: 1024px) {
+        .at-bubble-stage { height: 70vh; min-height: 520px; }
+      }
       @media (max-width: 720px) {
-        .at-bubble-row .tt-card > div { height: 460px !important; }
+        .at-bubble-stage { height: 70vh; min-height: 460px; }
       }
 
       /* Loading bar */
@@ -384,12 +427,22 @@
       })();
 
       // ── Fetch helpers ──────────────────────────────────────────
+      // V15 P0.7.181 — Routed through TTFetchCache so the AT board
+      // paints instantly on second + subsequent loads. 90s freshness
+      // budget matches the scoring cron cadence; revalidates in the
+      // background.
+      const CACHE = (typeof window !== "undefined" && window.TTFetchCache) || null;
       async function fetchAll() {
-        const ts = Date.now();
-        const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+        if (CACHE) {
+          return CACHE.get(`${API_BASE}/timed/all`, {
+            ttlMs: 90 * 1000,
+            maxAgeMs: 30 * 60 * 1000,
+            fetchOpts: { credentials: "include", cache: "no-store" },
+          });
+        }
+        const r = await fetch(`${API_BASE}/timed/all?_t=${Date.now()}`, {
           credentials: "include",
           cache: "no-store",
-          headers: { Accept: "application/json", "Cache-Control": "no-cache, no-store, must-revalidate", Pragma: "no-cache" },
         });
         return r.ok ? r.json() : { ok: false };
       }
@@ -1055,26 +1108,37 @@
         );
       }
 
-      // ── ATBubbleMap — renders the shared BubbleChart filtered to
-      //    the AT board's tickers (those in any kanban lane). Lets
-      //    users see where the model's open / pipeline names sit on
-      //    momentum × trend without leaving the page.
-      function ATBubbleMap({ allTickers, data, onSelectTicker }) {
+      // ── ATBubbleMap — shows ONLY the tickers in the kanban lanes
+      //    (Setup → In Review → Position Initiated → Hold → Defend →
+      //    Trim → Exit). User feedback: "Bubble Map on the Active
+      //    Trader Page should just show the tickers in the Kanban
+      //    Lanes themselves, from Setup to Exit." Anything not in
+      //    a lane is off-board noise and shouldn't pollute the map.
+      //    Height is governed by CSS (`.at-bubble-stage`) — defaults
+      //    to 80vh on desktop so the bubble plot has room to breathe.
+      function ATBubbleMap({ lanes, allTickers, data, onSelectTicker }) {
         const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
         const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
         const [hovered, setHovered] = useState(null);
 
         const visible = useMemo(() => {
-          // Anything with a real kanban_stage = "in the AT board".
-          // We also keep tickers with non-zero scores so the user can
-          // see context (S&P pulse sectors) without the chart going empty.
-          const arr = (allTickers || []).filter((t) => {
-            const ks = String(t?.kanban_stage || "").toLowerCase();
-            if (ks && ks !== "null") return true;
-            return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
-          });
-          return arr.slice(0, 250);
-        }, [allTickers]);
+          if (!lanes) return [];
+          // Union all 7 lanes — these are EXACTLY what the kanban
+          // board shows. Dedup by ticker (a ticker can only sit in
+          // one lane, but be defensive).
+          const seen = new Set();
+          const out = [];
+          for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit]) {
+            if (!Array.isArray(arr)) continue;
+            for (const t of arr) {
+              const sym = String(t?.ticker || "").toUpperCase();
+              if (!sym || seen.has(sym)) continue;
+              seen.add(sym);
+              out.push(t);
+            }
+          }
+          return out;
+        }, [lanes]);
 
         const rankedTickers = useMemo(() => {
           if (!getRankedTickers || !data) return [];
@@ -1089,21 +1153,20 @@
         if (!SharedChart || visible.length === 0) return null;
 
         return h("section", { className: "tt-row at-bubble-row" },
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
+          h("div", { className: "at-bubble-head" },
             h("div", null,
-              h("div", { className: "tt-sec-title" }, "ACTIVE TRADER BUBBLE MAP"),
-              h("div", { className: "tt-sec-h" }, "Where every AT board ticker sits on momentum × trend"),
+              h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
+              h("h2", { className: "tt-sec-h2" }, "Where every board ticker sits on momentum \u00d7 trend"),
+              h("p", { className: "tt-sec-sub" }, `${visible.length} tickers across all lanes`),
             ),
-            h("div", {
-              style: { display: "flex", gap: 12, fontSize: 11, color: "var(--tt-text-muted)", flexWrap: "wrap" },
-            },
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#22c55e", marginRight: 4 } }), "Bull aligned"),
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f5c25c", marginRight: 4 } }), "Pullback"),
-              h("span", null, h("span", { style: { display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#f43f5e", marginRight: 4 } }), "Bear aligned"),
+            h("div", { className: "at-bubble-legend" },
+              h("span", null, h("span", { className: "bdot", style: { background: "#22c55e" } }), "Bull aligned"),
+              h("span", null, h("span", { className: "bdot", style: { background: "#f5c25c" } }), "Pullback"),
+              h("span", null, h("span", { className: "bdot", style: { background: "#f43f5e" } }), "Bear aligned"),
             ),
           ),
-          h("div", { className: "tt-card", style: { padding: 0, overflow: "hidden", borderRadius: 14 } },
-            h("div", { style: { height: 620, position: "relative" } },
+          h("div", { className: "tt-card at-bubble-card" },
+            h("div", { className: "at-bubble-stage" },
               h(SharedChart, {
                 tickers: visible,
                 allData: data,
@@ -1196,16 +1259,25 @@
           const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
           return found || null;
         }, [railTicker, allTickers, data]);
+        // V15 P0.7.181 — Reactive RailOverlay state so card clicks
+        // work the instant the rail scripts load.
+        const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+        useEffect(() => {
+          if (RailOverlay) return;
+          const id = setInterval(() => {
+            if (window.TimedRightRail?.Overlay) {
+              setRailOverlay(() => window.TimedRightRail.Overlay);
+              clearInterval(id);
+            }
+          }, 80);
+          return () => clearInterval(id);
+        }, [RailOverlay]);
+
         const onOpen = useCallback((sym) => {
           if (!sym) return;
-          if (!window.TimedRightRail?.Overlay) {
-            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-            return;
-          }
           setRailTicker(String(sym).toUpperCase());
         }, []);
         const onCloseRail = useCallback(() => setRailTicker(null), []);
-        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         if (error) {
           return h("main", null,
@@ -1265,10 +1337,11 @@
                   h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: lanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                   h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: lanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                 ],
-            // Bubble map of the AT board's tickers — momentum × trend
-            // overview underneath the kanban so users can spot
-            // clustering / outliers without leaving the page.
-            !loading && h(ATBubbleMap, { allTickers, data, onSelectTicker: onOpen }),
+            // Bubble map of the AT board's tickers ONLY (the union of
+            // all 7 kanban lanes — Setup → In Review → Position
+            // Initiated → Hold → Defend → Trim → Exit). Anything not
+            // in a lane is off-board noise and isn't plotted here.
+            !loading && h(ATBubbleMap, { lanes, allTickers, data, onSelectTicker: onOpen }),
           ),
           // Right rail slide-in. The Overlay component lives in
           // shared-rail-bootstrap.js and reuses the same factory the

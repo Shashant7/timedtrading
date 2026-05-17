@@ -10,14 +10,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port7" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
@@ -286,6 +287,35 @@
       .open-pl-row strong { font-weight: 700; margin-left: 4px; }
       .open-pl-row strong.up { color: var(--tt-up-soft); }
       .open-pl-row strong.dn { color: var(--tt-dn-soft); }
+
+      /* Split Open Positions header — section title + per-mode total */
+      .op-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .op-total {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-family: var(--tt-font-mono);
+      }
+      .op-total-l {
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+        margin-bottom: 2px;
+      }
+      .op-total strong.up { color: var(--tt-up-soft); }
+      .op-total strong.dn { color: var(--tt-dn-soft); }
+
+      /* Subtle accent on the left edge of each section's table */
+      .tbl-scroll[data-accent="trader"] { border-left: 2px solid rgba(52,211,153,0.45); }
+      .tbl-scroll[data-accent="investor"] { border-left: 2px solid rgba(167,139,250,0.45); }
 
       .mode-toggle {
         display: inline-flex;
@@ -712,125 +742,35 @@
         });
       }
 
-      // ── OpenPositions — current open trades, both modes.
-      //
-      // Unified view of trader-mode (positions) + investor-mode
-      // (investor_positions) opens. Each row carries a "Mode" badge
-      // (Active Trader / Investor) and a live Open P&L computed from
-      // /timed/all current price overlaid on each trade's entry.
-      // Investor positions arrive with marketValue / unrealizedPnl
-      // already attached server-side (we use those directly).
-      function OpenPositions({ trades, investorPositions, priceMap, onSelectTicker }) {
-        const rows = useMemo(() => {
-          const out = [];
-
-          // Trader opens
-          if (Array.isArray(trades)) {
-            for (const t of trades) {
-              const s = String(t?.status || "").toUpperCase();
-              const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
-              if (!isOpen) continue;
-              const sym = String(t?.ticker || "").toUpperCase();
-              const dir = String(t?.direction || "").toUpperCase() || "LONG";
-              const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry) || null;
-              const shares = Number(t?.shares) || null;
-              const cur = Number(priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
-              const dirMul = dir === "SHORT" ? -1 : 1;
-              const plPct = (cur && ep && ep > 0) ? ((cur - ep) / ep) * 100 * dirMul : null;
-              const plDollar = (cur && ep && shares) ? (cur - ep) * shares * dirMul : null;
-              out.push({
-                _key: `t-${sym}-${t.entry_ts || t.entryTs || ""}`,
-                mode: "trader",
-                modeLabel: "Active Trader",
-                modeCls: "mode-trader",
-                sym, dir, ep,
-                entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
-                sl: Number(t?.sl ?? t?.stop_loss) || null,
-                tp: Number(t?.tp ?? t?.take_profit) || null,
-                cur, plPct, plDollar,
-                status: s || "OPEN",
-              });
-            }
-          }
-
-          // Investor opens — server provides unrealizedPnl directly so
-          // P&L is authoritative (already mark-to-market on its end).
-          if (Array.isArray(investorPositions)) {
-            for (const p of investorPositions) {
-              if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
-              const sym = String(p?.ticker || "").toUpperCase();
-              const ep = Number(p?.avg_entry) || null;
-              const cur = Number(p?.currentPrice ?? priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
-              const plPct = Number(p?.unrealizedPnlPct);
-              const plDollar = Number(p?.unrealizedPnl);
-              out.push({
-                _key: `i-${sym}-${p.first_entry_ts || ""}`,
-                mode: "investor",
-                modeLabel: "Investor",
-                modeCls: "mode-investor",
-                sym, dir: "LONG", ep,
-                entryTs: Number(p?.first_entry_ts ?? 0),
-                sl: null,
-                tp: null,
-                cur,
-                plPct: Number.isFinite(plPct) ? plPct : null,
-                plDollar: Number.isFinite(plDollar) ? plDollar : null,
-                status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase(),
-              });
-            }
-          }
-
-          // Sort by absolute open P&L $ desc — biggest moves on top.
-          // Tickers without a P&L number sort to the bottom by entry date.
-          out.sort((a, b) => {
-            const aHas = Number.isFinite(a.plDollar);
-            const bHas = Number.isFinite(b.plDollar);
-            if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
-            if (aHas) return -1;
-            if (bHas) return 1;
-            return b.entryTs - a.entryTs;
-          });
-          return out;
-        }, [trades, investorPositions, priceMap]);
-
-        const totals = useMemo(() => {
-          let traderPl = 0, investorPl = 0, n = 0;
-          for (const r of rows) {
-            if (!Number.isFinite(r.plDollar)) continue;
-            if (r.mode === "trader") traderPl += r.plDollar;
-            else investorPl += r.plDollar;
-            n += 1;
-          }
-          return { traderPl, investorPl, totalPl: traderPl + investorPl, n };
-        }, [rows]);
-
+      // Single-mode open-positions table. The wrapping PortfolioApp
+      // renders one of these directly under each equity-curve card
+      // (Active Trader card → trader table, Investor card → investor
+      // table) per user feedback "Portfolio Open Positions should
+      // separate each Active Trader and Investor into two sections,
+      // underneath the Equity Curves".
+      function OpenPositionsTable({ rows, mode, accent }) {
+        if (!Array.isArray(rows)) return null;
         const fmtPnl = (n) => Number.isFinite(n)
           ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}`
           : "—";
+        const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
 
         return h("section", { className: "tt-row" },
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 10 } },
+          h("div", { className: "op-head" },
             h("div", null,
-              h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
-              h("div", { className: "tt-sec-h" }, "Currently held — both modes"),
+              h("div", { className: "tt-sec-title" }, mode === "investor" ? "INVESTOR · OPEN POSITIONS" : "ACTIVE TRADER · OPEN POSITIONS"),
+              h("h2", { className: "tt-sec-h2" }, `Currently held by ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`),
+              h("p", { className: "tt-sec-sub" }, `${rows.length} position${rows.length === 1 ? "" : "s"}`),
             ),
-            totals.n > 0 && h("div", { className: "open-pl-row" },
-              h("span", null, "Trader ",
-                h("strong", { className: totals.traderPl >= 0 ? "up" : "dn" }, fmtPnl(totals.traderPl)),
-              ),
-              h("span", null, "Investor ",
-                h("strong", { className: totals.investorPl >= 0 ? "up" : "dn" }, fmtPnl(totals.investorPl)),
-              ),
-              h("span", null, "Total ",
-                h("strong", { className: totals.totalPl >= 0 ? "up" : "dn" }, fmtPnl(totals.totalPl)),
-              ),
+            rows.length > 0 && h("div", { className: "op-total" },
+              h("span", { className: "op-total-l" }, "Open P&L"),
+              h("strong", { className: totalPl >= 0 ? "up" : "dn", style: { fontSize: 16 } }, fmtPnl(totalPl)),
             ),
           ),
-          h("div", { className: "tbl-scroll" },
+          h("div", { className: "tbl-scroll", "data-accent": accent || "trader" },
             h("table", { className: "tbl" },
               h("thead", null,
                 h("tr", null,
-                  h("th", null, "Mode"),
                   h("th", null, "Ticker"),
                   h("th", null, "Dir"),
                   h("th", null, "Entry"),
@@ -843,18 +783,15 @@
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: 9 }, "No open positions."))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 8 }, "No open positions."))
                   : rows.map((r) => {
                       const openTicker = () => {
-                        if (typeof onSelectTicker === "function") onSelectTicker(r.sym);
+                        if (typeof r._onSelect === "function") r._onSelect(r.sym);
                         else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
                       };
                       const plPctCls = r.plPct == null ? "" : (r.plPct >= 0 ? "up" : "dn");
                       const plDollarCls = r.plDollar == null ? "" : (r.plDollar >= 0 ? "up" : "dn");
                       return h("tr", { key: r._key },
-                        h("td", null,
-                          h("span", { className: `mode-pill ${r.modeCls}` }, r.modeLabel),
-                        ),
                         h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, r.sym),
                         h("td", { className: r.dir === "LONG" ? "up" : "dn" }, r.dir),
                         h("td", null, fmtUsdDec(r.ep)),
@@ -871,6 +808,78 @@
             ),
           ),
         );
+      }
+
+      // ── OpenPositions split — builds the two row sets (trader +
+      //    investor) from the same source data and renders them as
+      //    separate sections. Per user feedback: "separate each
+      //    Active Trader and Investor into two sections, underneath
+      //    the Equity Curves."
+      function buildTraderRows(trades, priceMap, onSelect) {
+        if (!Array.isArray(trades)) return [];
+        const out = [];
+        for (const t of trades) {
+          const s = String(t?.status || "").toUpperCase();
+          const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
+          if (!isOpen) continue;
+          const sym = String(t?.ticker || "").toUpperCase();
+          const dir = String(t?.direction || "").toUpperCase() || "LONG";
+          const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry) || null;
+          const shares = Number(t?.shares) || null;
+          const cur = Number(priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+          const dirMul = dir === "SHORT" ? -1 : 1;
+          const plPct = (cur && ep && ep > 0) ? ((cur - ep) / ep) * 100 * dirMul : null;
+          const plDollar = (cur && ep && shares) ? (cur - ep) * shares * dirMul : null;
+          out.push({
+            _key: `t-${sym}-${t.entry_ts || t.entryTs || ""}`,
+            _onSelect: onSelect,
+            sym, dir, ep,
+            entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
+            cur, plPct, plDollar,
+            status: s || "OPEN",
+          });
+        }
+        out.sort((a, b) => {
+          const aHas = Number.isFinite(a.plDollar);
+          const bHas = Number.isFinite(b.plDollar);
+          if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+          if (aHas) return -1;
+          if (bHas) return 1;
+          return b.entryTs - a.entryTs;
+        });
+        return out;
+      }
+
+      function buildInvestorRows(investorPositions, priceMap, onSelect) {
+        if (!Array.isArray(investorPositions)) return [];
+        const out = [];
+        for (const p of investorPositions) {
+          if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+          const sym = String(p?.ticker || "").toUpperCase();
+          const ep = Number(p?.avg_entry) || null;
+          const cur = Number(p?.currentPrice ?? priceMap?.[sym]?.price ?? priceMap?.[sym]?.close) || null;
+          const plPct = Number(p?.unrealizedPnlPct);
+          const plDollar = Number(p?.unrealizedPnl);
+          out.push({
+            _key: `i-${sym}-${p.first_entry_ts || ""}`,
+            _onSelect: onSelect,
+            sym, dir: "LONG", ep,
+            entryTs: Number(p?.first_entry_ts ?? 0),
+            cur,
+            plPct: Number.isFinite(plPct) ? plPct : null,
+            plDollar: Number.isFinite(plDollar) ? plDollar : null,
+            status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase(),
+          });
+        }
+        out.sort((a, b) => {
+          const aHas = Number.isFinite(a.plDollar);
+          const bHas = Number.isFinite(b.plDollar);
+          if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+          if (aHas) return -1;
+          if (bHas) return 1;
+          return b.entryTs - a.entryTs;
+        });
+        return out;
       }
 
       // ── TradeHistory — closed trades (most recent first).
@@ -995,16 +1004,25 @@
           // header / live price fetch (its internal hooks ask /timed/all).
           return { ticker: key };
         }, [railTicker, allData]);
+        // V15 P0.7.181 — Reactive RailOverlay state so card clicks
+        // work the instant the rail scripts load.
+        const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+        useEffect(() => {
+          if (RailOverlay) return;
+          const id = setInterval(() => {
+            if (window.TimedRightRail?.Overlay) {
+              setRailOverlay(() => window.TimedRightRail.Overlay);
+              clearInterval(id);
+            }
+          }, 80);
+          return () => clearInterval(id);
+        }, [RailOverlay]);
+
         const onSelectTicker = useCallback((sym) => {
           if (!sym) return;
-          if (!window.TimedRightRail?.Overlay) {
-            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-            return;
-          }
           setRailTicker(String(sym).toUpperCase());
         }, []);
         const onCloseRail = useCallback(() => setRailTicker(null), []);
-        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         if (error && !eq) {
           return h("main", null,
@@ -1056,14 +1074,24 @@
                     }),
                   ),
             ),
-            // Open positions — both modes, live Open P&L overlay
+            // Open positions — split into Active Trader + Investor
+            // sections, each under its own equity curve in reading
+            // order. Trader rows compute Open P&L from /timed/all
+            // overlay; Investor rows use the server-provided
+            // unrealizedPnl (already mark-to-market).
             (positions || investorPositions)
-              ? h(OpenPositions, {
-                  trades: positions,
-                  investorPositions,
-                  priceMap,
-                  onSelectTicker,
-                })
+              ? h(React.Fragment, null,
+                  h(OpenPositionsTable, {
+                    rows: buildTraderRows(positions || [], priceMap, onSelectTicker),
+                    mode: "trader",
+                    accent: "trader",
+                  }),
+                  h(OpenPositionsTable, {
+                    rows: buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
+                    mode: "investor",
+                    accent: "investor",
+                  }),
+                )
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
                   h("div", { className: "tt-sec-h" }, "Currently held by the model"),

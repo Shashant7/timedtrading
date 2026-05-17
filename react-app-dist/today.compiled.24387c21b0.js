@@ -97,41 +97,55 @@ function isNyRegularMarketOpen() {
     return false;
   }
 }
+const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
 async function fetchAll() {
-  const ts = Date.now();
-  const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+  if (CACHE) {
+    return CACHE.get(`${API_BASE}/timed/all`, {
+      ttlMs: 90 * 1000,
+      maxAgeMs: 30 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include",
+        cache: "no-store"
+      }
+    });
+  }
+  const r = await fetch(`${API_BASE}/timed/all?_t=${Date.now()}`, {
     credentials: "include",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache"
-    }
+    cache: "no-store"
   });
   return r.ok ? r.json() : {
     ok: false
   };
 }
 async function fetchTickerUniverse() {
-  const ts = Date.now();
-  try {
-    const r = await fetch(`${API_BASE}/timed/tickers?_t=${ts}`, {
-      credentials: "include",
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        Pragma: "no-cache"
+  if (CACHE) {
+    const j = await CACHE.get(`${API_BASE}/timed/tickers`, {
+      ttlMs: 5 * 60 * 1000,
+      maxAgeMs: 6 * 60 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include",
+        cache: "no-store"
       }
     });
-    if (!r.ok) return null;
-    const j = await r.json();
     return Array.isArray(j?.tickers) ? j.tickers : null;
-  } catch (_) {
-    return null;
   }
+  const r = await fetch(`${API_BASE}/timed/tickers`, {
+    credentials: "include"
+  });
+  if (!r.ok) return null;
+  const j = await r.json();
+  return Array.isArray(j?.tickers) ? j.tickers : null;
 }
 async function fetchBrief() {
+  if (CACHE) {
+    return CACHE.get(`${API_BASE}/timed/daily-brief`, {
+      ttlMs: 10 * 60 * 1000,
+      maxAgeMs: 12 * 60 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include"
+      }
+    });
+  }
   const r = await fetch(`${API_BASE}/timed/daily-brief`, {
     credentials: "include"
   });
@@ -140,6 +154,15 @@ async function fetchBrief() {
   };
 }
 async function fetchEarnings() {
+  if (CACHE) {
+    return CACHE.get(`${API_BASE}/timed/earnings/upcoming`, {
+      ttlMs: 30 * 60 * 1000,
+      maxAgeMs: 24 * 60 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include"
+      }
+    });
+  }
   const r = await fetch(`${API_BASE}/timed/earnings/upcoming`, {
     credentials: "include"
   });
@@ -148,6 +171,15 @@ async function fetchEarnings() {
   };
 }
 async function fetchCal() {
+  if (CACHE) {
+    return CACHE.get(`${API_BASE}/timed/market-calendar`, {
+      ttlMs: 60 * 60 * 1000,
+      maxAgeMs: 24 * 60 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include"
+      }
+    });
+  }
   const r = await fetch(`${API_BASE}/timed/market-calendar`, {
     credentials: "include"
   });
@@ -2313,16 +2345,22 @@ function TodayApp() {
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
     return found || null;
   }, [railTicker, allTickers]);
+  const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const id = setInterval(() => {
+      if (window.TimedRightRail?.Overlay) {
+        setRailOverlay(() => window.TimedRightRail.Overlay);
+        clearInterval(id);
+      }
+    }, 80);
+    return () => clearInterval(id);
+  }, [RailOverlay]);
   const onSelectTicker = useCallback(sym => {
     if (!sym) return;
-    if (!window.TimedRightRail?.Overlay) {
-      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      return;
-    }
     setRailTicker(String(sym).toUpperCase());
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
-  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",

@@ -10,13 +10,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-at7" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -279,10 +281,51 @@
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
-      /* Bubble map row */
-      .at-bubble-row { margin-top: 32px; }
+      /* ── Bubble Map row ───────────────────────────────────────────
+         User feedback: the AT bubble map looked squished. Now sized
+         at min(82vh, 900px) on desktop, 60vh on tablet, 70vh on
+         mobile — gives the chart real space to breathe and labels
+         room to land without colliding. */
+      .at-bubble-row { margin-top: 40px; }
+      .at-bubble-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .at-bubble-legend {
+        display: flex;
+        gap: 14px;
+        font-size: 11.5px;
+        color: var(--tt-text-muted);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .at-bubble-legend .bdot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      .at-bubble-card {
+        padding: 0;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+      .at-bubble-stage {
+        position: relative;
+        height: min(82vh, 900px);
+        min-height: 600px;
+      }
+      @media (max-width: 1024px) {
+        .at-bubble-stage { height: 70vh; min-height: 520px; }
+      }
       @media (max-width: 720px) {
-        .at-bubble-row .tt-card > div { height: 460px !important; }
+        .at-bubble-stage { height: 70vh; min-height: 460px; }
       }
 
       /* Loading bar */
@@ -338,7 +381,7 @@
       </main>
     </div>
 
-    <script src="active-trader.compiled.5a5ef9df8f.js"></script>
+    <script src="active-trader.compiled.9b13ff26fd.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

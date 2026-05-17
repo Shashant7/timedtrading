@@ -10,13 +10,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port6" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port7" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
@@ -286,6 +287,35 @@
       .open-pl-row strong.up { color: var(--tt-up-soft); }
       .open-pl-row strong.dn { color: var(--tt-dn-soft); }
 
+      /* Split Open Positions header — section title + per-mode total */
+      .op-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .op-total {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        font-family: var(--tt-font-mono);
+      }
+      .op-total-l {
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+        margin-bottom: 2px;
+      }
+      .op-total strong.up { color: var(--tt-up-soft); }
+      .op-total strong.dn { color: var(--tt-dn-soft); }
+
+      /* Subtle accent on the left edge of each section's table */
+      .tbl-scroll[data-accent="trader"] { border-left: 2px solid rgba(52,211,153,0.45); }
+      .tbl-scroll[data-accent="investor"] { border-left: 2px solid rgba(167,139,250,0.45); }
+
       .mode-toggle {
         display: inline-flex;
         gap: 4px;
@@ -362,7 +392,7 @@
       </main>
     </div>
 
-    <script src="portfolio.compiled.17584f02b7.js"></script>
+    <script src="portfolio.compiled.f0d5d20759.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

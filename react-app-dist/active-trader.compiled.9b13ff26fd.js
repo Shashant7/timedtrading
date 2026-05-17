@@ -38,16 +38,21 @@ window.isTickerTTSelected = function (sym) {
     }
   } catch (_) {}
 })();
+const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
 async function fetchAll() {
-  const ts = Date.now();
-  const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
+  if (CACHE) {
+    return CACHE.get(`${API_BASE}/timed/all`, {
+      ttlMs: 90 * 1000,
+      maxAgeMs: 30 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include",
+        cache: "no-store"
+      }
+    });
+  }
+  const r = await fetch(`${API_BASE}/timed/all?_t=${Date.now()}`, {
     credentials: "include",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Cache-Control": "no-cache, no-store, must-revalidate",
-      Pragma: "no-cache"
-    }
+    cache: "no-store"
   });
   return r.ok ? r.json() : {
     ok: false
@@ -865,6 +870,7 @@ function ATBrief({
   }, `Initiated ${lanes.new.length}`)));
 }
 function ATBubbleMap({
+  lanes,
   allTickers,
   data,
   onSelectTicker
@@ -873,13 +879,20 @@ function ATBubbleMap({
   const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
   const [hovered, setHovered] = useState(null);
   const visible = useMemo(() => {
-    const arr = (allTickers || []).filter(t => {
-      const ks = String(t?.kanban_stage || "").toLowerCase();
-      if (ks && ks !== "null") return true;
-      return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
-    });
-    return arr.slice(0, 250);
-  }, [allTickers]);
+    if (!lanes) return [];
+    const seen = new Set();
+    const out = [];
+    for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit]) {
+      if (!Array.isArray(arr)) continue;
+      for (const t of arr) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        if (!sym || seen.has(sym)) continue;
+        seen.add(sym);
+        out.push(t);
+      }
+    }
+    return out;
+  }, [lanes]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -899,65 +912,34 @@ function ATBubbleMap({
   return h("section", {
     className: "tt-row at-bubble-row"
   }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 12,
-      flexWrap: "wrap",
-      marginBottom: 8
-    }
+    className: "at-bubble-head"
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "ACTIVE TRADER BUBBLE MAP"), h("div", {
-    className: "tt-sec-h"
-  }, "Where every AT board ticker sits on momentum × trend")), h("div", {
-    style: {
-      display: "flex",
-      gap: 12,
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      flexWrap: "wrap"
-    }
+  }, "BUBBLE MAP"), h("h2", {
+    className: "tt-sec-h2"
+  }, "Where every board ticker sits on momentum \u00d7 trend"), h("p", {
+    className: "tt-sec-sub"
+  }, `${visible.length} tickers across all lanes`)), h("div", {
+    className: "at-bubble-legend"
   }, h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#22c55e",
-      marginRight: 4
+      background: "#22c55e"
     }
   }), "Bull aligned"), h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#f5c25c",
-      marginRight: 4
+      background: "#f5c25c"
     }
   }), "Pullback"), h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#f43f5e",
-      marginRight: 4
+      background: "#f43f5e"
     }
   }), "Bear aligned"))), h("div", {
-    className: "tt-card",
-    style: {
-      padding: 0,
-      overflow: "hidden",
-      borderRadius: 14
-    }
+    className: "tt-card at-bubble-card"
   }, h("div", {
-    style: {
-      height: 620,
-      position: "relative"
-    }
+    className: "at-bubble-stage"
   }, h(SharedChart, {
     tickers: visible,
     allData: data,
@@ -1038,16 +1020,22 @@ function ActiveTraderApp() {
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
     return found || null;
   }, [railTicker, allTickers, data]);
+  const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const id = setInterval(() => {
+      if (window.TimedRightRail?.Overlay) {
+        setRailOverlay(() => window.TimedRightRail.Overlay);
+        clearInterval(id);
+      }
+    }, 80);
+    return () => clearInterval(id);
+  }, [RailOverlay]);
   const onOpen = useCallback(sym => {
     if (!sym) return;
-    if (!window.TimedRightRail?.Overlay) {
-      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      return;
-    }
     setRailTicker(String(sym).toUpperCase());
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
-  const RailOverlay = window.TimedRightRail?.Overlay || null;
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1219,6 +1207,7 @@ function ActiveTraderApp() {
     onOpen,
     tradeByTicker
   })], !loading && h(ATBubbleMap, {
+    lanes,
     allTickers,
     data,
     onSelectTicker: onOpen

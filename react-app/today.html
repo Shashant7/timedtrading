@@ -10,15 +10,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today10" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today11" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -802,59 +804,71 @@
       }
 
       // ── Fetch helpers ──────────────────────────────────────────
+      // V15 P0.7.181 — All four fetchers route through TTFetchCache
+      // (sessionStorage-backed stale-while-revalidate). The page now
+      // renders cached data immediately on second + subsequent loads
+      // and revalidates in the background. ttlMs = freshness budget,
+      // maxAgeMs = hard expiry (never serve older). Scoring runs
+      // every 5 min so 90s ttl ensures we re-fetch once per render
+      // when stale, but cached responses paint instantly on nav.
+      const CACHE = (typeof window !== "undefined" && window.TTFetchCache) || null;
       async function fetchAll() {
-        // Match AT's fetch — bust any cache layer (Cloudflare, browser)
-        // so Today gets the same fresh snapshot AT does. Without the
-        // cache-bust + no-store, Today was sometimes seeing a stale
-        // /timed/all response with only the MP / crypto subset of
-        // tickers while AT (which uses ?_t=) saw the full 242-ticker
-        // universe.
-        const ts = Date.now();
-        const r = await fetch(`${API_BASE}/timed/all?_t=${ts}`, {
-          credentials: "include",
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-          },
+        if (CACHE) {
+          return CACHE.get(`${API_BASE}/timed/all`, {
+            ttlMs: 90 * 1000,
+            maxAgeMs: 30 * 60 * 1000,
+            fetchOpts: { credentials: "include", cache: "no-store" },
+          });
+        }
+        const r = await fetch(`${API_BASE}/timed/all?_t=${Date.now()}`, {
+          credentials: "include", cache: "no-store",
         });
         return r.ok ? r.json() : { ok: false };
       }
-      // /timed/tickers returns the full known-symbol roster (≈240). AT calls
-      // this alongside /timed/all and merges placeholders for any symbol
-      // that's in the roster but doesn't yet have scored data — that's how
-      // the "Tickers 242" count appears even though only ~40 currently have
-      // active scores. Without this, Today caps its universe at the scored
-      // subset (42) and chips like Indexes / S&P Sectors come back 0.
       async function fetchTickerUniverse() {
-        const ts = Date.now();
-        try {
-          const r = await fetch(`${API_BASE}/timed/tickers?_t=${ts}`, {
-            credentials: "include",
-            cache: "no-store",
-            headers: {
-              Accept: "application/json",
-              "Cache-Control": "no-cache, no-store, must-revalidate",
-              Pragma: "no-cache",
-            },
+        if (CACHE) {
+          const j = await CACHE.get(`${API_BASE}/timed/tickers`, {
+            ttlMs: 5 * 60 * 1000,
+            maxAgeMs: 6 * 60 * 60 * 1000,
+            fetchOpts: { credentials: "include", cache: "no-store" },
           });
-          if (!r.ok) return null;
-          const j = await r.json();
           return Array.isArray(j?.tickers) ? j.tickers : null;
-        } catch (_) {
-          return null;
         }
+        const r = await fetch(`${API_BASE}/timed/tickers`, { credentials: "include" });
+        if (!r.ok) return null;
+        const j = await r.json();
+        return Array.isArray(j?.tickers) ? j.tickers : null;
       }
       async function fetchBrief() {
+        if (CACHE) {
+          return CACHE.get(`${API_BASE}/timed/daily-brief`, {
+            ttlMs: 10 * 60 * 1000,
+            maxAgeMs: 12 * 60 * 60 * 1000,
+            fetchOpts: { credentials: "include" },
+          });
+        }
         const r = await fetch(`${API_BASE}/timed/daily-brief`, { credentials: "include" });
         return r.ok ? r.json() : { ok: false };
       }
       async function fetchEarnings() {
+        if (CACHE) {
+          return CACHE.get(`${API_BASE}/timed/earnings/upcoming`, {
+            ttlMs: 30 * 60 * 1000,
+            maxAgeMs: 24 * 60 * 60 * 1000,
+            fetchOpts: { credentials: "include" },
+          });
+        }
         const r = await fetch(`${API_BASE}/timed/earnings/upcoming`, { credentials: "include" });
         return r.ok ? r.json() : { ok: false };
       }
       async function fetchCal() {
+        if (CACHE) {
+          return CACHE.get(`${API_BASE}/timed/market-calendar`, {
+            ttlMs: 60 * 60 * 1000,
+            maxAgeMs: 24 * 60 * 60 * 1000,
+            fetchOpts: { credentials: "include" },
+          });
+        }
         const r = await fetch(`${API_BASE}/timed/market-calendar`, { credentials: "include" });
         return r.ok ? r.json() : { ok: false };
       }
@@ -2669,16 +2683,26 @@
           const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
           return found || null;
         }, [railTicker, allTickers]);
+        // V15 P0.7.181 — Reactive RailOverlay state so card clicks
+        // work the instant the rail scripts load (no "small delay"
+        // fallthrough to legacy nav on first click).
+        const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+        useEffect(() => {
+          if (RailOverlay) return;
+          const id = setInterval(() => {
+            if (window.TimedRightRail?.Overlay) {
+              setRailOverlay(() => window.TimedRightRail.Overlay);
+              clearInterval(id);
+            }
+          }, 80);
+          return () => clearInterval(id);
+        }, [RailOverlay]);
+
         const onSelectTicker = useCallback((sym) => {
           if (!sym) return;
-          if (!window.TimedRightRail?.Overlay) {
-            window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-            return;
-          }
           setRailTicker(String(sym).toUpperCase());
         }, []);
         const onCloseRail = useCallback(() => setRailTicker(null), []);
-        const RailOverlay = window.TimedRightRail?.Overlay || null;
 
         if (error) {
           return h("main", null,

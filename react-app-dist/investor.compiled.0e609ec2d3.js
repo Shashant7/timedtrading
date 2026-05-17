@@ -137,65 +137,34 @@ function InvBubbleMap({
   return h("section", {
     className: "tt-row inv-bubble-row"
   }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 12,
-      flexWrap: "wrap",
-      marginBottom: 8
-    }
+    className: "inv-bubble-head"
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "INVESTOR BUBBLE MAP"), h("div", {
-    className: "tt-sec-h"
-  }, "Where the long-horizon universe sits on momentum × trend")), h("div", {
-    style: {
-      display: "flex",
-      gap: 12,
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      flexWrap: "wrap"
-    }
+  }, "BUBBLE MAP"), h("h2", {
+    className: "tt-sec-h2"
+  }, "Where the long-horizon universe sits on momentum \u00d7 trend"), h("p", {
+    className: "tt-sec-sub"
+  }, `${visible.length} tickers`)), h("div", {
+    className: "inv-bubble-legend"
   }, h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#22c55e",
-      marginRight: 4
+      background: "#22c55e"
     }
   }), "Bull aligned"), h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#f5c25c",
-      marginRight: 4
+      background: "#f5c25c"
     }
   }), "Pullback"), h("span", null, h("span", {
+    className: "bdot",
     style: {
-      display: "inline-block",
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "#f43f5e",
-      marginRight: 4
+      background: "#f43f5e"
     }
   }), "Bear aligned"))), h("div", {
-    className: "tt-card",
-    style: {
-      padding: 0,
-      overflow: "hidden",
-      borderRadius: 14
-    }
+    className: "tt-card inv-bubble-card"
   }, h("div", {
-    style: {
-      height: 620,
-      position: "relative"
-    }
+    className: "inv-bubble-stage"
   }, h(SharedChart, {
     tickers: visible,
     allData: data,
@@ -265,16 +234,22 @@ function InvestorApp() {
       ...raw
     };
   }, [railTicker, data]);
+  const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const id = setInterval(() => {
+      if (window.TimedRightRail?.Overlay) {
+        setRailOverlay(() => window.TimedRightRail.Overlay);
+        clearInterval(id);
+      }
+    }, 80);
+    return () => clearInterval(id);
+  }, [RailOverlay]);
   const onSelectTicker = useCallback(sym => {
     if (!sym) return;
-    if (!window.TimedRightRail?.Overlay) {
-      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      return;
-    }
     setRailTicker(String(sym).toUpperCase());
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
-  const RailOverlay = window.TimedRightRail?.Overlay || null;
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGroup, setFilterGroup] = useState(null);
   return h(React.Fragment, null, !panelMounted && h("div", {

@@ -285,112 +285,242 @@ function SetupBreakdown({
     }, fmtUsd(r.pnl)));
   })))));
 }
-function BriefThesis({
-  brief
+function CIOWatchlist({
+  allMeta,
+  summary,
+  history
 }) {
-  if (!brief?.brief) {
+  const data = allMeta?.data || {};
+  const prettySetup = raw => {
+    if (!raw) return "Other";
+    return String(raw).replace(/^TT\s+/i, "").replace(/^Tt[\s_]+/i, "").replace(/^tt_/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim() || "Other";
+  };
+  const board = useMemo(() => {
+    const counts = {
+      setup: 0,
+      enter: 0,
+      hold: 0,
+      defend: 0,
+      trim: 0,
+      exit: 0
+    };
+    const watching = [];
+    for (const [sym, t] of Object.entries(data)) {
+      if (!t || typeof t !== "object") continue;
+      const stage = String(t.kanban_stage || "").toLowerCase();
+      switch (stage) {
+        case "setup":
+        case "setup_watch":
+        case "flip_watch":
+          counts.setup += 1;
+          watching.push({
+            sym,
+            stage,
+            t
+          });
+          break;
+        case "in_review":
+        case "enter":
+        case "enter_now":
+        case "just_flipped":
+          counts.enter += 1;
+          watching.push({
+            sym,
+            stage,
+            t
+          });
+          break;
+        case "hold":
+        case "active":
+        case "just_entered":
+          counts.hold += 1;
+          break;
+        case "defend":
+          counts.defend += 1;
+          break;
+        case "trim":
+          counts.trim += 1;
+          break;
+        case "exit":
+          counts.exit += 1;
+          break;
+      }
+    }
+    watching.sort((a, b) => {
+      const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
+      const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
+      return ra - rb;
+    });
+    return {
+      counts,
+      watching: watching.slice(0, 8)
+    };
+  }, [data]);
+  const learnings = useMemo(() => {
+    const rows = summary?.breakdown?.bySetup;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      if (!Array.isArray(history)) return null;
+      const byBucket = new Map();
+      for (const t of history) {
+        const raw = t?.setup_name || t?.entry_path || t?.entryPath || "";
+        const key = prettySetup(raw);
+        const pnl = Number(t?.pnl);
+        const closed = Number.isFinite(pnl) && (t?.exit_ts || t?.exitTs);
+        if (!closed) continue;
+        const row = byBucket.get(key) || {
+          setup: key,
+          n: 0,
+          w: 0,
+          l: 0,
+          pnl: 0
+        };
+        row.n += 1;
+        if (pnl > 0) row.w += 1;else if (pnl < 0) row.l += 1;
+        row.pnl += pnl;
+        byBucket.set(key, row);
+      }
+      const arr = Array.from(byBucket.values()).filter(r => r.n >= 5);
+      return computeLearningRanges(arr);
+    }
+    const arr = rows.map(r => ({
+      setup: prettySetup(r?.bucket || r?.setup || ""),
+      n: Number(r?.n) || 0,
+      w: Number(r?.wins) || 0,
+      l: Number(r?.losses) || 0,
+      pnl: Number(r?.pnl) || 0
+    })).filter(r => r.n >= 5);
+    return computeLearningRanges(arr);
+  }, [summary, history]);
+  if (!allMeta && !summary) {
     return h("section", {
       className: "tt-row"
     }, h("div", {
       className: "tt-sec-title"
-    }, "AI CIO COMMENTARY"), h("div", {
-      className: "tt-sec-h"
-    }, "What the model is thinking today"), h("div", {
+    }, "AI CIO WATCHLIST"), h("h2", {
+      className: "tt-sec-h2"
+    }, "What the model is hunting for"), h("div", {
       className: "tt-card tt-card-pad",
       style: {
         color: "var(--tt-text-dim)"
       }
-    }, "No brief has run yet today."));
+    }, "Loading\u2026"));
   }
-  const _now = new Date();
-  const _ny = new Date(_now.toLocaleString("en-US", {
-    timeZone: "America/New_York"
-  }));
-  const past4 = _ny.getHours() >= 16;
-  const b = past4 ? brief.brief.evening || brief.brief.morning : brief.brief.morning || brief.brief.evening;
-  if (!b) return null;
-  const headline = b?.infographic?.headline;
-  const headlineStr = (() => {
-    if (typeof headline === "string") return headline;
-    if (!headline || typeof headline !== "object") return "";
-    const parts = [];
-    if (headline.regime) parts.push(`Regime: ${String(headline.regime).replace(/_/g, " ")}`);
-    const vixNum = Number(headline.vix);
-    if (Number.isFinite(vixNum) && vixNum > 0) parts.push(`VIX ${vixNum.toFixed(2)}`);
-    if (headline.breadth && typeof headline.breadth === "object") {
-      const g = Number(headline.breadth.green);
-      const t = Number(headline.breadth.total);
-      if (Number.isFinite(g) && Number.isFinite(t) && t > 0) {
-        parts.push(`Breadth ${g}/${t} sectors green`);
-      }
-    } else if (typeof headline.breadth === "string") {
-      parts.push(`Breadth: ${headline.breadth}`);
-    }
-    const openN = Number(headline.openTrades);
-    if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open`);
-    return parts.join(" \u00b7 ");
-  })();
-  const rawContent = String(b?.content || b?.synopsis || b?.summary || "").trim();
-  const renderedHtml = (() => {
-    if (!rawContent) return "";
-    if (typeof window !== "undefined" && window.marked?.parse) {
-      try {
-        return window.marked.parse(rawContent);
-      } catch (_) {}
-    }
-    return null;
-  })();
-  const date = String(b?.date || brief?.brief?.date || "");
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "AI CIO COMMENTARY"), h("div", {
-    className: "tt-sec-h"
-  }, "What the model is thinking today" + (date ? ` · ${date}` : "")), h("div", {
-    className: "tt-card tt-card-pad"
-  }, headlineStr && h("div", {
+  }, "AI CIO WATCHLIST"), h("h2", {
+    className: "tt-sec-h2"
+  }, "What the model is hunting for and what it has learned"), h("p", {
+    className: "tt-sec-sub",
     style: {
-      fontSize: 14,
-      fontWeight: 700,
-      marginBottom: 8
+      marginBottom: 14
     }
-  }, headlineStr), renderedHtml ? h("div", {
-    className: "brief-commentary",
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.6
-    },
-    dangerouslySetInnerHTML: {
-      __html: renderedHtml
-    }
-  }) : rawContent ? h("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.6,
-      whiteSpace: "pre-wrap"
-    }
-  }, rawContent.slice(0, 800) + (rawContent.length > 800 ? "…" : "")) : h("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text-dim)",
-      fontStyle: "italic"
-    }
-  }, "Brief commentary will appear here once today's run completes."), h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-faint)",
-      marginTop: 10
-    }
-  }, h("a", {
-    href: "/daily-brief.html",
-    style: {
-      color: "var(--tt-cyan)",
-      textDecoration: "underline"
-    }
-  }, "Read the full brief →"))));
+  }, "Every closed trade feeds back into setup-level scoring. Patterns that work get more weight; patterns that don't get tightened or sidelined. This is the live read of that loop."), h("div", {
+    className: "cio-grid"
+  }, h("div", {
+    className: "cio-card"
+  }, h("div", {
+    className: "cio-card-l"
+  }, "Active board"), h("div", {
+    className: "cio-pipeline"
+  }, h("span", {
+    className: "cio-stage cio-stage--setup"
+  }, "Setup ", h("strong", null, board.counts.setup)), h("span", {
+    className: "cio-stage cio-stage--enter"
+  }, "In Review ", h("strong", null, board.counts.enter)), h("span", {
+    className: "cio-stage cio-stage--hold"
+  }, "Hold ", h("strong", null, board.counts.hold)), h("span", {
+    className: "cio-stage cio-stage--defend"
+  }, "Defend ", h("strong", null, board.counts.defend)), h("span", {
+    className: "cio-stage cio-stage--trim"
+  }, "Trim ", h("strong", null, board.counts.trim)), h("span", {
+    className: "cio-stage cio-stage--exit"
+  }, "Exit ", h("strong", null, board.counts.exit))), h("p", {
+    className: "cio-card-sub"
+  }, `${board.counts.hold + board.counts.defend + board.counts.trim} live position${board.counts.hold + board.counts.defend + board.counts.trim === 1 ? "" : "s"}. `, `${board.counts.setup + board.counts.enter} setup${board.counts.setup + board.counts.enter === 1 ? "" : "s"} on deck.`)), h("div", {
+    className: "cio-card"
+  }, h("div", {
+    className: "cio-card-l"
+  }, "Watching for entry"), board.watching.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "No setups awaiting confirmation right now.") : h("div", {
+    className: "cio-watch-list"
+  }, board.watching.map(({
+    sym,
+    stage,
+    t
+  }) => {
+    const setup = prettySetup(t?.setup_name || t?.entry_path || "");
+    const rank = Number(t?.rank_position) || null;
+    const rr = Number(t?.rr) || null;
+    const dir = String(t?.state || "").startsWith("HTF_BULL") ? "LONG" : String(t?.state || "").startsWith("HTF_BEAR") ? "SHORT" : "";
+    return h("a", {
+      key: sym,
+      href: `/active-trader.html?ticker=${encodeURIComponent(sym)}`,
+      className: "cio-watch-row"
+    }, h("span", {
+      className: "cio-watch-sym"
+    }, sym), dir && h("span", {
+      className: `cio-watch-dir ${dir === "LONG" ? "up" : "dn"}`
+    }, dir), setup && h("span", {
+      className: "cio-watch-setup"
+    }, setup), rank != null && h("span", {
+      className: "cio-watch-rank"
+    }, `R${rank}`), rr != null && h("span", {
+      className: "cio-watch-rr"
+    }, `${rr.toFixed(1)}R`));
+  }))), h("div", {
+    className: "cio-card cio-card--learnings"
+  }, h("div", {
+    className: "cio-card-l"
+  }, "Recent learnings"), !learnings || learnings.best.length === 0 && learnings.worst.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "Need at least 5 closed trades per setup before the CIO has a read.") : h("div", {
+    className: "cio-learn-grid"
+  }, h("div", null, h("div", {
+    className: "cio-learn-h cio-learn-h--up"
+  }, "Paying off"), learnings.best.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "No setup has a clear edge yet.") : learnings.best.map(r => h("div", {
+    key: r.setup,
+    className: "cio-learn-row"
+  }, h("span", {
+    className: "cio-learn-name"
+  }, r.setup), h("span", {
+    className: "cio-learn-stats"
+  }, h("strong", {
+    className: "up"
+  }, `${r.pnl >= 0 ? "+" : "-"}$${Math.abs(r.pnl).toFixed(0)}`), h("span", {
+    className: "cio-learn-wr"
+  }, `${(r.w / Math.max(1, r.n) * 100).toFixed(0)}% · n=${r.n}`))))), h("div", null, h("div", {
+    className: "cio-learn-h cio-learn-h--dn"
+  }, "Getting tightened"), learnings.worst.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "Nothing is bleeding.") : learnings.worst.map(r => h("div", {
+    key: r.setup,
+    className: "cio-learn-row"
+  }, h("span", {
+    className: "cio-learn-name"
+  }, r.setup), h("span", {
+    className: "cio-learn-stats"
+  }, h("strong", {
+    className: "dn"
+  }, `${r.pnl >= 0 ? "+" : "-"}$${Math.abs(r.pnl).toFixed(0)}`), h("span", {
+    className: "cio-learn-wr"
+  }, `${(r.w / Math.max(1, r.n) * 100).toFixed(0)}% · n=${r.n}`)))))))));
+}
+function computeLearningRanges(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return {
+    best: [],
+    worst: []
+  };
+  const best = rows.filter(r => r.pnl > 0).sort((a, b) => b.pnl - a.pnl).slice(0, 4);
+  const worst = rows.filter(r => r.pnl < 0).sort((a, b) => a.pnl - b.pnl).slice(0, 4);
+  return {
+    best,
+    worst
+  };
 }
 function UniverseChanges({
   events
@@ -585,8 +715,10 @@ function InsightsApp() {
     allMeta,
     history,
     summary
-  }), h(BriefThesis, {
-    brief
+  }), h(CIOWatchlist, {
+    allMeta,
+    summary,
+    history
   }), h("section", {
     className: "tt-row"
   }, h("div", {

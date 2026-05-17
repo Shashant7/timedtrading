@@ -10,13 +10,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-inv4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
-    <script src="tt-nav-extras.js?v=20260517a" defer></script>
+    <script src="tt-nav-extras.js?v=20260517b" defer></script>
+    <script src="tt-activity-strip.js?v=20260517a" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260517a"></script>
@@ -205,10 +207,49 @@
         cursor: not-allowed;
       }
 
-      /* Bubble map row at the bottom of the page */
-      .inv-bubble-row { margin-top: 32px; }
+      /* Bubble map row at the bottom of the page — match AT sizing
+         + heading typography exactly so the rhythm is consistent
+         across the journey pages. */
+      .inv-bubble-row { margin-top: 40px; }
+      .inv-bubble-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin-bottom: 14px;
+      }
+      .inv-bubble-legend {
+        display: flex;
+        gap: 14px;
+        font-size: 11.5px;
+        color: var(--tt-text-muted);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .inv-bubble-legend .bdot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+      .inv-bubble-card {
+        padding: 0;
+        overflow: hidden;
+        border-radius: 14px;
+      }
+      .inv-bubble-stage {
+        position: relative;
+        height: min(82vh, 900px);
+        min-height: 600px;
+      }
+      @media (max-width: 1024px) {
+        .inv-bubble-stage { height: 70vh; min-height: 520px; }
+      }
       @media (max-width: 720px) {
-        .inv-bubble-row .tt-card > div { height: 460px !important; }
+        .inv-bubble-stage { height: 70vh; min-height: 460px; }
       }
       @media (max-width: 720px) {
         .inv-hero { grid-template-columns: 1fr; }
@@ -268,7 +309,7 @@
       </main>
     </div>
 
-    <script src="investor.compiled.19ffa426df.js"></script>
+    <script src="investor.compiled.0e609ec2d3.js"></script>
 
     <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
