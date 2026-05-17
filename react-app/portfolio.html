@@ -1,0 +1,810 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Portfolio — Timed Trading</title>
+    <meta name="description" content="Active Trader + Investor equity curves, open positions, trade history, and month-by-month P&L." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-port1" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260516a"></script>
+    <script src="shared-price-utils.js?v=20260304a"></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.025);
+        --tt-bg-elev: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.06);
+        --tt-border-hi: rgba(255,255,255,0.12);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #9ca3af;
+        --tt-text-dim: #6b7280;
+        --tt-text-faint: #4b5563;
+        --tt-up: #22c55e;
+        --tt-up-soft: #34d399;
+        --tt-up-bg: rgba(34,197,94,0.10);
+        --tt-dn: #f43f5e;
+        --tt-dn-soft: #fb7185;
+        --tt-dn-bg: rgba(244,63,94,0.10);
+        --tt-accent: #f5c25c;
+        --tt-accent-dim: rgba(245,194,92,0.14);
+        --tt-violet: #a78bfa;
+        --tt-violet-dim: rgba(167,139,250,0.14);
+        --tt-cyan: #22d3ee;
+        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+        margin: 0;
+        min-height: 100vh;
+      }
+      main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
+      @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
+      .tt-row { margin-bottom: 28px; }
+      @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .tt-card-pad { padding: 16px 18px; }
+      .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
+
+      /* Top nav */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px;
+        color: var(--tt-text-muted);
+        text-decoration: none;
+        padding: 6px 12px;
+        border-radius: 8px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .nav-link:hover { color: var(--tt-text); background: var(--tt-bg-surface); }
+      .nav-link.active {
+        color: var(--tt-accent);
+        background: var(--tt-accent-dim);
+      }
+      .nav-link.learn { color: var(--tt-up-soft); }
+      .nav-link.learn:hover { background: var(--tt-up-bg); }
+
+      /* Hero */
+      .port-hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        padding: 18px 22px;
+        background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
+        border: 1px solid var(--tt-border);
+        border-radius: 14px;
+        margin-bottom: 24px;
+      }
+      .port-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .port-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .port-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
+      @media (max-width: 720px) {
+        .port-hero { grid-template-columns: 1fr; }
+        .port-hero h1 { font-size: 18px; }
+      }
+
+      /* Equity curve cards */
+      .eq-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 1100px) { .eq-grid { grid-template-columns: 1fr; } }
+      .eq-card {
+        padding: 16px 18px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 14px;
+      }
+      .eq-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+      .eq-title { font-size: 14px; font-weight: 800; color: var(--tt-text); }
+      .eq-sub { font-size: 11px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+      .eq-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin: 14px 0;
+      }
+      @media (max-width: 640px) { .eq-stats { grid-template-columns: 1fr 1fr; } }
+      .eq-stat {
+        padding: 10px 12px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+      }
+      .eq-stat-label { font-size: 10px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+      .eq-stat-value { font-size: 18px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .eq-stat-value.up { color: var(--tt-up-soft); }
+      .eq-stat-value.dn { color: var(--tt-dn-soft); }
+      .eq-chart {
+        position: relative;
+        height: 240px;
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        overflow: hidden;
+      }
+      .eq-chart svg { display: block; width: 100%; height: 100%; }
+      .eq-tooltip {
+        position: absolute;
+        pointer-events: none;
+        padding: 6px 8px;
+        background: rgba(10,12,16,0.96);
+        border: 1px solid var(--tt-border-hi);
+        border-radius: 6px;
+        font-size: 10.5px;
+        line-height: 1.4;
+        font-family: var(--tt-font-mono);
+        color: var(--tt-text);
+        white-space: nowrap;
+        z-index: 5;
+      }
+
+      /* Monthly P&L bars */
+      .pl-row {
+        display: grid;
+        grid-template-columns: 80px 1fr 90px;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .pl-row:last-child { border-bottom: 0; }
+      .pl-month { font-size: 12px; font-weight: 600; color: var(--tt-text); font-family: var(--tt-font-mono); }
+      .pl-bar-track {
+        position: relative;
+        height: 10px;
+        background: var(--tt-bg-elev);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .pl-bar {
+        position: absolute;
+        top: 0; bottom: 0;
+        border-radius: 6px;
+      }
+      .pl-bar.up { background: var(--tt-up); }
+      .pl-bar.dn { background: var(--tt-dn); }
+      .pl-amt { text-align: right; font-size: 13px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .pl-amt.up { color: var(--tt-up-soft); }
+      .pl-amt.dn { color: var(--tt-dn-soft); }
+
+      /* Tables */
+      .tbl { width: 100%; border-collapse: collapse; }
+      .tbl th, .tbl td {
+        padding: 10px 12px;
+        text-align: left;
+        font-size: 12.5px;
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .tbl th {
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        background: var(--tt-bg-elev);
+      }
+      .tbl td { font-family: var(--tt-font-mono); color: var(--tt-text); }
+      .tbl td.sym { font-weight: 700; font-family: var(--tt-font); }
+      .tbl td.up { color: var(--tt-up-soft); }
+      .tbl td.dn { color: var(--tt-dn-soft); }
+      .tbl tr:hover td { background: rgba(255,255,255,0.018); }
+      .tbl .empty {
+        text-align: center;
+        color: var(--tt-text-faint);
+        font-style: italic;
+        font-family: var(--tt-font);
+        padding: 28px 12px;
+      }
+      .tbl-scroll {
+        max-height: 480px;
+        overflow-y: auto;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      .tbl-scroll::-webkit-scrollbar { width: 6px; }
+      .tbl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
+
+      .mode-toggle {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 999px;
+      }
+      .mode-toggle button {
+        font-family: var(--tt-font);
+        font-size: 11.5px;
+        font-weight: 600;
+        padding: 5px 12px;
+        background: transparent;
+        color: var(--tt-text-muted);
+        border: 0;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .mode-toggle button.active {
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        box-shadow: 0 0 0 1px var(--tt-border-hi);
+      }
+
+      /* Loading bar + skeletons */
+      .tt-loadbar {
+        position: fixed; top: 0; left: 0; right: 0;
+        height: 2px;
+        background: rgba(245,194,92,0.12);
+        z-index: 9000;
+        overflow: hidden;
+      }
+      .tt-loadbar::after {
+        content: "";
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, var(--tt-accent), transparent);
+        animation: tt-loadbar 1.4s ease-in-out infinite;
+      }
+      @keyframes tt-loadbar { 0% { left: -30%; } 100% { left: 100%; } }
+      .sk {
+        background: linear-gradient(90deg, var(--tt-bg-surface), var(--tt-bg-elev), var(--tt-bg-surface));
+        background-size: 200% 100%;
+        animation: sk 1.6s ease-in-out infinite;
+        border-radius: 6px;
+      }
+      @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    </style>
+  </head>
+  <body>
+    <nav class="topnav">
+      <div class="nav-row">
+        <a href="/today.html" class="nav-brand">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+          Timed Trading
+        </a>
+        <div class="nav-links">
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
+          <a href="/investor.html" class="nav-link">Investor</a>
+          <a href="/portfolio.html" class="nav-link active">Portfolio</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
+        </div>
+      </div>
+    </nav>
+
+    <div id="root">
+      <main>
+        <div class="tt-card tt-card-pad" style="text-align:center;color:var(--tt-text-muted)">Loading Portfolio…</div>
+      </main>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo } = React;
+      const h = React.createElement;
+      const API_BASE = "";
+
+      // ── Format helpers ──────────────────────────────────────────
+      const fmtUsd  = (n) => Number.isFinite(n)
+        ? `$${Math.round(n).toLocaleString("en-US")}`
+        : "—";
+      const fmtUsdDec = (n) => Number.isFinite(n)
+        ? `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`
+        : "—";
+      const fmtPct  = (n, decimals = 2) => Number.isFinite(n)
+        ? `${n >= 0 ? "+" : ""}${n.toFixed(decimals)}%`
+        : "—";
+      const fmtDate = (d) => {
+        if (!d) return "—";
+        if (typeof d === "number") d = new Date(d).toISOString().slice(0, 10);
+        return String(d).slice(0, 10);
+      };
+      const fmtMonth = (yyyymm) => {
+        const [y, m] = String(yyyymm).split("-");
+        const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        return `${names[Number(m) - 1] || "?"} ${y}`;
+      };
+
+      // ── Fetch helpers ──────────────────────────────────────────
+      async function fetchEquityCurve() {
+        const ts = Date.now();
+        try {
+          const r = await fetch(`${API_BASE}/timed/portfolio/equity-curve?mode=both&_t=${ts}`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+      async function fetchPositions() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+      async function fetchHistory() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/ledger/trades?limit=200`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+
+      // ── EquityChart — SVG line chart with hover crosshair.
+      // Points: [{date, equity, dayPnl, drawdownPct, ...}].
+      function EquityChart({ points, color = "#34d399" }) {
+        const [hover, setHover] = useState(null);
+        const stageRef = React.useRef(null);
+
+        const dims = { w: 600, h: 220, padL: 50, padR: 12, padT: 12, padB: 28 };
+        const plotW = dims.w - dims.padL - dims.padR;
+        const plotH = dims.h - dims.padT - dims.padB;
+
+        const { minEq, maxEq, line, area, xs, ys, lastIdx } = useMemo(() => {
+          if (!points || points.length === 0) return { minEq: 0, maxEq: 0, line: "", area: "", xs: [], ys: [], lastIdx: -1 };
+          const eqs = points.map((p) => Number(p.equity) || 0);
+          let lo = Math.min(...eqs);
+          let hi = Math.max(...eqs);
+          if (lo === hi) { lo -= 1; hi += 1; }
+          const pad = (hi - lo) * 0.06;
+          lo -= pad; hi += pad;
+          const x = (i) => dims.padL + (i / Math.max(1, points.length - 1)) * plotW;
+          const y = (v) => dims.padT + ((hi - v) / (hi - lo)) * plotH;
+          const xs = points.map((_, i) => x(i));
+          const ys = points.map((p) => y(Number(p.equity) || 0));
+          const line = points.map((_, i) => `${i === 0 ? "M" : "L"} ${xs[i].toFixed(2)} ${ys[i].toFixed(2)}`).join(" ");
+          const area = `${line} L ${xs[xs.length - 1].toFixed(2)} ${(dims.padT + plotH).toFixed(2)} L ${xs[0].toFixed(2)} ${(dims.padT + plotH).toFixed(2)} Z`;
+          return { minEq: lo, maxEq: hi, line, area, xs, ys, lastIdx: points.length - 1 };
+        }, [points]);
+
+        const onMove = (e) => {
+          const svg = stageRef.current;
+          if (!svg || !xs.length) return;
+          const rect = svg.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width) * dims.w;
+          // Find nearest point
+          let idx = 0, best = Infinity;
+          for (let i = 0; i < xs.length; i++) {
+            const d = Math.abs(xs[i] - x);
+            if (d < best) { best = d; idx = i; }
+          }
+          setHover({ idx, x: xs[idx], y: ys[idx] });
+        };
+
+        if (!points || points.length < 2) {
+          return h("div", { className: "eq-chart", style: { display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tt-text-faint)", fontSize: 12 } },
+            "Not enough data points yet.",
+          );
+        }
+
+        const tooltipPx = hover ? (hover.x / dims.w) * 100 : 0;
+        const hoverPoint = hover ? points[hover.idx] : null;
+
+        return h("div", { className: "eq-chart" },
+          h("svg", {
+            ref: stageRef,
+            viewBox: `0 0 ${dims.w} ${dims.h}`,
+            preserveAspectRatio: "none",
+            onMouseMove: onMove,
+            onMouseLeave: () => setHover(null),
+          },
+            h("defs", null,
+              h("linearGradient", { id: "eq-fill", x1: "0", y1: "0", x2: "0", y2: "1" },
+                h("stop", { offset: "0%",   stopColor: color, stopOpacity: "0.25" }),
+                h("stop", { offset: "100%", stopColor: color, stopOpacity: "0" }),
+              ),
+            ),
+            // Y-axis gridlines (4 ticks)
+            [0, 0.25, 0.5, 0.75, 1].map((f, i) => {
+              const v = minEq + (1 - f) * (maxEq - minEq);
+              const y = dims.padT + f * plotH;
+              return h(React.Fragment, { key: i },
+                h("line", {
+                  x1: dims.padL, x2: dims.padL + plotW,
+                  y1: y, y2: y,
+                  stroke: "rgba(255,255,255,0.04)", strokeWidth: 1,
+                }),
+                h("text", {
+                  x: dims.padL - 6, y: y + 3,
+                  textAnchor: "end",
+                  fontSize: 10, fontFamily: "var(--tt-font-mono)",
+                  fill: "#6b7280",
+                }, fmtUsd(v)),
+              );
+            }),
+            // Area + line
+            h("path", { d: area, fill: "url(#eq-fill)" }),
+            h("path", { d: line, fill: "none", stroke: color, strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" }),
+            // Hover crosshair + dot
+            hover && h("line", {
+              x1: hover.x, x2: hover.x,
+              y1: dims.padT, y2: dims.padT + plotH,
+              stroke: "rgba(255,255,255,0.15)", strokeWidth: 1, strokeDasharray: "3 3",
+            }),
+            hover && h("circle", {
+              cx: hover.x, cy: hover.y, r: 3.5,
+              fill: color, stroke: "var(--tt-bg-base)", strokeWidth: 1.5,
+            }),
+          ),
+          hover && hoverPoint && h("div", {
+            className: "eq-tooltip",
+            style: { left: `${tooltipPx}%`, top: 6, transform: tooltipPx > 60 ? "translateX(-100%)" : "translateX(8px)" },
+          },
+            h("div", { style: { fontWeight: 700, marginBottom: 2 } }, fmtDate(hoverPoint.date)),
+            h("div", null, "Equity: ", h("strong", null, fmtUsd(hoverPoint.equity))),
+            Number.isFinite(Number(hoverPoint.dayPnl)) && h("div", {
+              style: { color: hoverPoint.dayPnl >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" },
+            }, "Day PnL: ", `${hoverPoint.dayPnl >= 0 ? "+" : "-"}${fmtUsd(Math.abs(hoverPoint.dayPnl))}`),
+            Number.isFinite(Number(hoverPoint.drawdownPct)) && h("div", {
+              style: { color: "var(--tt-text-muted)" },
+            }, "DD: ", fmtPct(hoverPoint.drawdownPct)),
+          ),
+        );
+      }
+
+      // ── EquityCurveCard — header + 4 stats + chart.
+      function EquityCurveCard({ title, sub, color, payload }) {
+        const points = payload?.points || [];
+        const sm = payload?.summary || {};
+        const totalRet = Number(sm.totalReturnPct);
+        const maxDd   = Number(sm.maxDrawdownPct);
+        const sharpe  = Number(sm.sharpe);
+        return h("section", { className: "eq-card" },
+          h("div", { className: "eq-header" },
+            h("div", null,
+              h("div", { className: "eq-sub" }, sub),
+              h("div", { className: "eq-title" }, title),
+            ),
+            h("div", { style: { fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", fontSize: 11 } },
+              points.length > 0 ? `${fmtDate(points[0].date)} → ${fmtDate(points[points.length - 1].date)}` : "—",
+            ),
+          ),
+          h("div", { className: "eq-stats" },
+            h("div", { className: "eq-stat" },
+              h("div", { className: "eq-stat-label" }, "Equity"),
+              h("div", { className: "eq-stat-value" }, fmtUsd(sm.endEquity)),
+            ),
+            h("div", { className: "eq-stat" },
+              h("div", { className: "eq-stat-label" }, "Total Return"),
+              h("div", { className: `eq-stat-value ${totalRet >= 0 ? "up" : "dn"}` }, fmtPct(totalRet)),
+            ),
+            h("div", { className: "eq-stat" },
+              h("div", { className: "eq-stat-label" }, "Max Drawdown"),
+              h("div", { className: "eq-stat-value dn" }, fmtPct(maxDd)),
+            ),
+            h("div", { className: "eq-stat" },
+              h("div", { className: "eq-stat-label" }, "Sharpe"),
+              h("div", { className: "eq-stat-value" }, Number.isFinite(sharpe) ? sharpe.toFixed(2) : "—"),
+            ),
+          ),
+          h(EquityChart, { points, color }),
+        );
+      }
+
+      // ── MonthlyPnL — bar list grouped from equity-curve points.
+      function MonthlyPnL({ traderPoints, investorPoints, mode }) {
+        const points = mode === "trader" ? traderPoints : investorPoints;
+        const months = useMemo(() => {
+          if (!Array.isArray(points) || points.length === 0) return [];
+          const byMonth = new Map();
+          for (const p of points) {
+            const key = String(p.date).slice(0, 7);
+            const cur = byMonth.get(key) || { month: key, pnl: 0, days: 0 };
+            cur.pnl += Number(p.dayPnl) || 0;
+            cur.days += 1;
+            byMonth.set(key, cur);
+          }
+          return Array.from(byMonth.values()).sort((a, b) => a.month < b.month ? 1 : -1);
+        }, [points]);
+        const maxAbs = useMemo(() => months.reduce((m, x) => Math.max(m, Math.abs(x.pnl)), 1), [months]);
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "MONTHLY P&L"),
+          h("div", { className: "tt-sec-h" },
+            mode === "trader" ? "Active Trader" : "Investor",
+            " — month-by-month realized P&L",
+          ),
+          h("div", { className: "tt-card tt-card-pad" },
+            months.length === 0
+              ? h("div", { className: "tbl empty" }, "No monthly P&L yet.")
+              : months.map((m) => {
+                  const pct = Math.min(100, (Math.abs(m.pnl) / maxAbs) * 100);
+                  const up = m.pnl >= 0;
+                  return h("div", { key: m.month, className: "pl-row" },
+                    h("div", { className: "pl-month" }, fmtMonth(m.month)),
+                    h("div", { className: "pl-bar-track" },
+                      h("div", {
+                        className: `pl-bar ${up ? "up" : "dn"}`,
+                        style: {
+                          width: `${pct}%`,
+                          left: up ? "50%" : `${50 - pct}%`,
+                          opacity: 0.85,
+                        },
+                      }),
+                      h("div", { style: {
+                        position: "absolute",
+                        left: "50%", top: 0, bottom: 0,
+                        width: 1, background: "rgba(255,255,255,0.10)",
+                      } }),
+                    ),
+                    h("div", { className: `pl-amt ${up ? "up" : "dn"}` },
+                      `${up ? "+" : "-"}${fmtUsd(Math.abs(m.pnl))}`,
+                    ),
+                  );
+                }),
+          ),
+        );
+      }
+
+      // ── OpenPositions — current open trades.
+      function OpenPositions({ trades }) {
+        const rows = useMemo(() => {
+          if (!Array.isArray(trades)) return [];
+          return trades
+            .filter((t) => {
+              const s = String(t?.status || "").toUpperCase();
+              return s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
+            })
+            .sort((a, b) => Number(b?.entry_ts || b?.entryTs || 0) - Number(a?.entry_ts || a?.entryTs || 0));
+        }, [trades]);
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
+          h("div", { className: "tt-sec-h" }, "Currently held by the model"),
+          h("div", { className: "tbl-scroll" },
+            h("table", { className: "tbl" },
+              h("thead", null,
+                h("tr", null,
+                  h("th", null, "Ticker"),
+                  h("th", null, "Direction"),
+                  h("th", null, "Entry"),
+                  h("th", null, "Entry Date"),
+                  h("th", null, "Stop"),
+                  h("th", null, "Take Profit"),
+                  h("th", null, "Status"),
+                ),
+              ),
+              h("tbody", null,
+                rows.length === 0
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 7 }, "No open positions."))
+                  : rows.map((t) => {
+                      const sym = String(t?.ticker || "").toUpperCase();
+                      const dir = String(t?.direction || "").toUpperCase();
+                      const isLong = dir === "LONG";
+                      return h("tr", { key: `${sym}-${t.entry_ts || t.entryTs || sym}` },
+                        h("td", { className: "sym", onClick: () => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; }, style: { cursor: "pointer" } }, sym),
+                        h("td", { className: isLong ? "up" : "dn" }, dir || "—"),
+                        h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))),
+                        h("td", null, fmtDate(Number(t?.entry_ts ?? t?.entryTs))),
+                        h("td", null, fmtUsdDec(Number(t?.sl ?? t?.stop_loss))),
+                        h("td", null, fmtUsdDec(Number(t?.tp ?? t?.take_profit))),
+                        h("td", null, String(t?.status || "OPEN").toUpperCase()),
+                      );
+                    }),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ── TradeHistory — closed trades (most recent first).
+      function TradeHistory({ trades }) {
+        const rows = useMemo(() => {
+          if (!Array.isArray(trades)) return [];
+          return trades
+            .filter((t) => {
+              const s = String(t?.status || "").toUpperCase();
+              return s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+            })
+            .sort((a, b) => Number(b?.exit_ts || b?.exitTs || 0) - Number(a?.exit_ts || a?.exitTs || 0));
+        }, [trades]);
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
+          h("div", { className: "tt-sec-h" }, "Recent closed trades"),
+          h("div", { className: "tbl-scroll" },
+            h("table", { className: "tbl" },
+              h("thead", null,
+                h("tr", null,
+                  h("th", null, "Ticker"),
+                  h("th", null, "Dir"),
+                  h("th", null, "Entry"),
+                  h("th", null, "Exit"),
+                  h("th", null, "Open"),
+                  h("th", null, "Close"),
+                  h("th", null, "Realized $"),
+                  h("th", null, "Realized %"),
+                  h("th", null, "Result"),
+                ),
+              ),
+              h("tbody", null,
+                rows.length === 0
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 9 }, "No closed trades yet."))
+                  : rows.slice(0, 100).map((t) => {
+                      const sym = String(t?.ticker || "").toUpperCase();
+                      const dir = String(t?.direction || "").toUpperCase();
+                      const isLong = dir === "LONG";
+                      const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
+                      const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
+                      const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
+                      return h("tr", { key: `${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}` },
+                        h("td", { className: "sym", onClick: () => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; }, style: { cursor: "pointer" } }, sym),
+                        h("td", { className: isLong ? "up" : "dn" }, dir || "—"),
+                        h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))),
+                        h("td", null, fmtUsdDec(Number(t?.exit_price ?? t?.exitPrice))),
+                        h("td", null, fmtDate(Number(t?.entry_ts ?? t?.entryTs))),
+                        h("td", null, fmtDate(Number(t?.exit_ts ?? t?.exitTs))),
+                        h("td", { className: realized >= 0 ? "up" : "dn" },
+                          Number.isFinite(realized) ? `${realized >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(realized))}` : "—",
+                        ),
+                        h("td", { className: realizedPct >= 0 ? "up" : "dn" }, fmtPct(realizedPct)),
+                        h("td", { className: result === "WIN" ? "up" : result === "LOSS" ? "dn" : "" }, result),
+                      );
+                    }),
+              ),
+            ),
+          ),
+        );
+      }
+
+      // ── PortfolioApp ────────────────────────────────────────────
+      function PortfolioApp() {
+        const [eq, setEq] = useState(null);
+        const [positions, setPositions] = useState(null);
+        const [history, setHistory] = useState(null);
+        const [monthlyMode, setMonthlyMode] = useState("trader");
+        const [error, setError] = useState(null);
+
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const [e, p, h_] = await Promise.all([
+                fetchEquityCurve(),
+                fetchPositions(),
+                fetchHistory(),
+              ]);
+              if (!alive) return;
+              if (e?.ok) setEq(e); else setError("Failed to load equity curve");
+              if (p?.ok) setPositions(p.trades || []);
+              if (h_?.ok) setHistory(h_.trades || []);
+            } catch (err) { if (alive) setError(String(err?.message || err)); }
+          })();
+          return () => { alive = false; };
+        }, []);
+
+        if (error && !eq) {
+          return h("main", null,
+            h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-dn-soft)" } },
+              "Couldn't load Portfolio: " + error,
+            ),
+          );
+        }
+
+        const loading = !eq && !error;
+
+        const traderPayload   = eq?.trader   || null;
+        const investorPayload = eq?.investor || null;
+
+        return h(React.Fragment, null,
+          loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Portfolio" }),
+          h("main", null,
+            h("section", { className: "port-hero" },
+              h("div", null,
+                h("div", { className: "label" }, "PORTFOLIO"),
+                h("h1", null, "How the model is performing"),
+                h("div", { className: "sub" },
+                  "Both modes track a $100,000 paper-capital starting balance. Equity curves, max drawdown, and Sharpe ratio are computed from the daily portfolio snapshots stored after each scoring run.",
+                ),
+              ),
+            ),
+            // Equity curves — side by side
+            h("section", { className: "tt-row" },
+              h("div", { className: "tt-sec-title" }, "EQUITY CURVES"),
+              h("div", { className: "tt-sec-h" }, "Active Trader vs Investor mode"),
+              loading
+                ? h("div", { className: "eq-grid" },
+                    [0, 1].map((i) => h("div", { key: i, className: "sk", style: { height: 360, borderRadius: 14 } })),
+                  )
+                : h("div", { className: "eq-grid" },
+                    h(EquityCurveCard, {
+                      title: "Active Trader",
+                      sub: "Swing — 1 to 10 day holds",
+                      color: "#34d399",
+                      payload: traderPayload,
+                    }),
+                    h(EquityCurveCard, {
+                      title: "Investor",
+                      sub: "Long-horizon — weeks to months",
+                      color: "#a78bfa",
+                      payload: investorPayload,
+                    }),
+                  ),
+            ),
+            // Open positions
+            positions
+              ? h(OpenPositions, { trades: positions })
+              : h("section", { className: "tt-row" },
+                  h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
+                  h("div", { className: "tt-sec-h" }, "Currently held by the model"),
+                  h("div", { className: "sk", style: { height: 200, borderRadius: 12 } }),
+                ),
+            // Monthly P&L with mode toggle
+            !loading && h("section", { className: "tt-row" },
+              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 } },
+                h("div", null,
+                  h("div", { className: "tt-sec-title" }, "MONTHLY P&L"),
+                  h("div", { className: "tt-sec-h", style: { margin: 0 } }, monthlyMode === "trader" ? "Active Trader" : "Investor"),
+                ),
+                h("div", { className: "mode-toggle" },
+                  h("button", { className: monthlyMode === "trader" ? "active" : "", onClick: () => setMonthlyMode("trader") }, "Active Trader"),
+                  h("button", { className: monthlyMode === "investor" ? "active" : "", onClick: () => setMonthlyMode("investor") }, "Investor"),
+                ),
+              ),
+              h(MonthlyPnL, {
+                traderPoints:   traderPayload?.points   || [],
+                investorPoints: investorPayload?.points || [],
+                mode: monthlyMode,
+              }),
+            ),
+            // Trade history
+            history
+              ? h(TradeHistory, { trades: history })
+              : h("section", { className: "tt-row" },
+                  h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
+                  h("div", { className: "tt-sec-h" }, "Recent closed trades"),
+                  h("div", { className: "sk", style: { height: 200, borderRadius: 12 } }),
+                ),
+          ),
+        );
+      }
+
+      // ── Mount with auth gate ───────────────────────────────────
+      const AuthGate = window.TimedAuthGate;
+      const app = AuthGate
+        ? <AuthGate apiBase={API_BASE} requiredTier="pro">{(user) => <PortfolioApp user={user} />}</AuthGate>
+        : <PortfolioApp />;
+      ReactDOM.createRoot(document.getElementById("root")).render(app);
+    </script>
+
+    <footer id="legal-footer" style="position:fixed;bottom:0;left:0;right:0;z-index:9999;background:rgba(10,10,15,0.92);backdrop-filter:blur(6px);border-top:1px solid rgba(255,255,255,0.06);padding:6px 16px;text-align:center;font-size:10px;color:#6b7280;line-height:1.4;">
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+    </footer>
+  </body>
+</html>
