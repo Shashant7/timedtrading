@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today1" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -261,8 +261,29 @@
         flex-wrap: wrap;
         margin-bottom: 18px;
       }
-      .ac-head .ac-meta { font-size: 12px; color: var(--tt-text-dim); font-family: var(--tt-font-mono); }
+      .ac-head .ac-meta {
+        font-size: 12px;
+        color: var(--tt-text-dim);
+        font-family: var(--tt-font-mono);
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+      }
       .ac-head .ac-meta strong { color: var(--tt-text); }
+      .ac-clear {
+        font-family: var(--tt-font);
+        font-size: 11.5px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--tt-accent);
+        background: var(--tt-accent-dim);
+        border: 1px solid rgba(245,194,92,0.30);
+        border-radius: 999px;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .ac-clear:hover { background: rgba(245,194,92,0.22); border-color: rgba(245,194,92,0.55); }
       .ac-search {
         display: flex;
         align-items: center;
@@ -1497,8 +1518,13 @@
       // TodayApp level so Bubble Map + Heat Map + Viewport all agree.
       function applyFilters(tickers, f, chips) {
         const q = String(f?.query || "").trim().toUpperCase();
-        const activeId = f?.activeChip || "focus";
-        const chip = (chips || []).find((c) => c.id === activeId);
+        const activeId = f?.activeChip || null;
+        // Null / "all" / "__cleared__" → no chip narrowing, show every ticker.
+        // This is what the Clear Filters button resets to, mirroring AT's
+        // "Clear filter" pill behaviour.
+        const chip = activeId && activeId !== "all"
+          ? (chips || []).find((c) => c.id === activeId)
+          : null;
         const chipSet = chip && Array.isArray(chip.tickers) && chip.tickers.length > 0
           ? new Set(chip.tickers.map((s) => TT_NORM_TICKER(s)))
           : null;
@@ -1521,6 +1547,14 @@
         const { query, activeChip } = filters;
         const setQ = (v) => setFilters((f) => ({ ...f, query: v }));
         const setChip = (id) => setFilters((f) => ({ ...f, activeChip: id }));
+        // Clear filters → bypass chip narrowing (activeChip = "all" is the
+        // explicit "no chip" sentinel that applyFilters interprets as "show
+        // every ticker") and wipe the search text. Mirrors AT's
+        // "Clear filter" pill behaviour (visible top-right of the analysis
+        // controls in the AT screenshot).
+        const clearAll = () => setFilters({ activeChip: "all", query: "" });
+        const isCleared = activeChip === "all" || activeChip == null;
+        const isFiltered = !isCleared || String(query || "").trim().length > 0;
 
         const rows = useMemo(() => {
           const byRow = { focus: [], momentum: [], structure: [], context: [] };
@@ -1560,7 +1594,14 @@
               h("div", { className: "tt-sec-h" }, "Find what is moving — filter both views below"),
             ),
             h("div", { className: "ac-meta" },
-              h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers",
+              isFiltered && h("button", {
+                className: "ac-clear",
+                onClick: clearAll,
+                title: "Clear active chip + search · show every ticker",
+              }, "✕ Clear filters"),
+              h("span", null,
+                h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers",
+              ),
             ),
           ),
           h("div", { className: "ac-search" },
@@ -2283,12 +2324,15 @@
         const [error, setError] = useState(null);
 
         // Unified analysis filter state — controls Bubble Map + Heat Map + Viewport.
-        // `activeChip` mirrors Active Trader's single-active-chip model
-        // (Focus is default). When the user types in `query`, results
-        // additionally narrow.
+        // `activeChip = "all"` is the cleared / no-chip state (show every
+        // ticker). The Focus chip is still available + visually marked
+        // as the default suggestion, but defaulting to it on initial load
+        // narrowed the page to just 2 tickers (BTC + ETH) when /timed/all
+        // returned a small subset — confusing first-paint experience.
+        // Start cleared so users see the full universe immediately.
         const [filters, setFilters] = useState({
           query: "",
-          activeChip: "focus",
+          activeChip: "all",
         });
 
         useEffect(() => {
