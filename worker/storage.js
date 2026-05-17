@@ -100,6 +100,26 @@ const D1_OMIT_KEYS = new Set([
   "description", "longBusinessSummary", "business_summary", "raw", "meta",
 ]);
 
+/** Additional heavy fields that aren't rendered in any frontend UI but
+ * are large enough to push slim payloads above 50KB. Dropped in the
+ * "compact-slim" intermediate step (between slim and minimal) so the
+ * fields the right-rail Technicals + Analysis tabs depend on
+ * (tf_tech, _ticker_profile, td_sequential, ema_map, ichimoku_*)
+ * survive a size-driven fallback. */
+const D1_COMPACT_OMIT_KEYS = new Set([
+  // Heavy regime / ML telemetry — used by backtest, not the live UI
+  "_marketInternals", "market_internals",
+  "regime_factors", "regime_params", "regime_score", "regime_class", "regime", "regimeVocabulary",
+  "ml", "ml_v1", "model",
+  "__pullback_details", "__pullback_confirmed",
+  "__ath_breakout_diag", "__gap_reversal_diag", "__n_test_support_diag",
+  "__range_reversal_diag", "__entry_divergence_summary",
+  "_signalWeights", "_scoreWeights", "_tfWeights",
+  "_env", "_scoring_skip_reason",
+  // Move history (re-fetched live from /timed/trail when needed)
+  "trail",
+]);
+
 /** Slim payload for D1 storage: drop large optional fields, keep scoring/trade/UI essentials. */
 export function slimPayloadForD1(obj) {
   if (obj == null || typeof obj !== "object") return obj;
@@ -117,7 +137,42 @@ export function slimPayloadForD1(obj) {
   return out;
 }
 
-/** Minimal payload for D1 when slim is still too large (replay + UI essentials). */
+/** Compact slim: drops the heavy regime / ML / diagnostic blobs that
+ * never reach the UI, but KEEPS tf_tech, _ticker_profile, td_sequential,
+ * ema_map, ichimoku_*, fuel, atr_levels, liq_* — everything the right
+ * rail's Technicals / Analysis / Setup tabs read. Use this when the
+ * full slim payload exceeds the D1 size budget but we still want the
+ * rail to show real data instead of a "not loaded" empty state. */
+export function compactSlimPayloadForD1(obj) {
+  if (obj == null || typeof obj !== "object") return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (D1_OMIT_KEYS.has(k)) continue;
+    if (D1_COMPACT_OMIT_KEYS.has(k)) continue;
+    if (v != null && typeof v === "object" && !Array.isArray(v) && typeof v !== "function") {
+      const nested = compactSlimPayloadForD1(v);
+      if (Object.keys(nested || {}).length > 0 || Array.isArray(nested)) out[k] = nested;
+      else out[k] = v;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+/** Minimal payload for D1 when slim is still too large (replay + UI essentials).
+ *
+ * V15 P0.7.180 (2026-05-17) — Added the right-rail Technicals / Analysis
+ * tab fields (tf_tech, _ticker_profile, td_sequential, ema_map,
+ * ichimoku_d, ichimoku_map, horizon_bucket, momentum_pct,
+ * momentum_elite_criteria, execution_profile, fuel, atr_levels,
+ * st_support, deltas, eta_days_v2, eta_days_next, rank_position,
+ * rank_score, focus_conviction_score, focus_tier, expected_return_pct,
+ * risk_pct, scoring_version) so the rail still renders real data for
+ * tickers whose slim payload exceeded the D1 size budget. Before this,
+ * /timed/latest dropped tf_tech for ~70% of the universe (SPY, QQQ,
+ * IWM, NVDA, MSFT, GOOGL, META, JPM, …) which made the Technicals tab
+ * a permanent "not loaded" empty state. */
 const D1_MINIMAL_KEYS = [
   "ts", "price", "close", "htf_score", "ltf_score", "completion", "phase_pct", "saty_phase_pct", "state", "rank",
   "flags", "trigger_reason", "trigger_dir", "trigger_price", "sl", "tp", "trigger_ts", "ingest_ts",
@@ -130,6 +185,30 @@ const D1_MINIMAL_KEYS = [
   "day_change", "daily_change", "session_change", "chg",
   "day_change_pct", "daily_change_pct", "session_change_pct", "chp",
   "change", "change_pct", "pct_change", "is_rth", "session",
+  // ── V15 P0.7.180 — Right-rail data the Technicals + Analysis tabs need ──
+  // Without these, every ticker that exceeded the slim D1 size budget
+  // (NVDA, MSFT, GOOGL, META, JPM, SPY, QQQ, IWM, …) had a permanently
+  // empty Technicals tab and a broken Behavior Profile card.
+  "tf_tech", "_ticker_profile", "_tickerProfile", "td_sequential",
+  "ema_map", "ichimoku_d", "ichimoku_map",
+  "horizon_bucket", "momentum_pct", "momentum_elite_criteria",
+  "execution_profile", "fuel", "atr_levels", "atr_d", "atr_w",
+  "st_support", "deltas", "eta_days_v2", "eta_days_next", "eta_days_max", "eta_confidence",
+  "rank_position", "rank_score", "rank_total", "focus_conviction_score", "focus_tier",
+  "expected_return_pct", "risk_pct", "scoring_version",
+  "leading_ltf", "lead_intraday_tf",
+  "entry_decision", "entry_ref", "entry_change_pct", "entry_quality",
+  "tp_target_price", "tp_max_price", "tp_target_pct", "tp_max_pct",
+  "tp_trim", "tp_exit", "tp_runner", "tp_likely",
+  "rr_now_likely", "rr_entry_likely", "sl_dynamic",
+  "saty_phase_exit", "phase_dir", "phase_divergence", "phase_zone", "phase_slope_5bar",
+  "flip_watch_score", "flip_watch_reasons",
+  "fvg_4h", "fvg_D", "fvg_imbalance_D",
+  "pdz_4h", "pdz_D", "pdz_pct_4h", "pdz_pct_D", "pdz_zone_4h", "pdz_zone_D",
+  "rvol_map", "volatility_atr_pct", "volatility_tier",
+  "swing_consensus", "daily_structure", "regime_class", "regime",
+  "tf_summary", "ema_regime_1h", "ema_regime_4h", "ema_regime_daily",
+  "orb", "overnight_gap", "reset_at", "ticker",
 ];
 
 export function minimalPayloadForD1(obj) {
