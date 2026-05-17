@@ -21,10 +21,14 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
-         ticker detail panel inline (verbatim port of /index-react's rail). -->
-    <script src="shared-rail-helpers.js?v=20260517b"></script>
-    <script src="shared-right-rail.compiled.js?v=20260517b"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517b"></script>
+         ticker detail panel inline (verbatim port of /index-react's rail).
+         lightweight-charts powers the Chart tab; ticker-spider-chart
+         powers the Signal Radar on the Analysis tab. -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="shared-rail-helpers.js?v=20260517c"></script>
+    <script src="shared-right-rail.compiled.js?v=20260517c"></script>
+    <script src="ticker-spider-chart.js?v=20260501a"></script>
+    <script src="shared-rail-bootstrap.js?v=20260517c"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
