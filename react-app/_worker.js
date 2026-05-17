@@ -3,7 +3,8 @@
 //
 // Root path routing:
 //   - If the user has a CF_Authorization cookie (authenticated) → redirect
-//     to /index-react.html (dashboard).
+//     to /today.html (the daily-ingest digest, new product home — was
+//     /index-react.html before the journey-page split).
 //   - Otherwise → serve /splash.html (public landing page).
 //
 // API proxy:
@@ -138,14 +139,15 @@ export default {
     const url = new URL(request.url);
 
     // ── Smart root routing ───────────────────────────────────────────────
-    // Authenticated users (have CF_Authorization cookie) → dashboard.
+    // Authenticated users (have CF_Authorization cookie) → /today.html
+    // (the daily-ingest digest, new product home as of P0.7.187).
     // Everyone else → public splash page.
     if (url.pathname === "/") {
       const cookies = request.headers.get("Cookie") || "";
       const hasAuth = cookies.includes("CF_Authorization=");
       if (hasAuth) {
         return Response.redirect(
-          new URL("/index-react.html", url.origin).toString(),
+          new URL("/today.html", url.origin).toString(),
           302,
         );
       } else {
