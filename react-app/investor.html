@@ -121,6 +121,77 @@
       .inv-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .inv-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
 
+      /* Account summary strip — small KPI tiles for the Investor account */
+      .inv-account-strip {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 16px;
+      }
+      .inv-account-strip__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .inv-account-strip__label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+      }
+      .inv-account-strip__link {
+        font-size: 11.5px;
+        color: var(--tt-cyan);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .inv-account-strip__link:hover { text-decoration: underline; }
+      .inv-account-strip__grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+      @media (max-width: 1024px) {
+        .inv-account-strip__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+      @media (max-width: 540px) {
+        .inv-account-strip__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .inv-account-strip__tile {
+        padding: 8px 10px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .inv-account-strip__l {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .inv-account-strip__v {
+        font-family: var(--tt-font-mono);
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--tt-text);
+        line-height: 1.2;
+      }
+      .inv-account-strip__v.up { color: var(--tt-up-soft); }
+      .inv-account-strip__v.dn { color: var(--tt-dn-soft); }
+      .inv-account-strip__sub {
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-weight: 600;
+      }
+
       /* Investor search + filter row */
       .inv-controls {
         display: flex;
@@ -509,6 +580,86 @@
         );
       }
 
+      // ── AccountStrip — Investor account snapshot at the top of
+      //    the page (Account · Open P&L · Realized · Entries · Exits).
+      //    Mirrors the AT strip but pulls /timed/account-summary +
+      //    /timed/ledger/summary with ?mode=investor.
+      function AccountStrip() {
+        const [acc, setAcc] = useState(null);
+        const [summary, setSummary] = useState(null);
+        const [err, setErr] = useState(false);
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const [a, s] = await Promise.all([
+                fetch(`${API_BASE}/timed/account-summary?mode=investor`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${API_BASE}/timed/ledger/summary?mode=investor`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+              ]);
+              if (!alive) return;
+              if (a?.ok) setAcc(a);
+              if (s?.ok) setSummary(s);
+              if (!a?.ok && !s?.ok) setErr(true);
+            } catch (_) { if (alive) setErr(true); }
+          })();
+          return () => { alive = false; };
+        }, []);
+        if (err) return null;
+        const fmtUsd = (n) => {
+          if (!Number.isFinite(n)) return "—";
+          const sign = n < 0 ? "-" : "";
+          const abs = Math.abs(n);
+          if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 1 : 2)}K`;
+          return `${sign}$${abs.toFixed(0)}`;
+        };
+        const fmtUsdSigned = (n) => {
+          if (!Number.isFinite(n)) return "—";
+          const sign = n >= 0 ? "+" : "-";
+          return `${sign}${fmtUsd(Math.abs(n))}`;
+        };
+        const accountValue = Number(acc?.accountValue);
+        const unrealized = Number(acc?.unrealized);
+        const totalRealized = Number(acc?.totalRealized);
+        const totals = summary?.totals || {};
+        const entries = Number(totals.totalTrades);
+        const exits = Number(totals.closedTrades);
+        const winRate = Number(totals.winRate);
+
+        return h("section", { className: "inv-account-strip" },
+          h("div", { className: "inv-account-strip__head" },
+            h("div", { className: "inv-account-strip__label" }, "Investor account"),
+            h("a", { href: "/portfolio.html", className: "inv-account-strip__link" }, "View portfolio →"),
+          ),
+          h("div", { className: "inv-account-strip__grid" },
+            h("div", { className: "inv-account-strip__tile" },
+              h("div", { className: "inv-account-strip__l" }, "Account"),
+              h("div", { className: "inv-account-strip__v" }, fmtUsd(accountValue)),
+            ),
+            h("div", { className: "inv-account-strip__tile" },
+              h("div", { className: "inv-account-strip__l" }, "Open P&L"),
+              h("div", { className: `inv-account-strip__v ${unrealized >= 0 ? "up" : "dn"}` }, fmtUsdSigned(unrealized)),
+            ),
+            h("div", { className: "inv-account-strip__tile" },
+              h("div", { className: "inv-account-strip__l" }, "Realized"),
+              h("div", { className: `inv-account-strip__v ${totalRealized >= 0 ? "up" : "dn"}` }, fmtUsdSigned(totalRealized)),
+            ),
+            h("div", { className: "inv-account-strip__tile" },
+              h("div", { className: "inv-account-strip__l" }, "Entries"),
+              h("div", { className: "inv-account-strip__v" }, Number.isFinite(entries) ? String(entries) : "—"),
+            ),
+            h("div", { className: "inv-account-strip__tile" },
+              h("div", { className: "inv-account-strip__l" }, "Exits"),
+              h("div", { className: "inv-account-strip__v" },
+                Number.isFinite(exits) ? String(exits) : "—",
+                Number.isFinite(winRate) && h("span", { className: "inv-account-strip__sub" },
+                  ` · ${winRate.toFixed(0)}% WR`,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
       // ── InvestorApp ─────────────────────────────────────────────
       function InvestorApp() {
         const { saved, toggle: toggleSaved } = useSavedTickers();
@@ -658,6 +809,7 @@
                 }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`),
               ),
             ),
+            h(AccountStrip, null),
             panelMounted
               ? h(window.InvestorPanel, {
                   apiBase: API_BASE,

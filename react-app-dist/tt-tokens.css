@@ -1288,36 +1288,52 @@ input, button, select, textarea {
   /* Compact right-side widgets so all three (Discord, Bell, Avatar)
      fit on the same row alongside the brand. */
   .tt-nav-widgets { gap: 6px !important; margin-left: auto !important; }
-
-  /* ── Legal footer — inline on mobile ──
-     The legal disclaimer footer is `position: fixed; bottom: 0`
-     on desktop so it stays anchored to the viewport. On mobile
-     that's wasteful: it competes with the bottom tab-bar for the
-     bottom strip and steals real estate from the page content
-     (user feedback "The terms footer should be in line with the
-     page so it doesn't take up real estate"). Override the inline
-     styles set on #legal-footer in each page's HTML — !important
-     is required because the page sets the styles inline.
-
-     The bottom tab-bar adds 64px of body padding via tt-bottom-nav.js;
-     the inline footer sits inside that buffer so it stays just
-     above the tab-bar. */
-  #legal-footer {
-    position: static !important;
-    background: transparent !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.04)) !important;
-    padding: 14px 14px 18px !important;
-    margin-top: 40px;
-    font-size: 10.5px !important;
-    line-height: 1.5 !important;
-    z-index: 1 !important;
-  }
+  /* (Legal footer override now lives below this media query — it
+     applies globally so the footer flows inline on every viewport,
+     not just mobile.) */
 }
 
 /* (Bottom tab-bar self-hides on desktop via its own .tt-bn media
    query — see tt-bottom-nav.js, no shared rule needed.) */
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * LEGAL FOOTER — inline at the bottom of every page, never floating.
+ *
+ * Every page that ships a `<footer id="legal-footer">` sets it with an
+ * inline `style="position:fixed;bottom:0;..."`. That made the
+ * footer hover over the page on every viewport — wasting real
+ * estate on mobile (where it competed with the bottom tab-bar)
+ * AND on desktop (where it cropped 30px off the visible page
+ * area at all times).
+ *
+ * Override globally with !important (required because the inline
+ * attribute would otherwise win). Footer now sits AT THE BOTTOM
+ * of the page's content flow, scrolling away once the user has
+ * passed it. On mobile, it sits in the buffer below the bottom
+ * tab-bar (which adds `body { padding-bottom: 64px }`).
+ * ═══════════════════════════════════════════════════════════════════════ */
+#legal-footer {
+  position: static !important;
+  inset: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  z-index: 1 !important;
+  margin-top: 56px;
+  border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.04)) !important;
+  padding: 18px 24px 22px !important;
+}
+@media (max-width: 720px) {
+  #legal-footer {
+    margin-top: 32px;
+    padding: 14px 14px 18px !important;
+    font-size: 10.5px !important;
+    line-height: 1.5 !important;
+  }
+}
 
 /* ───────────────────────────────────────────────────────────────────────
  * RIGHT-RAIL WORKSPACE LAYOUT

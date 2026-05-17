@@ -141,6 +141,77 @@
         .at-hero h1 { font-size: 18px; }
       }
 
+      /* Account summary strip — small KPI tiles for the trader / investor account */
+      .at-account-strip {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+      }
+      .at-account-strip__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .at-account-strip__label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+      }
+      .at-account-strip__link {
+        font-size: 11.5px;
+        color: var(--tt-cyan);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .at-account-strip__link:hover { text-decoration: underline; }
+      .at-account-strip__grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 10px;
+      }
+      @media (max-width: 1024px) {
+        .at-account-strip__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+      @media (max-width: 540px) {
+        .at-account-strip__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .at-account-strip__tile {
+        padding: 8px 10px;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .at-account-strip__l {
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .at-account-strip__v {
+        font-family: var(--tt-font-mono);
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--tt-text);
+        line-height: 1.2;
+      }
+      .at-account-strip__v.up { color: var(--tt-up-soft); }
+      .at-account-strip__v.dn { color: var(--tt-dn-soft); }
+      .at-account-strip__sub {
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-weight: 600;
+      }
+
       /* Brief summary block (regime + open positions chips + pipeline) */
       .at-brief {
         padding: 16px 18px;
@@ -998,6 +1069,118 @@
         );
       }
 
+      // ── AccountStrip — compact account summary at the top of the
+      //    page (Account Value · Open P&L · Realized · Entries / Exits).
+      //
+      // V15 P0.7.186 (2026-05-17) — Per user feedback "add the small
+      // account summary strip on active trader and investor pages...
+      // entries, exits, total account value, open pnl like we used
+      // to have." Mirrors the 5-stat strip from /portfolio.html so
+      // users on /active-trader and /investor see their account
+      // snapshot at-a-glance without leaving the page.
+      //
+      // Data sources:
+      //   • /timed/account-summary?mode=trader|investor → account
+      //     value, cash, realized, unrealized, costBasis, mark.
+      //   • /timed/ledger/summary?mode=… → entries (open + closed),
+      //     exits (closed only), win rate.
+      function AccountStrip({ mode }) {
+        const [acc, setAcc] = useState(null);
+        const [summary, setSummary] = useState(null);
+        const [err, setErr] = useState(false);
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const qs = mode === "investor" ? "?mode=investor" : "?mode=trader";
+              const [a, s] = await Promise.all([
+                fetch(`${API_BASE}/timed/account-summary${qs}`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${API_BASE}/timed/ledger/summary${qs}`, { cache: "no-store", credentials: "include" }).then((r) => r.ok ? r.json() : null).catch(() => null),
+              ]);
+              if (!alive) return;
+              if (a?.ok) setAcc(a);
+              if (s?.ok) setSummary(s);
+              if (!a?.ok && !s?.ok) setErr(true);
+            } catch (_) { if (alive) setErr(true); }
+          })();
+          return () => { alive = false; };
+        }, [mode]);
+
+        if (err) return null;
+
+        const fmtUsd = (n) => {
+          if (!Number.isFinite(n)) return "—";
+          const sign = n < 0 ? "-" : "";
+          const abs = Math.abs(n);
+          if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 1 : 2)}K`;
+          return `${sign}$${abs.toFixed(0)}`;
+        };
+        const fmtUsdSigned = (n) => {
+          if (!Number.isFinite(n)) return "—";
+          const sign = n >= 0 ? "+" : "-";
+          return `${sign}${fmtUsd(Math.abs(n))}`;
+        };
+
+        const accountValue = Number(acc?.accountValue);
+        const unrealized = Number(acc?.unrealized);
+        const totalRealized = Number(acc?.totalRealized);
+        const totals = summary?.totals || {};
+        const entries = Number(totals.totalTrades);
+        const exits = Number(totals.closedTrades);
+        const winRate = Number(totals.winRate);
+        const profitFactor = Number(totals.profitFactor);
+
+        return h("section", { className: "at-account-strip" },
+          h("div", { className: "at-account-strip__head" },
+            h("div", { className: "at-account-strip__label" },
+              mode === "investor" ? "Investor account" : "Active Trader account",
+            ),
+            h("a", {
+              href: "/portfolio.html",
+              className: "at-account-strip__link",
+              title: "View full portfolio",
+            }, "View portfolio →"),
+          ),
+          h("div", { className: "at-account-strip__grid" },
+            h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Account"),
+              h("div", { className: "at-account-strip__v" }, fmtUsd(accountValue)),
+            ),
+            h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Open P&L"),
+              h("div", {
+                className: `at-account-strip__v ${unrealized >= 0 ? "up" : "dn"}`,
+              }, fmtUsdSigned(unrealized)),
+            ),
+            h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Realized"),
+              h("div", {
+                className: `at-account-strip__v ${totalRealized >= 0 ? "up" : "dn"}`,
+              }, fmtUsdSigned(totalRealized)),
+            ),
+            h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Entries"),
+              h("div", { className: "at-account-strip__v" }, Number.isFinite(entries) ? String(entries) : "—"),
+            ),
+            h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Exits"),
+              h("div", { className: "at-account-strip__v" },
+                Number.isFinite(exits) ? String(exits) : "—",
+                Number.isFinite(winRate) && h("span", { className: "at-account-strip__sub" },
+                  ` · ${winRate.toFixed(0)}% WR`,
+                ),
+              ),
+            ),
+            Number.isFinite(profitFactor) && h("div", { className: "at-account-strip__tile" },
+              h("div", { className: "at-account-strip__l" }, "Profit Factor"),
+              h("div", {
+                className: `at-account-strip__v ${profitFactor >= 1.5 ? "up" : profitFactor >= 1 ? "" : "dn"}`,
+              }, profitFactor.toFixed(2)),
+            ),
+          ),
+        );
+      }
+
       // ── ATBrief — regime + open-position summary + pipeline counts.
       function ATBrief({ allTickers, lanes, tradeByTicker }) {
         const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
@@ -1314,7 +1497,10 @@
                     [0,1,2,3].map((i) => h("span", { key: i, className: "sk", style: { width: 110, height: 22, borderRadius: 6 } })),
                   ),
                 )
-              : h(ATBrief, { allTickers, lanes, tradeByTicker }),
+              : h(React.Fragment, null,
+                  h(AccountStrip, { mode: "trader" }),
+                  h(ATBrief, { allTickers, lanes, tradeByTicker }),
+                ),
             loading
               ? [0,1,2,3,4,5,6].map((i) =>
                   h("div", { key: i, className: "lane" },

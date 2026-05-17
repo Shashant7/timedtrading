@@ -737,6 +737,109 @@ function KanbanLane({
     openTrade: tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null
   })))));
 }
+function AccountStrip({
+  mode
+}) {
+  const [acc, setAcc] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const qs = mode === "investor" ? "?mode=investor" : "?mode=trader";
+        const [a, s] = await Promise.all([fetch(`${API_BASE}/timed/account-summary${qs}`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/ledger/summary${qs}`, {
+          cache: "no-store",
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        if (!alive) return;
+        if (a?.ok) setAcc(a);
+        if (s?.ok) setSummary(s);
+        if (!a?.ok && !s?.ok) setErr(true);
+      } catch (_) {
+        if (alive) setErr(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [mode]);
+  if (err) return null;
+  const fmtUsd = n => {
+    if (!Number.isFinite(n)) return "—";
+    const sign = n < 0 ? "-" : "";
+    const abs = Math.abs(n);
+    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(abs >= 10000 ? 1 : 2)}K`;
+    return `${sign}$${abs.toFixed(0)}`;
+  };
+  const fmtUsdSigned = n => {
+    if (!Number.isFinite(n)) return "—";
+    const sign = n >= 0 ? "+" : "-";
+    return `${sign}${fmtUsd(Math.abs(n))}`;
+  };
+  const accountValue = Number(acc?.accountValue);
+  const unrealized = Number(acc?.unrealized);
+  const totalRealized = Number(acc?.totalRealized);
+  const totals = summary?.totals || {};
+  const entries = Number(totals.totalTrades);
+  const exits = Number(totals.closedTrades);
+  const winRate = Number(totals.winRate);
+  const profitFactor = Number(totals.profitFactor);
+  return h("section", {
+    className: "at-account-strip"
+  }, h("div", {
+    className: "at-account-strip__head"
+  }, h("div", {
+    className: "at-account-strip__label"
+  }, mode === "investor" ? "Investor account" : "Active Trader account"), h("a", {
+    href: "/portfolio.html",
+    className: "at-account-strip__link",
+    title: "View full portfolio"
+  }, "View portfolio →")), h("div", {
+    className: "at-account-strip__grid"
+  }, h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Account"), h("div", {
+    className: "at-account-strip__v"
+  }, fmtUsd(accountValue))), h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Open P&L"), h("div", {
+    className: `at-account-strip__v ${unrealized >= 0 ? "up" : "dn"}`
+  }, fmtUsdSigned(unrealized))), h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Realized"), h("div", {
+    className: `at-account-strip__v ${totalRealized >= 0 ? "up" : "dn"}`
+  }, fmtUsdSigned(totalRealized))), h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Entries"), h("div", {
+    className: "at-account-strip__v"
+  }, Number.isFinite(entries) ? String(entries) : "—")), h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Exits"), h("div", {
+    className: "at-account-strip__v"
+  }, Number.isFinite(exits) ? String(exits) : "—", Number.isFinite(winRate) && h("span", {
+    className: "at-account-strip__sub"
+  }, ` · ${winRate.toFixed(0)}% WR`))), Number.isFinite(profitFactor) && h("div", {
+    className: "at-account-strip__tile"
+  }, h("div", {
+    className: "at-account-strip__l"
+  }, "Profit Factor"), h("div", {
+    className: `at-account-strip__v ${profitFactor >= 1.5 ? "up" : profitFactor >= 1 ? "" : "dn"}`
+  }, profitFactor.toFixed(2)))));
+}
 function ATBrief({
   allTickers,
   lanes,
@@ -1097,11 +1200,13 @@ function ActiveTraderApp() {
       height: 22,
       borderRadius: 6
     }
-  })))) : h(ATBrief, {
+  })))) : h(React.Fragment, null, h(AccountStrip, {
+    mode: "trader"
+  }), h(ATBrief, {
     allTickers,
     lanes,
     tradeByTicker
-  }), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+  })), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
   }, h("div", {
