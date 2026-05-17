@@ -1,0 +1,48 @@
+name: Deploy worker
+
+# Auto-deploys worker/index.js to Cloudflare Workers (timed-trading-ingest)
+# whenever the worker source changes on main. Previously the worker had to
+# be deployed manually via `wrangler deploy` from a developer machine —
+# easy to forget after merging a PR, which caused PR #167's roster-floor
+# fix to sit unshipped even after merge.
+#
+# To configure:
+#   1. Repo Settings → Secrets and variables → Actions
+#   2. Add secret: CLOUDFLARE_API_TOKEN
+#      (create at https://dash.cloudflare.com/profile/api-tokens
+#       with the "Edit Cloudflare Workers" template)
+#   3. Add secret: CLOUDFLARE_ACCOUNT_ID
+#      (found on the right sidebar of the Cloudflare dashboard)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:  # Manual re-deploy from the Actions tab
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Deploy worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
