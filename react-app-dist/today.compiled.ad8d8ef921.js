@@ -284,6 +284,33 @@ function BriefPreview({
   })();
   const closingRaw = info.closingLine;
   const closing = typeof closingRaw === "string" ? closingRaw : closingRaw ? String(closingRaw) : "";
+  const itemText = item => {
+    if (typeof item === "string") return item;
+    if (!item || typeof item !== "object") return "";
+    const body = typeof item.body === "string" ? item.body.trim() : "";
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    const fallback = typeof item.text === "string" ? item.text : typeof item.summary === "string" ? item.summary : "";
+    if (label && body) return `**${label}:** ${body}`;
+    if (body) return body;
+    if (label) return label;
+    return fallback;
+  };
+  let fallbackSummary = "";
+  if (top3.length === 0 && !closing && typeof brief?.content === "string") {
+    const lines = brief.content.split(/\r?\n/);
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (/^#{1,6}\s/.test(line)) continue;
+      if (/^[-*+]\s/.test(line)) continue;
+      if (/^\d+\.\s/.test(line)) continue;
+      if (/^[a-z]/.test(line)) continue;
+      const cleaned = line.replace(/^\*+|\*+$/g, "").trim();
+      if (cleaned.length < 30) continue;
+      fallbackSummary = cleaned.length > 280 ? cleaned.slice(0, 277).trimEnd() + "…" : cleaned;
+      break;
+    }
+  }
   return h("section", {
     className: "tt-card tt-card-pad tt-row"
   }, h("div", {
@@ -295,7 +322,8 @@ function BriefPreview({
   }, headline), top3.length > 0 && h("div", {
     className: "brief-three"
   }, top3.slice(0, 3).map((item, i) => {
-    const text = typeof item === "string" ? item : item?.text || item?.label || item?.summary || JSON.stringify(item);
+    const text = itemText(item);
+    if (!text) return null;
     return h("div", {
       key: i,
       className: "item"
@@ -306,7 +334,12 @@ function BriefPreview({
         __html: marked.parseInline(text)
       }
     }));
-  })), closing && h("p", {
+  })), fallbackSummary && h("p", {
+    className: "brief-fallback",
+    dangerouslySetInnerHTML: {
+      __html: marked.parseInline(fallbackSummary)
+    }
+  }), closing && h("p", {
     style: {
       fontSize: 13,
       color: "var(--tt-text-muted)",

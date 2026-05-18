@@ -3670,13 +3670,30 @@ function extractClosingLine(content) {
   const psIdx = tail.search(/\n\s*\*?\*?P\.S\.?/i);
   const zone = psIdx > 0 ? tail.slice(0, psIdx) : tail;
   const lines = zone.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  // Take the last non-header line that looks like a decisive statement
+  // Take the last non-header line that looks like a decisive statement.
+  // A "decisive statement" must look like a self-contained sentence:
+  //   1) starts with a capital letter or quote / number — NOT lowercase
+  //      (lowercase-starting lines are word-wrapped continuations of
+  //      a previous paragraph; that's how the Today hero card ended up
+  //      showing 'ward $708.37. Expected range: ...' — the tail of
+  //      'toward $708.37' that got soft-wrapped onto its own line).
+  //   2) ends with terminal punctuation (.!?) or a closing quote — not
+  //      a hyphen / colon / comma / open paren.
+  //   3) is not a bare number, level snippet, or 'Expected range:' line.
   for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i];
     if (/^#{1,6}\s/.test(l)) continue;
     if (/^[-*]\s/.test(l)) continue;
     if (l.length < 20 || l.length > 140) continue;
-    return l.replace(/^\*+|\*+$/g, "").trim();
+    const cleaned = l.replace(/^\*+|\*+$/g, "").trim();
+    // Reject continuations of a previous sentence (the bug source).
+    if (/^[a-z]/.test(cleaned)) continue;
+    // Reject lines that don't end with terminal punctuation.
+    if (!/[.!?'"”’)]$/.test(cleaned)) continue;
+    // Reject pure level / range fragments that aren't real one-liners.
+    if (/^Expected range\s*:/i.test(cleaned)) continue;
+    if (/^\$?\d[\d.,\s$–\-]*$/.test(cleaned)) continue;
+    return cleaned;
   }
   return null;
 }
