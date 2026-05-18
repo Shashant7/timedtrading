@@ -405,6 +405,11 @@ import * as TradeTrajectories from "./lib/trade-trajectories.js";
    subqueries — well under the D1 budget. Surfaces via admin endpoint
    for one-shot gap backfill. See worker/lib/trail-facts-light.js. */
 import * as TrailFactsLight from "./lib/trail-facts-light.js";
+/* 2026-05-18 — Phase 2 visibility modules. All read-only. Live admission /
+   exit logic unchanged. See tasks/2026-05-18-stochastic-research-program.md
+   §0.6 phase 2. */
+import * as TriggerHitRate from "./lib/trigger-hitrate.js";
+import * as StageMarkov    from "./lib/stage-markov.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -1301,6 +1306,10 @@ const ROUTES = [
   // CPU-timeout bug in runDataLifecycle. See worker/lib/trail-facts-light.js.
   ["POST", "/timed/admin/aggregate-trail-facts-light",     "POST /timed/admin/aggregate-trail-facts-light"],
   ["GET",  "/timed/admin/aggregate-trail-facts-light/list", "GET /timed/admin/aggregate-trail-facts-light/list"],
+  // Trajectory program — Phase 2 visibility routes. All read-only.
+  ["GET",  "/timed/calibration/trigger-hitrate",          "GET /timed/calibration/trigger-hitrate"],
+  ["POST", "/timed/calibration/trajectory-cohort",        "POST /timed/calibration/trajectory-cohort"],
+  ["GET",  "/timed/calibration/stage-markov",             "GET /timed/calibration/stage-markov"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -62237,6 +62246,75 @@ export default {
         const untilMs = body.until_ms != null ? Number(body.until_ms) : Date.now();
         const result = await TrailFactsLight.aggregateTrailFactsForTicker(env, ticker, sinceMs, untilMs);
         return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PHASE 2 VISIBILITY ROUTES — trigger hit-rate, k-NN trajectory cohort,
+      // stage Markov. All read-only.
+      // See tasks/2026-05-18-stochastic-research-program.md §0.6 phase 2.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/calibration/trigger-hitrate?lookback_days=90&min_move_pct=0.1&ticker=
+      // S1: ST flip / EMA cross / squeeze release outcome rates bucketed by
+      // cell, direction, session, horizon.
+      if (routeKey === "GET /timed/calibration/trigger-hitrate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const lookbackDays = Math.max(1, Math.min(720, Number(url.searchParams.get("lookback_days") || 90)));
+          const minMovePct   = Number(url.searchParams.get("min_move_pct") || 0.10);
+          const ticker       = (url.searchParams.get("ticker") || "").trim() || null;
+          const sinceMs = Date.now() - lookbackDays * 86400000;
+          const result = await TriggerHitRate.computeTriggerHitRates(env, { sinceMs, minMovePct, ticker });
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/calibration/trajectory-cohort
+      // Body: { candidate_seq: ["B|D2|C0|P0", ...], k?, min_n?,
+      //         setup?, direction?, lookback_days?, max_distance? }
+      // S2.5: k-NN trajectory cohort lookup over trade_trajectories.
+      if (routeKey === "POST /timed/calibration/trajectory-cohort") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const candidateSeq = Array.isArray(body.candidate_seq) ? body.candidate_seq : null;
+          if (!candidateSeq || candidateSeq.length === 0) {
+            return sendJSON({ ok: false, error: "candidate_seq_required" }, 400, corsHeaders(env, req));
+          }
+          const opts = {
+            k:                Number.isFinite(body.k)              ? Number(body.k)              : undefined,
+            minN:             Number.isFinite(body.min_n)          ? Number(body.min_n)          : undefined,
+            maxDistance:      Number.isFinite(body.max_distance)   ? Number(body.max_distance)   : undefined,
+            setupFilter:      body.setup                            || undefined,
+            directionFilter:  body.direction                        || undefined,
+            lookbackDays:     Number.isFinite(body.lookback_days)  ? Number(body.lookback_days)  : undefined,
+          };
+          const result = await TradeTrajectories.findCohortByTrajectory(env, candidateSeq, opts);
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/calibration/stage-markov?lookback_days=180&max_trades=2000
+      // S5: kanban stage transition matrix + recovery probability table +
+      // dwell distribution. Visibility-only — no live behavior change.
+      if (routeKey === "GET /timed/calibration/stage-markov") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const lookbackDays = Math.max(1, Math.min(720, Number(url.searchParams.get("lookback_days") || 180)));
+          const maxTrades    = Math.max(10, Math.min(10000, Number(url.searchParams.get("max_trades") || 2000)));
+          const sinceMs = Date.now() - lookbackDays * 86400000;
+          const result = await StageMarkov.buildStageMarkov(env, { sinceMs, maxTrades });
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════════
