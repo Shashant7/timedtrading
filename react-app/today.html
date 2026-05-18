@@ -845,6 +845,15 @@
         line-height: 1.5;
         margin-bottom: 12px;
       }
+      /* Fallback summary paragraph used when the worker's extractTopThree
+         returned null AND there is no usable closing line. Keeps the hero
+         card from looking empty or showing just a mid-word italic tail. */
+      .brief-fallback {
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--tt-text-muted);
+        margin-bottom: 14px;
+      }
       .brief-three {
         display: grid;
         gap: 10px;
@@ -1216,19 +1225,74 @@
         const closingRaw = info.closingLine;
         const closing = typeof closingRaw === "string" ? closingRaw : (closingRaw ? String(closingRaw) : "");
 
+        // Build a readable item text from the worker's extractTopThree
+        // output. That helper returns `{ n, label, body }` per line (label
+        // is the bit before the first colon, body is the rest). Prior
+        // version preferred `item.label` which threw away the body — on
+        // mobile this surfaced as either just the label or, worse, a
+        // mid-word tail when topThree extraction failed and the closing
+        // line fell through to a wrapped continuation. Mirror daily-brief
+        // .html: `Label: body` when both exist, else whichever exists,
+        // else string-coerce. NEVER JSON.stringify a brief item.
+        const itemText = (item) => {
+          if (typeof item === "string") return item;
+          if (!item || typeof item !== "object") return "";
+          const body = typeof item.body === "string" ? item.body.trim() : "";
+          const label = typeof item.label === "string" ? item.label.trim() : "";
+          const fallback = typeof item.text === "string" ? item.text
+            : typeof item.summary === "string" ? item.summary
+            : "";
+          if (label && body) return `**${label}:** ${body}`;
+          if (body) return body;
+          if (label) return label;
+          return fallback;
+        };
+
+        // Fallback summary: when the brief content exists but extractTopThree
+        // returned null AND there's no usable closing line, render the first
+        // ~280 chars of the markdown body so the hero card always has
+        // substance. Strip headings, list markers, and bold delimiters so it
+        // reads as plain prose. Mobile users were seeing just one short
+        // italic line (the broken closing) when the LLM didn't format the
+        // numbered TOC correctly.
+        let fallbackSummary = "";
+        if (top3.length === 0 && !closing && typeof brief?.content === "string") {
+          const lines = brief.content.split(/\r?\n/);
+          for (const raw of lines) {
+            const line = raw.trim();
+            if (!line) continue;
+            if (/^#{1,6}\s/.test(line)) continue;
+            if (/^[-*+]\s/.test(line)) continue;
+            if (/^\d+\.\s/.test(line)) continue;
+            // Skip lines that start mid-sentence (lowercase) — these are
+            // line-wrapped continuations of a previous paragraph and are
+            // exactly the failure mode we just fixed in extractClosingLine.
+            if (/^[a-z]/.test(line)) continue;
+            const cleaned = line.replace(/^\*+|\*+$/g, "").trim();
+            if (cleaned.length < 30) continue;
+            fallbackSummary = cleaned.length > 280 ? cleaned.slice(0, 277).trimEnd() + "…" : cleaned;
+            break;
+          }
+        }
+
         return h("section", { className: "tt-card tt-card-pad tt-row" },
           h("div", { className: "tt-sec-title" }, "DAILY BRIEF — MORNING READ"),
           h("div", { className: "tt-sec-h" }, "What the model is watching today"),
           headline && h("p", { className: "brief-head" }, headline),
           top3.length > 0 && h("div", { className: "brief-three" },
             top3.slice(0, 3).map((item, i) => {
-              const text = typeof item === "string" ? item : (item?.text || item?.label || item?.summary || JSON.stringify(item));
+              const text = itemText(item);
+              if (!text) return null;
               return h("div", { key: i, className: "item" },
                 h("span", { className: "num" }, String(i + 1)),
                 h("span", { dangerouslySetInnerHTML: { __html: marked.parseInline(text) } }),
               );
             }),
           ),
+          fallbackSummary && h("p", {
+            className: "brief-fallback",
+            dangerouslySetInnerHTML: { __html: marked.parseInline(fallbackSummary) },
+          }),
           closing && h("p", { style: { fontSize: 13, color: "var(--tt-text-muted)", fontStyle: "italic", marginBottom: 14 } }, closing),
           h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
             h("a", { href: "/daily-brief.html", className: "brief-link" },
