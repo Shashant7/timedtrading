@@ -722,6 +722,121 @@
         border: 1px solid var(--tt-border);
         border-radius: 12px;
       }
+      /* BriefPlaceholder (data-driven loading card) */
+      .bp-card { padding: 16px 18px; }
+      .bp-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .bp-countdown {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .bp-countdown-lbl {
+        font-family: var(--tt-font);
+        font-weight: 500;
+        color: var(--tt-text-dim);
+        margin-left: 2px;
+      }
+      .bp-loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        letter-spacing: 0.04em;
+      }
+      .bp-dots { display: inline-flex; gap: 3px; }
+      .bp-dots i {
+        width: 4px; height: 4px; border-radius: 50%;
+        background: var(--tt-text-dim);
+        animation: bp-dot 1.2s ease-in-out infinite;
+      }
+      .bp-dots i:nth-child(2) { animation-delay: 0.15s; }
+      .bp-dots i:nth-child(3) { animation-delay: 0.30s; }
+      @keyframes bp-dot {
+        0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); }
+        40% { opacity: 1; transform: scale(1); }
+      }
+      .bp-section-title {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        margin-bottom: 8px;
+      }
+      .bp-signal-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .bp-signal-row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--tt-text);
+        text-align: left;
+        cursor: pointer;
+        font-family: var(--tt-font);
+        transition: background 0.12s, border-color 0.12s;
+      }
+      .bp-signal-row:hover {
+        background: var(--tt-bg-surface);
+        border-color: var(--tt-border);
+      }
+      .bp-signal-sym {
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .bp-signal-px {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        color: var(--tt-text-muted);
+      }
+      .bp-signal-pct {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .bp-signal-pct.up { color: var(--tt-up); }
+      .bp-signal-pct.dn { color: var(--tt-dn); }
+      .bp-signal-pct .ext-tag {
+        font-size: 8.5px;
+        font-weight: 700;
+        margin-left: 4px;
+        padding: 0 3px;
+        border-radius: 3px;
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-dim);
+        letter-spacing: 0.08em;
+        vertical-align: 1px;
+      }
+      .bp-empty {
+        font-size: 12px;
+        color: var(--tt-text-dim);
+        font-style: italic;
+        padding: 6px 0 12px;
+      }
+      .bp-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+      }
+      .bp-meta strong { color: var(--tt-text); font-weight: 700; }
       /* Brief preview specifics */
       .brief-head {
         font-size: 15px;
@@ -3106,7 +3221,7 @@
             h(StatusHeader, { cal, briefDate: brief?.date }),
             brief
               ? h(BriefPreview, { brief })
-              : h(BriefSkeleton, null),
+              : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
             // Categorized actionable tickers (Top Rank / High RR /
             // Squeeze / Entry Zone). Shown right after the Daily
             // Brief so users always have something to focus on
@@ -3157,16 +3272,176 @@
 
       // ── Skeleton components — visual placeholders that match the final
       //    layout footprint so the page doesn't reflow when content arrives.
-      function BriefSkeleton() {
+
+      // BriefPlaceholder — replaces the old grey-shimmer BriefSkeleton.
+      //
+      // Rationale (2026-05-18): the daily brief LLM call can take several
+      // seconds. Meanwhile /timed/all + /timed/earnings/upcoming usually
+      // land first (they're in the same Promise.all and don't hit OpenAI).
+      // Rather than show empty grey bars in the meantime, surface a
+      // compact "session + early signal" card built from data already in
+      // hand. Falls back to the original shimmer when `data` hasn't
+      // landed yet so the page never reflows under the user.
+      function BriefPlaceholder({ data, earnings, onSelectTicker }) {
+        // Fallback: data hasn't arrived yet -> classic shimmer so the
+        // hero card slot is never empty.
+        if (!data) {
+          return h("section", { className: "tt-row" },
+            h("div", { className: "tt-card tt-card-pad" },
+              h("div", { className: "sk", style: { width: 200, height: 11, marginBottom: 12 } }),
+              h("div", { className: "sk", style: { width: "62%", height: 18, marginBottom: 14 } }),
+              h("div", { className: "sk", style: { width: "78%", height: 14, marginBottom: 8 } }),
+              h("div", { className: "sk", style: { width: "44%", height: 14, marginBottom: 14 } }),
+              h("div", { className: "sk", style: { width: 130, height: 32, borderRadius: 8 } }),
+            ),
+          );
+        }
+
+        // Session label + minutes-to-next-boundary (open / close), so the
+        // user instantly knows where in the day they are even before the
+        // brief lands.
+        const sessionInfo = (() => {
+          try {
+            const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit" });
+            const parts = f.formatToParts(new Date());
+            const wd = parts.find(p => p.type === "weekday")?.value;
+            const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
+            const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
+            const min = hh * 60 + mm;
+            const RTH_OPEN = 9 * 60 + 30;
+            const RTH_CLOSE = 16 * 60;
+            const AH_CLOSE = 20 * 60;
+            if (wd === "Sat" || wd === "Sun") return { label: "Weekend · Market closed", phase: "closed", countdown: null };
+            if (min < RTH_OPEN) {
+              const delta = RTH_OPEN - min;
+              return { label: "Pre-market", phase: "pre", countdown: fmtCountdown(delta), countdownLabel: "to open" };
+            }
+            if (min < RTH_CLOSE) {
+              const delta = RTH_CLOSE - min;
+              return { label: "Market open · RTH", phase: "rth", countdown: fmtCountdown(delta), countdownLabel: "to close" };
+            }
+            if (min < AH_CLOSE) {
+              const delta = AH_CLOSE - min;
+              return { label: "After-hours", phase: "ah", countdown: fmtCountdown(delta), countdownLabel: "to AH close" };
+            }
+            return { label: "Market closed", phase: "closed", countdown: null };
+          } catch {
+            return { label: "Market closed", phase: "closed", countdown: null };
+          }
+        })();
+
+        // Top-3 early-signal movers from data already loaded. During RTH
+        // we sort by |dayPct|; outside RTH we prefer EXT (_ah_change_pct,
+        // excluding crypto), falling back to RTH if no EXT data.
+        const arr = Object.entries(data)
+          .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
+          .filter(t => t && t.ticker);
+        const CRYPTO = new Set(["BTCUSD", "ETHUSD"]);
+        const useExt = sessionInfo.phase === "pre" || sessionInfo.phase === "ah" || sessionInfo.phase === "closed";
+        let signalMode = useExt ? "ext" : "rth";
+        let signal = useExt
+          ? arr
+              .filter(t => !CRYPTO.has(String(t.ticker).toUpperCase()))
+              .map(t => ({ t, pct: Number(t?._ah_change_pct ?? t?.extended_percent_change) }))
+              .filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1)
+              .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+              .slice(0, 3)
+          : arr
+              .map(t => { const dc = getDailyChange(t); return { t, pct: Number(dc?.dayPct) }; })
+              .filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1)
+              .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+              .slice(0, 3);
+        // EXT-preferred but no EXT moves yet? Fall back to RTH so we
+        // still have something to show in pre-market early in the day.
+        if (useExt && signal.length === 0) {
+          signalMode = "rth";
+          signal = arr
+            .map(t => { const dc = getDailyChange(t); return { t, pct: Number(dc?.dayPct) }; })
+            .filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1)
+            .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct))
+            .slice(0, 3);
+        }
+
+        // Earnings today count — quick at-a-glance event risk.
+        const todayIso = (() => {
+          try {
+            const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+            const y = parts.find(p => p.type === "year")?.value;
+            const m = parts.find(p => p.type === "month")?.value;
+            const d = parts.find(p => p.type === "day")?.value;
+            return (y && m && d) ? `${y}-${m}-${d}` : null;
+          } catch { return null; }
+        })();
+        const earningsTodayCount = safeArr(earnings?.events)
+          .filter(ev => ev?.date === todayIso).length;
+
+        const phaseTagCls = sessionInfo.phase === "rth" ? "up"
+          : sessionInfo.phase === "pre" || sessionInfo.phase === "ah" ? "accent"
+          : "";
+        const signalLabel = signalMode === "ext" ? "Pre/After-hours movers" : "Today's biggest movers";
+
         return h("section", { className: "tt-row" },
-          h("div", { className: "tt-card tt-card-pad" },
-            h("div", { className: "sk", style: { width: 200, height: 11, marginBottom: 12 } }),
-            h("div", { className: "sk", style: { width: "62%", height: 18, marginBottom: 14 } }),
-            h("div", { className: "sk", style: { width: "78%", height: 14, marginBottom: 8 } }),
-            h("div", { className: "sk", style: { width: "44%", height: 14, marginBottom: 14 } }),
-            h("div", { className: "sk", style: { width: 130, height: 32, borderRadius: 8 } }),
+          h("div", { className: "tt-card tt-card-pad bp-card" },
+            // Header: session pill + countdown + brief-loading hint
+            h("div", { className: "bp-head" },
+              h("span", { className: `tt-pill ${phaseTagCls}` }, sessionInfo.label),
+              sessionInfo.countdown && h("span", { className: "bp-countdown" },
+                sessionInfo.countdown,
+                h("span", { className: "bp-countdown-lbl" }, " " + (sessionInfo.countdownLabel || "")),
+              ),
+              h("span", { className: "bp-loading" },
+                h("span", { className: "bp-dots" },
+                  h("i", null), h("i", null), h("i", null),
+                ),
+                "Daily brief loading",
+              ),
+            ),
+            // Section title — mirror BriefPreview's "EARLY READ" feel.
+            h("div", { className: "bp-section-title" }, signalLabel.toUpperCase()),
+            signal.length > 0
+              ? h("div", { className: "bp-signal-list" },
+                  signal.map(({ t, pct }, i) => {
+                    const sym = String(t.ticker || "").toUpperCase();
+                    const dir = pct >= 0 ? "up" : "dn";
+                    const price = Number(t?.price);
+                    return h("button", {
+                      key: sym + i,
+                      className: "bp-signal-row",
+                      onClick: () => {
+                        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                      },
+                    },
+                      h("span", { className: "bp-signal-sym" }, sym),
+                      Number.isFinite(price) && h("span", { className: "bp-signal-px" }, fmtUsd(price)),
+                      h("span", { className: `bp-signal-pct ${dir}` },
+                        (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%",
+                        signalMode === "ext" && h("span", { className: "ext-tag" }, "EXT"),
+                      ),
+                    );
+                  }),
+                )
+              : h("div", { className: "bp-empty" }, "No standout moves yet — waiting for the open."),
+            // Footer micro-stats: ticker universe + earnings today.
+            h("div", { className: "bp-meta" },
+              h("span", null, arr.length.toLocaleString() + " tickers scored"),
+              earningsTodayCount > 0 && h("span", null, "·"),
+              earningsTodayCount > 0 && h("span", null,
+                h("strong", null, earningsTodayCount),
+                " earnings today",
+              ),
+            ),
           ),
         );
+      }
+
+      // Format a positive minutes count as "Xh Ym" or "Ym".
+      function fmtCountdown(mins) {
+        const m = Math.max(0, Math.floor(mins));
+        if (m < 60) return m + "m";
+        const h = Math.floor(m / 60);
+        const r = m % 60;
+        return r === 0 ? h + "h" : h + "h " + r + "m";
       }
       function MarketStateSkeleton() {
         return h("section", { className: "tt-row" },
