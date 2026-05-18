@@ -31,6 +31,7 @@
 import {
   cellOfFactWithFlags,
   parseCellKey,
+  hammingDistance,
 } from "./trajectory-cells.js";
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
@@ -385,6 +386,123 @@ export function computeCohortMetrics(rows) {
     expectancy: expectancy != null ? Number(expectancy.toFixed(4)) : null,
     pf: pf != null && Number.isFinite(pf) ? Number(pf.toFixed(3)) : pf,
     sum_pnl_pct: Number(sumPnl.toFixed(4)),
+  };
+}
+
+/**
+ * Phase 2 S2.5 — k-NN trajectory cohort lookup.
+ *
+ * Given a candidate cell sequence (e.g. the last K=12 cells of a live
+ * candidate ticker), find the k nearest historical trade trajectories by
+ * Hamming distance over their cell_pre_json arrays, and return the cohort
+ * metrics over those neighbors. Gated at n>=minN per owner lock-in.
+ *
+ * @param {object} env worker env (uses env.DB)
+ * @param {string[]} candidateSeq Array of cell-key strings, newest-last
+ * @param {object} [opts]
+ * @param {number} [opts.k]              Neighbors to keep. Default 50.
+ * @param {number} [opts.minN]           Cohort floor. Default 15.
+ * @param {number} [opts.maxDistance]    Hard-cut on distance. Default Infinity.
+ * @param {string} [opts.setupFilter]    Optional filter to one setup_name.
+ * @param {string} [opts.directionFilter] Optional 'LONG' / 'SHORT' filter.
+ * @param {number} [opts.lookbackDays]   Window on entry_ts. Default 180.
+ * @returns {Promise<{ ok, candidate_seq, neighbors_considered, cohort,
+ *                     recent, sample_neighbors, gated, gated_reason }>}
+ */
+export async function findCohortByTrajectory(env, candidateSeq, opts = {}) {
+  const t0 = Date.now();
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db", elapsed_ms: 0 };
+  if (!Array.isArray(candidateSeq) || candidateSeq.length === 0) {
+    return { ok: false, error: "candidate_seq_required" };
+  }
+
+  const k            = Math.max(1, Math.min(500, Number(opts.k) || 50));
+  const minN         = Math.max(1, Math.min(500, Number(opts.minN) || 15));
+  const maxDistance  = Number.isFinite(opts.maxDistance) ? Number(opts.maxDistance) : Infinity;
+  const setupFilter  = opts.setupFilter ? String(opts.setupFilter) : null;
+  const dirFilter    = opts.directionFilter ? String(opts.directionFilter).toUpperCase() : null;
+  const lookbackDays = Math.max(1, Math.min(720, Number(opts.lookbackDays) || 180));
+  const sinceMs      = Date.now() - lookbackDays * 86400000;
+
+  // Pull all candidate trajectories in the window (closed trades only).
+  const where = [`entry_ts >= ?`, `outcome IN ('WIN','LOSS','FLAT')`];
+  const params = [sinceMs];
+  if (setupFilter) { where.push(`setup_name = ?`); params.push(setupFilter); }
+  if (dirFilter)   { where.push(`direction = ?`);  params.push(dirFilter); }
+
+  let rows;
+  try {
+    const res = await db.prepare(
+      `SELECT trade_id, ticker, direction, setup_name, setup_grade,
+              outcome, pnl_pct, cell_pre_json, cell_entry, entry_ts
+       FROM trade_trajectories
+       WHERE ${where.join(" AND ")}`,
+    ).bind(...params).all();
+    rows = res?.results || [];
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err).slice(0, 300) };
+  }
+
+  if (rows.length === 0) {
+    return {
+      ok: true,
+      candidate_seq: candidateSeq,
+      neighbors_considered: 0,
+      cohort: computeCohortMetrics([]),
+      recent: computeCohortMetrics([]),
+      sample_neighbors: [],
+      gated: true,
+      gated_reason: "no_historical_trajectories_in_window",
+      elapsed_ms: Date.now() - t0,
+    };
+  }
+
+  // Compute distance for each, keep top-k by smallest distance.
+  const scored = [];
+  for (const r of rows) {
+    let seq = null;
+    try { seq = r.cell_pre_json ? JSON.parse(r.cell_pre_json) : null; } catch {}
+    if (!Array.isArray(seq) || seq.length === 0) continue;
+    const d = hammingDistance(candidateSeq, seq);
+    if (!Number.isFinite(d) || d > maxDistance) continue;
+    scored.push({ row: r, d });
+  }
+  scored.sort((a, b) => a.d - b.d);
+  const neighbors = scored.slice(0, k);
+
+  // Cohort metrics over neighbors (uses the same shape consumed by
+  // /timed/calibration/cohort).
+  const cohortRows = neighbors.map(n => ({ outcome: n.row.outcome, pnl_pct: n.row.pnl_pct, entry_ts: n.row.entry_ts }));
+  const recentCutoff = Date.now() - 30 * 86400000;
+  const recentRows = cohortRows.filter(r => Number(r.entry_ts) >= recentCutoff);
+
+  const cohort = computeCohortMetrics(cohortRows);
+  const recent = computeCohortMetrics(recentRows);
+
+  const gated = cohort.n < minN;
+  return {
+    ok: true,
+    candidate_seq: candidateSeq,
+    neighbors_considered: scored.length,
+    config: { k, min_n: minN, max_distance: maxDistance, lookback_days: lookbackDays, setup: setupFilter, direction: dirFilter },
+    cohort,
+    recent,
+    sample_neighbors: neighbors.slice(0, 10).map(n => ({
+      trade_id: n.row.trade_id,
+      ticker: n.row.ticker,
+      direction: n.row.direction,
+      setup_name: n.row.setup_name,
+      setup_grade: n.row.setup_grade,
+      outcome: n.row.outcome,
+      pnl_pct: n.row.pnl_pct,
+      cell_entry: n.row.cell_entry,
+      entry_ts: n.row.entry_ts,
+      distance: n.d,
+    })),
+    gated,
+    gated_reason: gated ? `n=${cohort.n} < min_n=${minN}; treat as observational only (no live override)` : null,
+    elapsed_ms: Date.now() - t0,
   };
 }
 
