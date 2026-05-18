@@ -496,6 +496,37 @@
       }
       .focus-chip-pct.up { color: var(--tt-up); }
       .focus-chip-pct.dn { color: var(--tt-dn); }
+      /* Pre-market / after-hours stacked badge on FOCUS chips. When market
+         is closed and the ticker has a meaningful EXT move, we stack RTH
+         (top) and EXT (smaller, below). Layout slot is the same grid cell
+         as the RTH pct so chip width / grid template don't change. */
+      .focus-chip-pct-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1.05;
+        min-width: 0;
+      }
+      .focus-chip-pct-ext {
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        opacity: 0.92;
+        margin-top: 1px;
+      }
+      .focus-chip-pct-ext.up { color: var(--tt-up); }
+      .focus-chip-pct-ext.dn { color: var(--tt-dn); }
+      .focus-chip-pct-ext .ext-tag {
+        font-size: 8.5px;
+        font-weight: 700;
+        margin-left: 3px;
+        padding: 0 3px;
+        border-radius: 3px;
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-dim);
+        letter-spacing: 0.08em;
+        vertical-align: 1px;
+      }
 
       /* Bubble Map */
       .bm-stage {
@@ -1325,6 +1356,11 @@
 
         if (lanes.length === 0) return null;
 
+        // Snapshot session state once per render so every chip in this
+        // batch agrees (and so we don't pay the Intl cost per chip).
+        const marketOpen = isNyRegularMarketOpen();
+        const CRYPTO_NO_EXT = new Set(["BTCUSD", "ETHUSD"]);
+
         const fmtMetric = (t, laneId) => {
           if (laneId === "rank") {
             const r = Number(t.rank_position);
@@ -1370,6 +1406,21 @@
                   const dc = getDailyChange(t);
                   const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
                   const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
+                  // EXT (pre-market / after-hours) overlay. Per
+                  // price-data-pipeline rule: only when market is closed,
+                  // exclude crypto (24/7), require finite + non-trivial
+                  // move. Use _ah_change_pct (worker /timed/all overlay)
+                  // with extended_percent_change fallback for parity with
+                  // MoverRow.
+                  const extPct = (!marketOpen && !CRYPTO_NO_EXT.has(sym))
+                    ? Number(t?._ah_change_pct ?? t?.extended_percent_change)
+                    : NaN;
+                  const showExt = Number.isFinite(extPct) && Math.abs(extPct) >= 0.05;
+                  const extCls = !showExt ? "" : extPct >= 0 ? "up" : "dn";
+                  const titleParts = [sym];
+                  if (metric) titleParts.push(metric);
+                  if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
+                  if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
                   return h("button", {
                     key: `${lane.id}-${sym}`,
                     className: "focus-chip",
@@ -1377,12 +1428,18 @@
                       if (typeof onSelectTicker === "function") onSelectTicker(sym);
                       else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
                     },
-                    title: `${sym}${metric ? " · " + metric : ""}${pct != null ? " · " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}`,
+                    title: titleParts.join(" · "),
                   },
                     h("span", { className: "focus-chip-sym" }, sym),
                     metric && h("span", { className: "focus-chip-metric" }, metric),
-                    pct != null && h("span", { className: `focus-chip-pct ${pctCls}` },
-                      (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%",
+                    (pct != null || showExt) && h("div", { className: "focus-chip-pct-wrap" },
+                      pct != null && h("span", { className: `focus-chip-pct ${pctCls}` },
+                        (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%",
+                      ),
+                      showExt && h("span", { className: `focus-chip-pct-ext ${extCls}` },
+                        (extPct >= 0 ? "+" : "") + extPct.toFixed(1) + "%",
+                        h("span", { className: "ext-tag" }, "EXT"),
+                      ),
                     ),
                   );
                 }),
