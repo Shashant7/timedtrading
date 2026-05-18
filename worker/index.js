@@ -29064,16 +29064,49 @@ async function autopsyTradesServerSide(env) {
 
   const tickersNeeded = [...new Set(rawTrades.map(t => String(t.ticker).toUpperCase()))];
 
+  // R7 (2026-05-18) — VIX resolution for trade autopsy.
+  //
+  // Prior version queried only cash $VIX symbols and bailed if the
+  // closest candle was > 5 days from entry_ts. That silently dropped
+  // most trades from vix_buckets in the calibration report
+  // (tasks/may-2026-performance-analysis.md §P2 #6 + the trajectory
+  // research program diagnostic). Two fixes:
+  //   (a) Pull from VIXY ETF as a secondary source if cash VIX is
+  //       missing — VIXY is the tradable proxy and we already ingest
+  //       its daily candles for the non-admin chart path. VIXY tracks
+  //       short-term VIX futures so it's a reasonable proxy for
+  //       bucket assignment (the buckets are coarse: 0-15 / 15-22 /
+  //       22-30 / 30+).
+  //   (b) Widen the staleness tolerance from 5 to 14 days. The buckets
+  //       are coarse enough that a 2-week-old VIX is still useful;
+  //       the prior 5-day window was rejecting the entire VIX feed
+  //       any time data lifecycle skipped a beat.
+  // If both sources are missing within 14 days, return null and let
+  // the caller bucket the trade as 'unknown' so the gap is visible.
   let vixCandles = [];
+  let vixyCandles = [];
   try {
     const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
     vixCandles = (vixRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
   } catch (_) {}
-  function getVixAtTs(ts) {
-    if (!vixCandles.length) return null;
+  try {
+    const vixyRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker = 'VIXY' ORDER BY ts`).all();
+    vixyCandles = (vixyRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
+  } catch (_) {}
+  function _closestWithin(candles, ts, maxDistMs) {
+    if (!candles.length) return null;
     let closest = null, minDist = Infinity;
-    for (const v of vixCandles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
-    return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
+    for (const v of candles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
+    return (closest && minDist <= maxDistMs) ? closest : null;
+  }
+  function getVixAtTs(ts) {
+    const MAX_DIST = 14 * 86400000;
+    const vix = _closestWithin(vixCandles, ts, MAX_DIST);
+    if (vix) return Math.round(vix.c * 100) / 100;
+    // VIXY fallback — coarse but useful for bucket assignment.
+    const vixy = _closestWithin(vixyCandles, ts, MAX_DIST);
+    if (vixy) return Math.round(vixy.c * 100) / 100;
+    return null;
   }
 
   const trailCutoff = Date.now() - 60 * 86400000;
@@ -29577,15 +29610,31 @@ async function runCalibrationAnalysis(env, options = {}) {
   };
 
   // E. Regime-Conditional Filters
+  // R7 (2026-05-18) — surface coverage so the report consumer can see when
+  // 'unknown' dominates byRegime (the symptom that motivated R7). Add an
+  // observational_only flag on the unknown bucket so callers don't act on it.
   const regimeFilters = {};
+  let _regimeKnownCount = 0;
+  let _regimeUnknownCount = 0;
   for (const [reg, arr] of Object.entries(byRegime)) {
     const m = computeMetrics(arr);
+    const isUnknown = !reg || reg === "unknown";
+    if (isUnknown) _regimeUnknownCount += arr.length;
+    else _regimeKnownCount += arr.length;
     regimeFilters[reg] = {
       ...m,
-      block_entries: m.expectancy < 0 && arr.length >= 5,
-      min_rank_adj: m.expectancy < 0.2 ? 10 : 0,
+      block_entries: !isUnknown && m.expectancy < 0 && arr.length >= 5,
+      min_rank_adj: !isUnknown && m.expectancy < 0.2 ? 10 : 0,
+      observational_only: isUnknown || undefined,
     };
   }
+  const _regimeCoverageTotal = _regimeKnownCount + _regimeUnknownCount;
+  const regimeCoverage = {
+    known: _regimeKnownCount,
+    unknown: _regimeUnknownCount,
+    total: _regimeCoverageTotal,
+    known_pct: _regimeCoverageTotal > 0 ? Math.round((_regimeKnownCount / _regimeCoverageTotal) * 1000) / 10 : 0,
+  };
 
   // F. Rank Threshold Optimization
   const rankDeciles = {};
@@ -29840,11 +29889,15 @@ async function runCalibrationAnalysis(env, options = {}) {
     };
   }
 
-  // VIX regime gates from combined trade performance
-  const vixBuckets = { low: [], medium: [], high: [], extreme: [] };
+  // VIX regime gates from combined trade performance.
+  // R7 (2026-05-18) — prior version silently dropped trades whose VIX
+  // resolution returned null, leaving vix_buckets empty in the calibration
+  // report. Now bucket nulls as 'unknown' so the gap is visible (count is
+  // reported; the report consumer can decide whether to act on it).
+  const vixBuckets = { low: [], medium: [], high: [], extreme: [], unknown: [] };
   for (const t of trades) {
     const s = extractScoring(t);
-    if (s.vix == null) continue;
+    if (s.vix == null) { vixBuckets.unknown.push(t); continue; }
     if (s.vix < 15) vixBuckets.low.push(t);
     else if (s.vix < 22) vixBuckets.medium.push(t);
     else if (s.vix < 30) vixBuckets.high.push(t);
@@ -29854,12 +29907,24 @@ async function runCalibrationAnalysis(env, options = {}) {
   for (const [bucket, arr] of Object.entries(vixBuckets)) {
     if (arr.length < 3) continue;
     const m = computeMetrics(arr);
+    // R7 (2026-05-18) — vix_range explicit per bucket so 'unknown' (the
+    // R7 visibility bucket added above) doesn't get mis-assigned a numeric
+    // VIX range. 'unknown' is observational only: no gates set on it.
+    const vixRangeByBucket = {
+      low:     [0, 15],
+      medium:  [15, 22],
+      high:    [22, 30],
+      extreme: [30, 100],
+      unknown: null,
+    };
+    const isUnknown = bucket === "unknown";
     adaptiveRegimeGates[bucket] = {
-      vix_range: bucket === "low" ? [0, 15] : bucket === "medium" ? [15, 22] : bucket === "high" ? [22, 30] : [30, 100],
+      vix_range: vixRangeByBucket[bucket] ?? null,
       sample_count: m.n, win_rate: m.win_rate, expectancy: m.expectancy, sqn: m.sqn,
-      block_long: m.expectancy < -0.3 && bucket !== "low",
-      require_rank_boost: m.expectancy < 0 ? 10 : 0,
-      restrict_to_short_only: bucket === "extreme" && m.expectancy < 0,
+      block_long: !isUnknown && m.expectancy < -0.3 && bucket !== "low",
+      require_rank_boost: !isUnknown && m.expectancy < 0 ? 10 : 0,
+      restrict_to_short_only: !isUnknown && bucket === "extreme" && m.expectancy < 0,
+      observational_only: isUnknown || undefined,
     };
   }
 
@@ -30146,6 +30211,7 @@ async function runCalibrationAnalysis(env, options = {}) {
     signal_ic: signalIC,
     sl_tp_calibration: slTP,
     regime_filters: regimeFilters,
+    regime_coverage: regimeCoverage,
     v3_regime_analysis: v3RegimeAnalysis,
     rank_optimization: { deciles: rankDeciles, best_cutoff: bestRankCutoff, best_sqn: bestRankSQN },
     position_sizing: positionSizing,
@@ -30171,6 +30237,16 @@ async function runCalibrationAnalysis(env, options = {}) {
     execution_profile_analysis: executionProfileAnalysis,
     adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
     vix_buckets: Object.fromEntries(Object.entries(vixBuckets).map(([k, arr]) => [k, computeMetrics(arr)])),
+    // R7 (2026-05-18) — explicit coverage so the report consumer can see when
+    // 'unknown' dominates vix_buckets (which historically left them empty).
+    vix_coverage: (() => {
+      let known = 0, unknown = 0;
+      for (const [k, arr] of Object.entries(vixBuckets)) {
+        if (k === "unknown") unknown += arr.length; else known += arr.length;
+      }
+      const total = known + unknown;
+      return { known, unknown, total, known_pct: total > 0 ? Math.round((known / total) * 1000) / 10 : 0 };
+    })(),
     profile_impact: profileImpact,
   };
 
