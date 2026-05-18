@@ -1282,6 +1282,12 @@ const ROUTES = [
   ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
   ["POST", "/timed/calibration/run", "POST /timed/calibration/run"],
   ["GET", "/timed/calibration/report", "GET /timed/calibration/report"],
+  // Trajectory program — Phase 1 (PR #205) routes. Must be registered in
+  // ROUTES or getRouteKey returns null and the handlers below never see
+  // the request (the symptom that bit us on the first deploy).
+  ["GET",  "/timed/calibration/cohort",          "GET /timed/calibration/cohort"],
+  ["GET",  "/timed/admin/trajectory/stats",      "GET /timed/admin/trajectory/stats"],
+  ["POST", "/timed/admin/trajectory/backfill",   "POST /timed/admin/trajectory/backfill"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
