@@ -495,6 +495,37 @@
       }
       .focus-chip-pct.up { color: var(--tt-up); }
       .focus-chip-pct.dn { color: var(--tt-dn); }
+      /* Pre-market / after-hours stacked badge on FOCUS chips. When market
+         is closed and the ticker has a meaningful EXT move, we stack RTH
+         (top) and EXT (smaller, below). Layout slot is the same grid cell
+         as the RTH pct so chip width / grid template don't change. */
+      .focus-chip-pct-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        line-height: 1.05;
+        min-width: 0;
+      }
+      .focus-chip-pct-ext {
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        opacity: 0.92;
+        margin-top: 1px;
+      }
+      .focus-chip-pct-ext.up { color: var(--tt-up); }
+      .focus-chip-pct-ext.dn { color: var(--tt-dn); }
+      .focus-chip-pct-ext .ext-tag {
+        font-size: 8.5px;
+        font-weight: 700;
+        margin-left: 3px;
+        padding: 0 3px;
+        border-radius: 3px;
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-dim);
+        letter-spacing: 0.08em;
+        vertical-align: 1px;
+      }
 
       /* Bubble Map */
       .bm-stage {
@@ -690,6 +721,121 @@
         border: 1px solid var(--tt-border);
         border-radius: 12px;
       }
+      /* BriefPlaceholder (data-driven loading card) */
+      .bp-card { padding: 16px 18px; }
+      .bp-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .bp-countdown {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .bp-countdown-lbl {
+        font-family: var(--tt-font);
+        font-weight: 500;
+        color: var(--tt-text-dim);
+        margin-left: 2px;
+      }
+      .bp-loading {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        letter-spacing: 0.04em;
+      }
+      .bp-dots { display: inline-flex; gap: 3px; }
+      .bp-dots i {
+        width: 4px; height: 4px; border-radius: 50%;
+        background: var(--tt-text-dim);
+        animation: bp-dot 1.2s ease-in-out infinite;
+      }
+      .bp-dots i:nth-child(2) { animation-delay: 0.15s; }
+      .bp-dots i:nth-child(3) { animation-delay: 0.30s; }
+      @keyframes bp-dot {
+        0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); }
+        40% { opacity: 1; transform: scale(1); }
+      }
+      .bp-section-title {
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim);
+        margin-bottom: 8px;
+      }
+      .bp-signal-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      .bp-signal-row {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: transparent;
+        border: 1px solid transparent;
+        color: var(--tt-text);
+        text-align: left;
+        cursor: pointer;
+        font-family: var(--tt-font);
+        transition: background 0.12s, border-color 0.12s;
+      }
+      .bp-signal-row:hover {
+        background: var(--tt-bg-surface);
+        border-color: var(--tt-border);
+      }
+      .bp-signal-sym {
+        font-weight: 700;
+        font-size: 13px;
+      }
+      .bp-signal-px {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        color: var(--tt-text-muted);
+      }
+      .bp-signal-pct {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .bp-signal-pct.up { color: var(--tt-up); }
+      .bp-signal-pct.dn { color: var(--tt-dn); }
+      .bp-signal-pct .ext-tag {
+        font-size: 8.5px;
+        font-weight: 700;
+        margin-left: 4px;
+        padding: 0 3px;
+        border-radius: 3px;
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-dim);
+        letter-spacing: 0.08em;
+        vertical-align: 1px;
+      }
+      .bp-empty {
+        font-size: 12px;
+        color: var(--tt-text-dim);
+        font-style: italic;
+        padding: 6px 0 12px;
+      }
+      .bp-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+      }
+      .bp-meta strong { color: var(--tt-text); font-weight: 700; }
       /* Brief preview specifics */
       .brief-head {
         font-size: 15px;
@@ -827,7 +973,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.a735c14026.js"></script>
+    <script src="today.compiled.0035009f2c.js"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
