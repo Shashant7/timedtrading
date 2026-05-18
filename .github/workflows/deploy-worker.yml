@@ -20,6 +20,13 @@ on:
     branches: [main]
     paths:
       - "worker/**"
+      # The worker embeds react-app-dist/simulation-dashboard.html (built
+      # from react-app/ + scripts/build-frontend.js + scripts/embed-dashboard.js),
+      # so any of these inputs can change what actually ships in the worker.
+      - "react-app/**"
+      - "scripts/build-frontend.js"
+      - "scripts/embed-dashboard.js"
+      - "package.json"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:  # Manual re-deploy from the Actions tab
 
@@ -81,7 +88,28 @@ jobs:
             echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
           } >> "$GITHUB_ENV"
 
-      - name: Deploy worker
+      # The worker imports a generated `worker/dashboard-html.js` (gitignored)
+      # produced by `scripts/build-frontend.js` + `scripts/embed-dashboard.js`.
+      # Locally, `npm run deploy:worker` chains build → embed → wrangler deploy.
+      # CI must mirror that or wrangler bails with
+      # `Could not resolve "./dashboard-html.js"`.
+      - name: Install root deps
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        # `npm install` (not `npm ci`) because package-lock.json is gitignored.
+        # `--no-audit --no-fund` keeps logs quiet; `--ignore-scripts` skips
+        # native postinstall (e.g. better-sqlite3) we don't need for deploy.
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Build frontend + embed dashboard
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          npm run build:frontend
+          node scripts/embed-dashboard.js
+
+      # `npm run deploy:worker` deploys BOTH the default env and the
+      # `production` env. Mirror that so production vars (e.g.
+      # LIVE_MANAGE_INTERVAL_MIN) actually take effect.
+      - name: Deploy worker — default env
         if: steps.cfsec.outputs.secrets-ok == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
@@ -89,11 +117,21 @@ jobs:
           accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.92.0"
           workingDirectory: worker
-          command: deploy
+          command: deploy --env=''
+
+      - name: Deploy worker — production env
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.92.0"
+          workingDirectory: worker
+          command: deploy --env production
 
       - name: Deploy skipped notice
         if: steps.cfsec.outputs.secrets-ok != 'true'
         run: |
           echo "Worker auto-deploy SKIPPED (no Cloudflare secrets configured)."
-          echo "Run 'npx wrangler deploy' from the worker/ directory manually,"
+          echo "Run 'npm run deploy:worker' from the repo root manually,"
           echo "or configure CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID."
