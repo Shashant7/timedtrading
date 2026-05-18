@@ -389,6 +389,13 @@ import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
+/* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
+   Trade trajectory recorder. Backfills bubble-map cell sequences from
+   trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
+   endpoints + nightly cron. Pure module — no behavior change to live
+   admission/exit logic; this is read-only foundation.
+   See tasks/2026-05-18-stochastic-research-program.md §0. */
+import * as TradeTrajectories from "./lib/trade-trajectories.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -61942,6 +61949,161 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // TRAJECTORY ENDPOINTS — Phase 1 of the stochastic research program
+      // (tasks/2026-05-18-stochastic-research-program.md §0).
+      // Read-only foundation. No live admission/exit behavior changes.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/admin/trajectory/backfill — admin-gated one-shot backfill
+      // trigger. Body params (all optional):
+      //   since_ms, until_ms, max_trades, include_open, force
+      // Returns { ok, scanned, built, skipped, errors, elapsed_ms }.
+      if (routeKey === "POST /timed/admin/trajectory/backfill") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        const body = await req.json().catch(() => ({}));
+        const opts = {
+          sinceMs: body.since_ms != null ? Number(body.since_ms) : undefined,
+          untilMs: body.until_ms != null ? Number(body.until_ms) : undefined,
+          maxTrades: body.max_trades != null ? Number(body.max_trades) : undefined,
+          includeOpen: !!body.include_open,
+          force: !!body.force,
+        };
+        try {
+          const result = await TradeTrajectories.backfillTradeTrajectories(env, opts);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trajectory/stats — row counts + coverage sanity check.
+      if (routeKey === "GET /timed/admin/trajectory/stats") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await TradeTrajectories.ensureTrajectorySchema(env);
+          const totalRow = await db.prepare(`SELECT COUNT(*) AS n FROM trade_trajectories`).first();
+          const byOutcomeRows = await db.prepare(
+            `SELECT outcome, COUNT(*) AS n FROM trade_trajectories GROUP BY outcome ORDER BY n DESC`,
+          ).all();
+          const bySetupRows = await db.prepare(
+            `SELECT setup_name, COUNT(*) AS n FROM trade_trajectories GROUP BY setup_name ORDER BY n DESC LIMIT 20`,
+          ).all();
+          const byEntryStateRows = await db.prepare(
+            `SELECT entry_state, COUNT(*) AS n FROM trade_trajectories GROUP BY entry_state ORDER BY n DESC`,
+          ).all();
+          const recentRow = await db.prepare(
+            `SELECT MAX(built_at) AS last_built_at, MIN(entry_ts) AS oldest_entry_ts, MAX(entry_ts) AS newest_entry_ts FROM trade_trajectories`,
+          ).first();
+          return sendJSON({
+            ok: true,
+            total_trajectories: Number(totalRow?.n || 0),
+            by_outcome: byOutcomeRows?.results || [],
+            by_setup_top20: bySetupRows?.results || [],
+            by_entry_state: byEntryStateRows?.results || [],
+            last_built_at: recentRow?.last_built_at || null,
+            oldest_entry_ts: recentRow?.oldest_entry_ts || null,
+            newest_entry_ts: recentRow?.newest_entry_ts || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/calibration/cohort
+      //   ?setup=<setup_name>
+      //   &direction=<LONG|SHORT>
+      //   &entry_state=<B|Bp|R|Rp>
+      //   &entry_decile=<0..9>           (or decile_band=low|mid|high)
+      //   &lookback_days=<n>             default 90
+      //   &recent_days=<n>               default 30
+      //   &min_n=<n>                     default 15 (owner-locked from program §0.1)
+      //
+      // S2 of the trajectory research program — read-only cohort lookup.
+      // Returns the matched cohort's empirical win-rate / expectancy /
+      // PF / avg-R AND a marginal fallback when the cohort is below
+      // min_n. Gated on n>=min_n for any field that would inform a live
+      // decision (see "gated" flag in response).
+      if (routeKey === "GET /timed/calibration/cohort") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await TradeTrajectories.ensureTrajectorySchema(env);
+
+          const qSetup        = (url.searchParams.get("setup") || "").trim() || null;
+          const qDirection    = (url.searchParams.get("direction") || "").trim().toUpperCase() || null;
+          const qEntryState   = (url.searchParams.get("entry_state") || "").trim() || null;
+          const qEntryDecileR = url.searchParams.get("entry_decile");
+          const qEntryDecile  = qEntryDecileR != null && qEntryDecileR !== "" ? Number(qEntryDecileR) : null;
+          const lookbackDays  = Math.max(1, Math.min(720, Number(url.searchParams.get("lookback_days") || 90)));
+          const recentDays    = Math.max(1, Math.min(lookbackDays, Number(url.searchParams.get("recent_days") || 30)));
+          const minN          = Math.max(1, Math.min(500, Number(url.searchParams.get("min_n") || 15)));
+
+          const nowMs    = Date.now();
+          const lookback = nowMs - lookbackDays * 86400000;
+          const recent   = nowMs - recentDays * 86400000;
+
+          // Build the WHERE chain dynamically — only include filters the
+          // caller actually passed. All non-null params join with AND.
+          const where = [`entry_ts >= ?`, `outcome IN ('WIN','LOSS','FLAT')`];
+          const params = [lookback];
+          if (qSetup       != null) { where.push(`setup_name = ?`);    params.push(qSetup); }
+          if (qDirection   != null) { where.push(`direction = ?`);     params.push(qDirection); }
+          if (qEntryState  != null) { where.push(`entry_state = ?`);   params.push(qEntryState); }
+          if (qEntryDecile != null && Number.isFinite(qEntryDecile)) {
+            where.push(`entry_decile = ?`); params.push(Math.floor(qEntryDecile));
+          }
+
+          const baseSql = `SELECT outcome, pnl_pct, entry_ts FROM trade_trajectories WHERE ${where.join(" AND ")}`;
+          const { results } = await db.prepare(baseSql).bind(...params).all();
+          const rows = results || [];
+
+          const cohort = TradeTrajectories.computeCohortMetrics(rows);
+          const recentRows = rows.filter(r => Number(r.entry_ts) >= recent);
+          const recentCohort = TradeTrajectories.computeCohortMetrics(recentRows);
+
+          // Marginal fallbacks — useful when the joint cohort is below min_n.
+          // Each one drops one filter so the caller can see the next-most-
+          // specific number.
+          const marginals = {};
+          const filtersUsed = { setup: qSetup, direction: qDirection, entry_state: qEntryState, entry_decile: qEntryDecile };
+          for (const [drop, _] of Object.entries(filtersUsed)) {
+            if (filtersUsed[drop] == null) continue;
+            const mWhere = [`entry_ts >= ?`, `outcome IN ('WIN','LOSS','FLAT')`];
+            const mParams = [lookback];
+            if (drop !== "setup"        && qSetup       != null) { mWhere.push(`setup_name = ?`);  mParams.push(qSetup); }
+            if (drop !== "direction"    && qDirection   != null) { mWhere.push(`direction = ?`);   mParams.push(qDirection); }
+            if (drop !== "entry_state"  && qEntryState  != null) { mWhere.push(`entry_state = ?`); mParams.push(qEntryState); }
+            if (drop !== "entry_decile" && qEntryDecile != null) { mWhere.push(`entry_decile = ?`); mParams.push(Math.floor(qEntryDecile)); }
+            const mSql = `SELECT outcome, pnl_pct FROM trade_trajectories WHERE ${mWhere.join(" AND ")}`;
+            const mRes = await db.prepare(mSql).bind(...mParams).all();
+            marginals[`drop_${drop}`] = TradeTrajectories.computeCohortMetrics(mRes?.results || []);
+          }
+
+          const gated = cohort.n < minN;
+          return sendJSON({
+            ok: true,
+            filters: filtersUsed,
+            config: { min_n: minN, lookback_days: lookbackDays, recent_days: recentDays },
+            cohort,
+            recent: recentCohort,
+            marginal_fallback: marginals,
+            gated,
+            gated_reason: gated ? `n=${cohort.n} < min_n=${minN}; treat as observational only (no live override)` : null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // GET /timed/calibration/deep-audit — comprehensive system evaluation
       // ═══════════════════════════════════════════════════════════════════════
       if (routeKey === "GET /timed/calibration/deep-audit") {
@@ -73262,6 +73424,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Also resolve expired model predictions.
     if (vc.has("0 4 * * *")) {
       ctx.waitUntil(runDataLifecycle(env));
+      // S1.5 — Trade trajectories: build bubble-map cell sequences for
+      // trades closed in the last 7 days. Runs AFTER runDataLifecycle so
+      // the trail_5m_facts buckets it sources from are freshly aggregated.
+      // Idempotent (INSERT OR REPLACE); cron-safe. Non-blocking — failure
+      // logged but doesn't impact other lifecycle work.
+      if (env?.DB) {
+        ctx.waitUntil(
+          TradeTrajectories.backfillTradeTrajectories(env, { sinceMs: Date.now() - 7 * 24 * 60 * 60 * 1000 })
+            .then((r) => console.log(`[TRAJECTORY] Nightly backfill: scanned=${r.scanned} built=${r.built} skipped=${r.skipped} errors=${r.errors} elapsed=${r.elapsed_ms}ms`))
+            .catch((e) => console.warn(`[TRAJECTORY] Nightly backfill failed:`, String(e?.message || e).slice(0, 200)))
+        );
+      }
       // Resolve model predictions whose horizon has expired (non-blocking)
       if (env?.DB) {
         ctx.waitUntil(
