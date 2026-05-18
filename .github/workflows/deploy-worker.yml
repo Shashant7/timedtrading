@@ -109,6 +109,14 @@ jobs:
       # `npm run deploy:worker` deploys BOTH the default env and the
       # `production` env. Mirror that so production vars (e.g.
       # LIVE_MANAGE_INTERVAL_MIN) actually take effect.
+      #
+      # NOTE on `--env=`: wrangler-action v3 uses @actions/exec (no shell),
+      # which splits `command:` on whitespace and preserves quote characters
+      # literally. Writing `--env=''` passed the four-character string `''`
+      # to wrangler, which then failed with `No environment found in
+      # configuration with name "''"`. Use bare `--env=` (empty value, no
+      # quotes) — that's a single token and wrangler reads the value as
+      # the empty string, selecting the top-level config.
       - name: Deploy worker — default env
         if: steps.cfsec.outputs.secrets-ok == 'true'
         uses: cloudflare/wrangler-action@v3
@@ -117,7 +125,7 @@ jobs:
           accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.92.0"
           workingDirectory: worker
-          command: deploy --env=''
+          command: deploy --env=
 
       - name: Deploy worker — production env
         if: steps.cfsec.outputs.secrets-ok == 'true'
