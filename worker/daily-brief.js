@@ -2761,17 +2761,38 @@ ${JSON.stringify(data.iwmTechnical)}
 Resistance Ceilings = recent highs where sellers stepped in (BSL). Support Floors = recent lows where buyers appeared (SSL). FVGs = unfilled gaps price often revisits. ALWAYS state the timeframe.
 ATR Fib levels are SECONDARY intraday targets. ORB levels (Opening Range High/Low/Mid) add intraday context after the open — if available from the model, include them.
 
-### Game Plan Triggers:
+### Game Plan Triggers + Day Gate (THESE ARE THE EXACT NUMBERS THE USER SEES ON-SCREEN):
+The "Game Plan" card on the live app renders the BULL/BEAR triggers + targets below.
+The "Day Gate" row renders the mid + ±38.2% bounds below. The per-ETF Prediction
+sentence at the bottom of the brief MUST use these exact numbers and labels so
+the prose, the card, and the per-ETF Prediction all speak the same language.
+
 ${(() => {
   const lines = [];
-  for (const [sym, tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["IWM", data.iwmTechnical]]) {
-    const gp = tech?.atrFibLevels?.gamePlan;
+  for (const [sym, tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+    const af = tech?.atrFibLevels;
+    const gp = af?.gamePlan;
     if (!gp) continue;
-    lines.push(`${sym} Bull: above ${gp.bullTrigger} → ${gp.bullTarget} | Bear: below ${gp.bearTrigger} → ${gp.bearTarget}`);
+    const mid = af?.anchor;
+    const dn38 = af?.levels?.["-38.2%"];
+    const up38 = af?.levels?.["+38.2%"];
+    const range = (Number.isFinite(dn38) && Number.isFinite(up38))
+      ? `expected day range $${dn38}–$${up38} (Day Gate)`
+      : "";
+    const midStr = Number.isFinite(mid) ? `mid $${mid}` : "";
+    const head = [midStr, range].filter(Boolean).join(" · ");
+    lines.push(`${sym}: ${head}${head ? " | " : ""}BULL break above $${gp.bullTrigger} → target $${gp.bullTarget} | BEAR break below $${gp.bearTrigger} → target $${gp.bearTarget}`);
   }
   return lines.length > 0 ? lines.join("\n") : "Use SMC support/resistance levels as triggers.";
 })()}
-ABSOLUTE RULE: Bearish targets MUST be LOWER than triggers. Bullish targets MUST be HIGHER.
+ABSOLUTE RULES:
+- Bearish targets MUST be LOWER than triggers. Bullish targets MUST be HIGHER.
+- The "Expected range" you cite for SPY/QQQ/IWM at the end of the brief MUST equal the Day Gate
+  range printed above for that ETF — verbatim. The card on screen shows these exact bounds; if
+  your sentence shows different bounds the user sees two contradictory numbers and loses trust.
+- BULL break / BEAR break / mid / Day Gate are the ONLY level vocabulary allowed in the per-ETF
+  Prediction sentence. Do NOT invent SMC level names ("4-hour gap", "ORB high", "Daily Pivot")
+  in the Prediction sentence — those belong in the Bigger Picture / SPY-QQQ sections above.
 
 ### Golden Gate Status (V15 P0.7.42 — Day & Week probabilities):
 For each index, show BOTH the day GG state and the multi-day (weekly) GG state. The probability heuristic blends ATR usage, time-of-session, and distance to target. Use HIGH/MODERATE/LOW labels in the prose; quote the % prob if material.
@@ -2958,23 +2979,38 @@ STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a t
 
 7. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities if any.
 
-End with FOUR clear sections (in this exact order):
+End with FIVE clear sections (in this exact order):
 
 - **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
 
-- **SPY Prediction**: One specific, falsifiable prediction for SPY in the SAME format as ES — a sentence describing the most likely intraday path with explicit triggers and a 1-day expected range. Plain English. Use ATR fib levels (38.2 / 50 / 61.8) as REFERENCE points feeding your reasoning, NOT as the primary structure. Lead with the structural level (SMC support/resistance, prior day close, ORB high/low, daily pivot) the price is most likely to test, then say what happens if it breaks. Example tone: "SPY likely opens around 736 and tests 734.50 support early; holds → grinds to 738.20 by mid-morning; loses 734 → fast move to 731.60. Expected range: 731.50–738.20."
+- **SPY Prediction**: 2–3 short sentences (≤ 50 words total). PLAIN ENGLISH. Use ONLY these
+  four anchors, by these names, with the exact numbers from "Game Plan Triggers + Day Gate" above
+  for SPY:
+    mid · Day Gate (low–high) · BULL break (trigger → target) · BEAR break (trigger → target).
+  Required shape (replace bracketed placeholders verbatim with the SPY numbers from the block above):
+    "SPY sits around the mid at \\$[mid] inside today's Day Gate \\$[dayLow]–\\$[dayHigh].
+     A BULL break above \\$[bullTrigger] opens \\$[bullTarget]; a BEAR break below
+     \\$[bearTrigger] opens \\$[bearTarget]. Expected range: \\$[dayLow]–\\$[dayHigh]."
+  Stay close to that shape — you may swap one of the two break sentences for a brief bias call
+  ("we lean BULL because …" / "BEAR is the higher-probability path because …") in ≤ 12 words,
+  but the four anchor numbers MUST appear and the Expected range MUST equal the Day Gate range.
 
-- **QQQ Prediction**: Same format and structure as SPY Prediction. Custom, holistic, simple to follow.
+- **QQQ Prediction**: Same shape, same anchor names, QQQ numbers from the Game Plan block.
 
-- **IWM Prediction**: Same format and structure as SPY Prediction.
+- **IWM Prediction**: Same shape, same anchor names, IWM numbers from the Game Plan block.
 
-- **Risk Factors**: 1-2 key risks in plain English.
+- **Risk Factors**: 1–2 key risks in plain English.
 
 CRITICAL on the per-ETF predictions:
-- DO NOT just restate the ATR fib table — that's already in the infographic. The prediction must SYNTHESIZE the engine's bias, the SMC level, the ATR target, and the cross-asset / sector context into one actionable sentence per ETF.
-- Triggers are specific prices ("loses 734 →", "breaks 738 →"), not phrases like "if support holds".
-- Expected range MUST be a real range with a low and high, not just one number.
-- Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.`;
+- The user has a Game Plan card on screen showing exactly these mid / Day Gate / BULL break /
+  BEAR break numbers. The Prediction sentence below the card MUST cite the SAME numbers with
+  the SAME labels. Two different number sets for the same ETF kills the user's trust.
+- Triggers and targets are specific prices ("BULL break above \\$738.50 → target \\$742.10"),
+  not vague phrases ("if support holds").
+- Expected range MUST be a real low–high pair AND must equal the Day Gate bounds for that ETF.
+- Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.
+- DO NOT invent SMC level names ("4-hour gap", "ORB high", "daily pivot") in the Prediction
+  sentence — those belong in the earlier SPY / QQQ structure section.`;
 }
 
 function buildEveningPrompt(data) {
