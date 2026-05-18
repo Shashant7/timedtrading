@@ -396,6 +396,15 @@ import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
    admission/exit logic; this is read-only foundation.
    See tasks/2026-05-18-stochastic-research-program.md §0. */
 import * as TradeTrajectories from "./lib/trade-trajectories.js";
+/* 2026-05-18 — Hotfix for runDataLifecycle aggregation timing out.
+   Confirmed empirically: production INSERT-from-correlated-subqueries
+   aggregation hits D1 CPU limits even for a single ticker (39s, "D1 DB
+   exceeded its CPU time limit"). trail_5m_facts has been silently
+   stale since ~2026-04-22 as a result. This module ships a
+   per-ticker GROUP BY + JOIN aggregation that does not use correlated
+   subqueries — well under the D1 budget. Surfaces via admin endpoint
+   for one-shot gap backfill. See worker/lib/trail-facts-light.js. */
+import * as TrailFactsLight from "./lib/trail-facts-light.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -1288,6 +1297,10 @@ const ROUTES = [
   ["GET",  "/timed/calibration/cohort",          "GET /timed/calibration/cohort"],
   ["GET",  "/timed/admin/trajectory/stats",      "GET /timed/admin/trajectory/stats"],
   ["POST", "/timed/admin/trajectory/backfill",   "POST /timed/admin/trajectory/backfill"],
+  // Trail-facts-light: per-ticker aggregation hotfix for the
+  // CPU-timeout bug in runDataLifecycle. See worker/lib/trail-facts-light.js.
+  ["POST", "/timed/admin/aggregate-trail-facts-light",     "POST /timed/admin/aggregate-trail-facts-light"],
+  ["GET",  "/timed/admin/aggregate-trail-facts-light/list", "GET /timed/admin/aggregate-trail-facts-light/list"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -62183,6 +62196,47 @@ export default {
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // TRAIL-FACTS-LIGHT — D1-friendly per-ticker aggregation hotfix
+      // for the runDataLifecycle CPU-timeout bug. See
+      // worker/lib/trail-facts-light.js header for rationale.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/admin/aggregate-trail-facts-light/list?since_ms=...
+      //   List distinct tickers present in timed_trail since the given
+      //   ms epoch. Used by the gap-backfill script to enumerate work.
+      if (routeKey === "GET /timed/admin/aggregate-trail-facts-light/list") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        try {
+          const sinceMs = Number(url.searchParams.get("since_ms") || 0);
+          const tickers = await TrailFactsLight.listTrailTickersSince(env, sinceMs);
+          return sendJSON({ ok: true, count: tickers.length, tickers }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/aggregate-trail-facts-light
+      //   Body: { ticker, since_ms?, until_ms? }
+      //   Aggregates timed_trail → trail_5m_facts for ONE ticker using
+      //   the lightweight single-GROUP-BY + JOIN path. Returns the D1
+      //   meta (changes / rows_read / rows_written / duration_ms) so
+      //   the caller can see actual work done — unlike the existing
+      //   /timed/admin/run-lifecycle which hides meta and returned
+      //   "success" even when D1 silently aborted on CPU timeout.
+      if (routeKey === "POST /timed/admin/aggregate-trail-facts-light") {
+        const authFail = requireKeyOr401(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const ticker = (body.ticker || "").toString();
+        if (!ticker) return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+        const sinceMs = body.since_ms != null ? Number(body.since_ms) : 0;
+        const untilMs = body.until_ms != null ? Number(body.until_ms) : Date.now();
+        const result = await TrailFactsLight.aggregateTrailFactsForTicker(env, ticker, sinceMs, untilMs);
+        return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
       }
 
       // ═══════════════════════════════════════════════════════════════════════
