@@ -8,6 +8,158 @@ The companion chop-regime doc is **defensive** (stop the bleed). This doc is **o
 
 ---
 
+## 0. UPDATE 2026-05-18 PM — Owner feedback + trajectory framing
+
+Owner's answers to the five open questions are locked in below. More importantly, owner reframed the whole program around a single insight that changes which work matters most:
+
+> "We aren't really applying relativity into our thinking. We know the makeup of every move, long or short. We have the ability to look at our scores, signals and patterns throughout that move. If we looked at our scores and signals and the journey they go through, we should be able to relatively know what is likely to work vs not. Think of our bubble map, our unique proprietary offering. We know that there are key corridors and movements a ticker bubble will make before leading into and exiting out of a move. Is that not something we can use to decrypt the move?"
+
+> "Now imagine applying Simple Random Walk or Markov Theory to that?"
+
+> "Right now we have setups and plays that we look for but we haven't translated that to our language as well. We have become rigid on the setup and blindly hoping it works."
+
+> "We really need to be 70-80% right with our trades, not 10% today or 20% yesterday or less than 50% in May. We have 200+ tickers and a streaming flow of data that tells us exactly when moves are happening."
+
+This is correct, and it reorders the program. §0.1–§0.5 below capture what that means concretely. The §1–§7 content beneath stays as the technical scorecard, gap analysis, and Markov / random-walk theory — but the **rollout** in §4 is superseded by §0.6.
+
+### 0.1 Locked answers to the five open questions
+
+| # | Question | Owner's answer | What we'll do |
+|---|---|---|---|
+| 1 | X video — anything specific to ingest? | **Simple Random Walk** | Make Simple Random Walk (Wiener-style discrete random walk) the explicit null model in S3 and the explicit *baseline path* the bubble-map trajectory work is compared against. |
+| 2 | S3 stringency — random-walk null threshold? | **My call** | I'm setting it at the **95th percentile** of the null distribution as the bar for "real edge." 95th is the standard statistical threshold; setting it stricter (99th) would reject too many setups that have honest but small edge, and we don't have enough trade count to support 99th-percentile claims yet (598 all-time). |
+| 3 | S4 default — divergence exit OFF or ON? | **ON** | Ship S4 with the divergence exit *active*, behind a feature flag (`exits.divergence_enabled` in `model_config`) so you can roll back from config without redeploy. Every event logged to a new `divergence_events` table from day one. |
+| 4 | Compute budget — nightly cron or separate job? | **Unsure → my call** | Cron-based, but separate from the worker hot path. S1/S2/S5 run inside Worker (small enough), S3 (10K random-walk simulations) ships as a separate scheduled job — likely a `scripts/random-walk-null.js` invoked from the existing nightly action runner so it doesn't compete with the live worker for CPU. |
+| 5 | Min cohort sample before live action? | **>15** | All cohort-conditional probability overrides require **n ≥ 15** trades in the matched cohort before they affect admission, sizing, or exits. Cohorts below 15 are reported as **observational only** (visible in Insights, not wired to behavior). |
+
+### 0.2 The relativity / trajectory insight, formalized
+
+We have been doing **point-in-time** analysis: "is the setup right *at this instant* for entry?" The owner is asking us to do **path-conditional** analysis: "what's the *journey* this candidate is on, and does that journey historically lead to a win?"
+
+The bubble map is already a state space. Each ticker at each moment is a point in a multi-dimensional feature space (the same dimensions the bubble chart renders + flags). As time passes, that point traces a trajectory. **The trajectory has predictive content the snapshot doesn't.**
+
+Two example trajectories:
+
+```
+Move A (winner):  cell→  [Bull/D5/PhaseLow]  →  [Bull/D6/PhaseLow]  →  [Bull/D7/PhaseMid+sq_release]  →  [Bull/D8/PhaseMid+st_flip]  →  ENTRY  →  +2.1R
+
+Move B (loser):   cell→  [Bull/D7/PhaseHigh] → [Bull/D7/PhaseHigh]  →  [Bull/D6/PhaseHigh+st_flip]    →  [Bull/D6/PhaseHigh]         →  ENTRY  →  -1.0R
+```
+
+Both are "Bull-state with ST flip" at entry — our current admission engine treats them identically. But A entered during *ascent through a corridor that historically resolves up*, B entered after *exhaustion in a high-phase cell that historically reverts*. A snapshot can't see that; the trajectory can.
+
+### 0.3 The data exists — we don't need new instrumentation to start
+
+Critical finding (`worker/migrations/add-trail-5m-fact-table.sql`):
+
+```13:62:worker/migrations/add-trail-5m-fact-table.sql
+CREATE TABLE IF NOT EXISTS trail_5m_facts (
+  ticker TEXT NOT NULL,
+  bucket_ts INTEGER NOT NULL,  -- 5-minute bucket start (floor to 300000ms)
+  ...
+  htf_score_avg REAL,
+  htf_score_min REAL,
+  htf_score_max REAL,
+  ltf_score_avg REAL,
+  ltf_score_min REAL,
+  ltf_score_max REAL,
+  state TEXT,
+  rank INTEGER,
+  completion REAL,
+  phase_pct REAL,
+  had_squeeze_release INTEGER DEFAULT 0,
+  had_ema_cross INTEGER DEFAULT 0,
+  had_st_flip INTEGER DEFAULT 0,
+  had_momentum_elite INTEGER DEFAULT 0,
+  had_flip_watch INTEGER DEFAULT 0,
+  kanban_stage_start TEXT,
+  kanban_stage_end TEXT,
+  ...
+```
+
+Per ticker, every 5 minutes, we already have: `(state, rank, completion, phase_pct, htf_score, ltf_score, signal flags, kanban stage)`. **That's the trajectory.** 30+ days × 250 tickers × 78 RTH 5-min buckets/day = ~**~600,000 trajectory snapshots already in the database**. We can build the trajectory framework against existing data — no new logging required.
+
+That's a different posture from "go instrument and wait three months for data." We can have S0 + S1.5 producing real cohorts within days of the foundation PR landing.
+
+### 0.4 New / changed items in the program
+
+Inserted ahead of S1 — these are the prerequisites for everything trajectory-related:
+
+- **S0 — Bubble-map state space definition.** Choose the discretization for `trail_5m_facts` rows into discrete cells. My proposed v0:
+  - `state` (4 values: `HTF_BULL_LTF_BULL`, `HTF_BULL_LTF_PULLBACK`, `HTF_BEAR_LTF_BEAR`, `HTF_BEAR_LTF_PULLBACK`)
+  - `rank_decile` (10 values: 0–9 by `rank` percentile of the universe at that bucket)
+  - `completion_band` (4 values: 0–25 / 25–50 / 50–75 / 75–100)
+  - `phase_band` (4 values: 0–25 / 25–50 / 50–75 / 75–100)
+  - Signal-flag overlay (`had_squeeze_release`, `had_ema_cross`, `had_st_flip` as binary annotations on a cell, not a separate cell)
+
+  v0 cell count: 4 × 10 × 4 × 4 = **640 cells**. Coarse enough that the n ≥ 15 cohort min is achievable from existing data; fine enough that trajectories show meaningful structure. v1 can refine after we measure cell density.
+
+- **S1.5 — Trajectory recorder.** Backfill script + ongoing cron that, for every closed trade, builds the `(cell_t-K, cell_t-K+1, …, cell_entry, …, cell_exit)` sequence using K=12 (last hour pre-entry, 5-min granularity). Persist to new `trade_trajectories` table keyed by `trade_id`. For open positions, the latest K cells are computed live on read.
+
+- **S2.5 — Trajectory similarity / cohort lookup.** Given a candidate trade's last-K cell sequence, find the nearest k-NN historical trajectories (Hamming or Jaccard distance over the cell sequence, weighted by recency). Return empirical `P(win)`, `avg_R`, and sample size of the matched cohort. With n ≥ 15 cohort minimum, results are gated.
+
+- **S3 — explicit Simple Random Walk null.** Per owner's lock-in. Two flavors:
+  - **Entry-time null:** for each setup × cohort, simulate random entries from a Simple Random Walk over the same valid-bar universe. If our actual entries don't beat the 95th percentile of the random distribution → that setup has no edge.
+  - **Trajectory null:** generate Simple Random Walks through the **cell** state space (transition probabilities derived empirically from the trajectory recorder data); compare actual move trajectories to the random-walk distribution. Real edges show as trajectories statistically distinct from random walks through the same cells.
+
+- **S6 — Markov chain on bubble cells.** Now grounded:
+  - **Cell transition matrix:** `P(cell_t+1 | cell_t)` over the 640-cell space, built from `trail_5m_facts`. Lets us forward-project: "given this ticker is in cell X, what's the distribution of cells in 3 bars?"
+  - **Win-conditioned chain:** separate `P(cell_t+1 | cell_t, eventually_won)` vs `P(cell_t+1 | cell_t, eventually_lost)`. The two matrices diverge in cells where the model has predictive power. Cells where they're nearly identical are noise zones — don't trade them.
+  - **Stage Markov:** kept from original S5, `P(stage_t+1 | stage_t)` for open-trade stages.
+
+### 0.5 Honest take on 70–80% win-rate target
+
+I have to be straight here: **70–80% sustained WR is a stretch target.** Reasons:
+
+- All-time book WR is 51.7% on 598 trades. The best months ran 65% with PF 9. The system has the upside but not the floor.
+- High-WR strategies typically have small TP / wide SL (scalp-style). Our setup library (ATH breakout, gap reversal, pullback continuation, ranged-reversal) is built for trend-capture — those naturally run 50–60% WR with PF > 2 by design. April hit 65% / PF 9.13 not because every setup was 75%, but because the regime fit and a few big winners pulled the PF up.
+- Industry baselines: serious systematic funds report 55–62% WR on directional intraday strategies; very-high-frequency market makers approach 80%+ but on average-R-per-trade ~0.05R (different game entirely).
+
+What's **realistic** with the trajectory framework working:
+
+- WR: **55–65%** sustained (vs current rolling ~45% and May ~21%).
+- Avg expectancy: **+$80–$150/trade** (vs current rolling +$2 and May -$76).
+- PF: **1.7–2.5** sustained (vs all-time 2.00 and May 0.06).
+- The big lever isn't pushing WR to 75% — it's **eliminating the long left tail** (the `hard_loss_cap` -$590 avg trades, the `doctrine_force_exit` -$124 avg trades). Cutting tail losses by half while WR stays at 55% would put expectancy comfortably at +$100/trade and PF at ~1.8.
+
+I'd rather under-promise and over-deliver here. If the trajectory work moves WR to 60% AND cuts the worst exits in half, we're back to a healthy system. If it moves WR to 70% AND cuts tail in half, that's exceptional. Setting **65% WR + PF 1.8 + expectancy +$100** as the realistic 90-day target post-rollout, with 70%+ as the stretch goal if the trajectory cohorts come in tight.
+
+That doesn't mean we settle. It means we measure honestly and don't tell users we'll be 75% right and then ship 60%. The system can be **dramatically** better than May without being industry-anomalous.
+
+### 0.6 Revised sequenced rollout (supersedes §4)
+
+Same blast-radius philosophy: read-only foundations first, behavior changes last, evidence between each step.
+
+| Step | PRs | Soak | Why this order |
+|---|---|---|---|
+| **Phase 1 — Foundation** | **S0** (cell definition) + **S1.5** (trajectory recorder backfill) + **R7/S2** (calibration enrichment + cohort lookup) | 3 days | All read-only. Builds the substrate. Without S0/S1.5 every other trajectory item is theoretical. |
+| **Phase 2 — Visibility** | **S1** (trigger hit-rate analyzer, *upgraded* to bucket by cell instead of by raw VIX/regime) + **S2.5** (k-NN trajectory cohort lookup endpoint) + **S5** (stage Markov on Insights) | 5 days | Read-only. Owner sees first cohort numbers. Decides which to act on. |
+| **Phase 3 — Edge validation** | **S3** (Simple Random Walk null — entry-time + trajectory) | 5 days | Tells us which setups and which cells have real edge vs label-on-noise. Per owner: 95th percentile threshold. |
+| **Phase 4 — First active stochastic** | **PR #203 R1** (restore VIX ceiling on TT-Core — defensive, smallest first) + **S4** (divergence exit, **ON per owner**, feature-flagged, every event logged) | 7 days | First behavior changes. Each is small and rollback-able from config. |
+| **Phase 5 — Trajectory-aware admission + sizing** | **S2.5 wired to admission**: when a candidate's cohort `n ≥ 15` AND empirical WR < marginal WR by > 10pts → reject; when WR > marginal by > 10pts at the same conviction → upsize. **R3** (chop size haircut from PR #203) ships in the same phase if S3 confirms chop-cell trajectories are negative-edge. | 14 days | First time the bubble-map state space drives live entries. Conservative thresholds; n ≥ 15 floor enforced. |
+| **Phase 6 — Markov-conditioned exits** | **S6** (cell transition matrix → forward project current open trades; downgrade to defend if forward-projected cell distribution has > 60% in known-losing cells) + **PR #203 R5** (exit doctrine chop mode) | 14 days | Highest leverage but biggest exit-logic change. Lands after we trust the cell maps. |
+| **Phase 7 — Awareness + extensions** | **S7** (tail-event tagger) + **S8** (MACD/OBV divergence) + **R4** (weekly DD breaker from PR #203) | Ongoing | Cleanup + extensions once the trajectory framework is established. |
+
+**First PR to schedule (if/when you approve this updated plan):** Phase 1 — `S0 + S1.5 + R7`. Single small worker route + a backfill script + one migration. Read-only. Produces the trajectory dataset against which everything else is measured.
+
+### 0.7 What changed from the original v1 plan
+
+For audit-trail clarity:
+
+- **Added** S0, S1.5, S2.5 (bubble-map state space, trajectory recorder, k-NN cohort).
+- **Modified** S3 to be explicitly Simple Random Walk (owner directive) with two flavors (entry-time + trajectory).
+- **Modified** S6 from "regime + score-band Markov" (generic) to **cell-based Markov on the bubble state space** + win-conditioned chain comparison.
+- **S4** locked to ship **ON** with feature flag + event logging.
+- **Cohort floor** locked at n ≥ 15.
+- **Rollout sequence** revised — foundation items lead, then visibility, then validation, then live behavior changes.
+- **70–80% WR target** addressed honestly with a realistic 65% WR / PF 1.8 / expectancy +$100 90-day target.
+
+§1 through §7 below are the original v1 audit, gap analysis, and method primer — still valid; just superseded on rollout sequence and S3/S6 specifics by §0.6.
+
+---
+
+---
+
 ## TL;DR — honest scorecard
 
 | Method | Status | Where it lives | What's missing |
