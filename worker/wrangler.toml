@@ -240,6 +240,7 @@ MANAGEMENT_ENGINE = "tt_core"
 LEADING_LTF = "10"
 RIPSTER_TUNE_V2 = "true"
 TT_EXIT_DEBOUNCE_BARS = "3"
+LIVE_MANAGE_INTERVAL_MIN = "30"
 # Cloudflare Access — user auth via Google SSO / One-time PIN
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
