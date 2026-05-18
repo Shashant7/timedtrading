@@ -844,6 +844,15 @@
         line-height: 1.5;
         margin-bottom: 12px;
       }
+      /* Fallback summary paragraph used when the worker's extractTopThree
+         returned null AND there is no usable closing line. Keeps the hero
+         card from looking empty or showing just a mid-word italic tail. */
+      .brief-fallback {
+        font-size: 13.5px;
+        line-height: 1.55;
+        color: var(--tt-text-muted);
+        margin-bottom: 14px;
+      }
       .brief-three {
         display: grid;
         gap: 10px;
@@ -973,7 +982,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.0035009f2c.js"></script>
+    <script src="today.compiled.ad8d8ef921.js"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
