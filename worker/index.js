@@ -389,6 +389,13 @@ import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
+/* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
+   Trade trajectory recorder. Backfills bubble-map cell sequences from
+   trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
+   endpoints + nightly cron. Pure module — no behavior change to live
+   admission/exit logic; this is read-only foundation.
+   See tasks/2026-05-18-stochastic-research-program.md §0. */
+import * as TradeTrajectories from "./lib/trade-trajectories.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -29057,16 +29064,49 @@ async function autopsyTradesServerSide(env) {
 
   const tickersNeeded = [...new Set(rawTrades.map(t => String(t.ticker).toUpperCase()))];
 
+  // R7 (2026-05-18) — VIX resolution for trade autopsy.
+  //
+  // Prior version queried only cash $VIX symbols and bailed if the
+  // closest candle was > 5 days from entry_ts. That silently dropped
+  // most trades from vix_buckets in the calibration report
+  // (tasks/may-2026-performance-analysis.md §P2 #6 + the trajectory
+  // research program diagnostic). Two fixes:
+  //   (a) Pull from VIXY ETF as a secondary source if cash VIX is
+  //       missing — VIXY is the tradable proxy and we already ingest
+  //       its daily candles for the non-admin chart path. VIXY tracks
+  //       short-term VIX futures so it's a reasonable proxy for
+  //       bucket assignment (the buckets are coarse: 0-15 / 15-22 /
+  //       22-30 / 30+).
+  //   (b) Widen the staleness tolerance from 5 to 14 days. The buckets
+  //       are coarse enough that a 2-week-old VIX is still useful;
+  //       the prior 5-day window was rejecting the entire VIX feed
+  //       any time data lifecycle skipped a beat.
+  // If both sources are missing within 14 days, return null and let
+  // the caller bucket the trade as 'unknown' so the gap is visible.
   let vixCandles = [];
+  let vixyCandles = [];
   try {
     const vixRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker IN ('VIX','$VIX','VIX.X') ORDER BY ts`).all();
     vixCandles = (vixRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
   } catch (_) {}
-  function getVixAtTs(ts) {
-    if (!vixCandles.length) return null;
+  try {
+    const vixyRes = await db.prepare(`SELECT ts, c FROM ticker_candles WHERE tf='D' AND ticker = 'VIXY' ORDER BY ts`).all();
+    vixyCandles = (vixyRes.results || []).map(r => ({ ts: Number(r.ts), c: Number(r.c) }));
+  } catch (_) {}
+  function _closestWithin(candles, ts, maxDistMs) {
+    if (!candles.length) return null;
     let closest = null, minDist = Infinity;
-    for (const v of vixCandles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
-    return (closest && minDist < 5 * 86400000) ? Math.round(closest.c * 100) / 100 : null;
+    for (const v of candles) { const d = Math.abs(v.ts - ts); if (d < minDist) { minDist = d; closest = v; } }
+    return (closest && minDist <= maxDistMs) ? closest : null;
+  }
+  function getVixAtTs(ts) {
+    const MAX_DIST = 14 * 86400000;
+    const vix = _closestWithin(vixCandles, ts, MAX_DIST);
+    if (vix) return Math.round(vix.c * 100) / 100;
+    // VIXY fallback — coarse but useful for bucket assignment.
+    const vixy = _closestWithin(vixyCandles, ts, MAX_DIST);
+    if (vixy) return Math.round(vixy.c * 100) / 100;
+    return null;
   }
 
   const trailCutoff = Date.now() - 60 * 86400000;
@@ -29570,15 +29610,31 @@ async function runCalibrationAnalysis(env, options = {}) {
   };
 
   // E. Regime-Conditional Filters
+  // R7 (2026-05-18) — surface coverage so the report consumer can see when
+  // 'unknown' dominates byRegime (the symptom that motivated R7). Add an
+  // observational_only flag on the unknown bucket so callers don't act on it.
   const regimeFilters = {};
+  let _regimeKnownCount = 0;
+  let _regimeUnknownCount = 0;
   for (const [reg, arr] of Object.entries(byRegime)) {
     const m = computeMetrics(arr);
+    const isUnknown = !reg || reg === "unknown";
+    if (isUnknown) _regimeUnknownCount += arr.length;
+    else _regimeKnownCount += arr.length;
     regimeFilters[reg] = {
       ...m,
-      block_entries: m.expectancy < 0 && arr.length >= 5,
-      min_rank_adj: m.expectancy < 0.2 ? 10 : 0,
+      block_entries: !isUnknown && m.expectancy < 0 && arr.length >= 5,
+      min_rank_adj: !isUnknown && m.expectancy < 0.2 ? 10 : 0,
+      observational_only: isUnknown || undefined,
     };
   }
+  const _regimeCoverageTotal = _regimeKnownCount + _regimeUnknownCount;
+  const regimeCoverage = {
+    known: _regimeKnownCount,
+    unknown: _regimeUnknownCount,
+    total: _regimeCoverageTotal,
+    known_pct: _regimeCoverageTotal > 0 ? Math.round((_regimeKnownCount / _regimeCoverageTotal) * 1000) / 10 : 0,
+  };
 
   // F. Rank Threshold Optimization
   const rankDeciles = {};
@@ -29833,11 +29889,15 @@ async function runCalibrationAnalysis(env, options = {}) {
     };
   }
 
-  // VIX regime gates from combined trade performance
-  const vixBuckets = { low: [], medium: [], high: [], extreme: [] };
+  // VIX regime gates from combined trade performance.
+  // R7 (2026-05-18) — prior version silently dropped trades whose VIX
+  // resolution returned null, leaving vix_buckets empty in the calibration
+  // report. Now bucket nulls as 'unknown' so the gap is visible (count is
+  // reported; the report consumer can decide whether to act on it).
+  const vixBuckets = { low: [], medium: [], high: [], extreme: [], unknown: [] };
   for (const t of trades) {
     const s = extractScoring(t);
-    if (s.vix == null) continue;
+    if (s.vix == null) { vixBuckets.unknown.push(t); continue; }
     if (s.vix < 15) vixBuckets.low.push(t);
     else if (s.vix < 22) vixBuckets.medium.push(t);
     else if (s.vix < 30) vixBuckets.high.push(t);
@@ -29847,12 +29907,24 @@ async function runCalibrationAnalysis(env, options = {}) {
   for (const [bucket, arr] of Object.entries(vixBuckets)) {
     if (arr.length < 3) continue;
     const m = computeMetrics(arr);
+    // R7 (2026-05-18) — vix_range explicit per bucket so 'unknown' (the
+    // R7 visibility bucket added above) doesn't get mis-assigned a numeric
+    // VIX range. 'unknown' is observational only: no gates set on it.
+    const vixRangeByBucket = {
+      low:     [0, 15],
+      medium:  [15, 22],
+      high:    [22, 30],
+      extreme: [30, 100],
+      unknown: null,
+    };
+    const isUnknown = bucket === "unknown";
     adaptiveRegimeGates[bucket] = {
-      vix_range: bucket === "low" ? [0, 15] : bucket === "medium" ? [15, 22] : bucket === "high" ? [22, 30] : [30, 100],
+      vix_range: vixRangeByBucket[bucket] ?? null,
       sample_count: m.n, win_rate: m.win_rate, expectancy: m.expectancy, sqn: m.sqn,
-      block_long: m.expectancy < -0.3 && bucket !== "low",
-      require_rank_boost: m.expectancy < 0 ? 10 : 0,
-      restrict_to_short_only: bucket === "extreme" && m.expectancy < 0,
+      block_long: !isUnknown && m.expectancy < -0.3 && bucket !== "low",
+      require_rank_boost: !isUnknown && m.expectancy < 0 ? 10 : 0,
+      restrict_to_short_only: !isUnknown && bucket === "extreme" && m.expectancy < 0,
+      observational_only: isUnknown || undefined,
     };
   }
 
@@ -30139,6 +30211,7 @@ async function runCalibrationAnalysis(env, options = {}) {
     signal_ic: signalIC,
     sl_tp_calibration: slTP,
     regime_filters: regimeFilters,
+    regime_coverage: regimeCoverage,
     v3_regime_analysis: v3RegimeAnalysis,
     rank_optimization: { deciles: rankDeciles, best_cutoff: bestRankCutoff, best_sqn: bestRankSQN },
     position_sizing: positionSizing,
@@ -30164,6 +30237,16 @@ async function runCalibrationAnalysis(env, options = {}) {
     execution_profile_analysis: executionProfileAnalysis,
     adaptive_params: { entry_gates: adaptiveEntryGates, regime_gates: adaptiveRegimeGates, rank_weights: adaptiveRankWeights, sl_tp: adaptiveSLTP },
     vix_buckets: Object.fromEntries(Object.entries(vixBuckets).map(([k, arr]) => [k, computeMetrics(arr)])),
+    // R7 (2026-05-18) — explicit coverage so the report consumer can see when
+    // 'unknown' dominates vix_buckets (which historically left them empty).
+    vix_coverage: (() => {
+      let known = 0, unknown = 0;
+      for (const [k, arr] of Object.entries(vixBuckets)) {
+        if (k === "unknown") unknown += arr.length; else known += arr.length;
+      }
+      const total = known + unknown;
+      return { known, unknown, total, known_pct: total > 0 ? Math.round((known / total) * 1000) / 10 : 0 };
+    })(),
     profile_impact: profileImpact,
   };
 
@@ -61942,6 +62025,161 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // TRAJECTORY ENDPOINTS — Phase 1 of the stochastic research program
+      // (tasks/2026-05-18-stochastic-research-program.md §0).
+      // Read-only foundation. No live admission/exit behavior changes.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /timed/admin/trajectory/backfill — admin-gated one-shot backfill
+      // trigger. Body params (all optional):
+      //   since_ms, until_ms, max_trades, include_open, force
+      // Returns { ok, scanned, built, skipped, errors, elapsed_ms }.
+      if (routeKey === "POST /timed/admin/trajectory/backfill") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        const body = await req.json().catch(() => ({}));
+        const opts = {
+          sinceMs: body.since_ms != null ? Number(body.since_ms) : undefined,
+          untilMs: body.until_ms != null ? Number(body.until_ms) : undefined,
+          maxTrades: body.max_trades != null ? Number(body.max_trades) : undefined,
+          includeOpen: !!body.include_open,
+          force: !!body.force,
+        };
+        try {
+          const result = await TradeTrajectories.backfillTradeTrajectories(env, opts);
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trajectory/stats — row counts + coverage sanity check.
+      if (routeKey === "GET /timed/admin/trajectory/stats") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await TradeTrajectories.ensureTrajectorySchema(env);
+          const totalRow = await db.prepare(`SELECT COUNT(*) AS n FROM trade_trajectories`).first();
+          const byOutcomeRows = await db.prepare(
+            `SELECT outcome, COUNT(*) AS n FROM trade_trajectories GROUP BY outcome ORDER BY n DESC`,
+          ).all();
+          const bySetupRows = await db.prepare(
+            `SELECT setup_name, COUNT(*) AS n FROM trade_trajectories GROUP BY setup_name ORDER BY n DESC LIMIT 20`,
+          ).all();
+          const byEntryStateRows = await db.prepare(
+            `SELECT entry_state, COUNT(*) AS n FROM trade_trajectories GROUP BY entry_state ORDER BY n DESC`,
+          ).all();
+          const recentRow = await db.prepare(
+            `SELECT MAX(built_at) AS last_built_at, MIN(entry_ts) AS oldest_entry_ts, MAX(entry_ts) AS newest_entry_ts FROM trade_trajectories`,
+          ).first();
+          return sendJSON({
+            ok: true,
+            total_trajectories: Number(totalRow?.n || 0),
+            by_outcome: byOutcomeRows?.results || [],
+            by_setup_top20: bySetupRows?.results || [],
+            by_entry_state: byEntryStateRows?.results || [],
+            last_built_at: recentRow?.last_built_at || null,
+            oldest_entry_ts: recentRow?.oldest_entry_ts || null,
+            newest_entry_ts: recentRow?.newest_entry_ts || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/calibration/cohort
+      //   ?setup=<setup_name>
+      //   &direction=<LONG|SHORT>
+      //   &entry_state=<B|Bp|R|Rp>
+      //   &entry_decile=<0..9>           (or decile_band=low|mid|high)
+      //   &lookback_days=<n>             default 90
+      //   &recent_days=<n>               default 30
+      //   &min_n=<n>                     default 15 (owner-locked from program §0.1)
+      //
+      // S2 of the trajectory research program — read-only cohort lookup.
+      // Returns the matched cohort's empirical win-rate / expectancy /
+      // PF / avg-R AND a marginal fallback when the cohort is below
+      // min_n. Gated on n>=min_n for any field that would inform a live
+      // decision (see "gated" flag in response).
+      if (routeKey === "GET /timed/calibration/cohort") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          await TradeTrajectories.ensureTrajectorySchema(env);
+
+          const qSetup        = (url.searchParams.get("setup") || "").trim() || null;
+          const qDirection    = (url.searchParams.get("direction") || "").trim().toUpperCase() || null;
+          const qEntryState   = (url.searchParams.get("entry_state") || "").trim() || null;
+          const qEntryDecileR = url.searchParams.get("entry_decile");
+          const qEntryDecile  = qEntryDecileR != null && qEntryDecileR !== "" ? Number(qEntryDecileR) : null;
+          const lookbackDays  = Math.max(1, Math.min(720, Number(url.searchParams.get("lookback_days") || 90)));
+          const recentDays    = Math.max(1, Math.min(lookbackDays, Number(url.searchParams.get("recent_days") || 30)));
+          const minN          = Math.max(1, Math.min(500, Number(url.searchParams.get("min_n") || 15)));
+
+          const nowMs    = Date.now();
+          const lookback = nowMs - lookbackDays * 86400000;
+          const recent   = nowMs - recentDays * 86400000;
+
+          // Build the WHERE chain dynamically — only include filters the
+          // caller actually passed. All non-null params join with AND.
+          const where = [`entry_ts >= ?`, `outcome IN ('WIN','LOSS','FLAT')`];
+          const params = [lookback];
+          if (qSetup       != null) { where.push(`setup_name = ?`);    params.push(qSetup); }
+          if (qDirection   != null) { where.push(`direction = ?`);     params.push(qDirection); }
+          if (qEntryState  != null) { where.push(`entry_state = ?`);   params.push(qEntryState); }
+          if (qEntryDecile != null && Number.isFinite(qEntryDecile)) {
+            where.push(`entry_decile = ?`); params.push(Math.floor(qEntryDecile));
+          }
+
+          const baseSql = `SELECT outcome, pnl_pct, entry_ts FROM trade_trajectories WHERE ${where.join(" AND ")}`;
+          const { results } = await db.prepare(baseSql).bind(...params).all();
+          const rows = results || [];
+
+          const cohort = TradeTrajectories.computeCohortMetrics(rows);
+          const recentRows = rows.filter(r => Number(r.entry_ts) >= recent);
+          const recentCohort = TradeTrajectories.computeCohortMetrics(recentRows);
+
+          // Marginal fallbacks — useful when the joint cohort is below min_n.
+          // Each one drops one filter so the caller can see the next-most-
+          // specific number.
+          const marginals = {};
+          const filtersUsed = { setup: qSetup, direction: qDirection, entry_state: qEntryState, entry_decile: qEntryDecile };
+          for (const [drop, _] of Object.entries(filtersUsed)) {
+            if (filtersUsed[drop] == null) continue;
+            const mWhere = [`entry_ts >= ?`, `outcome IN ('WIN','LOSS','FLAT')`];
+            const mParams = [lookback];
+            if (drop !== "setup"        && qSetup       != null) { mWhere.push(`setup_name = ?`);  mParams.push(qSetup); }
+            if (drop !== "direction"    && qDirection   != null) { mWhere.push(`direction = ?`);   mParams.push(qDirection); }
+            if (drop !== "entry_state"  && qEntryState  != null) { mWhere.push(`entry_state = ?`); mParams.push(qEntryState); }
+            if (drop !== "entry_decile" && qEntryDecile != null) { mWhere.push(`entry_decile = ?`); mParams.push(Math.floor(qEntryDecile)); }
+            const mSql = `SELECT outcome, pnl_pct FROM trade_trajectories WHERE ${mWhere.join(" AND ")}`;
+            const mRes = await db.prepare(mSql).bind(...mParams).all();
+            marginals[`drop_${drop}`] = TradeTrajectories.computeCohortMetrics(mRes?.results || []);
+          }
+
+          const gated = cohort.n < minN;
+          return sendJSON({
+            ok: true,
+            filters: filtersUsed,
+            config: { min_n: minN, lookback_days: lookbackDays, recent_days: recentDays },
+            cohort,
+            recent: recentCohort,
+            marginal_fallback: marginals,
+            gated,
+            gated_reason: gated ? `n=${cohort.n} < min_n=${minN}; treat as observational only (no live override)` : null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // GET /timed/calibration/deep-audit — comprehensive system evaluation
       // ═══════════════════════════════════════════════════════════════════════
       if (routeKey === "GET /timed/calibration/deep-audit") {
@@ -73262,6 +73500,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Also resolve expired model predictions.
     if (vc.has("0 4 * * *")) {
       ctx.waitUntil(runDataLifecycle(env));
+      // S1.5 — Trade trajectories: build bubble-map cell sequences for
+      // trades closed in the last 7 days. Runs AFTER runDataLifecycle so
+      // the trail_5m_facts buckets it sources from are freshly aggregated.
+      // Idempotent (INSERT OR REPLACE); cron-safe. Non-blocking — failure
+      // logged but doesn't impact other lifecycle work.
+      if (env?.DB) {
+        ctx.waitUntil(
+          TradeTrajectories.backfillTradeTrajectories(env, { sinceMs: Date.now() - 7 * 24 * 60 * 60 * 1000 })
+            .then((r) => console.log(`[TRAJECTORY] Nightly backfill: scanned=${r.scanned} built=${r.built} skipped=${r.skipped} errors=${r.errors} elapsed=${r.elapsed_ms}ms`))
+            .catch((e) => console.warn(`[TRAJECTORY] Nightly backfill failed:`, String(e?.message || e).slice(0, 200)))
+        );
+      }
       // Resolve model predictions whose horizon has expired (non-blocking)
       if (env?.DB) {
         ctx.waitUntil(
