@@ -38,7 +38,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # wrangler >= 4.92.0 requires Node >= 22 (engine check, not just a warning).
+          # Last 4 deploys (#184, #187, #194, #196) failed because the runner was on
+          # Node 20 and `npx wrangler` aborted before any deploy occurred.
+          node-version: "22"
 
       # Check the standard secret names AND a couple of common aliases.
       # Sets `secrets-ok=true` on the step output when both a token and
