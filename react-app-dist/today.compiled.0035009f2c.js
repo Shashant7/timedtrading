@@ -583,6 +583,8 @@ function FocusRail({
     }].filter(lane => lane.items.length > 0);
   }, [data]);
   if (lanes.length === 0) return null;
+  const marketOpen = isNyRegularMarketOpen();
+  const CRYPTO_NO_EXT = new Set(["BTCUSD", "ETHUSD"]);
   const fmtMetric = (t, laneId) => {
     if (laneId === "rank") {
       const r = Number(t.rank_position);
@@ -633,20 +635,33 @@ function FocusRail({
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
+    const extPct = !marketOpen && !CRYPTO_NO_EXT.has(sym) ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : NaN;
+    const showExt = Number.isFinite(extPct) && Math.abs(extPct) >= 0.05;
+    const extCls = !showExt ? "" : extPct >= 0 ? "up" : "dn";
+    const titleParts = [sym];
+    if (metric) titleParts.push(metric);
+    if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
+    if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
     return h("button", {
       key: `${lane.id}-${sym}`,
       className: "focus-chip",
       onClick: () => {
         if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
       },
-      title: `${sym}${metric ? " · " + metric : ""}${pct != null ? " · " + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}`
+      title: titleParts.join(" · ")
     }, h("span", {
       className: "focus-chip-sym"
     }, sym), metric && h("span", {
       className: "focus-chip-metric"
-    }, metric), pct != null && h("span", {
+    }, metric), (pct != null || showExt) && h("div", {
+      className: "focus-chip-pct-wrap"
+    }, pct != null && h("span", {
       className: `focus-chip-pct ${pctCls}`
-    }, (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%"));
+    }, (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%"), showExt && h("span", {
+      className: `focus-chip-pct-ext ${extCls}`
+    }, (extPct >= 0 ? "+" : "") + extPct.toFixed(1) + "%", h("span", {
+      className: "ext-tag"
+    }, "EXT"))));
   }))))));
 }
 function MoverRow({
@@ -2553,7 +2568,11 @@ function TodayApp() {
     briefDate: brief?.date
   }), brief ? h(BriefPreview, {
     brief
-  }) : h(BriefSkeleton, null), data && h(FocusRail, {
+  }) : h(BriefPlaceholder, {
+    data,
+    earnings,
+    onSelectTicker
+  }), data && h(FocusRail, {
     data,
     onSelectTicker
   }), data ? h(MarketState, {
@@ -2592,47 +2611,215 @@ function TodayApp() {
     onClose: onCloseRail
   }));
 }
-function BriefSkeleton() {
+function BriefPlaceholder({
+  data,
+  earnings,
+  onSelectTicker
+}) {
+  if (!data) {
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-card tt-card-pad"
+    }, h("div", {
+      className: "sk",
+      style: {
+        width: 200,
+        height: 11,
+        marginBottom: 12
+      }
+    }), h("div", {
+      className: "sk",
+      style: {
+        width: "62%",
+        height: 18,
+        marginBottom: 14
+      }
+    }), h("div", {
+      className: "sk",
+      style: {
+        width: "78%",
+        height: 14,
+        marginBottom: 8
+      }
+    }), h("div", {
+      className: "sk",
+      style: {
+        width: "44%",
+        height: 14,
+        marginBottom: 14
+      }
+    }), h("div", {
+      className: "sk",
+      style: {
+        width: 130,
+        height: 32,
+        borderRadius: 8
+      }
+    })));
+  }
+  const sessionInfo = (() => {
+    try {
+      const f = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        hour12: false,
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+      const parts = f.formatToParts(new Date());
+      const wd = parts.find(p => p.type === "weekday")?.value;
+      const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
+      const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
+      const min = hh * 60 + mm;
+      const RTH_OPEN = 9 * 60 + 30;
+      const RTH_CLOSE = 16 * 60;
+      const AH_CLOSE = 20 * 60;
+      if (wd === "Sat" || wd === "Sun") return {
+        label: "Weekend · Market closed",
+        phase: "closed",
+        countdown: null
+      };
+      if (min < RTH_OPEN) {
+        const delta = RTH_OPEN - min;
+        return {
+          label: "Pre-market",
+          phase: "pre",
+          countdown: fmtCountdown(delta),
+          countdownLabel: "to open"
+        };
+      }
+      if (min < RTH_CLOSE) {
+        const delta = RTH_CLOSE - min;
+        return {
+          label: "Market open · RTH",
+          phase: "rth",
+          countdown: fmtCountdown(delta),
+          countdownLabel: "to close"
+        };
+      }
+      if (min < AH_CLOSE) {
+        const delta = AH_CLOSE - min;
+        return {
+          label: "After-hours",
+          phase: "ah",
+          countdown: fmtCountdown(delta),
+          countdownLabel: "to AH close"
+        };
+      }
+      return {
+        label: "Market closed",
+        phase: "closed",
+        countdown: null
+      };
+    } catch {
+      return {
+        label: "Market closed",
+        phase: "closed",
+        countdown: null
+      };
+    }
+  })();
+  const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
+    ticker: String(k).toUpperCase(),
+    ...(v || {})
+  }).filter(t => t && t.ticker);
+  const CRYPTO = new Set(["BTCUSD", "ETHUSD"]);
+  const useExt = sessionInfo.phase === "pre" || sessionInfo.phase === "ah" || sessionInfo.phase === "closed";
+  let signalMode = useExt ? "ext" : "rth";
+  let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
+    t,
+    pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
+  })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3) : arr.map(t => {
+    const dc = getDailyChange(t);
+    return {
+      t,
+      pct: Number(dc?.dayPct)
+    };
+  }).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3);
+  if (useExt && signal.length === 0) {
+    signalMode = "rth";
+    signal = arr.map(t => {
+      const dc = getDailyChange(t);
+      return {
+        t,
+        pct: Number(dc?.dayPct)
+      };
+    }).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3);
+  }
+  const todayIso = (() => {
+    try {
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(new Date());
+      const y = parts.find(p => p.type === "year")?.value;
+      const m = parts.find(p => p.type === "month")?.value;
+      const d = parts.find(p => p.type === "day")?.value;
+      return y && m && d ? `${y}-${m}-${d}` : null;
+    } catch {
+      return null;
+    }
+  })();
+  const earningsTodayCount = safeArr(earnings?.events).filter(ev => ev?.date === todayIso).length;
+  const phaseTagCls = sessionInfo.phase === "rth" ? "up" : sessionInfo.phase === "pre" || sessionInfo.phase === "ah" ? "accent" : "";
+  const signalLabel = signalMode === "ext" ? "Pre/After-hours movers" : "Today's biggest movers";
   return h("section", {
     className: "tt-row"
   }, h("div", {
-    className: "tt-card tt-card-pad"
+    className: "tt-card tt-card-pad bp-card"
   }, h("div", {
-    className: "sk",
-    style: {
-      width: 200,
-      height: 11,
-      marginBottom: 12
-    }
-  }), h("div", {
-    className: "sk",
-    style: {
-      width: "62%",
-      height: 18,
-      marginBottom: 14
-    }
-  }), h("div", {
-    className: "sk",
-    style: {
-      width: "78%",
-      height: 14,
-      marginBottom: 8
-    }
-  }), h("div", {
-    className: "sk",
-    style: {
-      width: "44%",
-      height: 14,
-      marginBottom: 14
-    }
-  }), h("div", {
-    className: "sk",
-    style: {
-      width: 130,
-      height: 32,
-      borderRadius: 8
-    }
-  })));
+    className: "bp-head"
+  }, h("span", {
+    className: `tt-pill ${phaseTagCls}`
+  }, sessionInfo.label), sessionInfo.countdown && h("span", {
+    className: "bp-countdown"
+  }, sessionInfo.countdown, h("span", {
+    className: "bp-countdown-lbl"
+  }, " " + (sessionInfo.countdownLabel || ""))), h("span", {
+    className: "bp-loading"
+  }, h("span", {
+    className: "bp-dots"
+  }, h("i", null), h("i", null), h("i", null)), "Daily brief loading")), h("div", {
+    className: "bp-section-title"
+  }, signalLabel.toUpperCase()), signal.length > 0 ? h("div", {
+    className: "bp-signal-list"
+  }, signal.map(({
+    t,
+    pct
+  }, i) => {
+    const sym = String(t.ticker || "").toUpperCase();
+    const dir = pct >= 0 ? "up" : "dn";
+    const price = Number(t?.price);
+    return h("button", {
+      key: sym + i,
+      className: "bp-signal-row",
+      onClick: () => {
+        if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+      }
+    }, h("span", {
+      className: "bp-signal-sym"
+    }, sym), Number.isFinite(price) && h("span", {
+      className: "bp-signal-px"
+    }, fmtUsd(price)), h("span", {
+      className: `bp-signal-pct ${dir}`
+    }, (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%", signalMode === "ext" && h("span", {
+      className: "ext-tag"
+    }, "EXT")));
+  })) : h("div", {
+    className: "bp-empty"
+  }, "No standout moves yet — waiting for the open."), h("div", {
+    className: "bp-meta"
+  }, h("span", null, arr.length.toLocaleString() + " tickers scored"), earningsTodayCount > 0 && h("span", null, "·"), earningsTodayCount > 0 && h("span", null, h("strong", null, earningsTodayCount), " earnings today"))));
+}
+function fmtCountdown(mins) {
+  const m = Math.max(0, Math.floor(mins));
+  if (m < 60) return m + "m";
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? h + "h" : h + "h " + r + "m";
 }
 function MarketStateSkeleton() {
   return h("section", {
