@@ -468,7 +468,30 @@ function MarketPulseTile({
       opacity: 0.7,
       fontSize: 10
     }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), sparkSvg && h("div", {
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), (() => {
+    const ext = window.TimedPriceUtils?.getExtChange?.(tx);
+    if (!ext) return null;
+    const extDir = ext.pct >= 0 ? "up" : "dn";
+    return h("div", {
+      className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
+      style: {
+        fontSize: 10.5,
+        opacity: 0.88,
+        marginTop: 2
+      }
+    }, h("span", {
+      style: {
+        fontSize: 8.5,
+        fontWeight: 700,
+        marginRight: 4,
+        padding: "0 3px",
+        borderRadius: 3,
+        background: "var(--tt-bg-elev)",
+        color: "var(--tt-text-dim)",
+        letterSpacing: "0.08em"
+      }
+    }, "EXT"), ext.price != null ? `$${ext.price.toFixed(2)} ` : "", `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`);
+  })(), sparkSvg && h("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg
@@ -668,6 +691,7 @@ function FocusRail({
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
+    const livePx = Number(t?.price ?? t?.close);
     const extPct = !marketOpen && !CRYPTO_NO_EXT.has(sym) ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : NaN;
     const showExt = Number.isFinite(extPct) && Math.abs(extPct) >= 0.05;
     const extCls = !showExt ? "" : extPct >= 0 ? "up" : "dn";
@@ -686,7 +710,9 @@ function FocusRail({
       className: "focus-chip-sym"
     }, sym), metric && h("span", {
       className: "focus-chip-metric"
-    }, metric), (pct != null || showExt) && h("div", {
+    }, metric), Number.isFinite(livePx) && livePx > 0 && h("span", {
+      className: "focus-chip-px"
+    }, fmtUsd(livePx)), (pct != null || showExt) && h("div", {
       className: "focus-chip-pct-wrap"
     }, pct != null && h("span", {
       className: `focus-chip-pct ${pctCls}`

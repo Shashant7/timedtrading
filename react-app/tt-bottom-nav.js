@@ -64,6 +64,33 @@
     .tt-bn-item .tt-bn-icon {
       width: 20px; height: 20px;
       display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    /* Bug 2 — bottom-nav badge (mirrors the desktop top-nav .nav-badge
+       styling used by tt-nav-extras.js). Hidden until populated. */
+    .tt-bn-badge {
+      position: absolute;
+      top: -6px;
+      right: -10px;
+      min-width: 16px;
+      height: 14px;
+      padding: 0 4px;
+      border-radius: 999px;
+      font-size: 9.5px;
+      font-weight: 800;
+      line-height: 14px;
+      text-align: center;
+      background: rgba(52,211,153,0.18);
+      color: #34d399;
+      border: 1px solid rgba(52,211,153,0.32);
+      display: none;
+      pointer-events: none;
+      letter-spacing: 0.02em;
+    }
+    .tt-bn-badge.show { display: inline-block; }
+    .tt-bn-item.active .tt-bn-badge {
+      background: rgba(52,211,153,0.28);
+      color: #6ee7b7;
     }
     .tt-bn-item .tt-bn-icon svg {
       width: 18px; height: 18px;
@@ -137,6 +164,19 @@
     iconWrap.className = "tt-bn-icon";
     iconWrap.innerHTML = icons[item.id] || "";
 
+    // Bug 2 (2026-05-19) — badge support on bottom nav. Desktop top
+    // nav already shows badges via tt-nav-extras.js for Active Trader
+    // (open-trade count) and Investor (actionable count). Mobile bottom
+    // nav previously had no badge DOM at all. Stub badges for trader /
+    // investor here; populated by the helpers below on mount + every 60s.
+    if (item.id === "trader" || item.id === "investor") {
+      const badge = document.createElement("span");
+      badge.className = "tt-bn-badge";
+      badge.dataset.for = item.id;
+      badge.textContent = "";
+      iconWrap.appendChild(badge);
+    }
+
     const labelEl = document.createElement("span");
     labelEl.className = "tt-bn-label";
     labelEl.textContent = item.label;
@@ -158,4 +198,62 @@
       }
     });
   }
+
+  // ── Bug 2: bottom-nav badges ────────────────────────────────
+  // Mirror of tt-nav-extras.js setBadge() but targets the mobile
+  // bottom nav's .tt-bn-badge slots. Same data sources (open trade
+  // count + investor actionable count) so the two navs stay in sync.
+  function setBottomBadge(id, value) {
+    const el = nav.querySelector(`.tt-bn-badge[data-for="${id}"]`);
+    if (!el) return;
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) {
+      el.textContent = n > 99 ? "99+" : String(n);
+      el.classList.add("show");
+    } else {
+      el.textContent = "";
+      el.classList.remove("show");
+    }
+  }
+
+  async function fetchOpenTradeCount() {
+    try {
+      const r = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+        credentials: "include", cache: "no-store",
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const trades = Array.isArray(j?.trades) ? j.trades : (Array.isArray(j) ? j : []);
+      return trades.filter(t => {
+        const s = String(t?.status || "").toUpperCase();
+        return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
+      }).length;
+    } catch { return null; }
+  }
+
+  async function fetchInvestorActionableCount() {
+    try {
+      const r = await fetch(`${API_BASE}/timed/investor/scores`, {
+        credentials: "include", cache: "no-store",
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const list = Array.isArray(j?.scores) ? j.scores : (Array.isArray(j) ? j : []);
+      return list.filter(s => {
+        const v = String(s?.verdict || s?.stage || "").toLowerCase();
+        return v === "accumulate" || v === "reduce";
+      }).length;
+    } catch { return null; }
+  }
+
+  async function applyBadges() {
+    const [trader, investor] = await Promise.all([
+      fetchOpenTradeCount(),
+      fetchInvestorActionableCount(),
+    ]);
+    if (trader != null) setBottomBadge("trader", trader);
+    if (investor != null) setBottomBadge("investor", investor);
+  }
+  applyBadges();
+  setInterval(applyBadges, 60 * 1000);
 })();

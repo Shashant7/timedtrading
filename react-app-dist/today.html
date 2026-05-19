@@ -466,7 +466,10 @@
       }
       .focus-chip {
         display: grid;
-        grid-template-columns: 1fr auto auto;
+        /* Bug 5 — added a 4th column for live price between metric and pct
+           (grid auto-collapses unused cells, so chips without price still
+           render correctly). */
+        grid-template-columns: 1fr auto auto auto;
         align-items: center;
         gap: 8px;
         padding: 6px 10px;
@@ -492,6 +495,14 @@
       .focus-chip-metric {
         font-size: 10.5px;
         color: var(--tt-text-muted);
+      }
+      /* Bug 5 — live $ price column on FOCUS chips (mirror of MoverRow
+         price column on TopMovers). */
+      .focus-chip-px {
+        font-size: 11px;
+        font-family: var(--tt-font-mono);
+        color: var(--tt-text-muted);
+        font-variant-numeric: tabular-nums;
       }
       .focus-chip-pct.up { color: var(--tt-up); }
       .focus-chip-pct.dn { color: var(--tt-dn); }
@@ -982,7 +993,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.ad8d8ef921.js"></script>
+    <script src="today.compiled.184a395bae.js"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

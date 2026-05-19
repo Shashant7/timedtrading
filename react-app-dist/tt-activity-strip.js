@@ -133,6 +133,15 @@
 
   function classifyEvent(ev) {
     const t = String(ev?.type || ev?.event || ev?.kind || "").toUpperCase();
+    // Bug 1 (2026-05-19) — admin activity-feed emits TRADE_ENTRY /
+    // TRADE_EXIT / TRADE_TRIM / SQUEEZE_RELEASE event types; the strip
+    // previously only recognized ENTRY / EXIT / TRIM / FLIP. Without
+    // these mappings, real trade events render as the bare event name
+    // and look like noise. Map them onto the existing pill classes.
+    if (t === "TRADE_ENTRY")    return { cls: "ev-entry", label: "ENTER" };
+    if (t === "TRADE_EXIT")     return { cls: "ev-exit",  label: "EXIT"  };
+    if (t === "TRADE_TRIM")     return { cls: "ev-trim",  label: "TRIM"  };
+    if (t === "SQUEEZE_RELEASE")return { cls: "ev-flip",  label: "SQ RLS" };
     if (t === "ENTRY" || t === "ENTER")     return { cls: "ev-entry", label: "ENTER" };
     if (t === "ADD" || t === "ADD_ENTRY")   return { cls: "ev-add",   label: "ADD" };
     if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM" };
@@ -173,7 +182,7 @@
     if (visible.length === 0) {
       const empty = document.createElement("span");
       empty.className = "tt-activity-strip__empty";
-      empty.textContent = "No system events in the last hour.";
+      empty.textContent = "No recent system events.";
       row.appendChild(empty);
       // Keep host visible (~32px) so the layout stays stable.
       host.style.display = "";
@@ -198,9 +207,20 @@
 
   // ── Fetch ──────────────────────────────────────────────────────
   let _events = [];
+  function isAdmin() {
+    return window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
+  }
+
   async function refresh(host) {
     try {
-      const r = await fetch(`${API_BASE}/timed/activity?limit=20&_t=${Date.now()}`, {
+      // Bug 1 (2026-05-19) — admin users get the D1-backed
+      // /timed/admin/activity-feed (real ENTRY/TRIM/EXIT/FLIP from
+      // execution_actions). Non-admins keep the public KV-backed
+      // /timed/activity feed (sparse — only public-safe signals).
+      // Auth is per-request via session cookie (credentials: include);
+      // admin endpoint returns 401 cleanly if the user isn't admin.
+      const endpoint = isAdmin() ? "/timed/admin/activity-feed" : "/timed/activity";
+      const r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, {
         cache: "no-store",
         credentials: "include",
       });
