@@ -19475,21 +19475,63 @@ async function processTradeSimulation(
     // This prevents $0 P&L "WIN" trades from stale candle data during replay.
     const flatPriceExit = openTrade && Number.isFinite(pxNow) && Number.isFinite(Number(openTrade.entryPrice))
       && Math.abs(pxNow - Number(openTrade.entryPrice)) / Number(openTrade.entryPrice) < 0.001; // < 0.1% movement
-    const exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
+    let exitReasonRaw = tickerData?.__exit_reason || reason || `KANBAN_EXIT`;
     // V13 safety-nets (v13_hard_pnl_floor, v13_hard_age_cap) MUST be treated as hard
     // exits — same class as max_loss / SL — so they bypass RTH gating, CIO blocking,
     // and pullback shields. Without this, the non-bypassable guards in
     // classifyKanbanStage silently drop back into regular-exit gating and get
     // blocked outside RTH or by shields (exactly how TPL stayed open in V13e).
     //
-    // P0 HOTFIX 2026-05-19: production audit confirmed `sl_breached` was the
-    // actual __exit_reason string set by classifyKanbanStage at line 9824, but
-    // the previous regex (`\bSL\b|stop.?loss|max.?loss|v13_hard_`) didn't match
-    // it — so SL exits were classified hard at the kanban layer and then
-    // silently re-gated as soft at the execution layer. 4 LONG positions
-    // (IWM/DE/DIA/MLI) were sitting 0.7–3.3% past their SL with stage=exit
-    // when this was discovered. Adding `sl_breached` / `sl_hit` / `hard_loss`
-    // closes the gap. Mirror change in _exitIsHard below at line ~19573.
+    // P0 HOTFIX 2026-05-19 (part 1): production audit confirmed `sl_breached`
+    // was the actual __exit_reason string set by classifyKanbanStage at line
+    // 9824, but the previous regex (`\bSL\b|stop.?loss|max.?loss|v13_hard_`)
+    // didn't match it — so SL exits were classified hard at the kanban layer
+    // and then silently re-gated as soft at the execution layer. Adding
+    // `sl_breached` / `sl_hit` / `hard_loss` closes the regex gap. Mirror
+    // change in _exitIsHard below at line ~19593.
+    //
+    // P0 HOTFIX 2026-05-19 (part 2 — same incident): regex fix alone didn't
+    // close the bug. Production trades IWM/DE/DIA/MLI were sitting 0.7-3.3%
+    // past their SL with __exit_reason='doctrine_force_exit' (NOT
+    // sl_breached). classifyKanbanStage's doctrine-force-exit branch runs
+    // BEFORE its SL-breach branch — when both conditions are true, doctrine
+    // wins and SL is silently shadowed. Result: trades past SL get gated
+    // as soft signal exits and skip the 30m cadence window 95% of the time.
+    //
+    // Safety-net override: regardless of what __exit_reason was set to,
+    // independently check (price vs positions.stop_loss). If price is past
+    // SL, force exitReasonRaw='sl_breached' so the downstream isSLExit
+    // regex fires and the trade actually closes on this tick. The
+    // doctrine reason is preserved in the closeTradeAtPrice metadata for
+    // post-trade analysis (we still want to know doctrine fired too).
+    if (openTrade && isOpenTradeStatus(openTrade.status)
+        && openPositionContext && Number.isFinite(Number(openPositionContext.sl))
+        && Number.isFinite(pxNow) && pxNow > 0) {
+      const _slCheck = Number(openPositionContext.sl);
+      const _dirUp  = String(openTrade.direction || direction || "").toUpperCase();
+      const _slBreached = _slCheck > 0 && (
+        _dirUp === "LONG"  ? pxNow <= _slCheck :
+        _dirUp === "SHORT" ? pxNow >= _slCheck : false
+      );
+      if (_slBreached) {
+        const _origReason = exitReasonRaw;
+        const _slOvershootPct = _dirUp === "LONG"
+          ? ((_slCheck - pxNow) / _slCheck) * 100
+          : ((pxNow - _slCheck) / _slCheck) * 100;
+        // Override the exit reason to sl_breached so it routes through the
+        // hard-exit path. Stamp metadata so the close action can surface
+        // both reasons.
+        exitReasonRaw = "sl_breached";
+        tickerData.__exit_reason = "sl_breached";
+        tickerData.__sl_safety_net = {
+          original_reason: _origReason,
+          sl: _slCheck,
+          price: pxNow,
+          overshoot_pct: Number(_slOvershootPct.toFixed(3)),
+        };
+        console.log(`[SL_SAFETY_NET] ${sym} ${_dirUp} px=${pxNow} past sl=${_slCheck} by ${_slOvershootPct.toFixed(2)}% — orig reason=${_origReason}, forcing sl_breached`);
+      }
+    }
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
