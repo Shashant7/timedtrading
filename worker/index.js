@@ -19523,13 +19523,41 @@ async function processTradeSimulation(
         // both reasons.
         exitReasonRaw = "sl_breached";
         tickerData.__exit_reason = "sl_breached";
+        // P0 HOTFIX 2026-05-19 (part 3 — same incident, Phase 4.3): the part-2
+        // override alone still wasn't closing the trade. Earlier soft-fuse /
+        // cloud-expanding / phase-leave defer paths (see worker/index.js
+        // ~18099-18563) set BOTH `tickerData.__force_defend_stage = true`
+        // AND `fuseExitFired = true` BEFORE this safety net runs. The big
+        // exit gate at line ~19643 requires `!fuseExitFired`, so even with
+        // exitReasonRaw='sl_breached' the close was being silently skipped
+        // and the trade re-shown as "defend" next cron tick.
+        //
+        // Live evidence: MLI was sitting past SL with
+        // __defend_reason='soft_fuse_deferred_cloud_expanding' (matches the
+        // block at ~18141 which fires fuseExitFired=true).
+        //
+        // SL is a hard ceiling — no soft-fuse defer, no cloud-expanding
+        // hold, no phase-leave structure shield should EVER override an
+        // actual stop-loss breach. Clear both flags so the downstream gate
+        // can fire the close on this same tick.
+        const _slFuseWasFired = fuseExitFired;
+        const _slForceDefendWas = tickerData.__force_defend_stage === true;
+        const _slPriorDefendReason = tickerData.__defend_reason || null;
+        fuseExitFired = false;
+        if (_slForceDefendWas) {
+          tickerData.__force_defend_stage = false;
+          tickerData.__defend_reason = null;
+        }
         tickerData.__sl_safety_net = {
           original_reason: _origReason,
           sl: _slCheck,
           price: pxNow,
           overshoot_pct: Number(_slOvershootPct.toFixed(3)),
+          cleared_fuse_exit_fired: _slFuseWasFired,
+          cleared_force_defend_stage: _slForceDefendWas,
+          cleared_defend_reason: _slPriorDefendReason,
         };
-        console.log(`[SL_SAFETY_NET] ${sym} ${_dirUp} px=${pxNow} past sl=${_slCheck} by ${_slOvershootPct.toFixed(2)}% — orig reason=${_origReason}, forcing sl_breached`);
+        console.log(`[SL_SAFETY_NET] ${sym} ${_dirUp} px=${pxNow} past sl=${_slCheck} by ${_slOvershootPct.toFixed(2)}% — orig reason=${_origReason}, forcing sl_breached (cleared fuse=${_slFuseWasFired ? 1 : 0} defend=${_slForceDefendWas ? 1 : 0} defendReason=${_slPriorDefendReason || "-"})`);
       }
     }
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
