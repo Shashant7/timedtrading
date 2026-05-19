@@ -506,6 +506,187 @@ export async function findCohortByTrajectory(env, candidateSeq, opts = {}) {
   };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Phase 4 — live cohort decision for an in-flight candidate.
+//
+// At admission time (in worker/index.js processTradeSimulation), the engine
+// needs to compute the candidate's trajectory cohort against historical
+// trade_trajectories. These helpers do the LIVE pull from trail_5m_facts
+// + the k-NN cohort + a small in-memory cache so consecutive ticks on the
+// same ticker/bucket don't re-query D1.
+//
+// CACHE: per-worker-isolate Map keyed by `ticker|bucketTs|direction`,
+// TTL = 4 seconds. The scoring cron runs every 1 min so consecutive ticks
+// in the same minute reuse the result. Cache is cold per cold-start which
+// is fine — at most we lose a few seconds of caching benefit.
+// ───────────────────────────────────────────────────────────────────────────
+
+const _candidateSeqCache = new Map();   // key → { seq, t }
+const _candidateCohortCache = new Map(); // key → { result, t }
+const CANDIDATE_CACHE_TTL_MS = 4000;
+const CANDIDATE_K_PRE = 12;
+
+function _cacheGet(map, key) {
+  const v = map.get(key);
+  if (!v) return null;
+  if (Date.now() - v.t > CANDIDATE_CACHE_TTL_MS) { map.delete(key); return null; }
+  return v;
+}
+function _cachePut(map, key, payload) {
+  map.set(key, { ...payload, t: Date.now() });
+  // Soft LRU: cap at 1000 entries
+  if (map.size > 1000) {
+    const firstKey = map.keys().next().value;
+    if (firstKey != null) map.delete(firstKey);
+  }
+}
+
+/**
+ * Build the K=12 cell-key sequence ending at `asOfTs` (5-min floor) from
+ * trail_5m_facts. Returns null if the ticker has no trail facts in window.
+ *
+ * @param {object} db   env.DB
+ * @param {string} ticker
+ * @param {number} asOfTsMs
+ * @returns {Promise<string[]|null>} array of length CANDIDATE_K_PRE; entries
+ *   may be null for missing buckets (entry-bar is the last element).
+ */
+export async function buildCandidateSeqFromTrailFacts(db, ticker, asOfTsMs) {
+  if (!db || !ticker) return null;
+  const entryBucket = Math.floor(Number(asOfTsMs) / FIVE_MIN_MS) * FIVE_MIN_MS;
+  const cacheKey = `${ticker}|${entryBucket}`;
+  const cached = _cacheGet(_candidateSeqCache, cacheKey);
+  if (cached) return cached.seq;
+
+  const preStart = entryBucket - CANDIDATE_K_PRE * FIVE_MIN_MS;
+  let rows;
+  try {
+    const res = await db.prepare(
+      `SELECT bucket_ts, state, rank, completion, phase_pct,
+              had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite
+       FROM trail_5m_facts
+       WHERE ticker = ?1 AND bucket_ts >= ?2 AND bucket_ts <= ?3
+       ORDER BY bucket_ts ASC`,
+    ).bind(ticker, preStart, entryBucket).all();
+    rows = res?.results || [];
+  } catch { return null; }
+  if (rows.length === 0) { _cachePut(_candidateSeqCache, cacheKey, { seq: null }); return null; }
+
+  const byBucket = new Map();
+  for (const r of rows) byBucket.set(Number(r.bucket_ts), r);
+
+  const seq = [];
+  for (let k = CANDIDATE_K_PRE - 1; k >= 0; k--) {
+    const bts = entryBucket - k * FIVE_MIN_MS;
+    const f = byBucket.get(bts);
+    seq.push(f ? cellOfFactWithFlags(f) : null);
+  }
+  _cachePut(_candidateSeqCache, cacheKey, { seq });
+  return seq;
+}
+
+/**
+ * Compute the live candidate-cohort decision. Returns the cohort metrics
+ * AND the verdict (block / allow) per the Phase 4 thresholds. Cached for
+ * CANDIDATE_CACHE_TTL_MS.
+ *
+ * Verdict logic (locked-in for Phase 4):
+ *   - n < min_n           → ALLOW (gated, insufficient evidence; observational only)
+ *   - n >= min_n AND win_rate < wrFloor AND pf < pfFloor → BLOCK (cohort-fail)
+ *   - otherwise           → ALLOW (cohort doesn't trigger block)
+ *
+ * @param {object} env worker env
+ * @param {object} candidate { ticker, direction, asOfTsMs }
+ * @param {object} [opts]    { k, minN, wrFloor, pfFloor, lookbackDays }
+ * @returns {Promise<{
+ *   decision: 'allow'|'block',
+ *   reason: string,
+ *   cohort, recent, sample_neighbors,
+ *   candidate_seq, cell_entry,
+ *   gated, cached, elapsed_ms, error?
+ * }>}
+ */
+export async function decideLiveCandidateCohort(env, candidate, opts = {}) {
+  const t0 = Date.now();
+  const db = env?.DB;
+  if (!db) return { decision: "allow", reason: "no_db", error: "no_db", cached: false, elapsed_ms: 0 };
+  const { ticker, direction, asOfTsMs } = candidate || {};
+  if (!ticker || !asOfTsMs) {
+    return { decision: "allow", reason: "missing_candidate_fields", cached: false, elapsed_ms: 0 };
+  }
+
+  const k = Number(opts.k) || 50;
+  const minN = Math.max(1, Math.min(500, Number(opts.minN) || 15));
+  const wrFloor = Number.isFinite(opts.wrFloor) ? Number(opts.wrFloor) : 0.40;
+  const pfFloor = Number.isFinite(opts.pfFloor) ? Number(opts.pfFloor) : 1.00;
+  const lookbackDays = Number(opts.lookbackDays) || 180;
+  const dir = (direction || "LONG").toUpperCase();
+
+  const bucketFloor = Math.floor(Number(asOfTsMs) / FIVE_MIN_MS) * FIVE_MIN_MS;
+  const cacheKey = `${ticker}|${bucketFloor}|${dir}|k${k}|n${minN}|wr${wrFloor}|pf${pfFloor}`;
+  const cached = _cacheGet(_candidateCohortCache, cacheKey);
+  if (cached) return { ...cached.result, cached: true, elapsed_ms: Date.now() - t0 };
+
+  // 1) Build candidate sequence (cached internally too).
+  const seq = await buildCandidateSeqFromTrailFacts(db, ticker, asOfTsMs);
+  if (!seq) {
+    const out = { decision: "allow", reason: "no_candidate_seq", cohort: null, recent: null, candidate_seq: null, cell_entry: null, gated: true, cached: false, elapsed_ms: Date.now() - t0 };
+    _cachePut(_candidateCohortCache, cacheKey, { result: out });
+    return out;
+  }
+
+  // 2) k-NN cohort lookup.
+  const cohortResult = await findCohortByTrajectory(env, seq, {
+    k,
+    minN,
+    directionFilter: dir,
+    lookbackDays,
+  });
+
+  const cellEntry = seq.length > 0 ? seq[seq.length - 1] : null;
+
+  if (!cohortResult.ok) {
+    const out = {
+      decision: "allow", reason: "cohort_lookup_failed", error: cohortResult.error || null,
+      cohort: null, recent: null, candidate_seq: seq, cell_entry: cellEntry,
+      gated: true, cached: false, elapsed_ms: Date.now() - t0,
+    };
+    _cachePut(_candidateCohortCache, cacheKey, { result: out });
+    return out;
+  }
+
+  const cohort = cohortResult.cohort || {};
+  const recent = cohortResult.recent || {};
+  const sampleNeighbors = cohortResult.sample_neighbors || [];
+
+  // Verdict
+  let decision = "allow";
+  let reason = "cohort_within_thresholds";
+  const sufficient = cohort.n >= minN;
+  if (!sufficient) {
+    reason = `cohort_below_min_n_${cohort.n}_lt_${minN}`;
+  } else {
+    const wrFail = Number.isFinite(cohort.win_rate) && cohort.win_rate < wrFloor;
+    const pfFail = Number.isFinite(cohort.pf) && cohort.pf < pfFloor;
+    if (wrFail && pfFail) {
+      decision = "block";
+      reason = `cohort_fail_wr${cohort.win_rate}_pf${cohort.pf}_n${cohort.n}`;
+    }
+  }
+
+  const out = {
+    decision, reason,
+    cohort, recent,
+    sample_neighbors: sampleNeighbors.slice(0, 5),
+    candidate_seq: seq, cell_entry: cellEntry,
+    gated: !sufficient,
+    cached: false,
+    elapsed_ms: Date.now() - t0,
+  };
+  _cachePut(_candidateCohortCache, cacheKey, { result: out });
+  return out;
+}
+
 function outcomeOf(trade) {
   const s = String(trade.status || "").toUpperCase();
   if (s === "WIN") return "WIN";
