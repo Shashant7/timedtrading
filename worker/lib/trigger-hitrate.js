@@ -92,9 +92,22 @@ function sessionBucketOfNyHour(hourNy) {
 
 // ── Direction inference ───────────────────────────────────────────────────
 //
-// Compare the canonical 4-state code at the event bucket vs the previous
-// bucket. Bear→Bull = bullish flip; Bull→Bear = bearish; unchanged or
-// across pullback variants = ambiguous.
+// 2026-05-19 (Phase 2.1 follow-up) — v1 of this analyzer inferred direction
+// from the state-code transition (Bear→Bull = bullish flip etc.). In
+// practice, signal flags rarely coincide with state-code transitions, so
+// ~every event was classified as "continuation" and the LONG / SHORT
+// buckets stayed empty. That made the hit-rate breakdown by direction
+// useless for the owner's Q6.
+//
+// New approach: direction is the state-code bias AT the event bucket. A
+// bull-state ticker (B or Bp) firing a trigger is implicitly LONG-biased:
+// did the price go up at the horizon? A bear-state ticker (R or Rp)
+// firing a trigger is implicitly SHORT-biased: did the price go down?
+//
+// This is the right read because the signals in trail_5m_facts (st_flip,
+// ema_cross, squeeze_release, momentum_elite) are themselves directional
+// in context — they're "your alignment-confirming signal fired." Whether
+// they're predictive is exactly the question we're trying to answer.
 
 function direction4(stateCode) {
   if (!stateCode) return null;
@@ -103,12 +116,13 @@ function direction4(stateCode) {
   return null;
 }
 
-function inferFlipDirection(prevState, curState) {
-  const a = direction4(prevState);
-  const b = direction4(curState);
-  if (!b) return "ambiguous";
-  if (a && b && a !== b) return b;       // explicit flip
-  return "continuation";                  // same side or unknown prev
+function inferFlipDirection(_prevState, curState) {
+  // _prevState kept in signature for backward compat with call sites; not
+  // used after v1.1. Direction = bias at the event bucket per the comment
+  // above.
+  const dir = direction4(curState);
+  if (!dir) return "ambiguous";
+  return dir;
 }
 
 // ── Hit classification ────────────────────────────────────────────────────
@@ -236,7 +250,6 @@ export async function computeTriggerHitRates(env, opts = {}) {
       by_direction: {
         LONG: newBucketCounters(),
         SHORT: newBucketCounters(),
-        continuation: newBucketCounters(),
         ambiguous: newBucketCounters(),
       },
       by_session: {
@@ -260,12 +273,9 @@ export async function computeTriggerHitRates(env, opts = {}) {
     for (const sig of SIGNALS) {
       if (Number(r[sig.key]) !== 1) continue;
 
-      // Direction inference
-      const prevSameTicker = (i > 0 && rows[i - 1].ticker === tk) ? rows[i - 1] : null;
-      const dir = inferFlipDirection(
-        prevSameTicker ? canonState(prevSameTicker.state) : null,
-        canonState(r.state),
-      );
+      // Direction inference — bias at the event bucket (post-2026-05-19 fix).
+      // The `null` first arg is preserved for inferFlipDirection back-compat.
+      const dir = inferFlipDirection(null, canonState(r.state));
 
       const cellKey = cellOfFact({
         state: r.state,
