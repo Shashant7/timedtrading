@@ -410,6 +410,10 @@ import * as TrailFactsLight from "./lib/trail-facts-light.js";
    §0.6 phase 2. */
 import * as TriggerHitRate from "./lib/trigger-hitrate.js";
 import * as StageMarkov    from "./lib/stage-markov.js";
+/* 2026-05-18 — Phase 3 of the trajectory research program (S3).
+   Simple Random Walk null hypothesis test per owner directive. Read-only.
+   See tasks/2026-05-18-stochastic-research-program.md §0.6 phase 3. */
+import * as RandomWalkNull from "./lib/random-walk-null.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -1310,6 +1314,8 @@ const ROUTES = [
   ["GET",  "/timed/calibration/trigger-hitrate",          "GET /timed/calibration/trigger-hitrate"],
   ["POST", "/timed/calibration/trajectory-cohort",        "POST /timed/calibration/trajectory-cohort"],
   ["GET",  "/timed/calibration/stage-markov",             "GET /timed/calibration/stage-markov"],
+  // Trajectory program — Phase 3 edge validation. Read-only.
+  ["GET",  "/timed/calibration/random-walk-null",         "GET /timed/calibration/random-walk-null"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -62294,6 +62300,40 @@ export default {
             lookbackDays:     Number.isFinite(body.lookback_days)  ? Number(body.lookback_days)  : undefined,
           };
           const result = await TradeTrajectories.findCohortByTrajectory(env, candidateSeq, opts);
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/calibration/random-walk-null
+      //   ?setup=<setup_name>&direction=LONG&lookback_days=90
+      //   &n_simulations=1000&rth_only=1&seed=<n>
+      // S3: Simple Random Walk null hypothesis. Read-only. Returns the
+      // actual cohort's metrics plus the null distribution percentiles
+      // plus the actual's percentile rank in the null AND the verdict
+      // gated on the owner-locked 95th-percentile threshold.
+      //
+      // Per program §0.6: this is the *single most important* test the
+      // engine wasn't running. If a setup's actual return doesn't beat
+      // the 95th percentile of the random-entry-same-universe null,
+      // the setup has no measurable edge over a coin flip.
+      if (routeKey === "GET /timed/calibration/random-walk-null") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const setupFilter   = (url.searchParams.get("setup")     || "").trim() || null;
+          const directionFilter = (url.searchParams.get("direction") || "LONG").trim() || "LONG";
+          const lookbackDays  = Math.max(7,  Math.min(720,  Number(url.searchParams.get("lookback_days") || 90)));
+          const nSimulations  = Math.max(50, Math.min(10000, Number(url.searchParams.get("n_simulations") || 1000)));
+          const rthOnlyParam  = url.searchParams.get("rth_only");
+          const rthOnly       = rthOnlyParam == null ? true : (rthOnlyParam === "1" || rthOnlyParam === "true");
+          const seedParam     = url.searchParams.get("seed");
+          const seed          = seedParam != null && seedParam !== "" ? Number(seedParam) : undefined;
+          const result = await RandomWalkNull.simulateRandomWalkNull(env, {
+            setupFilter, directionFilter, lookbackDays, nSimulations, rthOnly,
+            ...(Number.isFinite(seed) ? { seed } : {}),
+          });
           return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
