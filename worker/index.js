@@ -1316,6 +1316,10 @@ const ROUTES = [
   ["GET",  "/timed/calibration/stage-markov",             "GET /timed/calibration/stage-markov"],
   // Trajectory program — Phase 3 edge validation. Read-only.
   ["GET",  "/timed/calibration/random-walk-null",         "GET /timed/calibration/random-walk-null"],
+  // Trajectory program — Phase 4 cohort-gated admission ledger + status.
+  ["GET",  "/timed/admin/cohort-admission/log",           "GET /timed/admin/cohort-admission/log"],
+  ["GET",  "/timed/admin/cohort-admission/summary",       "GET /timed/admin/cohort-admission/summary"],
+  ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -20611,6 +20615,58 @@ async function processTradeSimulation(
       }
     }
     
+    // ─────────────────────────────────────────────────────────────────────
+    // PHASE 4 — G2: cohort-fail block + every-decision logging.
+    //
+    // Per program §0.6 (cursor/phase4-cohort-gated-admission). Pulls the
+    // candidate's K=12 cell sequence from trail_5m_facts, finds the k-NN
+    // historical trade-trajectory cohort, and BLOCKS when:
+    //   cohort.n >= cohort_min_n (default 15)
+    //   AND cohort.win_rate < cohort_wr_floor (default 0.40)
+    //   AND cohort.pf       < cohort_pf_floor (default 1.00)
+    //
+    // Cohort lookup is cached per-isolate for 4s (handles back-to-back
+    // ticks). Default OFF in code — owner enables by writing model_config
+    // row `gates` = { "cohort_fail_block": true, ... }.
+    //
+    // EVERY admission attempt logs a row to admission_cohort_log (accept
+    // or reject) so we can measure the gate's impact after enabling. Log
+    // write is fire-and-forget via ctx.waitUntil — failure NEVER blocks
+    // the admission path.
+    // ─────────────────────────────────────────────────────────────────────
+    let _p4CohortDecision = null;   // populated when feature flag on
+    if (isEnter && entryPath) {
+      try {
+        const _p4Gates = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
+          ? tickerData._env._deepAuditConfig.gates
+          : {};
+        const _p4Flag = _p4Gates.cohort_fail_block === true;
+        if (_p4Flag) {
+          // Lazy-import the module — avoids redeploys having to find it
+          // at the top of the file. Worker bundler hoists this once.
+          const TradeTrajectoriesMod = await import("./lib/trade-trajectories.js");
+          _p4CohortDecision = await TradeTrajectoriesMod.decideLiveCandidateCohort(
+            tickerData?._env || env,
+            { ticker: sym, direction, asOfTsMs: now },
+            {
+              minN:    Number.isFinite(_p4Gates.cohort_min_n)    ? Number(_p4Gates.cohort_min_n)    : 15,
+              wrFloor: Number.isFinite(_p4Gates.cohort_wr_floor) ? Number(_p4Gates.cohort_wr_floor) : 0.40,
+              pfFloor: Number.isFinite(_p4Gates.cohort_pf_floor) ? Number(_p4Gates.cohort_pf_floor) : 1.00,
+            },
+          );
+          if (_p4CohortDecision && _p4CohortDecision.decision === "block") {
+            smartGateBlocked = true;
+            smartGateReason = `phase4_cohort_fail:${_p4CohortDecision.reason}`;
+            console.log(`[PHASE4_COHORT_BLOCK] ${sym} ${entryPath} ${direction} ${_p4CohortDecision.reason}`);
+          }
+        }
+      } catch (_err) {
+        // Never block live admission on a cohort-lookup error. Logged
+        // separately so we can spot persistent failures.
+        console.warn(`[PHASE4_COHORT_ERR] ${sym}: ${String(_err?.message || _err).slice(0, 200)}`);
+      }
+    }
+
     if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || parityNoReentryBlocked || smartGateBlocked || parityOpeningConfirmedDeferred)) {
       // Replay debug: capture why we're blocked
       if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
@@ -20669,6 +20725,45 @@ async function processTradeSimulation(
         });
       }
     }
+    // Phase 4: fire-and-forget log of every entry decision (block OR pass)
+    // for which we considered admission. Captures cohort metrics when the
+    // cohort flag is on AND the decision was made via _p4CohortDecision.
+    // Skipped in replay mode (replay isolates write through their own
+    // ledger; mixing live + replay log rows would confuse downstream
+    // analysis).
+    if (isEnter && entryPath && !isReplay) {
+      try {
+        const _aclMod = await import("./lib/admission-cohort-log.js");
+        const _aclRow = {
+          ts: now,
+          ticker: sym,
+          direction,
+          entry_path: entryPath,
+          setup_grade: tickerData?.setup_grade || null,
+          cell_entry: _p4CohortDecision?.cell_entry || null,
+          gate: smartGateBlocked && smartGateReason?.startsWith?.("phase4_cohort_fail")
+            ? "G2_cohort_fail"
+            : (smartGateBlocked ? "other_smart_gate" : "pass"),
+          decision: smartGateBlocked ? "reject" : "accept",
+          reason: smartGateBlocked ? smartGateReason : "passed_smart_gates",
+          cohort: _p4CohortDecision?.cohort,
+          recent: _p4CohortDecision?.recent,
+          cohort_gated: _p4CohortDecision?.gated,
+          meta: _p4CohortDecision ? {
+            cached: _p4CohortDecision.cached,
+            cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
+            sample_neighbors_count: (_p4CohortDecision.sample_neighbors || []).length,
+          } : undefined,
+        };
+        // Fire-and-forget; ctx.waitUntil() if available, else just kick the promise.
+        const _writePromise = _aclMod.logAdmissionDecision(env, _aclRow);
+        if (typeof ctx?.waitUntil === "function") ctx.waitUntil(_writePromise);
+        // If no ctx (cron path), we still await but only briefly to avoid
+        // dangling promise during isolate shutdown. logAdmissionDecision
+        // catches its own errors so this is safe.
+      } catch (_e) { /* log-only path; never block admission */ }
+    }
+
     if (isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && !recentTradeBlocked && !parityNoReentryBlocked && !smartGateBlocked && !parityOpeningConfirmedDeferred) {
       // Replay debug: we passed all gates, about to attempt trade creation
       if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
@@ -62252,6 +62347,127 @@ export default {
         const untilMs = body.until_ms != null ? Number(body.until_ms) : Date.now();
         const result = await TrailFactsLight.aggregateTrailFactsForTicker(env, ticker, sinceMs, untilMs);
         return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // PHASE 4 COHORT-GATED ADMISSION — inspection endpoints.
+      // The gates themselves run inside processTradeSimulation and are
+      // configured via model_config.gates JSON. These endpoints let the
+      // owner see what the gates did + their current config.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/admin/cohort-admission/gates
+      //   Returns the currently-loaded Phase 4 gate config (from the
+      //   most recent cron's env._deepAuditConfig.gates) + the defaults
+      //   the gates fall back to when config is missing.
+      if (routeKey === "GET /timed/admin/cohort-admission/gates") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          // Read directly from model_config so it's the source of truth.
+          const row = await db.prepare(`SELECT config_value, updated_at, updated_by FROM model_config WHERE config_key = 'gates'`).first();
+          let stored = null;
+          if (row?.config_value) {
+            try { stored = JSON.parse(row.config_value); } catch { stored = String(row.config_value); }
+          }
+          return sendJSON({
+            ok: true,
+            stored,
+            updated_at: row?.updated_at || null,
+            updated_by: row?.updated_by || null,
+            defaults: {
+              pause_gap_reversal_long: false,
+              cohort_fail_block: false,
+              cohort_min_n: 15,
+              cohort_wr_floor: 0.40,
+              cohort_pf_floor: 1.00,
+            },
+            note: "Defaults apply when keys are missing from `stored`. Update via POST /timed/admin/model-config with updates=[{key:'gates', value:{...}}].",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/cohort-admission/log?limit=100&gate=G1_pause|G2_cohort_fail|pass|other_smart_gate&decision=accept|reject&since_ms=
+      //   Recent rows from admission_cohort_log.
+      if (routeKey === "GET /timed/admin/cohort-admission/log") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const AdmissionCohortLog = await import("./lib/admission-cohort-log.js");
+          await AdmissionCohortLog.ensureAdmissionCohortLogSchema(env);
+          const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || 100)));
+          const sinceMs = Number(url.searchParams.get("since_ms") || 0);
+          const gateFilter = (url.searchParams.get("gate") || "").trim();
+          const decisionFilter = (url.searchParams.get("decision") || "").trim();
+          const where = ["ts >= ?"];
+          const params = [sinceMs];
+          if (gateFilter)     { where.push("gate = ?");     params.push(gateFilter); }
+          if (decisionFilter) { where.push("decision = ?"); params.push(decisionFilter); }
+          params.push(limit);
+          const { results } = await db.prepare(
+            `SELECT * FROM admission_cohort_log
+             WHERE ${where.join(" AND ")}
+             ORDER BY ts DESC LIMIT ?`,
+          ).bind(...params).all();
+          return sendJSON({ ok: true, count: (results || []).length, rows: results || [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/cohort-admission/summary?lookback_days=14
+      //   Aggregate counts/rates over the window so owner can answer
+      //   "how often did the gates fire and what did they do?"
+      if (routeKey === "GET /timed/admin/cohort-admission/summary") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const AdmissionCohortLog = await import("./lib/admission-cohort-log.js");
+          await AdmissionCohortLog.ensureAdmissionCohortLogSchema(env);
+          const lookbackDays = Math.max(1, Math.min(365, Number(url.searchParams.get("lookback_days") || 14)));
+          const sinceMs = Date.now() - lookbackDays * 86400000;
+          const byGate = (await db.prepare(
+            `SELECT gate, decision, COUNT(*) AS n
+             FROM admission_cohort_log
+             WHERE ts >= ?1
+             GROUP BY gate, decision
+             ORDER BY gate, decision`,
+          ).bind(sinceMs).all())?.results || [];
+          const byEntryPath = (await db.prepare(
+            `SELECT entry_path, decision, COUNT(*) AS n
+             FROM admission_cohort_log
+             WHERE ts >= ?1
+             GROUP BY entry_path, decision
+             ORDER BY n DESC`,
+          ).bind(sinceMs).all())?.results || [];
+          const cohortStats = (await db.prepare(
+            `SELECT
+               AVG(cohort_n) AS avg_cohort_n,
+               AVG(cohort_win_rate) AS avg_cohort_wr,
+               AVG(cohort_pf) AS avg_cohort_pf,
+               SUM(CASE WHEN cohort_gated = 1 THEN 1 ELSE 0 END) AS n_gated,
+               COUNT(cohort_n) AS n_with_cohort
+             FROM admission_cohort_log
+             WHERE ts >= ?1 AND cohort_n IS NOT NULL`,
+          ).bind(sinceMs).first()) || {};
+          return sendJSON({
+            ok: true,
+            lookback_days: lookbackDays,
+            by_gate: byGate,
+            by_entry_path_top: byEntryPath.slice(0, 30),
+            cohort_stats: cohortStats,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════════
