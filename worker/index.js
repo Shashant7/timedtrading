@@ -19504,6 +19504,23 @@ async function processTradeSimulation(
     // regex fires and the trade actually closes on this tick. The
     // doctrine reason is preserved in the closeTradeAtPrice metadata for
     // post-trade analysis (we still want to know doctrine fired too).
+    //
+    // P0 HOTFIX 2026-05-19 (part 4 — diagnostics): if the safety-net IF
+    // doesn't fire when it should, we need to see WHY. Trace each guard
+    // value for open trades that COULD be past SL. Gated on having an
+    // open trade so we don't spam logs for every ticker.
+    if (!isReplay && openTrade && isOpenTradeStatus(openTrade.status)) {
+      const _dbgSlRaw = openPositionContext ? Number(openPositionContext.sl) : null;
+      const _dbgPxNow = Number(pxNow);
+      const _dbgDir = String(openTrade.direction || direction || "").toUpperCase();
+      const _dbgWouldBreach = Number.isFinite(_dbgSlRaw) && Number.isFinite(_dbgPxNow) && _dbgSlRaw > 0 && _dbgPxNow > 0 && (
+        _dbgDir === "LONG"  ? _dbgPxNow <= _dbgSlRaw :
+        _dbgDir === "SHORT" ? _dbgPxNow >= _dbgSlRaw : false
+      );
+      if (_dbgWouldBreach) {
+        console.log(`[SL_SAFETY_NET_TRACE] ${sym} dir=${_dbgDir} pxNow=${_dbgPxNow} sl=${_dbgSlRaw} hasPosCtx=${!!openPositionContext} slFinite=${Number.isFinite(_dbgSlRaw)} pxFinite=${Number.isFinite(_dbgPxNow)} fuseExitFired=${fuseExitFired} forceDefend=${tickerData?.__force_defend_stage === true} defendReason=${tickerData?.__defend_reason || "-"} status=${openTrade.status} trimmed=${openTrade.trimmedPct} exitReasonRaw=${exitReasonRaw}`);
+      }
+    }
     if (openTrade && isOpenTradeStatus(openTrade.status)
         && openPositionContext && Number.isFinite(Number(openPositionContext.sl))
         && Number.isFinite(pxNow) && pxNow > 0) {
@@ -19668,6 +19685,13 @@ async function processTradeSimulation(
     // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
     // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
     const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    // P0 HOTFIX 2026-05-19 (part 4 — diagnostics): if isSLExit is true,
+    // trace every gate value so we can see why the close skips. Gated on
+    // SL-class exit only to keep logs surgical.
+    if (!isReplay && isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
+      const _gateTrim = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
+      console.log(`[SL_GATE_TRACE] ${sym} exitReasonRaw=${exitReasonRaw} gateAllowsLive=${_exitGateAllowsLive ? 1 : 0} liveMgrOk=${_liveManageGateOk ? 1 : 0} isExit=${isExit ? 1 : 0} sameInterval=${_sameIntervalAsTrade ? 1 : 0} weekend=${weekendNow ? 1 : 0} outsideRTH=${outsideRTH ? 1 : 0} exitAllowedRTH=${exitAllowedOutsideRTH ? 1 : 0} cooldownOk=${exitCooldownOk ? 1 : 0} minAgeOk=${exitMinAgeOk ? 1 : 0} fuseFired=${fuseExitFired ? 1 : 0} pullbackShield=${_exitPullbackShield ? 1 : 0} paritySkip=${_paritySkipSl ? 1 : 0} trim=${_gateTrim} status=${openTrade.status} flatPx=${flatPriceExit ? 1 : 0}`);
+    }
     if (_exitGateAllowsLive && isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
