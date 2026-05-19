@@ -362,6 +362,31 @@
     };
   }
 
+  // Extended-hours change resolver — single source of truth for
+  // pre-market / after-hours display across every ticker card. Returns
+  // { pct, price } or null if no EXT data should be shown right now.
+  //
+  // Rules (per price-data-pipeline.mdc workspace rule):
+  //   1. Hidden during RTH (isNyRegularMarketOpen() === true)
+  //   2. Crypto excluded — BTCUSD, ETHUSD are 24/7 markets
+  //   3. Read _ah_change_pct with extended_percent_change fallback
+  //      (canonical field chain used by MoverRow + FOCUS chips)
+  //   4. Minimum |move| >= 0.05 % to suppress noise
+  //   5. _ah_price is the optional AH/pre-market trade price; null when
+  //      we don't have one (caller renders pct only in that case)
+  function getExtChange(t) {
+    if (isNyRegularMarketOpen()) return null;
+    var sym = String(t && t.ticker || "").toUpperCase();
+    if (sym === "BTCUSD" || sym === "ETHUSD") return null;
+    var pct = Number(
+      t && t._ah_change_pct != null ? t._ah_change_pct :
+      t && t.extended_percent_change
+    );
+    if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
+    var px = Number(t && t._ah_price);
+    return { pct: pct, price: Number.isFinite(px) && px > 0 ? px : null };
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -370,6 +395,7 @@
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getDailyChange: getDailyChange,
+    getExtChange: getExtChange,
     TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,
