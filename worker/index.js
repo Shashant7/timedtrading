@@ -20674,6 +20674,25 @@ async function processTradeSimulation(
     // write is fire-and-forget via ctx.waitUntil — failure NEVER blocks
     // the admission path.
     // ─────────────────────────────────────────────────────────────────────
+    // PHASE 5 R3 — Compute chop-haircut PLAN upstream so both the admission
+    // log (below) and the actual sizing application (further down by the
+    // computeRiskBasedSize call) reference the same object. We don't
+    // stamp __chop_size_mult here — that happens at the sizing site so it
+    // only mutates tickerData when the trade is actually about to size up.
+    let _p5ChopHaircutPlan = null;
+    if (isEnter && entryPath) {
+      const _p5Gates0 = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
+        ? tickerData._env._deepAuditConfig.gates
+        : {};
+      if (_p5Gates0.chop_size_haircut_enabled === true
+          && String(tickerData?.regime_class || "").toUpperCase() === "CHOPPY") {
+        const _p5Factor = Number(_p5Gates0.chop_size_haircut_factor);
+        const _p5Mult = Number.isFinite(_p5Factor) && _p5Factor > 0 && _p5Factor <= 1
+          ? _p5Factor : 0.5;
+        _p5ChopHaircutPlan = { factor: _p5Mult, regime_class: tickerData.regime_class || "CHOPPY" };
+      }
+    }
+
     let _p4CohortDecision = null;   // populated when feature flag on
     if (isEnter && entryPath) {
       try {
@@ -20833,10 +20852,21 @@ async function processTradeSimulation(
           cohort: _p4CohortDecision?.cohort,
           recent: _p4CohortDecision?.recent,
           cohort_gated: _p4CohortDecision?.gated,
-          meta: _p4CohortDecision ? {
-            cached: _p4CohortDecision.cached,
-            cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
-            sample_neighbors_count: (_p4CohortDecision.sample_neighbors || []).length,
+          meta: (_p4CohortDecision || _p5ChopHaircutPlan) ? {
+            ...(_p4CohortDecision ? {
+              cached: _p4CohortDecision.cached,
+              cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
+              sample_neighbors_count: (_p4CohortDecision.sample_neighbors || []).length,
+            } : {}),
+            // Phase 5 R3 — record the chop haircut PLAN on accept rows
+            // (haircut only actually fires on accept; if smartGateBlocked
+            // it's a "would have haircut" record for analysis).
+            ...(_p5ChopHaircutPlan && !smartGateBlocked ? {
+              chop_haircut_applied: _p5ChopHaircutPlan,
+            } : {}),
+            ...(_p5ChopHaircutPlan && smartGateBlocked ? {
+              chop_haircut_skipped: _p5ChopHaircutPlan,
+            } : {}),
           } : undefined,
         };
         // Fire-and-forget; ctx.waitUntil() if available, else just kick the promise.
@@ -21339,6 +21369,17 @@ async function processTradeSimulation(
             }
           } catch (_) {}
           const sizing = computeRiskBasedSize(confidence, accountValue, entryPx, finalSL, sizingSignals.vixLevel, env, tierRiskPct, _tapeMultEntry);
+          // PHASE 5 R3 — Apply the chop-haircut plan computed earlier next
+          // to G2 (see _p5ChopHaircutPlan upstream). Stamping __chop_size_mult
+          // here means gatherSizingMultipliers() picks it up on the very
+          // next call — single application point. Defensive clear when no
+          // plan applies so a stale mult never carries forward.
+          if (_p5ChopHaircutPlan) {
+            tickerData.__chop_size_mult = _p5ChopHaircutPlan.factor;
+            console.log(`[PHASE5_R3_CHOP_HAIRCUT] ${sym}: size × ${_p5ChopHaircutPlan.factor} (regime_class=${_p5ChopHaircutPlan.regime_class})`);
+          } else if (tickerData?.__chop_size_mult != null) {
+            delete tickerData.__chop_size_mult;
+          }
           const _sizingMults = gatherSizingMultipliers(tickerData);
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
@@ -62462,11 +62503,17 @@ export default {
             updated_at: row?.updated_at || null,
             updated_by: row?.updated_by || null,
             defaults: {
+              // Phase 4 (PR #210) — cohort-gated admission
               pause_gap_reversal_long: false,
               cohort_fail_block: false,
               cohort_min_n: 15,
               cohort_wr_floor: 0.40,
               cohort_pf_floor: 1.00,
+              // Phase 4.1 (PR #214) — SHORT Option A
+              short_direction_setup_driven: false,
+              // Phase 5 R3 — chop-regime size haircut
+              chop_size_haircut_enabled: false,
+              chop_size_haircut_factor: 0.5,
             },
             note: "Defaults apply when keys are missing from `stored`. Update via POST /timed/admin/model-config with updates=[{key:'gates', value:{...}}].",
           }, 200, corsHeaders(env, req));

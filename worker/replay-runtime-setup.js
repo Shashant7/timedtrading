@@ -473,16 +473,23 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_accum_zone_momentum_runner_min_confidence", // default 40
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min", // default 50
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max", // default 88
-  // Phase 4 of the trajectory research program (PR following #209).
+  // Trajectory program — Phase 4 / 4.1 / 5 gates blob.
   // Stored as a JSON object so the owner can flip multiple gates from
-  // one row without redeploy. Defaults all false in code — until the
-  // owner writes this row to model_config, ZERO live behavior changes.
+  // one row without redeploy. Defaults all false / sensible-defaults in
+  // code — until the owner writes this row to model_config, ZERO live
+  // behavior changes.
   //   {
-  //     "pause_gap_reversal_long": false,
-  //     "cohort_fail_block":       false,
-  //     "cohort_min_n":            15,
-  //     "cohort_wr_floor":         0.40,
-  //     "cohort_pf_floor":         1.00
+  //     // Phase 4 (PR #210) — cohort-gated admission
+  //     "pause_gap_reversal_long":      false,
+  //     "cohort_fail_block":            false,
+  //     "cohort_min_n":                 15,
+  //     "cohort_wr_floor":              0.40,
+  //     "cohort_pf_floor":              1.00,
+  //     // Phase 4.1 (PR #214) — SHORT Option A
+  //     "short_direction_setup_driven": false,
+  //     // Phase 5 R3 — chop-regime size haircut (default factor 0.5)
+  //     "chop_size_haircut_enabled":    false,
+  //     "chop_size_haircut_factor":     0.5
   //   }
   "gates",
 ];
