@@ -15734,6 +15734,13 @@ async function processTradeSimulation(
         "deep_audit_ripster_34_50_trim_min_pnl_pct",
         "deep_audit_ticker_blacklist",
         "deep_audit_hard_loss_cap", "deep_audit_hard_loss_cap_pct",
+        // 2026-05-19 (Phase 4.1) — trajectory program gates blob.
+        // Without this in the lazy-load list, any processTradeSimulation
+        // entry that runs BEFORE the /5 scoring cron has populated
+        // env._deepAuditConfig (HTTP-triggered, queue-drain, investor lane,
+        // etc.) would see daCfg.gates as undefined and silently skip both
+        // G1 pause and the cohort-fail block. See PR for the bug story.
+        "gates",
       ];
       const _daRes = await env.DB.prepare(
         `SELECT config_key, config_value FROM model_config WHERE config_key IN (${_daKeys.map((_, i) => `?${i + 1}`).join(",")})`

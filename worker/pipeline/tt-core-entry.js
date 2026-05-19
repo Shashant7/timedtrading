@@ -313,6 +313,16 @@ export function evaluateEntry(ctx) {
     return reject(reason, metadata);
   };
   const qualifyEntry = (path, confidence, reason, sizing, metadata) => {
+    // PHASE 4.1 SHORT Option A: when the path explicitly encodes its side
+    // (suffix `_short` or `_long`), trust that for downstream admission /
+    // logging rather than the top-level inferred `side`. This makes the
+    // setup-driven gap-reversal flip route through the SHORT admission row
+    // (gap_reversal_short:SHORT:Prime allows COUNTER_TREND_BULL) even when
+    // inferSide() returned LONG from state/swing_consensus. Falls through
+    // to `side` for paths without an explicit suffix.
+    const effectiveDir = path?.endsWith?.("_short") ? "SHORT"
+                       : path?.endsWith?.("_long")  ? "LONG"
+                       : side;
     // V15 P0.7.66 (2026-05-05) — Tier 1D: Block Speculative grade for ETFs.
     // ETF audit Path A: Speculative-grade ETF entries (e.g. ALB Mar-02 rank 58
     // -8.44%) bring the worst losses + lowest WR. ETFs require precision;
@@ -400,7 +410,7 @@ export function evaluateEntry(ctx) {
             {
               setup: path,
               grade: _gradeForAdmission,
-              direction: side,
+              direction: effectiveDir,
               regime: _regimeForAdmission,
               conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
               rr: _rrForAdmission,
@@ -1611,9 +1621,59 @@ export function evaluateEntry(ctx) {
         gapReversalTrigger = true;
       }
 
+      // ────────────────────────────────────────────────────────────────
+      // PHASE 4.1 — SHORT Option A: setup-driven direction for the
+      // gap-reversal trigger.
+      //
+      // Problem (see tasks/2026-05-19-short-side-blackout-diagnostic.md):
+      // inferSide() locks in LONG from state/swing_consensus BEFORE
+      // setup triggers fire. A bull-state ticker that gapped up and
+      // faded (the textbook gap_reversal_short candidate — all-time
+      // PF 8.86) never reaches the SHORT branch because side is
+      // already "LONG". Result: 0 SHORT trades in 30 days while
+      // production trail_5m_facts shows 31.3% of buckets are
+      // bear-family. The opportunity is there; the code path isn't.
+      //
+      // Fix: when (a) we're on the LONG path with side="LONG",
+      // (b) the gap-reversal indicator says short_setup_active is true
+      // BUT long_setup_active is false (the actual signal is a SHORT
+      // shape, not LONG), AND (c) the feature flag is enabled, then
+      // pivot the trigger to SHORT. The existing admission matrix at
+      // phase-c-setup-admission.js:78 already permits
+      // gap_reversal_short:Prime in COUNTER_TREND_BULL — which is
+      // exactly this case.
+      //
+      // Feature-flagged on daCfg.gates.short_direction_setup_driven
+      // (default false). Owner enables via the same model_config
+      // gates row that controls G1/G2.
+      //
+      // ZERO behavior change until the owner explicitly flips the flag.
+      // When fired, the rest of the qualifyEntry chain (admission
+      // matrix, Phase 4 G2 cohort-fail block, smart gates, loop2
+      // breaker, etc.) all still apply — this only changes WHICH
+      // direction the gap-reversal trigger fires on.
+      const _p41Gates = (daCfg && typeof daCfg.gates === "object" && daCfg.gates) || {};
+      let _gapRevShortFlipped = false;
+      if (!gapReversalTrigger
+          && _p41Gates.short_direction_setup_driven === true
+          && side === "LONG"
+          && _gr.short_setup_active === true
+          && _gr.long_setup_active !== true
+          && Math.abs(_gr.gap_pct) >= _grMinGap
+          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+        gapReversalTrigger = true;
+        _gapRevShortFlipped = true;
+        // Local mutate of `side` is unsafe (it's a destructured const) —
+        // we mark the flip on `d` and the qualifyEntry call site below
+        // reads __gap_reversal_force_short to route through
+        // "tt_gap_reversal_short" instead of "tt_gap_reversal_long".
+        d.__gap_reversal_force_short = true;
+      }
+
       d.__gap_reversal_diag = {
         side,
         fired: gapReversalTrigger,
+        short_flipped: _gapRevShortFlipped,
         gap_pct: _gr.gap_pct,
         is_gap_down: _gr.is_gap_down,
         is_gap_up: _gr.is_gap_up,
@@ -3635,14 +3695,32 @@ export function evaluateEntry(ctx) {
   // off the Nth test of a horizontal level is the entry, normally
   // rejected as tt_pullback_not_deep_enough.
   if (gapReversalTrigger) {
+    // Phase 4.1 SHORT Option A: the setup-driven flip set
+    // d.__gap_reversal_force_short when a bull-state ticker's gap shape
+    // was actually a SHORT setup. Route through the SHORT path so the
+    // admission matrix sees gap_reversal_short:SHORT (allowed in
+    // COUNTER_TREND_BULL among others).
+    const _gapRevForceShort = d?.__gap_reversal_force_short === true;
+    const _gapPath = _gapRevForceShort
+      ? "tt_gap_reversal_short"
+      : (side === "LONG" ? "tt_gap_reversal_long" : "tt_gap_reversal_short");
+    const _gapTrigDir = _gapRevForceShort ? "SHORT" : side;
+    const _gapReason = _gapRevForceShort
+      ? "gap_up_fade"
+      : (side === "LONG" ? "gap_down_reclaim" : "gap_up_fade");
     return qualifyEntry(
-      side === "LONG" ? "tt_gap_reversal_long" : "tt_gap_reversal_short",
+      _gapPath,
       "medium",
-      side === "LONG" ? "gap_down_reclaim" : "gap_up_fade",
+      _gapReason,
       { ...baseSizing },
       {
         cloudAlignment: cloudMeta,
-        triggerType: side === "LONG" ? "gap_reversal_long" : "gap_reversal_short",
+        triggerType: _gapTrigDir === "LONG" ? "gap_reversal_long" : "gap_reversal_short",
+        phase4_short_option_a: _gapRevForceShort ? {
+          original_side: side,
+          flipped_to: "SHORT",
+          reason: "setup_driven_direction_for_gap_reversal",
+        } : undefined,
         pdzZone: { D: pdzZoneD, h4: pdzZone4h },
         gapContext: summarizeGapContext(gapContext),
         cvgContext: summarizeCvgContext(cvgContext),
