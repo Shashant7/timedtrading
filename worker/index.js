@@ -19481,7 +19481,16 @@ async function processTradeSimulation(
     // and pullback shields. Without this, the non-bypassable guards in
     // classifyKanbanStage silently drop back into regular-exit gating and get
     // blocked outside RTH or by shields (exactly how TPL stayed open in V13e).
-    const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_/i.test(String(exitReasonRaw));
+    //
+    // P0 HOTFIX 2026-05-19: production audit confirmed `sl_breached` was the
+    // actual __exit_reason string set by classifyKanbanStage at line 9824, but
+    // the previous regex (`\bSL\b|stop.?loss|max.?loss|v13_hard_`) didn't match
+    // it — so SL exits were classified hard at the kanban layer and then
+    // silently re-gated as soft at the execution layer. 4 LONG positions
+    // (IWM/DE/DIA/MLI) were sitting 0.7–3.3% past their SL with stage=exit
+    // when this was discovered. Adding `sl_breached` / `sl_hit` / `hard_loss`
+    // closes the gap. Mirror change in _exitIsHard below at line ~19573.
+    const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
     const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
@@ -19596,7 +19605,9 @@ async function processTradeSimulation(
       } else {
         // ── AI CIO Lifecycle: evaluate EXIT decision ──
         // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
-        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_/i.test(String(exitReasonRaw));
+        // P0 HOTFIX 2026-05-19: include `sl_breached` / `sl_hit` / `hard_loss` (mirror of
+        // isSLExit above). Without this, sl_breached exits would still go through CIO HOLD.
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
         // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
         const _exitCioCooldownMs = 30 * 60000;
         const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
