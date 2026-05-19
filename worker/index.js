@@ -414,6 +414,11 @@ import * as StageMarkov    from "./lib/stage-markov.js";
    Simple Random Walk null hypothesis test per owner directive. Read-only.
    See tasks/2026-05-18-stochastic-research-program.md §0.6 phase 3. */
 import * as RandomWalkNull from "./lib/random-walk-null.js";
+/* 2026-05-19 — Phase 6 prep (S6). Read-only cell Markov chains over the
+   640-cell bubble-map state space, split by trade outcome. Identifies
+   predictive cells (where win-chain and lose-chain transition matrices
+   diverge) vs noise cells (where they agree). No live behavior change. */
+import * as CellMarkov from "./lib/cell-markov.js";
 import * as MarketInternals from "./market-internals.js";
 import { buildTickerScenario } from "./ticker-scenario.js";
 import { tdFetchEarningsCalendar, tdFetchTickerEarnings, tdFetchTimeSeries, tdSearchSymbol, toTdSymbol, aggregate5mTo10m, tdFetchProfile, tdFetchStatistics, tdFetchEarningsHistory } from "./twelvedata.js";
@@ -1320,6 +1325,8 @@ const ROUTES = [
   ["GET",  "/timed/admin/cohort-admission/log",           "GET /timed/admin/cohort-admission/log"],
   ["GET",  "/timed/admin/cohort-admission/summary",       "GET /timed/admin/cohort-admission/summary"],
   ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
+  // Trajectory program — Phase 6 prep (S6). Cell Markov visibility.
+  ["GET",  "/timed/calibration/cell-markov",              "GET /timed/calibration/cell-markov"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -62549,6 +62556,30 @@ export default {
           const result = await RandomWalkNull.simulateRandomWalkNull(env, {
             setupFilter, directionFilter, lookbackDays, nSimulations, rthOnly,
             ...(Number.isFinite(seed) ? { seed } : {}),
+          });
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/calibration/cell-markov?lookback_days=180&min_cell_obs=5&divergence_threshold=0.15&max_trades=5000
+      // S6: bubble-map cell transition matrix split by outcome (win vs lose
+      // chains). Surfaces divergent cells (predictive zones) vs noise cells.
+      // Visibility-only — no live behavior change.
+      if (routeKey === "GET /timed/calibration/cell-markov") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const lookbackDays  = Math.max(7, Math.min(720, Number(url.searchParams.get("lookback_days") || 180)));
+          const minCellObs    = Math.max(1, Math.min(1000, Number(url.searchParams.get("min_cell_obs") || 5)));
+          const divergenceTh  = Math.max(0.01, Math.min(1, Number(url.searchParams.get("divergence_threshold") || 0.15)));
+          const maxTrades     = Math.max(10, Math.min(20000, Number(url.searchParams.get("max_trades") || 5000)));
+          const includeDuringParam = url.searchParams.get("include_during");
+          const includeDuring = includeDuringParam == null ? true : (includeDuringParam === "1" || includeDuringParam === "true");
+          const result = await CellMarkov.buildCellMarkov(env, {
+            lookbackDays, minCellObs, divergenceThreshold: divergenceTh,
+            maxTrades, includeDuring,
           });
           return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
