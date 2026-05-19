@@ -10292,6 +10292,32 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     _rbe[entry.reason] = (_rbe[entry.reason] || 0) + 1;
     _rbe._total = (_rbe._total || 0) + 1;
   }
+  // PHASE 4.2 (2026-05-19) — Stamp engine-layer phase4_* rejections on
+  // tickerData so processTradeSimulation can log them to admission_cohort_log.
+  //
+  // Why this exists: the admission_cohort_log writes from
+  // processTradeSimulation, which only runs admission logic when kanban_stage
+  // ∈ (in_review, enter, enter_now). When G1 (or any future engine-layer
+  // phase4_* gate) rejects in qualifyEntry, the engine returns
+  // qualifies:false, the ticker never reaches that stage, and the rejection
+  // is invisible to the log. Stamping a marker here lets processTradeSimulation
+  // notice the engine rejection on its next pass over the ticker and write
+  // a row — even when isEnter is false.
+  if (!entry.qualifies && entry.reason && String(entry.reason).startsWith("phase4_")) {
+    tickerData.__phase4_engine_reject = {
+      reason: entry.reason,
+      path: entry?.metadata?.path || null,
+      direction: entry?.metadata?.direction || null,
+      gate: entry?.metadata?.gate || null,
+      stamped_at: Date.now(),
+      meta: entry?.metadata || null,
+    };
+  } else if (tickerData.__phase4_engine_reject) {
+    // Clear the marker once the engine accepts again (or rejects for a
+    // non-phase4 reason). Prevents stale markers from being re-logged on
+    // every subsequent cron tick.
+    delete tickerData.__phase4_engine_reject;
+  }
   if (entry.qualifies) {
     tickerData.__entry_path = entry.path;
     tickerData.__entry_confidence = entry.confidence;
@@ -20739,6 +20765,50 @@ async function processTradeSimulation(
         });
       }
     }
+    // Phase 4.2: log engine-layer phase4_* rejections (G1 etc.) that
+    // never reach the smart-gate aggregator. Stamped by classifyKanbanStage
+    // on tickerData.__phase4_engine_reject when the engine returns
+    // qualifies:false with a phase4_ reason. Cleared by classifyKanbanStage
+    // on the next tick if the engine no longer rejects, so we log exactly
+    // once per engine-rejection event (the first scoring tick that sees
+    // the marker).
+    //
+    // Skipped in replay mode (same as the isEnter log below) so live and
+    // replay ledgers don't mix.
+    if (!isReplay && tickerData?.__phase4_engine_reject) {
+      try {
+        const _r = tickerData.__phase4_engine_reject;
+        const _aclMod = await import("./lib/admission-cohort-log.js");
+        const _aclRow = {
+          ts: _r.stamped_at || now,
+          ticker: sym,
+          direction: _r.direction || null,
+          entry_path: _r.path || null,
+          setup_grade: tickerData?.setup_grade || null,
+          cell_entry: null,                  // not known at engine layer
+          gate: _r.gate || "G1_pause",
+          decision: "reject",
+          reason: _r.reason,
+          cohort: null,
+          recent: null,
+          cohort_gated: null,
+          meta: {
+            source: "engine_layer",
+            ...(_r.meta || {}),
+          },
+        };
+        const _writePromise = _aclMod.logAdmissionDecision(env, _aclRow);
+        if (typeof ctx?.waitUntil === "function") ctx.waitUntil(_writePromise);
+        // Clear the marker so we don't re-log on the next tick.
+        // (classifyKanbanStage would also clear it on the next pass if
+        // the engine accepts; this is a defensive double-clear.)
+        delete tickerData.__phase4_engine_reject;
+      } catch (_e) {
+        // Logging failure must not affect any downstream processing.
+        console.warn(`[PHASE4_ENGINE_LOG_ERR] ${sym}: ${String(_e?.message || _e).slice(0, 200)}`);
+      }
+    }
+
     // Phase 4: fire-and-forget log of every entry decision (block OR pass)
     // for which we considered admission. Captures cohort metrics when the
     // cohort flag is on AND the decision was made via _p4CohortDecision.
