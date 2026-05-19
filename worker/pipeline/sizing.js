@@ -49,6 +49,12 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
   const pdz = Number(d.__pdz_size_mult) || 1.0;
   const spy = Number(d.__spy_size_mult) || 1.0;
   const orb = Number(d.__da_orb_size_mult) || 1.0;
+  // PHASE 5 R3 (2026-05-19) — Chop-regime size haircut. Stamped by
+  // processTradeSimulation when daCfg.gates.chop_size_haircut_enabled
+  // is true AND tickerData.regime_class === "CHOPPY". Default 1.0
+  // (no haircut) so this is a no-op until the gate is enabled in
+  // model_config.gates. See worker/index.js for the stamp site.
+  const chop = Number(d.__chop_size_mult) || 1.0;
 
   const miOverall = String(
     d._marketInternals?.overall || d._env?._marketInternals?.overall || "",
@@ -57,11 +63,11 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
     : miOverall === "balanced" ? 0.8 : 1.0;
 
   const rawCombined = regime * daRegime * rvol * danger * meanRevert
-    * pdz * spy * orb * internals;
+    * pdz * spy * orb * chop * internals;
   const combined = Math.max(SIZING_MULT_FLOOR, rawCombined);
 
   return {
-    breakdown: { regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, internals },
+    breakdown: { regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, internals },
     rawCombined,
     combined,
   };
