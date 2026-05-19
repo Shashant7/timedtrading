@@ -15780,6 +15780,30 @@ async function processTradeSimulation(
       env._deepAuditConfig = env._deepAuditConfig || {};
     }
   }
+
+  // P1 HOTFIX 2026-05-19 (part 12 — Bug #10): the 163 in-function reads of
+  // `tickerData?._env?._deepAuditConfig?.*` all silently see undefined on
+  // non-scoring invocations of processTradeSimulation (POSITION RECONCILE,
+  // HTTP routes, queue-drain). `_env._deepAuditConfig` is only stamped at
+  // line ~75545 inside the */5 scoring cron — and tickerData here is
+  // loaded from KV `timed:latest:${sym}` which carries whatever stale _env
+  // the last scoring run wrote.
+  //
+  // Net effect: Phase 4 gates (G1 pause, G2 cohort-fail block), chop-haircut
+  // sizing, time-scaled max-loss, momentum buffer, regime-flip guards,
+  // continuation-trigger knobs, V13 safety nets — all silently default to
+  // their hardcoded fallbacks for non-scoring entries because the daCfg
+  // read returns undefined. We added the lazy-load on `env._deepAuditConfig`
+  // above (P0.7.170), but the consumer reads are on `tickerData._env.*`.
+  //
+  // Fix: backfill tickerData._env._deepAuditConfig from env._deepAuditConfig
+  // when the former is missing. Single-point patch covers all 163 reads.
+  if (tickerData && env?._deepAuditConfig) {
+    tickerData._env = tickerData._env || {};
+    if (!tickerData._env._deepAuditConfig) {
+      tickerData._env._deepAuditConfig = env._deepAuditConfig;
+    }
+  }
   const eventTs = () =>
     Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
 
