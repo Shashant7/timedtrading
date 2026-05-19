@@ -16062,6 +16062,27 @@ async function processTradeSimulation(
     // (~line 35489), every 50%-trimmed trade was crashing every */5 cron
     // tick for IWM/DE/DIA/MLI. Use `tickerData?.price` directly — `pxNow`
     // would just be Number(tickerData?.price) at this point anyway.
+    //
+    // P0 HOTFIX 2026-05-19 (part 6 — same incident root cause #2): the
+    // `parityNoReentryBlocked = true` line below referenced two variables
+    // (`_parityNoReentryH` and `parityNoReentryBlocked`) that are declared
+    // ~4,500 lines later at line ~20632. SAME class of TDZ ReferenceError
+    // as the `pxNow` bug. Any zombie execution would have crashed here on
+    // the second TDZ even if the first was fixed. Inline the config read
+    // and use a local variable; the canonical block at line ~20634 will
+    // also detect the synthesized TP_FULL close via its `allTrades` scan
+    // because the open trade now appears CLOSED in D1, so the in-flight
+    // parityNoReentryBlocked flag set here is redundant. Just log the
+    // intent and let the downstream check handle re-entry blocking.
+    //
+    // P0 HOTFIX 2026-05-19 (part 7 — same incident root cause #3): the
+    // previous zombie block only ran `UPDATE trades SET status=?,...`. It
+    // did NOT update D1 `positions` (status stayed 'OPEN') and did NOT
+    // insert an `execution_actions` CLOSE row. Result: POSITION RECONCILE
+    // (~line 76214) keeps re-processing the same "closed-in-trades-but-
+    // open-in-positions" record every cron tick, and the audit ledger is
+    // missing the CLOSE event. Now also close the positions row and
+    // insert the CLOSE action so D1 is internally consistent.
     if (openTrade && clamp(Number(openTrade.trimmedPct || 0), 0, 1) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
       const _zombiePxNow = Number(tickerData?.price) || 0;
       const zombiePnl = Number(openTrade.realizedPnl || openTrade.pnl || 0);
@@ -16082,16 +16103,31 @@ async function processTradeSimulation(
             openTrade.exit_snapshot_json = _zombieExitSnap;
             await d1PersistTradeExitSnapshot(env, openTrade, _zombieExitSnap).catch(() => {});
           }
+          const _zombieTradeId = openTrade.trade_id || openTrade.id;
           await env.DB.prepare(`UPDATE trades SET status=?, exit_price=?, exit_reason=?, exit_ts=?, pnl=?, pnl_pct=? WHERE trade_id=?`)
-            .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, openTrade.trade_id || openTrade.id).run();
+            .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, _zombieTradeId).run();
+          // P0 part 7: also close the D1 positions row + log the CLOSE action.
+          // trade_id == position_id in our schema (see getOpenPositionAsTrade
+          // line ~35497: trade_id: pos.position_id).
+          try {
+            await env.DB.prepare(`UPDATE positions SET status='CLOSED', closed_at=?, updated_at=? WHERE position_id=? AND status='OPEN'`)
+              .bind(openTrade.exit_ts, openTrade.exit_ts, _zombieTradeId).run();
+            await env.DB.prepare(`INSERT INTO execution_actions (position_id, ts, action_type, qty, price, value, pnl_realized, reason) VALUES (?, ?, 'CLOSE', 0, ?, 0, 0, 'ZOMBIE_FIX_TP_FULL')`)
+              .bind(_zombieTradeId, openTrade.exit_ts, openTrade.exitPrice).run();
+          } catch (posErr) {
+            console.error(`[ZOMBIE FIX] D1 positions/actions close failed for ${sym}:`, posErr);
+          }
           d1UpdateDirectionOutcome(env, openTrade).catch(() => {});
           d1UpdateLearningOnClose(env, openTrade, tickerData).catch(() => {});
         } catch (e) { console.error(`[ZOMBIE FIX] D1 update failed for ${sym}:`, e); }
       }
-      // If TP_FULL is synthesized in this same cycle, block immediate re-entry.
-      if (_parityNoReentryH > 0) {
-        parityNoReentryBlocked = true;
-        console.log(`[PARITY_REENTRY] ${sym} blocked same-cycle re-entry after zombie TP_FULL close (window=${_parityNoReentryH}h)`);
+      // P0 part 6: parityNoReentryBlocked / _parityNoReentryH are declared
+      // at line ~20632 — TDZ if referenced here. Inline a local read and
+      // log intent; the canonical re-entry-block check at line ~20634
+      // will detect this synthesized TP_FULL close via its allTrades scan.
+      const _zombieParityH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_parity_no_reentry_after_tp_full_hours) || 0;
+      if (_zombieParityH > 0) {
+        console.log(`[PARITY_REENTRY] ${sym} synthesized TP_FULL close — re-entry blocked by downstream check (window=${_zombieParityH}h)`);
       }
       openTrade = null; // no longer open
     }
