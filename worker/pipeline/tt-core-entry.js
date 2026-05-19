@@ -340,6 +340,32 @@ export function evaluateEntry(ctx) {
       }
     }
     // ─────────────────────────────────────────────────────────────────
+    // PHASE 4 — G1: pause gap_reversal_long entirely.
+    //
+    // Per Phase 3 random-walk null verdict: tt_gap_reversal_long is
+    // BELOW_RANDOM_5TH (actual percentile 3.8% over 90d). The setup
+    // is destroying value vs a random-entry-same-universe null.
+    // Gate ships default OFF in code; owner enables via:
+    //   model_config row { config_key: "gates",
+    //     config_value: '{"pause_gap_reversal_long": true, ...}' }
+    // loaded into env._deepAuditConfig.gates by the cron boot loader.
+    //
+    // ZERO behavior change until owner explicitly flips the flag.
+    // Compares against the SNAKE_CASE engine path (the only form set
+    // inside the engine at this point — display-name normalization
+    // happens later in formatSetupName).
+    // ─────────────────────────────────────────────────────────────────
+    const _phase4Gates = (daCfg && typeof daCfg.gates === "object" && daCfg.gates) || {};
+    if (_phase4Gates.pause_gap_reversal_long === true && path === "tt_gap_reversal_long") {
+      return rejectEntry("phase4_paused_gap_reversal_long", {
+        gate: "G1_pause",
+        path,
+        direction: side,
+        config_source: "model_config.gates.pause_gap_reversal_long",
+        note: "Phase 4: gap_reversal_long paused per Phase 3 RW-null verdict (BELOW_RANDOM_5TH @ 3.8% percentile)",
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────
     // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
     //
     // Final gate before an entry is accepted. Evaluates the
