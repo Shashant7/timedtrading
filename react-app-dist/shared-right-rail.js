@@ -5546,14 +5546,23 @@
                         </Panel>
                       )}
 
-                      {/* TD Sequential.
-                          V2.1 round 4 (2026-05-01) — Field paths fixed:
-                            d.bullish_prep_count / d.bearish_prep_count are the
-                            live shape from indicators.js; the snapshot variant
-                            d.bull_prep / d.bear_prep is the fallback.
-                          Also dropped 10m row (per user — 15m is the leading
-                          LTF, not 10m), and labeled raw 60/240 keys as 1H/4H
-                          for readability. TD13 / TD9 hits surface as chips.
+                      {/* TD Sequential — TradingView-parity display.
+                          2026-05-20 — Rewritten to match the popular TV
+                          TD Sequential indicators (Bjorgum / glaz / etc.).
+                          We now read the new EMA-21-regime-filtered fields
+                          from the worker:
+                            d.tv_count        — single active count (0..13)
+                            d.tv_count_side   — "bull" (count is in a bull
+                                                regime, price > 21 EMA) or
+                                                "bear" (price < 21 EMA)
+                            d.regime          — "bull"|"bear"|"neutral"
+                            d.tv_setup_complete — count >= 9 on latest bar
+                          The count resets to 0 every time price crosses the
+                          21 EMA so what you see here matches what you'd see
+                          on a TradingView chart with a TD-on-EMA-filter
+                          script. Falls back to the legacy bull/bear pair
+                          for tickers whose worker payload predates the new
+                          fields (so nothing breaks during the rollout).
                           */}
                       {ticker?.td_sequential && (() => {
                         const perTf = ticker.td_sequential.per_tf || {};
@@ -5567,48 +5576,75 @@
                         ];
                         const rows = TF_DISPLAY.map(([key, label]) => {
                           const d = perTf[key] || {};
-                          const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
-                          const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+                          const hasTvFields = d.tv_count != null || d.regime != null;
+                          let count, side, regime;
+                          if (hasTvFields) {
+                            count = Number(d.tv_count) || 0;
+                            side = d.tv_count_side || null;
+                            regime = d.regime || "neutral";
+                          } else {
+                            const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
+                            const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+                            if (bull >= bear) { count = bull; side = bull > 0 ? "bear" : null; }
+                            else              { count = bear; side = "bull"; }
+                            regime = side || "neutral";
+                          }
                           const td9b = !!d.td9_bullish, td9s = !!d.td9_bearish;
                           const td13b = !!d.td13_bullish, td13s = !!d.td13_bearish;
-                          return { key, label, bull, bear, td9b, td9s, td13b, td13s };
+                          return { key, label, count, side, regime, td9b, td9s, td13b, td13s, ema21: d.ema21 ?? null };
                         });
-                        // Insight: highest active count
                         const peak = rows.reduce((p, r) => {
-                          const m = Math.max(r.bull, r.bear);
-                          if (m > p.m) return { m, side: r.bull >= r.bear ? "bull" : "bear", tf: r.label };
+                          if (r.count > p.m) return { m: r.count, side: r.side, tf: r.label };
                           return p;
                         }, { m: 0, side: null, tf: null });
+                        const peakSideLabel = peak.side === "bull"
+                          ? "bull-trend exhaustion (above 21 EMA)"
+                          : peak.side === "bear"
+                            ? "bear-trend exhaustion (below 21 EMA)"
+                            : "";
                         const insight = peak.m === 0
-                          ? "No active TD count yet — fresh trend."
+                          ? "No active TD count — price hasn't held one side of the 21 EMA long enough."
                           : peak.m >= 9
-                            ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.`
+                            ? `TD${peak.m} ${peakSideLabel} on ${peak.tf} — reversal watch.`
                             : peak.m >= 7
-                              ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).`
-                              : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
+                              ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side || "trend"}).`
+                              : `TD${peak.m} on ${peak.tf} (${peak.side || "trend"}-trend count).`;
                         return (
                           <Panel title="TD Sequential" action={peak.m >= 7 && (
-                            <span className={`ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                            <span className={`ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : peak.side === "bull" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                               TD{peak.m} {peak.tf}
                             </span>
                           )}>
                             <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "0 0 var(--ds-space-2) 0", lineHeight: 1.5 }}>{insight}</p>
+                            <p style={{ fontSize: "10px", color: "var(--ds-text-muted)", margin: "0 0 var(--ds-space-2) 0", lineHeight: 1.4, opacity: 0.7 }}>
+                              Counts run with the trend: <span style={{ color: "var(--ds-up)" }}>bull</span> above 21 EMA, <span style={{ color: "var(--ds-dn)" }}>bear</span> below. Resets on EMA cross.
+                            </p>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-1)" }}>
-                              {rows.map(r => (
-                                <div key={`td-${r.key}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", fontSize: "var(--ds-fs-meta)", fontFamily: "var(--tt-font-mono)" }}>
-                                  <span style={{ color: "var(--ds-text-muted)" }}>{r.label}</span>
-                                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    {(r.td13b || r.td13s) && (
-                                      <span className={`ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>13</span>
-                                    )}
-                                    {(r.td9b || r.td9s) && !(r.td13b || r.td13s) && (
-                                      <span className={`ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>9</span>
-                                    )}
-                                    <span style={{ color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)" }}>↑{r.bull}</span>
-                                    <span style={{ color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)" }}>↓{r.bear}</span>
-                                  </span>
-                                </div>
-                              ))}
+                              {rows.map(r => {
+                                const isBull = r.side === "bull";
+                                const isBear = r.side === "bear";
+                                const colorAccent = r.count >= 9 ? "var(--ds-accent)" : isBull ? "var(--ds-up)" : isBear ? "var(--ds-dn)" : "var(--ds-text-muted)";
+                                const arrow = isBull ? "↑" : isBear ? "↓" : "·";
+                                const regimeBadge = r.regime === "bull" ? "▲" : r.regime === "bear" ? "▼" : "·";
+                                const regimeColor = r.regime === "bull" ? "var(--ds-up)" : r.regime === "bear" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+                                return (
+                                  <div key={`td-${r.key}`} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 10px", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", fontSize: "var(--ds-fs-meta)", fontFamily: "var(--tt-font-mono)" }}>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span style={{ color: "var(--ds-text-muted)" }}>{r.label}</span>
+                                      <span title={`21 EMA regime: ${r.regime}`} style={{ color: regimeColor, fontSize: 9, opacity: 0.8 }}>{regimeBadge}</span>
+                                    </span>
+                                    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                      {(r.td13b || r.td13s) && (
+                                        <span className={`ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>13</span>
+                                      )}
+                                      {(r.td9b || r.td9s) && !(r.td13b || r.td13s) && (
+                                        <span className={`ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`} style={{ padding: "0 4px", fontSize: 9 }}>9</span>
+                                      )}
+                                      <span style={{ color: colorAccent, fontWeight: r.count >= 7 ? 600 : 400 }}>{arrow}{r.count}</span>
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </Panel>
                         );

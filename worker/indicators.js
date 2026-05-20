@@ -5149,6 +5149,33 @@ function isRTHNow() {
  *     Opposite prep completion resets the lead-up counter.
  *     Phase completes at count == 13 → td13 signal
  *
+ * 2026-05-20 — TV-PARITY DISPLAY FIELDS:
+ *   Most popular TradingView TD Sequential indicators (Bjorgum, glaz, etc.)
+ *   filter the count by trend regime so the number you see on the chart is
+ *   always the count for the *prevailing* trend. We mirror that with a
+ *   21-EMA filter and expose new display-only fields:
+ *
+ *     ema21              — latest 21 EMA value
+ *     regime             — "bull" (close > EMA21) | "bear" (close < EMA21) | "neutral"
+ *     tv_count           — the regime-active count (0..13, single number)
+ *     tv_count_side      — "bull" (count is running above the 21 EMA, i.e. bull-trend
+ *                          continuation count, DeMark "sell setup" semantics)
+ *                       OR "bear" (count is running below the 21 EMA, DeMark
+ *                          "buy setup" semantics)
+ *     tv_setup_complete  — true when tv_count >= 9 on the latest bar
+ *
+ *   Counter clear-on-regime-flip: every time price crosses the 21 EMA, BOTH
+ *   DeMark prep counters are reset to 0 (the trend changed → the old count
+ *   is no longer relevant). Within a regime only the trend-appropriate
+ *   counter is allowed to increment:
+ *     bull regime (close > EMA21) → only bearish_prep (close > close[4]) runs
+ *     bear regime (close < EMA21) → only bullish_prep (close < close[4]) runs
+ *
+ *   The original DeMark fields (bullish_prep_count, bearish_prep_count,
+ *   td9_bullish, td9_bearish, td13_*, exit_*, boost) are UNCHANGED — they
+ *   power scoring, entry gates, and exit gates downstream. The TV-parity
+ *   fields are display-only.
+ *
  * @param {Array<{o:number, h:number, l:number, c:number, ts?:number}>} candles
  *   Sorted ascending by time (oldest first). Must have at least prepComp + 1 bars.
  * @param {string} tf - Timeframe label ("D", "W", "M")
@@ -5161,6 +5188,7 @@ export function computeTDSequential(candles, tf, opts = {}) {
   const PREP_COMP = 4;
   const LEADUP_LEN = 13;
   const LEADUP_COMP = 2;
+  const EMA_PERIOD = 21;
 
   const result = {
     tf: tf || "D",
@@ -5176,9 +5204,21 @@ export function computeTDSequential(candles, tf, opts = {}) {
     bearish_prep_count: 0,
     bullish_leadup_count: 0,
     bearish_leadup_count: 0,
+    // ── TV-parity display fields (2026-05-20) ──
+    ema21: null,
+    regime: "neutral",
+    tv_count: 0,
+    tv_count_side: null,
+    tv_setup_complete: false,
   };
 
   if (!candles || candles.length < PREP_COMP + PREP_LEN) return result;
+
+  // Pre-compute 21 EMA series for the regime filter. If we don't have
+  // enough bars for a 21 EMA, the filtered counters skip the filter (fall
+  // back to pure DeMark) so that short-history TFs still show *something*.
+  const closes = candles.map((b) => Number(b.c));
+  const emaArr = closes.length >= EMA_PERIOD ? emaSeries(closes, EMA_PERIOD) : null;
 
   // Walk through all candles to build state (stateful counters, just like Pine)
   let bullPrepCount = 0;
@@ -5186,13 +5226,51 @@ export function computeTDSequential(candles, tf, opts = {}) {
   let bullLeadupCount = 0;
   let bearLeadupCount = 0;
 
+  // TV-parity counters (EMA-filtered, regime-aware).
+  let tvBullCount = 0; // counts during bull regime (close > EMA21, close > close[4])
+  let tvBearCount = 0; // counts during bear regime (close < EMA21, close < close[4])
+  let prevRegime = null; // "bull" | "bear" | null
+
   for (let i = PREP_COMP; i < candles.length; i++) {
     const c = candles[i].c;
     const cComp = candles[i - PREP_COMP].c; // close[4]
 
-    // ── Preparation Phase ──
+    // ── Preparation Phase (pure DeMark — scoring depends on this) ──
     bullPrepCount = c < cComp ? bullPrepCount + 1 : 0;
     bearPrepCount = c > cComp ? bearPrepCount + 1 : 0;
+
+    // ── TV-parity counters (EMA-filtered) ──
+    if (emaArr) {
+      const e = emaArr[i];
+      const regime = !Number.isFinite(e)
+        ? null
+        : c > e ? "bull"
+        : c < e ? "bear"
+        : prevRegime; // exact touch — inherit prior regime
+
+      // Regime flip → clear BOTH TV counters (the old trend's count is
+      // no longer meaningful once price has crossed the 21 EMA).
+      if (regime && prevRegime && regime !== prevRegime) {
+        tvBullCount = 0;
+        tvBearCount = 0;
+      }
+
+      if (regime === "bull") {
+        // Bull regime → only bull-trend (continuation) count runs.
+        // Per user spec: "bull count is above the 21 EMA". In DeMark
+        // terms this is the bear/sell-setup count (close > close[4]).
+        tvBullCount = c > cComp ? tvBullCount + 1 : 0;
+        tvBearCount = 0;
+      } else if (regime === "bear") {
+        // Bear regime → only bear-trend count runs.
+        // Per user spec: "bear count is below the 21 EMA". In DeMark
+        // terms this is the bull/buy-setup count (close < close[4]).
+        tvBearCount = c < cComp ? tvBearCount + 1 : 0;
+        tvBullCount = 0;
+      } // neutral (insufficient EMA) → don't change counts
+
+      prevRegime = regime || prevRegime;
+    }
 
     const bullPrepComplete = bullPrepCount === PREP_LEN;
     const bearPrepComplete = bearPrepCount === PREP_LEN;
@@ -5230,6 +5308,29 @@ export function computeTDSequential(candles, tf, opts = {}) {
   result.bearish_prep_count = bearPrepCount;
   result.bullish_leadup_count = bullLeadupCount;
   result.bearish_leadup_count = bearLeadupCount;
+
+  // ── TV-parity display state from the last bar ──
+  if (emaArr) {
+    const lastE = emaArr[emaArr.length - 1];
+    const lastC = closes[closes.length - 1];
+    result.ema21 = Number.isFinite(lastE) ? +lastE.toFixed(4) : null;
+    result.regime = !Number.isFinite(lastE)
+      ? "neutral"
+      : lastC > lastE ? "bull"
+      : lastC < lastE ? "bear"
+      : "neutral";
+    if (result.regime === "bull") {
+      result.tv_count = tvBullCount;
+      result.tv_count_side = tvBullCount > 0 ? "bull" : null;
+    } else if (result.regime === "bear") {
+      result.tv_count = tvBearCount;
+      result.tv_count_side = tvBearCount > 0 ? "bear" : null;
+    } else {
+      result.tv_count = 0;
+      result.tv_count_side = null;
+    }
+    result.tv_setup_complete = result.tv_count >= PREP_LEN;
+  }
 
   // TD9: prep phase just completed (count == 9 on latest bar)
   result.td9_bullish = bullPrepCount === PREP_LEN;
@@ -5286,7 +5387,11 @@ export function computeTDSequential(candles, tf, opts = {}) {
  * @returns {object} merged td_sequential object with per_tf breakdown for all TFs
  */
 export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
-  const allTfs = ["10", "30", "60", "240", "D", "W", "M"];
+  // 2026-05-20 — Added "15" so the RR Technicals 15m row populates.
+  // The cron-side fetch already includes "15" (TD_SEQ_TFS), but the
+  // multi-TF aggregator was filtering it out → per_tf["15"] was never
+  // set → UI showed "↑0 ↓0" on the 15m row.
+  const allTfs = ["10", "15", "30", "60", "240", "D", "W", "M"];
   const results = {};
   const perTf = {};
 
