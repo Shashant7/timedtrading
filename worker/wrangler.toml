@@ -120,12 +120,28 @@ crons = [
   "30 * * * *",     # Half-hour: calibration run when requested (queued from POST /timed/calibration/run)
 ]
 
+# P1 HOTFIX 2026-05-20 (part 19): the */5 scoring cron has been hitting
+# "Exceeded CPU Limit" — observed on 2026-05-19 23:15:05 UTC. Workers
+# default to 30s CPU; paid tier supports up to 5 min (300_000 ms).
+# This bump gives the scoring + kanban + reconcile path breathing room
+# while we work on optimization (move heavy work to ctx.waitUntil,
+# batched D1 queries, scoring waves prioritized by open positions).
+# A more thoughtful optimization PR follows.
+#
+# Note: [env.production.limits] is set further down; this top-level
+# block covers `wrangler dev` and the no-env deploy target.
+[limits]
+cpu_ms = 300000
+
 [env.production]
 name = "timed-trading-ingest"
 main = "index.js"
 # Note: workers.dev subdomains don't need route configuration
 # Routes are only needed for custom domains
 # The worker is automatically available at: timed-trading-ingest.shashant.workers.dev
+
+[env.production.limits]
+cpu_ms = 300000
 
 # KV Namespace binding for production
 # IMPORTANT: Configure bindings in wrangler.toml to persist across deployments
