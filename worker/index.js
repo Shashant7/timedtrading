@@ -75289,13 +75289,84 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       );
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 24/7 POSITION RECONCILE — runs regardless of operating hours.
+    //
+    // P0 HOTFIX 2026-05-19 (part 16): the existing POSITION RECONCILE block
+    // (line ~76420) lives INSIDE the scoring-cron try/catch and is gated on
+    // the `isWithinOperatingHours()` check below. That check returns early
+    // outside 4 AM - 8 PM ET weekdays, skipping kanban + reconcile entirely.
+    // Net effect: open positions get ZERO management outside operating hours.
+    // SL/TP hits during after-hours / overnight / weekend just sit until
+    // Monday 4 AM ET. This is exactly why IWM/DE/DIA/MLI stayed past SL all
+    // night even after PRs #223-#229 fixed the TDZ crash — the scoring cron
+    // skip prevented any processTradeSimulation call.
+    //
+    // Fix: run a lightweight POSITION RECONCILE pass BEFORE the scoring gate.
+    // Iterates D1 OPEN positions, fetches latest tickerData from KV (or D1
+    // fallback), and calls processTradeSimulation. processTradeSimulation
+    // is idempotent — if scoring already touched this ticker in-hours it's
+    // a no-op; if not, the SL safety net + management logic fires.
+    //
+    // Defensive: gated on !_cronMute (in case admin paused the live cron)
+    // and on KV.get of the replay lock (so backtest replays don't race).
+    // We re-read these here rather than wait until line 76217 because we
+    // run BEFORE the scoring block.
+    try {
+      const _oohReplayLock = await KV.get("timed:replay:lock");
+      const _oohCronMute = await KV.get("phase-c:cron-mute");
+      if (!_oohReplayLock && !_oohCronMute && env?.DB) {
+        const _oohPositions = await env.DB.prepare(
+          `SELECT ticker, position_id FROM positions WHERE status = 'OPEN'`
+        ).all().catch(() => ({ results: [] }));
+        const _oohOpen = _oohPositions?.results || [];
+        if (_oohOpen.length > 0) {
+          const _oohIsOOH = !isWithinOperatingHours();
+          if (_oohIsOOH) {
+            console.log(`[OOH POSITION RECONCILE] ${_oohOpen.length} open positions — running outside operating hours`);
+          }
+          let _oohReconciled = 0;
+          let _oohErrors = 0;
+          for (const _oohPos of _oohOpen) {
+            const _oohSym = String(_oohPos.ticker || "").toUpperCase();
+            if (!_oohSym) continue;
+            try {
+              let _oohLatest = await kvGetJSON(KV, `timed:latest:${_oohSym}`);
+              if (!_oohLatest) {
+                const _oohD1Row = await env.DB.prepare(
+                  `SELECT payload_json FROM ticker_latest WHERE ticker = ?1`
+                ).bind(_oohSym).first().catch(() => null);
+                if (_oohD1Row?.payload_json) {
+                  _oohLatest = typeof _oohD1Row.payload_json === "string"
+                    ? JSON.parse(_oohD1Row.payload_json)
+                    : _oohD1Row.payload_json;
+                }
+              }
+              if (_oohLatest) {
+                await processTradeSimulation(KV, _oohSym, _oohLatest, null, env);
+                _oohReconciled++;
+              }
+            } catch (_oohErr) {
+              _oohErrors++;
+              console.error(`[OOH POSITION RECONCILE] ${_oohSym} processTradeSimulation failed:`, _oohErr);
+            }
+          }
+          if (_oohIsOOH && (_oohReconciled > 0 || _oohErrors > 0)) {
+            console.log(`[OOH POSITION RECONCILE] Done: ${_oohReconciled} processed, ${_oohErrors} errors`);
+          }
+        }
+      }
+    } catch (_oohTopErr) {
+      console.error("[OOH POSITION RECONCILE] top-level error:", _oohTopErr);
+    }
+
     if (env.ALPACA_ENABLED === "true" || _usesTwelveData(env)) {
       try {
         // ── COST GATE: Skip scoring entirely outside operating hours ──
         // Operating hours: 4 AM - 8 PM ET weekdays. This eliminates ~50% of all
         // D1 reads and KV writes from off-hours scoring (weekends, overnight).
         if (!isWithinOperatingHours()) {
-          console.log(`[SCORING CRON] Skipping — outside operating hours (4 AM - 8 PM ET weekdays)`);
+          console.log(`[SCORING CRON] Skipping — outside operating hours (4 AM - 8 PM ET weekdays). OOH reconcile already ran above for open positions.`);
           return;
         }
 
