@@ -301,10 +301,42 @@
       console.log("[ACTIVITY-STRIP] mounted into explicit [data-tt-activity-strip] container");
     }
     refresh(host);
+
+    // Bug 2026-05-20 (PR after #238): on initial page load the first
+    // refresh fires at defer-script time — BEFORE auth-gate's
+    // /timed/me fetch resolves and populates window._ttIsAdmin. So the
+    // first refresh hits the public /timed/activity endpoint (which is
+    // usually empty) and renders the empty state. The user then has to
+    // wait 60s for the next setInterval tick to hit the admin endpoint.
+    //
+    // auth-gate.js dispatches `tt-auth-bootstrap-updated` AFTER setting
+    // body.dataset.isAdmin + window._ttIsAdmin. Listen for that event
+    // and re-fetch immediately. Subsequent setInterval ticks pick up
+    // the admin endpoint on their own.
+    try {
+      const _onAuthBootstrap = (ev) => {
+        const justWentAdmin = !!ev?.detail?.isAdmin;
+        console.log(`[ACTIVITY-STRIP] auth bootstrap event received (isAdmin=${justWentAdmin}) — refetching`);
+        refresh(host);
+      };
+      window.addEventListener("tt-auth-bootstrap-updated", _onAuthBootstrap);
+    } catch (_) { /* event wiring is best-effort */ }
+
     setInterval(() => {
       if (document.visibilityState === "hidden") return;
       refresh(host);
     }, 60 * 1000);
+
+    // Also re-fetch when the page becomes visible after being hidden
+    // (e.g. tab-switching). The strip should reflect what happened
+    // while the user was away.
+    try {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          refresh(host);
+        }
+      });
+    } catch (_) { /* visibilitychange is best-effort */ }
     return host;
   }
 
