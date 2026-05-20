@@ -74543,30 +74543,47 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.log(`[BAR CRON] Skipping intraday REST bar fetch — ${useTD ? "PriceStream" : "AlpacaStream"} is active (will still run aggregated D/W/M at top of hour)`);
         } else if (useTD) {
           // ── TwelveData REST bar fetch ──
-          try {
-            const SYMBOL_BLOCKLIST = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","BTCUSD","ETHUSD","US500","VX1!"]);
-            const userAdded = await d1GetActiveUserTickersCached(env);
-            const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
-              .filter(t => !SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
-            const result = await DataProvider.cronFetchLatest(env, allTickers);
-            if (result) {
-              console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
-              // P0.7.156 — record success at top-of-hour (when D/W/M are
-              // refreshed). Resets the failure tombstone counter so the
-              // operator can see the cron is healthy.
-              if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
-            }
-          } catch (err) {
-            console.error("[TD CRON] Error:", err);
-            // P0.7.156 — record failure so silent stale-data regressions
-            // (like the April 17 → May 14 incident) get an alert within
-            // the hour rather than 4 weeks later.
-            recordCronFailure(env, {
-              op: "bar_cron_td",
-              error: String(err?.message || err),
-              caller: "scheduled_event",
-            }).catch(() => {});
-          }
+          //
+          // P1 PERF 2026-05-20 (PR4): defer the bar fetch to ctx.waitUntil.
+          // At top-of-hour this upserts ~5905 bars in one shot (D/W/M
+          // aggregations across the full universe) — historically the
+          // single biggest CPU/I/O spike in the */5 tick. Stream-down
+          // intraday refetch (less common) is also heavy.
+          //
+          // Why this is safe to defer:
+          //   - Scoring reads D1 candles, not REST. The candles it sees
+          //     will be from the PREVIOUS top-of-hour refresh (worst
+          //     case 60 min stale for D/W/M aggregations, which don't
+          //     move meaningfully in 60 min).
+          //   - The freshly-fetched bars land in D1 via waitUntil shortly
+          //     after the cron response, ready for the NEXT */5 tick.
+          //   - Trade execution / SL safety uses tickerData.price from
+          //     KV (live price feed), not REST bars.
+          //
+          // Error / success tracking still works (recordCronFailure /
+          // recordCronSuccess) — those records are observability and
+          // don't need to block the cron either.
+          const SYMBOL_BLOCKLIST = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","BTCUSD","ETHUSD","US500","VX1!"]);
+          const userAdded = await d1GetActiveUserTickersCached(env);
+          const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
+            .filter(t => !SYMBOL_BLOCKLIST.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+          ctx.waitUntil(
+            DataProvider.cronFetchLatest(env, allTickers)
+              .then(result => {
+                if (result) {
+                  console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
+                  if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
+                }
+              })
+              .catch(err => {
+                console.error("[TD CRON] Error:", err);
+                recordCronFailure(env, {
+                  op: "bar_cron_td",
+                  error: String(err?.message || err),
+                  caller: "scheduled_event",
+                }).catch(() => {});
+              })
+          );
           // ── TwelveData crypto bars ──
           // P1 PERF 2026-05-20: defer to ctx.waitUntil. The scoring path
           // at ~line 75371 also calls DataProvider.cronFetchCrypto in
@@ -76368,10 +76385,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             });
             console.log(`[SCORING] KV hot cache snapshot built: ${Object.keys(snapshot).length} tickers`);
 
-            // ── Batch-sync D1 ticker_latest for ALL tickers ──
+            // ── Batch-sync D1 ticker_latest for CHANGED tickers ──
             // Ensures the D1 fallback path never serves stale data.
             // Previously only user-added tickers were synced, causing flicker
             // when the KV snapshot expired and /timed/all fell back to D1.
+            //
+            // P1 PERF 2026-05-20 (PR4): throttle to CHANGED tickers only.
+            // The old version upserted all ~245 tickers in the snapshot
+            // every */5 tick, but most ticks only have ~30-80 tickers
+            // whose score/stage/price actually changed since the prior
+            // tick (`scoredUpdates` populated in the scoring loop ~75588).
+            // Tickers with no delta have the same payload in D1 already.
+            //
+            // Safety net: always include open-position tickers in the
+            // sync, even if they didn't appear in scoredUpdates this
+            // tick — they're the highest-priority tickers for /timed/all
+            // freshness and the cost is trivial (~13 extra rows).
+            //
+            // Result: ~245 → ~30-80 D1 upserts per tick. The OPEN
+            // positions still get fresh D1 every tick; everything else
+            // syncs only when something actually changed.
             try {
               await d1EnsureLatestSchema(env);
               // V15 P0.7.180 — Bumped D1_MAX from 50000 → 200000 and
@@ -76382,7 +76415,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // d1UpsertTickerLatest cascade.
               const D1_MAX = 200000;
               const _d1Now = Date.now();
-              const _d1Entries = Object.entries(snapshot);
+              // Build the set of tickers to sync: changed (from scoring)
+              // + open positions (always fresh in D1 for /timed/all).
+              const _d1SyncSet = new Set(Object.keys(scoredUpdates || {}));
+              if (Array.isArray(_cachedAllTradesForTick)) {
+                for (const _t of _cachedAllTradesForTick) {
+                  const _tk = String(_t?.ticker || "").toUpperCase();
+                  if (!_tk) continue;
+                  const _ts = String(_t?.status || "").toUpperCase();
+                  if (_ts === "OPEN" || _ts === "TP_HIT_TRIM") {
+                    _d1SyncSet.add(_tk);
+                  }
+                }
+              }
+              const _d1Entries = Object.entries(snapshot)
+                .filter(([_sym]) => _d1SyncSet.has(_sym));
+              const _d1TotalUniverse = Object.keys(snapshot).length;
+              const _d1SkippedUnchanged = _d1TotalUniverse - _d1Entries.length;
               const _D1_CHUNK = 40;
               let _d1Synced = 0;
               for (let _ci = 0; _ci < _d1Entries.length; _ci += _D1_CHUNK) {
@@ -76423,7 +76472,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   _d1Synced += _stmts.length;
                 }
               }
-              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} tickers`);
+              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} tickers (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`);
             } catch (_d1Err) {
               console.warn("[SCORING] D1 batch sync failed:", String(_d1Err?.message || _d1Err).slice(0, 200));
             }
