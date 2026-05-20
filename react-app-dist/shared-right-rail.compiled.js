@@ -2390,7 +2390,8 @@
         ema48: false,
         ema200: false,
         supertrend: false,
-        tdSequential: false
+        tdSequential: false,
+        levels: false
       });
       const [chartExpanded, setChartExpanded] = useState(false);
       const [modalTf, setModalTf] = useState("30");

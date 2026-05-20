@@ -1952,8 +1952,19 @@
         const modelSignalCacheRef = useRef({ data: null, ts: 0 });
         /* V2.1 round 11 (2026-05-04) — All overlays OFF by default per user.
            User wants "default to 30m timeframe with indicators OFF" so the
-           chart shows clean candles first; toggles enable any with one click. */
-        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false });
+           chart shows clean candles first; toggles enable any with one click.
+
+           2026-05-20 (user feedback) — Also default `levels: false` so
+           the chart doesn't auto-render pivot R1/R2/S1, Swing R/S, ATR
+           bands, Prev Close, etc. on top of the SL / TP plan lines.
+           That overlay set was useful for traders studying structure but
+           cluttered the default view when the user just wants to see
+           where the model's stop and targets sit. Setup tab still shows
+           the full reference-levels ladder textually for those who want
+           it. The chart now renders ONLY: SL, TP1, TP2, TP3, Entry
+           (when active trade) — same direction-aware set the trade plan
+           card uses. */
+        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false, levels: false });
 
         // V15 P0.7.148 (2026-05-13) — memoized rail chart element.
         // The persistent chart at the top of the rail used to re-render
