@@ -35531,28 +35531,48 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
   const totalQty = Number(pos.total_qty) || 0;
   const costBasis = Number(pos.cost_basis) || 0;
   const created = Number(pos.created_at) || 0;
-  const vwap = totalQty > 0 ? costBasis / totalQty : 0;
   const realizedPnl = history.reduce((sum, ev) => sum + (Number(ev.pnl_realized) || 0), 0);
-  let trimmedPct = 0;
   const trimEvents = history.filter((e) => String(e.type || "").toUpperCase() === "TRIM");
-  if (trimEvents.length && totalQty > 0) {
-    const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
-    // P0 HOTFIX 2026-05-19 (part 5): `totalQty` here is `pos.total_qty`
-    // which is the REMAINING quantity in the positions table, NOT the
-    // original quantity. Dividing trimmedQty by remaining produces
-    // trimmedPct = 1.0 for ANY 50%-trimmed trade (currentQty=50,
-    // trimmedQty=50 → 50/50 = 1.0). This silently corrupts trimmedPct
-    // for every multi-trim position and triggers the ZOMBIE FIX block
-    // in processTradeSimulation (~line 16055) which hits a TDZ
-    // ReferenceError on `pxNow` and crashes the entire trade-sim run
-    // for that ticker. End result: every cron tick was erroring out
-    // for IWM/DE/DIA/MLI (the 4 trades past SL), so the SL safety net
-    // never executed and the trades just sat there past SL.
-    //
-    // Correct formula: originalQty = currentQty + trimmedQty.
-    const originalQty = totalQty + trimmedQty;
-    trimmedPct = Math.min(1, trimmedQty / originalQty);
-  }
+  const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
+  // P0 HOTFIX 2026-05-19 (part 5): `totalQty` here is `pos.total_qty`
+  // which is the REMAINING quantity in the positions table, NOT the
+  // original quantity. Dividing trimmedQty by remaining produces
+  // trimmedPct = 1.0 for ANY 50%-trimmed trade (currentQty=50,
+  // trimmedQty=50 → 50/50 = 1.0). This silently corrupts trimmedPct
+  // for every multi-trim position and triggers the ZOMBIE FIX block
+  // in processTradeSimulation (~line 16055) which hits a TDZ
+  // ReferenceError on `pxNow` and crashes the entire trade-sim run
+  // for that ticker. End result: every cron tick was erroring out
+  // for IWM/DE/DIA/MLI (the 4 trades past SL), so the SL safety net
+  // never executed and the trades just sat there past SL.
+  //
+  // Correct formula: originalQty = currentQty + trimmedQty.
+  //
+  // P0 HOTFIX 2026-05-19 (part 8 — share double-discount): the returned
+  // object below used `shares: totalQty` (the REMAINING qty). But every
+  // consumer of `trade.shares` in the codebase treats it as the ORIGINAL
+  // qty and multiplies by `(1 - trimmedPct)` to get remaining:
+  //   - closeTradeAtPrice (line ~16606): remainingShares = shares * (1-trim)
+  //   - trimTradeToPct (line ~16982):    new qty = shares * (1 - tgt)
+  //   - smart-runner    (line ~19051):   _hlcRemainingPct * _hlcShares
+  //   - adapter close   (line ~17213):   total_qty = shares * (1 - tgt)
+  // With shares = remaining and trimmedPct = original/2, the math
+  // double-discounts: a 50%-trimmed position with 50 shares remaining
+  // gets remainingShares = 50 * (1 - 0.5) = 25, so the close action
+  // only sells 25 shares instead of 50, but the adapter resets
+  // total_qty = 0 (full close). PnL is undercounted, execution_actions
+  // qty is wrong, ledger reconciliation breaks.
+  //
+  // Fix: align with `d1LoadTradesForSimulation` (line ~35772-35773) which
+  // already computes original = posQty / (1 - trimmedPct). Here we have
+  // the exact trim history so we can compute originalQty directly.
+  const originalQty = totalQty + trimmedQty;
+  const trimmedPct = (trimEvents.length && originalQty > 0)
+    ? Math.min(1, trimmedQty / originalQty)
+    : 0;
+  // VWAP is based on remaining shares vs cost_basis of remaining (D1
+  // positions.cost_basis is decremented on trim, so the ratio is correct).
+  const vwap = totalQty > 0 ? costBasis / totalQty : 0;
   return {
     id: pos.position_id,
     trade_id: pos.position_id,
@@ -35564,7 +35584,11 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
     entry_ts: created,
     entryTime: created ? new Date(created).toISOString() : undefined,
     entryTs: created,
-    shares: totalQty,
+    // P0 part 8: convention across the codebase is shares = ORIGINAL qty
+    // (entry size), and consumers multiply by (1 - trimmedPct) to get
+    // remaining. See worker/index.js ~16606, ~16982, ~17213, ~19051.
+    // Returning remaining qty here double-discounted on every consumer.
+    shares: originalQty || totalQty,
     history,
     realizedPnl,
     trimmedPct,
