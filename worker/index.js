@@ -19827,14 +19827,23 @@ async function processTradeSimulation(
     // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
     // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
     const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    // P1 HOTFIX 2026-05-19 (part 8): hard SL exits must bypass the 15-min
+    // minimum-age gate. Stops hit in the first 15 minutes were silently
+    // held until the gate opened, then routed through CIO. SL is a hard
+    // ceiling; minimum-age is a "no rapid enter→exit churn from soft
+    // signal noise" guard which doesn't apply to actual SL breaches.
+    // Also exempt v13_hard_* / max_loss / HARD_LOSS_CAP — these are the
+    // same hard-exit class flagged elsewhere by the `_exitIsHard` regex.
+    const _exitIsHardClass = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+    const _exitMinAgeOkForGate = exitMinAgeOk || _exitIsHardClass;
     // P0 HOTFIX 2026-05-19 (part 4 — diagnostics): if isSLExit is true,
     // trace every gate value so we can see why the close skips. Gated on
     // SL-class exit only to keep logs surgical.
     if (!isReplay && isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
       const _gateTrim = clamp(Number(openTrade.trimmedPct || 0), 0, 1);
-      console.log(`[SL_GATE_TRACE] ${sym} exitReasonRaw=${exitReasonRaw} gateAllowsLive=${_exitGateAllowsLive ? 1 : 0} liveMgrOk=${_liveManageGateOk ? 1 : 0} isExit=${isExit ? 1 : 0} sameInterval=${_sameIntervalAsTrade ? 1 : 0} weekend=${weekendNow ? 1 : 0} outsideRTH=${outsideRTH ? 1 : 0} exitAllowedRTH=${exitAllowedOutsideRTH ? 1 : 0} cooldownOk=${exitCooldownOk ? 1 : 0} minAgeOk=${exitMinAgeOk ? 1 : 0} fuseFired=${fuseExitFired ? 1 : 0} pullbackShield=${_exitPullbackShield ? 1 : 0} paritySkip=${_paritySkipSl ? 1 : 0} trim=${_gateTrim} status=${openTrade.status} flatPx=${flatPriceExit ? 1 : 0}`);
+      console.log(`[SL_GATE_TRACE] ${sym} exitReasonRaw=${exitReasonRaw} gateAllowsLive=${_exitGateAllowsLive ? 1 : 0} liveMgrOk=${_liveManageGateOk ? 1 : 0} isExit=${isExit ? 1 : 0} sameInterval=${_sameIntervalAsTrade ? 1 : 0} weekend=${weekendNow ? 1 : 0} outsideRTH=${outsideRTH ? 1 : 0} exitAllowedRTH=${exitAllowedOutsideRTH ? 1 : 0} cooldownOk=${exitCooldownOk ? 1 : 0} minAgeOk=${exitMinAgeOk ? 1 : 0} minAgeOkForGate=${_exitMinAgeOkForGate ? 1 : 0} hardClass=${_exitIsHardClass ? 1 : 0} fuseFired=${fuseExitFired ? 1 : 0} pullbackShield=${_exitPullbackShield ? 1 : 0} paritySkip=${_paritySkipSl ? 1 : 0} trim=${_gateTrim} status=${openTrade.status} flatPx=${flatPriceExit ? 1 : 0}`);
     }
-    if (_exitGateAllowsLive && isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && exitMinAgeOk && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    if (_exitGateAllowsLive && isExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && _exitMinAgeOkForGate && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -19968,7 +19977,10 @@ async function processTradeSimulation(
         const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
         d1QueueAction(env, { ticker: sym, action: "exit", direction: openTrade.direction, session, snapshot: { price: pxNow, exit_reason: exitReasonRaw }, reason: weekendNow ? "weekend" : "outside_RTH" });
       }
-    } else if (isExit && openTrade && !exitMinAgeOk && !fuseExitFired) {
+    } else if (isExit && openTrade && !exitMinAgeOk && !_exitIsHardClass && !fuseExitFired) {
+      // P1 part 8: hard exits bypass the minimum-age gate above. Only log
+      // soft-signal exits as "blocked by minAge" — hard exits never block
+      // here so a log entry would be misleading.
       const ageMin = Number.isFinite(entryMsNorm) ? Math.round((now - entryMsNorm) / 60000) : 0;
       console.log(
         `[TRADE SIM] ${sym} exit blocked: position only ${ageMin}m old (min ${MIN_MINUTES_SINCE_ENTRY_BEFORE_EXIT}m)`
@@ -35186,8 +35198,14 @@ async function d1GetOpenPosition(env, ticker, direction) {
   const db = env?.DB;
   if (!db || !ticker) return null;
   try {
+    // P1 HOTFIX 2026-05-19 (part 9): include stop_loss + take_profit in the
+    // SELECT so the openTrade object built by getOpenPositionAsTrade can
+    // expose `sl`/`tp`. Without these fields, defend logic, smart-runner
+    // tighten, MFE-safety net, and trim-SL adjustments all read
+    // `openTrade.sl` as undefined → NaN comparisons → silently no-op.
     const row = await db.prepare(
-      `SELECT position_id, ticker, direction, status, total_qty, cost_basis, created_at, updated_at
+      `SELECT position_id, ticker, direction, status, total_qty, cost_basis,
+              stop_loss, take_profit, created_at, updated_at
        FROM positions WHERE ticker = ?1 AND direction = ?2 AND status = 'OPEN' LIMIT 1`
     ).bind(String(ticker).toUpperCase(), String(direction || "LONG").toUpperCase()).first();
     return row || null;
@@ -35684,6 +35702,14 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
     // remaining. See worker/index.js ~16606, ~16982, ~17213, ~19051.
     // Returning remaining qty here double-discounted on every consumer.
     shares: originalQty || totalQty,
+    // P1 HOTFIX 2026-05-19 (part 9): expose sl/tp from positions row so
+    // defend logic, smart-runner tighten, MFE-safety, trim-SL, and the
+    // */1 price-feed SL check can all read the authoritative stop. Falls
+    // back to undefined if the columns are null (legacy positions).
+    sl: pos.stop_loss != null ? Number(pos.stop_loss) : undefined,
+    stop_loss: pos.stop_loss != null ? Number(pos.stop_loss) : undefined,
+    tp: pos.take_profit != null ? Number(pos.take_profit) : undefined,
+    take_profit: pos.take_profit != null ? Number(pos.take_profit) : undefined,
     history,
     realizedPnl,
     trimmedPct,
