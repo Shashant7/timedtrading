@@ -464,15 +464,23 @@
         flex-direction: column;
         gap: 4px;
       }
+      /* FocusRail chip — redesigned 2026-05-20 (user feedback: rows
+         were cramped on mobile, with bias / metric / price / pct all
+         crammed into one tight horizontal cluster on the right side
+         of the chip). New layout: 3 logical zones using CSS grid.
+           col 1 (auto): bias indicator (L / S pill)
+           col 2 (1fr):  symbol + metric inline (left-aligned)
+           col 3 (auto): price + pct/ext stack (right-aligned)
+         The right zone now stacks PRICE on top and PCT (+ EXT below)
+         on the bottom, giving a clean 2-row right column instead of
+         a chaotic L-shape. On mobile the chip is more scannable —
+         eyes go: SYM → METRIC → PRICE → PCT. */
       .focus-chip {
         display: grid;
-        /* Bug 5 — added a 4th column for live price between metric and pct
-           (grid auto-collapses unused cells, so chips without price still
-           render correctly). */
-        grid-template-columns: 1fr auto auto auto;
+        grid-template-columns: auto 1fr auto;
         align-items: center;
-        gap: 8px;
-        padding: 6px 10px;
+        gap: 10px;
+        padding: 8px 12px;
         border-radius: 8px;
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
@@ -487,14 +495,25 @@
         background: var(--tt-bg-surface);
         border-color: var(--tt-border-hi);
       }
+      .focus-chip-main {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        min-width: 0;
+        flex-wrap: wrap;
+      }
       .focus-chip-sym {
         font-family: var(--tt-font);
         font-weight: 700;
+        font-size: 13px;
         color: var(--tt-text);
+        letter-spacing: 0.01em;
       }
       .focus-chip-metric {
         font-size: 10.5px;
         color: var(--tt-text-muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
       /* Bias indicator (L / S) — user request 2026-05-20. Renders a
          small letter chip next to the metric so every Actionable row
@@ -503,15 +522,15 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 14px;
-        height: 14px;
+        min-width: 16px;
+        height: 16px;
         padding: 0 4px;
         border-radius: 4px;
-        font-size: 9.5px;
+        font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.02em;
         font-family: var(--tt-font-mono, ui-monospace, monospace);
-        margin-right: 4px;
+        flex-shrink: 0;
       }
       .focus-chip-bias.long {
         background: rgba(52, 211, 153, 0.14);
@@ -528,46 +547,80 @@
         color: var(--tt-text-dim, #6b7280);
         border: 1px solid rgba(107, 114, 128, 0.20);
       }
-      /* Bug 5 — live $ price column on FOCUS chips (mirror of MoverRow
-         price column on TopMovers). */
-      .focus-chip-px {
-        font-size: 11px;
-        font-family: var(--tt-font-mono);
-        color: var(--tt-text-muted);
+      /* Right-zone container — vertical stack of price (top) and
+         pct + EXT badge (bottom). Right-aligned, tabular nums for
+         visual alignment across rows. */
+      .focus-chip-right {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 2px;
         font-variant-numeric: tabular-nums;
+        min-width: 0;
+      }
+      .focus-chip-px {
+        font-size: 12px;
+        font-family: var(--tt-font-mono);
+        font-weight: 600;
+        color: var(--tt-text);
+        line-height: 1.1;
+      }
+      .focus-chip-pct {
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.1;
       }
       .focus-chip-pct.up { color: var(--tt-up); }
       .focus-chip-pct.dn { color: var(--tt-dn); }
-      /* Pre-market / after-hours stacked badge on FOCUS chips. When market
-         is closed and the ticker has a meaningful EXT move, we stack RTH
-         (top) and EXT (smaller, below). Layout slot is the same grid cell
-         as the RTH pct so chip width / grid template don't change. */
+      /* Pre-market / after-hours badge — sits BELOW pct in the
+         right zone. Smaller / muted so it doesn't compete with
+         the primary RTH change. */
       .focus-chip-pct-wrap {
         display: flex;
         flex-direction: column;
         align-items: flex-end;
         line-height: 1.05;
-        min-width: 0;
+        gap: 1px;
       }
       .focus-chip-pct-ext {
         font-size: 9.5px;
         font-weight: 600;
         letter-spacing: 0.02em;
-        opacity: 0.92;
-        margin-top: 1px;
+        opacity: 0.85;
       }
       .focus-chip-pct-ext.up { color: var(--tt-up); }
       .focus-chip-pct-ext.dn { color: var(--tt-dn); }
-      .focus-chip-pct-ext .ext-tag {
-        font-size: 8.5px;
-        font-weight: 700;
-        margin-left: 3px;
-        padding: 0 3px;
-        border-radius: 3px;
-        background: var(--tt-bg-elev);
-        color: var(--tt-text-dim);
-        letter-spacing: 0.08em;
-        vertical-align: 1px;
+      /* (.focus-chip-pct-ext .ext-tag previously rendered an inline
+         "EXT" badge — now folded into the pct text directly, no
+         separate styling needed.) */
+
+      /* Mobile: stack the chip into 2 rows so each piece of data has
+         room to breathe. Bias + symbol + metric on top, price + pct
+         stack on bottom. Avoids the cramped 3-column squeeze. */
+      @media (max-width: 720px) {
+        .focus-chip {
+          grid-template-columns: auto 1fr;
+          grid-template-rows: auto auto;
+          gap: 6px 8px;
+          padding: 10px 12px;
+        }
+        .focus-chip-bias { grid-row: 1; grid-column: 1; align-self: center; }
+        .focus-chip-main { grid-row: 1; grid-column: 2; }
+        .focus-chip-right {
+          grid-row: 2;
+          grid-column: 1 / span 2;
+          flex-direction: row;
+          justify-content: flex-end;
+          align-items: baseline;
+          gap: 10px;
+          padding-top: 2px;
+          border-top: 1px solid var(--tt-border);
+        }
+        .focus-chip-pct-wrap {
+          flex-direction: row;
+          align-items: baseline;
+          gap: 6px;
+        }
       }
 
       /* Bubble Map */
@@ -1033,7 +1086,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.a4a0913dc0.js"></script>
+    <script src="today.compiled.8444509393.js"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

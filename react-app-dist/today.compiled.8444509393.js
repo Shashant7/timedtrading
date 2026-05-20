@@ -710,6 +710,8 @@ function FocusRail({
     if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
     const bias = lane.id === "setup" ? null : computeBias(t);
     const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
+    const hasPrice = Number.isFinite(livePx) && livePx > 0;
+    const hasPctOrExt = pct != null || showExt;
     return h("button", {
       key: `${lane.id}-${sym}`,
       className: "focus-chip",
@@ -718,22 +720,27 @@ function FocusRail({
       },
       title: titleParts.join(" · ") + (bias ? ` · ${bias === "L" ? "LONG bias" : "SHORT bias"}` : "")
     }, h("span", {
+      className: `focus-chip-bias ${biasCls}`,
+      style: bias ? null : {
+        visibility: "hidden"
+      }
+    }, bias || "·"), h("div", {
+      className: "focus-chip-main"
+    }, h("span", {
       className: "focus-chip-sym"
-    }, sym), bias && h("span", {
-      className: `focus-chip-bias ${biasCls}`
-    }, bias), metric && h("span", {
+    }, sym), metric && h("span", {
       className: "focus-chip-metric"
-    }, metric), Number.isFinite(livePx) && livePx > 0 && h("span", {
+    }, metric)), (hasPrice || hasPctOrExt) && h("div", {
+      className: "focus-chip-right"
+    }, hasPrice && h("span", {
       className: "focus-chip-px"
-    }, fmtUsd(livePx)), (pct != null || showExt) && h("div", {
+    }, fmtUsd(livePx)), hasPctOrExt && h("div", {
       className: "focus-chip-pct-wrap"
     }, pct != null && h("span", {
       className: `focus-chip-pct ${pctCls}`
-    }, (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%"), showExt && h("span", {
+    }, (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%"), showExt && h("span", {
       className: `focus-chip-pct-ext ${extCls}`
-    }, (extPct >= 0 ? "+" : "") + extPct.toFixed(1) + "%", h("span", {
-      className: "ext-tag"
-    }, "EXT"))));
+    }, (extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT"))));
   }))))));
 }
 function MoverRow({
