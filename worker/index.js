@@ -76569,23 +76569,56 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // Kanban-driven executions: evaluate entries/trims/exits (ONLY during market/extended hours, NOT during replay).
+    //
+    // P1 PERF 2026-05-20: this loop used to call processTradeSimulation
+    // for ALL ~245 execution tickers every */5 tick — ~232 of which
+    // were in "watch" or "setup" stage and had nothing to do. Each
+    // processTradeSimulation does a d1LoadTradesForSimulation + a chunk
+    // of CPU-heavy indicator/signal evaluation, so ~232 wasted runs/tick
+    // was the single biggest CPU consumer per the profiling audit.
+    //
+    // Fix: skip tickers whose latest kanban_stage is non-actionable
+    // (watch/setup). Actionable = entry-candidates (in_review/enter/
+    // enter_now), open-trade management (defend/trim/exit/just_entered/
+    // hold). Tickers with __entry_path set are also processed regardless
+    // of stage (defensive — entry signal stamped but stage didn't update).
+    //
+    // Scoring runs BEFORE this block in the same cron tick (line ~75450),
+    // so the kanban_stage we read here was just refreshed — safe to gate
+    // on it. The KV read still happens for every ticker (cheap, ~1ms),
+    // but processTradeSimulation only fires for ~20-40 actionable tickers
+    // instead of ~232. ~85% reduction in kanban CPU.
     if (allowExecution && !_replayLock) {
       try {
         const execRemovedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
         const userAddedForExec = await d1GetActiveUserTickersCached(env);
         const executionTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForExec])].filter(t => !execRemovedSet.has(t));
-        console.log(`[KANBAN CRON] Evaluating ${executionTickers.length} tickers`);
+        let _kanbanProcessed = 0;
+        let _kanbanSkippedNonActionable = 0;
+        const _ACTIONABLE_STAGES = new Set([
+          "in_review", "enter", "enter_now",
+          "defend", "trim", "exit",
+          "just_entered", "hold",
+        ]);
         for (const sym of executionTickers) {
           if (!sym) continue;
           if (processedTickers.has(sym)) continue;
           try {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
             if (!latestData) continue;
+            const _kStage = String(latestData?.kanban_stage || "").toLowerCase();
+            const _hasEntryPath = !!latestData?.__entry_path;
+            if (!_ACTIONABLE_STAGES.has(_kStage) && !_hasEntryPath) {
+              _kanbanSkippedNonActionable++;
+              continue;
+            }
             await processTradeSimulation(KV, sym, latestData, null, env);
+            _kanbanProcessed++;
           } catch (e) {
             console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
           }
         }
+        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable, of ${executionTickers.length} total`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
       }
