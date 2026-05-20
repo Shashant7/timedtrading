@@ -1866,16 +1866,16 @@
                 h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 8 } }, d),
                 h("div", { style: { display: "flex", flexDirection: "column", gap: 5 } },
                   byDay[d].slice(0, 6).map((ev, i) => {
-                    // EPS estimate (user request 2026-05-20): the previous
-                    // rendering coerced missing estimates to 0 and showed
-                    // "$0.00 est" for every ticker without an estimate,
-                    // which looked like a data error. Now: only show a
-                    // numeric value when the estimate is actually
-                    // present (finite + non-zero), otherwise show an
-                    // em-dash so it's clear we don't have it. Common
-                    // missing-estimate aliases (eps_est_avg /
-                    // estimate / consensus_eps_est) are also checked.
-                    const rawEps = ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
+                    // EPS estimate (user request 2026-05-20): show actual
+                    // estimate when present, em-dash when not. The worker
+                    // /timed/earnings/upcoming response uses `epsEstimate`
+                    // (camelCase) for Finnhub data, falling back to
+                    // alternate keys for D1-sourced rows. Check all aliases.
+                    const rawEps = ev?.epsEstimate
+                      ?? ev?.eps_est
+                      ?? ev?.eps_est_avg
+                      ?? ev?.estimate
+                      ?? ev?.consensus_eps_est;
                     const eps = Number(rawEps);
                     const hasEps = Number.isFinite(eps) && eps !== 0;
                     return h("div", { key: i, className: "earn-row" },

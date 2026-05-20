@@ -45189,7 +45189,59 @@ export default {
               console.warn("[EARNINGS] On-demand fetch failed:", String(fetchErr?.message || fetchErr).slice(0, 150));
             }
           }
-          const payload = { ok: true, events: cached?.events || [], updated_at: cached?.updated_at || 0 };
+          // Bug 2026-05-20 (user report on INTU): the KV cache only contains
+          // events that pass the Finnhub-then-TwelveData double-filter. If
+          // either source misses a ticker (Finnhub didn't list it, or
+          // TwelveData's calendar didn't confirm), the row is dropped — even
+          // when the same row exists in D1 market_events with status='scheduled'
+          // (populated by daily-brief and admin/seed paths).
+          //
+          // Fix: merge D1 market_events into the response as a fallback.
+          // Only adds rows that aren't already in the KV cache (dedupe by
+          // symbol+date) and only for the current 5-day window. Cheap
+          // single SELECT, no cache invalidation needed.
+          let events = Array.isArray(cached?.events) ? [...cached.events] : [];
+          if (env?.DB) {
+            try {
+              const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+              const d1Rows = await env.DB.prepare(
+                `SELECT date, ticker, estimate, status, session, scheduled_time_et
+                 FROM market_events
+                 WHERE event_type='earnings'
+                   AND date >= ?1 AND date <= ?2
+                   AND (status IS NULL OR status NOT IN ('resolved', 'canceled'))
+                   AND ticker IS NOT NULL`
+              ).bind(today, future).all().catch(() => ({ results: [] }));
+              const have = new Set(events.map(e => `${String(e.symbol || "").toUpperCase()}|${e.date}`));
+              for (const r of (d1Rows?.results || [])) {
+                const sym = String(r.ticker || "").toUpperCase();
+                if (!sym) continue;
+                const key = `${sym}|${r.date}`;
+                if (have.has(key)) continue;
+                // D1 stores estimate as "$2.73 EPS" string. Extract.
+                let epsEst = null;
+                if (r.estimate) {
+                  const m = String(r.estimate).match(/\$?(-?\d+\.?\d*)/);
+                  if (m) epsEst = Number(m[1]);
+                }
+                events.push({
+                  symbol: sym,
+                  date: r.date,
+                  hour: String(r.session || "").toLowerCase() || "",
+                  epsEstimate: Number.isFinite(epsEst) ? epsEst : null,
+                  epsActual: null,
+                  revenueEstimate: null,
+                  revenueActual: null,
+                  _source: "d1_market_events",
+                });
+                have.add(key);
+              }
+            } catch (mergeErr) {
+              console.warn("[EARNINGS] D1 merge failed:", String(mergeErr?.message || mergeErr).slice(0, 150));
+            }
+          }
+          const payload = { ok: true, events, updated_at: cached?.updated_at || 0 };
           if (debug && rawFinnhub) {
             const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
             const future = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -45442,12 +45494,38 @@ export default {
           });
 
           const todayMs = Date.now();
+          // Bug 2026-05-20 (user report on INTU): TwelveData sometimes
+          // returns the just-reported / about-to-report quarter with
+          // eps_actual=0 and eps_est=0 as a placeholder BEFORE the real
+          // values land. With the old filter, that row got bucketed into
+          // `past` (date ≤ today), which then computed YoY growth as
+          // (0 - 2.62) / 2.62 = -100% and rendered "$0.00 EPS act / -100%
+          // growth" — looked like the company reported a catastrophic
+          // miss when it actually hasn't reported yet.
+          //
+          // Heuristic: if BOTH eps_actual AND eps_est are zero/null/
+          // missing, treat the row as "pending" — keep it out of past
+          // (so growth calc doesn't fire) and route it to upcoming
+          // (so Next Earnings still shows the scheduled date).
+          const isPending = (e) => {
+            const ea = Number(e?.eps_actual);
+            const ee = Number(e?.eps_estimate);
+            const eaMissing = !Number.isFinite(ea) || ea === 0;
+            const eeMissing = !Number.isFinite(ee) || ee === 0;
+            return eaMissing && eeMissing;
+          };
           const upcoming = sortedEarnings.filter((e) => {
             const ms = Date.parse(e?.date || "") || 0;
-            return ms > todayMs && (e.eps_actual == null || e.eps_actual === undefined);
+            // Future-dated → always upcoming.
+            if (ms > todayMs && (e.eps_actual == null || e.eps_actual === undefined)) return true;
+            // Same-day or just-past placeholder (both EPS values absent/zero) → still upcoming.
+            if (isPending(e)) return true;
+            return false;
           });
           const past = sortedEarnings.filter((e) => {
             const ms = Date.parse(e?.date || "") || 0;
+            // Exclude pending placeholders (handled above).
+            if (isPending(e)) return false;
             return ms <= todayMs || e.eps_actual != null;
           });
 
@@ -45477,11 +45555,19 @@ export default {
             const epsEst = num(row.eps_estimate);
             const surprisePct = num(row.surprise_prc);
             // EPS YoY growth: this row vs the row 4 quarters back (if available).
+            // Bug 2026-05-20 (user report on INTU): skip the growth calc when
+            // current EPS is 0 (likely an unreported / placeholder row that
+            // bypassed the isPending filter above) or when older EPS is 0
+            // (division-by-zero already guarded). A real "$0 EPS quarter"
+            // for a normal operating company is extraordinarily rare; the
+            // placeholder case is far more common, so showing "—" when
+            // either side is 0 is the safer default.
             const olderIdx = idx + 4;
             const older = olderIdx < past.length ? past[olderIdx] : null;
             const olderActual = older ? num(older.eps_actual) : null;
             let epsGrowthPctRow = null;
-            if (epsActual != null && olderActual != null && olderActual !== 0) {
+            if (epsActual != null && epsActual !== 0
+                && olderActual != null && olderActual !== 0) {
               epsGrowthPctRow = ((epsActual - olderActual) / Math.abs(olderActual)) * 100;
             }
             // Result classification — beat/miss/inline + raise heuristic.
