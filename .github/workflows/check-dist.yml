@@ -1,0 +1,60 @@
+name: Check react-app-dist is up-to-date
+
+# Cloudflare Pages serves directly from the committed react-app-dist/
+# folder (wrangler.toml: pages_build_output_dir = "react-app-dist").
+# That means every source change to react-app/ MUST be paired with a
+# `npm run build:frontend` rebuild — otherwise the live site keeps
+# serving the previous compiled JSX.
+#
+# This workflow runs on every PR that touches react-app/ or the build
+# script, rebuilds the frontend in a fresh checkout, and fails if the
+# committed react-app-dist/ doesn't match the rebuild output. If it
+# fails, the PR author should run `npm run build:frontend` locally and
+# commit the resulting react-app-dist/ changes.
+
+on:
+  pull_request:
+    paths:
+      - "react-app/**"
+      - "scripts/build-frontend.js"
+      - "scripts/compile-right-rail.js"
+      - "package.json"
+      - ".github/workflows/check-dist.yml"
+  workflow_dispatch:
+
+jobs:
+  check-dist:
+    name: react-app-dist must match react-app/
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Rebuild frontend
+        run: npm run build:frontend
+
+      - name: Diff vs committed react-app-dist
+        run: |
+          if ! git diff --quiet --exit-code react-app-dist/; then
+            echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
+            echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
+            echo "::error::source-only edits won't reach users until the dist is rebuilt."
+            echo ""
+            echo "How to fix locally:"
+            echo "  npm run build:frontend"
+            echo "  git add react-app-dist/"
+            echo "  git commit -m 'build: rebuild react-app-dist'"
+            echo ""
+            echo "Diff (truncated):"
+            git --no-pager diff --stat react-app-dist/ | head -40
+            exit 1
+          fi
+          echo "✓ react-app-dist/ matches a fresh build."
