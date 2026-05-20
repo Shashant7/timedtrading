@@ -15780,6 +15780,30 @@ async function processTradeSimulation(
       env._deepAuditConfig = env._deepAuditConfig || {};
     }
   }
+
+  // P1 HOTFIX 2026-05-19 (part 12 — Bug #10): the 163 in-function reads of
+  // `tickerData?._env?._deepAuditConfig?.*` all silently see undefined on
+  // non-scoring invocations of processTradeSimulation (POSITION RECONCILE,
+  // HTTP routes, queue-drain). `_env._deepAuditConfig` is only stamped at
+  // line ~75545 inside the */5 scoring cron — and tickerData here is
+  // loaded from KV `timed:latest:${sym}` which carries whatever stale _env
+  // the last scoring run wrote.
+  //
+  // Net effect: Phase 4 gates (G1 pause, G2 cohort-fail block), chop-haircut
+  // sizing, time-scaled max-loss, momentum buffer, regime-flip guards,
+  // continuation-trigger knobs, V13 safety nets — all silently default to
+  // their hardcoded fallbacks for non-scoring entries because the daCfg
+  // read returns undefined. We added the lazy-load on `env._deepAuditConfig`
+  // above (P0.7.170), but the consumer reads are on `tickerData._env.*`.
+  //
+  // Fix: backfill tickerData._env._deepAuditConfig from env._deepAuditConfig
+  // when the former is missing. Single-point patch covers all 163 reads.
+  if (tickerData && env?._deepAuditConfig) {
+    tickerData._env = tickerData._env || {};
+    if (!tickerData._env._deepAuditConfig) {
+      tickerData._env._deepAuditConfig = env._deepAuditConfig;
+    }
+  }
   const eventTs = () =>
     Number.isFinite(asOfMs) ? new Date(asOfMs).toISOString() : new Date().toISOString();
 
@@ -16052,10 +16076,42 @@ async function processTradeSimulation(
     }) || null;
     
     // ZOMBIE FIX: If trade is 100% trimmed but not formally closed, close it now.
+    // P0 HOTFIX 2026-05-19 (part 5): `pxNow` is declared at line ~16314 below
+    // (let pxNow = Number(tickerData?.price)). Referencing it here put it in
+    // JavaScript's Temporal Dead Zone — any execution of this block threw
+    // `ReferenceError: Cannot access 'pxNow' before initialization` and
+    // crashed processTradeSimulation entirely. The trade never advanced to
+    // the SL safety net, stage classification, or any exit logic. Combined
+    // with the trimmedPct miscomputation in getOpenPositionAsTrade
+    // (~line 35489), every 50%-trimmed trade was crashing every */5 cron
+    // tick for IWM/DE/DIA/MLI. Use `tickerData?.price` directly — `pxNow`
+    // would just be Number(tickerData?.price) at this point anyway.
+    //
+    // P0 HOTFIX 2026-05-19 (part 6 — same incident root cause #2): the
+    // `parityNoReentryBlocked = true` line below referenced two variables
+    // (`_parityNoReentryH` and `parityNoReentryBlocked`) that are declared
+    // ~4,500 lines later at line ~20632. SAME class of TDZ ReferenceError
+    // as the `pxNow` bug. Any zombie execution would have crashed here on
+    // the second TDZ even if the first was fixed. Inline the config read
+    // and use a local variable; the canonical block at line ~20634 will
+    // also detect the synthesized TP_FULL close via its `allTrades` scan
+    // because the open trade now appears CLOSED in D1, so the in-flight
+    // parityNoReentryBlocked flag set here is redundant. Just log the
+    // intent and let the downstream check handle re-entry blocking.
+    //
+    // P0 HOTFIX 2026-05-19 (part 7 — same incident root cause #3): the
+    // previous zombie block only ran `UPDATE trades SET status=?,...`. It
+    // did NOT update D1 `positions` (status stayed 'OPEN') and did NOT
+    // insert an `execution_actions` CLOSE row. Result: POSITION RECONCILE
+    // (~line 76214) keeps re-processing the same "closed-in-trades-but-
+    // open-in-positions" record every cron tick, and the audit ledger is
+    // missing the CLOSE event. Now also close the positions row and
+    // insert the CLOSE action so D1 is internally consistent.
     if (openTrade && clamp(Number(openTrade.trimmedPct || 0), 0, 1) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
+      const _zombiePxNow = Number(tickerData?.price) || 0;
       const zombiePnl = Number(openTrade.realizedPnl || openTrade.pnl || 0);
       openTrade.status = zombiePnl > 0 ? "WIN" : zombiePnl < 0 ? "LOSS" : "FLAT";
-      openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || pxNow) || 0;
+      openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || _zombiePxNow) || 0;
       openTrade.exitReason = "TP_FULL";
       openTrade.exit_ts = openTrade.trim_ts || Date.now();
       openTrade.pnl = zombiePnl;
@@ -16071,16 +16127,31 @@ async function processTradeSimulation(
             openTrade.exit_snapshot_json = _zombieExitSnap;
             await d1PersistTradeExitSnapshot(env, openTrade, _zombieExitSnap).catch(() => {});
           }
+          const _zombieTradeId = openTrade.trade_id || openTrade.id;
           await env.DB.prepare(`UPDATE trades SET status=?, exit_price=?, exit_reason=?, exit_ts=?, pnl=?, pnl_pct=? WHERE trade_id=?`)
-            .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, openTrade.trade_id || openTrade.id).run();
+            .bind(openTrade.status, openTrade.exitPrice, openTrade.exitReason, openTrade.exit_ts, openTrade.pnl, openTrade.pnlPct || 0, _zombieTradeId).run();
+          // P0 part 7: also close the D1 positions row + log the CLOSE action.
+          // trade_id == position_id in our schema (see getOpenPositionAsTrade
+          // line ~35497: trade_id: pos.position_id).
+          try {
+            await env.DB.prepare(`UPDATE positions SET status='CLOSED', closed_at=?, updated_at=? WHERE position_id=? AND status='OPEN'`)
+              .bind(openTrade.exit_ts, openTrade.exit_ts, _zombieTradeId).run();
+            await env.DB.prepare(`INSERT INTO execution_actions (position_id, ts, action_type, qty, price, value, pnl_realized, reason) VALUES (?, ?, 'CLOSE', 0, ?, 0, 0, 'ZOMBIE_FIX_TP_FULL')`)
+              .bind(_zombieTradeId, openTrade.exit_ts, openTrade.exitPrice).run();
+          } catch (posErr) {
+            console.error(`[ZOMBIE FIX] D1 positions/actions close failed for ${sym}:`, posErr);
+          }
           d1UpdateDirectionOutcome(env, openTrade).catch(() => {});
           d1UpdateLearningOnClose(env, openTrade, tickerData).catch(() => {});
         } catch (e) { console.error(`[ZOMBIE FIX] D1 update failed for ${sym}:`, e); }
       }
-      // If TP_FULL is synthesized in this same cycle, block immediate re-entry.
-      if (_parityNoReentryH > 0) {
-        parityNoReentryBlocked = true;
-        console.log(`[PARITY_REENTRY] ${sym} blocked same-cycle re-entry after zombie TP_FULL close (window=${_parityNoReentryH}h)`);
+      // P0 part 6: parityNoReentryBlocked / _parityNoReentryH are declared
+      // at line ~20632 — TDZ if referenced here. Inline a local read and
+      // log intent; the canonical re-entry-block check at line ~20634
+      // will detect this synthesized TP_FULL close via its allTrades scan.
+      const _zombieParityH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_parity_no_reentry_after_tp_full_hours) || 0;
+      if (_zombieParityH > 0) {
+        console.log(`[PARITY_REENTRY] ${sym} synthesized TP_FULL close — re-entry blocked by downstream check (window=${_zombieParityH}h)`);
       }
       openTrade = null; // no longer open
     }
@@ -16537,7 +16608,15 @@ async function processTradeSimulation(
       const p = shouldUseReferenceExitPrice
         ? Number(referenceRail.lifecycle?.exit_price_expected)
         : requestedPx;
-      if (!Number.isFinite(p) || p <= 0) return;
+      // P2 HOTFIX 2026-05-19 (part 15 — Bug #12): the three silent early
+      // returns below previously logged nothing — if a close failed to
+      // execute due to one of these guards, there was no trace in the
+      // worker logs. Add explicit [CLOSE_SKIPPED] markers so tail can
+      // surface the reason.
+      if (!Number.isFinite(p) || p <= 0) {
+        console.warn(`[CLOSE_SKIPPED] ${sym} ${closeReason} — invalid price p=${closePrice}`);
+        return;
+      }
       if (
         referenceRail.active
         && closeReason !== "REFERENCE_EXIT"
@@ -16553,12 +16632,18 @@ async function processTradeSimulation(
             exit_ts_expected: referenceRail.exitTs,
           });
         }
+        if (!isReplay) {
+          console.log(`[CLOSE_SKIPPED] ${sym} ${closeReason} — reference rail active, exit_ts=${referenceRail.exitTs} > now=${now}`);
+        }
         return;
       }
       const trimmed = clamp(Number(trade.trimmedPct || 0), 0, 1);
       const remainingPct = Math.max(0, 1 - trimmed);
       const shares = Number(trade.shares);
-      if (!Number.isFinite(shares)) return;
+      if (!Number.isFinite(shares)) {
+        console.warn(`[CLOSE_SKIPPED] ${sym} ${closeReason} — invalid shares (trade.shares=${trade.shares}, trimmedPct=${trade.trimmedPct})`);
+        return;
+      }
       const remainingShares = shares * remainingPct;
 
       const dirSign =
@@ -16715,45 +16800,93 @@ async function processTradeSimulation(
       }
 
       // Persist via execution adapter (D1 source of truth), then Discord
+      //
+      // P1 HOTFIX 2026-05-19 (part 10 — Bug #5): the previous .catch() swallowed
+      // adapter failures silently — only a console.error was emitted. If the
+      // adapter (which is responsible for D1 positions/trades close) failed,
+      // the in-memory trade looked closed (status='WIN'/'LOSS'/'FLAT', exit_ts
+      // set), the ledger EXIT entry was already written, and the KV clear
+      // proceeded — but D1 positions stayed OPEN. Next cron tick:
+      //   - POSITION RECONCILE picks up the still-OPEN position
+      //   - rebuilds openTrade with status='OPEN' (because D1 says so)
+      //   - re-runs the exit path → second adapter close attempt
+      //   - ledger gets a SECOND EXIT entry (double-counted)
+      //
+      // Fix: explicit try/catch with clear OK/FAIL logs and a `__close_failed`
+      // marker on tickerData so the caller can detect and skip subsequent
+      // state mutations (KV clear is gated on close success below).
+      let _closeAdapterOk = true;
       if (adapter) {
-        await adapter.closePosition(sym, {
-          _price: p,
-          _reason: closeReason,
-          _trade: trade,
-          _event: ev,
-          _remainingShares: remainingShares,
-          _pnl: pnlRemaining,
-          _isPartialClose: false,
-        }).catch((e) => {
-          console.error("[EXEC] closeTradeAtPrice adapter failed:", e);
-        });
-        
-        // Clear entry state from ticker's KV record to prevent stale position showing in kanban
-        // This ensures ticker returns to opportunity lanes after position closes
         try {
-          const latestKey = `timed:latest:${sym}`;
-          const existingPayload = await kvGetJSON(KV, latestKey);
-          if (existingPayload) {
-            existingPayload.entry_ts = null;
-            existingPayload.entry_price = null;
-            existingPayload.kanban_cycle_enter_now_ts = null;
-            existingPayload.kanban_cycle_trigger_ts = null;
-            existingPayload.kanban_cycle_side = null;
-            // Recompute kanban stage now that position is closed
-            existingPayload.move_status = computeMoveStatus(existingPayload);
-            if (existingPayload.flags) {
-              existingPayload.flags.move_invalidated = existingPayload.move_status?.status === "INVALIDATED";
-              existingPayload.flags.move_completed = existingPayload.move_status?.status === "COMPLETED";
-              existingPayload.flags.position_closed_cleared = true;
+          await adapter.closePosition(sym, {
+            _price: p,
+            _reason: closeReason,
+            _trade: trade,
+            _event: ev,
+            _remainingShares: remainingShares,
+            _pnl: pnlRemaining,
+            _isPartialClose: false,
+          });
+          console.log(`[TRADE CLOSE OK] ${sym} ${closeReason} @$${p.toFixed(2)} pnl=$${pnlRemaining.toFixed(2)} shares=${remainingShares}`);
+        } catch (closeErr) {
+          _closeAdapterOk = false;
+          if (tickerData) tickerData.__close_failed = String(closeErr?.message || closeErr).slice(0, 200);
+          console.error(`[TRADE CLOSE FAILED] ${sym} ${closeReason} @$${p.toFixed(2)} adapter rejected — D1 positions may still be OPEN; will retry on next cron. err=${closeErr}`);
+        }
+
+        // Clear entry state from ticker's KV record only on successful close.
+        // If adapter failed, leave KV state intact so the next cron tick can
+        // re-attempt the close from a coherent state.
+        if (_closeAdapterOk) {
+          try {
+            const latestKey = `timed:latest:${sym}`;
+            const existingPayload = await kvGetJSON(KV, latestKey);
+            if (existingPayload) {
+              existingPayload.entry_ts = null;
+              existingPayload.entry_price = null;
+              existingPayload.kanban_cycle_enter_now_ts = null;
+              existingPayload.kanban_cycle_trigger_ts = null;
+              existingPayload.kanban_cycle_side = null;
+              // Recompute kanban stage now that position is closed
+              existingPayload.move_status = computeMoveStatus(existingPayload);
+              if (existingPayload.flags) {
+                existingPayload.flags.move_invalidated = existingPayload.move_status?.status === "INVALIDATED";
+                existingPayload.flags.move_completed = existingPayload.move_status?.status === "COMPLETED";
+                existingPayload.flags.position_closed_cleared = true;
+              }
+              const newStage = classifyKanbanStage(existingPayload, null);
+              existingPayload.kanban_stage = newStage;
+              existingPayload.kanban_meta = deriveKanbanMeta(existingPayload, newStage);
+              await kvPutJSON(KV, latestKey, existingPayload);
+              console.log(`[TRADE SIM] ${sym} position closed: cleared entry state, stage → ${newStage}`);
             }
-            const newStage = classifyKanbanStage(existingPayload, null);
-            existingPayload.kanban_stage = newStage;
-            existingPayload.kanban_meta = deriveKanbanMeta(existingPayload, newStage);
-            await kvPutJSON(KV, latestKey, existingPayload);
-            console.log(`[TRADE SIM] ${sym} position closed: cleared entry state, stage → ${newStage}`);
+          } catch (clearErr) {
+            console.error(`[TRADE SIM] ${sym} failed to clear entry state:`, clearErr);
           }
-        } catch (clearErr) {
-          console.error(`[TRADE SIM] ${sym} failed to clear entry state:`, clearErr);
+        }
+      }
+
+      // P1 HOTFIX 2026-05-19 (part 11 — Bug #6): closeTradeAtPrice mutated
+      // `trade` (the openTrade arg) but never updated the matching record in
+      // `allTrades`. End-of-function persistTrades() writes allTrades back to
+      // KV — meaning `timed:trades:all` could still show this trade as OPEN
+      // for the brief window between this close and the next D1 reconcile
+      // pass. The */1 price-feed SL check (line ~74811) reads from this KV
+      // list and could mis-evaluate a just-closed trade as live.
+      //
+      // Sync the closed trade back into allTrades by trade_id / id so the
+      // persistTrades call at end of processTradeSimulation writes a
+      // coherent snapshot. Only run on successful close so failed-adapter
+      // attempts don't pollute the KV trades list.
+      if (_closeAdapterOk && Array.isArray(allTrades)) {
+        const _ctTradeId = trade.id || trade.trade_id;
+        if (_ctTradeId) {
+          const _atIdx = allTrades.findIndex((t) => (t?.id || t?.trade_id) === _ctTradeId);
+          if (_atIdx >= 0) {
+            allTrades[_atIdx] = { ...allTrades[_atIdx], ...trade };
+          } else {
+            allTrades.push(trade);
+          }
         }
       }
 
@@ -19580,7 +19713,16 @@ async function processTradeSimulation(
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
-    const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
+    // P2 HOTFIX 2026-05-19 (part 14 — Bug #11): parity_skip_sl_breach is a
+    // historical backtest-parity crutch from the Iter5/July recovery runs
+    // (suppresses sl_breached exits for momentum_score / ripster_momentum /
+    // *_confirmed_long entries). It was already disabled in production
+    // model_config in this incident, but the code path remained — if
+    // anyone ever re-enables the flag (incl. accidentally), live SL exits
+    // get suppressed again. Gate the suppression to REPLAY ONLY so the
+    // flag still mirrors backtest behavior for parity tests but never
+    // affects live trading.
+    const _paritySkipSlEnabled = isReplay && (_paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true");
     const _paritySkipSlEligible = _exitPath.includes("momentum_score")
       || _exitPath.includes("ripster_momentum")
       || _exitPath.includes("ema_regime_confirmed_long")
@@ -35502,14 +35644,48 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
   const totalQty = Number(pos.total_qty) || 0;
   const costBasis = Number(pos.cost_basis) || 0;
   const created = Number(pos.created_at) || 0;
-  const vwap = totalQty > 0 ? costBasis / totalQty : 0;
   const realizedPnl = history.reduce((sum, ev) => sum + (Number(ev.pnl_realized) || 0), 0);
-  let trimmedPct = 0;
   const trimEvents = history.filter((e) => String(e.type || "").toUpperCase() === "TRIM");
-  if (trimEvents.length && totalQty > 0) {
-    const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
-    trimmedPct = Math.min(1, trimmedQty / totalQty);
-  }
+  const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
+  // P0 HOTFIX 2026-05-19 (part 5): `totalQty` here is `pos.total_qty`
+  // which is the REMAINING quantity in the positions table, NOT the
+  // original quantity. Dividing trimmedQty by remaining produces
+  // trimmedPct = 1.0 for ANY 50%-trimmed trade (currentQty=50,
+  // trimmedQty=50 → 50/50 = 1.0). This silently corrupts trimmedPct
+  // for every multi-trim position and triggers the ZOMBIE FIX block
+  // in processTradeSimulation (~line 16055) which hits a TDZ
+  // ReferenceError on `pxNow` and crashes the entire trade-sim run
+  // for that ticker. End result: every cron tick was erroring out
+  // for IWM/DE/DIA/MLI (the 4 trades past SL), so the SL safety net
+  // never executed and the trades just sat there past SL.
+  //
+  // Correct formula: originalQty = currentQty + trimmedQty.
+  //
+  // P0 HOTFIX 2026-05-19 (part 8 — share double-discount): the returned
+  // object below used `shares: totalQty` (the REMAINING qty). But every
+  // consumer of `trade.shares` in the codebase treats it as the ORIGINAL
+  // qty and multiplies by `(1 - trimmedPct)` to get remaining:
+  //   - closeTradeAtPrice (line ~16606): remainingShares = shares * (1-trim)
+  //   - trimTradeToPct (line ~16982):    new qty = shares * (1 - tgt)
+  //   - smart-runner    (line ~19051):   _hlcRemainingPct * _hlcShares
+  //   - adapter close   (line ~17213):   total_qty = shares * (1 - tgt)
+  // With shares = remaining and trimmedPct = original/2, the math
+  // double-discounts: a 50%-trimmed position with 50 shares remaining
+  // gets remainingShares = 50 * (1 - 0.5) = 25, so the close action
+  // only sells 25 shares instead of 50, but the adapter resets
+  // total_qty = 0 (full close). PnL is undercounted, execution_actions
+  // qty is wrong, ledger reconciliation breaks.
+  //
+  // Fix: align with `d1LoadTradesForSimulation` (line ~35772-35773) which
+  // already computes original = posQty / (1 - trimmedPct). Here we have
+  // the exact trim history so we can compute originalQty directly.
+  const originalQty = totalQty + trimmedQty;
+  const trimmedPct = (trimEvents.length && originalQty > 0)
+    ? Math.min(1, trimmedQty / originalQty)
+    : 0;
+  // VWAP is based on remaining shares vs cost_basis of remaining (D1
+  // positions.cost_basis is decremented on trim, so the ratio is correct).
+  const vwap = totalQty > 0 ? costBasis / totalQty : 0;
   return {
     id: pos.position_id,
     trade_id: pos.position_id,
@@ -35521,7 +35697,11 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
     entry_ts: created,
     entryTime: created ? new Date(created).toISOString() : undefined,
     entryTs: created,
-    shares: totalQty,
+    // P0 part 8: convention across the codebase is shares = ORIGINAL qty
+    // (entry size), and consumers multiply by (1 - trimmedPct) to get
+    // remaining. See worker/index.js ~16606, ~16982, ~17213, ~19051.
+    // Returning remaining qty here double-discounted on every consumer.
+    shares: originalQty || totalQty,
     // P1 HOTFIX 2026-05-19 (part 9): expose sl/tp from positions row so
     // defend logic, smart-runner tighten, MFE-safety, trim-SL, and the
     // */1 price-feed SL check can all read the authoritative stop. Falls
@@ -74807,11 +74987,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
         // ── SL/TP Exit Checking on price loop ──
-        // Check open positions against current prices for fast SL/TP reaction
+        // Check open positions against current prices and LOG when an SL or
+        // TP boundary is crossed. The actual close happens on the next */5
+        // scoring cron via processTradeSimulation's SL safety net (line
+        // ~19507) — this loop only provides visibility into sub-5-minute
+        // SL hits in the worker logs.
+        //
+        // P2 HOTFIX 2026-05-19 (part 13 — Bug #7): the previous version
+        // stamped `trade._price_sl_triggered`/`_price_tp_triggered` flags on
+        // every flagged trade and wrote the entire trades list back to KV.
+        // BUT NOTHING ELSE IN THE CODEBASE READS THESE FLAGS — grep confirms
+        // zero consumers. Dead code that did expensive KV writes (full
+        // trades list) on every flag hit and created false confidence in
+        // "fast SL protection" that didn't exist. Replaced with a single
+        // INFO log per cron tick. To get true sub-5-minute SL reaction in
+        // the future, wire the flag through to processTradeSimulation OR
+        // call closeTradeAtPrice directly from here — either is a separate
+        // PR with its own risk surface.
         try {
           const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
           const openTrades = allTrades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
-          let slTriggered = 0, tpTriggered = 0;
+          let slCrossed = 0, tpCrossed = 0;
+          const slDetail = [];
 
           for (const trade of openTrades) {
             const sym = String(trade.ticker || "").toUpperCase();
@@ -74824,34 +75021,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const direction = String(trade.direction || "").toUpperCase();
             const isLong = direction === "LONG";
 
-            // SL check
             if (Number.isFinite(sl) && sl > 0) {
               const slHit = isLong ? currentPrice <= sl : currentPrice >= sl;
               if (slHit) {
-                slTriggered++;
-                // Flag for the scoring loop to process the exit
-                trade._price_sl_triggered = true;
-                trade._price_sl_triggered_at = Date.now();
-                trade._price_sl_price = currentPrice;
+                slCrossed++;
+                slDetail.push(`${sym}(${direction}) px=${currentPrice} sl=${sl}`);
               }
             }
 
-            // TP check (first tier)
             if (Number.isFinite(tp) && tp > 0) {
               const tpHit = isLong ? currentPrice >= tp : currentPrice <= tp;
-              if (tpHit) {
-                tpTriggered++;
-                trade._price_tp_triggered = true;
-                trade._price_tp_triggered_at = Date.now();
-                trade._price_tp_price = currentPrice;
-              }
+              if (tpHit) tpCrossed++;
             }
           }
 
-          // Write back flagged trades if any SL/TP triggered
-          if (slTriggered > 0 || tpTriggered > 0) {
-            await kvPutJSON(KV, "timed:trades:all", allTrades);
-            console.log(`[PRICE FEED] SL/TP check: ${slTriggered} SL triggered, ${tpTriggered} TP triggered`);
+          if (slCrossed > 0 || tpCrossed > 0) {
+            console.log(`[PRICE FEED] SL/TP check: ${slCrossed} past SL, ${tpCrossed} past TP — will close on next */5 cron via safety net. ${slDetail.length ? `SL detail: ${slDetail.join(", ")}` : ""}`);
           }
         } catch (e) {
           console.warn("[PRICE FEED] SL/TP check error:", e);
