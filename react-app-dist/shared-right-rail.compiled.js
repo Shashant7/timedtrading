@@ -6552,8 +6552,24 @@
           const TF_DISPLAY = [["15", "15m"], ["30", "30m"], ["60", "1H"], ["240", "4H"], ["D", "D"], ["W", "W"]];
           const rows = TF_DISPLAY.map(([key, label]) => {
             const d = perTf[key] || {};
-            const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
-            const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+            const hasTvFields = d.tv_count != null || d.regime != null;
+            let count, side, regime;
+            if (hasTvFields) {
+              count = Number(d.tv_count) || 0;
+              side = d.tv_count_side || null;
+              regime = d.regime || "neutral";
+            } else {
+              const bull = Number(d.bullish_prep_count ?? d.bull_prep) || 0;
+              const bear = Number(d.bearish_prep_count ?? d.bear_prep) || 0;
+              if (bull >= bear) {
+                count = bull;
+                side = bull > 0 ? "bear" : null;
+              } else {
+                count = bear;
+                side = "bull";
+              }
+              regime = side || "neutral";
+            }
             const td9b = !!d.td9_bullish,
               td9s = !!d.td9_bearish;
             const td13b = !!d.td13_bullish,
@@ -6561,19 +6577,20 @@
             return {
               key,
               label,
-              bull,
-              bear,
+              count,
+              side,
+              regime,
               td9b,
               td9s,
               td13b,
-              td13s
+              td13s,
+              ema21: d.ema21 ?? null
             };
           });
           const peak = rows.reduce((p, r) => {
-            const m = Math.max(r.bull, r.bear);
-            if (m > p.m) return {
-              m,
-              side: r.bull >= r.bear ? "bull" : "bear",
+            if (r.count > p.m) return {
+              m: r.count,
+              side: r.side,
               tf: r.label
             };
             return p;
@@ -6582,11 +6599,12 @@
             side: null,
             tf: null
           });
-          const insight = peak.m === 0 ? "No active TD count yet — fresh trend." : peak.m >= 9 ? `TD${peak.m} ${peak.side === "bull" ? "exhaustion HIGH" : "exhaustion LOW"} on ${peak.tf} — reversal watch.` : peak.m >= 7 ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side}).` : `TD${peak.m} on ${peak.tf} (${peak.side}).`;
+          const peakSideLabel = peak.side === "bull" ? "bull-trend exhaustion (above 21 EMA)" : peak.side === "bear" ? "bear-trend exhaustion (below 21 EMA)" : "";
+          const insight = peak.m === 0 ? "No active TD count — price hasn't held one side of the 21 EMA long enough." : peak.m >= 9 ? `TD${peak.m} ${peakSideLabel} on ${peak.tf} — reversal watch.` : peak.m >= 7 ? `TD${peak.m} approaching exhaustion on ${peak.tf} (${peak.side || "trend"}).` : `TD${peak.m} on ${peak.tf} (${peak.side || "trend"}-trend count).`;
           return React.createElement(Panel, {
             title: "TD Sequential",
             action: peak.m >= 7 && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : ""}`,
+              className: `ds-chip ds-chip--sm ${peak.m >= 9 ? "ds-chip--accent" : peak.side === "bull" ? "ds-chip--up" : "ds-chip--dn"}`,
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
@@ -6598,55 +6616,89 @@
               margin: "0 0 var(--ds-space-2) 0",
               lineHeight: 1.5
             }
-          }, insight), React.createElement("div", {
+          }, insight), React.createElement("p", {
+            style: {
+              fontSize: "10px",
+              color: "var(--ds-text-muted)",
+              margin: "0 0 var(--ds-space-2) 0",
+              lineHeight: 1.4,
+              opacity: 0.7
+            }
+          }, "Counts run with the trend: ", React.createElement("span", {
+            style: {
+              color: "var(--ds-up)"
+            }
+          }, "bull"), " above 21 EMA, ", React.createElement("span", {
+            style: {
+              color: "var(--ds-dn)"
+            }
+          }, "bear"), " below. Resets on EMA cross."), React.createElement("div", {
             style: {
               display: "grid",
               gridTemplateColumns: "repeat(2, 1fr)",
               gap: "var(--ds-space-1)"
             }
-          }, rows.map(r => React.createElement("div", {
-            key: `td-${r.key}`,
-            style: {
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "6px 10px",
-              background: "var(--ds-bg-glass)",
-              borderRadius: "var(--ds-radius-xs)",
-              fontSize: "var(--ds-fs-meta)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, React.createElement("span", {
-            style: {
-              color: "var(--ds-text-muted)"
-            }
-          }, r.label), React.createElement("span", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 6
-            }
-          }, (r.td13b || r.td13s) && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`,
-            style: {
-              padding: "0 4px",
-              fontSize: 9
-            }
-          }, "13"), (r.td9b || r.td9s) && !(r.td13b || r.td13s) && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`,
-            style: {
-              padding: "0 4px",
-              fontSize: 9
-            }
-          }, "9"), React.createElement("span", {
-            style: {
-              color: r.bull >= 7 ? "var(--ds-accent)" : "var(--ds-up)"
-            }
-          }, "\u2191", r.bull), React.createElement("span", {
-            style: {
-              color: r.bear >= 7 ? "var(--ds-accent)" : "var(--ds-dn)"
-            }
-          }, "\u2193", r.bear))))));
+          }, rows.map(r => {
+            const isBull = r.side === "bull";
+            const isBear = r.side === "bear";
+            const colorAccent = r.count >= 9 ? "var(--ds-accent)" : isBull ? "var(--ds-up)" : isBear ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            const arrow = isBull ? "↑" : isBear ? "↓" : "·";
+            const regimeBadge = r.regime === "bull" ? "▲" : r.regime === "bear" ? "▼" : "·";
+            const regimeColor = r.regime === "bull" ? "var(--ds-up)" : r.regime === "bear" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            return React.createElement("div", {
+              key: `td-${r.key}`,
+              style: {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "6px 10px",
+                background: "var(--ds-bg-glass)",
+                borderRadius: "var(--ds-radius-xs)",
+                fontSize: "var(--ds-fs-meta)",
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, React.createElement("span", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-muted)"
+              }
+            }, r.label), React.createElement("span", {
+              title: `21 EMA regime: ${r.regime}`,
+              style: {
+                color: regimeColor,
+                fontSize: 9,
+                opacity: 0.8
+              }
+            }, regimeBadge)), React.createElement("span", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, (r.td13b || r.td13s) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${r.td13b ? "ds-chip--up" : "ds-chip--dn"}`,
+              style: {
+                padding: "0 4px",
+                fontSize: 9
+              }
+            }, "13"), (r.td9b || r.td9s) && !(r.td13b || r.td13s) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${r.td9b ? "ds-chip--up" : "ds-chip--dn"}`,
+              style: {
+                padding: "0 4px",
+                fontSize: 9
+              }
+            }, "9"), React.createElement("span", {
+              style: {
+                color: colorAccent,
+                fontWeight: r.count >= 7 ? 600 : 400
+              }
+            }, arrow, r.count)));
+          })));
         })(), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
           title: "EMA Clouds"
         }, React.createElement("div", {
