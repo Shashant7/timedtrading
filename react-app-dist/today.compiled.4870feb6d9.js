@@ -2674,13 +2674,13 @@ function TodayApp() {
     data,
     earnings,
     onSelectTicker
-  }), data && h(FocusRail, {
-    data,
-    onSelectTicker
   }), data ? h(MarketState, {
     data,
     onSelectTicker
-  }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
+  }) : h(MarketStateSkeleton, null), data && h(FocusRail, {
+    data,
+    onSelectTicker
+  }), brief && h(MacroStrip, {
     brief
   }), data && h(TopMovers, {
     data,

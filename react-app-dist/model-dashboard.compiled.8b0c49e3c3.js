@@ -63,7 +63,7 @@ function NavHeader() {
   }, React.createElement("div", {
     className: "flex items-center gap-3 md:gap-5 min-w-0"
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "flex items-center gap-2 no-underline shrink-0"
   }, React.createElement("div", {
     className: "w-[28px] h-[28px] md:w-[32px] md:h-[32px] rounded-[8px] flex items-center justify-center",
