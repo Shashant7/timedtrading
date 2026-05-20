@@ -18,7 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
-    <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-bottom-nav.js?v=20260520a" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-activity-strip.js?v=20260520c" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
@@ -496,6 +496,38 @@
       .focus-chip-metric {
         font-size: 10.5px;
         color: var(--tt-text-muted);
+      }
+      /* Bias indicator (L / S) — user request 2026-05-20. Renders a
+         small letter chip next to the metric so every Actionable row
+         shows whether the bias is LONG (green) or SHORT (red). */
+      .focus-chip-bias {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 4px;
+        border-radius: 4px;
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+        margin-right: 4px;
+      }
+      .focus-chip-bias.long {
+        background: rgba(52, 211, 153, 0.14);
+        color: #34d399;
+        border: 1px solid rgba(52, 211, 153, 0.25);
+      }
+      .focus-chip-bias.short {
+        background: rgba(251, 113, 133, 0.14);
+        color: #fb7185;
+        border: 1px solid rgba(251, 113, 133, 0.25);
+      }
+      .focus-chip-bias.neutral {
+        background: rgba(107, 114, 128, 0.10);
+        color: var(--tt-text-dim, #6b7280);
+        border: 1px solid rgba(107, 114, 128, 0.20);
       }
       /* Bug 5 — live $ price column on FOCUS chips (mirror of MoverRow
          price column on TopMovers). */
@@ -1596,10 +1628,27 @@
             return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
           }
           if (laneId === "setup") {
+            // Setup lane already uses metric for direction (legacy).
+            // Other lanes get the new dedicated bias chip below.
             const dir = String(t.state || "").startsWith("HTF_BULL") ? "L" : String(t.state || "").startsWith("HTF_BEAR") ? "S" : "·";
             return dir;
           }
           return "";
+        };
+
+        // Bias indicator helper — user request 2026-05-20: show L (LONG)
+        // or S (SHORT) on every Actionable row so it's obvious which
+        // direction the model is biased. Reads bias_direction first
+        // (model output), falls back to deriving from state.
+        // Returns null if neutral / unknown (don't render the chip).
+        const computeBias = (t) => {
+          const raw = String(t?.bias_direction || "").toUpperCase();
+          if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
+          if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
+          const state = String(t?.state || "");
+          if (state.startsWith("HTF_BULL")) return "L";
+          if (state.startsWith("HTF_BEAR")) return "S";
+          return null;
         };
 
         return h("section", { className: "tt-row focus-rail" },
@@ -1645,6 +1694,10 @@
                   if (metric) titleParts.push(metric);
                   if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
                   if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
+                  // Bias chip — skip on the setup lane because that
+                  // lane's metric IS the bias (legacy "L"/"S" letter).
+                  const bias = lane.id === "setup" ? null : computeBias(t);
+                  const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
                   return h("button", {
                     key: `${lane.id}-${sym}`,
                     className: "focus-chip",
@@ -1652,9 +1705,10 @@
                       if (typeof onSelectTicker === "function") onSelectTicker(sym);
                       else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
                     },
-                    title: titleParts.join(" · "),
+                    title: titleParts.join(" · ") + (bias ? ` · ${bias === "L" ? "LONG bias" : "SHORT bias"}` : ""),
                   },
                     h("span", { className: "focus-chip-sym" }, sym),
+                    bias && h("span", { className: `focus-chip-bias ${biasCls}` }, bias),
                     metric && h("span", { className: "focus-chip-metric" }, metric),
                     Number.isFinite(livePx) && livePx > 0 && h("span", { className: "focus-chip-px" }, fmtUsd(livePx)),
                     (pct != null || showExt) && h("div", { className: "focus-chip-pct-wrap" },
@@ -1811,11 +1865,27 @@
               h("div", { key: d, className: "tt-card tt-card-pad" },
                 h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 8 } }, d),
                 h("div", { style: { display: "flex", flexDirection: "column", gap: 5 } },
-                  byDay[d].slice(0, 6).map((ev, i) => h("div", { key: i, className: "earn-row" },
-                    h("span", { className: "date" }, String(ev?.hour || "—").toUpperCase()),
-                    h("span", null, h("span", { className: "sym" }, ev?.symbol || "?")),
-                    h("span", { className: "hour" }, "$" + (Number(ev?.eps_est) || 0).toFixed(2) + " est"),
-                  )),
+                  byDay[d].slice(0, 6).map((ev, i) => {
+                    // EPS estimate (user request 2026-05-20): the previous
+                    // rendering coerced missing estimates to 0 and showed
+                    // "$0.00 est" for every ticker without an estimate,
+                    // which looked like a data error. Now: only show a
+                    // numeric value when the estimate is actually
+                    // present (finite + non-zero), otherwise show an
+                    // em-dash so it's clear we don't have it. Common
+                    // missing-estimate aliases (eps_est_avg /
+                    // estimate / consensus_eps_est) are also checked.
+                    const rawEps = ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
+                    const eps = Number(rawEps);
+                    const hasEps = Number.isFinite(eps) && eps !== 0;
+                    return h("div", { key: i, className: "earn-row" },
+                      h("span", { className: "date" }, String(ev?.hour || "—").toUpperCase()),
+                      h("span", null, h("span", { className: "sym" }, ev?.symbol || "?")),
+                      h("span", { className: "hour", title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available" },
+                        hasEps ? "$" + eps.toFixed(2) + " est" : "—",
+                      ),
+                    );
+                  }),
                 ),
               ),
             ),

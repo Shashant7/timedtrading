@@ -17,7 +17,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
-    <script src="tt-bottom-nav.js?v=20260517a" defer></script>
+    <script src="tt-bottom-nav.js?v=20260520a" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-activity-strip.js?v=20260520c" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
@@ -495,6 +495,38 @@
       .focus-chip-metric {
         font-size: 10.5px;
         color: var(--tt-text-muted);
+      }
+      /* Bias indicator (L / S) — user request 2026-05-20. Renders a
+         small letter chip next to the metric so every Actionable row
+         shows whether the bias is LONG (green) or SHORT (red). */
+      .focus-chip-bias {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 4px;
+        border-radius: 4px;
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+        margin-right: 4px;
+      }
+      .focus-chip-bias.long {
+        background: rgba(52, 211, 153, 0.14);
+        color: #34d399;
+        border: 1px solid rgba(52, 211, 153, 0.25);
+      }
+      .focus-chip-bias.short {
+        background: rgba(251, 113, 133, 0.14);
+        color: #fb7185;
+        border: 1px solid rgba(251, 113, 133, 0.25);
+      }
+      .focus-chip-bias.neutral {
+        background: rgba(107, 114, 128, 0.10);
+        color: var(--tt-text-dim, #6b7280);
+        border: 1px solid rgba(107, 114, 128, 0.20);
       }
       /* Bug 5 — live $ price column on FOCUS chips (mirror of MoverRow
          price column on TopMovers). */
@@ -1001,7 +1033,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.02d51fdc65.js"></script>
+    <script src="today.compiled.62737cafe2.js"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>

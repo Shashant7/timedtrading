@@ -660,6 +660,15 @@ function FocusRail({
     }
     return "";
   };
+  const computeBias = t => {
+    const raw = String(t?.bias_direction || "").toUpperCase();
+    if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
+    if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
+    const state = String(t?.state || "");
+    if (state.startsWith("HTF_BULL")) return "L";
+    if (state.startsWith("HTF_BEAR")) return "S";
+    return null;
+  };
   return h("section", {
     className: "tt-row focus-rail"
   }, h("div", {
@@ -699,16 +708,20 @@ function FocusRail({
     if (metric) titleParts.push(metric);
     if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
     if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
+    const bias = lane.id === "setup" ? null : computeBias(t);
+    const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
     return h("button", {
       key: `${lane.id}-${sym}`,
       className: "focus-chip",
       onClick: () => {
         if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
       },
-      title: titleParts.join(" · ")
+      title: titleParts.join(" · ") + (bias ? ` · ${bias === "L" ? "LONG bias" : "SHORT bias"}` : "")
     }, h("span", {
       className: "focus-chip-sym"
-    }, sym), metric && h("span", {
+    }, sym), bias && h("span", {
+      className: `focus-chip-bias ${biasCls}`
+    }, bias), metric && h("span", {
       className: "focus-chip-metric"
     }, metric), Number.isFinite(livePx) && livePx > 0 && h("span", {
       className: "focus-chip-px"
@@ -914,16 +927,22 @@ function EarningsStrip({
       flexDirection: "column",
       gap: 5
     }
-  }, byDay[d].slice(0, 6).map((ev, i) => h("div", {
-    key: i,
-    className: "earn-row"
-  }, h("span", {
-    className: "date"
-  }, String(ev?.hour || "—").toUpperCase()), h("span", null, h("span", {
-    className: "sym"
-  }, ev?.symbol || "?")), h("span", {
-    className: "hour"
-  }, "$" + (Number(ev?.eps_est) || 0).toFixed(2) + " est"))))))));
+  }, byDay[d].slice(0, 6).map((ev, i) => {
+    const rawEps = ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
+    const eps = Number(rawEps);
+    const hasEps = Number.isFinite(eps) && eps !== 0;
+    return h("div", {
+      key: i,
+      className: "earn-row"
+    }, h("span", {
+      className: "date"
+    }, String(ev?.hour || "—").toUpperCase()), h("span", null, h("span", {
+      className: "sym"
+    }, ev?.symbol || "?")), h("span", {
+      className: "hour",
+      title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available"
+    }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"));
+  }))))));
 }
 function classifyStateBucket(state) {
   const s = String(state || "");
