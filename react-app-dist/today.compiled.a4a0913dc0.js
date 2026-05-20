@@ -928,7 +928,7 @@ function EarningsStrip({
       gap: 5
     }
   }, byDay[d].slice(0, 6).map((ev, i) => {
-    const rawEps = ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
+    const rawEps = ev?.epsEstimate ?? ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
     const eps = Number(rawEps);
     const hasEps = Number.isFinite(eps) && eps !== 0;
     return h("div", {
