@@ -16762,45 +16762,93 @@ async function processTradeSimulation(
       }
 
       // Persist via execution adapter (D1 source of truth), then Discord
+      //
+      // P1 HOTFIX 2026-05-19 (part 10 — Bug #5): the previous .catch() swallowed
+      // adapter failures silently — only a console.error was emitted. If the
+      // adapter (which is responsible for D1 positions/trades close) failed,
+      // the in-memory trade looked closed (status='WIN'/'LOSS'/'FLAT', exit_ts
+      // set), the ledger EXIT entry was already written, and the KV clear
+      // proceeded — but D1 positions stayed OPEN. Next cron tick:
+      //   - POSITION RECONCILE picks up the still-OPEN position
+      //   - rebuilds openTrade with status='OPEN' (because D1 says so)
+      //   - re-runs the exit path → second adapter close attempt
+      //   - ledger gets a SECOND EXIT entry (double-counted)
+      //
+      // Fix: explicit try/catch with clear OK/FAIL logs and a `__close_failed`
+      // marker on tickerData so the caller can detect and skip subsequent
+      // state mutations (KV clear is gated on close success below).
+      let _closeAdapterOk = true;
       if (adapter) {
-        await adapter.closePosition(sym, {
-          _price: p,
-          _reason: closeReason,
-          _trade: trade,
-          _event: ev,
-          _remainingShares: remainingShares,
-          _pnl: pnlRemaining,
-          _isPartialClose: false,
-        }).catch((e) => {
-          console.error("[EXEC] closeTradeAtPrice adapter failed:", e);
-        });
-        
-        // Clear entry state from ticker's KV record to prevent stale position showing in kanban
-        // This ensures ticker returns to opportunity lanes after position closes
         try {
-          const latestKey = `timed:latest:${sym}`;
-          const existingPayload = await kvGetJSON(KV, latestKey);
-          if (existingPayload) {
-            existingPayload.entry_ts = null;
-            existingPayload.entry_price = null;
-            existingPayload.kanban_cycle_enter_now_ts = null;
-            existingPayload.kanban_cycle_trigger_ts = null;
-            existingPayload.kanban_cycle_side = null;
-            // Recompute kanban stage now that position is closed
-            existingPayload.move_status = computeMoveStatus(existingPayload);
-            if (existingPayload.flags) {
-              existingPayload.flags.move_invalidated = existingPayload.move_status?.status === "INVALIDATED";
-              existingPayload.flags.move_completed = existingPayload.move_status?.status === "COMPLETED";
-              existingPayload.flags.position_closed_cleared = true;
+          await adapter.closePosition(sym, {
+            _price: p,
+            _reason: closeReason,
+            _trade: trade,
+            _event: ev,
+            _remainingShares: remainingShares,
+            _pnl: pnlRemaining,
+            _isPartialClose: false,
+          });
+          console.log(`[TRADE CLOSE OK] ${sym} ${closeReason} @$${p.toFixed(2)} pnl=$${pnlRemaining.toFixed(2)} shares=${remainingShares}`);
+        } catch (closeErr) {
+          _closeAdapterOk = false;
+          if (tickerData) tickerData.__close_failed = String(closeErr?.message || closeErr).slice(0, 200);
+          console.error(`[TRADE CLOSE FAILED] ${sym} ${closeReason} @$${p.toFixed(2)} adapter rejected — D1 positions may still be OPEN; will retry on next cron. err=${closeErr}`);
+        }
+
+        // Clear entry state from ticker's KV record only on successful close.
+        // If adapter failed, leave KV state intact so the next cron tick can
+        // re-attempt the close from a coherent state.
+        if (_closeAdapterOk) {
+          try {
+            const latestKey = `timed:latest:${sym}`;
+            const existingPayload = await kvGetJSON(KV, latestKey);
+            if (existingPayload) {
+              existingPayload.entry_ts = null;
+              existingPayload.entry_price = null;
+              existingPayload.kanban_cycle_enter_now_ts = null;
+              existingPayload.kanban_cycle_trigger_ts = null;
+              existingPayload.kanban_cycle_side = null;
+              // Recompute kanban stage now that position is closed
+              existingPayload.move_status = computeMoveStatus(existingPayload);
+              if (existingPayload.flags) {
+                existingPayload.flags.move_invalidated = existingPayload.move_status?.status === "INVALIDATED";
+                existingPayload.flags.move_completed = existingPayload.move_status?.status === "COMPLETED";
+                existingPayload.flags.position_closed_cleared = true;
+              }
+              const newStage = classifyKanbanStage(existingPayload, null);
+              existingPayload.kanban_stage = newStage;
+              existingPayload.kanban_meta = deriveKanbanMeta(existingPayload, newStage);
+              await kvPutJSON(KV, latestKey, existingPayload);
+              console.log(`[TRADE SIM] ${sym} position closed: cleared entry state, stage → ${newStage}`);
             }
-            const newStage = classifyKanbanStage(existingPayload, null);
-            existingPayload.kanban_stage = newStage;
-            existingPayload.kanban_meta = deriveKanbanMeta(existingPayload, newStage);
-            await kvPutJSON(KV, latestKey, existingPayload);
-            console.log(`[TRADE SIM] ${sym} position closed: cleared entry state, stage → ${newStage}`);
+          } catch (clearErr) {
+            console.error(`[TRADE SIM] ${sym} failed to clear entry state:`, clearErr);
           }
-        } catch (clearErr) {
-          console.error(`[TRADE SIM] ${sym} failed to clear entry state:`, clearErr);
+        }
+      }
+
+      // P1 HOTFIX 2026-05-19 (part 11 — Bug #6): closeTradeAtPrice mutated
+      // `trade` (the openTrade arg) but never updated the matching record in
+      // `allTrades`. End-of-function persistTrades() writes allTrades back to
+      // KV — meaning `timed:trades:all` could still show this trade as OPEN
+      // for the brief window between this close and the next D1 reconcile
+      // pass. The */1 price-feed SL check (line ~74811) reads from this KV
+      // list and could mis-evaluate a just-closed trade as live.
+      //
+      // Sync the closed trade back into allTrades by trade_id / id so the
+      // persistTrades call at end of processTradeSimulation writes a
+      // coherent snapshot. Only run on successful close so failed-adapter
+      // attempts don't pollute the KV trades list.
+      if (_closeAdapterOk && Array.isArray(allTrades)) {
+        const _ctTradeId = trade.id || trade.trade_id;
+        if (_ctTradeId) {
+          const _atIdx = allTrades.findIndex((t) => (t?.id || t?.trade_id) === _ctTradeId);
+          if (_atIdx >= 0) {
+            allTrades[_atIdx] = { ...allTrades[_atIdx], ...trade };
+          } else {
+            allTrades.push(trade);
+          }
         }
       }
 
