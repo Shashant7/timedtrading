@@ -35,6 +35,22 @@
       -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
+      /* Bug 2026-05-20 (user report): on iOS Safari the bottom nav was
+         "floating up" mid-page during scroll instead of staying pinned
+         to the viewport bottom. Root cause is a known WebKit issue
+         where fixed-positioned elements with backdrop-filter can be
+         miscomputed during momentum scroll — the element gets briefly
+         re-positioned relative to the layout viewport before the URL
+         bar collapse, instead of the current visual viewport.
+         Forcing a GPU compositing layer via translate3d(0,0,0) +
+         will-change pins the nav to its own layer and prevents the
+         miscalculation. transform: translateZ(0) alone also works on
+         some WebKit versions; translate3d is more reliable. */
+      transform: translate3d(0, 0, 0);
+      -webkit-transform: translate3d(0, 0, 0);
+      will-change: transform;
+      -webkit-backface-visibility: hidden;
+      backface-visibility: hidden;
     }
     .tt-bn-row {
       display: grid;
