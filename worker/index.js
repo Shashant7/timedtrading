@@ -74467,21 +74467,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
       if (hasTDCreds || hasAlpacaCreds) {
         // ── Stream lifecycle: start/stop WS streaming based on operating hours ──
-        try {
-          const streamStatus = await dataStreamStatus(env);
-          if (!streamStatus.isRunning && isWithinOperatingHours()) {
-            const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
-            const userAddedForStream = await d1GetActiveUserTickersCached(env);
-            const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
-            const startRes = await dataStreamStart(env, symbols);
-            console.log(`[STREAM] Started (${useTD ? "TD" : "Alpaca"}): ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
-          } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
-            const stopRes = await dataStreamStop(env);
-            console.log(`[STREAM] Stopped (${useTD ? "TD" : "Alpaca"}, outside operating hours):`, JSON.stringify(stopRes).slice(0, 200));
+        // P1 PERF 2026-05-20: defer to ctx.waitUntil. The start/stop is
+        // idempotent and the DO handles its own state — no downstream
+        // code in this tick depends on the stream being already-up. The
+        // `dataStreamStatus` DO RPC + conditional start/stop adds 1-3
+        // round-trips that block the cron's response unnecessarily.
+        ctx.waitUntil((async () => {
+          try {
+            const streamStatus = await dataStreamStatus(env);
+            if (!streamStatus.isRunning && isWithinOperatingHours()) {
+              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
+              const userAddedForStream = await d1GetActiveUserTickersCached(env);
+              const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+              const startRes = await dataStreamStart(env, symbols);
+              console.log(`[STREAM] Started (${useTD ? "TD" : "Alpaca"}): ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
+            } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
+              const stopRes = await dataStreamStop(env);
+              console.log(`[STREAM] Stopped (${useTD ? "TD" : "Alpaca"}, outside operating hours):`, JSON.stringify(stopRes).slice(0, 200));
+            }
+          } catch (streamErr) {
+            console.warn("[STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
           }
-        } catch (streamErr) {
-          console.warn("[STREAM] Lifecycle error:", String(streamErr).slice(0, 200));
-        }
+        })());
 
         // ── Bar cron: skip REST INTRADAY fetches when WS stream is delivering ──
         //
@@ -74541,14 +74548,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }).catch(() => {});
           }
           // ── TwelveData crypto bars ──
-          try {
-            const cryptoResult = await DataProvider.cronFetchCrypto(env);
-            if (cryptoResult && (cryptoResult.upserted > 0 || cryptoResult.errors > 0)) {
-              console.log(`[TD CRYPTO CRON] ${cryptoResult.upserted} upserted, ${cryptoResult.errors} errors`);
-            }
-          } catch (err) {
-            console.error("[TD CRYPTO CRON] Error:", err);
-          }
+          // P1 PERF 2026-05-20: defer to ctx.waitUntil. The scoring path
+          // at ~line 75371 also calls DataProvider.cronFetchCrypto in
+          // ctx.waitUntil — so this synchronous version was duplicating
+          // work AND blocking the bar cron. Crypto is only 2 tickers
+          // (BTCUSD, ETHUSD); freshness doesn't need to block.
+          ctx.waitUntil(
+            DataProvider.cronFetchCrypto(env)
+              .then(r => {
+                if (r && (r.upserted > 0 || r.errors > 0)) {
+                  console.log(`[TD CRYPTO CRON] ${r.upserted} upserted, ${r.errors} errors`);
+                }
+              })
+              .catch(err => console.error("[TD CRYPTO CRON] Error:", err))
+          );
         } else {
           // ── Legacy Alpaca REST bar fetch ──
           try {
@@ -75402,15 +75415,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       const _oohReplayLock = await KV.get("timed:replay:lock");
       const _oohCronMute = await KV.get("phase-c:cron-mute");
       if (!_oohReplayLock && !_oohCronMute && env?.DB) {
-        const _oohPositions = await env.DB.prepare(
+        // P1 PERF 2026-05-20: only do the work when actually outside
+        // operating hours. During RTH, the in-scoring POSITION RECONCILE
+        // (~line 76576) already processes every open position; the OOH
+        // pass was duplicating ~13 full processTradeSimulation runs per
+        // cron tick during market hours for no benefit. Now: D1 query
+        // still runs (1 SELECT, ~1ms) but the heavy per-ticker loop
+        // only fires when in-hours paths won't catch the open positions.
+        const _oohIsOOH = !isWithinOperatingHours();
+        const _oohPositions = _oohIsOOH ? await env.DB.prepare(
           `SELECT ticker, position_id FROM positions WHERE status = 'OPEN'`
-        ).all().catch(() => ({ results: [] }));
+        ).all().catch(() => ({ results: [] })) : { results: [] };
         const _oohOpen = _oohPositions?.results || [];
-        if (_oohOpen.length > 0) {
-          const _oohIsOOH = !isWithinOperatingHours();
-          if (_oohIsOOH) {
-            console.log(`[OOH POSITION RECONCILE] ${_oohOpen.length} open positions — running outside operating hours`);
-          }
+        if (_oohIsOOH && _oohOpen.length > 0) {
+          console.log(`[OOH POSITION RECONCILE] ${_oohOpen.length} open positions — running outside operating hours`);
           let _oohReconciled = 0;
           let _oohErrors = 0;
           for (const _oohPos of _oohOpen) {
@@ -75437,7 +75455,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               console.error(`[OOH POSITION RECONCILE] ${_oohSym} processTradeSimulation failed:`, _oohErr);
             }
           }
-          if (_oohIsOOH && (_oohReconciled > 0 || _oohErrors > 0)) {
+          if (_oohReconciled > 0 || _oohErrors > 0) {
             console.log(`[OOH POSITION RECONCILE] Done: ${_oohReconciled} processed, ${_oohErrors} errors`);
           }
         }
@@ -76551,23 +76569,56 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // Kanban-driven executions: evaluate entries/trims/exits (ONLY during market/extended hours, NOT during replay).
+    //
+    // P1 PERF 2026-05-20: this loop used to call processTradeSimulation
+    // for ALL ~245 execution tickers every */5 tick — ~232 of which
+    // were in "watch" or "setup" stage and had nothing to do. Each
+    // processTradeSimulation does a d1LoadTradesForSimulation + a chunk
+    // of CPU-heavy indicator/signal evaluation, so ~232 wasted runs/tick
+    // was the single biggest CPU consumer per the profiling audit.
+    //
+    // Fix: skip tickers whose latest kanban_stage is non-actionable
+    // (watch/setup). Actionable = entry-candidates (in_review/enter/
+    // enter_now), open-trade management (defend/trim/exit/just_entered/
+    // hold). Tickers with __entry_path set are also processed regardless
+    // of stage (defensive — entry signal stamped but stage didn't update).
+    //
+    // Scoring runs BEFORE this block in the same cron tick (line ~75450),
+    // so the kanban_stage we read here was just refreshed — safe to gate
+    // on it. The KV read still happens for every ticker (cheap, ~1ms),
+    // but processTradeSimulation only fires for ~20-40 actionable tickers
+    // instead of ~232. ~85% reduction in kanban CPU.
     if (allowExecution && !_replayLock) {
       try {
         const execRemovedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
         const userAddedForExec = await d1GetActiveUserTickersCached(env);
         const executionTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForExec])].filter(t => !execRemovedSet.has(t));
-        console.log(`[KANBAN CRON] Evaluating ${executionTickers.length} tickers`);
+        let _kanbanProcessed = 0;
+        let _kanbanSkippedNonActionable = 0;
+        const _ACTIONABLE_STAGES = new Set([
+          "in_review", "enter", "enter_now",
+          "defend", "trim", "exit",
+          "just_entered", "hold",
+        ]);
         for (const sym of executionTickers) {
           if (!sym) continue;
           if (processedTickers.has(sym)) continue;
           try {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
             if (!latestData) continue;
+            const _kStage = String(latestData?.kanban_stage || "").toLowerCase();
+            const _hasEntryPath = !!latestData?.__entry_path;
+            if (!_ACTIONABLE_STAGES.has(_kStage) && !_hasEntryPath) {
+              _kanbanSkippedNonActionable++;
+              continue;
+            }
             await processTradeSimulation(KV, sym, latestData, null, env);
+            _kanbanProcessed++;
           } catch (e) {
             console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
           }
         }
+        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable, of ${executionTickers.length} total`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
       }
@@ -76704,18 +76755,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       console.error("[POSITION RECONCILE] Error:", reconcileErr);
     }
 
-    // Ingest coverage check (every 5 min during market hours)
-    try {
-      await checkIngestCoverage(KV, now);
-    } catch (err) {
-      console.error("[INGEST COVERAGE ERROR]", err);
-    }
+    // P1 PERF 2026-05-20: monitoring only — defer to ctx.waitUntil so it
+    // doesn't block the cron response. checkIngestCoverage iterates ~245
+    // tickers with per-ticker KV reads (~245-735 KV ops) for staleness
+    // detection. No downstream code in the same tick depends on it.
+    ctx.waitUntil(
+      checkIngestCoverage(KV, now).catch((err) =>
+        console.error("[INGEST COVERAGE ERROR]", err)
+      )
+    );
 
     // Proactive Alerts & Pattern Recognition (every 15 minutes during market hours)
     // This runs more frequently to catch time-sensitive conditions
+    //
+    // P1 PERF 2026-05-20: defer to ctx.waitUntil. This block reads up to
+    // 600 timed:latest:* keys (one per ticker), plus computes staleness
+    // and Discord notifications. None of it is needed for the cron's
+    // synchronous response — it's monitoring + alerting only.
+    // Removes ~600 KV reads off the critical path every 15 min.
     const isProactiveAlertTime = minute % 15 === 0; // Every 15 minutes
 
     if (isProactiveAlertTime) {
+      ctx.waitUntil((async () => {
       try {
         const tradesKey = "timed:trades:all";
         const allTrades = (await kvGetJSON(KV, tradesKey)) || [];
@@ -76816,6 +76877,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       } catch (error) {
         console.error("[PROACTIVE ALERTS ERROR]", error);
       }
+      })());
     }
 
     // AI Updates (only at specific times: 9:45 AM, noon, 3:30 PM ET)
