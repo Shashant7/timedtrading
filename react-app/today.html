@@ -3500,14 +3500,20 @@
             brief
               ? h(BriefPreview, { brief })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
-            // Categorized actionable tickers (Top Rank / High RR /
-            // Squeeze / Entry Zone). Shown right after the Daily
-            // Brief so users always have something to focus on
-            // before scrolling down into market pulse + analysis.
-            data && h(FocusRail, { data, onSelectTicker }),
+            // 2026-05-20 (user request): Market Pulse moved ABOVE the
+            // Focus rows. The session-level context (where SPY / QQQ /
+            // sectors are right now) sets the frame for evaluating
+            // any individual actionable ticker — so reading top→
+            // bottom is: Brief → Pulse (overall regime) → Focus
+            // (specific actionable rows in that regime) → Movers →
+            // Earnings → full Analysis surface.
             data
               ? h(MarketState, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
+            // Categorized actionable tickers (Top Rank / High RR /
+            // Squeeze / Entry Zone). Shown after Market Pulse so the
+            // user can read the regime first, then the actionable list.
+            data && h(FocusRail, { data, onSelectTicker }),
             brief && h(MacroStrip, { brief }),
             data && h(TopMovers, { data, onSelectTicker }),
             earnings && h(EarningsStrip, { earnings }),
