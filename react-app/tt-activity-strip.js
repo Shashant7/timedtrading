@@ -236,25 +236,64 @@
   }
 
   // ── Mount ──────────────────────────────────────────────────────
+  //
+  // Bug 2026-05-20 (user report): the strip worked on /today but not on
+  // /active-trader and /investor despite identical script/HTML structure.
+  // Root cause: auto-mount via document.querySelector("nav.topnav") +
+  // insertAdjacentElement was racy and broke depending on page context
+  // (some pages may have React content that interferes, defer-script
+  // ordering, etc.). Fix:
+  //   1. Each page now ships an explicit `<div data-tt-activity-strip>`
+  //      container in the static HTML right after </nav>, eliminating
+  //      the nav-query dependency.
+  //   2. MutationObserver below re-mounts if the host is ever removed
+  //      from the DOM (defense against React reconciliation or other
+  //      scripts touching siblings of #root).
+  //   3. [ACTIVITY-STRIP] log line on mount so devs can immediately
+  //      verify the strip booted via the browser console.
   function mount() {
     ensureStyles();
     let host = document.querySelector("[data-tt-activity-strip]");
     if (!host) {
-      // Auto-mount under the top nav.
+      // Legacy fallback: auto-mount under the top nav for pages that
+      // haven't been updated with the explicit container yet.
       const nav = document.querySelector("nav.topnav");
-      if (!nav) return;
+      if (!nav) {
+        console.warn("[ACTIVITY-STRIP] mount aborted — no explicit container and no nav.topnav found");
+        return null;
+      }
       host = document.createElement("div");
       host.className = "tt-activity-strip";
       host.setAttribute("data-tt-activity-strip", "auto");
       nav.insertAdjacentElement("afterend", host);
+      console.log("[ACTIVITY-STRIP] mounted via fallback auto-insert under nav.topnav");
     } else {
       host.classList.add("tt-activity-strip");
+      console.log("[ACTIVITY-STRIP] mounted into explicit [data-tt-activity-strip] container");
     }
     refresh(host);
     setInterval(() => {
       if (document.visibilityState === "hidden") return;
       refresh(host);
     }, 60 * 1000);
+
+    // Defense: if the host node is ever removed from the DOM (e.g. by
+    // a React re-render that clobbered surrounding nodes, or another
+    // script doing innerHTML reset), re-mount silently.
+    try {
+      const obs = new MutationObserver(() => {
+        if (!document.contains(host)) {
+          console.warn("[ACTIVITY-STRIP] host removed from DOM — re-mounting");
+          // Reset closure-cached children so render() rebuilds.
+          host._inner = null;
+          host._row = null;
+          mount();
+          obs.disconnect();
+        }
+      });
+      obs.observe(document.body, { childList: true, subtree: false });
+    } catch (_) { /* observer is best-effort */ }
+    return host;
   }
 
   if (document.readyState === "loading") {
