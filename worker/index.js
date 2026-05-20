@@ -16052,10 +16052,21 @@ async function processTradeSimulation(
     }) || null;
     
     // ZOMBIE FIX: If trade is 100% trimmed but not formally closed, close it now.
+    // P0 HOTFIX 2026-05-19 (part 5): `pxNow` is declared at line ~16314 below
+    // (let pxNow = Number(tickerData?.price)). Referencing it here put it in
+    // JavaScript's Temporal Dead Zone — any execution of this block threw
+    // `ReferenceError: Cannot access 'pxNow' before initialization` and
+    // crashed processTradeSimulation entirely. The trade never advanced to
+    // the SL safety net, stage classification, or any exit logic. Combined
+    // with the trimmedPct miscomputation in getOpenPositionAsTrade
+    // (~line 35489), every 50%-trimmed trade was crashing every */5 cron
+    // tick for IWM/DE/DIA/MLI. Use `tickerData?.price` directly — `pxNow`
+    // would just be Number(tickerData?.price) at this point anyway.
     if (openTrade && clamp(Number(openTrade.trimmedPct || 0), 0, 1) >= 0.9999 && isOpenTradeStatus(openTrade.status)) {
+      const _zombiePxNow = Number(tickerData?.price) || 0;
       const zombiePnl = Number(openTrade.realizedPnl || openTrade.pnl || 0);
       openTrade.status = zombiePnl > 0 ? "WIN" : zombiePnl < 0 ? "LOSS" : "FLAT";
-      openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || pxNow) || 0;
+      openTrade.exitPrice = Number(openTrade.trim_price || openTrade.trimPrice || _zombiePxNow) || 0;
       openTrade.exitReason = "TP_FULL";
       openTrade.exit_ts = openTrade.trim_ts || Date.now();
       openTrade.pnl = zombiePnl;
@@ -35490,7 +35501,21 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
   const trimEvents = history.filter((e) => String(e.type || "").toUpperCase() === "TRIM");
   if (trimEvents.length && totalQty > 0) {
     const trimmedQty = trimEvents.reduce((s, e) => s + (Number(e.shares) || 0), 0);
-    trimmedPct = Math.min(1, trimmedQty / totalQty);
+    // P0 HOTFIX 2026-05-19 (part 5): `totalQty` here is `pos.total_qty`
+    // which is the REMAINING quantity in the positions table, NOT the
+    // original quantity. Dividing trimmedQty by remaining produces
+    // trimmedPct = 1.0 for ANY 50%-trimmed trade (currentQty=50,
+    // trimmedQty=50 → 50/50 = 1.0). This silently corrupts trimmedPct
+    // for every multi-trim position and triggers the ZOMBIE FIX block
+    // in processTradeSimulation (~line 16055) which hits a TDZ
+    // ReferenceError on `pxNow` and crashes the entire trade-sim run
+    // for that ticker. End result: every cron tick was erroring out
+    // for IWM/DE/DIA/MLI (the 4 trades past SL), so the SL safety net
+    // never executed and the trades just sat there past SL.
+    //
+    // Correct formula: originalQty = currentQty + trimmedQty.
+    const originalQty = totalQty + trimmedQty;
+    trimmedPct = Math.min(1, trimmedQty / originalQty);
   }
   return {
     id: pos.position_id,
