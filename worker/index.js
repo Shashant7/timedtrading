@@ -16608,7 +16608,15 @@ async function processTradeSimulation(
       const p = shouldUseReferenceExitPrice
         ? Number(referenceRail.lifecycle?.exit_price_expected)
         : requestedPx;
-      if (!Number.isFinite(p) || p <= 0) return;
+      // P2 HOTFIX 2026-05-19 (part 15 — Bug #12): the three silent early
+      // returns below previously logged nothing — if a close failed to
+      // execute due to one of these guards, there was no trace in the
+      // worker logs. Add explicit [CLOSE_SKIPPED] markers so tail can
+      // surface the reason.
+      if (!Number.isFinite(p) || p <= 0) {
+        console.warn(`[CLOSE_SKIPPED] ${sym} ${closeReason} — invalid price p=${closePrice}`);
+        return;
+      }
       if (
         referenceRail.active
         && closeReason !== "REFERENCE_EXIT"
@@ -16624,12 +16632,18 @@ async function processTradeSimulation(
             exit_ts_expected: referenceRail.exitTs,
           });
         }
+        if (!isReplay) {
+          console.log(`[CLOSE_SKIPPED] ${sym} ${closeReason} — reference rail active, exit_ts=${referenceRail.exitTs} > now=${now}`);
+        }
         return;
       }
       const trimmed = clamp(Number(trade.trimmedPct || 0), 0, 1);
       const remainingPct = Math.max(0, 1 - trimmed);
       const shares = Number(trade.shares);
-      if (!Number.isFinite(shares)) return;
+      if (!Number.isFinite(shares)) {
+        console.warn(`[CLOSE_SKIPPED] ${sym} ${closeReason} — invalid shares (trade.shares=${trade.shares}, trimmedPct=${trade.trimmedPct})`);
+        return;
+      }
       const remainingShares = shares * remainingPct;
 
       const dirSign =
@@ -19699,7 +19713,16 @@ async function processTradeSimulation(
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
-    const _paritySkipSlEnabled = _paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true";
+    // P2 HOTFIX 2026-05-19 (part 14 — Bug #11): parity_skip_sl_breach is a
+    // historical backtest-parity crutch from the Iter5/July recovery runs
+    // (suppresses sl_breached exits for momentum_score / ripster_momentum /
+    // *_confirmed_long entries). It was already disabled in production
+    // model_config in this incident, but the code path remained — if
+    // anyone ever re-enables the flag (incl. accidentally), live SL exits
+    // get suppressed again. Gate the suppression to REPLAY ONLY so the
+    // flag still mirrors backtest behavior for parity tests but never
+    // affects live trading.
+    const _paritySkipSlEnabled = isReplay && (_paritySkipSlRaw === true || _paritySkipSlRaw === 1 || String(_paritySkipSlRaw || "").toLowerCase() === "true");
     const _paritySkipSlEligible = _exitPath.includes("momentum_score")
       || _exitPath.includes("ripster_momentum")
       || _exitPath.includes("ema_regime_confirmed_long")
@@ -74938,11 +74961,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
         // ── SL/TP Exit Checking on price loop ──
-        // Check open positions against current prices for fast SL/TP reaction
+        // Check open positions against current prices and LOG when an SL or
+        // TP boundary is crossed. The actual close happens on the next */5
+        // scoring cron via processTradeSimulation's SL safety net (line
+        // ~19507) — this loop only provides visibility into sub-5-minute
+        // SL hits in the worker logs.
+        //
+        // P2 HOTFIX 2026-05-19 (part 13 — Bug #7): the previous version
+        // stamped `trade._price_sl_triggered`/`_price_tp_triggered` flags on
+        // every flagged trade and wrote the entire trades list back to KV.
+        // BUT NOTHING ELSE IN THE CODEBASE READS THESE FLAGS — grep confirms
+        // zero consumers. Dead code that did expensive KV writes (full
+        // trades list) on every flag hit and created false confidence in
+        // "fast SL protection" that didn't exist. Replaced with a single
+        // INFO log per cron tick. To get true sub-5-minute SL reaction in
+        // the future, wire the flag through to processTradeSimulation OR
+        // call closeTradeAtPrice directly from here — either is a separate
+        // PR with its own risk surface.
         try {
           const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
           const openTrades = allTrades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
-          let slTriggered = 0, tpTriggered = 0;
+          let slCrossed = 0, tpCrossed = 0;
+          const slDetail = [];
 
           for (const trade of openTrades) {
             const sym = String(trade.ticker || "").toUpperCase();
@@ -74955,34 +74995,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const direction = String(trade.direction || "").toUpperCase();
             const isLong = direction === "LONG";
 
-            // SL check
             if (Number.isFinite(sl) && sl > 0) {
               const slHit = isLong ? currentPrice <= sl : currentPrice >= sl;
               if (slHit) {
-                slTriggered++;
-                // Flag for the scoring loop to process the exit
-                trade._price_sl_triggered = true;
-                trade._price_sl_triggered_at = Date.now();
-                trade._price_sl_price = currentPrice;
+                slCrossed++;
+                slDetail.push(`${sym}(${direction}) px=${currentPrice} sl=${sl}`);
               }
             }
 
-            // TP check (first tier)
             if (Number.isFinite(tp) && tp > 0) {
               const tpHit = isLong ? currentPrice >= tp : currentPrice <= tp;
-              if (tpHit) {
-                tpTriggered++;
-                trade._price_tp_triggered = true;
-                trade._price_tp_triggered_at = Date.now();
-                trade._price_tp_price = currentPrice;
-              }
+              if (tpHit) tpCrossed++;
             }
           }
 
-          // Write back flagged trades if any SL/TP triggered
-          if (slTriggered > 0 || tpTriggered > 0) {
-            await kvPutJSON(KV, "timed:trades:all", allTrades);
-            console.log(`[PRICE FEED] SL/TP check: ${slTriggered} SL triggered, ${tpTriggered} TP triggered`);
+          if (slCrossed > 0 || tpCrossed > 0) {
+            console.log(`[PRICE FEED] SL/TP check: ${slCrossed} past SL, ${tpCrossed} past TP — will close on next */5 cron via safety net. ${slDetail.length ? `SL detail: ${slDetail.join(", ")}` : ""}`);
           }
         } catch (e) {
           console.warn("[PRICE FEED] SL/TP check error:", e);
