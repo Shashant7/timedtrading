@@ -20,7 +20,7 @@
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260517a" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
-    <script src="tt-activity-strip.js?v=20260520b" defer></script>
+    <script src="tt-activity-strip.js?v=20260520c" defer></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -1920,6 +1920,20 @@
           tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered.",
         });
 
+        // ── All — full universe, no chip narrowing (lets search find any ticker) ──
+        // User-requested 2026-05-20: needs to search for tickers not in Focus
+        // (e.g. early ideas before they land in Kanban). The applyFilters
+        // function already treats `activeChip === "all"` as "no chip
+        // narrowing", but we need an explicit chip for the user to click.
+        // Pass a sentinel `tickers: null` so applyFilters falls through;
+        // count is the full universe size.
+        chips.push({
+          id: "all", label: "All", count: allTickers.length,
+          tickers: null,
+          row: "focus",
+          tooltip: "Show every ticker in the universe — use this to search for tickers not in Focus.",
+        });
+
         // ── Saved — user's starred tickers (top-level, always first) ──
         if (savedSet.size > 0) {
           const savedTickers = allTickers.filter((t) => savedSet.has(TT_NORM_TICKER(t?.ticker)));
@@ -3282,13 +3296,29 @@
         // pops the slide-in TickerDetail panel (same component used by
         // /index-react.html) so users can drill into a ticker without
         // leaving Today.
+        //
+        // Bug 2026-05-20 (user report): Top Gainers/Losers + FocusRail
+        // rows weren't opening the right rail — `railTickerObj` was null
+        // because the clicked ticker wasn't in `allTickers` (universe-
+        // scoped). For example Movers can surface tickers from the full
+        // /timed/all payload that aren't in the chip-filtered allTickers.
+        // Fix: fall through to `data[ticker]` so the rail can still open
+        // with whatever payload we have. Build a minimal object if the
+        // ticker isn't anywhere — the rail is robust to sparse data.
         const [railTicker, setRailTicker] = useState(null);
         const railTickerObj = useMemo(() => {
           if (!railTicker) return null;
           const key = String(railTicker).toUpperCase();
           const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
-          return found || null;
-        }, [railTicker, allTickers]);
+          if (found) return found;
+          // Fallback 1: raw /timed/all payload keyed by ticker
+          if (data && typeof data === "object" && data[key]) {
+            return data[key].ticker ? data[key] : { ...data[key], ticker: key };
+          }
+          // Fallback 2: minimal stub so the rail opens and can fetch its
+          // own data via /timed/latest/{ticker} if it needs more.
+          return { ticker: key };
+        }, [railTicker, allTickers, data]);
         // V15 P0.7.181 — Reactive RailOverlay state so card clicks
         // work the instant the rail scripts load (no "small delay"
         // fallthrough to legacy nav on first click).

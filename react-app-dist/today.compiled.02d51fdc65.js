@@ -984,6 +984,14 @@ function computeInsightChips(allTickers, opts) {
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
   });
+  chips.push({
+    id: "all",
+    label: "All",
+    count: allTickers.length,
+    tickers: null,
+    row: "focus",
+    tooltip: "Show every ticker in the universe — use this to search for tickers not in Focus."
+  });
   if (savedSet.size > 0) {
     const savedTickers = allTickers.filter(t => savedSet.has(TT_NORM_TICKER(t?.ticker)));
     chips.push({
@@ -2591,8 +2599,17 @@ function TodayApp() {
     if (!railTicker) return null;
     const key = String(railTicker).toUpperCase();
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
-    return found || null;
-  }, [railTicker, allTickers]);
+    if (found) return found;
+    if (data && typeof data === "object" && data[key]) {
+      return data[key].ticker ? data[key] : {
+        ...data[key],
+        ticker: key
+      };
+    }
+    return {
+      ticker: key
+    };
+  }, [railTicker, allTickers, data]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   useEffect(() => {
     if (RailOverlay) return;
