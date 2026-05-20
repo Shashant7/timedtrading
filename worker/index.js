@@ -15882,7 +15882,23 @@ async function processTradeSimulation(
   try {
     const tradesKey = "timed:trades:all";
     let allTrades;
-    if (isReplay) {
+    // P1 PERF 2026-05-20 (PR3): caller may pre-load + pre-filter allTrades
+    // for the whole cron tick and pass it via options.cachedAllTrades.
+    // This eliminates ~50 redundant d1LoadTradesForSimulation calls per
+    // RTH tick (one per processTradeSimulation invocation in KANBAN +
+    // RECONCILE + TRADE UPDATE loops). The cached array is a SHARED
+    // reference — mutations (.push for new entries, [idx]=... for
+    // close/trim syncs from PR #227) propagate naturally to all
+    // subsequent calls in the same tick, keeping in-memory state
+    // consistent across the whole cron handler.
+    //
+    // When pre-cached, skip the run_id filter below too (caller pre-
+    // filtered; doing it again would re-create a new array and break
+    // the shared-reference contract — subsequent .push() would go to
+    // the local-only copy, not the caller's cache).
+    if (options?.cachedAllTrades && !isReplay) {
+      allTrades = options.cachedAllTrades;
+    } else if (isReplay) {
       allTrades = replayCtx.allTrades || [];
     } else if (env?.DB) {
       allTrades = (await d1LoadTradesForSimulation(env)) ?? (await kvGetJSON(KV, tradesKey)) ?? [];
@@ -15905,7 +15921,11 @@ async function processTradeSimulation(
     // Strip ANY trade with a non-null run_id from allTrades when not in
     // replay. Replay paths set isReplay=true and pass their own allTrades
     // via replayCtx, so this guard never fires for legitimate replay work.
-    if (!isReplay && Array.isArray(allTrades) && allTrades.length > 0) {
+    //
+    // PR3: skip when caller pre-filtered (cachedAllTrades). The filter
+    // reassigns `allTrades` to a NEW array — that would silently break
+    // the shared-reference cache contract.
+    if (!isReplay && !options?.cachedAllTrades && Array.isArray(allTrades) && allTrades.length > 0) {
       const _origLen = allTrades.length;
       allTrades = allTrades.filter((t) => !t?.run_id && !t?.runId);
       if (allTrades.length !== _origLen) {
@@ -75389,6 +75409,47 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
+    // P1 PERF 2026-05-20 (PR3): pre-load the trades list ONCE for the entire
+    // cron tick. Without this, each of the ~30-50 processTradeSimulation
+    // calls below (OOH RECONCILE + TRADE UPDATE + KANBAN + in-scoring
+    // RECONCILE) re-loads the full trade list from D1 — classic N+1.
+    //
+    // The cache is a SHARED ARRAY REFERENCE passed via the
+    // `cachedAllTrades` option. Mutations inside processTradeSimulation
+    // (.push for new entries, [idx]=... for close/trim syncs from PR
+    // #227) propagate naturally to subsequent calls within the same
+    // tick, keeping in-memory state consistent.
+    //
+    // Cache lifetime: this cron handler invocation. Per-tick — no
+    // module-level state, no invalidation concerns across ticks.
+    //
+    // Skipped during replay (replay paths build their own allTrades via
+    // replayCtx) and during cron-mute / replay-lock (no trade work runs
+    // anyway). Failure to load is non-fatal — processTradeSimulation
+    // falls back to its own d1LoadTradesForSimulation per-call.
+    let _cachedAllTradesForTick = null;
+    try {
+      if (env?.DB) {
+        const _cronCacheReplayLock = await KV.get("timed:replay:lock");
+        const _cronCacheMute = await KV.get("phase-c:cron-mute");
+        if (!_cronCacheReplayLock && !_cronCacheMute) {
+          const _rawLoaded = (await d1LoadTradesForSimulation(env))
+            ?? (await kvGetJSON(KV, "timed:trades:all"))
+            ?? [];
+          // Pre-filter live-only (no run_id) so callers can skip the
+          // BACKTEST_GUARD filter (which would reassign the array and
+          // break the shared-reference contract for mutations).
+          _cachedAllTradesForTick = (Array.isArray(_rawLoaded) ? _rawLoaded : [])
+            .filter((t) => !t?.run_id && !t?.runId);
+          console.log(`[CRON CACHE] allTrades pre-loaded: ${_cachedAllTradesForTick.length} live trades (1 D1 query reused by ~30-50 callers downstream)`);
+        }
+      }
+    } catch (_cronCacheErr) {
+      console.warn("[CRON CACHE] allTrades pre-load failed (downstream will fall back to per-call load):", String(_cronCacheErr?.message || _cronCacheErr).slice(0, 200));
+      _cachedAllTradesForTick = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // 24/7 POSITION RECONCILE — runs regardless of operating hours.
     //
     // P0 HOTFIX 2026-05-19 (part 16): the existing POSITION RECONCILE block
@@ -75447,7 +75508,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
               if (_oohLatest) {
-                await processTradeSimulation(KV, _oohSym, _oohLatest, null, env);
+                await processTradeSimulation(KV, _oohSym, _oohLatest, null, env, {
+                  cachedAllTrades: _cachedAllTradesForTick || undefined,
+                });
                 _oohReconciled++;
               }
             } catch (_oohErr) {
@@ -76501,6 +76564,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   latestData,
                   prevLatest,
                   env,
+                  { cachedAllTrades: _cachedAllTradesForTick || undefined },
                 );
               }
             } catch (err) {
@@ -76612,7 +76676,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _kanbanSkippedNonActionable++;
               continue;
             }
-            await processTradeSimulation(KV, sym, latestData, null, env);
+            await processTradeSimulation(KV, sym, latestData, null, env, {
+              cachedAllTrades: _cachedAllTradesForTick || undefined,
+            });
             _kanbanProcessed++;
           } catch (e) {
             console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
@@ -76673,7 +76739,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (latestData) {
               // Process with position context - ensures DEFEND/TRIM/EXIT logic runs
               try {
-                await processTradeSimulation(KV, sym, latestData, null, env);
+                await processTradeSimulation(KV, sym, latestData, null, env, {
+                  cachedAllTrades: _cachedAllTradesForTick || undefined,
+                });
                 processedTickers.add(sym);
                 reconciled++;
                 console.log(`[POSITION RECONCILE] Processed ${sym}`);
