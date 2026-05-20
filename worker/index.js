@@ -9314,6 +9314,33 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_defer_on_cloud_hold ?? "true"
             ) === "true";
             if (_atrWkDeferEnabled && _atrWkCloudHold && currentTrimPct < 0.5) {
+              // P0 HOTFIX 2026-05-20 (part 18 — same class): weekly ATR
+              // ladder fires when dirAdjWeekDisp >= 0.618 (week-over-week
+              // displacement). Same bug as daily ladder — if entry was
+              // already past +0.618 weekly ATR (e.g. after a strong move
+              // earlier in the week), this trim fires immediately at
+              // near-zero PnL. FSLR was trimmed at +0.04% PnL on 05-18.
+              // Gate on the same min-PnL floor.
+              const _atrWkMinPnlRaw = Number(
+                tickerData?._env?._deepAuditConfig?.deep_audit_atr_tp_ladder_min_pnl_pct
+              );
+              const _atrWkMinPnl = Number.isFinite(_atrWkMinPnlRaw) && _atrWkMinPnlRaw >= 0
+                ? _atrWkMinPnlRaw
+                : 0.75;
+              const _atrWkEntryPx = Number(openPosition?.entryPrice);
+              const _atrWkCurPx = Number(tickerData?.price);
+              const _atrWkPnlPct = Number.isFinite(_atrWkEntryPx) && _atrWkEntryPx > 0
+                && Number.isFinite(_atrWkCurPx) && _atrWkCurPx > 0
+                ? (isLong
+                    ? ((_atrWkCurPx - _atrWkEntryPx) / _atrWkEntryPx) * 100
+                    : ((_atrWkEntryPx - _atrWkCurPx) / _atrWkEntryPx) * 100)
+                : 0;
+              if (_atrWkPnlPct < _atrWkMinPnl) {
+                console.log(`[ATR_WEEK_618 SKIP] ${tickerUpper} weekly disp=${dirAdjWeekDisp.toFixed(3)} ATR — pnl ${_atrWkPnlPct.toFixed(2)}% < min ${_atrWkMinPnl.toFixed(2)}% (likely entered at/above target; deferring)`);
+                // Don't return here — let the rest of classifyKanbanStage
+                // make a decision (e.g. defend, hold). Just skip this
+                // specific trim.
+              } else {
               // Hand off to the trim ladder logic instead — partial trim
               // here lets the runner keep going as long as cloud holds.
               const _atrWkTrimPct = Number(
@@ -9335,6 +9362,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                 };
                 return "trim";
               }
+              }
             }
             tickerData.__exit_reason = "atr_week_618_full_exit";
             tickerData.__exit_family = "target";
@@ -9348,7 +9376,39 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // Execute incremental trim at each new tier reached
           if (currentTier > prevTier && currentTier <= trims.length) {
             const trimPct = trims[currentTier - 1];
-            if (trimPct > 0 && currentTrimPct + trimPct < 0.98) {
+            // P0 HOTFIX 2026-05-20 (part 18): the ATR ladder fired trim
+            // tiers based on `dirAdjDayDisp >= fibRatios[i]` — where
+            // `dirAdjDayDisp` is displacement from the previous day's
+            // close in ATR units, NOT from the entry price.
+            //
+            // If a trade entered when price was already past +0.382 ATR
+            // (e.g. mid-day after a morning gap), `currentTier=1` on the
+            // very next tick → tier 1 trim fires immediately at near-zero
+            // PnL. Live evidence: DIA trimmed at -0.04% PnL on 2026-05-14
+            // via atr_tp_ladder_tier1_trim. IWM trimmed at +0.60%.
+            //
+            // The ladder is a "lock in profit" tool — if there's no
+            // profit yet, the trim doesn't lock anything in. Gate every
+            // tier on a minimum PnL %. Configurable via
+            // `deep_audit_atr_tp_ladder_min_pnl_pct` (default 0.75% so
+            // tier 1 still fires on real moves but never on near-entry).
+            const _atrLadderMinPnlPctRaw = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_atr_tp_ladder_min_pnl_pct
+            );
+            const _atrLadderMinPnlPct = Number.isFinite(_atrLadderMinPnlPctRaw) && _atrLadderMinPnlPctRaw >= 0
+              ? _atrLadderMinPnlPctRaw
+              : 0.75;
+            const _atrLadderEntryPx = Number(openPosition?.entryPrice);
+            const _atrLadderCurPx = Number(tickerData?.price);
+            const _atrLadderPnlPct = Number.isFinite(_atrLadderEntryPx) && _atrLadderEntryPx > 0
+              && Number.isFinite(_atrLadderCurPx) && _atrLadderCurPx > 0
+              ? (isLong
+                  ? ((_atrLadderCurPx - _atrLadderEntryPx) / _atrLadderEntryPx) * 100
+                  : ((_atrLadderEntryPx - _atrLadderCurPx) / _atrLadderEntryPx) * 100)
+              : 0;
+            if (_atrLadderPnlPct < _atrLadderMinPnlPct) {
+              console.log(`[ATR_LADDER_SKIP] ${tickerUpper} tier${currentTier} fib=${fibRatios[currentTier-1]} disp=${dirAdjDayDisp.toFixed(3)} ATR — pnl ${_atrLadderPnlPct.toFixed(2)}% < min ${_atrLadderMinPnlPct.toFixed(2)}% (likely entered at/above tier; not locking in zero)`);
+            } else if (trimPct > 0 && currentTrimPct + trimPct < 0.98) {
               tickerData.__scheduled_trim = {
                 pct: trimPct,
                 reason: `atr_tp_ladder_tier${currentTier}_fib${fibRatios[currentTier-1]}`,

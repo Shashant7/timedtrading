@@ -390,7 +390,18 @@ function evaluateRipsterCloudExits(ctx, position, direction, price, pnlPct, ageM
       }
       return result("exit", "runner_5_12_and_34_gone", "tt_runner");
     }
-    if (pnlPct > 0.4 && trimPct < 0.33) {
+    // P0 HOTFIX 2026-05-20 (part 17): the inline classifyKanbanStage path
+    // (worker/index.js:9651-9663) raised this floor to 1.5% in P0.7.181
+    // — but this pipeline-engine path kept the old 0.4% floor. Result:
+    // every multi-tick trim that went through the pipeline (not the
+    // inline classifier) still trimmed at +0.4% PnL, including DE
+    // (+0.45%), WDC (+0.49%), VMI (+0.45%) on 2026-05-14/18.
+    // Mirror the inline floor + config read here.
+    const _trim512MinPnl = (() => {
+      const raw = Number(d?._env?._deepAuditConfig?.deep_audit_ripster_5_12_trim_min_pnl_pct);
+      return Number.isFinite(raw) && raw >= 0 ? raw : 1.5;
+    })();
+    if (pnlPct > _trim512MinPnl && trimPct < 0.33) {
       return result("trim", "ripster_5_12_defend_trim", "ripster_cloud");
     }
     return result("defend", "ripster_5_12_lost_confirmed", "ripster_cloud");

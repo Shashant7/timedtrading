@@ -62,7 +62,15 @@ export function evaluateExit(ctx, position) {
 
   if (positionAgeMin >= 30 && lose5_12) {
     if (pending5 < debounceBars) return res("defend", "ripster_5_12_pending", "ripster_cloud");
-    if (pnlPct > 0.4 && trimmedPct < 0.33) return res("trim", "ripster_5_12_defend_trim", "ripster_cloud");
+    // P0 HOTFIX 2026-05-20 (part 17): mirror the inline floor at
+    // worker/index.js:9651-9663 (raised to 1.5% in P0.7.181). This
+    // frozen ripster reference engine kept the old 0.4% floor — same
+    // class of "trim at near-entry-price" bug.
+    const _trim512MinPnl = (() => {
+      const raw = Number(d?._env?._deepAuditConfig?.deep_audit_ripster_5_12_trim_min_pnl_pct);
+      return Number.isFinite(raw) && raw >= 0 ? raw : 1.5;
+    })();
+    if (pnlPct > _trim512MinPnl && trimmedPct < 0.33) return res("trim", "ripster_5_12_defend_trim", "ripster_cloud");
     return res("defend", "ripster_5_12_lost_confirmed", "ripster_cloud");
   }
 
