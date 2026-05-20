@@ -212,54 +212,83 @@
   }
 
   async function refresh(host) {
+    // Admin gets the D1-backed admin feed (real ENTRY/TRIM/EXIT from
+    // execution_actions). Non-admin gets the public KV-backed feed
+    // (sparse, often empty). Auth flows via session cookie.
+    //
+    // Fallback: if admin endpoint returns 401 (no session yet, e.g. on
+    // first paint before auth-gate has populated _ttIsAdmin), retry
+    // against the public endpoint so the strip still shows SOMETHING
+    // instead of staying empty until the next 60s tick.
+    const adminEndpoint = "/timed/admin/activity-feed";
+    const publicEndpoint = "/timed/activity";
+    const wantAdmin = isAdmin();
+    let endpoint = wantAdmin ? adminEndpoint : publicEndpoint;
+    let r;
     try {
-      // Bug 1 (2026-05-19) — admin users get the D1-backed
-      // /timed/admin/activity-feed (real ENTRY/TRIM/EXIT/FLIP from
-      // execution_actions). Non-admins keep the public KV-backed
-      // /timed/activity feed (sparse — only public-safe signals).
-      // Auth is per-request via session cookie (credentials: include);
-      // admin endpoint returns 401 cleanly if the user isn't admin.
-      const endpoint = isAdmin() ? "/timed/admin/activity-feed" : "/timed/activity";
-      const r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, {
+      r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, {
         cache: "no-store",
         credentials: "include",
       });
-      if (!r.ok) { render(host, _events); return; }
-      const j = await r.json();
-      if (j?.ok && Array.isArray(j.events)) {
-        _events = j.events;
+      // If admin fetch fails with 401/403 (no session yet), fall back
+      // to public endpoint on the same tick.
+      if (wantAdmin && (r.status === 401 || r.status === 403)) {
+        console.warn(`[ACTIVITY-STRIP] admin feed returned ${r.status}, falling back to public`);
+        endpoint = publicEndpoint;
+        r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, {
+          cache: "no-store",
+          credentials: "include",
+        });
       }
+    } catch (e) {
+      console.warn(`[ACTIVITY-STRIP] fetch ${endpoint} threw:`, e);
       render(host, _events);
-    } catch (_) {
-      render(host, _events);
+      return;
     }
+    if (!r || !r.ok) {
+      console.warn(`[ACTIVITY-STRIP] fetch ${endpoint} returned status=${r?.status || "?"}`);
+      render(host, _events);
+      return;
+    }
+    let j;
+    try {
+      j = await r.json();
+    } catch (e) {
+      console.warn(`[ACTIVITY-STRIP] fetch ${endpoint} JSON parse failed:`, e);
+      render(host, _events);
+      return;
+    }
+    if (j?.ok && Array.isArray(j.events)) {
+      _events = j.events;
+      // First-load visibility: log the count so we can verify in
+      // DevTools that data flowed without needing to inspect DOM.
+      console.log(`[ACTIVITY-STRIP] ${endpoint} → ${_events.length} events`);
+    } else {
+      console.warn(`[ACTIVITY-STRIP] fetch ${endpoint} returned bad shape:`, j);
+    }
+    render(host, _events);
   }
 
   // ── Mount ──────────────────────────────────────────────────────
   //
-  // Bug 2026-05-20 (user report): the strip worked on /today but not on
-  // /active-trader and /investor despite identical script/HTML structure.
-  // Root cause: auto-mount via document.querySelector("nav.topnav") +
-  // insertAdjacentElement was racy and broke depending on page context
-  // (some pages may have React content that interferes, defer-script
-  // ordering, etc.). Fix:
-  //   1. Each page now ships an explicit `<div data-tt-activity-strip>`
-  //      container in the static HTML right after </nav>, eliminating
-  //      the nav-query dependency.
-  //   2. MutationObserver below re-mounts if the host is ever removed
-  //      from the DOM (defense against React reconciliation or other
-  //      scripts touching siblings of #root).
-  //   3. [ACTIVITY-STRIP] log line on mount so devs can immediately
-  //      verify the strip booted via the browser console.
+  // The strip script is loaded with `defer` on /today, /active-trader,
+  // /investor. Each page ships an explicit `<div data-tt-activity-strip>`
+  // container in the static HTML right after </nav> — that's the mount
+  // target. Legacy fallback (insertAdjacentElement under nav.topnav) is
+  // kept for any page that hasn't been updated yet.
+  //
+  // Auth timing note: on first refresh, `auth-gate.js` may not have
+  // populated `window._ttIsAdmin` yet (network round-trip to /timed/me).
+  // refresh() handles this gracefully — if the admin endpoint 401s,
+  // it falls back to the public endpoint on the same tick. The 60s
+  // setInterval below will pick up admin events as soon as auth lands.
   function mount() {
     ensureStyles();
     let host = document.querySelector("[data-tt-activity-strip]");
     if (!host) {
-      // Legacy fallback: auto-mount under the top nav for pages that
-      // haven't been updated with the explicit container yet.
       const nav = document.querySelector("nav.topnav");
       if (!nav) {
-        console.warn("[ACTIVITY-STRIP] mount aborted — no explicit container and no nav.topnav found");
+        console.warn("[ACTIVITY-STRIP] mount aborted — no [data-tt-activity-strip] container and no nav.topnav");
         return null;
       }
       host = document.createElement("div");
@@ -276,23 +305,6 @@
       if (document.visibilityState === "hidden") return;
       refresh(host);
     }, 60 * 1000);
-
-    // Defense: if the host node is ever removed from the DOM (e.g. by
-    // a React re-render that clobbered surrounding nodes, or another
-    // script doing innerHTML reset), re-mount silently.
-    try {
-      const obs = new MutationObserver(() => {
-        if (!document.contains(host)) {
-          console.warn("[ACTIVITY-STRIP] host removed from DOM — re-mounting");
-          // Reset closure-cached children so render() rebuilds.
-          host._inner = null;
-          host._row = null;
-          mount();
-          obs.disconnect();
-        }
-      });
-      obs.observe(document.body, { childList: true, subtree: false });
-    } catch (_) { /* observer is best-effort */ }
     return host;
   }
 
