@@ -45391,7 +45391,15 @@ export default {
               }
             } catch (_) { /* fail-open if rate-limit infra hiccups */ }
           }
-          const cacheKey = `timed:fundamentals_v2:${ticker}`;
+          // Cache key bumped 2026-05-20: PR #241 fixed the isPending filter
+          // + zero-actual growth guard, but every existing v2 cache entry
+          // still contained the bogus "$0 EPS / -100% growth" placeholder
+          // row for INTU + any other ticker whose just-reported quarter
+          // was a TwelveData placeholder when the cache landed. Bumping
+          // to v3 invalidates the stale entries on first access — no
+          // hand-rolled KV.delete needed, and the next fetch fills v3
+          // with the corrected shape from the fixed transform code below.
+          const cacheKey = `timed:fundamentals_v3:${ticker}`;
           const TTL_SECONDS = 6 * 60 * 60; // 6h
 
           if (!refresh) {

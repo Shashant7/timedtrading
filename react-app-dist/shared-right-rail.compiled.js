@@ -6782,22 +6782,26 @@
             switch (r) {
               case "beat_raise":
                 return {
-                  label: "Beat & Raise",
+                  label: "B+R",
+                  title: "Beat & Raise",
                   cls: "ds-chip--up"
                 };
               case "beat":
                 return {
                   label: "Beat",
+                  title: "Beat",
                   cls: "ds-chip--up"
                 };
               case "inline":
                 return {
                   label: "In-line",
+                  title: "In-line",
                   cls: "ds-chip--solid"
                 };
               case "miss":
                 return {
                   label: "Miss",
+                  title: "Miss",
                   cls: "ds-chip--dn"
                 };
               default:
@@ -7450,13 +7454,20 @@
             }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s")
           }, React.createElement("div", {
             style: {
+              overflowX: "auto",
+              marginInline: "calc(-1 * var(--ds-space-2))",
+              paddingInline: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
               display: "grid",
-              gridTemplateColumns: "minmax(70px, 1fr) 60px 60px 70px 70px 90px",
+              gridTemplateColumns: "minmax(62px, 1fr) 52px 52px 56px 56px 60px",
               gap: "var(--ds-space-1)",
               fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-meta)"
+              fontSize: "var(--ds-fs-meta)",
+              minWidth: 0
             }
-          }, sortHeader("date", "Date", "left"), sortHeader("eps_actual", "EPS Act"), sortHeader("eps_est", "Est"), sortHeader("surprise_pct", "Surp %"), sortHeader("eps_growth_pct", "Growth %"), React.createElement("div", {
+          }, sortHeader("date", "Date", "left"), sortHeader("eps_actual", "EPS"), sortHeader("eps_est", "Est"), sortHeader("surprise_pct", "Surp"), sortHeader("eps_growth_pct", "Growth"), React.createElement("div", {
             className: "ds-caption",
             style: {
               textAlign: "right"
@@ -7499,13 +7510,14 @@
               className: `ds-chip ds-chip--sm ${rChip.cls}`,
               style: {
                 fontSize: 9
-              }
+              },
+              title: rChip.title
             }, rChip.label) : React.createElement("span", {
               style: {
                 color: "var(--ds-text-faint)"
               }
             }, "\u2014")));
-          }))), (pxs.fifty_two_week_low != null || pxs.fifty_two_week_high != null) && React.createElement(Panel, {
+          })))), (pxs.fifty_two_week_low != null || pxs.fifty_two_week_high != null) && React.createElement(Panel, {
             title: "52-Week & Moving Averages"
           }, React.createElement("div", {
             style: {
