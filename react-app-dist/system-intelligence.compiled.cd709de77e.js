@@ -55,7 +55,7 @@ function NavHeader() {
   }, React.createElement("div", {
     className: "flex items-center gap-3 md:gap-5 min-w-0"
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "flex items-center gap-2 no-underline shrink-0"
   }, React.createElement("svg", {
     width: "28",

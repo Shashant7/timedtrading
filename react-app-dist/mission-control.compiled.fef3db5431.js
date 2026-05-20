@@ -148,9 +148,9 @@ function MissionControl({
   }, React.createElement("div", null, React.createElement("div", {
     className: "flex items-center gap-2.5"
   }, React.createElement("a", {
-    href: "/index-react.html",
+    href: "/today.html",
     className: "text-[#6b7280] hover:text-white text-xs"
-  }, "\u2190 Dashboard"), React.createElement("span", {
+  }, "\u2190 Today"), React.createElement("span", {
     className: "text-[#374151]"
   }, "/"), React.createElement("h1", {
     className: "text-xl md:text-2xl font-bold tracking-tight text-white"
