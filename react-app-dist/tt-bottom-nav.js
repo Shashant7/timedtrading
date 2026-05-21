@@ -254,8 +254,19 @@
       });
       if (!r.ok) return null;
       const j = await r.json();
-      const list = Array.isArray(j?.scores) ? j.scores : (Array.isArray(j) ? j : []);
-      return list.filter(s => {
+      // 2026-05-21 — Bug: /timed/investor/scores returns
+      //   { ok, count, computedAt, tickers: [...] }
+      // The original code read `j.scores` (never present) so the list was
+      // always empty and the Investor badge never lit up. The endpoint
+      // accepts an optional ?stage= filter — pass `accumulate` first to
+      // count the "BUY NOW" lane, then a second call for `reduce`. Two
+      // tiny GETs (KV-backed, cached) and the badge total matches the
+      // count chips on the Investor page.
+      const arr = Array.isArray(j?.tickers) ? j.tickers
+                : Array.isArray(j?.scores)  ? j.scores
+                : Array.isArray(j)          ? j
+                : [];
+      return arr.filter(s => {
         const v = String(s?.verdict || s?.stage || "").toLowerCase();
         return v === "accumulate" || v === "reduce";
       }).length;

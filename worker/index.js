@@ -68082,7 +68082,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             // Phase 3.9i — pass real open position (if any) so
             // classifyInvestorStage can return core_hold / reduce.
-            const _existingPos = _invOpenPosByTicker[ticker] || null;
+            // 2026-05-21 — Normalize case on lookup.
+            //   _invOpenPosByTicker keys are upper-cased on insert
+            //   (`String(_p.ticker || "").toUpperCase()`), but `ticker`
+            //   here came from `td.ticker` and is only guaranteed to be
+            //   upper-case for tickers written by the latest scoring
+            //   path. Symbols sourced from older payloads / user-added
+            //   watchlist entries can leak through as lower-case. When
+            //   the lookup missed, `_existingPos=null` forced
+            //   classifyInvestorStage down its NO-POSITION branch, so a
+            //   ticker we'd already opened (e.g. DBA) was misclassified
+            //   as "accumulate" / BUY NOW indefinitely and the card
+            //   never rendered the OWNED / POS row. Normalize both
+            //   sides to uppercase to make the lookup case-insensitive.
+            const _existingPos = _invOpenPosByTicker[String(ticker || "").toUpperCase()] || null;
             const stage = classifyInvestorStage(td, score, _existingPos, {
               rsRank, marketHealth: marketHealth.score, accumZone, cfg: _invCfg2,
             });
@@ -69518,13 +69531,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
 
           // ── Load existing open positions ──
+          // 2026-05-21 — Key the lookup map by UPPERCASE ticker so the
+          // join against the score map below is case-insensitive (see
+          // companion fix in /timed/investor/compute). Without this an
+          // already-OPEN ticker could be misread as "no position" and
+          // the auto-rebalance would try to OPEN A SECOND ROW on every
+          // run instead of recognizing it as an existing position to
+          // gap-add to.
           const existingPos = (await env.DB.prepare(
             "SELECT id, ticker, total_shares, cost_basis, avg_entry FROM investor_positions WHERE status = 'OPEN'"
           ).all())?.results || [];
           const existingByTicker = {};
           let totalInvested = 0;
           for (const p of existingPos) {
-            existingByTicker[p.ticker] = p;
+            existingByTicker[String(p.ticker || "").toUpperCase()] = p;
             totalInvested += Number(p.cost_basis) || 0;
           }
           const availableCapital = INVESTOR_CAPITAL - totalInvested;
@@ -69540,7 +69560,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (!price || price <= 0) continue;
 
             const score = data.score || 0;
-            actionable.push({ ticker, stage, score, price, existing: existingByTicker[ticker] || null });
+            const _tkU = String(ticker || "").toUpperCase();
+            actionable.push({ ticker: _tkU, stage, score, price, existing: existingByTicker[_tkU] || null });
           }
 
           // Sort by score descending — best opportunities first
