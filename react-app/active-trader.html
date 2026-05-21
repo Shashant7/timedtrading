@@ -20,7 +20,7 @@
     <script src="tt-bottom-nav.js?v=20260520a" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-activity-strip.js?v=20260520c" defer></script>
-    <script src="shared-price-utils.js?v=20260304a"></script>
+    <script src="shared-price-utils.js?v=20260521a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -753,13 +753,19 @@
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
 
         // Bias chip — if there's an open trade, use trade direction (LONG/SHORT);
-        // otherwise derive from state (BULL/BEAR/NEUTRAL).
-        const state = String(t?.state || "").toUpperCase();
+        // otherwise derive the model direction via the shared helper that
+        // mirrors the worker's inferTraderDirection (swing_consensus →
+        // trigger_dir → state). Switched 2026-05-21 so the AT card agrees
+        // with the right rail's bias chip on first paint instead of
+        // disagreeing with the prediction-contract direction.
         const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
-        const biasLabel = tradeDir === "LONG" ? "LONG"
+        const _modelDir = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+          ? window.TimedPriceUtils.inferModelDirection(t)
+          : "";
+        const biasLabel = tradeDir === "LONG"  ? "LONG"
                        : tradeDir === "SHORT" ? "SHORT"
-                       : state.startsWith("HTF_BULL") || (!state.startsWith("HTF_BEAR") && state.includes("BULL")) ? "BULL"
-                       : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR"
+                       : _modelDir === "LONG"  ? "BULL"
+                       : _modelDir === "SHORT" ? "BEAR"
                        : "NEUTRAL";
         const biasChipCls = biasLabel === "BULL" || biasLabel === "LONG" ? "ds-chip--up"
                          : biasLabel === "BEAR" || biasLabel === "SHORT" ? "ds-chip--dn"

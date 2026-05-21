@@ -324,9 +324,9 @@ function ATCard({
   const rr = Number(t?.rr) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-  const state = String(t?.state || "").toUpperCase();
   const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
-  const biasLabel = tradeDir === "LONG" ? "LONG" : tradeDir === "SHORT" ? "SHORT" : state.startsWith("HTF_BULL") || !state.startsWith("HTF_BEAR") && state.includes("BULL") ? "BULL" : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR" : "NEUTRAL";
+  const _modelDir = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
+  const biasLabel = tradeDir === "LONG" ? "LONG" : tradeDir === "SHORT" ? "SHORT" : _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
   const biasChipCls = biasLabel === "BULL" || biasLabel === "LONG" ? "ds-chip--up" : biasLabel === "BEAR" || biasLabel === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {

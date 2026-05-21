@@ -3446,6 +3446,10 @@
           }
           const posDir = String(ticker?.position_direction || "").toUpperCase();
           if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+          try {
+            const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(ticker) : "";
+            if (md === "LONG" || md === "SHORT") return md;
+          } catch (_) {}
           const state = String(ticker?.state || "").toUpperCase();
           if (state.startsWith("HTF_BULL")) return "LONG";
           if (state.startsWith("HTF_BEAR")) return "SHORT";

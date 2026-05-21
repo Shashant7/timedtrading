@@ -387,6 +387,46 @@
     return { pct: pct, price: Number.isFinite(px) && px > 0 ? px : null };
   }
 
+  /**
+   * Authoritative model direction for a ticker, mirroring the server-side
+   * `inferTraderDirection()` in worker/index.js (around line 38236). Returns
+   * "LONG", "SHORT", or "" (unknown).
+   *
+   * Why this exists (2026-05-21):
+   *   The right rail's bias chip was reading `ticker.state` (HTF_BULL / HTF_BEAR)
+   *   on first render, then re-rendering after /timed/prediction-contract
+   *   resolved with a different direction (`swing_consensus.direction` /
+   *   `trigger_dir` based). For NVDA: state=HTF_BULL but swing_consensus=BEARISH,
+   *   so the chip flipped from "LONG BIAS" → "SHORT BIAS" a few hundred ms
+   *   after open. The Today card showed BULL the whole time because it ALSO
+   *   read `state`. The user's expectation is that whichever direction the
+   *   model is actually recommending should be shown everywhere — first paint
+   *   and ever after. Computing the same priority order client-side from the
+   *   already-cached snapshot fields eliminates the flip and makes the card
+   *   and rail agree on every page.
+   *
+   * Priority (matches worker):
+   *   1. swing_consensus.direction  ("BULLISH" / "BEARISH" / "LONG" / "SHORT")
+   *   2. trigger_dir                 ("LONG" / "SHORT")
+   *   3. state                       (contains "BEAR" → SHORT, else LONG)
+   *
+   * Callers that need a hard-trade override (open position direction) should
+   * apply it BEFORE calling this (right rail does).
+   */
+  function inferModelDirection(t) {
+    if (!t || typeof t !== "object") return "";
+    var consensus = t.swing_consensus || {};
+    var cd = String(consensus.direction || "").toUpperCase();
+    if (cd === "BULLISH" || cd === "LONG") return "LONG";
+    if (cd === "BEARISH" || cd === "SHORT") return "SHORT";
+    var trig = String(t.trigger_dir || "").toUpperCase();
+    if (trig === "LONG" || trig === "SHORT") return trig;
+    var state = String(t.state || "").toUpperCase();
+    if (state.indexOf("BEAR") !== -1) return "SHORT";
+    if (state.indexOf("BULL") !== -1) return "LONG";
+    return "";
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -396,6 +436,7 @@
     getStaleInfo: getStaleInfo,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
+    inferModelDirection: inferModelDirection,
     TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,

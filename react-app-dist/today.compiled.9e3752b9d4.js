@@ -664,9 +664,9 @@ function FocusRail({
     const raw = String(t?.bias_direction || "").toUpperCase();
     if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
     if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
-    const state = String(t?.state || "");
-    if (state.startsWith("HTF_BULL")) return "L";
-    if (state.startsWith("HTF_BEAR")) return "S";
+    const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
+    if (md === "LONG") return "L";
+    if (md === "SHORT") return "S";
     return null;
   };
   return h("section", {
@@ -1573,8 +1573,8 @@ function ViewportCard({
   const rr = Number(t?.rr) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-  const state = String(t?.state || "").toUpperCase();
-  const biasLabel = state.startsWith("HTF_BULL") || !state.startsWith("HTF_BEAR") && state.includes("BULL") ? "BULL" : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR" : "NEUTRAL";
+  const _modelDir = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
+  const biasLabel = _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
   const biasChipCls = biasLabel === "BULL" ? "ds-chip--up" : biasLabel === "BEAR" ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {

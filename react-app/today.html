@@ -21,7 +21,7 @@
     <script src="tt-bottom-nav.js?v=20260520a" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-activity-strip.js?v=20260520c" defer></script>
-    <script src="shared-price-utils.js?v=20260304a"></script>
+    <script src="shared-price-utils.js?v=20260521a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
     <script src="ds-components.js?v=20260501a"></script>
@@ -1691,16 +1691,21 @@
 
         // Bias indicator helper — user request 2026-05-20: show L (LONG)
         // or S (SHORT) on every Actionable row so it's obvious which
-        // direction the model is biased. Reads bias_direction first
-        // (model output), falls back to deriving from state.
-        // Returns null if neutral / unknown (don't render the chip).
+        // direction the model is biased.
+        // 2026-05-21: routes through shared inferModelDirection() so
+        // FocusRail, the Viewport card bias chip, and the right rail
+        // header bias chip all derive direction from the same priority
+        // (swing_consensus → trigger_dir → state). bias_direction is
+        // still honored first if the snapshot includes it explicitly.
         const computeBias = (t) => {
           const raw = String(t?.bias_direction || "").toUpperCase();
           if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
           if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
-          const state = String(t?.state || "");
-          if (state.startsWith("HTF_BULL")) return "L";
-          if (state.startsWith("HTF_BEAR")) return "S";
+          const md = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+            ? window.TimedPriceUtils.inferModelDirection(t)
+            : "";
+          if (md === "LONG") return "L";
+          if (md === "SHORT") return "S";
           return null;
         };
 
@@ -2662,11 +2667,22 @@
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
 
-        // Bias chip — BULL / BEAR / NEUTRAL derived from state (no trades
-        // on Today, so no LONG/SHORT override).
-        const state = String(t?.state || "").toUpperCase();
-        const biasLabel = state.startsWith("HTF_BULL") || (!state.startsWith("HTF_BEAR") && state.includes("BULL")) ? "BULL"
-                       : state.startsWith("HTF_BEAR") || state.includes("BEAR") ? "BEAR"
+        // Bias chip — BULL / BEAR / NEUTRAL.
+        // 2026-05-21: switched from a state-only derivation to the SHARED
+        // inferModelDirection() helper (window.TimedPriceUtils) which
+        // mirrors the worker's inferTraderDirection() priority:
+        //   swing_consensus.direction → trigger_dir → state
+        // Previously the card read `state` (HTF_BULL / HTF_BEAR) directly,
+        // which disagreed with the right rail's prediction-contract once
+        // it loaded (e.g. NVDA state=HTF_BULL but swing_consensus=BEARISH
+        // → right rail flipped to SHORT, card stayed BULL). Now both
+        // surfaces compute the same direction from the cached snapshot
+        // before any network call.
+        const _modelDir = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+          ? window.TimedPriceUtils.inferModelDirection(t)
+          : "";
+        const biasLabel = _modelDir === "LONG"  ? "BULL"
+                       : _modelDir === "SHORT" ? "BEAR"
                        : "NEUTRAL";
         const biasChipCls = biasLabel === "BULL" ? "ds-chip--up"
                          : biasLabel === "BEAR" ? "ds-chip--dn"
