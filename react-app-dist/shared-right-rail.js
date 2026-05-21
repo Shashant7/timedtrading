@@ -3161,11 +3161,26 @@
              Every bias-driven label, ladder, level role, and narrative in the
              rail derives from this one variable. Priority order:
                1. trade.direction        (active trade — concrete commitment)
-               2. predictionContract.direction (model recommendation)
+               2. predictionContract.direction (model recommendation; async)
                3. ticker.position_direction
-               4. ticker.state HTF_BULL/HTF_BEAR
+               4. inferModelDirection(ticker) — shared helper mirroring the
+                  server-side inferTraderDirection priority
+                  (swing_consensus.direction → trigger_dir → state).
              Returns "LONG" / "SHORT" / "" (empty for unknown).
-             Exposed as both `v2Dir` (legacy alias) and `v2BiasDirection`. */
+             Exposed as both `v2Dir` (legacy alias) and `v2BiasDirection`.
+
+             2026-05-21 — Bias-flip fix.
+             Previously fallback #4 was a state-only derivation that read
+             HTF_BULL → LONG, HTF_BEAR → SHORT. For tickers where the
+             swing consensus disagrees with HTF state (e.g. NVDA had
+             state=HTF_BULL but swing_consensus.direction=BEARISH), the
+             rail would render "LONG BIAS" on first paint, then flip to
+             "SHORT BIAS" a few hundred ms later once the prediction
+             contract fetch returned. Now we route the fallback through
+             the shared inferModelDirection() helper — same priority the
+             server uses to compute the contract direction — so the first
+             paint already reads the right side and the subsequent fetch
+             never flips it. */
           const v2BiasDirection = (() => {
             if (trade?.direction) {
               const d = String(trade.direction).toUpperCase();
@@ -3177,6 +3192,12 @@
             }
             const posDir = String(ticker?.position_direction || "").toUpperCase();
             if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+            try {
+              const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection
+                ? window.TimedPriceUtils.inferModelDirection(ticker)
+                : "";
+              if (md === "LONG" || md === "SHORT") return md;
+            } catch (_) {}
             const state = String(ticker?.state || "").toUpperCase();
             if (state.startsWith("HTF_BULL")) return "LONG";
             if (state.startsWith("HTF_BEAR")) return "SHORT";
