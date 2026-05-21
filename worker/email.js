@@ -430,7 +430,7 @@ export async function sendWelcomeEmail(env, user) {
 
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
-        <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Your Dashboard</a>
+        <a href="https://timed-trading.com/today.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Your Dashboard</a>
       </td></tr>
     </table>
 
@@ -495,7 +495,7 @@ export async function sendSubscriptionEmail(env, email, isTrial) {
 
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
-        <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Go to Dashboard</a>
+        <a href="https://timed-trading.com/today.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Go to Dashboard</a>
       </td></tr>
     </table>
   `, { preheader: isTrial ? "Your 14-day free trial is active." : "Your Pro subscription is confirmed." });
@@ -604,10 +604,21 @@ function markdownToEmailHtml(md) {
 
 export async function sendDailyBriefEmail(env, userEmail, brief) {
   const { type, content, date, esPrediction, stats, infographic } = brief;
-  const label = type === "morning" ? "Morning Brief" : "Evening Brief";
+  // 2026-05-21 — support label / subject overrides for non-brief reuses of
+  // this template (e.g. the Weekly Recap path in /timed/admin/weekly-retrospective).
+  // Default labels: morning → "Morning Brief", anything else → "Evening Brief".
+  // The weekly retro previously inherited "Evening Brief" which mislabeled the
+  // subject and the masthead.
+  const label = brief?._labelOverride
+    || (type === "morning" ? "Morning Brief" : type === "retro" ? "Weekly Recap" : "Evening Brief");
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  // Map non-brief types onto a sensible unsubscribe pref so the link is valid.
+  const _prefForUnsub = type === "morning" ? "daily_brief_morning"
+    : type === "evening" ? "daily_brief_evening"
+    : type === "retro" ? "weekly_digest"
+    : `daily_brief_${type}`;
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
-    ? await buildUnsubscribeUrl(baseUrl, userEmail, `daily_brief_${type}`, env.EMAIL_HMAC_SECRET)
+    ? await buildUnsubscribeUrl(baseUrl, userEmail, _prefForUnsub, env.EMAIL_HMAC_SECRET)
     : null;
 
   const briefHtml = markdownToEmailHtml(content);
@@ -661,7 +672,9 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
 
   const text = `${label} — ${date}\n\n${esPrediction ? `ES Prediction: ${esPrediction}\n\n` : ""}${content}\n\nView online: https://timed-trading.com/daily-brief.html`;
 
-  return sendEmail(env, { to: userEmail, subject: `${label} — ${date}`, html, text, category: "daily_brief" });
+  const subject = brief?._subjectOverride || `${label} — ${date}`;
+  const category = type === "retro" ? "weekly_recap" : "daily_brief";
+  return sendEmail(env, { to: userEmail, subject, html, text, category });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -740,12 +753,12 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     </table>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
-        <a href="https://timed-trading.com/index-react.html?ticker=${ticker}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View in Dashboard</a>
+        <a href="https://timed-trading.com/today.html?ticker=${ticker}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View in Dashboard</a>
       </td></tr>
     </table>
   `, { unsubscribeUrl, preheader: `${typeLabel}: ${ticker} ${dir} @ ${priceFmt}` });
 
-  const text = `${typeLabel}: ${ticker}\n${dir} @ ${priceFmt}${isExit && pnlPct != null ? ` (P&L: ${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct).toFixed(1)}%)` : ""}\n\nView: https://timed-trading.com/index-react.html?ticker=${ticker}`;
+  const text = `${typeLabel}: ${ticker}\n${dir} @ ${priceFmt}${isExit && pnlPct != null ? ` (P&L: ${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct).toFixed(1)}%)` : ""}\n\nView: https://timed-trading.com/today.html?ticker=${ticker}`;
 
   return sendEmail(env, { to: userEmail, subject: `${typeLabel}: ${ticker} ${dir}`, html, text, category: "trade_alert" });
 }
@@ -826,12 +839,12 @@ export async function sendReEngagementEmail(env, userEmail, stats) {
     </p>
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
-        <a href="https://timed-trading.com/index-react.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">See What is Happening Now</a>
+        <a href="https://timed-trading.com/today.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">See What is Happening Now</a>
       </td></tr>
     </table>
   `, { unsubscribeUrl, preheader: `${tradeCount || "Several"} trades managed while you were away.${pnlPositive ? ` P&L: +$${Math.abs(Number(totalPnl)).toFixed(0)}` : ""}` });
 
-  const text = `The system has been working while you were away (${daysSince || "?"} days):\n${tradeCount ? `- ${tradeCount} trades managed\n` : ""}${winRate ? `- ${Number(winRate).toFixed(0)}% win rate\n` : ""}${pnlPositive ? `- +$${Math.abs(Number(totalPnl)).toFixed(0)} total P&L\n` : ""}${activePositions ? `- ${activePositions} active positions right now\n` : ""}${briefCount ? `- ${briefCount} daily briefs published\n` : ""}\nSee what is happening: https://timed-trading.com/index-react.html`;
+  const text = `The system has been working while you were away (${daysSince || "?"} days):\n${tradeCount ? `- ${tradeCount} trades managed\n` : ""}${winRate ? `- ${Number(winRate).toFixed(0)}% win rate\n` : ""}${pnlPositive ? `- +$${Math.abs(Number(totalPnl)).toFixed(0)} total P&L\n` : ""}${activePositions ? `- ${activePositions} active positions right now\n` : ""}${briefCount ? `- ${briefCount} daily briefs published\n` : ""}\nSee what is happening: https://timed-trading.com/today.html`;
 
   return sendEmail(env, { to: userEmail, subject: "The system has been working while you were away", html, text, category: "re_engagement" });
 }
@@ -859,7 +872,7 @@ a{color:${BRAND.green};text-decoration:none}</style></head>
 <body><div class="card">
 <h1>Unsubscribed</h1>
 <p>You have been unsubscribed from <strong>${prefLabel}</strong>.</p>
-<p>You can re-enable email notifications anytime from your <a href="https://timed-trading.com/index-react.html">dashboard settings</a>.</p>
+<p>You can re-enable email notifications anytime from your <a href="https://timed-trading.com/today.html">dashboard settings</a>.</p>
 </div></body></html>`;
 }
 

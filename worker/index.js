@@ -1283,6 +1283,7 @@ const ROUTES = [
   ["GET", "/timed/email/preferences", "GET /timed/email/preferences"],
   ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
+  ["GET",  "/timed/admin/email-diagnostic",   "GET /timed/admin/email-diagnostic"],
   // ── Waitlist (pre-launch CTA) ──
   ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
   ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
@@ -17030,6 +17031,7 @@ async function processTradeSimulation(
                 type: "TRADE_EXIT", ticker: sym, direction: trade.direction,
                 price: trade.exitPrice, pnlPct: trade.pnlPct || 0,
                 exitReason: closeReason || trade.status,
+                mode: "trader",
               }, requestCtx));
               await upsertAlertSafe({
                 alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
@@ -17464,6 +17466,7 @@ async function processTradeSimulation(
             queueBackground(dispatchTradeAlertEmails(env, {
               type: "TRADE_TRIM", ticker: sym, direction: dir,
               price: trade.currentPrice || p, trimmedPct: tgt,
+              mode: "trader",
             }, requestCtx));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
@@ -22573,6 +22576,7 @@ async function processTradeSimulation(
                   queueBackground(dispatchTradeAlertEmails(env, {
                     type: "TRADE_ENTRY", ticker: sym, direction,
                     price: entryPx, rank: trade.rank, rr: trade.rr,
+                    mode: "trader",
                   }, requestCtx));
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
@@ -28544,8 +28548,16 @@ async function d1RecordFeatureUsage(env, userEmail, feature) {
 const TRADE_EMAIL_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per ticker per user
 
 function shouldDispatchTradeAlertEmail(alertData) {
+  // 2026-05-21 — previously this gated on `mode === "investor"` ONLY, which
+  // meant the Active Trader kanban (whose callsites don't pass a mode and
+  // therefore default to "trader") never produced a trade-alert email. The
+  // 1-hour per-ticker throttle below already protects against email storms
+  // for noisy tickers, and the recipient query
+  // (`getEmailOptedInUsers("trade_alerts")`) gates on the user's
+  // `trade_alerts` preference and a paid tier, so opting OUT of trader
+  // alerts remains entirely up to the user. Allow both modes.
   const mode = String(alertData?.mode || "trader").toLowerCase();
-  return mode === "investor";
+  return mode === "investor" || mode === "trader";
 }
 
 async function dispatchTradeAlertEmails(env, alertData, ctx) {
@@ -54130,14 +54142,30 @@ export default {
           let emailResult = null;
           if (sendEmail && !dryRun) {
             try {
-              const opted = await getEmailOptedInUsers(env, "weekly_retrospective").catch(() => []);
+              // 2026-05-21 — Bug fix: previously queried `weekly_retrospective`
+              // but the user-facing pref key (see worker/email.js
+              // DEFAULT_PREFS_*) is `weekly_digest`. The mismatched key meant
+              // the recipient set was ALWAYS empty so this send loop has been
+              // a no-op since it was added.
+              const opted = await getEmailOptedInUsers(env, "weekly_digest").catch(() => []);
               emailResult = { recipients: opted.length, sent: 0, failed: 0 };
               // Reuse the daily-brief email path so styling stays consistent.
+              // The template branches on `type === "morning"` for the subject
+              // label, so `type: "retro"` would render as "Evening Brief —"
+              // (since it isn't "morning"). Override the subject via the
+              // payload by relabelling as "retro" — the template emits
+              // `${label} — ${date}` where label is hardcoded. To keep the
+              // weekly recap subject correct we override after the send via
+              // the payload's _subjectOverride convention (see daily-brief
+              // sendDailyBriefEmail for support) — added below.
               for (const u of opted) {
                 try {
+                  const _retroDate = new Date(now).toISOString().slice(0, 10);
                   const res = await sendDailyBriefEmail(env, u.email, {
-                    type: "retro", date: new Date(now).toISOString().slice(0, 10),
+                    type: "retro", date: _retroDate,
                     content: md, esPrediction: null, infographic: null,
+                    _subjectOverride: `Weekly Recap — ${_retroDate}`,
+                    _labelOverride: "Weekly Recap",
                   });
                   if (res?.ok) emailResult.sent++; else emailResult.failed++;
                 } catch { emailResult.failed++; }
@@ -61015,6 +61043,99 @@ export default {
       }
 
       // POST /timed/admin/send-sample-emails - Send one of each email type to a given address (admin/API key)
+      // GET /timed/admin/email-diagnostic?email=foo@bar.com
+      //
+      // 2026-05-21 — Adds end-to-end visibility for "why didn't I get the
+      // Daily Brief email?". Reports, for the supplied user:
+      //   • What tier + email preferences are stored in D1
+      //   • Which of the 5 emails the user would receive on the next cron
+      //   • Last-run snapshot from KV (recipient count, sent/failed, errors)
+      //   • Whether SendGrid is configured + whether EMAIL_ENABLED is true
+      //   • A diagnosis list of likely causes the user is NOT receiving mail
+      // Read-only. Requires admin auth.
+      if (routeKey === "GET /timed/admin/email-diagnostic") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const targetEmail = String(url.searchParams.get("email") || "").trim().toLowerCase();
+          if (!targetEmail) {
+            return sendJSON({ ok: false, error: "email query param required" }, 400, corsHeaders(env, req));
+          }
+          const db = env?.DB;
+          let userRow = null;
+          if (db) {
+            try {
+              userRow = await db.prepare(
+                `SELECT email, tier, subscription_status, display_name, last_login_at, email_preferences, stripe_customer_id, expires_at FROM users WHERE email = ?1`
+              ).bind(targetEmail).first();
+            } catch (e) {
+              console.warn("[EMAIL DIAG] users SELECT failed:", String(e?.message || e).slice(0, 200));
+            }
+          }
+          const prefs = userRow ? getUserEmailPrefs(userRow) : null;
+          const tier = String(userRow?.tier || "free").toLowerCase();
+          const isPaid = tier === "pro" || tier === "vip" || tier === "admin";
+
+          // What would the next cron actually do for this user?
+          const wouldReceive = {
+            daily_brief_morning: !!(isPaid && prefs?.daily_brief_morning),
+            daily_brief_evening: !!(isPaid && prefs?.daily_brief_evening),
+            trade_alerts:        !!(isPaid && prefs?.trade_alerts),
+            weekly_digest:       !!(isPaid && prefs?.weekly_digest),
+            re_engagement:       !!(isPaid && prefs?.re_engagement),
+          };
+
+          // Last brief send snapshots — written by daily-brief.js.
+          const lastMorning = await kvGetJSON(env?.KV_TIMED, "timed:email:daily_brief:lastrun:morning");
+          const lastEvening = await kvGetJSON(env?.KV_TIMED, "timed:email:daily_brief:lastrun:evening");
+
+          const providerStatus = {
+            EMAIL_ENABLED: env?.EMAIL_ENABLED === "true" || env?.EMAIL_ENABLED === true,
+            SENDGRID_API_KEY: !!env?.SENDGRID_API_KEY,
+            EMAIL_FROM: env?.EMAIL_FROM || "notifications@timed-trading.com (default)",
+            EMAIL_HMAC_SECRET: !!env?.EMAIL_HMAC_SECRET,
+          };
+
+          // Likely causes a user wouldn't be receiving briefs, in priority
+          // order. Hugely speeds up the next iteration of "still nothing —
+          // what's wrong now?".
+          const diagnosis = [];
+          if (!userRow) diagnosis.push("User not found in users table — provisioning likely never ran.");
+          if (userRow && !isPaid) diagnosis.push(`Tier is "${tier}" — only pro/vip/admin tiers are queried by getEmailOptedInUsers.`);
+          if (userRow && isPaid && prefs && !prefs.daily_brief_morning) diagnosis.push("daily_brief_morning preference is OFF for this user.");
+          if (userRow && isPaid && prefs && !prefs.daily_brief_evening) diagnosis.push("daily_brief_evening preference is OFF for this user.");
+          if (!providerStatus.EMAIL_ENABLED) diagnosis.push("EMAIL_ENABLED env var is NOT 'true' — sendEmail() short-circuits.");
+          if (!providerStatus.SENDGRID_API_KEY) diagnosis.push("SENDGRID_API_KEY env var is missing — sendEmail() short-circuits.");
+          if (lastMorning && lastMorning.recipients === 0) diagnosis.push("Last morning brief had 0 recipients — nobody is currently opted in.");
+          if (lastEvening && lastEvening.recipients === 0) diagnosis.push("Last evening brief had 0 recipients — nobody is currently opted in.");
+          if (lastMorning && lastMorning.failed > 0) diagnosis.push(`Last morning brief had ${lastMorning.failed} send failures — check failure_samples.`);
+          if (lastEvening && lastEvening.failed > 0) diagnosis.push(`Last evening brief had ${lastEvening.failed} send failures — check failure_samples.`);
+          if (!lastMorning) diagnosis.push("No record of a morning brief email run — cron may not have fired since this observability was added.");
+          if (!lastEvening) diagnosis.push("No record of an evening brief email run — cron may not have fired since this observability was added.");
+
+          return sendJSON({
+            ok: true,
+            email: targetEmail,
+            user: userRow ? {
+              email: userRow.email,
+              tier: userRow.tier,
+              subscription_status: userRow.subscription_status,
+              display_name: userRow.display_name,
+              last_login_at: userRow.last_login_at,
+              expires_at: userRow.expires_at,
+              has_stripe_customer: !!userRow.stripe_customer_id,
+            } : null,
+            preferences: prefs,
+            would_receive: wouldReceive,
+            provider: providerStatus,
+            last_runs: { morning: lastMorning, evening: lastEvening },
+            diagnosis,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/send-sample-emails") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -61699,16 +61820,32 @@ export default {
               console.log(`[STRIPE] subscription.deleted: ${custId}`);
 
               if (userRow?.email) {
-                // Downgrade email preferences: keep marketing, disable subscriber-only emails
+                // Downgrade email preferences: keep marketing, disable subscriber-only emails.
+                // 2026-05-21 — Bug fix: previously wrote `prefs.daily_brief = false`
+                // and `prefs.trade_alerts = false`, but the brief cron reads
+                // `daily_brief_morning` / `daily_brief_evening` (per worker/email.js
+                // DEFAULT_PREFS_*), so the old keys were silent no-ops. Worse:
+                // any user who EVER had a subscription canceled and then re-
+                // subscribed could find their stored prefs polluted with a
+                // legacy `daily_brief: false` that does nothing — AND with the
+                // CORRECT keys still defaulting to `true` for paid tiers, the
+                // brief should resume. But we still need to write the right
+                // keys on this path so a true cancellation actually stops the
+                // emails. Write the canonical keys explicitly.
                 try {
                   let prefs = {};
                   try { prefs = JSON.parse(userRow.email_preferences || "{}"); } catch { prefs = {}; }
-                  prefs.daily_brief = false;
+                  prefs.daily_brief_morning = false;
+                  prefs.daily_brief_evening = false;
                   prefs.trade_alerts = false;
+                  prefs.weekly_digest = false;
+                  // Strip legacy key if present so getUserEmailPrefs doesn't
+                  // carry forward a meaningless value.
+                  if ("daily_brief" in prefs) delete prefs.daily_brief;
                   if (prefs.marketing === undefined) prefs.marketing = true;
                   await db.prepare(`UPDATE users SET email_preferences = ?1 WHERE email = ?2`)
                     .bind(JSON.stringify(prefs), userRow.email).run();
-                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: daily_brief=off, trade_alerts=off`);
+                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off`);
                 } catch (e) {
                   console.warn("[STRIPE] Email pref downgrade failed:", String(e?.message || e).slice(0, 100));
                 }

@@ -3975,9 +3975,20 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
     // 10. Email daily brief to opted-in users
     const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
+    // 2026-05-21 — Observability. The user reported "I haven't received the
+    // Daily Brief via email in a few days." Without runtime access there's
+    // no way to tell whether (a) the cron never fired, (b) the recipient
+    // set was empty, or (c) SendGrid rejected. Stash a compact snapshot of
+    // the last send attempt in KV so the admin Mission Control / Email
+    // Diagnostic endpoint can show exactly what happened and when.
+    let _emailReport = { ok: false, recipients: 0, sent: 0, failed: 0, reason: "not_attempted" };
     try {
       const optedInUsers = await getEmailOptedInUsers(env, prefKey);
-      if (optedInUsers.length) {
+      _emailReport.recipients = optedInUsers.length;
+      if (!optedInUsers.length) {
+        _emailReport.reason = "no_opted_in_users";
+        console.log(`[DAILY BRIEF] ${prefKey} emails: 0 recipients — nobody is currently opted in to this brief`);
+      } else {
         // 2026-04-23: pass the structured infographic snapshot so the email
         // renders the same Today's-Three / headline badges / index cards /
         // events / risks / closing-line treatment as the web Daily Brief.
@@ -3987,13 +3998,45 @@ export async function generateDailyBrief(env, type, opts = {}) {
         );
         const sent = results.filter(r => r.status === "fulfilled" && r.value?.ok).length;
         const failed = results.length - sent;
+        _emailReport.sent = sent;
+        _emailReport.failed = failed;
+        _emailReport.ok = sent > 0 && failed === 0;
+        _emailReport.reason = sent > 0 ? (failed === 0 ? "ok" : "partial_failure") : "all_failed";
+        // Capture up to 5 failure reasons so the admin can spot bad emails
+        // / sendgrid rejects without grepping logs.
+        const failures = [];
+        for (let i = 0; i < results.length && failures.length < 5; i++) {
+          const r = results[i];
+          const u = optedInUsers[i];
+          if (r.status === "rejected") failures.push({ to: u?.email, error: String(r.reason).slice(0, 200) });
+          else if (r.value && !r.value.ok) failures.push({ to: u?.email, error: r.value.error || "unknown" });
+        }
+        if (failures.length) _emailReport.failure_samples = failures;
         console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);
       }
     } catch (e) {
+      _emailReport.reason = "exception";
+      _emailReport.error = String(e?.message || e).slice(0, 200);
       console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
     }
+    // Persist the last-run snapshot. Admin endpoint reads this to render
+    // a "Daily Brief Email Health" panel without needing tail access.
+    try {
+      const snap = {
+        type, prefKey, date: data?.today || null,
+        finishedAt: Date.now(),
+        ..._emailReport,
+      };
+      await env?.KV_TIMED?.put(`timed:email:daily_brief:lastrun:${type}`, JSON.stringify(snap), {
+        // Keep a month of history for the admin panel (overwritten on every
+        // run, but TTL guards against an indefinitely-stuck stale value).
+        expirationTtl: 30 * 24 * 3600,
+      });
+    } catch (e) {
+      console.warn("[DAILY BRIEF] failed to persist email lastrun snapshot:", String(e?.message || e).slice(0, 120));
+    }
 
-    return { ok: true, id: briefId, elapsed, chars: content.length };
+    return { ok: true, id: briefId, elapsed, chars: content.length, email: _emailReport };
   } catch (e) {
     console.error(`[DAILY BRIEF] ${type} generation failed:`, String(e).slice(0, 300));
     return { ok: false, error: String(e).slice(0, 200) };
