@@ -34,6 +34,15 @@
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+        /* iOS Safari has a known position:sticky bug during momentum scroll
+           where the element briefly unsticks and floats — same pattern we
+           fixed on the bottom nav. Forcing a GPU compositing layer pins
+           the strip to its own layer and prevents the miscalculation. */
+        transform: translate3d(0, 0, 0);
+        -webkit-transform: translate3d(0, 0, 0);
+        will-change: transform;
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
       }
       .tt-activity-strip__inner {
         max-width: 1600px;
@@ -44,6 +53,19 @@
         gap: 12px;
       }
       @media (max-width: 720px) {
+        /* On phones the in-flow sticky was visibly drifting on iOS Safari
+           even with the GPU layer fix above — the strip is the FIRST
+           positioned descendant of <body>, so we can promote it to
+           position:fixed cleanly. Pin it directly below the nav. The
+           accompanying body padding-top (injected on mount, see
+           ensureMobileSpacer below) keeps content from sliding under it.
+           The desktop sticky path is unchanged. */
+        .tt-activity-strip {
+          position: fixed;
+          top: var(--tt-nav-h, 52px);
+          left: 0;
+          right: 0;
+        }
         .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
@@ -151,9 +173,72 @@
     return { cls: "", label: t || "EVENT" };
   }
 
+  // ── Mobile spacer + nav-offset measurement ─────────────────────
+  // On phones the strip is position:fixed (CSS above), so it no longer
+  // takes up flow space and content would slide under it. Inject a
+  // body padding-top equal to the strip's measured height and set a
+  // CSS custom property --tt-nav-h to the live nav height so the strip
+  // sits exactly under the top nav even if it ever changes (e.g. badge
+  // wraps to a second line). Recomputed on resize.
+  function ensureMobileSpacer(host) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const apply = () => {
+      try {
+        const isMobile = window.matchMedia && window.matchMedia("(max-width: 720px)").matches;
+        const nav = document.querySelector("nav.topnav");
+        const navH = nav ? Math.round(nav.getBoundingClientRect().height) : 52;
+        document.documentElement.style.setProperty("--tt-nav-h", `${navH}px`);
+        if (!isMobile) {
+          // Restore desktop sticky — drop the spacer if it was set.
+          if (document.body && document.body.dataset.ttStripSpacer) {
+            document.body.style.paddingTop = "";
+            delete document.body.dataset.ttStripSpacer;
+          }
+          return;
+        }
+        // Measure the strip's rendered height and pad the body so the
+        // top of the first content card sits right below it.
+        const stripH = Math.round(host.getBoundingClientRect().height) || 44;
+        const total = navH + stripH;
+        if (document.body) {
+          document.body.style.paddingTop = `${total}px`;
+          document.body.dataset.ttStripSpacer = String(total);
+        }
+      } catch (_) { /* best-effort */ }
+    };
+    apply();
+    // Re-measure when the strip's content changes height (e.g. an empty
+    // strip vs a populated one), on window resize, and on viewport
+    // changes (iOS Safari URL-bar collapse).
+    try {
+      const ro = new ResizeObserver(() => apply());
+      ro.observe(host);
+      const nav = document.querySelector("nav.topnav");
+      if (nav) ro.observe(nav);
+    } catch (_) {}
+    window.addEventListener("resize", apply, { passive: true });
+    window.addEventListener("orientationchange", apply, { passive: true });
+  }
+
   // ── Render ─────────────────────────────────────────────────────
   function render(host, events) {
-    const visible = (Array.isArray(events) ? events : []).slice(0, 20);
+    // 2026-05-21 — defensive sort, newest first.
+    // The admin /timed/admin/activity-feed endpoint already returns
+    // ts DESC, but the public /timed/activity endpoint and any future
+    // merge step can disagree. Guarantee newest-first ordering here
+    // so the chip on the left is always the most recent event and
+    // the user can horizontally scroll right for older activity.
+    const arr = (Array.isArray(events) ? events : []).slice();
+    arr.sort((a, b) => {
+      const tA = Number(a?.ts ?? a?.timestamp ?? a?.created_at ?? a?.event_ts ?? 0);
+      const tB = Number(b?.ts ?? b?.timestamp ?? b?.created_at ?? b?.event_ts ?? 0);
+      // ms vs seconds — normalize before comparing so a mixed batch is
+      // still ordered correctly (admin = ms, public = seconds).
+      const normA = tA > 1e12 ? tA : tA * 1000;
+      const normB = tB > 1e12 ? tB : tB * 1000;
+      return normB - normA;
+    });
+    const visible = arr.slice(0, 20);
 
     if (!host._inner) {
       const inner = document.createElement("div");
@@ -300,6 +385,9 @@
       host.classList.add("tt-activity-strip");
       console.log("[ACTIVITY-STRIP] mounted into explicit [data-tt-activity-strip] container");
     }
+    // Mobile: make the strip position:fixed under the nav (see CSS) and
+    // pad the body so the first content card sits below it. Desktop: no-op.
+    ensureMobileSpacer(host);
     refresh(host);
 
     // Bug 2026-05-20 (PR after #238): on initial page load the first
