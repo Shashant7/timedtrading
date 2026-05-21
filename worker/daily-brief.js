@@ -4003,13 +4003,23 @@ export async function generateDailyBrief(env, type, opts = {}) {
         _emailReport.ok = sent > 0 && failed === 0;
         _emailReport.reason = sent > 0 ? (failed === 0 ? "ok" : "partial_failure") : "all_failed";
         // Capture up to 5 failure reasons so the admin can spot bad emails
-        // / sendgrid rejects without grepping logs.
+        // / sendgrid rejects without grepping logs. Include `details`
+        // (SendGrid response body, first 300 chars) so a 401 can be
+        // distinguished between "key revoked" / "scope missing" /
+        // "from address unverified" without needing wrangler tail.
         const failures = [];
         for (let i = 0; i < results.length && failures.length < 5; i++) {
           const r = results[i];
           const u = optedInUsers[i];
-          if (r.status === "rejected") failures.push({ to: u?.email, error: String(r.reason).slice(0, 200) });
-          else if (r.value && !r.value.ok) failures.push({ to: u?.email, error: r.value.error || "unknown" });
+          if (r.status === "rejected") {
+            failures.push({ to: u?.email, error: String(r.reason).slice(0, 200) });
+          } else if (r.value && !r.value.ok) {
+            failures.push({
+              to: u?.email,
+              error: r.value.error || "unknown",
+              details: r.value.details ? String(r.value.details).slice(0, 300) : undefined,
+            });
+          }
         }
         if (failures.length) _emailReport.failure_samples = failures;
         console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);

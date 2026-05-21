@@ -1284,6 +1284,7 @@ const ROUTES = [
   ["POST", "/timed/email/preferences", "POST /timed/email/preferences"],
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
   ["GET",  "/timed/admin/email-diagnostic",   "GET /timed/admin/email-diagnostic"],
+  ["GET",  "/timed/admin/sendgrid-health",    "GET /timed/admin/sendgrid-health"],
   // ── Waitlist (pre-launch CTA) ──
   ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
   ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
@@ -61043,6 +61044,75 @@ export default {
       }
 
       // POST /timed/admin/send-sample-emails - Send one of each email type to a given address (admin/API key)
+      // GET /timed/admin/sendgrid-health
+      //
+      // 2026-05-21 — Direct probe of the configured SendGrid API key.
+      // Pings GET https://api.sendgrid.com/v3/scopes which is the cheapest
+      // authenticated SendGrid endpoint and returns the granted scopes
+      // (we need "mail.send" for production). Returns the verbatim
+      // status + body so an admin can immediately tell:
+      //   • 200 → key is valid, returns the scope list (verify mail.send)
+      //   • 401 → key is invalid / revoked / unknown to SendGrid
+      //   • 403 → key is valid but doesn't have the queried scope
+      //   • anything else → SendGrid outage / network error
+      // No body changes; read-only.
+      if (routeKey === "GET /timed/admin/sendgrid-health") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const apiKey = env?.SENDGRID_API_KEY;
+        if (!apiKey) {
+          return sendJSON({
+            ok: false,
+            configured: false,
+            error: "no_api_key",
+            remedy: "Set the SENDGRID_API_KEY secret on the worker (cd worker && wrangler secret put SENDGRID_API_KEY).",
+          }, 200, corsHeaders(env, req));
+        }
+        let status = null;
+        let bodyText = "";
+        let bodyJson = null;
+        try {
+          const probe = await fetch("https://api.sendgrid.com/v3/scopes", {
+            method: "GET",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          });
+          status = probe.status;
+          bodyText = await probe.text().catch(() => "");
+          try { bodyJson = JSON.parse(bodyText); } catch { bodyJson = null; }
+        } catch (e) {
+          return sendJSON({
+            ok: false,
+            configured: true,
+            error: "network_error",
+            details: String(e?.message || e).slice(0, 300),
+          }, 200, corsHeaders(env, req));
+        }
+        const scopes = Array.isArray(bodyJson?.scopes) ? bodyJson.scopes : null;
+        const hasMailSend = !!scopes?.some(s => String(s).toLowerCase() === "mail.send");
+        const masked = `${String(apiKey).slice(0, 6)}…${String(apiKey).slice(-4)} (len=${String(apiKey).length})`;
+        let diagnosis = null;
+        if (status === 200) {
+          diagnosis = hasMailSend
+            ? "Key is valid AND has mail.send scope — sends should succeed."
+            : "Key is valid but is MISSING the 'mail.send' scope — every mail/send call will 401. Recreate the key with Mail Send permission.";
+        } else if (status === 401) {
+          diagnosis = "SendGrid rejected the key (401). It has been revoked / deleted / typed wrong. Create a new API key in SendGrid → Settings → API Keys with Mail Send permission, then run `wrangler secret put SENDGRID_API_KEY` in the worker directory and redeploy.";
+        } else if (status === 403) {
+          diagnosis = "Key is valid but lacks permission to read scopes (403). Mail Send may still work — run POST /timed/admin/send-sample-emails to confirm. Otherwise recreate with Mail Send scope.";
+        }
+        return sendJSON({
+          ok: status === 200,
+          configured: true,
+          key_masked: masked,
+          email_from: env?.EMAIL_FROM || "notifications@timed-trading.com (default)",
+          email_enabled: env?.EMAIL_ENABLED === "true" || env?.EMAIL_ENABLED === true,
+          sendgrid_status: status,
+          sendgrid_response: bodyJson || (bodyText ? bodyText.slice(0, 500) : null),
+          has_mail_send_scope: hasMailSend,
+          diagnosis,
+        }, 200, corsHeaders(env, req));
+      }
+
       // GET /timed/admin/email-diagnostic?email=foo@bar.com
       //
       // 2026-05-21 — Adds end-to-end visibility for "why didn't I get the
