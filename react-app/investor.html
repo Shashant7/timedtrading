@@ -19,6 +19,7 @@
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
+    <script src="tt-global-search.js?v=20260521a" defer></script>
     <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <script src="ds-components.js?v=20260501a"></script>
@@ -746,6 +747,28 @@
           setRailTicker(String(sym).toUpperCase());
         }, []);
         const onCloseRail = useCallback(() => setRailTicker(null), []);
+
+        // 2026-05-21 — Global ticker search integration. See companion
+        // block in today.html for the full explanation.
+        useEffect(() => {
+          if (!RailOverlay) return;
+          const handler = (ev) => {
+            const t = String(ev?.detail?.ticker || "").toUpperCase();
+            if (!t) return;
+            setRailTicker(t);
+            try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t); } catch (_) {}
+          };
+          window.addEventListener("tt-open-ticker", handler);
+          try {
+            const u = new URL(window.location.href);
+            const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
+            if (t) {
+              setRailTicker(t);
+              try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t); } catch (_) {}
+            }
+          } catch (_) {}
+          return () => window.removeEventListener("tt-open-ticker", handler);
+        }, [RailOverlay]);
 
         // Search + filter — Investor mode now shows the entire universe
         // so a search bar narrows down to a specific ticker, and quick
