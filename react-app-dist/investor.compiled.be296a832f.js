@@ -373,6 +373,29 @@ function InvestorApp() {
     setRailTicker(String(sym).toUpperCase());
   }, []);
   const onCloseRail = useCallback(() => setRailTicker(null), []);
+  useEffect(() => {
+    if (!RailOverlay) return;
+    const handler = ev => {
+      const t = String(ev?.detail?.ticker || "").toUpperCase();
+      if (!t) return;
+      setRailTicker(t);
+      try {
+        if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
+      } catch (_) {}
+    };
+    window.addEventListener("tt-open-ticker", handler);
+    try {
+      const u = new URL(window.location.href);
+      const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
+      if (t) {
+        setRailTicker(t);
+        try {
+          if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return () => window.removeEventListener("tt-open-ticker", handler);
+  }, [RailOverlay]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGroup, setFilterGroup] = useState(null);
   return h(React.Fragment, null, !panelMounted && h("div", {

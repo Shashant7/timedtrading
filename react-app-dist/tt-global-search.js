@@ -1,0 +1,642 @@
+/* tt-global-search.js
+ *
+ * Global ticker search — present on every page via the top nav. Opens a
+ * command-palette-style overlay where the user types and picks a ticker
+ * from the live universe; the chosen ticker opens in the right rail
+ * (when the host page has a rail) or navigates to /active-trader.html
+ * with ?ticker=… (when it doesn't).
+ *
+ * Cross-page contract — two surfaces talk to host pages:
+ *
+ *   1. CustomEvent `tt-open-ticker`
+ *        detail: { ticker: "AAPL", source: "global-search" }
+ *      Pages that mount the right rail listen for this and call their
+ *      own setRailTicker(sym). See react-app/today.html (TodayApp),
+ *      react-app/active-trader.html, react-app/investor.html,
+ *      react-app/portfolio.html — each registers a single addEventListener
+ *      inside the React app's mount effect.
+ *
+ *   2. URL ?ticker=AAPL
+ *      Pages without a rail (insights, learn, faq, …) catch the event
+ *      below and window.location to /active-trader.html?ticker=AAPL.
+ *      Rail-enabled pages also read ?ticker= on first paint so the
+ *      handoff works.
+ *
+ * Auth: gated to authenticated users (pro/vip/admin). On free-tier
+ * accounts the widget hides itself — there is no ticker rail to open.
+ *
+ * Auto-mount: mirrors tt-nav-extras.js. Finds `nav.topnav .nav-row`
+ * and injects the trigger button before `.tt-nav-widgets`. Idempotent
+ * (skips if `#tt-global-search-btn` already exists).
+ *
+ * Keyboard:
+ *   /       focus search (when not typing in another input)
+ *   Cmd+K   same
+ *   Esc     close overlay
+ *   ↑ ↓     navigate results
+ *   Enter   open highlighted ticker
+ */
+(function () {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  if (document.getElementById("tt-global-search-btn")) return;
+
+  const API_BASE = window.TT_API_BASE || "";
+
+  // ── Styles (one-shot, idempotent) ───────────────────────────────
+  function ensureStyles() {
+    if (document.getElementById("tt-global-search-styles")) return;
+    const el = document.createElement("style");
+    el.id = "tt-global-search-styles";
+    el.textContent = `
+      .tt-gs-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+        color: var(--tt-text-muted, #9ca3af);
+        font-size: 12.5px;
+        font-family: var(--tt-font, 'Inter', sans-serif);
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+        flex-shrink: 0;
+      }
+      .tt-gs-trigger:hover {
+        background: rgba(255,255,255,0.06);
+        border-color: var(--tt-border-hi, rgba(255,255,255,0.14));
+        color: var(--tt-text, #e5e7eb);
+      }
+      .tt-gs-trigger svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .tt-gs-trigger .tt-gs-label { line-height: 1; }
+      .tt-gs-trigger .tt-gs-kbd {
+        font-family: var(--tt-font-mono, ui-monospace, 'SF Mono', Menlo, monospace);
+        font-size: 10px;
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        color: var(--tt-text-dim, #6b7280);
+        letter-spacing: 0.04em;
+      }
+      @media (max-width: 767px) {
+        /* On mobile compress to an icon-only round button so it fits next
+           to the existing nav widgets without crowding. */
+        .tt-gs-trigger .tt-gs-label,
+        .tt-gs-trigger .tt-gs-kbd { display: none; }
+        .tt-gs-trigger { width: 34px; padding: 0; justify-content: center; }
+      }
+      .tt-gs-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.55);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        z-index: 9000;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 80px 16px 16px;
+        animation: tt-gs-fade 120ms ease;
+      }
+      @keyframes tt-gs-fade { from { opacity: 0 } to { opacity: 1 } }
+      .tt-gs-panel {
+        width: 100%;
+        max-width: 520px;
+        background: var(--tt-bg-canvas, #0b0e11);
+        border: 1px solid var(--tt-border-hi, rgba(255,255,255,0.14));
+        border-radius: 14px;
+        box-shadow: 0 22px 60px rgba(0,0,0,0.55);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 96px);
+      }
+      .tt-gs-input-wrap {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+      }
+      .tt-gs-input-wrap svg {
+        width: 16px; height: 16px; flex-shrink: 0;
+        stroke: var(--tt-text-muted, #9ca3af); fill: none;
+        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+      }
+      .tt-gs-input {
+        flex: 1 1 auto;
+        background: transparent;
+        border: 0;
+        outline: 0;
+        color: var(--tt-text, #e5e7eb);
+        font-size: 16px;
+        font-family: var(--tt-font, 'Inter', sans-serif);
+      }
+      .tt-gs-input::placeholder { color: var(--tt-text-dim, #6b7280); }
+      .tt-gs-close {
+        background: none;
+        border: 0;
+        color: var(--tt-text-muted, #9ca3af);
+        font-size: 18px;
+        cursor: pointer;
+        padding: 0 4px;
+        line-height: 1;
+      }
+      .tt-gs-results {
+        list-style: none;
+        margin: 0;
+        padding: 4px 0;
+        overflow-y: auto;
+        max-height: 60vh;
+        -webkit-overflow-scrolling: touch;
+      }
+      .tt-gs-result {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        cursor: pointer;
+        color: var(--tt-text, #e5e7eb);
+        font-size: 13px;
+        font-family: var(--tt-font, 'Inter', sans-serif);
+        transition: background 80ms ease;
+      }
+      .tt-gs-result.is-active,
+      .tt-gs-result:hover { background: rgba(255,255,255,0.05); }
+      .tt-gs-result .tt-gs-sym {
+        font-family: var(--tt-font-mono, ui-monospace, 'SF Mono', Menlo, monospace);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--tt-text, #e5e7eb);
+        font-size: 13px;
+        min-width: 64px;
+      }
+      .tt-gs-result .tt-gs-name {
+        color: var(--tt-text-muted, #9ca3af);
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1 1 auto;
+      }
+      .tt-gs-result .tt-gs-sector {
+        color: var(--tt-text-dim, #6b7280);
+        font-size: 10.5px;
+        flex-shrink: 0;
+        padding: 2px 7px;
+        background: rgba(255,255,255,0.04);
+        border-radius: 999px;
+      }
+      .tt-gs-empty, .tt-gs-loading {
+        padding: 24px 16px;
+        text-align: center;
+        color: var(--tt-text-dim, #6b7280);
+        font-size: 13px;
+      }
+      .tt-gs-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+        background: rgba(255,255,255,0.015);
+        font-size: 10.5px;
+        color: var(--tt-text-dim, #6b7280);
+        font-family: var(--tt-font, 'Inter', sans-serif);
+      }
+      .tt-gs-footer .tt-gs-kbd {
+        font-family: var(--tt-font-mono, ui-monospace, 'SF Mono', Menlo, monospace);
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.10);
+        color: var(--tt-text-muted, #9ca3af);
+        margin: 0 4px;
+      }
+    `;
+    document.head.appendChild(el);
+  }
+
+  // ── Auth detection ──────────────────────────────────────────────
+  // We allow pro/vip/admin to use the global search. Free tier hides
+  // it entirely — there is no rail to open for them on the gated pages.
+  function isAuthorizedUser() {
+    try {
+      const ds = document.body && document.body.dataset;
+      const isPro = window._ttIsPro === true || ds?.isPro === "true";
+      const isAdmin = window._ttIsAdmin === true || ds?.isAdmin === "true";
+      const tier = String(ds?.userTier || "").toLowerCase();
+      return isPro || isAdmin || tier === "pro" || tier === "vip" || tier === "admin";
+    } catch { return false; }
+  }
+
+  // ── Universe loader (cached, multi-call dedup) ──────────────────
+  let _universeP = null;
+  function loadUniverse() {
+    if (_universeP) return _universeP;
+    _universeP = (async () => {
+      const out = new Map(); // SYM -> { ticker, name, sector }
+      try {
+        const r = await fetch(`${API_BASE}/timed/tickers`, { cache: "no-store", credentials: "include" });
+        if (r.ok) {
+          const j = await r.json();
+          const syms = Array.isArray(j?.tickers) ? j.tickers : [];
+          for (const s of syms) {
+            const sym = String(s).toUpperCase();
+            if (sym) out.set(sym, { ticker: sym, name: null, sector: null });
+          }
+        }
+      } catch (e) {
+        console.warn("[GLOBAL-SEARCH] universe fetch failed:", e);
+      }
+      // Try to enrich with company name + sector from /timed/all. Pro
+      // users can hit this; if it 401s we just fall back to symbol-only
+      // results, which still work fine.
+      try {
+        const r = await fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" });
+        if (r.ok) {
+          const j = await r.json();
+          const data = j?.data || j || {};
+          for (const [key, v] of Object.entries(data)) {
+            const sym = String(key).toUpperCase();
+            if (!sym) continue;
+            const ctx = v?.context || {};
+            const name = v?.companyName || v?.name || ctx.name || null;
+            const sector = ctx.sector || v?.sector || null;
+            if (!out.has(sym)) out.set(sym, { ticker: sym, name, sector });
+            else {
+              const cur = out.get(sym);
+              if (!cur.name && name) cur.name = name;
+              if (!cur.sector && sector) cur.sector = sector;
+            }
+          }
+        }
+      } catch (_) { /* best-effort enrichment */ }
+      return [...out.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+    })();
+    return _universeP;
+  }
+
+  // ── Score function — exact > prefix > substring(ticker) > substring(name) ──
+  function rank(item, qUp) {
+    if (!qUp) return 0;
+    const t = item.ticker;
+    if (t === qUp) return 1000;
+    if (t.startsWith(qUp)) return 800 - (t.length - qUp.length); // shorter prefix wins
+    if (t.includes(qUp)) return 500;
+    const n = String(item.name || "").toUpperCase();
+    if (n.startsWith(qUp)) return 400;
+    if (n.includes(qUp)) return 200;
+    return -1;
+  }
+
+  function search(universe, q) {
+    const qUp = String(q || "").trim().toUpperCase();
+    if (!qUp) {
+      // Show first 30 as default (alphabetical).
+      return universe.slice(0, 30);
+    }
+    const scored = [];
+    for (const it of universe) {
+      const s = rank(it, qUp);
+      if (s >= 0) scored.push({ it, s });
+    }
+    scored.sort((a, b) => b.s - a.s || a.it.ticker.localeCompare(b.it.ticker));
+    return scored.slice(0, 50).map(x => x.it);
+  }
+
+  // ── Overlay UI ───────────────────────────────────────────────────
+  let _overlay = null;
+  let _input = null;
+  let _resultsEl = null;
+  let _activeIdx = 0;
+  let _currentResults = [];
+  let _universe = [];
+
+  function closeOverlay() {
+    if (_overlay) {
+      _overlay.remove();
+      _overlay = null;
+      _input = null;
+      _resultsEl = null;
+      _activeIdx = 0;
+      _currentResults = [];
+    }
+  }
+
+  function renderResults() {
+    if (!_resultsEl) return;
+    _resultsEl.innerHTML = "";
+    if (_currentResults.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "tt-gs-empty";
+      empty.textContent = _input && _input.value
+        ? `No tickers match "${_input.value}".`
+        : "No tickers in the universe yet.";
+      _resultsEl.appendChild(empty);
+      return;
+    }
+    _currentResults.forEach((it, idx) => {
+      const li = document.createElement("li");
+      li.className = "tt-gs-result" + (idx === _activeIdx ? " is-active" : "");
+      li.setAttribute("role", "option");
+      li.setAttribute("data-ticker", it.ticker);
+      li.innerHTML =
+        `<span class="tt-gs-sym">${it.ticker}</span>` +
+        `<span class="tt-gs-name">${it.name ? escapeHtml(it.name) : ""}</span>` +
+        (it.sector ? `<span class="tt-gs-sector">${escapeHtml(it.sector)}</span>` : "");
+      li.addEventListener("mouseenter", () => {
+        if (_activeIdx !== idx) { _activeIdx = idx; updateActive(); }
+      });
+      li.addEventListener("click", () => pick(it.ticker));
+      _resultsEl.appendChild(li);
+    });
+  }
+
+  function updateActive() {
+    if (!_resultsEl) return;
+    const items = _resultsEl.querySelectorAll(".tt-gs-result");
+    items.forEach((el, i) => el.classList.toggle("is-active", i === _activeIdx));
+    const el = items[_activeIdx];
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function onInput() {
+    if (!_input) return;
+    _currentResults = search(_universe, _input.value);
+    _activeIdx = 0;
+    renderResults();
+  }
+
+  function onKey(e) {
+    if (!_overlay) return;
+    if (e.key === "Escape") { e.preventDefault(); closeOverlay(); return; }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (_currentResults.length === 0) return;
+      _activeIdx = (_activeIdx + 1) % _currentResults.length;
+      updateActive();
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (_currentResults.length === 0) return;
+      _activeIdx = (_activeIdx - 1 + _currentResults.length) % _currentResults.length;
+      updateActive();
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const r = _currentResults[_activeIdx];
+      if (r) pick(r.ticker);
+      return;
+    }
+  }
+
+  /**
+   * Fire the open-ticker event. Pages that mount the right rail listen
+   * and call setRailTicker(); pages that don't fall back to redirect.
+   * Also push ?ticker=… onto the URL so reloads keep the rail open.
+   */
+  function pick(sym) {
+    const ticker = String(sym || "").toUpperCase();
+    if (!ticker) return;
+    closeOverlay();
+    try {
+      // Update URL so reload preserves the open ticker. Use replaceState
+      // (not pushState) — we don't want every search to clutter history.
+      const u = new URL(window.location.href);
+      u.searchParams.set("ticker", ticker);
+      window.history.replaceState({ ttTicker: ticker }, "", u.toString());
+    } catch (_) { /* best-effort */ }
+    // Page apps subscribe to this event and call their own setRailTicker.
+    const ev = new CustomEvent("tt-open-ticker", {
+      detail: { ticker, source: "global-search" },
+      bubbles: true,
+    });
+    window.dispatchEvent(ev);
+    // Fallback: if no listener handled it within 250ms (e.g. on a page
+    // without the rail), navigate to /active-trader.html which does.
+    setTimeout(() => {
+      if (window._ttGlobalSearchLastHandled !== ticker) {
+        const next = `/active-trader.html?ticker=${encodeURIComponent(ticker)}`;
+        if (window.location.pathname.endsWith("/active-trader.html")) {
+          // Already on AT — the React app should be listening; if it
+          // isn't (page mid-mount, etc.) the URL change above will be
+          // picked up on the next bootstrap pass.
+          return;
+        }
+        window.location.href = next;
+      }
+    }, 250);
+  }
+
+  // Pages that handle the event should mark it as handled so the
+  // fallback redirect doesn't fire over the top of a successful open.
+  window.addEventListener("tt-open-ticker", (ev) => {
+    // Default mark — pages listening BEFORE us will set last_handled
+    // themselves. This handler runs last (capture:false, attached
+    // here at script-load time, which is before page apps mount).
+    // Actually pages mount AFTER us (their effects run after defer),
+    // so they'll set this when they call setRailTicker.
+    if (ev?.detail?.handled === true) {
+      window._ttGlobalSearchLastHandled = String(ev.detail.ticker || "").toUpperCase();
+    }
+  });
+  // Convenience exposed for journey-page React effects: pages can call
+  // this in their tt-open-ticker handler to suppress the fallback nav.
+  window.ttGlobalSearchMarkHandled = function (sym) {
+    window._ttGlobalSearchLastHandled = String(sym || "").toUpperCase();
+  };
+
+  function openOverlay() {
+    if (_overlay) {
+      // Already open — refocus the input.
+      if (_input) _input.focus();
+      return;
+    }
+    _overlay = document.createElement("div");
+    _overlay.className = "tt-gs-overlay";
+    _overlay.setAttribute("role", "dialog");
+    _overlay.setAttribute("aria-modal", "true");
+    _overlay.setAttribute("aria-label", "Search tickers");
+    _overlay.addEventListener("click", (e) => {
+      if (e.target === _overlay) closeOverlay();
+    });
+
+    const panel = document.createElement("div");
+    panel.className = "tt-gs-panel";
+
+    const inputWrap = document.createElement("div");
+    inputWrap.className = "tt-gs-input-wrap";
+    inputWrap.innerHTML = `
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input class="tt-gs-input" type="text" placeholder="Search tickers — try AAPL, NVDA, sector name…" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+      <button class="tt-gs-close" aria-label="Close">&times;</button>
+    `;
+    panel.appendChild(inputWrap);
+
+    _resultsEl = document.createElement("ul");
+    _resultsEl.className = "tt-gs-results";
+    _resultsEl.setAttribute("role", "listbox");
+    panel.appendChild(_resultsEl);
+
+    const footer = document.createElement("div");
+    footer.className = "tt-gs-footer";
+    footer.innerHTML = `
+      <span><span class="tt-gs-kbd">↑</span><span class="tt-gs-kbd">↓</span> navigate · <span class="tt-gs-kbd">↵</span> open</span>
+      <span><span class="tt-gs-kbd">esc</span> close</span>
+    `;
+    panel.appendChild(footer);
+
+    _overlay.appendChild(panel);
+    document.body.appendChild(_overlay);
+
+    _input = inputWrap.querySelector(".tt-gs-input");
+    const closeBtn = inputWrap.querySelector(".tt-gs-close");
+    closeBtn.addEventListener("click", closeOverlay);
+    _input.addEventListener("input", onInput);
+    _input.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey);
+
+    // Render a placeholder while universe loads, then default list.
+    if (_universe.length === 0) {
+      const loading = document.createElement("li");
+      loading.className = "tt-gs-loading";
+      loading.textContent = "Loading universe…";
+      _resultsEl.appendChild(loading);
+      loadUniverse().then((u) => {
+        _universe = u;
+        // Only render if overlay is still open
+        if (_overlay) onInput();
+      });
+    } else {
+      onInput();
+    }
+
+    // Pre-warm focus so typing starts immediately.
+    setTimeout(() => { try { _input.focus(); } catch (_) {} }, 0);
+  }
+
+  // ── Global keyboard shortcut (/ and Cmd+K / Ctrl+K) ─────────────
+  function onGlobalKey(e) {
+    if (!isAuthorizedUser()) return;
+    const t = e.target;
+    const isInputLike = t && (
+      t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
+      t.isContentEditable === true
+    );
+    // Cmd+K / Ctrl+K always works (standard command-palette shortcut).
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      openOverlay();
+      return;
+    }
+    // "/" only when not typing in an input.
+    if (!isInputLike && e.key === "/") {
+      e.preventDefault();
+      openOverlay();
+    }
+  }
+  document.addEventListener("keydown", onGlobalKey);
+
+  // ── Inject the trigger button into the top nav ──────────────────
+  function injectTrigger() {
+    if (document.getElementById("tt-global-search-btn")) return true;
+    const navRow = document.querySelector("nav.topnav .nav-row");
+    if (!navRow) return false;
+    if (!isAuthorizedUser()) {
+      // User not authorized — bail. We re-run on auth-bootstrap below.
+      return false;
+    }
+    ensureStyles();
+    const btn = document.createElement("button");
+    btn.id = "tt-global-search-btn";
+    btn.type = "button";
+    btn.className = "tt-gs-trigger";
+    btn.setAttribute("aria-label", "Search tickers");
+    btn.title = "Search tickers (press / or Cmd+K)";
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span class="tt-gs-label">Search</span>
+      <span class="tt-gs-kbd">/</span>
+    `;
+    btn.addEventListener("click", openOverlay);
+    // Insert before the right-side widgets (Discord / Bell / Avatar)
+    // injected by tt-nav-extras.js. If they aren't there yet (race),
+    // just append to the row.
+    const widgets = navRow.querySelector(".tt-nav-widgets");
+    if (widgets) {
+      navRow.insertBefore(btn, widgets);
+    } else {
+      navRow.appendChild(btn);
+    }
+    // Pre-warm the universe so the first overlay open feels instant.
+    loadUniverse();
+    return true;
+  }
+
+  function mount() {
+    if (injectTrigger()) return;
+    // Retry — the nav may not be in the DOM yet (e.g. React rebuild) or
+    // auth might not have resolved. Poll briefly + listen for the
+    // auth bootstrap event.
+    let tries = 0;
+    const t = setInterval(() => {
+      tries++;
+      if (injectTrigger() || tries >= 40) clearInterval(t);
+    }, 150);
+    window.addEventListener("tt-auth-bootstrap-updated", () => {
+      injectTrigger();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mount);
+  } else {
+    mount();
+  }
+
+  // ── Cross-page deep-link handoff ────────────────────────────────
+  // If we landed on this page via /active-trader.html?ticker=AAPL
+  // (or similar), surface the ticker via the same custom event so
+  // the page's React app opens the rail without each page needing
+  // its own bootstrap. Pages that don't listen will simply ignore
+  // it. The page's own event listener should remove the ?ticker=
+  // param after handling to keep the URL clean — we don't strip it
+  // here in case the user actually wants to share the URL.
+  function emitFromUrl() {
+    try {
+      const u = new URL(window.location.href);
+      const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
+      if (!t) return;
+      if (!isAuthorizedUser()) return;
+      // Defer so React apps that mount on DOMContentLoaded have a tick
+      // to subscribe before we fire.
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("tt-open-ticker", {
+          detail: { ticker: t, source: "deep-link" },
+          bubbles: true,
+        }));
+      }, 50);
+    } catch (_) {}
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", emitFromUrl);
+  } else {
+    emitFromUrl();
+  }
+})();
