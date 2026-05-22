@@ -149,7 +149,7 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
  * loadRegimeMatrix — convenience read used by the scoring path.
  *
  * Cached in module scope per-isolate to avoid hitting KV on every
- * ticker in the */5 scoring loop. KV reads are free but the round-trip
+ * ticker in the every-5-minute scoring loop. KV reads are free but the round-trip
  * adds latency; one read per cron tick is plenty since the matrix
  * itself only refreshes daily.
  */
