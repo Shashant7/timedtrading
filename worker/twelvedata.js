@@ -37,12 +37,26 @@ const SYM_REVERSE = Object.fromEntries(
   Object.entries(SYM_NORMALIZE).map(([k, v]) => [v, k]),
 );
 
-// Non-equity tickers that TwelveData cannot serve.
+// Non-equity tickers that TwelveData cannot serve cleanly via /quote +
+// /time_series for our US-equity universe.
+//
 // P0.7.132 — VX1! REMOVED from skip list. TD serves the VIX index ("VIX")
 // natively, and we now route VX1! through the standard TD price-feed path
 // (mapped to "VIX") instead of the fragile TradingView webhook.
+//
+// 2026-05-22 — GOLD REMOVED from skip list. GOLD on NYSE is Barrick
+// Gold Corp (real US equity, TD serves it via /quote and /time_series
+// with currency=USD, type='Common Stock'). It was incorrectly added
+// here under the assumption "GOLD = futures alias for gold spot", which
+// is wrong — that's GC1! (already in the list). Effect of the bug: the
+// price-feed cron stopped updating `timed:prices.GOLD` for 13+ days
+// and the daily candle backfill kept returning upserted=0, which
+// surfaced as the recurring "Worst D candle stale 8.4d (GOLD)" alarm.
+//
+// SILVER stays — TD's lookup for "SILVER" resolves to "Aditya Birla
+// Sun Life Silver ETF" on NSE (India), not anything in our universe.
 const SKIP_TICKERS = new Set([
-  "ES1!", "NQ1!", "GOLD", "SILVER", "US500", "GC1!", "SI1!",
+  "ES1!", "NQ1!", "SILVER", "US500", "GC1!", "SI1!",
 ]);
 
 function getApiKey(env) {

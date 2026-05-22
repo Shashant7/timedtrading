@@ -3542,28 +3542,58 @@ function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction
   }
 
   // ── 3. Predictions (ES / SPY / QQQ / IWM) ───────────────────────────────
-  // Extracted from AI content via regex. Present when the model emits
-  // "**X Prediction**: ..." lines. Keep them brief — 1–2 sentences max.
-  if (esPrediction)   fields.push({ name: "📈 ES",  value: esPrediction.slice(0, 380),  inline: false });
-  if (spyPrediction)  fields.push({ name: "📊 SPY", value: spyPrediction.slice(0, 380), inline: false });
-  if (qqqPrediction)  fields.push({ name: "📊 QQQ", value: qqqPrediction.slice(0, 380), inline: false });
-  if (iwmPrediction)  fields.push({ name: "📊 IWM", value: iwmPrediction.slice(0, 380), inline: false });
+  // 2026-05-22 — Predictions now ship as the compact 4-line block from
+  // PR #262 ( **SPY @ $X** · Range $Y-$Z / ▲ Bull above ... / ▼ Bear
+  // below ... / Lean: ... ). Discord supports **bold** and Unicode
+  // arrows natively so the block renders exactly as intended. The
+  // 1024-char field limit is plenty for the new format (~120-180 chars
+  // each), so we drop the slice(0, 380) ceiling — truncating mid-line
+  // would break the structure.
+  const _fitField = (s) => String(s || "").slice(0, 1000);
+  if (esPrediction)   fields.push({ name: "📈 ES Prediction",  value: _fitField(esPrediction),  inline: false });
+  if (spyPrediction)  fields.push({ name: "📊 SPY Prediction", value: _fitField(spyPrediction), inline: false });
+  if (qqqPrediction)  fields.push({ name: "📊 QQQ Prediction", value: _fitField(qqqPrediction), inline: false });
+  if (iwmPrediction)  fields.push({ name: "📊 IWM Prediction", value: _fitField(iwmPrediction), inline: false });
 
-  // ── 4. ATR Reference Levels ──────────────────────────────────────────────
-  const refBlocks = [
-    fib.es?.levels  && fmtFib(fib.es,  "ES / SPX · Reference Levels"),
-    fib.spy?.levels && fmtFib(fib.spy, "SPY · Reference Levels"),
-    fib.nq?.levels  && fmtFib(fib.nq,  "NQ · Reference Levels"),
-    fib.qqq?.levels && fmtFib(fib.qqq, "QQQ · Reference Levels"),
-    fib.iwm?.levels && fmtFib(fib.iwm, "IWM · Reference Levels"),
+  // ── 4. Top Headlines (PR #264) ───────────────────────────────────────────
+  // Top broad-market headlines from Finnhub (Reuters / Bloomberg / WSJ
+  // etc.). Up to 4, each a single line. Hides when the headline feed
+  // is empty / missing (no FINNHUB_API_KEY etc.).
+  const _headlines = Array.isArray(infographic?.topHeadlines) ? infographic.topHeadlines : [];
+  if (_headlines.length > 0) {
+    const headlineStr = _headlines.slice(0, 4).map(h => {
+      const t = String(h.title || "").slice(0, 110);
+      const s = h.source ? ` _(${h.source})_` : "";
+      return `• ${t}${s}`;
+    }).join("\n");
+    fields.push({ name: "📰 Top Headlines", value: headlineStr.slice(0, 1000), inline: false });
+  }
+
+  // ── 5. ATR Reference Levels (compact) ────────────────────────────────────
+  // 2026-05-22 — Demoted to a single compact line per ETF. Predictions
+  // above already carry actionable bull/bear triggers + targets; the
+  // full 38.2/50/61.8 fib pair is reference-only — it doesn't deserve
+  // its own oversized block. Keep it for traders who want the Saty
+  // ladder, but make it scannable.
+  const fmtFibCompact = (fib, label) => {
+    if (!fib || !fib.levels) return null;
+    const lvl = fib.levels;
+    const gate = fib.goldenGate === "OPEN_UP" ? "🟢" : fib.goldenGate === "OPEN_DOWN" ? "🔴" : "⚪";
+    return `${gate} ${label}: ±38.2% ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"} · ±61.8% ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`;
+  };
+  const refLines = [
+    fmtFibCompact(fib.es,  "ES"),
+    fmtFibCompact(fib.spy, "SPY"),
+    fmtFibCompact(fib.nq,  "NQ"),
+    fmtFibCompact(fib.qqq, "QQQ"),
+    fmtFibCompact(fib.iwm, "IWM"),
   ].filter(Boolean);
-  if (refBlocks.length > 0) {
+  if (refLines.length > 0) {
     fields.push({
-      name: "─── Reference Levels (ATR fib) ───",
-      value: "_Levels feed the predictions above; not the primary plan._",
+      name: "ATR Reference Levels",
+      value: refLines.join("\n").slice(0, 1000),
       inline: false,
     });
-    for (const f of refBlocks) fields.push(f);
   }
 
   // ── 5. Economic Events ───────────────────────────────────────────────────

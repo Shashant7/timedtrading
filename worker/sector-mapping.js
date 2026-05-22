@@ -96,6 +96,12 @@ const SECTOR_MAP = {
   'ORCL': 'Information Technology',
   // 2026-05-22: GRNY/GRNI May 2026 rebalance added NOW (ServiceNow).
   'NOW': 'Information Technology',
+  // 2026-05-22: DELL was being scored but missing from SECTOR_MAP,
+  // so it fell into the same degraded path as CF/NOW/PM (see PR #254).
+  // Surfaced via the candle_freshness_60 alarm (worst 60m candle
+  // 66.5h stale) — adding DELL to the core universe gets it on the
+  // price-feed cron + candle backfill rotation.
+  'DELL': 'Information Technology',
   'KLAC': 'Information Technology',
   'ANET': 'Information Technology',
   'CDNS': 'Information Technology',
