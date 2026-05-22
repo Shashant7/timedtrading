@@ -407,6 +407,14 @@ import {
   computeRegimeFavorMultiplier as markovComputeRegimeFavorMultiplier,
   computeDwellExhaustion as markovComputeDwellExhaustion,
 } from "./lib/regime-markov-policy.js";
+/* 2026-05-22 Phase C — Hidden Markov Model. K=3 latent regimes
+   (BULL_TREND / CHOP / BEAR_TREND) learned from a 5-feature daily
+   emission vector (SPY return, SPY ATR%, VIX-normalized, universe
+   breadth, sector dispersion). Trained weekly via Baum-Welch with
+   multi-start; decoded daily via Viterbi. Surfaces as a single
+   universe-wide signal (timed:regime:hmm:latest) plus an
+   AI CIO memory field. See worker/lib/regime-hmm.js for the math. */
+import { trainAndPersistHMM, decodeAndPersistLatentRegime, loadLatentRegime } from "./lib/regime-hmm-compute.js";
 /* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
    Trade trajectory recorder. Backfills bubble-map cell sequences from
    trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
@@ -1305,6 +1313,9 @@ const ROUTES = [
   ["GET",  "/timed/admin/sendgrid-health",    "GET /timed/admin/sendgrid-health"],
   ["GET",  "/timed/admin/regime-transitions", "GET /timed/admin/regime-transitions"],
   ["POST", "/timed/admin/regime-transitions/rebuild", "POST /timed/admin/regime-transitions/rebuild"],
+  ["GET",  "/timed/admin/regime-hmm",         "GET /timed/admin/regime-hmm"],
+  ["POST", "/timed/admin/regime-hmm/train",   "POST /timed/admin/regime-hmm/train"],
+  ["POST", "/timed/admin/regime-hmm/decode",  "POST /timed/admin/regime-hmm/decode"],
   // ── Waitlist (pre-launch CTA) ──
   ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
   ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
@@ -15757,7 +15768,22 @@ async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
 // CIO Memory → worker/cio/cio-memory.js
 
 function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCache) {
-  return _cioBuildMemory(sym, direction, tickerData, allTrades, memoryCache);
+  const mem = _cioBuildMemory(sym, direction, tickerData, allTrades, memoryCache);
+  // 2026-05-22 Phase C — Surface the universe-wide HMM latent regime
+  // in the CIO memory object so the LLM prompt naturally includes
+  // it ("Latent regime: BULL_TREND [posterior 0.78 / 0.18 / 0.04]").
+  // Pulled from tickerData where the scoring path already attached
+  // it; tolerant of absence.
+  try {
+    if (mem && typeof mem === "object" && tickerData?.latent_regime?.state) {
+      mem.latent_regime = {
+        state: tickerData.latent_regime.state,
+        posterior: tickerData.latent_regime.posterior,
+        decoded_at: tickerData.latent_regime.decoded_at,
+      };
+    }
+  } catch (_) { /* CIO memory enrichment is best-effort */ }
+  return mem;
 }
 
 
@@ -27185,6 +27211,24 @@ async function runDataLifecycle(env, opts = {}) {
       }
     } catch (markovErr) {
       console.error("[DATA LIFECYCLE] Markov matrix rebuild error:", String(markovErr?.message || markovErr).slice(0, 300));
+    }
+
+    // 9. HMM decode (2026-05-22)
+    //
+    // Daily Viterbi-decode of the most recent emission sequence
+    // against the cached HMM model. Cheap — no training. If the
+    // model hasn't been fit yet (first deploy / weekly train cron
+    // hasn't run) this no-ops. The weekly train pass is in the
+    // scheduled() cron handler, not here, because it's heavier.
+    try {
+      const _hmmRes = await decodeAndPersistLatentRegime(env);
+      if (_hmmRes?.ok) {
+        console.log(`[DATA LIFECYCLE] HMM latent regime decoded: ${_hmmRes.state}`);
+      } else if (_hmmRes?.error !== "no_model") {
+        console.warn(`[DATA LIFECYCLE] HMM decode skipped/failed: ${_hmmRes?.error || "unknown"}`);
+      }
+    } catch (hmmErr) {
+      console.error("[DATA LIFECYCLE] HMM decode error:", String(hmmErr?.message || hmmErr).slice(0, 300));
     }
   } catch (err) {
     console.error("[DATA LIFECYCLE] Error:", err);
@@ -61271,6 +61315,67 @@ export default {
         }
       }
 
+      // GET /timed/admin/regime-hmm
+      //
+      // 2026-05-22 — Reads the cached HMM latent regime + last-train
+      // diagnostics. Returns null fields when the HMM hasn't been
+      // trained yet (first deploy, or weekly cron hasn't run).
+      if (routeKey === "GET /timed/admin/regime-hmm") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const [modelBlob, latent] = await Promise.all([
+            KV.get("timed:regime:hmm:model:v1", "json").catch(() => null),
+            KV.get("timed:regime:hmm:latest", "json").catch(() => null),
+          ]);
+          return sendJSON({
+            ok: true,
+            model: modelBlob,
+            latest: latent,
+            remedy: !modelBlob ? "POST /timed/admin/regime-hmm/train to fit the model for the first time." : undefined,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/regime-hmm/train?window_days=365&num_starts=6
+      // Runs the full Baum-Welch fit (multi-start) and persists the
+      // new model + immediately decodes the latest sequence so consumers
+      // don't have to wait for the daily decode pass.
+      if (routeKey === "POST /timed/admin/regime-hmm/train") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const opts = {};
+          const wd = Number(url.searchParams.get("window_days"));
+          const ns = Number(url.searchParams.get("num_starts"));
+          if (Number.isFinite(wd)) opts.windowDays = wd;
+          if (Number.isFinite(ns)) opts.numStarts = ns;
+          const res = await trainAndPersistHMM(env, opts);
+          return sendJSON(res, res.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/regime-hmm/decode — Viterbi-decode the most
+      // recent emission sequence against the cached model. Cheap (no
+      // training) and useful when feature inputs have just been
+      // backfilled.
+      if (routeKey === "POST /timed/admin/regime-hmm/decode") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const res = await decodeAndPersistLatentRegime(env);
+          return sendJSON(res, res.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/regime-transitions/rebuild?window_days=90&min_obs=20
       //
       // Triggers an immediate recompute of the regime transition matrix
@@ -74108,6 +74213,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 11 || _utcH === 12))             vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
       if (_utcDay === 1 && (_utcH === 14 || _utcH === 15))          vc.add("0 15 * * 1");
+      // 2026-05-22 — Weekly HMM retrain. Sundays at 05:00 UTC (12 AM
+      // ET in EST, 1 AM ET in EDT). Picked because the model needs
+      // ~15 s of CPU and Sunday early-morning has zero competing
+      // work. The actual handler lives further down in scheduled().
+      if (_utcDay === 0 && _utcH === 5)                             vc.add("0 5 * * 0");
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
@@ -74185,6 +74295,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Calibration now runs locally via `node scripts/calibrate.js`.
     // The cron-based pipeline was removed because it exceeded Worker timeout limits
     // and overloaded D1. See tasks/lessons.md for details.
+
+    // Weekly HMM retrain — Sundays at 05:00 UTC.
+    //
+    // 2026-05-22 Phase C — Baum-Welch is heavier than the daily decode
+    // (multi-start of ~6 fits with 80–150 iters each over ~365 obs).
+    // Once a week is plenty since the model captures structural regime
+    // characteristics (mean SPY return per regime, dispersion, VIX
+    // level, breadth), which don't shift week-to-week. Daily decode
+    // (runDataLifecycle step 9) handles "where are we right now"
+    // against the cached model.
+    if (vc.has("0 5 * * 0")) {
+      ctx.waitUntil((async () => {
+        try {
+          const _res = await trainAndPersistHMM(env, { windowDays: 365, numStarts: 6 });
+          if (_res?.ok) {
+            console.log(`[HMM TRAIN] Weekly retrain ok: rows=${_res.train_rows}, logLik=${_res.train_log_lik?.toFixed(2)}, labels=${JSON.stringify(_res.labels)}`);
+          } else {
+            console.warn(`[HMM TRAIN] Weekly retrain skipped/failed: ${_res?.error || "unknown"}`);
+          }
+        } catch (e) {
+          console.error("[HMM TRAIN] Weekly retrain error:", String(e?.message || e).slice(0, 300));
+        }
+      })());
+    }
 
     // Weekly Retrospective: Fridays at 4:15 PM ET (20:15 UTC in EDT, 21:15 UTC in EST)
     if (vc.has("15 20 * * 5") || vc.has("15 21 * * 5")) {
@@ -76214,6 +76348,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[SCORING] loadRegimeMatrix failed:", String(e?.message || e).slice(0, 150));
         }
 
+        // Phase C — Load the latent regime (HMM-decoded) once per
+        // scoring tick. Universe-wide; one signal per market, not per
+        // ticker. Same KV-read-with-isolate-cache pattern.
+        let _latentRegimeCache = null;
+        try {
+          _latentRegimeCache = await loadLatentRegime(env);
+        } catch (e) {
+          console.warn("[SCORING] loadLatentRegime failed:", String(e?.message || e).slice(0, 150));
+        }
+
         // Load adaptive config from model_config (written by calibration Apply)
         let _adaptiveRankWeights = null, _adaptiveEntryGates = null, _adaptiveRegimeGates = null, _adaptiveSLTP = null;
         try {
@@ -76695,6 +76839,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       ...fc,
                       matrix_window_days: _regimeMatrixCache.window_days,
                       matrix_computed_at: _regimeMatrixCache.computed_at,
+                    };
+                  }
+                  // Phase C — Attach the HMM latent regime when we have one.
+                  // Universe-wide signal — same value across every ticker
+                  // this tick. The AI CIO reads this from the payload's
+                  // _ticker_profile path via buildCIOMemory.
+                  if (_latentRegimeCache && _latentRegimeCache.state) {
+                    result.latent_regime = {
+                      state: _latentRegimeCache.state,
+                      posterior: _latentRegimeCache.posterior,
+                      decoded_at: _latentRegimeCache.decoded_at,
                     };
                   }
                   // Exhaustion check — advisory only. Threshold 2σ above

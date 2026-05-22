@@ -213,6 +213,12 @@ const D1_MINIMAL_KEYS = [
   // horizons + meta), needed by the right-rail "What's likely next"
   // panel and by the AI CIO when it reasons about position holdability.
   "regime_forecast",
+  // 2026-05-22 Phase C — HMM latent regime (universe-wide signal,
+  // attached to every ticker payload for downstream reads). Tiny.
+  "latent_regime",
+  // 2026-05-22 Phase B — Markov dwell exhaustion advisory + run-length
+  // counters. Tiny.
+  "regime_exhausted", "_regime_run_length", "_regime_run_started_at",
 ];
 
 export function minimalPayloadForD1(obj) {
