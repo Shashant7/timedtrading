@@ -209,6 +209,10 @@ const D1_MINIMAL_KEYS = [
   "swing_consensus", "daily_structure", "regime_class", "regime",
   "tf_summary", "ema_regime_1h", "ema_regime_4h", "ema_regime_daily",
   "orb", "overnight_gap", "reset_at", "ticker",
+  // 2026-05-22 — Markov regime forecast bundle. Tiny (~4 numbers × 3
+  // horizons + meta), needed by the right-rail "What's likely next"
+  // panel and by the AI CIO when it reasons about position holdability.
+  "regime_forecast",
 ];
 
 export function minimalPayloadForD1(obj) {

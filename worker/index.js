@@ -389,6 +389,14 @@ import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
+/* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
+   the article-derived plan. Daily-computed transition matrix over the
+   4 HTF/LTF quadrant states; per-ticker n-step forecast attached to
+   the scoring payload. Read-only of trail_5m_facts; result persisted
+   to KV. See worker/lib/regime-markov.js for the math and
+   docs/D1_RETENTION_POLICY.md / tasks notes for context. */
+import { forecastBundle as regimeForecastBundle } from "./lib/regime-markov.js";
+import { computeAndPersistRegimeMatrix, loadRegimeMatrix } from "./lib/regime-markov-compute.js";
 /* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
    Trade trajectory recorder. Backfills bubble-map cell sequences from
    trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
@@ -1285,6 +1293,8 @@ const ROUTES = [
   ["POST", "/timed/admin/send-sample-emails", "POST /timed/admin/send-sample-emails"],
   ["GET",  "/timed/admin/email-diagnostic",   "GET /timed/admin/email-diagnostic"],
   ["GET",  "/timed/admin/sendgrid-health",    "GET /timed/admin/sendgrid-health"],
+  ["GET",  "/timed/admin/regime-transitions", "GET /timed/admin/regime-transitions"],
+  ["POST", "/timed/admin/regime-transitions/rebuild", "POST /timed/admin/regime-transitions/rebuild"],
   // ── Waitlist (pre-launch CTA) ──
   ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
   ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
@@ -27062,6 +27072,24 @@ async function runDataLifecycle(env, opts = {}) {
       }
     } catch (removedErr) {
       console.error("[DATA LIFECYCLE] Removed-ticker purge error:", removedErr);
+    }
+
+    // 8. Markov regime transition matrix (2026-05-22)
+    //
+    // Rebuilds the universe-wide P matrix + stationary + mean-dwell
+    // from the last 90 days of trail_5m_facts and persists to KV
+    // (timed:regime:matrix:global). Reads only; no new D1 writes.
+    // Runs at the tail of the lifecycle so we get a fresh trail_5m_facts
+    // (aggregation already happened in step 1).
+    try {
+      const _markovRes = await computeAndPersistRegimeMatrix(env, { windowDays: 90, minObs: 20 });
+      if (_markovRes?.ok) {
+        console.log(`[DATA LIFECYCLE] Markov matrix rebuilt: ${_markovRes.summary} | ${_markovRes.total_transitions} transitions, ${_markovRes.suspicious_pct}% double-flips`);
+      } else {
+        console.warn(`[DATA LIFECYCLE] Markov matrix rebuild skipped/failed: ${_markovRes?.error || "unknown"}`);
+      }
+    } catch (markovErr) {
+      console.error("[DATA LIFECYCLE] Markov matrix rebuild error:", String(markovErr?.message || markovErr).slice(0, 300));
     }
   } catch (err) {
     console.error("[DATA LIFECYCLE] Error:", err);
@@ -61124,6 +61152,52 @@ export default {
       }
 
       // POST /timed/admin/send-sample-emails - Send one of each email type to a given address (admin/API key)
+      // GET /timed/admin/regime-transitions
+      //
+      // 2026-05-22 — Returns the universe-wide Markov transition matrix
+      // computed daily from trail_5m_facts. JSON shape documented in
+      // worker/lib/regime-markov-compute.js (computeAndPersistRegimeMatrix
+      // payload). Read-only.
+      if (routeKey === "GET /timed/admin/regime-transitions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const matrix = await loadRegimeMatrix(env, { force: true });
+          if (!matrix) {
+            return sendJSON({
+              ok: false,
+              error: "no_matrix_yet",
+              remedy: "POST /timed/admin/regime-transitions/rebuild to compute it for the first time.",
+            }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, ...matrix }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/regime-transitions/rebuild?window_days=90&min_obs=20
+      //
+      // Triggers an immediate recompute of the regime transition matrix
+      // from trail_5m_facts. Normally fires automatically once per day
+      // via runDataLifecycle; this endpoint exists for the first-run
+      // case and for ad-hoc recomputes (e.g. after a backfill).
+      if (routeKey === "POST /timed/admin/regime-transitions/rebuild") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const windowDays = Number(url.searchParams.get("window_days")) || undefined;
+          const minObs = Number(url.searchParams.get("min_obs"));
+          const opts = {};
+          if (windowDays) opts.windowDays = windowDays;
+          if (Number.isFinite(minObs)) opts.minObs = minObs;
+          const result = await computeAndPersistRegimeMatrix(env, opts);
+          return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/sendgrid-health
       //
       // 2026-05-21 — Direct probe of the configured SendGrid API key.
@@ -76031,6 +76105,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           _livePricesCache = lpRaw?.prices || null;
         } catch (_) {}
 
+        // 2026-05-22 — Load the Markov regime matrix once per scoring tick.
+        // Cheap (one KV read; module-scoped cache inside loadRegimeMatrix
+        // also dedupes across ticks within 5 min). The matrix powers the
+        // per-ticker `regime_forecast` field attached below (~76563).
+        // If null (first deploy before the daily compute has run), the
+        // scoring path just skips attachment — every other field still
+        // gets computed normally.
+        let _regimeMatrixCache = null;
+        try {
+          _regimeMatrixCache = await loadRegimeMatrix(env);
+        } catch (e) {
+          console.warn("[SCORING] loadRegimeMatrix failed:", String(e?.message || e).slice(0, 150));
+        }
+
         // Load adaptive config from model_config (written by calibration Apply)
         let _adaptiveRankWeights = null, _adaptiveEntryGates = null, _adaptiveRegimeGates = null, _adaptiveSLTP = null;
         try {
@@ -76473,6 +76561,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
             } catch (_) { /* price freshness non-critical */ }
+
+            // 2026-05-22 — Attach the Markov regime forecast.
+            // Given the ticker's current state (HTF_BULL_LTF_BULL / …)
+            // and the universe-wide transition matrix P computed daily
+            // from trail_5m_facts, compute the probability distribution
+            // over states 1, 5, and 20 buckets ahead (5 min, 25 min,
+            // 100 min). The matrix itself was loaded once per cron tick
+            // above; here it's just 3 small matrix powers + an
+            // index lookup per ticker. The right rail's Technicals
+            // tab consumes this in PR B; the AI CIO can read it now.
+            try {
+              if (_regimeMatrixCache && _regimeMatrixCache.P && result?.state) {
+                const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
+                if (fc) {
+                  result.regime_forecast = {
+                    ...fc,
+                    matrix_window_days: _regimeMatrixCache.window_days,
+                    matrix_computed_at: _regimeMatrixCache.computed_at,
+                  };
+                }
+              }
+            } catch (e) {
+              // Forecast is best-effort — never break scoring.
+              console.warn(`[SCORING] regime forecast failed for ${ticker}:`, String(e?.message || e).slice(0, 150));
+            }
 
             // ── Delta instrumentation (Phase 7) ──
             const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
