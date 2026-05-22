@@ -2187,8 +2187,19 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     // Trigger logic:
     //   bullTrigger = max(overnight high, curPrice + 0.25*ATR)
     //   bearTrigger = min(overnight low,  curPrice - 0.25*ATR)
-    // Target logic: pick the nearest fib level past the trigger; if no fib
-    //   level is past the trigger, project trigger ± 0.75*ATR.
+    // Target logic: pick the FIRST fib level past the trigger that is
+    //   at least a meaningful distance away; if none qualifies,
+    //   project trigger ± 0.75*ATR.
+    //
+    // 2026-05-22 — Minimum target gap fix. The original `Math.max(bullTgt,
+    // rnd(bullTrig + 0.01))` floor only guaranteed $0.01 of separation,
+    // so when the overnight high coincided with a fib (e.g. bullTrig=$746.50
+    // and the next up-fib was $746.92) the brief read "Bull break above
+    // $746.50 opens $746.92" — a useless $0.42 "target". Now we require
+    // the target to be at least max(0.4 * dayAtr, 0.30% of price) above
+    // the trigger. If the nearest fib doesn't satisfy, walk the fib
+    // ladder until one does; if even the top fib is too close, fall
+    // back to trigger + 0.75 * dayAtr. Mirrored for bear side.
     const oHi = overnightRange?.high || curPrice;
     const oLo = overnightRange?.low || curPrice;
     const bullTrig = Math.max(rnd(oHi), rnd(curPrice + dayAtr * 0.25));
@@ -2199,15 +2210,19 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     // block kept reading the dead local. Use SATY_FIBS directly.
     const allUpFibs = SATY_FIBS.map(f => rnd(anchor + dayAtr * f));
     const allDnFibs = SATY_FIBS.map(f => rnd(anchor - dayAtr * f));
-    const bullTargetFib = allUpFibs.find(t => t > bullTrig);
-    const bearTargetFib = allDnFibs.slice().reverse().find(t => t < bearTrig);
-    const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + dayAtr * 0.75);
-    const bearTgt = bearTargetFib != null ? bearTargetFib : rnd(bearTrig - dayAtr * 0.75);
+    const _MIN_GAP = Math.max(dayAtr * 0.40, curPrice * 0.003);
+    // Walk fibs in order; first one ≥ trigger + _MIN_GAP wins.
+    const bullTargetFib = allUpFibs.find(t => t >= bullTrig + _MIN_GAP);
+    // Bear side: walk reversed; first fib ≤ trigger - _MIN_GAP wins.
+    const bearTargetFib = allDnFibs.slice().reverse().find(t => t <= bearTrig - _MIN_GAP);
+    const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + Math.max(dayAtr * 0.75, _MIN_GAP));
+    const bearTgt = bearTargetFib != null ? bearTargetFib : rnd(bearTrig - Math.max(dayAtr * 0.75, _MIN_GAP));
     atrFibLevels.gamePlan = {
       bullTrigger: bullTrig,
-      bullTarget:  Math.max(bullTgt, rnd(bullTrig + 0.01)),
+      bullTarget:  Math.max(bullTgt, rnd(bullTrig + _MIN_GAP)),
       bearTrigger: bearTrig,
-      bearTarget:  Math.min(bearTgt, rnd(bearTrig - 0.01)),
+      bearTarget:  Math.min(bearTgt, rnd(bearTrig - _MIN_GAP)),
+      min_gap: rnd(_MIN_GAP),
     };
   }
 
@@ -2983,30 +2998,34 @@ End with FIVE clear sections (in this exact order):
 
 - **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
 
-- **SPY Prediction**: 2–3 short sentences (≤ 50 words total). PLAIN ENGLISH. Use ONLY these
-  four anchors, by these names, with the exact numbers from "Game Plan Triggers + Day Gate" above
-  for SPY:
-    mid · Day Gate (low–high) · BULL break (trigger → target) · BEAR break (trigger → target).
-  Required shape (replace bracketed placeholders verbatim with the SPY numbers from the block above):
-    "SPY sits around the mid at \\$[mid] inside today's Day Gate \\$[dayLow]–\\$[dayHigh].
-     A BULL break above \\$[bullTrigger] opens \\$[bullTarget]; a BEAR break below
-     \\$[bearTrigger] opens \\$[bearTarget]. Expected range: \\$[dayLow]–\\$[dayHigh]."
-  Stay close to that shape — you may swap one of the two break sentences for a brief bias call
-  ("we lean BULL because …" / "BEAR is the higher-probability path because …") in ≤ 12 words,
-  but the four anchor numbers MUST appear and the Expected range MUST equal the Day Gate range.
+- **SPY Prediction**: ONE compact 3-line block (≤ 35 words total).
+  PLAIN ENGLISH. Use ONLY the SPY numbers from "Game Plan Triggers + Day Gate" above.
+  Required shape (replace bracketed placeholders verbatim — do NOT rephrase the labels):
 
-- **QQQ Prediction**: Same shape, same anchor names, QQQ numbers from the Game Plan block.
+  "**SPY @ \\$[mid]** · Range today \\$[dayLow]–\\$[dayHigh]
+   ▲ **Bull above \\$[bullTrigger] → \\$[bullTarget]**
+   ▼ **Bear below \\$[bearTrigger] → \\$[bearTarget]**
+   Lean: [BULL|BEAR|NEUTRAL] — [≤ 10 words explaining why]."
 
-- **IWM Prediction**: Same shape, same anchor names, IWM numbers from the Game Plan block.
+  Rules:
+  - Keep the 4-line structure exactly. No extra prose.
+  - The "Lean" line is a one-call directional read: BULL, BEAR, or NEUTRAL.
+  - The "why" must be ≤ 10 words and concrete (e.g. "VIX cooling + breadth firm",
+    "GG above, no overnight catalyst").
 
-- **Risk Factors**: 1–2 key risks in plain English.
+- **QQQ Prediction**: Same 4-line shape, QQQ numbers from the Game Plan block.
+
+- **IWM Prediction**: Same 4-line shape, IWM numbers from the Game Plan block.
+
+- **Risk Factors**: 1–2 key risks, each ≤ 20 words. Plain English. No hedge words.
 
 CRITICAL on the per-ETF predictions:
-- The user has a Game Plan card on screen showing exactly these mid / Day Gate / BULL break /
-  BEAR break numbers. The Prediction sentence below the card MUST cite the SAME numbers with
-  the SAME labels. Two different number sets for the same ETF kills the user's trust.
-- Triggers and targets are specific prices ("BULL break above \\$738.50 → target \\$742.10"),
-  not vague phrases ("if support holds").
+- The Game Plan card on screen shows the same mid / Range / Bull / Bear numbers.
+  The Prediction MUST cite IDENTICAL numbers with IDENTICAL labels.
+- Triggers and targets are specific prices, never vague phrases.
+- If bullTarget - bullTrigger is less than 0.4% of the price, the level math
+  is wrong upstream — flag it as "[level needs review]" rather than emitting
+  a meaningless tight pair. Same for the bear side.
 - Expected range MUST be a real low–high pair AND must equal the Day Gate bounds for that ETF.
 - Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.
 - DO NOT invent SMC level names ("4-hour gap", "ORB high", "daily pivot") in the Prediction
@@ -3291,13 +3310,48 @@ function sanitizeBriefContent(text) {
       && /target|toward|head|aim/i.test(lower);
 
     if (isBullish) {
-      const triggerMatch = line.match(/(?:break(?:s)? above|reclaim(?:s)?|hold(?:s)? above|opens? above)\s+([\d,.]+)/i);
-      const target = findTargetPrice(line);
+      const triggerMatch = line.match(/(?:break(?:s)? above|reclaim(?:s)?|hold(?:s)? above|opens? above|Bull above)\s+\$?([\d,.]+)/i);
+      const target = findTargetPrice(line) ?? (() => {
+        // 2026-05-22 — also catch the new compact shape:
+        //   "Bull above $746.50 → $749.00"
+        const arrowMatch = line.match(/(?:Bull above|break(?:s)? above)\s+\$?[\d,.]+\s*(?:→|->)\s*\$?([\d,.]+)/i);
+        return arrowMatch ? parseFloat(arrowMatch[1].replace(/,/g, "")) : null;
+      })();
       if (triggerMatch && target != null) {
         const trigger = parseFloat(triggerMatch[1].replace(/,/g, ""));
         if (Number.isFinite(trigger) && Number.isFinite(target) && target < trigger) {
           console.warn(`[BRIEF SANITIZE] Dropped invalid bullish line: trigger=${trigger}, target=${target}, line="${line.slice(0, 120)}"`);
           continue;
+        }
+        // 2026-05-22 — too-tight gap. If bull target is within 0.4% of
+        // the trigger, the level upstream is bad — replace the prose
+        // with a clear "level review needed" marker so the user knows
+        // we didn't ship a noise level masquerading as a target.
+        if (Number.isFinite(trigger) && Number.isFinite(target) && trigger > 0) {
+          const gapPct = (target - trigger) / trigger;
+          if (gapPct > 0 && gapPct < 0.004) {
+            console.warn(`[BRIEF SANITIZE] Tight bull pair detected (gap=${(gapPct * 100).toFixed(2)}% trigger=${trigger} target=${target}) — flagging for review`);
+            out.push(line.replace(/\$?[\d,.]+(\s*(?:→|->|opens)\s*)\$?[\d,.]+/, `$${trigger}$1[level needs review]`));
+            continue;
+          }
+        }
+      }
+    }
+
+    // Mirror the bull too-tight check for the bear side ("Bear below … → …").
+    const isBearTight = /\bBear below\b/i.test(line) || /break(?:s)? below/i.test(lower);
+    if (isBearTight) {
+      const bearArrow = line.match(/(?:Bear below|break(?:s)? below)\s+\$?([\d,.]+)\s*(?:→|->|opens?)\s*\$?([\d,.]+)/i);
+      if (bearArrow) {
+        const trig = parseFloat(bearArrow[1].replace(/,/g, ""));
+        const tgt  = parseFloat(bearArrow[2].replace(/,/g, ""));
+        if (Number.isFinite(trig) && Number.isFinite(tgt) && trig > 0 && tgt < trig) {
+          const gapPct = (trig - tgt) / trig;
+          if (gapPct > 0 && gapPct < 0.004) {
+            console.warn(`[BRIEF SANITIZE] Tight bear pair detected (gap=${(gapPct * 100).toFixed(2)}% trigger=${trig} target=${tgt}) — flagging for review`);
+            out.push(line.replace(/\$?[\d,.]+(\s*(?:→|->|opens)\s*)\$?[\d,.]+/, `$${trig}$1[level needs review]`));
+            continue;
+          }
         }
       }
     }
