@@ -26973,7 +26973,22 @@ async function runDataLifecycle(env, opts = {}) {
     }
 
     // 6. Retention purges for secondary D1 tables
-    // trail_5m_facts: keep indefinitely (historical scores/signals from replay); no age-based purge
+    //
+    // 2026-05-22 D1-COST: added retention for previously-unbounded
+    // research / diagnostic tables that were growing forever and
+    // could in principle re-bloat reads if they ever get hot. None of
+    // these are queried on the user-facing read path; they're for
+    // post-hoc analysis. Generous windows so historical research
+    // queries still have plenty of data:
+    //   - admission_cohort_log : per-trade Phase-C admission decisions.
+    //     We backtest on the rolling 6-12 month window; 365d is more
+    //     than enough.
+    //   - trail_5m_facts        : 5m aggregates from timed_trail. We
+    //     still keep daily summaries forever via trail_daily_summary,
+    //     so 365d of 5m granularity covers a full year of backtests.
+    //   - data_audit_log        : integrity audit events; 180d is
+    //     plenty for incident forensics.
+    //   - sessions              : analytics; 180d.
     const retentionPurges = [
       { table: "alerts", col: "ts", cutoff: now - DATA_LIFECYCLE_90D_MS, where: null },
       { table: "model_predictions", col: "ts", cutoff: now - DATA_LIFECYCLE_180D_MS, where: "AND resolved = 1" },
@@ -26982,6 +26997,14 @@ async function runDataLifecycle(env, opts = {}) {
       { table: "user_notifications", col: "created_at", cutoff: now - DATA_LIFECYCLE_60D_MS, where: "AND read_at IS NOT NULL" },
       { table: "queued_actions", col: "resolved_at", cutoff: now - DATA_LIFECYCLE_7D_MS, where: "AND status != 'PENDING'" },
       { table: "queued_actions", col: "queued_at", cutoff: now - 24 * 60 * 60 * 1000, where: "AND status = 'PENDING'" },
+      // Phase-C admission diagnostics — bounded at 1 year.
+      { table: "admission_cohort_log", col: "ts", cutoff: now - 365 * 24 * 60 * 60 * 1000, where: null },
+      // Daily 5m aggregates — keep 1 year of granular history.
+      { table: "trail_5m_facts", col: "bucket_ts", cutoff: now - 365 * 24 * 60 * 60 * 1000, where: null },
+      // Integrity audit — 180 days is plenty for forensics.
+      { table: "data_audit_log", col: "created_at", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
+      // User session analytics — 180 days.
+      { table: "sessions", col: "created_at", cutoff: now - DATA_LIFECYCLE_180D_MS, where: null },
     ];
     for (const { table, col, cutoff, where } of retentionPurges) {
       try {
@@ -32618,12 +32641,39 @@ async function d1GetCandlesAsOf(env, ticker, tf, limit = 200, asOfTs = null) {
   }
 }
 
+// 2026-05-22 — Per-isolate D1 write-elision caches.
+// Cloudflare bills row writes. We were writing ticker_index every TV
+// ingest (per-bar) and ticker_latest on every ingest + every scoring
+// tick + every catch-up sync, but the row content barely changes
+// between consecutive bars (last_seen_ts is hour-granular for index;
+// payload_json is identical across consecutive sub-5-min ingests
+// because scoring only refreshes the payload every */5).
+// These per-isolate caches let us skip the actual D1 write when we
+// already wrote an equivalent row within the staleness window.
+// The cache is per isolate (lost on respawn — that's a feature, it
+// guarantees a fresh write after a deploy/eviction).
+const _d1IndexLastSeenCache = new Map();      // sym -> last_seen_ts we last wrote
+const _d1LatestFingerprintCache = new Map();  // sym -> last payload fingerprint
+const D1_INDEX_STALENESS_MS = 60 * 60 * 1000; // 1h — last_seen is just for ordering
+
 async function d1UpsertTickerIndex(env, ticker, ts) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db_binding" };
   const sym = String(ticker || "").toUpperCase();
   if (_removedTickersCache && _removedTickersCache.has(sym)) return { ok: false, skipped: true, reason: "removed" };
   const nowTs = Number(ts) || Date.now();
+
+  // 2026-05-22 D1-COST: skip the upsert if we wrote last_seen for this
+  // ticker within the past hour. last_seen_ts is only used for ordering
+  // ("active tickers"), so hour-granularity is fine and we avoid a
+  // write per ingest (~21 ingests/h × 250 tickers = ~5.3K writes/h
+  // → reduced to ~250 writes/h).
+  try {
+    const cached = _d1IndexLastSeenCache.get(sym);
+    if (cached != null && (nowTs - cached) < D1_INDEX_STALENESS_MS) {
+      return { ok: true, skipped: true, reason: "fresh_cache" };
+    }
+  } catch (_) { /* defensive */ }
 
   try {
     await d1EnsureLatestSchema(env);
@@ -32635,6 +32685,7 @@ async function d1UpsertTickerIndex(env, ticker, ts) {
       )
       .bind(sym, nowTs, nowTs)
       .run();
+    try { _d1IndexLastSeenCache.set(sym, nowTs); } catch (_) {}
     return { ok: true };
   } catch (err) {
     console.error(`[D1 LATEST] Index upsert failed for ${sym}:`, err);
@@ -32693,6 +32744,26 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   if (!payloadJson)
     return { ok: false, skipped: true, reason: "payload_json_failed" };
 
+  // 2026-05-22 D1-COST: fingerprint-elide identical writes.
+  // payload_json content is largely stable between consecutive ingests
+  // because scoring only updates it every */5. Without this guard the
+  // TV ingest path rewrites the same ~50-200KB row on every bar — a
+  // huge billed-write share with zero functional difference. Compare
+  // (stage|payload_json.length|payload_json) against the last write
+  // for this ticker in THIS isolate; skip if identical. Cache evicts
+  // on isolate respawn (~hourly), so first write per isolate per
+  // ticker still goes through and refreshes the row + cache.
+  // Volatile fields (ts, updated_at) are EXCLUDED from the
+  // fingerprint — they tick on every call by design and have no
+  // observable effect on the row's UI/scoring usefulness.
+  try {
+    const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+    const cached = _d1LatestFingerprintCache.get(sym);
+    if (cached && cached === fp) {
+      return { ok: true, skipped: true, reason: "fingerprint_match" };
+    }
+  } catch (_) { /* defensive */ }
+
   try {
     await d1EnsureLatestSchema(env);
     await db
@@ -32708,6 +32779,15 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
       )
       .bind(sym, ts, updatedAt, stage, prevStage, payloadJson)
       .run();
+    try {
+      const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+      _d1LatestFingerprintCache.set(sym, fp);
+      // Keep cache bounded — keep the ~500 most recently written.
+      if (_d1LatestFingerprintCache.size > 500) {
+        const oldest = _d1LatestFingerprintCache.keys().next().value;
+        if (oldest) _d1LatestFingerprintCache.delete(oldest);
+      }
+    } catch (_) {}
     return { ok: true };
   } catch (err) {
     console.error(`[D1 LATEST] Latest upsert failed for ${sym}:`, err);
@@ -75491,11 +75571,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // ── End of every-minute handler (price feed only; bars moved to */5 in Phase 3) ──
     if (_isEveryMin) {
-      // COST OPTIMIZATION: D1 sync reduced from 4x per 5-min window to 1x.
-      // Only sync on minutes ending in 2 (e.g., :02, :07, :12).
-      // Saves ~300K D1 writes/month.
+      // 2026-05-22 D1-COST follow-up: cadence halved from every 5 min
+      // → every 15 min. The */5 scoring batch sync (see ~76710) already
+      // hits every changed ticker plus all open positions each scoring
+      // tick — this is purely a safety-net pass that picks up anything
+      // missed (e.g. tickers that haven't scored recently). 15-min
+      // cadence is plenty for that. Drops the catch-up writes from
+      // ~9.6K/day to ~3.2K/day (~190K → ~95K rows/month for this path).
+      // Prior comment: "Saves ~300K D1 writes/month" referred to the
+      // earlier 4x→1x cut; this is a further 3x on top of that.
       const _min1 = _now.getUTCMinutes();
-      if (_min1 % 5 === 2) {
+      if (_min1 % 15 === 2) {
         try {
           ctx.waitUntil(d1SyncLatestBatchFromKV(env, ctx, 25));
         } catch (e) {
@@ -76756,9 +76842,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _d1SkippedUnchanged = _d1TotalUniverse - _d1Entries.length;
               const _D1_CHUNK = 40;
               let _d1Synced = 0;
+              let _d1FpSkipped = 0;
               for (let _ci = 0; _ci < _d1Entries.length; _ci += _D1_CHUNK) {
                 const _chunk = _d1Entries.slice(_ci, _ci + _D1_CHUNK);
                 const _stmts = [];
+                const _bindSyms = [];
+                const _bindFps = [];
                 for (const [_sym, _pl] of _chunk) {
                   const _ts = Number(_pl?.ts) || _d1Now;
                   const _stage = _pl?.kanban_stage != null ? String(_pl.kanban_stage) : null;
@@ -76778,6 +76867,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     _pj = _s.length <= D1_MAX ? _s : null;
                   } catch { _pj = null; }
                   if (!_pj) continue;
+                  // 2026-05-22 D1-COST: fingerprint-elide identical writes
+                  // here too (mirror d1UpsertTickerLatest). Even though
+                  // we already filtered to `scoredUpdates`, the same
+                  // ticker can re-appear with an identical compacted
+                  // payload between consecutive */5 ticks (price moved
+                  // but slim/compact dropped that field). When the
+                  // payload that would be written matches what we
+                  // last wrote, skip the row.
+                  try {
+                    const _fp = `${_stage || ""}|${_pj.length}|${_pj}`;
+                    const _cached = _d1LatestFingerprintCache.get(_sym);
+                    if (_cached && _cached === _fp) {
+                      _d1FpSkipped++;
+                      continue;
+                    }
+                    _bindSyms.push(_sym);
+                    _bindFps.push(_fp);
+                  } catch (_) { /* fall through to write */ }
                   _stmts.push(
                     env.DB.prepare(
                       `INSERT INTO ticker_latest (ticker, ts, updated_at, kanban_stage, prev_kanban_stage, payload_json)
@@ -76792,9 +76899,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (_stmts.length > 0) {
                   await env.DB.batch(_stmts);
                   _d1Synced += _stmts.length;
+                  // Update fingerprint cache for successful writes.
+                  try {
+                    for (let _i = 0; _i < _bindSyms.length; _i++) {
+                      _d1LatestFingerprintCache.set(_bindSyms[_i], _bindFps[_i]);
+                    }
+                    while (_d1LatestFingerprintCache.size > 500) {
+                      const _oldest = _d1LatestFingerprintCache.keys().next().value;
+                      if (_oldest) _d1LatestFingerprintCache.delete(_oldest);
+                    }
+                  } catch (_) {}
                 }
               }
-              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} tickers (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`);
+              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} written, ${_d1FpSkipped} fingerprint-skipped (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`);
             } catch (_d1Err) {
               console.warn("[SCORING] D1 batch sync failed:", String(_d1Err?.message || _d1Err).slice(0, 200));
             }
