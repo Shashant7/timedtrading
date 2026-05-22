@@ -397,6 +397,24 @@ import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
    docs/D1_RETENTION_POLICY.md / tasks notes for context. */
 import { forecastBundle as regimeForecastBundle } from "./lib/regime-markov.js";
 import { computeAndPersistRegimeMatrix, loadRegimeMatrix } from "./lib/regime-markov-compute.js";
+/* 2026-05-22 Phase B — converts the matrix into actual trade-time
+   decisions. All three policy helpers are pure functions; the
+   behavioral changes that consume them are feature-flagged via
+   model_config so the operator can enable each independently after
+   observing matrix output for a few days. */
+import {
+  adaptChopHaircut as markovAdaptChopHaircut,
+  computeRegimeFavorMultiplier as markovComputeRegimeFavorMultiplier,
+  computeDwellExhaustion as markovComputeDwellExhaustion,
+} from "./lib/regime-markov-policy.js";
+/* 2026-05-22 Phase C — Hidden Markov Model. K=3 latent regimes
+   (BULL_TREND / CHOP / BEAR_TREND) learned from a 5-feature daily
+   emission vector (SPY return, SPY ATR%, VIX-normalized, universe
+   breadth, sector dispersion). Trained weekly via Baum-Welch with
+   multi-start; decoded daily via Viterbi. Surfaces as a single
+   universe-wide signal (timed:regime:hmm:latest) plus an
+   AI CIO memory field. See worker/lib/regime-hmm.js for the math. */
+import { trainAndPersistHMM, decodeAndPersistLatentRegime, loadLatentRegime } from "./lib/regime-hmm-compute.js";
 /* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
    Trade trajectory recorder. Backfills bubble-map cell sequences from
    trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
@@ -1295,6 +1313,9 @@ const ROUTES = [
   ["GET",  "/timed/admin/sendgrid-health",    "GET /timed/admin/sendgrid-health"],
   ["GET",  "/timed/admin/regime-transitions", "GET /timed/admin/regime-transitions"],
   ["POST", "/timed/admin/regime-transitions/rebuild", "POST /timed/admin/regime-transitions/rebuild"],
+  ["GET",  "/timed/admin/regime-hmm",         "GET /timed/admin/regime-hmm"],
+  ["POST", "/timed/admin/regime-hmm/train",   "POST /timed/admin/regime-hmm/train"],
+  ["POST", "/timed/admin/regime-hmm/decode",  "POST /timed/admin/regime-hmm/decode"],
   // ── Waitlist (pre-launch CTA) ──
   ["POST", "/timed/waitlist/join", "POST /timed/waitlist/join"],
   ["GET", "/timed/admin/waitlist", "GET /timed/admin/waitlist"],
@@ -15747,7 +15768,22 @@ async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
 // CIO Memory → worker/cio/cio-memory.js
 
 function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCache) {
-  return _cioBuildMemory(sym, direction, tickerData, allTrades, memoryCache);
+  const mem = _cioBuildMemory(sym, direction, tickerData, allTrades, memoryCache);
+  // 2026-05-22 Phase C — Surface the universe-wide HMM latent regime
+  // in the CIO memory object so the LLM prompt naturally includes
+  // it ("Latent regime: BULL_TREND [posterior 0.78 / 0.18 / 0.04]").
+  // Pulled from tickerData where the scoring path already attached
+  // it; tolerant of absence.
+  try {
+    if (mem && typeof mem === "object" && tickerData?.latent_regime?.state) {
+      mem.latent_regime = {
+        state: tickerData.latent_regime.state,
+        posterior: tickerData.latent_regime.posterior,
+        decoded_at: tickerData.latent_regime.decoded_at,
+      };
+    }
+  } catch (_) { /* CIO memory enrichment is best-effort */ }
+  return mem;
 }
 
 
@@ -21043,6 +21079,74 @@ async function processTradeSimulation(
         const _p5Mult = Number.isFinite(_p5Factor) && _p5Factor > 0 && _p5Factor <= 1
           ? _p5Factor : 0.5;
         _p5ChopHaircutPlan = { factor: _p5Mult, regime_class: tickerData.regime_class || "CHOPPY" };
+
+        // 2026-05-22 Phase B / Tier 1.3 — Markov-adaptive haircut.
+        // When `markov_chop_haircut_adaptive` is on AND we have a live
+        // matrix to consult, scale the base factor by stationary
+        // distribution + dwell context. The article: chop that the
+        // market structurally lives in deserves more haircut than
+        // chop that's about to break. See adaptChopHaircut() in
+        // worker/lib/regime-markov-policy.js for the full math.
+        // Default OFF — operator opts in via model_config.
+        if (_p5Gates0.markov_chop_haircut_adaptive === true) {
+          try {
+            const _matrix = await loadRegimeMatrix(tickerData?._env || env);
+            if (_matrix && _matrix.P && tickerData?.state) {
+              const _adapt = markovAdaptChopHaircut({
+                baseFactor: _p5Mult,
+                currentState: tickerData.state,
+                forecast: tickerData.regime_forecast,
+                stationary: _matrix.stationary,
+                runLength: Number(tickerData._regime_run_length) || 0,
+                meanDwell: _matrix.mean_dwell,
+                dwellStd:  _matrix.dwell_std,
+              });
+              if (_adapt && Number.isFinite(_adapt.factor)) {
+                _p5ChopHaircutPlan = {
+                  factor: _adapt.factor,
+                  regime_class: tickerData.regime_class || "CHOPPY",
+                  source: "markov_adaptive",
+                  base_factor: _adapt.baseFactor,
+                  reasons: _adapt.reasons,
+                  stationary_overrep: _adapt.stationary_overrep,
+                  dwell_overrun: _adapt.dwell_overrun,
+                  forecast_exit_p: _adapt.forecast_exit_p,
+                };
+              }
+            }
+          } catch (e) {
+            console.warn(`[PHASE5_R3_MARKOV_CHOP] ${sym}: adaptive haircut failed:`, String(e?.message || e).slice(0, 150));
+          }
+        }
+      }
+    }
+
+    // 2026-05-22 Phase B / Tier 2.4 — Markov probability-vector sizing PLAN.
+    // Computed upstream so both the admission log (below) and the actual
+    // sizing application (at the computeRiskBasedSize callsite) reference
+    // the same object. Feature-flagged via
+    //   model_config.gates.markov_position_sizing_enabled
+    // Default OFF — operator opts in after observing matrix data.
+    let _markovFavorPlan = null;
+    if (isEnter && entryPath) {
+      try {
+        const _mfGates = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
+          ? tickerData._env._deepAuditConfig.gates : {};
+        if (_mfGates.markov_position_sizing_enabled === true && tickerData?.regime_forecast) {
+          const _matrix = await loadRegimeMatrix(tickerData?._env || env);
+          if (_matrix && _matrix.stationary) {
+            const _favor = markovComputeRegimeFavorMultiplier({
+              forecast: tickerData.regime_forecast,
+              stationary: _matrix.stationary,
+              direction,
+            });
+            if (_favor && Number.isFinite(_favor.multiplier)) {
+              _markovFavorPlan = _favor;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[MARKOV_FAVOR_PLAN] ${sym}: failed:`, String(e?.message || e).slice(0, 150));
       }
     }
 
@@ -21205,7 +21309,7 @@ async function processTradeSimulation(
           cohort: _p4CohortDecision?.cohort,
           recent: _p4CohortDecision?.recent,
           cohort_gated: _p4CohortDecision?.gated,
-          meta: (_p4CohortDecision || _p5ChopHaircutPlan) ? {
+          meta: (_p4CohortDecision || _p5ChopHaircutPlan || _markovFavorPlan) ? {
             ...(_p4CohortDecision ? {
               cached: _p4CohortDecision.cached,
               cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
@@ -21214,6 +21318,12 @@ async function processTradeSimulation(
             // Phase 5 R3 — record the chop haircut PLAN on accept rows
             // (haircut only actually fires on accept; if smartGateBlocked
             // it's a "would have haircut" record for analysis).
+            ...(_markovFavorPlan && !smartGateBlocked ? {
+              markov_favor_applied: _markovFavorPlan,
+            } : {}),
+            ...(_markovFavorPlan && smartGateBlocked ? {
+              markov_favor_skipped: _markovFavorPlan,
+            } : {}),
             ...(_p5ChopHaircutPlan && !smartGateBlocked ? {
               chop_haircut_applied: _p5ChopHaircutPlan,
             } : {}),
@@ -21729,10 +21839,21 @@ async function processTradeSimulation(
           // plan applies so a stale mult never carries forward.
           if (_p5ChopHaircutPlan) {
             tickerData.__chop_size_mult = _p5ChopHaircutPlan.factor;
-            console.log(`[PHASE5_R3_CHOP_HAIRCUT] ${sym}: size × ${_p5ChopHaircutPlan.factor} (regime_class=${_p5ChopHaircutPlan.regime_class})`);
+            console.log(`[PHASE5_R3_CHOP_HAIRCUT] ${sym}: size × ${_p5ChopHaircutPlan.factor} (regime_class=${_p5ChopHaircutPlan.regime_class}${_p5ChopHaircutPlan.source ? ", source=" + _p5ChopHaircutPlan.source : ""})`);
           } else if (tickerData?.__chop_size_mult != null) {
             delete tickerData.__chop_size_mult;
           }
+
+          // 2026-05-22 Phase B / Tier 2.4 — Stamp the markov-favor
+          // multiplier (PLAN computed upstream) so gatherSizingMultipliers
+          // picks it up. Defensive clear when no plan applies.
+          if (_markovFavorPlan && Number.isFinite(_markovFavorPlan.multiplier)) {
+            tickerData.__regime_favor_mult = _markovFavorPlan.multiplier;
+            console.log(`[MARKOV_FAVOR_MULT] ${sym}: size × ${_markovFavorPlan.multiplier} (dir=${direction}, favor=${_markovFavorPlan.favorable_state}, p=${_markovFavorPlan.p_favor_forecast}, π=${_markovFavorPlan.p_favor_baseline})`);
+          } else if (tickerData?.__regime_favor_mult != null) {
+            delete tickerData.__regime_favor_mult;
+          }
+
           const _sizingMults = gatherSizingMultipliers(tickerData);
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
@@ -27090,6 +27211,24 @@ async function runDataLifecycle(env, opts = {}) {
       }
     } catch (markovErr) {
       console.error("[DATA LIFECYCLE] Markov matrix rebuild error:", String(markovErr?.message || markovErr).slice(0, 300));
+    }
+
+    // 9. HMM decode (2026-05-22)
+    //
+    // Daily Viterbi-decode of the most recent emission sequence
+    // against the cached HMM model. Cheap — no training. If the
+    // model hasn't been fit yet (first deploy / weekly train cron
+    // hasn't run) this no-ops. The weekly train pass is in the
+    // scheduled() cron handler, not here, because it's heavier.
+    try {
+      const _hmmRes = await decodeAndPersistLatentRegime(env);
+      if (_hmmRes?.ok) {
+        console.log(`[DATA LIFECYCLE] HMM latent regime decoded: ${_hmmRes.state}`);
+      } else if (_hmmRes?.error !== "no_model") {
+        console.warn(`[DATA LIFECYCLE] HMM decode skipped/failed: ${_hmmRes?.error || "unknown"}`);
+      }
+    } catch (hmmErr) {
+      console.error("[DATA LIFECYCLE] HMM decode error:", String(hmmErr?.message || hmmErr).slice(0, 300));
     }
   } catch (err) {
     console.error("[DATA LIFECYCLE] Error:", err);
@@ -61176,6 +61315,67 @@ export default {
         }
       }
 
+      // GET /timed/admin/regime-hmm
+      //
+      // 2026-05-22 — Reads the cached HMM latent regime + last-train
+      // diagnostics. Returns null fields when the HMM hasn't been
+      // trained yet (first deploy, or weekly cron hasn't run).
+      if (routeKey === "GET /timed/admin/regime-hmm") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env?.KV_TIMED;
+          if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+          const [modelBlob, latent] = await Promise.all([
+            KV.get("timed:regime:hmm:model:v1", "json").catch(() => null),
+            KV.get("timed:regime:hmm:latest", "json").catch(() => null),
+          ]);
+          return sendJSON({
+            ok: true,
+            model: modelBlob,
+            latest: latent,
+            remedy: !modelBlob ? "POST /timed/admin/regime-hmm/train to fit the model for the first time." : undefined,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/regime-hmm/train?window_days=365&num_starts=6
+      // Runs the full Baum-Welch fit (multi-start) and persists the
+      // new model + immediately decodes the latest sequence so consumers
+      // don't have to wait for the daily decode pass.
+      if (routeKey === "POST /timed/admin/regime-hmm/train") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const opts = {};
+          const wd = Number(url.searchParams.get("window_days"));
+          const ns = Number(url.searchParams.get("num_starts"));
+          if (Number.isFinite(wd)) opts.windowDays = wd;
+          if (Number.isFinite(ns)) opts.numStarts = ns;
+          const res = await trainAndPersistHMM(env, opts);
+          return sendJSON(res, res.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/regime-hmm/decode — Viterbi-decode the most
+      // recent emission sequence against the cached model. Cheap (no
+      // training) and useful when feature inputs have just been
+      // backfilled.
+      if (routeKey === "POST /timed/admin/regime-hmm/decode") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const res = await decodeAndPersistLatentRegime(env);
+          return sendJSON(res, res.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/regime-transitions/rebuild?window_days=90&min_obs=20
       //
       // Triggers an immediate recompute of the regime transition matrix
@@ -74013,6 +74213,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 11 || _utcH === 12))             vc.add("0 12 * * 1-5");
       if (_utcH === 4)                                              vc.add("0 4 * * *");
       if (_utcDay === 1 && (_utcH === 14 || _utcH === 15))          vc.add("0 15 * * 1");
+      // 2026-05-22 — Weekly HMM retrain. Sundays at 05:00 UTC (12 AM
+      // ET in EST, 1 AM ET in EDT). Picked because the model needs
+      // ~15 s of CPU and Sunday early-morning has zero competing
+      // work. The actual handler lives further down in scheduled().
+      if (_utcDay === 0 && _utcH === 5)                             vc.add("0 5 * * 0");
     }
 
     console.log(`[CRON] ${event.cron} → [${[...vc].join(", ")}] at ${_utcH}:${String(_utcM).padStart(2,"0")} day=${_utcDay}`);
@@ -74090,6 +74295,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Calibration now runs locally via `node scripts/calibrate.js`.
     // The cron-based pipeline was removed because it exceeded Worker timeout limits
     // and overloaded D1. See tasks/lessons.md for details.
+
+    // Weekly HMM retrain — Sundays at 05:00 UTC.
+    //
+    // 2026-05-22 Phase C — Baum-Welch is heavier than the daily decode
+    // (multi-start of ~6 fits with 80–150 iters each over ~365 obs).
+    // Once a week is plenty since the model captures structural regime
+    // characteristics (mean SPY return per regime, dispersion, VIX
+    // level, breadth), which don't shift week-to-week. Daily decode
+    // (runDataLifecycle step 9) handles "where are we right now"
+    // against the cached model.
+    if (vc.has("0 5 * * 0")) {
+      ctx.waitUntil((async () => {
+        try {
+          const _res = await trainAndPersistHMM(env, { windowDays: 365, numStarts: 6 });
+          if (_res?.ok) {
+            console.log(`[HMM TRAIN] Weekly retrain ok: rows=${_res.train_rows}, logLik=${_res.train_log_lik?.toFixed(2)}, labels=${JSON.stringify(_res.labels)}`);
+          } else {
+            console.warn(`[HMM TRAIN] Weekly retrain skipped/failed: ${_res?.error || "unknown"}`);
+          }
+        } catch (e) {
+          console.error("[HMM TRAIN] Weekly retrain error:", String(e?.message || e).slice(0, 300));
+        }
+      })());
+    }
 
     // Weekly Retrospective: Fridays at 4:15 PM ET (20:15 UTC in EDT, 21:15 UTC in EST)
     if (vc.has("15 20 * * 5") || vc.has("15 21 * * 5")) {
@@ -76119,6 +76348,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[SCORING] loadRegimeMatrix failed:", String(e?.message || e).slice(0, 150));
         }
 
+        // Phase C — Load the latent regime (HMM-decoded) once per
+        // scoring tick. Universe-wide; one signal per market, not per
+        // ticker. Same KV-read-with-isolate-cache pattern.
+        let _latentRegimeCache = null;
+        try {
+          _latentRegimeCache = await loadLatentRegime(env);
+        } catch (e) {
+          console.warn("[SCORING] loadLatentRegime failed:", String(e?.message || e).slice(0, 150));
+        }
+
         // Load adaptive config from model_config (written by calibration Apply)
         let _adaptiveRankWeights = null, _adaptiveEntryGates = null, _adaptiveRegimeGates = null, _adaptiveSLTP = null;
         try {
@@ -76562,24 +76801,77 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) { /* price freshness non-critical */ }
 
-            // 2026-05-22 — Attach the Markov regime forecast.
+            // 2026-05-22 — Attach the Markov regime forecast + advisory
+            // exhaustion flag.
+            //
             // Given the ticker's current state (HTF_BULL_LTF_BULL / …)
             // and the universe-wide transition matrix P computed daily
             // from trail_5m_facts, compute the probability distribution
             // over states 1, 5, and 20 buckets ahead (5 min, 25 min,
             // 100 min). The matrix itself was loaded once per cron tick
             // above; here it's just 3 small matrix powers + an
-            // index lookup per ticker. The right rail's Technicals
-            // tab consumes this in PR B; the AI CIO can read it now.
+            // index lookup per ticker.
+            //
+            // Phase B (2026-05-22) — also track the run length in the
+            // current state and apply computeDwellExhaustion to set the
+            // advisory `regime_exhausted` field. The AI CIO and the
+            // exit doctrine can read these; no auto-action.
             try {
-              if (_regimeMatrixCache && _regimeMatrixCache.P && result?.state) {
-                const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
-                if (fc) {
-                  result.regime_forecast = {
-                    ...fc,
-                    matrix_window_days: _regimeMatrixCache.window_days,
-                    matrix_computed_at: _regimeMatrixCache.computed_at,
-                  };
+              if (result?.state) {
+                // Run-length tracking. If the state hasn't changed since
+                // the last scoring tick, increment; otherwise reset.
+                // Stored on the payload so it survives across ticks
+                // (KV is the source of truth between */5 runs).
+                const _prevState = existing?.state || null;
+                const _prevRun   = Number(existing?._regime_run_length) || 0;
+                if (_prevState && _prevState === result.state) {
+                  result._regime_run_length = _prevRun + 1;
+                  result._regime_run_started_at = Number(existing?._regime_run_started_at) || now;
+                } else {
+                  result._regime_run_length = 1;
+                  result._regime_run_started_at = now;
+                }
+
+                if (_regimeMatrixCache && _regimeMatrixCache.P) {
+                  const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
+                  if (fc) {
+                    result.regime_forecast = {
+                      ...fc,
+                      matrix_window_days: _regimeMatrixCache.window_days,
+                      matrix_computed_at: _regimeMatrixCache.computed_at,
+                    };
+                  }
+                  // Phase C — Attach the HMM latent regime when we have one.
+                  // Universe-wide signal — same value across every ticker
+                  // this tick. The AI CIO reads this from the payload's
+                  // _ticker_profile path via buildCIOMemory.
+                  if (_latentRegimeCache && _latentRegimeCache.state) {
+                    result.latent_regime = {
+                      state: _latentRegimeCache.state,
+                      posterior: _latentRegimeCache.posterior,
+                      decoded_at: _latentRegimeCache.decoded_at,
+                    };
+                  }
+                  // Exhaustion check — advisory only. Threshold 2σ above
+                  // mean dwell for the current state.
+                  try {
+                    const ex = markovComputeDwellExhaustion({
+                      currentState: result.state,
+                      runLength: result._regime_run_length,
+                      meanDwell: _regimeMatrixCache.mean_dwell,
+                      dwellStd:  _regimeMatrixCache.dwell_std,
+                    });
+                    if (ex && ex.exhausted) {
+                      result.regime_exhausted = {
+                        sigma_above_mean: ex.sigma_above_mean,
+                        run_length: ex.run_length,
+                        mean_dwell: ex.mean_dwell,
+                        dwell_std: ex.dwell_std,
+                      };
+                    }
+                  } catch (e2) {
+                    console.warn(`[SCORING] regime exhaustion failed for ${ticker}:`, String(e2?.message || e2).slice(0, 120));
+                  }
                 }
               }
             } catch (e) {

@@ -56,6 +56,15 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
   // model_config.gates. See worker/index.js for the stamp site.
   const chop = Number(d.__chop_size_mult) || 1.0;
 
+  // 2026-05-22 Phase B / Tier 2.4 — Markov probability-vector sizing.
+  // computeRegimeFavorMultiplier() in worker/lib/regime-markov-policy.js
+  // returns a [0.5, 1.5]-clamped multiplier derived from the forecast
+  // probability of the favorable continuation state divided by its
+  // stationary baseline. Stamped by processTradeSimulation when
+  // gates.markov_position_sizing_enabled is true. Default 1.0
+  // (no effect) until the operator opts in via model_config.
+  const markovFavor = Number(d.__regime_favor_mult) || 1.0;
+
   const miOverall = String(
     d._marketInternals?.overall || d._env?._marketInternals?.overall || "",
   );
@@ -63,11 +72,11 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
     : miOverall === "balanced" ? 0.8 : 1.0;
 
   const rawCombined = regime * daRegime * rvol * danger * meanRevert
-    * pdz * spy * orb * chop * internals;
+    * pdz * spy * orb * chop * markovFavor * internals;
   const combined = Math.max(SIZING_MULT_FLOOR, rawCombined);
 
   return {
-    breakdown: { regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, internals },
+    breakdown: { regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, markovFavor, internals },
     rawCombined,
     combined,
   };
