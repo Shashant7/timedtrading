@@ -255,6 +255,7 @@
         const events = Array.isArray(data.events) ? data.events : [];
         const risks = Array.isArray(data.risks) ? data.risks : [];
         const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+        const topHeadlines = Array.isArray(data.topHeadlines) ? data.topHeadlines : [];
 
         const topThree = Array.isArray(data.topThree) ? data.topThree : null;
         const closingLine = data.closingLine || null;
@@ -711,6 +712,32 @@
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* 2026-05-22 — Top broad-market headlines block.
+                Editorial context the LLM may or may not have used in the
+                body. Always renders the raw headlines so the user can scan
+                them at a glance. Hides when empty (Finnhub key missing /
+                feed dry / etc.). */}
+            {topHeadlines.length > 0 && (
+              <div className="pt-3 border-t border-white/[0.06]">
+                <div className="text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold">Top Headlines</div>
+                <ul className="space-y-1.5">
+                  {topHeadlines.slice(0, 4).map((h, i) => (
+                    <li key={i} className="text-[12.5px] leading-snug text-[#e5e7eb]">
+                      {h.url ? (
+                        <a href={h.url} target="_blank" rel="noopener noreferrer"
+                           className="hover:text-white hover:underline">
+                          {h.title}
+                        </a>
+                      ) : <span>{h.title}</span>}
+                      {h.source && (
+                        <span className="ml-1.5 text-[10.5px] text-[#6b7280]">· {h.source}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
