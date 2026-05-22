@@ -567,9 +567,13 @@ function BriefCard({
   }, p.label), React.createElement("div", {
     className: "text-[13px] leading-relaxed",
     style: {
-      color: "var(--tt-text-1)"
+      color: "var(--tt-text-1)",
+      whiteSpace: "pre-line"
+    },
+    dangerouslySetInnerHTML: {
+      __html: String(p.body || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>').replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>').replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>')
     }
-  }, p.body)))), React.createElement("hr", {
+  })))), React.createElement("hr", {
     className: "tt-divider",
     style: {
       margin: "0 0 18px",
