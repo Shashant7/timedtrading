@@ -28822,17 +28822,34 @@ async function d1RecordFeatureUsage(env, userEmail, feature) {
 // Trade Alert Email Dispatch (per-ticker throttle)
 // ═══════════════════════════════════════════════════════════════════════
 
-const TRADE_EMAIL_THROTTLE_MS = 60 * 60 * 1000; // 1 hour per ticker per user
+// Per-event-type throttle. The previous single 1-hour-per-ticker throttle
+// was event-type-AGNOSTIC, which meant any entry email at T=0 silently
+// blocked the trim and exit emails for that same ticker for the next hour.
+// Fast-cycle trades (e.g. TLN entered 14:27 and exited 14:30 on 2026-05-22)
+// would only ever email the entry — the user reported missing trim/exit
+// emails entirely. Scope each event type to its own throttle window:
+//   - ENTRY: 1h — protects against re-entry / signal-flap noise.
+//   - TRIM:  5m — multi-tier trims can legitimately fire in rapid
+//              succession; 5m prevents storms while letting genuine
+//              partial-take-profit ladders email each step.
+//   - EXIT:  0  — never throttle. A trade close is a once-per-lifecycle
+//              event and uniquely important to the user; dropping it
+//              produces "what happened to my position?" confusion.
+const TRADE_EMAIL_THROTTLE_MS_BY_TYPE = {
+  TRADE_ENTRY: 60 * 60 * 1000, // 1 hour
+  TRADE_TRIM: 5 * 60 * 1000,   // 5 minutes
+  TRADE_EXIT: 0,               // never throttle close-outs
+};
 
 function shouldDispatchTradeAlertEmail(alertData) {
   // 2026-05-21 — previously this gated on `mode === "investor"` ONLY, which
   // meant the Active Trader kanban (whose callsites don't pass a mode and
   // therefore default to "trader") never produced a trade-alert email. The
-  // 1-hour per-ticker throttle below already protects against email storms
-  // for noisy tickers, and the recipient query
-  // (`getEmailOptedInUsers("trade_alerts")`) gates on the user's
-  // `trade_alerts` preference and a paid tier, so opting OUT of trader
-  // alerts remains entirely up to the user. Allow both modes.
+  // per-event-type throttle below protects against email storms for noisy
+  // tickers, and the recipient query (`getEmailOptedInUsers("trade_alerts")`)
+  // gates on the user's `trade_alerts` preference and a paid tier, so
+  // opting OUT of trader alerts remains entirely up to the user. Allow
+  // both modes.
   const mode = String(alertData?.mode || "trader").toLowerCase();
   return mode === "investor" || mode === "trader";
 }
@@ -28845,21 +28862,37 @@ async function dispatchTradeAlertEmails(env, alertData, ctx) {
     const users = await getEmailOptedInUsers(env, "trade_alerts");
     if (!users.length) return;
     const mode = String(alertData?.mode || "trader").toLowerCase();
+    const type = String(alertData?.type || "").toUpperCase();
+    // 2026-05-22: throttle key now includes the event type so entry / trim /
+    // exit emails do not block each other for the same ticker (see comment
+    // on TRADE_EMAIL_THROTTLE_MS_BY_TYPE above for the TLN incident that
+    // prompted this fix).
+    const throttleMs = Object.prototype.hasOwnProperty.call(TRADE_EMAIL_THROTTLE_MS_BY_TYPE, type)
+      ? TRADE_EMAIL_THROTTLE_MS_BY_TYPE[type]
+      : 60 * 60 * 1000;
+    let throttledCount = 0;
+    let queuedCount = 0;
     for (const u of users) {
-      // Per-ticker per-user throttle
-      const throttleKey = `timed:email:trade:${mode}:${u.email}:${alertData.ticker}`;
-      if (KV) {
+      const throttleKey = `timed:email:trade:${mode}:${type.toLowerCase() || "any"}:${u.email}:${alertData.ticker}`;
+      if (throttleMs > 0 && KV) {
         const last = await KV.get(throttleKey);
-        if (last && Date.now() - Number(last) < TRADE_EMAIL_THROTTLE_MS) continue;
+        if (last && Date.now() - Number(last) < throttleMs) {
+          throttledCount++;
+          continue;
+        }
       }
+      queuedCount++;
       const p = sendTradeAlertEmail(env, u.email, alertData)
         .then(r => {
-          if (r.ok && KV) KV.put(throttleKey, String(Date.now()), { expirationTtl: 3600 + 60 }).catch(() => {});
+          if (r.ok && throttleMs > 0 && KV) {
+            const ttl = Math.max(60, Math.ceil(throttleMs / 1000) + 60);
+            KV.put(throttleKey, String(Date.now()), { expirationTtl: ttl }).catch(() => {});
+          }
         })
         .catch(() => {});
       if (ctx?.waitUntil) ctx.waitUntil(p);
     }
-    console.log(`[EMAIL] Queued ${mode} trade alert emails for ${alertData.type} ${alertData.ticker} to ${users.length} users`);
+    console.log(`[EMAIL] Queued ${mode} trade alert emails for ${type || "?"} ${alertData.ticker} to ${queuedCount}/${users.length} users (throttled=${throttledCount}, throttle_ms=${throttleMs})`);
   } catch (e) {
     console.warn("[EMAIL] Trade alert dispatch failed:", String(e?.message || e).slice(0, 150));
   }
