@@ -10115,10 +10115,58 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       return "hold";
     }
 
-    // Check move status for critical issues
-    const tickerDataWithPositionSL = Number.isFinite(positionSL) && positionSL > 0
-      ? { ...tickerData, sl: positionSL }
-      : tickerData;
+    // Check move status for critical issues.
+    //
+    // P0 HOTFIX 2026-05-22: Misleading "Hit the stop loss" exits when SL was
+    // never breached. TLN LONG entered $374.66 / SL $349.34, exited 171s later
+    // at $375.14 (above entry) with exitReason "sl_breached,left_entry_corridor".
+    // Same pattern on LRN SHORT (entry $89.79 / SL $95.44, exit $89.54).
+    // Both physically impossible SL hits.
+    //
+    // Root cause: this block fed `tickerData` into computeMoveStatus, which
+    // reads `tickerData.sl`. When the live scoring tick that runs alongside
+    // an open trade recomputes a NEW setup for the same ticker (often
+    // direction-flipped), `tickerData.sl` is on the WRONG side of price for
+    // the actual trade direction — a LONG trade against a freshly-bearish
+    // signal sees `sl > price` (SHORT SLs sit above entry), so `price <= sl`
+    // is trivially true → spurious `sl_breached` → moveStatus pushes a fake
+    // reason → reason string gets persisted on close → Discord renders
+    // "Hit the stop loss".
+    //
+    // The previous override (`positionSL > 0 ? override : passthrough`) only
+    // protected the case where D1 returned a valid SL. If positionContext.sl
+    // was null/0 (race condition between trade entry and the next kanban
+    // tick before D1 positions.stop_loss is populated, or D1 read failure),
+    // the override silently fell through to the corrupted tickerData.sl.
+    //
+    // Fix has two layers:
+    //   1. Prefer openTrade.sl as a second fallback before tickerData.sl —
+    //      the trade record carries its own SL independent of D1.
+    //   2. If we still can't find a directionally-sane SL (LONG needs sl <
+    //      anchor, SHORT needs sl > anchor), null out tickerData.sl on the
+    //      passed-in copy so the SL gate in computeMoveStatus short-circuits
+    //      (it requires sl > 0 and Number.isFinite).
+    const _msOpenTradeSL = openPosition?.__tradeRef?.sl ?? openPosition?.__tradeRef?.stop_loss ?? null;
+    const _msAnchorForSlSanity = Number(openPosition?.entryPrice ?? openPosition?.avgEntry ?? tickerData?.entry_price ?? tickerData?.price);
+    const _msDir = String(direction || openPosition?.direction || "").toUpperCase();
+    const _msIsSane = (candidate) => {
+      const n = Number(candidate);
+      if (!Number.isFinite(n) || n <= 0) return false;
+      if (!Number.isFinite(_msAnchorForSlSanity) || _msAnchorForSlSanity <= 0) return Number.isFinite(n) && n > 0;
+      if (_msDir === "LONG") return n < _msAnchorForSlSanity;
+      if (_msDir === "SHORT") return n > _msAnchorForSlSanity;
+      return true;
+    };
+    let _msResolvedSL = null;
+    if (_msIsSane(positionSL)) _msResolvedSL = Number(positionSL);
+    else if (_msIsSane(_msOpenTradeSL)) _msResolvedSL = Number(_msOpenTradeSL);
+    else if (_msIsSane(tickerData?.sl)) _msResolvedSL = Number(tickerData.sl);
+    if (_msResolvedSL == null && Number.isFinite(Number(tickerData?.sl)) && Number(tickerData?.sl) > 0) {
+      console.log(`[SL_SANITY_SKIP] ${tickerData?.ticker || "?"} dir=${_msDir} tickerData.sl=${tickerData.sl} positionSL=${positionSL} openTrade.sl=${_msOpenTradeSL} anchor=${_msAnchorForSlSanity} — none directionally-sane, dropping SL from moveStatus check this tick`);
+    }
+    const tickerDataWithPositionSL = _msResolvedSL != null
+      ? { ...tickerData, sl: _msResolvedSL }
+      : { ...tickerData, sl: null };
     const moveStatus = computeMoveStatus(tickerDataWithPositionSL);
     const reasons = moveStatus?.reasons || [];
     const severity = String(moveStatus?.severity || "").toUpperCase();
@@ -10803,10 +10851,20 @@ function computeMoveStatus(tickerData) {
 
   // Soft invalidation: breached trigger/entry anchor (clear “get out” signal even before SL).
   // This avoids cases like AGQ: ENTER_NOW → large adverse move → no EXIT lane until SL.
+  //
+  // P0 HOTFIX 2026-05-22 (paired with the classifyKanbanStage SL-sanity
+  // guard): prefer the trade's actual entry price as the anchor, not the
+  // live signal's trigger_price. When the live scoring tick recomputes a
+  // *new* setup for an already-open trade (often direction-flipped), the
+  // refreshed `trigger_price` can be on the wrong side of the actual entry
+  // and trigger spurious "below_trigger" / "above_trigger" /
+  // "left_entry_corridor" reasons. The entry price is what we actually
+  // committed to — use it first, fall back to trigger_price only when no
+  // entry exists yet (signal still in setup/watch stage).
   const anchorPrice = (() => {
+    if (Number.isFinite(entryPriceRaw) && entryPriceRaw > 0) return entryPriceRaw;
     const trigPx = Number(tickerData?.trigger_price);
     if (Number.isFinite(trigPx) && trigPx > 0) return trigPx;
-    if (Number.isFinite(entryPriceRaw) && entryPriceRaw > 0) return entryPriceRaw;
     return null;
   })();
   if (Number.isFinite(price) && Number.isFinite(anchorPrice) && anchorPrice > 0) {
@@ -10827,10 +10885,38 @@ function computeMoveStatus(tickerData) {
     }
   }
 
-  // Hard invalidation: SL breach
+  // Hard invalidation: SL breach.
+  //
+  // P0 HOTFIX 2026-05-22 (defense in depth, paired with classifyKanbanStage
+  // SL-sanity guard): only fire sl_breached when `sl` is on the
+  // directionally-correct side of the anchor. A LONG must have sl < anchor
+  // (stop is BELOW entry); a SHORT must have sl > anchor (stop is ABOVE
+  // entry). When the live scoring tick recomputes a flipped-direction
+  // setup for an open trade, `tickerData.sl` momentarily holds the OTHER
+  // direction's SL — which sits on the wrong side of price relative to
+  // the actual trade direction — and would otherwise trip sl_breached on
+  // every tick until the next override took effect. See TLN/LRN incident
+  // 2026-05-22: 3-minute exits at PROFIT labelled "Hit the stop loss".
   if (Number.isFinite(price) && Number.isFinite(sl) && sl > 0) {
-    if (side === "LONG" && price <= sl) reasons.push("sl_breached");
-    if (side === "SHORT" && price >= sl) reasons.push("sl_breached");
+    const slDirectionallySane =
+      !Number.isFinite(anchorPrice) || anchorPrice <= 0
+        ? true
+        : side === "LONG"
+          ? sl < anchorPrice
+          : side === "SHORT"
+            ? sl > anchorPrice
+            : true;
+    if (!slDirectionallySane) {
+      // Quietly skip — caller has already passed in a wrong-direction SL
+      // and the upstream resolver should have caught it. Log so audits
+      // surface the misalignment without polluting normal flow.
+      try {
+        console.log(`[MOVE_STATUS_SL_SKIP] ${tickerData?.ticker || "?"} side=${side} sl=${sl} anchor=${anchorPrice} price=${price} — sl on wrong side of anchor for direction, skipping breach check`);
+      } catch (_) { /* logging guard */ }
+    } else {
+      if (side === "LONG" && price <= sl) reasons.push("sl_breached");
+      if (side === "SHORT" && price >= sl) reasons.push("sl_breached");
+    }
   }
 
   // Completion: TP reached/exceeded (move is "done" from entry standpoint)
