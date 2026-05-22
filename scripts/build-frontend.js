@@ -157,10 +157,16 @@ function removeBabelStandalone(html) {
 }
 
 function buildCompiledScriptName(outputHtmlPath, sourceCode) {
+  // Stable filename (no content hash). Pages auto-deploy reliably updates
+  // content at stable asset paths (e.g. shared-right-rail.compiled.js) but
+  // intermittently fails to publish *new* hashed asset paths to the edge,
+  // serving 500 / SPA-HTML fallback for fresh hashes. Cache-bust at the
+  // <script src="...?v=…"> query layer instead.
+  // Touch outputHtmlPath/sourceCode reads to silence unused-arg warnings
+  // without changing behaviour.
+  void sourceCode;
   const baseName = path.basename(outputHtmlPath, ".html");
-  const relOut = toPosix(path.relative(outputDir, outputHtmlPath));
-  const hash = hashText(`${relOut}:${sourceCode}`);
-  return `${baseName}.compiled.${hash}.js`;
+  return `${baseName}.compiled.js`;
 }
 
 function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {

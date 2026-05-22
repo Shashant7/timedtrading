@@ -20,7 +20,7 @@
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
-    <script src="tt-global-search-v2.js?v=20260522a" defer></script>
+    <script src="tt-global-search.js?v=20260522a" defer></script>
     <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
@@ -3544,7 +3544,7 @@
         const onCloseRail = useCallback(() => setRailTicker(null), []);
 
         // 2026-05-21 — Global ticker search integration.
-        // tt-global-search-v2.js dispatches a `tt-open-ticker` CustomEvent
+        // tt-global-search.js dispatches a `tt-open-ticker` CustomEvent
         // when the user picks a ticker from the nav search palette, and
         // also re-fires it on first paint when ?ticker=… is in the URL
         // (deep-link / cross-page handoff). We open the right rail and
