@@ -277,11 +277,28 @@ export async function buildTickerScenario(env, ticker) {
   const finalSupports = dedupeAndSort(supportLevels.filter(l => l.price < price), false).slice(0, 4);
   const finalResistances = dedupeAndSort(resistanceLevels.filter(l => l.price > price), true).slice(0, 4);
 
-  // Game Plan triggers: nearest swing reclaim above (bull) and break below (bear)
+  // Game Plan triggers: nearest swing reclaim above (bull) and break below (bear).
+  //
+  // 2026-05-22 — Minimum target gap. The 2nd-nearest resistance can be
+  // pennies away from the 1st when swings cluster, producing useless
+  // "$746.50 → $746.92" "targets". Require the target to be at least
+  // max(0.5 × ATR14, 0.4% of price) away from the trigger; walk further
+  // out the resistance/support stack until one qualifies, otherwise
+  // fall back to the projected ATR distance.
+  const _MIN_GAP = Math.max(atr14 * 0.50, price * 0.004);
   const bullTrigger = finalResistances[0]?.price || rnd2(price + atr14 * 0.25);
   const bearTrigger = finalSupports[0]?.price || rnd2(price - atr14 * 0.25);
-  const bullTarget = finalResistances[1]?.price || rnd2(price + atr14 * 1.0);
-  const bearTarget = finalSupports[1]?.price || rnd2(price - atr14 * 1.0);
+  const _pickFurther = (levels, fromPrice, dir) => {
+    // dir > 0 → above (resistances); dir < 0 → below (supports)
+    const minOk = dir > 0 ? fromPrice + _MIN_GAP : fromPrice - _MIN_GAP;
+    for (const l of levels) {
+      if (dir > 0 && l.price >= minOk) return l.price;
+      if (dir < 0 && l.price <= minOk) return l.price;
+    }
+    return null;
+  };
+  const bullTarget = _pickFurther(finalResistances, bullTrigger, +1) || rnd2(bullTrigger + Math.max(atr14 * 1.0, _MIN_GAP));
+  const bearTarget = _pickFurther(finalSupports, bearTrigger, -1) || rnd2(bearTrigger - Math.max(atr14 * 1.0, _MIN_GAP));
 
   // Golden Gate: best-effort from latest snapshot. Not all tickers have GG,
   // so this is null when not available. Daily Brief will skip the section.

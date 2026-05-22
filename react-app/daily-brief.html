@@ -792,8 +792,19 @@
                        style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
                     <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
                          style={{ color: accentColor }}>{p.label}</div>
+                    {/* 2026-05-22 — Predictions now ship as a 4-line compact
+                        block (Mid · Range · Bull · Bear · Lean). Render
+                        bold + line breaks instead of stripping them so the
+                        ▲ / ▼ stack reads as intended. */}
                     <div className="text-[13px] leading-relaxed"
-                         style={{ color: "var(--tt-text-1)" }}>{p.body}</div>
+                         style={{ color: "var(--tt-text-1)", whiteSpace: "pre-line" }}
+                         dangerouslySetInnerHTML={{
+                           __html: String(p.body || "")
+                             .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                             .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>')
+                             .replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>')
+                             .replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>'),
+                         }} />
                   </div>
                 ))}
               </div>
