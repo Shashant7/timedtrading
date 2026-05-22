@@ -779,6 +779,86 @@ export async function fetchFinnhubMarketNews(env, fromDate, toDate) {
   }
 }
 
+/**
+ * Fetch the day's top general market headlines from Finnhub (no econ
+ * keyword filter — these are the broad-market stories a trader would
+ * skim before the open). Limited to recent items and major sources.
+ * Returns a compact { title, source, url, ts } shape that the daily-brief
+ * infographic + email + web renderer all consume directly.
+ *
+ * Companion to fetchFinnhubMarketNews — that one is narrow (CPI /
+ * FOMC / NFP keyword filter) and feeds the LLM prompt. This one is
+ * broad and renders verbatim under "Top Headlines" so the user has
+ * the editorial context that didn't make it into the econ filter.
+ *
+ * @returns {Array<{ title, source, url, ts, summary }>}  up to 8 items
+ */
+export async function fetchFinnhubTopHeadlines(env, sinceTs) {
+  const token = env?.FINNHUB_API_KEY;
+  if (!token) return [];
+  try {
+    const url = `${FINNHUB_BASE}/news?category=general&minId=0&token=${token}`;
+    const resp = await fetch(url, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!resp.ok) {
+      console.warn(`[FINNHUB HEADLINES] Fetch failed: ${resp.status}`);
+      return [];
+    }
+    const news = await resp.json();
+    if (!Array.isArray(news)) return [];
+
+    // Prefer the last 18 hours so the morning brief includes overnight
+    // moves and the evening brief includes afternoon news. Falls back
+    // to "most recent 30" when sinceTs is missing.
+    const cutoffTs = Number.isFinite(sinceTs) && sinceTs > 0
+      ? sinceTs
+      : Math.floor(Date.now() / 1000) - 18 * 3600;
+
+    // Light source-quality filter — major financial publishers go to
+    // the top of the list, niche aggregators get demoted.
+    const PRIORITY_SOURCES = new Set([
+      "reuters", "bloomberg", "cnbc", "wall street journal", "wsj",
+      "financial times", "ft", "marketwatch", "barron's", "barrons",
+      "the wall street journal", "yahoo", "yahoo finance",
+    ]);
+    const scored = news
+      .filter(a => Number(a.datetime) >= cutoffTs && a.headline)
+      .map(a => {
+        const src = String(a.source || "").toLowerCase();
+        const priority = PRIORITY_SOURCES.has(src) ? 1 : 0;
+        return {
+          a,
+          score: priority * 10000 + Number(a.datetime || 0),
+        };
+      })
+      .sort((x, y) => y.score - x.score)
+      .slice(0, 8);
+
+    // De-dupe near-identical headlines (same first ~40 chars).
+    const seen = new Set();
+    const out = [];
+    for (const { a } of scored) {
+      const key = String(a.headline || "").toLowerCase().slice(0, 40);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        title: String(a.headline || "").trim(),
+        source: a.source || "",
+        url: a.url || "",
+        ts: Number(a.datetime) || 0,
+        summary: String(a.summary || "").trim().slice(0, 200),
+      });
+    }
+    console.log(`[FINNHUB HEADLINES] ${out.length} top headlines (cutoff_ts=${cutoffTs})`);
+    return out;
+  } catch (e) {
+    console.error("[FINNHUB HEADLINES] Error:", String(e).slice(0, 150));
+    return [];
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Date Helpers
 // ═══════════════════════════════════════════════════════════════════════
@@ -877,6 +957,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     iwmCandlesH1,
     iwmCandlesM5,
     finnhubEconNews,
+    finnhubTopHeadlines,
     ffToday,
     ffYesterday,
     esCandlesH4,
@@ -970,6 +1051,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       : Promise.resolve({ candles: [] }),
     // Finnhub economic/macro news (today + yesterday)
     fetchFinnhubMarketNews(env, yesterday, today),
+    // 2026-05-22 — Top general headlines (broad market stories, no
+    // econ keyword filter). Renders under "Top Headlines" in the
+    // brief infographic + email; also injected into the prompt as
+    // editorial context.
+    fetchFinnhubTopHeadlines(env, Math.floor(Date.now() / 1000) - 18 * 3600),
     // ForexFactory economic calendar (today)
     fetchForexFactoryCalendar(env, today),
     // ForexFactory economic calendar (yesterday)
@@ -1421,6 +1507,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       };
     }),
     econNews: (finnhubEconNews || []).slice(0, 10),
+    // 2026-05-22 — Broad market headlines for the brief infographic.
+    topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
     morningPrediction: morningBrief?.es_prediction || null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
@@ -2903,6 +2991,12 @@ ${(data.econNews || []).length > 0
     ? data.econNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
     : "No major economic/macro news headlines found."}
 
+## Top Broad-Market Headlines (general — for editorial context only):
+${(data.topHeadlines || []).length > 0
+    ? data.topHeadlines.map(h => `- ${h.title}${h.source ? ` (${h.source})` : ""}`).join("\n")
+    : "No broad-market headlines available."}
+> If a headline materially affects today's setup, weave it into the Bigger Picture editorial (≤ 1 sentence). Otherwise IGNORE — these are for the reader, not for the brief body.
+
 ## Active Trader — Open Positions:
 ${data.openTrades.length > 0
     ? data.openTrades.map(t => {
@@ -3115,6 +3209,11 @@ ${data.yesterdayEconomicEvents.length > 0
 ${(data.econNews || []).length > 0
     ? data.econNews.map(n => `- [${(n.created_at || "").slice(0, 16)}] ${n.headline}${n.summary ? " — " + n.summary.slice(0, 150) : ""}`).join("\n")
     : "No major economic/macro news headlines found."}
+
+## Top Broad-Market Headlines (general — for editorial context):
+${(data.topHeadlines || []).length > 0
+    ? data.topHeadlines.map(h => `- ${h.title}${h.source ? ` (${h.source})` : ""}`).join("\n")
+    : "No broad-market headlines available."}
 
 ## After-Hours Earnings:
 ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
@@ -3665,6 +3764,19 @@ function buildBriefInfographic(data, type) {
     events,
     risks: risks.slice(0, 5),
     opportunities: opps.slice(0, 5),
+    // 2026-05-22 — Top broad-market headlines (Reuters / Bloomberg / WSJ etc.)
+    // surfaced verbatim in the infographic + email + web brief renderer.
+    // Already capped to 6 in gatherDailyBriefData; we trim to 4 for the
+    // visible block (compactness) and keep the full list available
+    // through the data structure.
+    topHeadlines: Array.isArray(data?.topHeadlines)
+      ? data.topHeadlines.slice(0, 4).map(h => ({
+          title: String(h.title || "").slice(0, 140),
+          source: h.source || "",
+          url: h.url || "",
+          ts: Number(h.ts) || null,
+        }))
+      : [],
   };
 }
 

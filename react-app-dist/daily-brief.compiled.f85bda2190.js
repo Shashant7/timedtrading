@@ -55,6 +55,7 @@ function BriefInfographic({
   const events = Array.isArray(data.events) ? data.events : [];
   const risks = Array.isArray(data.risks) ? data.risks : [];
   const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
+  const topHeadlines = Array.isArray(data.topHeadlines) ? data.topHeadlines : [];
   const topThree = Array.isArray(data.topThree) ? data.topThree : null;
   const closingLine = data.closingLine || null;
   return React.createElement("div", {
@@ -490,7 +491,23 @@ function BriefInfographic({
     }, "\xB7"), React.createElement("span", {
       className: "text-[11px] text-[#9ca3af] tabular-nums"
     }, e.when)));
-  }))), closingLine && React.createElement("div", {
+  }))), topHeadlines.length > 0 && React.createElement("div", {
+    className: "pt-3 border-t border-white/[0.06]"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold"
+  }, "Top Headlines"), React.createElement("ul", {
+    className: "space-y-1.5"
+  }, topHeadlines.slice(0, 4).map((h, i) => React.createElement("li", {
+    key: i,
+    className: "text-[12.5px] leading-snug text-[#e5e7eb]"
+  }, h.url ? React.createElement("a", {
+    href: h.url,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "hover:text-white hover:underline"
+  }, h.title) : React.createElement("span", null, h.title), h.source && React.createElement("span", {
+    className: "ml-1.5 text-[10.5px] text-[#6b7280]"
+  }, "\xB7 ", h.source))))), closingLine && React.createElement("div", {
     className: "pt-3 border-t border-white/[0.06] italic text-[#d1d5db] text-[12px] leading-relaxed"
   }, "\u201C", closingLine, "\u201D"));
 }

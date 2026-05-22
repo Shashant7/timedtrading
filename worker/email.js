@@ -79,6 +79,7 @@ export function buildEmailInfographic(infographic) {
   const opps = Array.isArray(infographic.opportunities) ? infographic.opportunities : [];
   const topThree = Array.isArray(infographic.topThree) ? infographic.topThree : null;
   const closingLine = infographic.closingLine || null;
+  const topHeadlines = Array.isArray(infographic.topHeadlines) ? infographic.topHeadlines : [];
 
   // ── Today's Three (Galloway-style TOC) ──
   let topThreeHtml = "";
@@ -212,6 +213,28 @@ export function buildEmailInfographic(infographic) {
   };
   const risksOppsHtml = listBlock(risks, "Risks", "#f59e0b") + listBlock(opps, "Opportunities", "#34d399");
 
+  // ── Top broad-market headlines (Reuters / Bloomberg / WSJ etc.) ──
+  // 2026-05-22 — Editorial context block. Cap at 4, each ~140 chars,
+  // source attribution, links open in new tab. Hides when empty.
+  let headlinesHtml = "";
+  if (topHeadlines.length > 0) {
+    const rows = topHeadlines.slice(0, 4).map(h => {
+      const title = _esc(h.title || "");
+      const source = _esc(h.source || "");
+      const url = h.url || "";
+      return `<tr><td style="padding:6px 0;font-size:12px;line-height:1.45;color:${BRAND.textPrimary}">
+        ${url ? `<a href="${_esc(url)}" style="color:${BRAND.textPrimary};text-decoration:none">${title}</a>` : title}
+        ${source ? `<span style="color:${BRAND.textMuted};font-size:10.5px;margin-left:4px">· ${source}</span>` : ""}
+      </td></tr>`;
+    }).join("");
+    headlinesHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px;background:rgba(255,255,255,0.015);border:1px solid ${BRAND.border};border-radius:8px">
+      <tr><td style="padding:10px 14px 8px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted};margin:0 0 4px">Top headlines</div>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+      </td></tr>
+    </table>`;
+  }
+
   // ── Closing line (if present) ──
   const closingHtml = closingLine
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0">
@@ -222,7 +245,7 @@ export function buildEmailInfographic(infographic) {
       </table>`
     : "";
 
-  const body = topThreeHtml + headlineHtml + indicesHtml + macroHtml + eventsHtml + risksOppsHtml + closingHtml;
+  const body = topThreeHtml + headlineHtml + indicesHtml + macroHtml + eventsHtml + headlinesHtml + risksOppsHtml + closingHtml;
   if (!body.trim()) return "";
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;background:rgba(255,255,255,0.015);border:1px solid ${BRAND.border};border-radius:10px">
