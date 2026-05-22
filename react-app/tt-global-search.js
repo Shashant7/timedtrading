@@ -218,6 +218,119 @@
         color: var(--tt-text-muted, #9ca3af);
         margin: 0 4px;
       }
+      /* ── My Tickers section (2026-05-22 user-add UX) ─────────────── */
+      .tt-gs-mytickers {
+        padding: 10px 16px 8px;
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
+        background: rgba(255,255,255,0.015);
+      }
+      .tt-gs-mytickers-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        margin: 0 0 6px;
+      }
+      .tt-gs-mytickers-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.10em;
+        color: var(--tt-text-dim, #6b7280);
+      }
+      .tt-gs-mytickers-quota {
+        font-size: 10.5px;
+        color: var(--tt-text-muted, #9ca3af);
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+      }
+      .tt-gs-mytickers-quota.full { color: var(--tt-warn, #fbbf24); }
+      .tt-gs-mytickers-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 4px 0 0;
+      }
+      .tt-gs-mychip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 4px 3px 9px;
+        border-radius: 999px;
+        background: rgba(245,194,92,0.10);
+        border: 1px solid rgba(245,194,92,0.22);
+        color: var(--tt-text, #e5e7eb);
+        font-size: 11.5px;
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+      .tt-gs-mychip:hover { background: rgba(245,194,92,0.15); }
+      .tt-gs-mychip.held { opacity: 0.55; cursor: default; }
+      .tt-gs-mychip .tt-gs-mychip-x {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 16px; height: 16px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.06);
+        color: var(--tt-text-muted, #9ca3af);
+        font-size: 12px;
+        line-height: 1;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .tt-gs-mychip .tt-gs-mychip-x:hover {
+        background: rgba(248,113,113,0.20);
+        color: rgb(248,113,113);
+      }
+      .tt-gs-mytickers-empty {
+        font-size: 11px;
+        color: var(--tt-text-dim, #6b7280);
+        font-style: italic;
+        margin: 2px 0 0;
+      }
+      /* ── Add-ticker CTA when query doesn't match the universe ─── */
+      .tt-gs-add-cta {
+        margin: 8px 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(52,211,153,0.08);
+        border: 1px dashed rgba(52,211,153,0.35);
+        color: var(--tt-text, #e5e7eb);
+        font-size: 12.5px;
+        font-family: var(--tt-font, 'Inter', sans-serif);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .tt-gs-add-cta .tt-gs-add-btn {
+        background: rgba(52,211,153,0.18);
+        color: var(--tt-up, #34d399);
+        border: 1px solid rgba(52,211,153,0.40);
+        border-radius: 999px;
+        padding: 5px 14px;
+        font-size: 11.5px;
+        font-weight: 700;
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+        cursor: pointer;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        transition: background 120ms ease;
+      }
+      .tt-gs-add-cta .tt-gs-add-btn:hover { background: rgba(52,211,153,0.30); }
+      .tt-gs-add-cta .tt-gs-add-btn:disabled { opacity: 0.5; cursor: progress; }
+      .tt-gs-add-cta .tt-gs-add-meta {
+        font-size: 10.5px;
+        color: var(--tt-text-muted, #9ca3af);
+        font-family: var(--tt-font-mono, ui-monospace, monospace);
+      }
+      .tt-gs-add-error {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--tt-dn, #f87171);
+      }
     `;
     document.head.appendChild(el);
   }
@@ -318,25 +431,167 @@
   let _currentResults = [];
   let _universe = [];
 
+  // ── My Tickers state (PR 2026-05-22) ──────────────────────────────
+  //
+  // The legacy /index-react.html dashboard had a "+ Add Ticker" button
+  // with slot count + active-list + remove × buttons. The new app
+  // shell never exposed it. We now plumb the same backend
+  // (GET /timed/user-tickers + POST + DELETE) through the global
+  // search overlay so the user can:
+  //   1. See their custom tickers + quota at the top of the palette
+  //   2. Remove any of them inline
+  //   3. Add a new one when the search query is a ticker shape not
+  //      already in the universe
+  //
+  // Pro tier required by backend (free tier returns slots_max=3 but
+  // the UI shows "Go Pro" affordance instead of the add button).
+  let _myTickers = null;            // { tickers: [...], slots_used, slots_max, tier }
+  let _myTickersLoading = false;
+  let _addingTicker = null;          // SYM currently being POSTed
+  let _addError = null;              // last error string from add attempt
+
+  async function refreshMyTickers() {
+    if (!isAuthorizedUser()) return;
+    _myTickersLoading = true;
+    try {
+      const r = await fetch(`${API_BASE}/timed/user-tickers?_t=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (j?.ok) {
+          _myTickers = j;
+          // Active user-added tickers should also appear in the search
+          // universe immediately (not wait for /timed/tickers cache).
+          try {
+            const active = (j.tickers || []).filter(t => t.active || t.held);
+            for (const row of active) {
+              const sym = String(row.ticker || "").toUpperCase();
+              if (sym && !_universe.find(u => u.ticker === sym)) {
+                _universe.push({ ticker: sym, name: null, sector: null });
+              }
+            }
+            _universe.sort((a, b) => a.ticker.localeCompare(b.ticker));
+          } catch (_) {}
+        }
+      } else if (r.status === 401) {
+        _myTickers = null; // not authenticated, hide section
+      }
+    } catch (e) {
+      console.warn("[GLOBAL-SEARCH] /timed/user-tickers failed:", e);
+    } finally {
+      _myTickersLoading = false;
+      renderMyTickers();
+    }
+  }
+
+  async function addTicker(sym) {
+    const ticker = String(sym || "").trim().toUpperCase();
+    if (!ticker) return;
+    _addingTicker = ticker;
+    _addError = null;
+    renderResults();
+    try {
+      const r = await fetch(`${API_BASE}/timed/user-tickers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ticker }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        _addError = j?.detail || j?.error || `HTTP ${r.status}`;
+        _addingTicker = null;
+        renderResults();
+        return;
+      }
+      _addingTicker = null;
+      _addError = null;
+      // Refresh quota then open the freshly-added ticker.
+      await refreshMyTickers();
+      pick(ticker);
+    } catch (e) {
+      _addError = String(e?.message || e).slice(0, 200);
+      _addingTicker = null;
+      renderResults();
+    }
+  }
+
+  async function removeTicker(sym) {
+    const ticker = String(sym || "").trim().toUpperCase();
+    if (!ticker) return;
+    if (!confirm(`Remove ${ticker} from your tickers? (slot held for 7 days before it frees)`)) return;
+    try {
+      const r = await fetch(`${API_BASE}/timed/user-tickers/${encodeURIComponent(ticker)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        alert(`Failed to remove ${ticker}: ${j?.error || r.status}`);
+        return;
+      }
+      await refreshMyTickers();
+    } catch (e) {
+      alert(`Failed to remove ${ticker}: ${e?.message || e}`);
+    }
+  }
+
   function closeOverlay() {
     if (_overlay) {
       _overlay.remove();
       _overlay = null;
       _input = null;
       _resultsEl = null;
+      _myTickersEl = null;
       _activeIdx = 0;
       _currentResults = [];
+      _addingTicker = null;
+      _addError = null;
     }
   }
 
   function renderResults() {
     if (!_resultsEl) return;
     _resultsEl.innerHTML = "";
-    if (_currentResults.length === 0) {
+
+    // Determine if the current query looks like a ticker symbol that
+    // is NOT in our universe — in that case offer "Add SYM" at the top
+    // of the results section. Pattern: 1-5 letters, optional -A class.
+    const qRaw = (_input && _input.value) ? _input.value.trim().toUpperCase() : "";
+    const looksLikeTicker = qRaw && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(qRaw);
+    const universeHasIt = looksLikeTicker && _universe.some(u => u.ticker === qRaw);
+    const showAddCta = looksLikeTicker && !universeHasIt && _myTickers && isAuthorizedUser();
+
+    if (showAddCta) {
+      const cta = document.createElement("li");
+      cta.className = "tt-gs-add-cta";
+      const isAdding = _addingTicker === qRaw;
+      const slotsUsed = Number(_myTickers?.slots_used) || 0;
+      const slotsMax  = Number(_myTickers?.slots_max)  || 0;
+      const slotsLeft = Math.max(0, slotsMax - slotsUsed);
+      const canAdd = slotsLeft > 0 && !isAdding;
+      cta.innerHTML = `
+        <div>
+          <div>Not in our universe yet — <strong>${qRaw}</strong></div>
+          <div class="tt-gs-add-meta">${slotsLeft} of ${slotsMax} slots free · 7-day hold after removal</div>
+          ${_addError && _addingTicker == null ? `<div class="tt-gs-add-error">${escapeHtml(_addError)}</div>` : ""}
+        </div>
+        <button type="button" class="tt-gs-add-btn" ${canAdd ? "" : "disabled"}>
+          ${isAdding ? "Adding…" : slotsLeft <= 0 ? "Full" : `+ Add ${qRaw}`}
+        </button>
+      `;
+      const btn = cta.querySelector(".tt-gs-add-btn");
+      if (btn && canAdd) btn.addEventListener("click", () => addTicker(qRaw));
+      _resultsEl.appendChild(cta);
+    }
+
+    if (_currentResults.length === 0 && !showAddCta) {
       const empty = document.createElement("li");
       empty.className = "tt-gs-empty";
-      empty.textContent = _input && _input.value
-        ? `No tickers match "${_input.value}".`
+      empty.textContent = qRaw
+        ? `No tickers match "${qRaw}".`
         : "No tickers in the universe yet.";
       _resultsEl.appendChild(empty);
       return;
@@ -355,6 +610,64 @@
       });
       li.addEventListener("click", () => pick(it.ticker));
       _resultsEl.appendChild(li);
+    });
+  }
+
+  // ── My Tickers section — rendered into a dedicated container above
+  // the results list. Refreshed independently when the user adds /
+  // removes a ticker.
+  let _myTickersEl = null;
+  function renderMyTickers() {
+    if (!_myTickersEl) return;
+    if (!isAuthorizedUser() || !_myTickers) {
+      _myTickersEl.style.display = "none";
+      _myTickersEl.innerHTML = "";
+      return;
+    }
+    _myTickersEl.style.display = "";
+    const slotsUsed = Number(_myTickers.slots_used) || 0;
+    const slotsMax  = Number(_myTickers.slots_max)  || 0;
+    const tier      = String(_myTickers.tier || "").toLowerCase();
+    const tickers   = Array.isArray(_myTickers.tickers) ? _myTickers.tickers : [];
+    const active    = tickers.filter(t => t.active || t.held);
+    const quotaCls  = slotsUsed >= slotsMax ? "full" : "";
+
+    const chipsHtml = active.length === 0
+      ? `<div class="tt-gs-mytickers-empty">No custom tickers yet — search for one above and add it.</div>`
+      : `<div class="tt-gs-mytickers-list">` + active.map(t => {
+          const sym = String(t.ticker).toUpperCase();
+          const isHeld = !!t.held;
+          const title = isHeld
+            ? `${sym} · slot held until ${new Date(Number(t.held_until)).toLocaleString()}`
+            : `Open ${sym}`;
+          return `<span class="tt-gs-mychip${isHeld ? " held" : ""}" data-sym="${sym}" data-held="${isHeld ? "1" : "0"}" title="${escapeHtml(title)}">
+            ${sym}
+            <button type="button" class="tt-gs-mychip-x" data-sym="${sym}" aria-label="Remove ${sym}" title="Remove ${sym}">×</button>
+          </span>`;
+        }).join("") + `</div>`;
+
+    _myTickersEl.innerHTML = `
+      <div class="tt-gs-mytickers-head">
+        <span class="tt-gs-mytickers-title">My Tickers · ${tier ? tier.toUpperCase() : ""}</span>
+        <span class="tt-gs-mytickers-quota ${quotaCls}">${slotsUsed} / ${slotsMax}</span>
+      </div>
+      ${chipsHtml}
+    `;
+
+    // Click handlers — chip click opens ticker, × button removes it.
+    _myTickersEl.querySelectorAll(".tt-gs-mychip-x").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const sym = btn.getAttribute("data-sym");
+        if (sym) removeTicker(sym);
+      });
+    });
+    _myTickersEl.querySelectorAll(".tt-gs-mychip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const sym = chip.getAttribute("data-sym");
+        const held = chip.getAttribute("data-held") === "1";
+        if (sym && !held) pick(sym);
+      });
     });
   }
 
@@ -489,6 +802,16 @@
     `;
     panel.appendChild(inputWrap);
 
+    // 2026-05-22 — My Tickers section. Sits between the input and the
+    // results list. Renders the user's custom tickers (with × remove)
+    // + slots-used / slots-max quota. Hidden when user isn't
+    // authenticated (free tier still sees it once /timed/user-tickers
+    // resolves — backend determines tier).
+    _myTickersEl = document.createElement("div");
+    _myTickersEl.className = "tt-gs-mytickers";
+    _myTickersEl.style.display = "none";
+    panel.appendChild(_myTickersEl);
+
     _resultsEl = document.createElement("ul");
     _resultsEl.className = "tt-gs-results";
     _resultsEl.setAttribute("role", "listbox");
@@ -511,6 +834,11 @@
     _input.addEventListener("input", onInput);
     _input.addEventListener("keydown", onKey);
     document.addEventListener("keydown", onKey);
+
+    // 2026-05-22 — Refresh My Tickers list whenever the overlay opens.
+    // Cheap (one /timed/user-tickers GET) and we want fresh quota
+    // after any background mutations.
+    refreshMyTickers();
 
     // Render a placeholder while universe loads, then default list.
     if (_universe.length === 0) {

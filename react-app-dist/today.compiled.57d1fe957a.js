@@ -715,10 +715,6 @@ function FocusRail({
       const f = t.flags || {};
       return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
     }
-    if (laneId === "setup") {
-      const dir = String(t.state || "").startsWith("HTF_BULL") ? "L" : String(t.state || "").startsWith("HTF_BEAR") ? "S" : "·";
-      return dir;
-    }
     return "";
   };
   const computeBias = t => {
@@ -769,7 +765,7 @@ function FocusRail({
     if (metric) titleParts.push(metric);
     if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
     if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
-    const bias = lane.id === "setup" ? null : computeBias(t);
+    const bias = computeBias(t);
     const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
     const hasPrice = Number.isFinite(livePx) && livePx > 0;
     const hasPctOrExt = pct != null || showExt;
