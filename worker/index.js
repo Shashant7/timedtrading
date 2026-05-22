@@ -397,6 +397,16 @@ import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
    docs/D1_RETENTION_POLICY.md / tasks notes for context. */
 import { forecastBundle as regimeForecastBundle } from "./lib/regime-markov.js";
 import { computeAndPersistRegimeMatrix, loadRegimeMatrix } from "./lib/regime-markov-compute.js";
+/* 2026-05-22 Phase B — converts the matrix into actual trade-time
+   decisions. All three policy helpers are pure functions; the
+   behavioral changes that consume them are feature-flagged via
+   model_config so the operator can enable each independently after
+   observing matrix output for a few days. */
+import {
+  adaptChopHaircut as markovAdaptChopHaircut,
+  computeRegimeFavorMultiplier as markovComputeRegimeFavorMultiplier,
+  computeDwellExhaustion as markovComputeDwellExhaustion,
+} from "./lib/regime-markov-policy.js";
 /* 2026-05-18 — Phase 1 of the stochastic research program (S1.5).
    Trade trajectory recorder. Backfills bubble-map cell sequences from
    trail_5m_facts per closed trade. Surfaces via /timed/admin/trajectory/*
@@ -21043,6 +21053,74 @@ async function processTradeSimulation(
         const _p5Mult = Number.isFinite(_p5Factor) && _p5Factor > 0 && _p5Factor <= 1
           ? _p5Factor : 0.5;
         _p5ChopHaircutPlan = { factor: _p5Mult, regime_class: tickerData.regime_class || "CHOPPY" };
+
+        // 2026-05-22 Phase B / Tier 1.3 — Markov-adaptive haircut.
+        // When `markov_chop_haircut_adaptive` is on AND we have a live
+        // matrix to consult, scale the base factor by stationary
+        // distribution + dwell context. The article: chop that the
+        // market structurally lives in deserves more haircut than
+        // chop that's about to break. See adaptChopHaircut() in
+        // worker/lib/regime-markov-policy.js for the full math.
+        // Default OFF — operator opts in via model_config.
+        if (_p5Gates0.markov_chop_haircut_adaptive === true) {
+          try {
+            const _matrix = await loadRegimeMatrix(tickerData?._env || env);
+            if (_matrix && _matrix.P && tickerData?.state) {
+              const _adapt = markovAdaptChopHaircut({
+                baseFactor: _p5Mult,
+                currentState: tickerData.state,
+                forecast: tickerData.regime_forecast,
+                stationary: _matrix.stationary,
+                runLength: Number(tickerData._regime_run_length) || 0,
+                meanDwell: _matrix.mean_dwell,
+                dwellStd:  _matrix.dwell_std,
+              });
+              if (_adapt && Number.isFinite(_adapt.factor)) {
+                _p5ChopHaircutPlan = {
+                  factor: _adapt.factor,
+                  regime_class: tickerData.regime_class || "CHOPPY",
+                  source: "markov_adaptive",
+                  base_factor: _adapt.baseFactor,
+                  reasons: _adapt.reasons,
+                  stationary_overrep: _adapt.stationary_overrep,
+                  dwell_overrun: _adapt.dwell_overrun,
+                  forecast_exit_p: _adapt.forecast_exit_p,
+                };
+              }
+            }
+          } catch (e) {
+            console.warn(`[PHASE5_R3_MARKOV_CHOP] ${sym}: adaptive haircut failed:`, String(e?.message || e).slice(0, 150));
+          }
+        }
+      }
+    }
+
+    // 2026-05-22 Phase B / Tier 2.4 — Markov probability-vector sizing PLAN.
+    // Computed upstream so both the admission log (below) and the actual
+    // sizing application (at the computeRiskBasedSize callsite) reference
+    // the same object. Feature-flagged via
+    //   model_config.gates.markov_position_sizing_enabled
+    // Default OFF — operator opts in after observing matrix data.
+    let _markovFavorPlan = null;
+    if (isEnter && entryPath) {
+      try {
+        const _mfGates = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
+          ? tickerData._env._deepAuditConfig.gates : {};
+        if (_mfGates.markov_position_sizing_enabled === true && tickerData?.regime_forecast) {
+          const _matrix = await loadRegimeMatrix(tickerData?._env || env);
+          if (_matrix && _matrix.stationary) {
+            const _favor = markovComputeRegimeFavorMultiplier({
+              forecast: tickerData.regime_forecast,
+              stationary: _matrix.stationary,
+              direction,
+            });
+            if (_favor && Number.isFinite(_favor.multiplier)) {
+              _markovFavorPlan = _favor;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[MARKOV_FAVOR_PLAN] ${sym}: failed:`, String(e?.message || e).slice(0, 150));
       }
     }
 
@@ -21205,7 +21283,7 @@ async function processTradeSimulation(
           cohort: _p4CohortDecision?.cohort,
           recent: _p4CohortDecision?.recent,
           cohort_gated: _p4CohortDecision?.gated,
-          meta: (_p4CohortDecision || _p5ChopHaircutPlan) ? {
+          meta: (_p4CohortDecision || _p5ChopHaircutPlan || _markovFavorPlan) ? {
             ...(_p4CohortDecision ? {
               cached: _p4CohortDecision.cached,
               cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
@@ -21214,6 +21292,12 @@ async function processTradeSimulation(
             // Phase 5 R3 — record the chop haircut PLAN on accept rows
             // (haircut only actually fires on accept; if smartGateBlocked
             // it's a "would have haircut" record for analysis).
+            ...(_markovFavorPlan && !smartGateBlocked ? {
+              markov_favor_applied: _markovFavorPlan,
+            } : {}),
+            ...(_markovFavorPlan && smartGateBlocked ? {
+              markov_favor_skipped: _markovFavorPlan,
+            } : {}),
             ...(_p5ChopHaircutPlan && !smartGateBlocked ? {
               chop_haircut_applied: _p5ChopHaircutPlan,
             } : {}),
@@ -21729,10 +21813,21 @@ async function processTradeSimulation(
           // plan applies so a stale mult never carries forward.
           if (_p5ChopHaircutPlan) {
             tickerData.__chop_size_mult = _p5ChopHaircutPlan.factor;
-            console.log(`[PHASE5_R3_CHOP_HAIRCUT] ${sym}: size × ${_p5ChopHaircutPlan.factor} (regime_class=${_p5ChopHaircutPlan.regime_class})`);
+            console.log(`[PHASE5_R3_CHOP_HAIRCUT] ${sym}: size × ${_p5ChopHaircutPlan.factor} (regime_class=${_p5ChopHaircutPlan.regime_class}${_p5ChopHaircutPlan.source ? ", source=" + _p5ChopHaircutPlan.source : ""})`);
           } else if (tickerData?.__chop_size_mult != null) {
             delete tickerData.__chop_size_mult;
           }
+
+          // 2026-05-22 Phase B / Tier 2.4 — Stamp the markov-favor
+          // multiplier (PLAN computed upstream) so gatherSizingMultipliers
+          // picks it up. Defensive clear when no plan applies.
+          if (_markovFavorPlan && Number.isFinite(_markovFavorPlan.multiplier)) {
+            tickerData.__regime_favor_mult = _markovFavorPlan.multiplier;
+            console.log(`[MARKOV_FAVOR_MULT] ${sym}: size × ${_markovFavorPlan.multiplier} (dir=${direction}, favor=${_markovFavorPlan.favorable_state}, p=${_markovFavorPlan.p_favor_forecast}, π=${_markovFavorPlan.p_favor_baseline})`);
+          } else if (tickerData?.__regime_favor_mult != null) {
+            delete tickerData.__regime_favor_mult;
+          }
+
           const _sizingMults = gatherSizingMultipliers(tickerData);
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined;
           notional = Math.min(regimeAdjustedNotional, cash);
@@ -76562,24 +76657,66 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) { /* price freshness non-critical */ }
 
-            // 2026-05-22 — Attach the Markov regime forecast.
+            // 2026-05-22 — Attach the Markov regime forecast + advisory
+            // exhaustion flag.
+            //
             // Given the ticker's current state (HTF_BULL_LTF_BULL / …)
             // and the universe-wide transition matrix P computed daily
             // from trail_5m_facts, compute the probability distribution
             // over states 1, 5, and 20 buckets ahead (5 min, 25 min,
             // 100 min). The matrix itself was loaded once per cron tick
             // above; here it's just 3 small matrix powers + an
-            // index lookup per ticker. The right rail's Technicals
-            // tab consumes this in PR B; the AI CIO can read it now.
+            // index lookup per ticker.
+            //
+            // Phase B (2026-05-22) — also track the run length in the
+            // current state and apply computeDwellExhaustion to set the
+            // advisory `regime_exhausted` field. The AI CIO and the
+            // exit doctrine can read these; no auto-action.
             try {
-              if (_regimeMatrixCache && _regimeMatrixCache.P && result?.state) {
-                const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
-                if (fc) {
-                  result.regime_forecast = {
-                    ...fc,
-                    matrix_window_days: _regimeMatrixCache.window_days,
-                    matrix_computed_at: _regimeMatrixCache.computed_at,
-                  };
+              if (result?.state) {
+                // Run-length tracking. If the state hasn't changed since
+                // the last scoring tick, increment; otherwise reset.
+                // Stored on the payload so it survives across ticks
+                // (KV is the source of truth between */5 runs).
+                const _prevState = existing?.state || null;
+                const _prevRun   = Number(existing?._regime_run_length) || 0;
+                if (_prevState && _prevState === result.state) {
+                  result._regime_run_length = _prevRun + 1;
+                  result._regime_run_started_at = Number(existing?._regime_run_started_at) || now;
+                } else {
+                  result._regime_run_length = 1;
+                  result._regime_run_started_at = now;
+                }
+
+                if (_regimeMatrixCache && _regimeMatrixCache.P) {
+                  const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
+                  if (fc) {
+                    result.regime_forecast = {
+                      ...fc,
+                      matrix_window_days: _regimeMatrixCache.window_days,
+                      matrix_computed_at: _regimeMatrixCache.computed_at,
+                    };
+                  }
+                  // Exhaustion check — advisory only. Threshold 2σ above
+                  // mean dwell for the current state.
+                  try {
+                    const ex = markovComputeDwellExhaustion({
+                      currentState: result.state,
+                      runLength: result._regime_run_length,
+                      meanDwell: _regimeMatrixCache.mean_dwell,
+                      dwellStd:  _regimeMatrixCache.dwell_std,
+                    });
+                    if (ex && ex.exhausted) {
+                      result.regime_exhausted = {
+                        sigma_above_mean: ex.sigma_above_mean,
+                        run_length: ex.run_length,
+                        mean_dwell: ex.mean_dwell,
+                        dwell_std: ex.dwell_std,
+                      };
+                    }
+                  } catch (e2) {
+                    console.warn(`[SCORING] regime exhaustion failed for ${ticker}:`, String(e2?.message || e2).slice(0, 120));
+                  }
                 }
               }
             } catch (e) {
