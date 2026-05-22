@@ -2162,7 +2162,7 @@ function App({
   }, React.createElement("div", {
     className: "flex items-center gap-3 md:gap-5 min-w-0"
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "flex items-center gap-2 no-underline shrink-0"
   }, React.createElement("svg", {
     width: "28",
@@ -2265,10 +2265,10 @@ function App({
     className: "px-3 py-1 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium",
     title: "Daily Ingest"
   }, "Today"), React.createElement("a", {
-    href: "index-react.html",
+    href: "/active-trader.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Active Trader"), React.createElement("a", {
-    href: "investor-dashboard.html",
+    href: "/investor.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Investor"), React.createElement("a", {
     href: "simulation-dashboard.html",
