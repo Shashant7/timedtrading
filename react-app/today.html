@@ -20,7 +20,7 @@
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
-    <script src="tt-global-search.js?v=20260521a" defer></script>
+    <script src="tt-global-search.js?v=20260522a" defer></script>
     <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
@@ -1724,12 +1724,12 @@
             const f = t.flags || {};
             return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
           }
-          if (laneId === "setup") {
-            // Setup lane already uses metric for direction (legacy).
-            // Other lanes get the new dedicated bias chip below.
-            const dir = String(t.state || "").startsWith("HTF_BULL") ? "L" : String(t.state || "").startsWith("HTF_BEAR") ? "S" : "·";
-            return dir;
-          }
+          // 2026-05-22 (user request): bias for the Entry Zone (setup)
+          // lane now uses the SAME colored bias chip as the other lanes
+          // (column 1, left side). The legacy "L"/"S" letter that this
+          // function used to emit for the setup lane was tiny, gray,
+          // visually buried after the ticker. Returning empty so no
+          // duplicate letter renders.
           return "";
         };
 
@@ -1796,9 +1796,14 @@
                   if (metric) titleParts.push(metric);
                   if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
                   if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
-                  // Bias chip — skip on the setup lane because that
-                  // lane's metric IS the bias (legacy "L"/"S" letter).
-                  const bias = lane.id === "setup" ? null : computeBias(t);
+                  // 2026-05-22 — Bias chip now renders on EVERY lane
+                  // (including setup / Entry Zone), per user request to
+                  // make the LONG/SHORT call obvious on the left side.
+                  // Previously setup lane suppressed this chip and used
+                  // a tiny gray "L"/"S" letter from fmtMetric instead;
+                  // the new version is a colored pill that mirrors the
+                  // other lanes' visual treatment.
+                  const bias = computeBias(t);
                   const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
                   const hasPrice = Number.isFinite(livePx) && livePx > 0;
                   const hasPctOrExt = pct != null || showExt;
