@@ -102,6 +102,12 @@ const SECTOR_MAP = {
   // 66.5h stale) — adding DELL to the core universe gets it on the
   // price-feed cron + candle backfill rotation.
   'DELL': 'Information Technology',
+  // 2026-05-22: admin add-ticker request for IBM via the Ticker
+  // Management UI silently failed during the Pages outage chain
+  // (see PRs #267, #268, #269). Added to the core universe so it's
+  // available to ALL users rather than tucked under one operator's
+  // user_tickers slots.
+  'IBM': 'Information Technology',
   'KLAC': 'Information Technology',
   'ANET': 'Information Technology',
   'CDNS': 'Information Technology',

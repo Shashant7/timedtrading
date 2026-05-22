@@ -25,6 +25,21 @@ import {
   isCrypto,
 } from "./twelvedata.js";
 
+// 2026-05-22 — Alpaca fallback for "never stale" guarantee.
+// TwelveData is the primary provider, but some symbols (DELL in M&A limbo,
+// PCI as a low-liquidity CEF, etc.) have spotty TD coverage that produces
+// stale intraday data. Alpaca's bars/snapshots endpoints are part of the
+// Algo Trader+ plan we already pay for (used for execution), so wiring it
+// as a transparent fallback costs nothing and closes the staleness gap.
+import {
+  alpacaFetchSnapshots,
+  alpacaFetchBars,
+} from "./indicators.js";
+
+function _hasUsableAlpaca(env) {
+  return !!(env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY);
+}
+
 function getProvider(env) {
   return (env?.DATA_PROVIDER || "twelvedata").toLowerCase();
 }
@@ -41,18 +56,60 @@ function isUltra(env) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function fetchBars(env, symbols, tfKey, start, end = null, limit = 5) {
-  if (getProvider(env) === "twelvedata") {
-    return _tdFetchBars(env, symbols, tfKey, start, end, limit);
+  if (getProvider(env) !== "twelvedata") {
+    // Alpaca path: delegate to existing alpacaFetchBars (imported by caller)
+    return null; // caller falls through to legacy alpaca path
   }
-  // Alpaca path: delegate to existing alpacaFetchBars (imported by caller)
-  return null; // caller falls through to legacy alpaca path
+  const tdResult = await _tdFetchBars(env, symbols, tfKey, start, end, limit);
+  return _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit);
 }
 
 export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit = 1000) {
-  if (getProvider(env) === "twelvedata") {
-    return _tdFetchBars(env, symbols, tfKey, start, end, limit);
+  if (getProvider(env) !== "twelvedata") return null;
+  const tdResult = await _tdFetchBars(env, symbols, tfKey, start, end, limit);
+  return _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit);
+}
+
+// _withAlpacaBarsFallback — for any symbol where TwelveData returned zero
+// bars (e.g. DELL in M&A limbo, PCI as a low-liquidity CEF, IBM after a
+// signal recompute that drops it from TD's batch response), retry that
+// symbol against Alpaca. Alpaca tends to keep serving symbols TD drops.
+// Each healed symbol is logged with [PROVIDER_FALLBACK] for observability.
+async function _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit) {
+  if (!_hasUsableAlpaca(env)) return tdResult;
+  const tdError = tdResult?.error;
+  const tdBars = tdResult?.bars || {};
+  const missing = [];
+  for (const sym of symbols || []) {
+    const arr = tdBars[sym];
+    if (!Array.isArray(arr) || arr.length === 0) missing.push(sym);
   }
-  return null;
+  // Skip the fallback for crypto pairs — TD's primary path covers them and
+  // Alpaca's crypto endpoint requires a different route than the stock bars.
+  const stockMissing = missing.filter((s) => !isCrypto(s));
+  if (stockMissing.length === 0) return tdResult;
+  let healedSymbols = 0;
+  let healedBars = 0;
+  // Cap concurrent fallback fetches to avoid blowing Alpaca's rate limit
+  // (200 req/min on the free tier; we typically have ~30 stale tickers max
+  // per cron cycle). Sequential per-symbol fetch keeps it simple.
+  for (const sym of stockMissing) {
+    try {
+      const aRes = await alpacaFetchBars(env, [sym], tfKey, start, end, limit);
+      const aBars = aRes?.bars?.[sym];
+      if (Array.isArray(aBars) && aBars.length > 0) {
+        tdBars[sym] = aBars;
+        healedSymbols++;
+        healedBars += aBars.length;
+      }
+    } catch (e) {
+      console.warn(`[PROVIDER_FALLBACK] alpaca bars ${sym} TF ${tfKey}:`, String(e?.message || e).slice(0, 150));
+    }
+  }
+  if (healedSymbols > 0) {
+    console.log(`[PROVIDER_FALLBACK] alpaca healed ${healedSymbols}/${stockMissing.length} symbols missing from TD for TF ${tfKey} (+${healedBars} bars)${tdError ? ` td_error=${tdError}` : ""}`);
+  }
+  return { ...tdResult, bars: tdBars };
 }
 
 // TwelveData returns most recent N bars when only start_date is used. Use start+end date chunks.
@@ -139,10 +196,42 @@ export async function fetchCryptoBars(env, cryptoTickers, tfKey, start, end = nu
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export async function fetchLatestQuotes(env, symbols) {
-  if (getProvider(env) === "twelvedata") {
-    return tdFetchQuote(env, symbols);
+  if (getProvider(env) !== "twelvedata") return null;
+  const tdResult = await tdFetchQuote(env, symbols);
+  return _withAlpacaQuotesFallback(env, tdResult, symbols);
+}
+
+// _withAlpacaQuotesFallback — same pattern as _withAlpacaBarsFallback but
+// for the real-time snapshot path. Any symbol with no price or a missing
+// snapshot from TD is retried via Alpaca's bulk snapshot endpoint.
+async function _withAlpacaQuotesFallback(env, tdResult, symbols) {
+  if (!_hasUsableAlpaca(env)) return tdResult;
+  const tdSnaps = tdResult?.snapshots || {};
+  const missing = [];
+  for (const sym of symbols || []) {
+    const snap = tdSnaps[sym];
+    if (!snap || !(Number(snap.price) > 0)) missing.push(sym);
   }
-  return null;
+  const stockMissing = missing.filter((s) => !isCrypto(s));
+  if (stockMissing.length === 0) return tdResult;
+  try {
+    const aRes = await alpacaFetchSnapshots(env, stockMissing);
+    const aSnaps = aRes?.snapshots || {};
+    let healed = 0;
+    for (const sym of stockMissing) {
+      const aSnap = aSnaps[sym];
+      if (aSnap && Number(aSnap.price) > 0) {
+        tdSnaps[sym] = { ...aSnap, _source: "alpaca_fallback" };
+        healed++;
+      }
+    }
+    if (healed > 0) {
+      console.log(`[PROVIDER_FALLBACK] alpaca healed ${healed}/${stockMissing.length} missing snapshots from TD`);
+    }
+  } catch (e) {
+    console.warn(`[PROVIDER_FALLBACK] alpaca snapshots failed:`, String(e?.message || e).slice(0, 200));
+  }
+  return { ...tdResult, snapshots: tdSnaps };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
