@@ -33,6 +33,8 @@ const SECTOR_MAP = {
   'ELF': 'Consumer Staples',
   'CELH': 'Consumer Staples',
   'BG': 'Consumer Staples',
+  // 2026-05-22: GRNY/GRNI May 2026 rebalance added PM.
+  'PM': 'Consumer Staples',
 
   // Industrials
   'CAT': 'Industrials',
@@ -92,6 +94,8 @@ const SECTOR_MAP = {
   'AVGO': 'Information Technology',
   'AMD': 'Information Technology',
   'ORCL': 'Information Technology',
+  // 2026-05-22: GRNY/GRNI May 2026 rebalance added NOW (ServiceNow).
+  'NOW': 'Information Technology',
   'KLAC': 'Information Technology',
   'ANET': 'Information Technology',
   'CDNS': 'Information Technology',
@@ -154,6 +158,8 @@ const SECTOR_MAP = {
   'APD': 'Basic Materials',
   'PKG': 'Basic Materials',
   'PPG': 'Basic Materials',
+  // 2026-05-22: GRNY/GRNI May 2026 rebalance added CF (CF Industries — fertilizer).
+  'CF': 'Basic Materials',
   'NEU': 'Basic Materials',
   'AA': 'Basic Materials',
   'GOLD': 'Basic Materials',
