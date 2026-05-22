@@ -35,7 +35,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260520b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260522a"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260517f"></script>
     <style>
@@ -1531,14 +1531,57 @@
         const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
         const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
         if (order.length === 0) return null;
+
+        // 2026-05-22 Phase C — HMM latent regime badge. Universe-wide
+        // signal attached to every ticker payload by the scoring path.
+        // We read the first available ticker (any ticker has the same
+        // latent_regime — it's the same blob per tick) and show a small
+        // pill. Hides when no model has been trained yet.
+        const _latent = (() => {
+          for (const sym of order) {
+            const lr = data?.[sym]?.latent_regime;
+            if (lr && lr.state) return lr;
+          }
+          return null;
+        })();
+        const _LATENT_META = {
+          BULL_TREND: { color: "var(--tt-up, #34d399)",   label: "BULL TREND" },
+          CHOP:       { color: "var(--tt-accent, #f5c25c)", label: "CHOP" },
+          BEAR_TREND: { color: "var(--tt-dn, #f87171)",  label: "BEAR TREND" },
+        };
+        const _latentMeta = _latent ? (_LATENT_META[_latent.state] || { color: "var(--tt-text-muted)", label: _latent.state }) : null;
+        const _postSummary = _latent?.posterior
+          ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ")
+          : "";
+
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
-          h("div", { className: "tt-sec-h" }, "Where the indices stand"),
+          h("div", {
+            style: { display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" },
+          },
+            h("h2", { className: "tt-sec-h", style: { margin: 0 } }, "Where the indices stand"),
+            _latentMeta && h("span", {
+              title: _postSummary ? `HMM latent regime — posterior: ${_postSummary}` : "HMM latent regime",
+              style: {
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "3px 9px", borderRadius: 999,
+                background: `${_latentMeta.color}22`,
+                color: _latentMeta.color,
+                fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+                fontFamily: "var(--tt-font-mono, ui-monospace, monospace)",
+                whiteSpace: "nowrap",
+              },
+            },
+              h("span", { style: { width: 6, height: 6, borderRadius: "50%", background: _latentMeta.color, boxShadow: `0 0 0 2px ${_latentMeta.color}33` } }),
+              `MARKET REGIME · ${_latentMeta.label}`,
+            ),
+          ),
           h("div", {
             style: {
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
               gap: 12,
+              marginTop: 10,
             },
           },
             order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym], onSelectTicker })),
