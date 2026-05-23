@@ -71,14 +71,45 @@ async function fetchPriceMap() {
   }
 }
 async function fetchHistoryByMode(mode) {
-  const qs = mode === "investor" ? "?mode=investor&limit=500" : "?limit=500";
-  try {
-    const r = await fetch(`${API_BASE}/timed/ledger/trades${qs}`, {
+  const pageSize = 1000;
+  const maxPages = 20;
+  const maxRows = 10000;
+  const baseQs = new URLSearchParams();
+  baseQs.set("limit", String(pageSize));
+  if (mode === "investor") baseQs.set("mode", "investor");
+  const fetchPage = async cursor => {
+    const qs = new URLSearchParams(baseQs);
+    if (cursor) qs.set("cursor", String(cursor));
+    const r = await fetch(`${API_BASE}/timed/ledger/trades?${qs}`, {
       credentials: "include",
       cache: "no-store"
     });
     if (!r.ok) return null;
-    return await r.json();
+    return r.json();
+  };
+  try {
+    let collected = [];
+    let cursor = null;
+    for (let i = 0; i < maxPages; i++) {
+      const json = await fetchPage(cursor);
+      if (!json?.ok) return json?.ok === false ? json : null;
+      const page = Array.isArray(json.trades) ? json.trades : [];
+      collected = collected.concat(page);
+      if (!json.hasMore || !json.nextCursor) {
+        return {
+          ok: true,
+          trades: collected,
+          count: collected.length
+        };
+      }
+      if (collected.length >= maxRows) break;
+      cursor = json.nextCursor;
+    }
+    return {
+      ok: true,
+      trades: collected,
+      count: collected.length
+    };
   } catch (_) {
     return null;
   }
@@ -297,24 +328,39 @@ function EquityCurveCard({
   const openPnlFromCurve = Number.isFinite(account) && Number.isFinite(realized) && Number.isFinite(startCash) ? account - startCash - realized : null;
   const openPnl = Number.isFinite(openPnlOverride) ? openPnlOverride : openPnlFromCurve;
   const totalPnl = Number.isFinite(realized) && Number.isFinite(openPnl) ? realized + openPnl : Number.isFinite(account) ? account - startCash : null;
-  const closedCount = Array.isArray(history) ? history.filter(t => Number.isFinite(Number(t?.pnl)) && t?.exit_ts).length : 0;
   const winLoss = (() => {
     if (!Array.isArray(history)) return {
       wins: 0,
-      losses: 0
+      losses: 0,
+      closed: 0
     };
+    let rows = history;
+    const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
+    if (factory && title === "Investor") {
+      try {
+        const Comp = factory({
+          React,
+          API_BASE
+        });
+        if (Comp?.normalizeInvestorTrades) rows = Comp.normalizeInvestorTrades(history);
+      } catch (_) {}
+    }
     let wins = 0,
-      losses = 0;
-    for (const t of history) {
-      const pnl = Number(t?.pnl);
-      if (!Number.isFinite(pnl) || !t?.exit_ts) continue;
-      if (pnl > 0) wins++;else if (pnl < 0) losses++;
+      losses = 0,
+      closed = 0;
+    for (const t of rows) {
+      const s = String(t?.status || "").toUpperCase();
+      if (s !== "WIN" && s !== "LOSS" && s !== "FLAT") continue;
+      closed++;
+      if (s === "WIN") wins++;else if (s === "LOSS") losses++;
     }
     return {
       wins,
-      losses
+      losses,
+      closed
     };
   })();
+  const closedCount = winLoss.closed;
   return h("section", {
     className: "eq-card"
   }, h("div", {
@@ -436,7 +482,9 @@ function EquityCurveCard({
 function PerformanceSection({
   traderTrades,
   investorTrades,
-  mode
+  mode,
+  traderOpenPl,
+  investorOpenPl
 }) {
   const TradesPerformance = useMemo(() => {
     const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
@@ -461,12 +509,107 @@ function PerformanceSection({
   }
   const trades = mode === "trader" ? traderTrades || [] : investorTrades || [];
   const startCash = 100000;
-  return h(TradesPerformance, {
+  const openPl = mode === "trader" ? traderOpenPl : investorOpenPl;
+  const loading = mode === "trader" ? traderTrades == null : investorTrades == null;
+  const summary = useMemo(() => {
+    if (!TradesPerformance.computeSummary) return null;
+    return TradesPerformance.computeSummary(trades || [], {
+      mode,
+      accountStartCash: startCash
+    });
+  }, [trades, mode, startCash, TradesPerformance]);
+  const realizedUsd = summary?.totalPnlUsd;
+  const totalUsd = Number.isFinite(realizedUsd) && Number.isFinite(openPl) ? realizedUsd + openPl : realizedUsd;
+  const totalPct = Number.isFinite(totalUsd) && startCash > 0 ? totalUsd / startCash * 100 : summary?.totalPnlPct;
+  const kpiStrip = summary && h("div", {
+    className: "ds-card",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+      gap: 8,
+      marginBottom: 14,
+      padding: "10px 12px"
+    }
+  }, h("div", {
+    className: "eq-stat",
+    style: {
+      padding: "4px 6px"
+    }
+  }, h("div", {
+    className: "eq-stat-label"
+  }, "Closed"), h("div", {
+    className: "eq-stat-value",
+    style: {
+      fontSize: 15
+    }
+  }, String(summary.closedCount), h("span", {
+    style: {
+      color: "var(--tt-text-faint)",
+      fontSize: 11,
+      marginLeft: 6
+    }
+  }, `${summary.wins}W / ${summary.losses}L`))), h("div", {
+    className: "eq-stat",
+    style: {
+      padding: "4px 6px"
+    }
+  }, h("div", {
+    className: "eq-stat-label"
+  }, "Win Rate"), h("div", {
+    className: "eq-stat-value",
+    style: {
+      fontSize: 15
+    }
+  }, `${summary.winRatePct.toFixed(1)}%`)), h("div", {
+    className: "eq-stat",
+    style: {
+      padding: "4px 6px"
+    }
+  }, h("div", {
+    className: "eq-stat-label"
+  }, "Realized P&L"), h("div", {
+    className: `eq-stat-value ${realizedUsd >= 0 ? "up" : "dn"}`,
+    style: {
+      fontSize: 15
+    }
+  }, fmtUsdSigned(realizedUsd))), h("div", {
+    className: "eq-stat",
+    style: {
+      padding: "4px 6px"
+    }
+  }, h("div", {
+    className: "eq-stat-label"
+  }, "Open P&L"), h("div", {
+    className: `eq-stat-value ${openPl == null ? "" : openPl >= 0 ? "up" : "dn"}`,
+    style: {
+      fontSize: 15
+    }
+  }, openPl == null ? "—" : fmtUsdSigned(openPl))), h("div", {
+    className: "eq-stat",
+    style: {
+      padding: "4px 6px"
+    }
+  }, h("div", {
+    className: "eq-stat-label"
+  }, "Total P&L"), h("div", {
+    className: `eq-stat-value ${totalUsd >= 0 ? "up" : "dn"}`,
+    style: {
+      fontSize: 15
+    }
+  }, Number.isFinite(totalUsd) ? fmtUsdSigned(totalUsd) : "—", Number.isFinite(totalPct) && h("span", {
+    style: {
+      color: "var(--tt-text-faint)",
+      fontSize: 11,
+      marginLeft: 6
+    }
+  }, fmtPct(totalPct, 1)))));
+  return h(React.Fragment, null, kpiStrip, h(TradesPerformance, {
     trades,
-    loading: !Array.isArray(trades) || trades.length === 0,
+    loading,
     accountStartCash: startCash,
-    mode
-  });
+    mode,
+    hideHeadline: true
+  }));
 }
 function OpenPositionsTable({
   rows,
@@ -859,7 +1002,9 @@ function PortfolioApp() {
   }, "Investor"))), h(PerformanceSection, {
     traderTrades: traderHistory,
     investorTrades: investorHistory,
-    mode: monthlyMode
+    mode: monthlyMode,
+    traderOpenPl,
+    investorOpenPl
   })), traderHistory || investorHistory ? h(TradeHistory, {
     trades: monthlyMode === "trader" ? traderHistory || [] : investorHistory || [],
     onSelectTicker
@@ -889,6 +1034,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779526529293:395674670
+// cache-bust:1779550206482:287357261
 
-// cache-bust:1779526529293:395674670
+// cache-bust:1779550206482:287357261
