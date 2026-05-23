@@ -1295,6 +1295,10 @@ const ROUTES = [
   ["GET", "/timed/admin/sector-ratings", "GET /timed/admin/sector-ratings"],
   ["PUT", "/timed/admin/sector-ratings", "PUT /timed/admin/sector-ratings"],
   ["POST", "/timed/admin/sync-universe", "POST /timed/admin/sync-universe"],
+  // ── Admin: Core Universe management (KV overlay on SECTOR_MAP) ──
+  ["GET", "/timed/admin/universe", "GET /timed/admin/universe"],
+  ["POST", "/timed/admin/universe", "POST /timed/admin/universe"],
+  ["DELETE", (p) => /^\/timed\/admin\/universe\/[A-Z0-9.!-]+$/i.test(p), "DELETE /timed/admin/universe/:ticker"],
   // ── ETF Holdings Sync ──
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
@@ -38441,6 +38445,15 @@ async function rankTickersInSector(KV, sector, limit = 10, etfWeightMap = null) 
 
 // Module-level variable for lazy initialization (persists across requests in same isolate)
 let sectorMappingsLoaded = false;
+// 2026-05-23 — Universe overlay propagation across warm isolates.
+// _sectorMappingsLoadedAt: wall-clock ms when this isolate last refreshed
+//   its SECTOR_MAP overlay from KV. Drives the 5-min polling cadence.
+// _sectorMappingsVersionSeen: last `timed:universe:version` value this
+//   isolate has merged. When an admin add/remove bumps the key, every
+//   isolate's next request triggers a re-merge so the change propagates
+//   within ~5 min worst-case instead of waiting for cold start.
+let _sectorMappingsLoadedAt = 0;
+let _sectorMappingsVersionSeen = null;
 
 function predictionConfidenceBucket(score, high = 75, medium = 55) {
   const n = Number(score) || 0;
@@ -39291,6 +39304,13 @@ export default {
 
           await withTimeout(loadSectorMappingsFromKV(KV), 3000);
           sectorMappingsLoaded = true;
+          _sectorMappingsLoadedAt = Date.now();
+          // Capture the universe version we just loaded so the periodic
+          // refresh below can detect external changes.
+          try {
+            const v = await KV.get("timed:universe:version", "text");
+            if (v) _sectorMappingsVersionSeen = v;
+          } catch (_) { /* best-effort */ }
         } catch (sectorLoadErr) {
           // Sector mappings are optional — don't spam error logs for a non-critical timeout.
           // Only log once and move on; sectorMappingsLoaded=true prevents retry loops.
@@ -39300,6 +39320,33 @@ export default {
             console.error(`[SECTOR LOAD] Failed:`, String(sectorLoadErr).slice(0, 150));
           }
           sectorMappingsLoaded = true;
+          _sectorMappingsLoadedAt = Date.now();
+        }
+      }
+
+      // ── Periodic universe-overlay refresh (warm-isolate propagation) ──
+      // Admin universe adds bump `timed:universe:version` in KV. Each
+      // warm isolate cheaply polls that key (single text-read = ~1ms)
+      // every REFRESH_MIN_INTERVAL_MS. If the version changed, re-merge
+      // the KV overlay so this isolate picks up the change without
+      // waiting for a cold start. Skip when sectorMappingsLoaded=false
+      // (the initial-load block above will handle it on the next request).
+      if (KV && sectorMappingsLoaded) {
+        const _nowForRefresh = Date.now();
+        const _refreshInterval = 5 * 60 * 1000; // 5 min
+        if (_nowForRefresh - _sectorMappingsLoadedAt > _refreshInterval) {
+          try {
+            const v = await KV.get("timed:universe:version", "text");
+            if (v && v !== _sectorMappingsVersionSeen) {
+              console.log(`[SECTOR REFRESH] Universe version changed (${_sectorMappingsVersionSeen || "none"} → ${v}), re-merging KV overlay`);
+              await loadSectorMappingsFromKV(KV);
+              _sectorMappingsVersionSeen = v;
+            }
+            _sectorMappingsLoadedAt = _nowForRefresh;
+          } catch (refreshErr) {
+            console.warn(`[SECTOR REFRESH] Failed:`, String(refreshErr?.message || refreshErr).slice(0, 150));
+            // Don't update _sectorMappingsLoadedAt so we retry on next req.
+          }
         }
       }
 
@@ -68904,6 +68951,232 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           return sendJSON({ ok: true, count: unique.length, tickers: unique }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // Admin: Core Universe management (KV overlay on SECTOR_MAP)
+      //
+      // The hardcoded SECTOR_MAP in worker/sector-mapping.js is the
+      // baseline universe. The runtime overlay (KV keys: timed:tickers,
+      // timed:sector_map:{T}, timed:removed) layers on top. New adds
+      // here persist in KV and become available to all users without
+      // a code change — handles propagate via:
+      //   - in-memory SECTOR_MAP mutation (this isolate, immediately)
+      //   - KV write (durable, picked up by other isolates on cold start
+      //     and on each isolate's periodic refresh — see _maybeRefresh
+      //     hook ~5 min cadence)
+      //   - timed:universe:version bump (cheap polling key so future
+      //     isolates can detect changes without re-reading the full list)
+      // ═══════════════════════════════════════════════════════════════════
+      if (routeKey === "GET /timed/admin/universe") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const hardcodedKeys = Object.keys(CANONICAL_UNIVERSE ? [...CANONICAL_UNIVERSE] : []).length > 0
+            ? [...CANONICAL_UNIVERSE]
+            : Object.keys(SECTOR_MAP);
+          const hardcodedSet = new Set(hardcodedKeys);
+          const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+          const removedSet = new Set(Array.isArray(removedList) ? removedList : []);
+          const overlay = [];
+          if (Array.isArray(tickersList)) {
+            const overlayCandidates = tickersList
+              .map((t) => String(t || "").toUpperCase().trim())
+              .filter((t) => t && !hardcodedSet.has(t) && !removedSet.has(t));
+            const sectorReads = await Promise.all(
+              overlayCandidates.map(async (t) => {
+                const sector = await KV.get(`timed:sector_map:${t}`, "text");
+                return { ticker: t, sector: sector || "Unknown" };
+              }),
+            );
+            overlay.push(...sectorReads);
+            overlay.sort((a, b) => a.ticker.localeCompare(b.ticker));
+          }
+          const version = await KV.get("timed:universe:version", "text");
+          return sendJSON({
+            ok: true,
+            core: {
+              count: hardcodedKeys.length,
+              sample: hardcodedKeys.slice(0, 8),
+            },
+            overlay,
+            overlay_count: overlay.length,
+            removed: [...removedSet].sort(),
+            removed_count: removedSet.size,
+            total_active: hardcodedKeys.length + overlay.length,
+            version: version || null,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/universe") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const rawTicker = normTicker(String(body?.ticker || "").toUpperCase().trim());
+          if (!rawTicker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(rawTicker)) {
+            return sendJSON({ ok: false, error: "invalid_ticker", detail: "Must be 1-5 uppercase letters (e.g. PLTR, BRK-B)" }, 400, corsHeaders(env, req));
+          }
+          const sector = String(body?.sector || "Unknown").trim() || "Unknown";
+
+          // Already in canonical SECTOR_MAP → no-op success with hint.
+          if (SECTOR_MAP[rawTicker]) {
+            return sendJSON({
+              ok: true,
+              ticker: rawTicker,
+              already_in_core: true,
+              sector: SECTOR_MAP[rawTicker],
+              detail: `${rawTicker} is already part of the hardcoded core universe.`,
+            }, 200, corsHeaders(env, req));
+          }
+
+          // Validate the ticker resolves to live market data before persisting.
+          // Mirrors the user-tickers flow so we don't pollute the universe with
+          // typos / delisted symbols.
+          let validationError = null;
+          let quoteSnap = null;
+          try {
+            const result = await DataProvider.fetchLatestQuotes(env, [rawTicker]);
+            const snap = result?.snapshots?.[rawTicker];
+            if (snap && Number(snap.price) > 0) {
+              quoteSnap = snap;
+            } else {
+              validationError = `${rawTicker} was not found in the market data feed.`;
+            }
+          } catch (e) {
+            validationError = `Validation error: ${String(e?.message || e).slice(0, 100)}`;
+          }
+          if (!quoteSnap && validationError) {
+            return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: validationError }, 400, corsHeaders(env, req));
+          }
+
+          // Persist to KV overlay
+          const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+          const tickersArr = Array.isArray(tickersList) ? tickersList : [];
+          if (!tickersArr.includes(rawTicker)) tickersArr.push(rawTicker);
+          tickersArr.sort();
+          await kvPutJSON(KV, "timed:tickers", tickersArr);
+          await KV.put(`timed:sector_map:${rawTicker}`, sector);
+
+          // Lift any prior removal blocklist entry
+          const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+          if (Array.isArray(removedList) && removedList.includes(rawTicker)) {
+            const next = removedList.filter((t) => t !== rawTicker);
+            await kvPutJSON(KV, "timed:removed", next);
+          }
+
+          // Mutate in-memory SECTOR_MAP so this isolate sees the change
+          // immediately. Other isolates pick it up on cold start or the
+          // periodic refresh hook (see _maybeRefreshSectorMappings).
+          SECTOR_MAP[rawTicker] = sector;
+
+          // Bump the version key so any polling isolate can short-circuit
+          // a refresh check ("did the universe change?").
+          await KV.put("timed:universe:version", String(Date.now()));
+
+          // Best-effort: seed an initial KV snapshot from the validated quote
+          // so the ticker is immediately renderable before the first scoring
+          // tick completes. Mirrors the seed-ticker admin route.
+          if (quoteSnap) {
+            try {
+              const price = Number(quoteSnap.price);
+              const prevClose = Number(quoteSnap.prevDailyClose || 0);
+              const seedPayload = {
+                ticker: rawTicker, price, close: price,
+                open: Number(quoteSnap.dailyOpen || price),
+                high: Number(quoteSnap.dailyHigh || price),
+                low: Number(quoteSnap.dailyLow || price),
+                prev_close: prevClose || undefined,
+                day_change: prevClose > 0 ? price - prevClose : undefined,
+                day_change_pct: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : undefined,
+                ts: Date.now(), ingest_ts: Date.now(), ingest_kind: "admin_universe_add",
+                kanban_stage: null, state: "NEUTRAL", rank: 0, htf_score: 0, ltf_score: 0,
+                sector,
+              };
+              await kvPutJSON(KV, `timed:latest:${rawTicker}`, seedPayload);
+            } catch (seedErr) {
+              console.warn(`[UNIVERSE ADD] Seed snapshot failed for ${rawTicker}:`, String(seedErr).slice(0, 100));
+            }
+          }
+
+          // Kick off the full onboarding pipeline in the background
+          // (backfill + harvest + score). Don't block the response.
+          if (ctx?.waitUntil) {
+            ctx.waitUntil((async () => {
+              try {
+                const r = await onboardTicker(env, rawTicker, { getCandles: d1GetCandles, sinceDays: 730 });
+                console.log(`[UNIVERSE ADD] Onboard ${rawTicker}: ok=${r.ok}, moves=${r.moveCount || 0}`);
+              } catch (e) {
+                console.warn(`[UNIVERSE ADD] Onboard failed for ${rawTicker}:`, String(e?.message || e).slice(0, 200));
+              }
+            })());
+          }
+
+          return sendJSON({
+            ok: true,
+            ticker: rawTicker,
+            sector,
+            added: true,
+            seed: !!quoteSnap,
+            onboarding: "started",
+            total_overlay: tickersArr.filter((t) => !SECTOR_MAP[t] || t === rawTicker).length,
+            detail: `${rawTicker} added to the core universe. Backfill + scoring started in background — ETA ~2-5 min for first scoring tick.`,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "DELETE /timed/admin/universe/:ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const rawTicker = normTicker(String(pathParts[3] || "").toUpperCase().trim());
+          if (!rawTicker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+
+          // Removing from CANONICAL hardcoded SECTOR_MAP is a code change —
+          // refuse and tell the operator to use the blocklist mechanism
+          // instead (which still hides the ticker from the active universe).
+          // Otherwise next cold start would re-populate it.
+          const isCanonical = CANONICAL_UNIVERSE && CANONICAL_UNIVERSE.has(rawTicker);
+
+          // Add to removal blocklist
+          const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+          const removedArr = Array.isArray(removedList) ? removedList : [];
+          if (!removedArr.includes(rawTicker)) removedArr.push(rawTicker);
+          removedArr.sort();
+          await kvPutJSON(KV, "timed:removed", removedArr);
+
+          // Remove from runtime overlay list + sector key
+          const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+          if (Array.isArray(tickersList) && tickersList.includes(rawTicker)) {
+            const next = tickersList.filter((t) => t !== rawTicker);
+            await kvPutJSON(KV, "timed:tickers", next);
+          }
+          await KV.delete(`timed:sector_map:${rawTicker}`).catch(() => {});
+
+          // Drop from in-memory SECTOR_MAP (helps this isolate immediately)
+          delete SECTOR_MAP[rawTicker];
+
+          // Bump the version key
+          await KV.put("timed:universe:version", String(Date.now()));
+
+          return sendJSON({
+            ok: true,
+            ticker: rawTicker,
+            removed: true,
+            was_canonical: isCanonical,
+            detail: isCanonical
+              ? `${rawTicker} is part of the hardcoded core — added to the removal blocklist (will be hidden from the active universe on next isolate restart, but the SECTOR_MAP constant is unchanged).`
+              : `${rawTicker} removed from the universe overlay.`,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
