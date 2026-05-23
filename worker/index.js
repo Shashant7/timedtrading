@@ -34993,6 +34993,80 @@ const INVESTOR_TRAILING_STOP_FIXED_PCT = 0.10;
 // Used by runInvestorDailyReplay (transactional pricing) and
 // snapshotBothPortfolios (positions_value mark-to-market).
 // ─────────────────────────────────────────────────────────────────────────
+
+/** Count closed trades for portfolio headline KPIs (live + promoted union for trader). */
+async function portfolioClosedStats(db, mode) {
+  if (!db) return { closed: 0, wins: 0, losses: 0 };
+  try {
+    if (String(mode).toLowerCase() === "investor") {
+      const rows = (await db.prepare(
+        `SELECT l.price, l.shares, p.avg_entry
+         FROM investor_lots l
+         LEFT JOIN investor_positions p ON l.position_id = p.id
+         WHERE l.action = 'SELL'`
+      ).all())?.results || [];
+      let closed = 0, wins = 0, losses = 0;
+      for (const r of rows) {
+        const pnl = (Number(r.price) - Number(r.avg_entry || 0)) * Number(r.shares || 0);
+        closed++;
+        if (pnl > 0) wins++;
+        else if (pnl < 0) losses++;
+      }
+      return { closed, wins, losses };
+    }
+    const liveRows = (await db.prepare(
+      `SELECT trade_id, status, pnl FROM trades WHERE status IN ('WIN','LOSS','FLAT')`
+    ).all())?.results || [];
+    const merged = new Map();
+    let pdataset = await db.prepare(
+      `SELECT dataset_id FROM promoted_trade_datasets WHERE status = 'active' ORDER BY promoted_at DESC LIMIT 1`
+    ).first();
+    if (!pdataset?.dataset_id) {
+      pdataset = await db.prepare(
+        `SELECT dataset_id FROM promoted_trade_datasets ORDER BY promoted_at DESC LIMIT 1`
+      ).first();
+    }
+    if (pdataset?.dataset_id) {
+      const promoted = (await db.prepare(
+        `SELECT trade_id, status, pnl FROM promoted_trades
+         WHERE dataset_id = ?1 AND status IN ('WIN','LOSS','FLAT')`
+      ).bind(pdataset.dataset_id).all())?.results || [];
+      for (const r of promoted) merged.set(String(r.trade_id), r);
+    }
+    for (const r of liveRows) merged.set(String(r.trade_id), r);
+    let closed = 0, wins = 0, losses = 0;
+    for (const t of merged.values()) {
+      closed++;
+      const s = String(t.status || "").toUpperCase();
+      const pnl = Number(t.pnl) || 0;
+      if (s === "WIN" || pnl > 0) wins++;
+      else if (s === "LOSS" || pnl < 0) losses++;
+    }
+    return { closed, wins, losses };
+  } catch (e) {
+    console.warn("[portfolioClosedStats] failed:", String(e?.message || e).slice(0, 200));
+    return { closed: 0, wins: 0, losses: 0 };
+  }
+}
+
+/** Drop one-day poisoned snapshot spikes (missing MTM → cliff + rebound). */
+function sanitizeEquityPoints(points) {
+  if (!Array.isArray(points) || points.length < 3) return points || [];
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const eq = Number(points[i]?.equity) || 0;
+    const prev = Number(points[i - 1]?.equity) || 0;
+    const next = Number(points[i + 1]?.equity) || 0;
+    if (i > 0 && i < points.length - 1 && prev > 0 && next > 0 && eq > 0) {
+      const drop = (prev - eq) / prev;
+      const rebound = (next - eq) / eq;
+      if (drop > 0.2 && rebound > 0.15) continue;
+    }
+    out.push(points[i]);
+  }
+  return out.length >= 2 ? out : points;
+}
+
 async function loadHistoricalClosesAt(env, tickers, ts) {
   const out = {};
   if (!Array.isArray(tickers) || tickers.length === 0) return out;
@@ -35693,7 +35767,46 @@ async function snapshotBothPortfolios(env, KV, replayCtx, dayDate, tickerDataMap
     investorDayTrades = Number(rows?.cnt) || 0;
   } catch {}
 
-  const investorEquity = investorCash + investorPositionsValue;
+  // P0.7.183 — match trader formula (startCash + cumRealized + unrealized).
+  // cash + positionsValue used d1GetLedgerBalance() (always latest) on
+  // historical dates and cliff-dipped when D1 candles were missing.
+  let _invCumRealizedThroughDay = 0;
+  try {
+    const _invRealRow = await db.prepare(
+      `SELECT SUM(COALESCE(realized_pnl, 0)) AS s FROM account_ledger
+       WHERE mode = 'investor' AND ts <= ?1`
+    ).bind(dayMs).first().catch(() => null);
+    _invCumRealizedThroughDay = Number(_invRealRow?.s) || 0;
+  } catch (e) {
+    console.warn("[SNAPSHOT investor] realized lookup failed:", String(e?.message || e).slice(0, 200));
+  }
+  let investorUnrealized = 0;
+  try {
+    const _invPosForMtm = (await db.prepare(
+      "SELECT ticker, total_shares, avg_entry FROM investor_positions WHERE status = 'OPEN'"
+    ).all())?.results || [];
+    const _invTickers2 = _invPosForMtm.filter((p) => Number(p.total_shares) > 0).map((p) => String(p.ticker).toUpperCase());
+    const _invHist2 = await loadHistoricalClosesAt(env, _invTickers2, dayMs);
+    for (const p of _invPosForMtm) {
+      const shares = Number(p.total_shares) || 0;
+      const entry = Number(p.avg_entry) || 0;
+      if (shares <= 0 || entry <= 0) continue;
+      const ticker = String(p.ticker).toUpperCase();
+      let curPrice = Number(_invHist2?.[ticker]) || 0;
+      if (!curPrice && tickerDataMapOverride?.[ticker]) {
+        curPrice = Number(tickerDataMapOverride[ticker]?.price) || 0;
+      }
+      if (!curPrice) {
+        try {
+          const td = await kvGetJSON(KV, `timed:latest:${ticker}`);
+          curPrice = Number(td?.price) || 0;
+        } catch {}
+      }
+      if (curPrice <= 0) continue;
+      investorUnrealized += (curPrice - entry) * shares;
+    }
+  } catch {}
+  const investorEquity = INVESTOR_REPLAY_CAPITAL + _invCumRealizedThroughDay + investorUnrealized;
   const investorSnapId = `snap-investor-${dayDate}`;
   try {
     await db.prepare(
@@ -66099,7 +66212,7 @@ export default {
             let peakEquity = startCash;
             let cumRealized = 0;
 
-            const points = rows.map(r => {
+            let points = rows.map(r => {
               const eq = Number(r.total_equity) || 0;
               cumRealized += Number(r.day_realized_pnl) || 0;
               if (eq > peakEquity) peakEquity = eq;
@@ -66115,6 +66228,7 @@ export default {
                 drawdownPct: Math.round(drawdown * 10000) / 100,
               };
             });
+            if (m === "investor") points = sanitizeEquityPoints(points);
 
             const totalReturn = points.length > 0
               ? (points[points.length - 1].equity - startCash) / startCash
@@ -66139,6 +66253,7 @@ export default {
               }
             }
 
+            const closedStats = await portfolioClosedStats(db, m);
             result[m] = {
               points,
               summary: {
@@ -66149,6 +66264,7 @@ export default {
                 sharpe: Math.round(sharpe * 100) / 100,
                 totalDays: points.length,
                 cumRealized: Math.round(cumRealized * 100) / 100,
+                closedStats,
               },
             };
           }

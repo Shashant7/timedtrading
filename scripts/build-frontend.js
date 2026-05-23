@@ -217,7 +217,7 @@ function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {
 
   html = html.replace(
     /<script type="text\/babel">[\s\S]*?<\/script>/m,
-    `<script src="${compiledScriptRel}"></script>`,
+    `<script src="${compiledScriptRel}?v=${BUILD_MARKER.split(":")[1] || Date.now()}"></script>`,
   );
 
   fs.writeFileSync(outputHtmlPath, html, "utf8");

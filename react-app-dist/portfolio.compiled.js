@@ -329,6 +329,14 @@ function EquityCurveCard({
   const openPnl = Number.isFinite(openPnlOverride) ? openPnlOverride : openPnlFromCurve;
   const totalPnl = Number.isFinite(realized) && Number.isFinite(openPnl) ? realized + openPnl : Number.isFinite(account) ? account - startCash : null;
   const winLoss = (() => {
+    const fromApi = sm?.closedStats;
+    if (fromApi && Number.isFinite(Number(fromApi.closed))) {
+      return {
+        wins: Number(fromApi.wins) || 0,
+        losses: Number(fromApi.losses) || 0,
+        closed: Number(fromApi.closed) || 0
+      };
+    }
     if (!Array.isArray(history)) return {
       wins: 0,
       losses: 0,
@@ -1034,6 +1042,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779550206482:287357261
+// cache-bust:1779553883169:336560821
 
-// cache-bust:1779550206482:287357261
+// cache-bust:1779553883169:336560821
