@@ -448,6 +448,201 @@ function formatDate(ts) {
     year: "2-digit"
   });
 }
+const GICS_SECTORS = ["Information Technology", "Health Care", "Financials", "Industrials", "Consumer Discretionary", "Consumer Staples", "Communication Services", "Energy", "Basic Materials", "Real Estate", "Utilities", "Index ETF", "Sector ETF", "Thematic ETF", "Commodity ETF", "Crypto", "Precious Metals", "Unknown"];
+function CoreUniverseManager() {
+  const [state, setState] = useState({
+    loading: true,
+    data: null,
+    error: null
+  });
+  const [tickerInput, setTickerInput] = useState("");
+  const [sectorInput, setSectorInput] = useState("Information Technology");
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [open, setOpen] = useState(true);
+  const load = async () => {
+    setState(s => ({
+      ...s,
+      loading: true,
+      error: null
+    }));
+    try {
+      const r = await fetch(`${API_BASE}/timed/admin/universe`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setState({
+          loading: false,
+          data: d,
+          error: null
+        });
+      } else {
+        setState({
+          loading: false,
+          data: null,
+          error: d.error || "load_failed"
+        });
+      }
+    } catch (e) {
+      setState({
+        loading: false,
+        data: null,
+        error: e.message
+      });
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const add = async () => {
+    const t = tickerInput.toUpperCase().trim();
+    if (!t) return;
+    if (!/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t)) {
+      setMsg({
+        type: "error",
+        text: `Invalid ticker format: ${t}`
+      });
+      return;
+    }
+    setSubmitting(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`${API_BASE}/timed/admin/universe`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          ticker: t,
+          sector: sectorInput
+        })
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setMsg({
+          type: "success",
+          text: d.already_in_core ? `${t} is already in the core universe.` : `${t} added to the universe — backfill + scoring starting (~2-5 min).`
+        });
+        setTickerInput("");
+        load();
+      } else {
+        setMsg({
+          type: "error",
+          text: `${d.error || "add_failed"}${d.detail ? ` — ${d.detail}` : ""}`
+        });
+      }
+    } catch (e) {
+      setMsg({
+        type: "error",
+        text: e.message
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const remove = async ticker => {
+    if (!ticker) return;
+    if (!confirm(`Remove ${ticker} from the universe? It will be hidden from all users.`)) return;
+    setSubmitting(true);
+    setMsg(null);
+    try {
+      const r = await fetch(`${API_BASE}/timed/admin/universe/${encodeURIComponent(ticker)}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setMsg({
+          type: "success",
+          text: d.was_canonical ? `${ticker} added to removal blocklist (hardcoded — will be hidden on next isolate restart).` : `${ticker} removed from the universe.`
+        });
+        load();
+      } else {
+        setMsg({
+          type: "error",
+          text: `${d.error || "remove_failed"}${d.detail ? ` — ${d.detail}` : ""}`
+        });
+      }
+    } catch (e) {
+      setMsg({
+        type: "error",
+        text: e.message
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const overlay = state.data?.overlay || [];
+  const removed = state.data?.removed || [];
+  const totalActive = state.data?.total_active ?? "—";
+  const coreCount = state.data?.core?.count ?? "—";
+  return React.createElement("div", {
+    className: "mt-6 pt-4 border-t border-white/[0.06]"
+  }, React.createElement("button", {
+    onClick: () => setOpen(v => !v),
+    className: "flex items-center gap-2 text-left w-full group"
+  }, React.createElement("span", {
+    className: "text-[11px] text-cyan-400 uppercase tracking-wide font-semibold"
+  }, "\u2295 Core Universe (available to ALL users)"), React.createElement("span", {
+    className: "text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded"
+  }, totalActive), React.createElement("span", {
+    className: "text-[9px] text-gray-600"
+  }, "core: ", coreCount, " \xB7 overlay: ", overlay.length, " \xB7 removed: ", removed.length), React.createElement("span", {
+    className: "text-gray-600 text-xs group-hover:text-white ml-auto"
+  }, open ? "▲" : "▼")), open && React.createElement("div", {
+    className: "mt-3 space-y-3"
+  }, React.createElement("div", {
+    className: "text-[10px] text-[#6b7280]"
+  }, "Adds the ticker to the SECTOR_MAP overlay (KV-persisted, scored for everyone). Validates against the live market data feed, then triggers a 2-year backfill + scoring pipeline. Propagates to all warm isolates within 5 min; instant for cold starts. Use the user-tickers add flow for per-user additions instead."), React.createElement("div", {
+    className: "flex items-center gap-2 flex-wrap"
+  }, React.createElement("input", {
+    value: tickerInput,
+    onChange: e => setTickerInput(e.target.value),
+    onKeyDown: e => e.key === "Enter" && add(),
+    placeholder: "Ticker (e.g. IBM)",
+    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-40 focus:outline-none focus:border-cyan-500/50 uppercase"
+  }), React.createElement("select", {
+    value: sectorInput,
+    onChange: e => setSectorInput(e.target.value),
+    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+  }, GICS_SECTORS.map(s => React.createElement("option", {
+    key: s,
+    value: s
+  }, s))), React.createElement("button", {
+    onClick: add,
+    disabled: submitting || !tickerInput.trim(),
+    className: "px-3 py-1.5 bg-cyan-600/60 hover:bg-cyan-600 rounded text-xs font-medium text-white disabled:opacity-40"
+  }, submitting ? "Adding..." : "Add to Universe")), msg && React.createElement("div", {
+    className: `text-xs px-2 py-1 rounded ${msg.type === "success" ? "text-green-400 bg-green-900/20" : "text-red-400 bg-red-900/20"}`
+  }, msg.text), overlay.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] text-gray-500 uppercase tracking-wide mb-1.5"
+  }, "Overlay (KV-added, not in core)"), React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, overlay.map(o => React.createElement("span", {
+    key: o.ticker,
+    className: "inline-flex items-center gap-1 px-2 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-300 font-medium"
+  }, o.ticker, React.createElement("span", {
+    className: "text-cyan-500/60 text-[9px]"
+  }, "\xB7 ", o.sector || "Unknown"), React.createElement("button", {
+    onClick: () => remove(o.ticker),
+    className: "text-cyan-500/60 hover:text-red-400 ml-0.5 text-[10px]",
+    title: "Remove from universe"
+  }, "\u2715"))))), removed.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[10px] text-gray-500 uppercase tracking-wide mb-1.5"
+  }, "Removed (blocklist \u2014 won't be re-added)"), React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, removed.map(t => React.createElement("span", {
+    key: t,
+    className: "inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-500/5 border border-red-500/15 text-[11px] text-red-400/70 font-medium"
+  }, t)))), state.loading && React.createElement("div", {
+    className: "text-[10px] text-gray-600"
+  }, "Loading\u2026"), state.error && React.createElement("div", {
+    className: "text-[10px] text-red-400"
+  }, "Error: ", state.error)));
+}
 function UptickManager() {
   const [tickers, setTickers] = useState([...GROUPS.UPTICKS]);
   const [input, setInput] = useState("");
@@ -2002,7 +2197,7 @@ function App() {
     className: "flex items-center justify-center py-20"
   }, React.createElement("div", {
     className: "text-gray-500 text-sm"
-  }, search || sectorFilter !== "all" ? "No tickers match your filters." : "No ticker data found.")), React.createElement(UptickManager, null), React.createElement(MemberTickerListManager, null), React.createElement(SectorRatingsManager, null), React.createElement("div", {
+  }, search || sectorFilter !== "all" ? "No tickers match your filters." : "No ticker data found.")), React.createElement(CoreUniverseManager, null), React.createElement(UptickManager, null), React.createElement(MemberTickerListManager, null), React.createElement(SectorRatingsManager, null), React.createElement("div", {
     className: "mt-6 pt-4 border-t border-white/[0.06]"
   }, React.createElement("div", {
     className: "flex items-center gap-3"
@@ -2024,6 +2219,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1779477059987:40419089
+// cache-bust:1779526529293:395674670
 
-// cache-bust:1779477059987:40419089
+// cache-bust:1779526529293:395674670
