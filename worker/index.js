@@ -74670,6 +74670,78 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     }
     if (_isEvery5Min) {
       vc.add("*/5 * * * *");
+      // 2026-05-23 — Regime self-heal in the */5 cron (NOT fetch-time
+      // waitUntil). Fetch-context waitUntil ran the bootstrap but hit
+      // the Workers wall-clock limit before computeAndPersistRegimeMatrix
+      // (pages ~1.7M trail_5m_facts rows) and trainAndPersistHMM (multi-
+      // start EM × 150 iters) could finish — verified via tail: the
+      // "[REGIME BOOTSTRAP] start" line appeared but no subsequent
+      // matrix:/hmm train: lines and no KV write. Cron context has a
+      // much larger budget; same cooperative KV lock prevents storms.
+      if (env?.KV_TIMED && ctx?.waitUntil) {
+        ctx.waitUntil((async () => {
+          const KV = env.KV_TIMED;
+          const LOCK_KEY = "timed:regime:bootstrap:lock";
+          const LOCK_TTL_S = 30 * 60;
+          let lockHeld = false;
+          try {
+            const existingLock = await KV.get(LOCK_KEY, "text");
+            if (existingLock) {
+              const lockAgeMs = Date.now() - Number(existingLock);
+              if (Number.isFinite(lockAgeMs) && lockAgeMs >= 0 && lockAgeMs < LOCK_TTL_S * 1000) return;
+            }
+            const [m, mdl, lat] = await Promise.all([
+              KV.get("timed:regime:matrix:global", "text"),
+              KV.get("timed:regime:hmm:model:v1", "text"),
+              KV.get("timed:regime:hmm:latest", "text"),
+            ]);
+            const needsMatrix = !m;
+            const needsHmmModel = !mdl;
+            const needsHmmDecode = !lat;
+            if (!needsMatrix && !needsHmmModel && !needsHmmDecode) return;
+
+            await KV.put(LOCK_KEY, String(Date.now()), { expirationTtl: LOCK_TTL_S });
+            lockHeld = true;
+            console.log(`[REGIME BOOTSTRAP cron] start — needsMatrix=${needsMatrix} needsHmmModel=${needsHmmModel} needsHmmDecode=${needsHmmDecode}`);
+            let anySuccess = false;
+
+            if (needsMatrix) {
+              try {
+                const r = await computeAndPersistRegimeMatrix(env, { windowDays: 90, minObs: 20 });
+                if (r?.ok) anySuccess = true;
+                console.log(`[REGIME BOOTSTRAP cron] matrix: ${r?.ok ? `ok summary=${JSON.stringify(r.summary || {})} transitions=${r.total_transitions ?? "?"} rows=${r.rows_read ?? "?"} tickers=${r.distinct_tickers ?? "?"}` : `failed: ${r?.error || "unknown"} details=${(r?.details || "").slice(0, 200)}`}`);
+              } catch (e) {
+                console.error("[REGIME BOOTSTRAP cron] matrix throw:", String(e?.message || e).slice(0, 300));
+              }
+            }
+            if (needsHmmModel) {
+              try {
+                const r = await trainAndPersistHMM(env, { windowDays: 365, numStarts: 6 });
+                if (r?.ok) anySuccess = true;
+                console.log(`[REGIME BOOTSTRAP cron] hmm train: ${r?.ok ? `ok loglik=${r.logLikelihood?.toFixed?.(2) ?? "?"} iters=${r.iterations ?? "?"} obs=${r.observation_count ?? r.rows ?? "?"}` : `failed: ${r?.error || "unknown"} details=${(r?.details || "").slice(0, 200)} sources=${JSON.stringify(r?.sources || {})}`}`);
+              } catch (e) {
+                console.error("[REGIME BOOTSTRAP cron] hmm train throw:", String(e?.message || e).slice(0, 300));
+              }
+            }
+            try {
+              const r = await decodeAndPersistLatentRegime(env);
+              if (r?.ok) anySuccess = true;
+              console.log(`[REGIME BOOTSTRAP cron] hmm decode: ${r?.ok ? `ok state=${r.state}` : `skipped/failed: ${r?.error || "unknown"}`}`);
+            } catch (e) {
+              console.error("[REGIME BOOTSTRAP cron] hmm decode throw:", String(e?.message || e).slice(0, 300));
+            }
+
+            if (!anySuccess && lockHeld) {
+              try { await KV.delete(LOCK_KEY); console.log("[REGIME BOOTSTRAP cron] all failed — lock released"); } catch (_) {}
+            } else {
+              console.log(`[REGIME BOOTSTRAP cron] complete (anySuccess=${anySuccess})`);
+            }
+          } catch (e) {
+            console.error("[REGIME BOOTSTRAP cron] outer:", String(e?.message || e).slice(0, 300));
+            if (lockHeld) { try { await KV.delete(LOCK_KEY); } catch (_) {} }
+          }
+        })());
+      }
       // Alpaca bars: operating hours 4AM-8PM ET = UTC 8-23 (EDT) / 9-23 (EST) + 0-1 next day
       if (_isWeekday && _utcH >= 8 && _utcH <= 23)                vc.add("*/5 9-23 * * 1-5");
       if (_utcDay >= 2 && _utcDay <= 6 && _utcH <= 1)             vc.add("*/5 0-1 * * 2-6");
