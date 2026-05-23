@@ -24,7 +24,7 @@
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
-    <script src="trades-performance.js?v=20260523a"></script>
+    <script src="trades-performance.js?v=20260523c"></script>
     <!-- Right rail factory + helpers + bootstrap so positions / history
          rows open the same ticker-detail panel /index-react.html uses.
          lightweight-charts powers the Chart tab; ticker-spider-chart
@@ -694,6 +694,14 @@
         // (Account / Total P&L / Open P&L / Closed / Realized). Derived
         // from the equity-curve summary + the loaded trade history.
         const winLoss = (() => {
+          const fromApi = sm?.closedStats;
+          if (fromApi && Number.isFinite(Number(fromApi.closed))) {
+            return {
+              wins: Number(fromApi.wins) || 0,
+              losses: Number(fromApi.losses) || 0,
+              closed: Number(fromApi.closed) || 0,
+            };
+          }
           if (!Array.isArray(history)) return { wins: 0, losses: 0, closed: 0 };
           let rows = history;
           const factory = (typeof window !== "undefined") && window.TradesPerformanceFactory;
