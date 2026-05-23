@@ -38507,15 +38507,15 @@ let _sectorMappingsLoadedAt = 0;
 let _sectorMappingsVersionSeen = null;
 
 // 2026-05-23 — Regime self-heal bootstrap.
-// _regimeBootstrapAttempted: per-isolate flag so only one bootstrap fires
-//   per cold start. Cooperates with the KV lock below for cross-isolate.
-// The bootstrap closes the gap between "code is deployed" and "the daily
-// 04:00 UTC runDataLifecycle pass has run" — without it, the three
-// Markov/HMM KV keys stay 404 until the next lifecycle cycle (which can
-// be up to 24h after a fresh deploy). Triggered on the first eligible
-// request per isolate; runs in ctx.waitUntil so the request itself
-// isn't blocked.
-let _regimeBootstrapAttempted = false;
+// _regimeBootstrapLastAttemptAt: ms of the last bootstrap attempt by THIS
+//   isolate. Time-based (not one-shot) so a failed/no-op compute attempt
+//   doesn't lock the isolate out for the rest of its lifetime — the
+//   isolate retries every REGIME_BOOTSTRAP_RETRY_MS, in cooperation with
+//   the cross-isolate KV lock below. The cross-isolate lock is what
+//   prevents storms; the per-isolate cadence is what makes recovery
+//   automatic after a transient compute failure.
+let _regimeBootstrapLastAttemptAt = 0;
+const REGIME_BOOTSTRAP_RETRY_MS = 10 * 60 * 1000; // 10 min
 
 function predictionConfidenceBucket(score, high = 75, medium = 55) {
   const n = Number(score) || 0;
@@ -39386,21 +39386,23 @@ export default {
         }
       }
 
-      // ── Regime/HMM self-heal bootstrap (one-shot per isolate) ──
+      // ── Regime/HMM self-heal bootstrap (per-isolate, time-based retry) ──
       // Closes the gap between "code is deployed" and "daily 04:00 UTC
-      // runDataLifecycle pass populates the KV keys". On the first
-      // eligible request per isolate, check whether the three Markov/HMM
-      // KV keys exist. If any are missing, kick off the compute in
-      // ctx.waitUntil — non-blocking for the user request. A KV lock
-      // prevents multiple concurrent isolates from doing duplicate work.
-      if (KV && !_regimeBootstrapAttempted && ctx?.waitUntil) {
-        _regimeBootstrapAttempted = true;
+      // runDataLifecycle pass populates the KV keys". On every eligible
+      // request — at most once per REGIME_BOOTSTRAP_RETRY_MS per isolate —
+      // check whether the three Markov/HMM KV keys exist. If any are
+      // missing, kick off the compute in ctx.waitUntil — non-blocking
+      // for the user request. A KV lock prevents multiple concurrent
+      // isolates from doing duplicate work; lock is deleted on any
+      // compute failure so other isolates can retry sooner.
+      if (KV && ctx?.waitUntil && (Date.now() - _regimeBootstrapLastAttemptAt) >= REGIME_BOOTSTRAP_RETRY_MS) {
+        _regimeBootstrapLastAttemptAt = Date.now();
         ctx.waitUntil((async () => {
+          const LOCK_KEY = "timed:regime:bootstrap:lock";
+          const LOCK_TTL_S = 30 * 60;
+          let lockHeld = false;
           try {
-            // Cross-isolate lock — 30-min TTL so a stuck bootstrap
-            // doesn't permanently block retry.
-            const LOCK_KEY = "timed:regime:bootstrap:lock";
-            const LOCK_TTL_S = 30 * 60;
+            // Cross-isolate lock — 30-min TTL.
             const existingLock = await KV.get(LOCK_KEY, "text");
             if (existingLock) {
               const lockAgeMs = Date.now() - Number(existingLock);
@@ -39408,7 +39410,7 @@ export default {
                 return; // another isolate is handling it
               }
             }
-            // Pre-flight: any keys already present? Skip if all three exist.
+            // Pre-flight: skip if all three keys already present.
             const [m, mdl, lat] = await Promise.all([
               KV.get("timed:regime:matrix:global", "text"),
               KV.get("timed:regime:hmm:model:v1", "text"),
@@ -39420,42 +39422,55 @@ export default {
             if (!needsMatrix && !needsHmmModel && !needsHmmDecode) return;
 
             await KV.put(LOCK_KEY, String(Date.now()), { expirationTtl: LOCK_TTL_S });
+            lockHeld = true;
             console.log(`[REGIME BOOTSTRAP] start — needsMatrix=${needsMatrix} needsHmmModel=${needsHmmModel} needsHmmDecode=${needsHmmDecode}`);
+
+            let anySuccess = false;
 
             // 1) Markov P matrix (Phase A). Cheap — reads trail_5m_facts.
             if (needsMatrix) {
               try {
                 const r = await computeAndPersistRegimeMatrix(env, { windowDays: 90, minObs: 20 });
-                console.log(`[REGIME BOOTSTRAP] matrix: ${r?.ok ? `${r.summary || ""} transitions=${r.total_transitions ?? "?"}` : `failed: ${r?.error}`}`);
+                if (r?.ok) anySuccess = true;
+                console.log(`[REGIME BOOTSTRAP] matrix: ${r?.ok ? `ok summary=${JSON.stringify(r.summary || {})} transitions=${r.total_transitions ?? "?"} rows=${r.rows_read ?? "?"} tickers=${r.distinct_tickers ?? "?"}` : `failed: ${r?.error || "unknown"} details=${(r?.details || "").slice(0, 200)}`}`);
               } catch (e) {
-                console.error("[REGIME BOOTSTRAP] matrix error:", String(e?.message || e).slice(0, 200));
+                console.error("[REGIME BOOTSTRAP] matrix throw:", String(e?.message || e).slice(0, 300));
               }
             }
 
             // 2) HMM training (Phase C). Heavier — multi-start EM over 365d.
-            // Skip if the model already exists; weekly Sunday cron handles refresh.
             if (needsHmmModel) {
               try {
                 const r = await trainAndPersistHMM(env, { windowDays: 365, numStarts: 6 });
-                console.log(`[REGIME BOOTSTRAP] hmm train: ${r?.ok ? `loglik=${r.logLikelihood?.toFixed?.(2) ?? "?"} iters=${r.iterations ?? "?"}` : `failed: ${r?.error}`}`);
+                if (r?.ok) anySuccess = true;
+                console.log(`[REGIME BOOTSTRAP] hmm train: ${r?.ok ? `ok loglik=${r.logLikelihood?.toFixed?.(2) ?? "?"} iters=${r.iterations ?? "?"} obs=${r.observation_count ?? r.rows ?? "?"}` : `failed: ${r?.error || "unknown"} details=${(r?.details || "").slice(0, 200)} sources=${JSON.stringify(r?.sources || {})}`}`);
               } catch (e) {
-                console.error("[REGIME BOOTSTRAP] hmm train error:", String(e?.message || e).slice(0, 200));
+                console.error("[REGIME BOOTSTRAP] hmm train throw:", String(e?.message || e).slice(0, 300));
               }
             }
 
             // 3) HMM Viterbi decode (Phase C). Cheap given a trained model.
-            // Always run after model exists; cheap and idempotent.
             try {
               const r = await decodeAndPersistLatentRegime(env);
-              console.log(`[REGIME BOOTSTRAP] hmm decode: ${r?.ok ? `state=${r.state}` : `skipped: ${r?.error}`}`);
+              if (r?.ok) anySuccess = true;
+              console.log(`[REGIME BOOTSTRAP] hmm decode: ${r?.ok ? `ok state=${r.state}` : `skipped/failed: ${r?.error || "unknown"}`}`);
             } catch (e) {
-              console.error("[REGIME BOOTSTRAP] hmm decode error:", String(e?.message || e).slice(0, 200));
+              console.error("[REGIME BOOTSTRAP] hmm decode throw:", String(e?.message || e).slice(0, 300));
             }
 
-            // Lock is left in place to TTL naturally; no need to delete.
-            console.log("[REGIME BOOTSTRAP] complete");
+            // If nothing succeeded, delete the lock so other isolates can
+            // retry sooner (rather than waiting the full 30-min TTL).
+            if (!anySuccess && lockHeld) {
+              try { await KV.delete(LOCK_KEY); console.log("[REGIME BOOTSTRAP] all attempts failed — lock released for retry"); }
+              catch (_) { /* best effort */ }
+            } else {
+              console.log(`[REGIME BOOTSTRAP] complete (anySuccess=${anySuccess})`);
+            }
           } catch (e) {
             console.error("[REGIME BOOTSTRAP] outer error:", String(e?.message || e).slice(0, 300));
+            if (lockHeld) {
+              try { await KV.delete(LOCK_KEY); } catch (_) { /* best effort */ }
+            }
           }
         })());
       }
