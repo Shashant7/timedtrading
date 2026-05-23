@@ -596,7 +596,7 @@
         // P&L Calendar FIRST (per user reorder V15 P0.7.81 — Calendar
         // before Monthly Performance for at-a-glance day-by-day rhythm).
         React.createElement("div", { className: "ds-glass" },
-          React.createElement(PnlCalendar, { trades: closed })
+          React.createElement(PnlCalendar, { trades: normalized })
         ),
         // Monthly performance + setup breakdown — single ds-glass panel
         React.createElement("div", { className: "ds-glass" },
@@ -618,5 +618,3 @@
     return TradesPerformance;
   };
 })();
-
-// cache-bust:1779526529293:395674670
