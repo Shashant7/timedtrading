@@ -43,7 +43,16 @@ jobs:
 
       - name: Diff vs committed react-app-dist
         run: |
-          if ! git diff --quiet --exit-code react-app-dist/; then
+          # `git diff -I <regex>` (git ≥ 2.30) drops hunks whose lines all
+          # match the pattern. PR #269 added a build-time cache-bust marker
+          # (`// cache-bust:<ms>:<rand>` for JS, `<!-- cache-bust:… -->`
+          # for HTML) appended to every dist file — those are unique per
+          # build by design (fix for the Cloudflare Pages content-addressed
+          # storage corruption from 2026-05-22). The marker hunks would
+          # otherwise make this check fail every PR, masking the real
+          # "you forgot to rebuild" signal we want to keep.
+          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$'
+          if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" -- react-app-dist/; then
             echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
             echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
             echo "::error::source-only edits won't reach users until the dist is rebuilt."
@@ -53,8 +62,8 @@ jobs:
             echo "  git add react-app-dist/"
             echo "  git commit -m 'build: rebuild react-app-dist'"
             echo ""
-            echo "Diff (truncated):"
-            git --no-pager diff --stat react-app-dist/ | head -40
+            echo "Diff (truncated, cache-bust markers excluded):"
+            git --no-pager diff --stat -I "$IGNORE_PATTERN" -- react-app-dist/ | head -40
             exit 1
           fi
-          echo "✓ react-app-dist/ matches a fresh build."
+          echo "✓ react-app-dist/ matches a fresh build (cache-bust markers ignored)."
