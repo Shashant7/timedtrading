@@ -26947,9 +26947,58 @@ async function runDataLifecycle(env, opts = {}) {
     try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN liq_bs_count INTEGER DEFAULT 0`).run(); } catch (_) {}
     try { await db.prepare(`ALTER TABLE trail_5m_facts ADD COLUMN liq_ss_count INTEGER DEFAULT 0`).run(); } catch (_) {}
 
-    // 1. Aggregate timed_trail (ts < 48h) into trail_5m_facts
-    // Uses subqueries for first/last values per bucket (kanban_stage, price open/close)
-    const agg = await db
+    // 1. Aggregate timed_trail (ts < 48h) into trail_5m_facts.
+    //
+    // 2026-05-23 — PRIMARY PATH replaced with the per-ticker light
+    // aggregator (worker/lib/trail-facts-light.js). The heavy
+    // correlated-subquery INSERT below silently hit D1 CPU timeout for
+    // months, leaving trail_5m_facts 4+ days stale (verified 2026-05-23:
+    // newest_ts 109h old). That staleness cascaded to the Phase A
+    // Markov matrix compute (which sources from trail_5m_facts) and to
+    // the HMM features pipeline (regime-hmm-features.js, same source),
+    // causing the three Markov/HMM KV keys to stay 404 in production:
+    //   timed:regime:matrix:global   timed:regime:hmm:model:v1
+    //   timed:regime:hmm:latest
+    //
+    // The light loop runs ONE GROUP BY + ONE JOIN per ticker — well
+    // under D1's per-statement CPU budget — and is the same code path
+    // POST /timed/admin/aggregate-trail-facts-light exposes for manual
+    // gap-fills.
+    //
+    // The legacy heavy aggregation is preserved below (gated off) so
+    // the SMC / PDZ / ema_regime columns can be back-filled later when
+    // we have budget for a per-ticker version of those extracts. For
+    // the trajectory / Markov / HMM read paths the light columns are
+    // sufficient.
+    let lightAggSummary = { tickers: 0, rows_written: 0, errors: 0 };
+    try {
+      // Active tickers since the cutoff — exactly what's worth aggregating.
+      const lightTickers = await TrailFactsLight.listTrailTickersSince(env, cutoff48h);
+      const lightStart = Date.now();
+      let lightWritten = 0;
+      let lightErrors = 0;
+      for (const lt of lightTickers) {
+        try {
+          const r = await TrailFactsLight.aggregateTrailFactsForTicker(env, lt, cutoff48h, now);
+          if (r?.ok) lightWritten += Number(r.rows_written || r.changes || 0);
+          else lightErrors++;
+        } catch (lte) {
+          lightErrors++;
+          console.warn(`[DATA LIFECYCLE] light-agg ${lt} failed:`, String(lte?.message || lte).slice(0, 120));
+        }
+      }
+      lightAggSummary = { tickers: lightTickers.length, rows_written: lightWritten, errors: lightErrors, elapsed_ms: Date.now() - lightStart };
+      console.log(`[DATA LIFECYCLE] Light-agg trail → 5m facts: tickers=${lightTickers.length} rows_written=${lightWritten} errors=${lightErrors} elapsed=${lightAggSummary.elapsed_ms}ms`);
+    } catch (lae) {
+      console.error("[DATA LIFECYCLE] Light-agg failed:", String(lae?.message || lae).slice(0, 200));
+    }
+
+    // Legacy heavy path — DISABLED. Left in place for reference + future
+    // re-introduction once the SMC / PDZ / ema_regime extracts get their
+    // own per-ticker version. If you ever re-enable this, scope it to
+    // a tiny ticker subset; full-universe hits D1 CPU timeout.
+    const _LEGACY_HEAVY_TRAIL_AGG_ENABLED = false;
+    const agg = _LEGACY_HEAVY_TRAIL_AGG_ENABLED ? await db
       .prepare(
         `INSERT OR REPLACE INTO trail_5m_facts
          (ticker, bucket_ts, price_open, price_high, price_low, price_close,
@@ -27021,8 +27070,10 @@ async function runDataLifecycle(env, opts = {}) {
          GROUP BY t.ticker, (t.ts / 300000) * 300000`,
       )
       .bind(cutoff48h)
-      .run();
-    console.log("[DATA LIFECYCLE] Aggregated trail → 5m facts:", agg?.meta?.changes ?? "ok");
+      .run() : { meta: { changes: 0, skipped: "legacy_disabled" } };
+    if (_LEGACY_HEAVY_TRAIL_AGG_ENABLED) {
+      console.log("[DATA LIFECYCLE] (legacy) Aggregated trail → 5m facts:", agg?.meta?.changes ?? "ok");
+    }
 
     // 2. Purge timed_trail in batches to avoid D1 overload
     let trailDeleted = 0;
@@ -38455,6 +38506,17 @@ let sectorMappingsLoaded = false;
 let _sectorMappingsLoadedAt = 0;
 let _sectorMappingsVersionSeen = null;
 
+// 2026-05-23 — Regime self-heal bootstrap.
+// _regimeBootstrapAttempted: per-isolate flag so only one bootstrap fires
+//   per cold start. Cooperates with the KV lock below for cross-isolate.
+// The bootstrap closes the gap between "code is deployed" and "the daily
+// 04:00 UTC runDataLifecycle pass has run" — without it, the three
+// Markov/HMM KV keys stay 404 until the next lifecycle cycle (which can
+// be up to 24h after a fresh deploy). Triggered on the first eligible
+// request per isolate; runs in ctx.waitUntil so the request itself
+// isn't blocked.
+let _regimeBootstrapAttempted = false;
+
 function predictionConfidenceBucket(score, high = 75, medium = 55) {
   const n = Number(score) || 0;
   if (n >= high) return "high";
@@ -39322,6 +39384,80 @@ export default {
           sectorMappingsLoaded = true;
           _sectorMappingsLoadedAt = Date.now();
         }
+      }
+
+      // ── Regime/HMM self-heal bootstrap (one-shot per isolate) ──
+      // Closes the gap between "code is deployed" and "daily 04:00 UTC
+      // runDataLifecycle pass populates the KV keys". On the first
+      // eligible request per isolate, check whether the three Markov/HMM
+      // KV keys exist. If any are missing, kick off the compute in
+      // ctx.waitUntil — non-blocking for the user request. A KV lock
+      // prevents multiple concurrent isolates from doing duplicate work.
+      if (KV && !_regimeBootstrapAttempted && ctx?.waitUntil) {
+        _regimeBootstrapAttempted = true;
+        ctx.waitUntil((async () => {
+          try {
+            // Cross-isolate lock — 30-min TTL so a stuck bootstrap
+            // doesn't permanently block retry.
+            const LOCK_KEY = "timed:regime:bootstrap:lock";
+            const LOCK_TTL_S = 30 * 60;
+            const existingLock = await KV.get(LOCK_KEY, "text");
+            if (existingLock) {
+              const lockAgeMs = Date.now() - Number(existingLock);
+              if (Number.isFinite(lockAgeMs) && lockAgeMs >= 0 && lockAgeMs < LOCK_TTL_S * 1000) {
+                return; // another isolate is handling it
+              }
+            }
+            // Pre-flight: any keys already present? Skip if all three exist.
+            const [m, mdl, lat] = await Promise.all([
+              KV.get("timed:regime:matrix:global", "text"),
+              KV.get("timed:regime:hmm:model:v1", "text"),
+              KV.get("timed:regime:hmm:latest", "text"),
+            ]);
+            const needsMatrix = !m;
+            const needsHmmModel = !mdl;
+            const needsHmmDecode = !lat;
+            if (!needsMatrix && !needsHmmModel && !needsHmmDecode) return;
+
+            await KV.put(LOCK_KEY, String(Date.now()), { expirationTtl: LOCK_TTL_S });
+            console.log(`[REGIME BOOTSTRAP] start — needsMatrix=${needsMatrix} needsHmmModel=${needsHmmModel} needsHmmDecode=${needsHmmDecode}`);
+
+            // 1) Markov P matrix (Phase A). Cheap — reads trail_5m_facts.
+            if (needsMatrix) {
+              try {
+                const r = await computeAndPersistRegimeMatrix(env, { windowDays: 90, minObs: 20 });
+                console.log(`[REGIME BOOTSTRAP] matrix: ${r?.ok ? `${r.summary || ""} transitions=${r.total_transitions ?? "?"}` : `failed: ${r?.error}`}`);
+              } catch (e) {
+                console.error("[REGIME BOOTSTRAP] matrix error:", String(e?.message || e).slice(0, 200));
+              }
+            }
+
+            // 2) HMM training (Phase C). Heavier — multi-start EM over 365d.
+            // Skip if the model already exists; weekly Sunday cron handles refresh.
+            if (needsHmmModel) {
+              try {
+                const r = await trainAndPersistHMM(env, { windowDays: 365, numStarts: 6 });
+                console.log(`[REGIME BOOTSTRAP] hmm train: ${r?.ok ? `loglik=${r.logLikelihood?.toFixed?.(2) ?? "?"} iters=${r.iterations ?? "?"}` : `failed: ${r?.error}`}`);
+              } catch (e) {
+                console.error("[REGIME BOOTSTRAP] hmm train error:", String(e?.message || e).slice(0, 200));
+              }
+            }
+
+            // 3) HMM Viterbi decode (Phase C). Cheap given a trained model.
+            // Always run after model exists; cheap and idempotent.
+            try {
+              const r = await decodeAndPersistLatentRegime(env);
+              console.log(`[REGIME BOOTSTRAP] hmm decode: ${r?.ok ? `state=${r.state}` : `skipped: ${r?.error}`}`);
+            } catch (e) {
+              console.error("[REGIME BOOTSTRAP] hmm decode error:", String(e?.message || e).slice(0, 200));
+            }
+
+            // Lock is left in place to TTL naturally; no need to delete.
+            console.log("[REGIME BOOTSTRAP] complete");
+          } catch (e) {
+            console.error("[REGIME BOOTSTRAP] outer error:", String(e?.message || e).slice(0, 300));
+          }
+        })());
       }
 
       // ── Periodic universe-overlay refresh (warm-isolate propagation) ──
