@@ -142,20 +142,33 @@ export default {
     // Authenticated users (have CF_Authorization cookie) → /today.html
     // (the daily-ingest digest, new product home as of P0.7.187).
     // Everyone else → public splash page.
+    //
+    // 2026-05-23 — Preserve search params + hash on every redirect path so
+    // deep links like /?ticker=IBM survive into today.html and the global
+    // search component can open the right rail. Previously the redirect
+    // dropped the query string and the rail never opened. Also forward
+    // deep-link queries through to today.html for unauthed visitors so the
+    // CF Access auth flow lands them back on the correctly-deep-linked
+    // page rather than the bare today.html / splash.
     if (url.pathname === "/") {
       const cookies = request.headers.get("Cookie") || "";
       const hasAuth = cookies.includes("CF_Authorization=");
-      if (hasAuth) {
-        return Response.redirect(
-          new URL("/today.html", url.origin).toString(),
-          302,
-        );
-      } else {
-        // Serve splash.html as the public landing page
-        return env.ASSETS.fetch(
-          new Request(new URL("/splash.html", url.origin), request),
-        );
+      const search = url.search || "";   // includes leading "?"
+      const hash = url.hash || "";       // includes leading "#"
+      // A "deep-link" root request is anything with a query string or hash
+      // (e.g. /?ticker=IBM, /#some-anchor). For these we always want to
+      // land the user on today.html so the deep-link handler runs.
+      const isDeepLink = search.length > 0 || hash.length > 0;
+      if (hasAuth || isDeepLink) {
+        const target = new URL("/today.html", url.origin);
+        target.search = search;
+        if (hash) target.hash = hash;
+        return Response.redirect(target.toString(), 302);
       }
+      // Bare / from an unauthenticated visitor → public splash page.
+      return env.ASSETS.fetch(
+        new Request(new URL("/splash.html", url.origin), request),
+      );
     }
 
     // ── Proxy /timed/* to the API Worker ─────────────────────────────────
