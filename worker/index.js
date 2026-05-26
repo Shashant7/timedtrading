@@ -9911,13 +9911,37 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           (direction === "LONG" && _htfStBull && _htfCloudSupportsLong) ||
           (direction === "SHORT" && _htfStBear && _htfCloudSupportsShort);
 
+        // 2026-05-26 — EXT-hours wick guard. Pre/post-market liquidity is
+        // thin and a single low-volume trade can wick price 0.5-2% off
+        // fair value without any genuine break. Closing at a wick is
+        // pure noise loss: the MU incident (PR #283) was a stale-price
+        // exit, but even with the freshness fix, a real wick down to
+        // SL in pre-market would still close the trade against a price
+        // the market wasn't actually paying. Behavior:
+        //   - In RTH: keep prior cushion logic.
+        //   - In EXT: add a fixed 1.0% cushion on top of the existing
+        //     favorable/HTF cushions. So a wick that only nicks SL by
+        //     <1% defers to next */5 cron (typically the next bar or
+        //     RTH open). HTF trend supporting still applies — those
+        //     stack additively for the cushion.
+        // This is paired with the OOH POSITION RECONCILE freshness
+        // guard from PR #283 — that one rejects exits against STALE
+        // prices; this one rejects exits against EXT-thin-liquidity
+        // wicks even when the price is fresh.
+        const _extWickCushion = !isNyRegularMarketOpen() ? 0.010 : 0;
+
         const baseCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport ? 0.005 : 0;
         const htfCushion = _htfTrendSupports ? 0.012 : 0;
-        const allowedOvershoot = Math.max(baseCushion, htfCushion);
+        const allowedOvershoot = Math.max(baseCushion, htfCushion) + _extWickCushion;
 
         if (slOvershoot >= allowedOvershoot) {
           tickerData.__exit_reason = "sl_breached";
           return "exit";
+        }
+        if (_extWickCushion > 0 && slOvershoot < _extWickCushion) {
+          tickerData.__defend_reason = "sl_ext_wick_defer";
+          console.log(`[EXT WICK GUARD] ${tickerData?.ticker}: SL nicked by ${(slOvershoot * 100).toFixed(2)}% in pre/post-market (cushion ${(_extWickCushion * 100).toFixed(2)}%) — deferring to next tick / RTH open.`);
+          return "defend";
         }
         if (_htfTrendSupports && slOvershoot < allowedOvershoot) {
           tickerData.__defend_reason = "sl_htf_trend_cushion";
@@ -19007,13 +19031,33 @@ async function processTradeSimulation(
             let newSL;
             if (isLong) {
               newSL = Math.round((pxNow - _tsm.preTrim * atrD) * 100) / 100;
-              if (newSL > currentSL) {
+              // 2026-05-26 — Lock-in floor on the ATR trail path. Mirrors
+              // the DEFEND-block floor: never let the trailing SL cross
+              // above entry until PnL ≥ 1.5% (paired with PR #232's
+              // ripster floor and the MU incident in PR #283). Below
+              // 1.5% PnL the trail can tighten the SL but only as long
+              // as the result stays strictly below entry.
+              const _entryPx = Number(openTrade.entryPrice);
+              if (Number.isFinite(_entryPx) && _entryPx > 0 && pnlPct < 1.5 && newSL >= _entryPx) {
+                const _capped = Math.min(newSL, _entryPx - 0.01);
+                if (_capped > currentSL) {
+                  openTrade.sl = _capped;
+                  console.log(`[TRAILING SL] ${sym} LONG trail capped below entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
+                }
+              } else if (newSL > currentSL) {
                 openTrade.sl = newSL;
                 console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
             } else {
               newSL = Math.round((pxNow + _tsm.preTrim * atrD) * 100) / 100;
-              if (newSL < currentSL) {
+              const _entryPx = Number(openTrade.entryPrice);
+              if (Number.isFinite(_entryPx) && _entryPx > 0 && pnlPct < 1.5 && newSL <= _entryPx) {
+                const _capped = Math.max(newSL, _entryPx + 0.01);
+                if (_capped < currentSL) {
+                  openTrade.sl = _capped;
+                  console.log(`[TRAILING SL] ${sym} SHORT trail capped above entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
+                }
+              } else if (newSL < currentSL) {
                 openTrade.sl = newSL;
                 console.log(`[TRAILING SL] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
@@ -20250,8 +20294,25 @@ async function processTradeSimulation(
         // Use lifecycle profile thresholds when available, otherwise hard-coded defaults.
         // Oracle trim_profile.pnl_pct_p75 = typical PnL% at trim events (use as breakeven+ trigger)
         // Oracle pullback_profile.pnl_pct_median = typical pullback depth (use as breakeven trigger)
-        const bevenPlusTrigger = _trimProfile.pnl_pct_p75 > 0 ? _trimProfile.pnl_pct_p75 : 5;
-        const bevenTrigger = _pullbackProfile.pnl_pct_median > 0 ? _pullbackProfile.pnl_pct_median : 3;
+        //
+        // 2026-05-26 — Lock-in floor (paired with the MU incident in PR #283).
+        // MU's SL got raised to $770.44 (0.4% above $767.37 entry) by the
+        // BREAKEVEN_PLUS path because the learned _trimProfile.pnl_pct_p75
+        // was very low for tight-ticker cohorts. That created a paper-thin
+        // SL that wicks easily, and PR #283 just stopped exits against
+        // stale prices — not against legitimate wicks at over-eager
+        // lock-in stops. Floor the triggers so the SL can't be lifted
+        // above entry until we have meaningful profit on the trade:
+        //   - BREAKEVEN move (SL → entry) requires ≥1.5% PnL
+        //   - BREAKEVEN_PLUS (SL → entry + buffer) requires ≥2.5% PnL
+        // Mirrors the 1.5% PnL floor PR #232 added to the ripster-cloud
+        // exit family; both lock-in actions should use the same minimum.
+        const MIN_PNL_BEFORE_BREAKEVEN_PCT = 1.5;
+        const MIN_PNL_BEFORE_BREAKEVEN_PLUS_PCT = 2.5;
+        const _profileBevenPlus = _trimProfile.pnl_pct_p75 > 0 ? _trimProfile.pnl_pct_p75 : 5;
+        const _profileBeven = _pullbackProfile.pnl_pct_median > 0 ? _pullbackProfile.pnl_pct_median : 3;
+        const bevenPlusTrigger = Math.max(_profileBevenPlus, MIN_PNL_BEFORE_BREAKEVEN_PLUS_PCT);
+        const bevenTrigger = Math.max(_profileBeven, MIN_PNL_BEFORE_BREAKEVEN_PCT);
         const bevenBuffer = _trimProfile.sample_count > 5 ? 0.008 : 0.01; // tighter buffer with more data
 
         // PDZ modulation: in favorable zone, widen thresholds (let trade breathe)
