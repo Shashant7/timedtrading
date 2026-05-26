@@ -67,6 +67,65 @@ const DEFAULTS = Object.freeze({
  *   elapsed_ms
  * }>}
  */
+// 2026-05-26 — Phase 6 G3 shadow-mode caching.
+//
+// At admission time we want to read the cell-markov outcome split
+// without running the full ~5K-trade scan. Cache the snapshot in KV
+// keyed by lookback window, and serve it for `cellMarkovCacheTtlMs`.
+
+const CELL_MARKOV_KV_KEY = "timed:cell-markov:v1";
+const CELL_MARKOV_KV_TTL_S = 30 * 86400; // 30 days
+
+export async function persistCellMarkovCache(env, opts = {}) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return { ok: false, error: "no_kv" };
+  const result = await buildCellMarkov(env, {
+    lookbackDays: opts.lookbackDays || 180,
+    minCellObs: opts.minCellObs || 5,
+    divergenceThreshold: opts.divergenceThreshold || 0.15,
+    maxTrades: opts.maxTrades || 5000,
+  });
+  if (!result?.ok) return { ok: false, error: result?.error || "build_failed" };
+  // Strip heavy fields (full chains) — the shadow evaluator only needs
+  // cell_volume + divergent_cells.
+  const slim = {
+    schema_version: 1,
+    computed_at: Date.now(),
+    window: result.window,
+    config: result.config,
+    counts: result.counts,
+    cell_volume: result.cell_volume,
+    divergent_cells: result.divergent_cells,
+    noise_cells_count: result.noise_cells_count,
+  };
+  try {
+    await KV.put(CELL_MARKOV_KV_KEY, JSON.stringify(slim), { expirationTtl: CELL_MARKOV_KV_TTL_S });
+    return { ok: true, kv_key: CELL_MARKOV_KV_KEY, cells: Object.keys(slim.cell_volume || {}).length, divergent: slim.divergent_cells?.length || 0, bytes: JSON.stringify(slim).length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+let _cellMarkovCached = null;
+let _cellMarkovCachedAt = 0;
+const CELL_MARKOV_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min in-isolate
+
+export async function loadCellMarkovCached(env) {
+  const now = Date.now();
+  if (_cellMarkovCached && (now - _cellMarkovCachedAt) < CELL_MARKOV_CACHE_TTL_MS) return _cellMarkovCached;
+  const KV = env?.KV_TIMED;
+  if (!KV) return null;
+  try {
+    const blob = await KV.get(CELL_MARKOV_KV_KEY, "json");
+    if (!blob) return null;
+    _cellMarkovCached = blob;
+    _cellMarkovCachedAt = now;
+    return blob;
+  } catch (_) { return null; }
+}
+
+export { CELL_MARKOV_KV_KEY };
+
 export async function buildCellMarkov(env, opts = {}) {
   const t0 = Date.now();
   const db = env?.DB;

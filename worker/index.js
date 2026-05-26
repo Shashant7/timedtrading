@@ -21504,6 +21504,72 @@ async function processTradeSimulation(
       }
     }
 
+    // 2026-05-26 — Phase 6 G3 SHADOW-MODE evaluator.
+    //
+    // Looks up the candidate's entry cell in the cached cell-Markov
+    // outcome split (built nightly by runDataLifecycle step 10) and
+    // computes a would-have-blocked decision. NEVER mutates
+    // smartGateBlocked — this is observation-only until we have
+    // enough cohort data to trust the signal (see
+    // GET /timed/admin/phase6-prereq-status).
+    //
+    // Decision: block if cell has >= minTotal observations AND
+    // loss_share = n_lose / total >= lossThreshold (default 0.65).
+    //
+    // Stamped on tickerData.__g3_shadow so admission_cohort_log
+    // captures it in the same row as the Phase 4 cohort decision.
+    let _g3ShadowDecision = null;
+    if (isEnter && entryPath && _p4CohortDecision?.cell_entry) {
+      try {
+        const _g3Gates = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
+          ? tickerData._env._deepAuditConfig.gates : {};
+        // Shadow mode runs as long as the cache exists. Even when the
+        // operator hasn't enabled the live-block flag, the shadow row
+        // is recorded so we can compare shadow vs actual outcomes.
+        const _g3MinTotal = Number.isFinite(_g3Gates.g3_min_cell_total) ? Number(_g3Gates.g3_min_cell_total) : 50;
+        const _g3LossThreshold = Number.isFinite(_g3Gates.g3_loss_share_block) ? Number(_g3Gates.g3_loss_share_block) : 0.65;
+        const _g3Cache = await CellMarkov.loadCellMarkovCached(env);
+        if (_g3Cache?.cell_volume) {
+          const _cellKey = String(_p4CohortDecision.cell_entry).split("+")[0]; // strip flag overlay
+          const _v = _g3Cache.cell_volume[_cellKey];
+          if (_v) {
+            const _nTotal = Number(_v.total) || 0;
+            const _nLose = Number(_v.n_lose) || 0;
+            const _nWin = Number(_v.n_win) || 0;
+            const _lossShare = _nTotal > 0 ? _nLose / _nTotal : null;
+            const _shadowBlock = _nTotal >= _g3MinTotal && _lossShare != null && _lossShare >= _g3LossThreshold;
+            _g3ShadowDecision = {
+              mode: "shadow",
+              cell: _cellKey,
+              n_total: _nTotal,
+              n_win: _nWin,
+              n_lose: _nLose,
+              loss_share: _lossShare != null ? Number(_lossShare.toFixed(3)) : null,
+              min_total: _g3MinTotal,
+              loss_threshold: _g3LossThreshold,
+              would_block: _shadowBlock,
+              cache_age_ms: Date.now() - (Number(_g3Cache.computed_at) || 0),
+            };
+            if (_shadowBlock) {
+              console.log(`[PHASE6_G3_SHADOW] ${sym} ${entryPath} ${direction} cell=${_cellKey} would-block: loss_share=${_lossShare.toFixed(2)} (${_nLose}/${_nTotal})`);
+            }
+          } else {
+            _g3ShadowDecision = {
+              mode: "shadow",
+              cell: _cellKey,
+              n_total: 0,
+              would_block: false,
+              reason: "cell_not_in_cache",
+            };
+          }
+        }
+        tickerData.__g3_shadow = _g3ShadowDecision;
+      } catch (_e) {
+        // Shadow path must never throw — log + continue
+        console.warn(`[PHASE6_G3_SHADOW_ERR] ${sym}: ${String(_e?.message || _e).slice(0, 200)}`);
+      }
+    }
+
     if (isEnter && (weekendNow || outsideRTH || !enterCooldownOk || sameEnterCycle || openTrade || recentTradeBlocked || parityNoReentryBlocked || smartGateBlocked || parityOpeningConfirmedDeferred)) {
       // Replay debug: capture why we're blocked
       if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 25) {
@@ -21630,7 +21696,7 @@ async function processTradeSimulation(
           cohort: _p4CohortDecision?.cohort,
           recent: _p4CohortDecision?.recent,
           cohort_gated: _p4CohortDecision?.gated,
-          meta: (_p4CohortDecision || _p5ChopHaircutPlan || _markovFavorPlan) ? {
+          meta: (_p4CohortDecision || _p5ChopHaircutPlan || _markovFavorPlan || _g3ShadowDecision || tickerData.__adaptive_v1) ? {
             ...(_p4CohortDecision ? {
               cached: _p4CohortDecision.cached,
               cohort_elapsed_ms: _p4CohortDecision.elapsed_ms,
@@ -21651,6 +21717,14 @@ async function processTradeSimulation(
             ...(_p5ChopHaircutPlan && smartGateBlocked ? {
               chop_haircut_skipped: _p5ChopHaircutPlan,
             } : {}),
+            // Phase 6 G3 shadow-mode decision — always shadow until
+            // operator flips gates.cell_markov_divergence_enabled. See
+            // PR for rollout plan.
+            ...(_g3ShadowDecision ? { g3_shadow: _g3ShadowDecision } : {}),
+            // Adaptive Scoring Layer 1 — stamped by computeRank when
+            // gates.adaptive_scoring_v1 is enabled. Surfaces here so
+            // trade-autopsy can correlate the multiplier with outcome.
+            ...(tickerData.__adaptive_v1 ? { adaptive_v1: tickerData.__adaptive_v1 } : {}),
           } : undefined,
         };
         // Fire-and-forget; ctx.waitUntil() if available, else just kick the promise.
@@ -27620,6 +27694,26 @@ async function runDataLifecycle(env, opts = {}) {
       }
     } catch (hmmErr) {
       console.error("[DATA LIFECYCLE] HMM decode error:", String(hmmErr?.message || hmmErr).slice(0, 300));
+    }
+
+    // 10. Cell-Markov outcome split — feeds the Phase 6 G3 shadow-mode
+    // evaluator (2026-05-26). Builds the 640-cell WIN vs LOSS
+    // transition snapshot from trade_trajectories and caches a
+    // slim version (cell_volume + divergent_cells only) to KV so
+    // admission-time lookups are O(1) instead of re-scanning ~5K
+    // trades per candidate. 30-day TTL on the cache; rebuilt
+    // nightly here. Best-effort — table-missing / no-trades cases
+    // return ok:false with a clear error and the shadow evaluator
+    // simply no-ops next day.
+    try {
+      const _cellRes = await CellMarkov.persistCellMarkovCache(env, { lookbackDays: 180 });
+      if (_cellRes?.ok) {
+        console.log(`[DATA LIFECYCLE] Cell-Markov cache persisted: ${_cellRes.cells} cells, ${_cellRes.divergent} divergent, ${_cellRes.bytes} bytes`);
+      } else {
+        console.warn(`[DATA LIFECYCLE] Cell-Markov cache skipped: ${_cellRes?.error || "unknown"}`);
+      }
+    } catch (cmErr) {
+      console.error("[DATA LIFECYCLE] Cell-Markov cache error:", String(cmErr?.message || cmErr).slice(0, 300));
     }
   } catch (err) {
     console.error("[DATA LIFECYCLE] Error:", err);
