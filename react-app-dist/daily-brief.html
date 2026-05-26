@@ -18,7 +18,29 @@
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
+    <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
+         Active Trader + Investor links (open trade count / actionable
+         count), bottom nav on mobile, global search overlay, activity
+         strip pinned to the top. -->
+    <script src="tt-bottom-nav.js?v=20260521b" defer></script>
+    <script src="tt-nav-extras.js?v=20260517e" defer></script>
+    <script src="tt-global-search.js?v=20260522a" defer></script>
+    <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <style>
+      /* 2026-05-26 — Nav-link styles ported from today.html so the
+         shared tt-nav-extras.js badges + Admin dropdown render
+         correctly here. */
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: #9ca3af; text-decoration: none;
+        padding: 6px 12px; border-radius: 8px;
+        transition: color .15s ease, background-color .15s ease;
+        border: 1px solid transparent; white-space: nowrap;
+      }
+      .nav-link:hover { color: #e5e7eb; background: rgba(255,255,255,0.025); }
+      .nav-link.faq, .nav-link.learn { color: #6b7280; font-size: 12px; }
+      .nav-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; }
+
       :root {
         --tt-bg-base: #0b0e11;
         --tt-bg-surface: rgba(255,255,255,0.02);
@@ -182,11 +204,11 @@
   </head>
   <body class="ds-v2">
     <div id="root"></div>
-    <script src="daily-brief.compiled.js?v=1779822003827"></script>
+    <script src="daily-brief.compiled.js?v=1779836218072"></script>
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
     </footer>
   </body>
 </html>
 
-<!-- cache-bust:1779822003827:716139813 -->
+<!-- cache-bust:1779836218072:404886223 -->
