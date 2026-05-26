@@ -3388,8 +3388,8 @@
         "sector_rotation": "balanced",
         "regime_overall": "risk_on",
         "regime_score": 8,
-        "btc_pct": 0.43,
-        "eth_pct": 0.88
+        "btc_pct": 0.31,
+        "eth_pct": 0.48
       }
     ],
     "success": true,
@@ -3399,13 +3399,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 3.0909
+        "sql_duration_ms": 2.8239
       },
-      "duration": 3.0909,
+      "duration": 2.8239,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 48047441,
       "changed_db": false,
-      "size_after": 3608817664,
+      "size_after": 3593728000,
       "rows_read": 226,
       "rows_written": 0,
       "total_attempts": 1
