@@ -28,6 +28,33 @@
 >   Phase 6 cell-Markov G3 gate, plus the new "raise wick cushion to
 >   profile-driven if needed" follow-up from the MU incident.
 
+> **STATUS REFRESH 2026-05-26 late (PRs #299–#302).**
+>
+> - **PR #299** — Daily Brief UI: nav parity with today/AT/investor
+>   (badges + Admin dropdown + global search + activity strip),
+>   kanban-style Game Plan progress-bar visual replacing the
+>   text-only rows, Prediction Scorecard MISS false-positive fix
+>   (extractPredictionLine regex now matches markdown headings,
+>   not just `**Label**:` colon-syntax).
+> - **PR #300** — Adaptive Scoring Layer 1: regime weight multiplier
+>   on computeRank. Default-off via `gates.adaptive_scoring_v1`.
+>   Stamped on tickerData.__adaptive_v1 + admission_cohort_log.
+> - **PR #301** — Phase 6 G3 SHADOW-MODE evaluator. Nightly cell-Markov
+>   KV cache (`timed:cell-markov:v1`, 180-day window, 30-day TTL) +
+>   admission-time shadow read. Stamps `__g3_shadow` on tickerData +
+>   admission_cohort_log. NEVER mutates smartGateBlocked. Live
+>   promotion is a 3-line follow-up gated on
+>   `gates.cell_markov_divergence_enabled`.
+> - **PR #302** — Operator runbook: `docs/2026-05-26-operator-runbook.md`.
+>   Single source for every flag flip + endpoint poll cadence + the
+>   exact data-maturity threshold that triggers each operator
+>   decision. Read this BEFORE asking the user what to do next on
+>   any Markov/HMM/cell-Markov front.
+>
+> **The "Pending — operator/observation-only" list is now codified
+> in `docs/2026-05-26-operator-runbook.md`. Future agents and the
+> user should treat that doc as canonical for those decisions.**
+
 > **STATUS REFRESH 2026-05-26 evening (PRs #285–#287).**
 >
 > - **PR #285** — HMM→engine wiring (4 follow-ups in one PR): latent_regime
