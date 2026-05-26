@@ -419,13 +419,24 @@ the form an operator or contributor can pick up directly.
 
 ### Other open follow-ups from the arc — 2026-05-26 status
 
-- [ ] Add server-side observability around `POST /timed/user-tickers` so silent frontend failures become visible (mentioned in the IBM-add diagnosis).
-- [ ] Promote `[SL_SANITY_SKIP]` / `[MOVE_STATUS_SL_SKIP]` + the new `[EXT WICK GUARD]` (PR #284) + `[HTF GUARD]` log frequencies into a small metrics endpoint so we can see how often each guard is catching real edge cases.
-- [ ] Investigate chronic Twelve Data dropouts surfaced by `[PROVIDER_FALLBACK]` logs (PR #272) — chronic offenders may want Alpaca-primary instead of fallback.
-- [ ] Build an admin endpoint to flush the Cloudflare Pages content-addressed cache (preempting the failure mode the cache-bust marker now defends against).
-- [ ] Adaptive scoring follow-up was deferred when we wrapped the CPU optimizations (#234); pick this back up when the Markov framework is producing (it is now — could revisit).
-- [ ] **NEW (MU follow-up)**: surface per-trade pre-market wick events in `admission_cohort_log` so we can measure how often `[EXT WICK GUARD]` saves us vs. PR #284's 1.0% cushion being too tight in any regime.
-- [ ] **NEW (MU follow-up)**: the trailing-SL ATR multiplier `_tsm.preTrim` could be widened in EXT hours too — `[TRAILING SL]` log lines from EXT cron ticks should be auditable to see if any current SL placements are being driven by EXT-only price action.
+- [x] ~~Add server-side observability around `POST /timed/user-tickers`~~ → PR #286 (structured logs + KV ring buffer + admin endpoint).
+- [x] ~~Promote `[SL_SANITY_SKIP]` / `[MOVE_STATUS_SL_SKIP]` + `[EXT WICK GUARD]` + `[HTF GUARD]` log frequencies into a small metrics endpoint~~ → PR #290 (per-isolate) + PR #294 (nightly KV flush + fleet-wide aggregator).
+- [x] ~~Investigate chronic Twelve Data dropouts surfaced by `[PROVIDER_FALLBACK]` logs~~ → PR #291 (per-isolate + per-symbol counters + admin endpoint with top-offenders + unhealable lists).
+- [x] ~~Build an admin endpoint to flush the Cloudflare Pages content-addressed cache~~ → PR #292 (`POST /timed/admin/pages-cas-flush` + `GET /timed/admin/pages-deployments`).
+- [x] ~~Adaptive scoring follow-up was deferred when we wrapped the CPU optimizations (#234)~~ → PR #296 (spec doc; three-layer rollout). Layer 1 implementation is a separate follow-up PR.
+- [x] ~~**NEW (MU follow-up)**: surface per-trade pre-market wick events~~ → PR #293 (`openPosition._premarket_wicks[]` + EXT trail audit on `openTrade._ext_trail_events[]`).
+- [x] ~~**NEW (MU follow-up)**: the trailing-SL ATR multiplier could be widened in EXT hours~~ → PR #293 (`[TRAILING SL RTH]` vs `[TRAILING SL EXT]` log tags + per-trade audit fields).
+
+### Newly-pending (carried forward to next session)
+
+- [ ] Provider-fallback nightly KV flush + aggregator (paired with #291); same shape as #294's SL-guard flush. Small PR — gated on #291 having merged first.
+- [ ] Adaptive scoring **Layer 1** implementation (regime weight multipliers, `gates.adaptive_scoring_v1` default-off). See `docs/2026-05-26-adaptive-scoring-spec.md`.
+- [ ] Phase 6 cell-Markov G3 admission gate — track via `GET /timed/admin/phase6-prereq-status` (PR #295). Build shadow-mode G3 evaluator once `ready_for_phase6_g3: true`.
+- [ ] HMM labelling watch — monitor `GET /timed/admin/hmm-labelling-check` (PR #295). Swap label feature from SPY-return → VIXY-change if `swap_label_feature_recommended: true` (≥ 14 day disagreement streak).
+- [ ] Tune `windowDays` from 90 → 180 if `cells_below_min` is high in the matrix (recap §4.2).
+- [ ] Operator action: enable `gates.markov_chop_haircut_adaptive` once a chop regime appears in live decodes.
+- [ ] Operator action: enable `gates.markov_position_sizing_enabled` after ≥ 5 trading days of `_markovFavorPlan` audit rows.
+- [ ] UI suppression at low HMM confidence (cosmetic, low priority).
 
 ### Newly-shipped since 2026-05-23 — completed PRs
 
@@ -439,7 +450,18 @@ the form an operator or contributor can pick up directly.
 | #282 | Portfolio ~588 closed count + investor equity cliff | ✅ |
 | #283 | stale pre-market price → bogus MU SL exit + Daily Brief levels | ✅ |
 | #284 | SL lock-in floor + EXT-hours wick guard | ✅ |
-| #286 | HMM→engine wiring: latent_regime onto trade record + chop floor + macro-flip exit + confidence guard | this session |
+| #285 | HMM→engine wiring: latent_regime onto trade record + chop floor + macro-flip exit + confidence guard | ✅ |
+| #286 | POST /timed/user-tickers observability: structured logs + KV ring buffer + admin endpoint | ✅ |
+| #287 | Event-risk macro entry block + event-identity dedup (TLN/UNP/PCI fixes) | ✅ |
+| #288 | Auto-refresh prices (30s) + scoring/kanban (90s) on today/AT/investor | ✅ |
+| #289 | Right-rail: hide duplicate Chart tab in workspace mode + Markov entry-regime chip + MACRO DEFEND badge | ✅ |
+| #290 | SL-guard observability: per-isolate counters + GET /timed/admin/sl-guard-stats | ✅ |
+| #291 | Provider-fallback observability: per-isolate + per-symbol counters + admin endpoint | ✅ |
+| #292 | Pages CAS flush admin endpoints (Cloudflare API) | ✅ |
+| #293 | Per-trade pre-market wick log + EXT trailing-SL session tag (MU follow-ups) | ✅ |
+| #294 | Nightly KV flush of SL guard counters + fleet-wide aggregator endpoint | ✅ |
+| #295 | Phase 6 prereq audit + HMM labelling sanity check endpoints | ✅ |
+| #296 | Adaptive scoring kickoff — three-layer rollout spec (no code) | ✅ |
 
 ---
 
