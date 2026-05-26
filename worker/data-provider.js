@@ -40,6 +40,43 @@ function _hasUsableAlpaca(env) {
   return !!(env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY);
 }
 
+// 2026-05-26 — Per-isolate counters for the TD→Alpaca fallback. Operators
+// poll GET /timed/admin/provider-fallback-stats to see which symbols rely
+// on the fallback most often. Chronic offenders are candidates to flip to
+// Alpaca-primary (or escalate to TD support). Mirrors the SL-guard
+// counters pattern from PR #290 — per-isolate in-memory, no KV writes
+// in the hot path. Exported so the route handler can read.
+const _providerFallbackStats = {
+  isolate_started_at: Date.now(),
+  isolate_id: Math.random().toString(36).slice(2, 10),
+  counts: {
+    bars_total_attempts: 0,           // # times _withAlpacaBarsFallback ran
+    bars_symbols_missing_from_td: 0,  // total per-symbol gaps seen
+    bars_symbols_healed_by_alpaca: 0, // total per-symbol successful heals
+    bars_per_symbol_errors: 0,        // Alpaca threw on individual symbol fetch
+    snapshots_total_attempts: 0,
+    snapshots_symbols_missing_from_td: 0,
+    snapshots_symbols_healed_by_alpaca: 0,
+    snapshots_alpaca_errors: 0,
+  },
+  // Per-symbol fail/heal counters so chronic offenders are easy to spot.
+  // Keyed by ticker; values: { heals, misses, last_tf, last_ts }.
+  per_symbol: {},
+};
+
+function _bumpProviderSym(sym, kind, tf) {
+  try {
+    const k = String(sym || "").toUpperCase();
+    if (!k) return;
+    const e = _providerFallbackStats.per_symbol[k] || { heals: 0, misses: 0, last_tf: null, last_ts: 0 };
+    if (kind === "heal") e.heals++;
+    if (kind === "miss") e.misses++;
+    e.last_tf = tf || e.last_tf;
+    e.last_ts = Date.now();
+    _providerFallbackStats.per_symbol[k] = e;
+  } catch (_) { /* counters can never throw */ }
+}
+
 function getProvider(env) {
   return (env?.DATA_PROVIDER || "twelvedata").toLowerCase();
 }
@@ -77,6 +114,7 @@ export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit
 // Each healed symbol is logged with [PROVIDER_FALLBACK] for observability.
 async function _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit) {
   if (!_hasUsableAlpaca(env)) return tdResult;
+  _providerFallbackStats.counts.bars_total_attempts++;
   const tdError = tdResult?.error;
   const tdBars = tdResult?.bars || {};
   const missing = [];
@@ -88,6 +126,8 @@ async function _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end
   // Alpaca's crypto endpoint requires a different route than the stock bars.
   const stockMissing = missing.filter((s) => !isCrypto(s));
   if (stockMissing.length === 0) return tdResult;
+  _providerFallbackStats.counts.bars_symbols_missing_from_td += stockMissing.length;
+  for (const s of stockMissing) _bumpProviderSym(s, "miss", tfKey);
   let healedSymbols = 0;
   let healedBars = 0;
   // Cap concurrent fallback fetches to avoid blowing Alpaca's rate limit
@@ -101,11 +141,14 @@ async function _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end
         tdBars[sym] = aBars;
         healedSymbols++;
         healedBars += aBars.length;
+        _bumpProviderSym(sym, "heal", tfKey);
       }
     } catch (e) {
+      _providerFallbackStats.counts.bars_per_symbol_errors++;
       console.warn(`[PROVIDER_FALLBACK] alpaca bars ${sym} TF ${tfKey}:`, String(e?.message || e).slice(0, 150));
     }
   }
+  _providerFallbackStats.counts.bars_symbols_healed_by_alpaca += healedSymbols;
   if (healedSymbols > 0) {
     console.log(`[PROVIDER_FALLBACK] alpaca healed ${healedSymbols}/${stockMissing.length} symbols missing from TD for TF ${tfKey} (+${healedBars} bars)${tdError ? ` td_error=${tdError}` : ""}`);
   }
@@ -206,6 +249,7 @@ export async function fetchLatestQuotes(env, symbols) {
 // snapshot from TD is retried via Alpaca's bulk snapshot endpoint.
 async function _withAlpacaQuotesFallback(env, tdResult, symbols) {
   if (!_hasUsableAlpaca(env)) return tdResult;
+  _providerFallbackStats.counts.snapshots_total_attempts++;
   const tdSnaps = tdResult?.snapshots || {};
   const missing = [];
   for (const sym of symbols || []) {
@@ -214,6 +258,8 @@ async function _withAlpacaQuotesFallback(env, tdResult, symbols) {
   }
   const stockMissing = missing.filter((s) => !isCrypto(s));
   if (stockMissing.length === 0) return tdResult;
+  _providerFallbackStats.counts.snapshots_symbols_missing_from_td += stockMissing.length;
+  for (const s of stockMissing) _bumpProviderSym(s, "miss", "snapshot");
   try {
     const aRes = await alpacaFetchSnapshots(env, stockMissing);
     const aSnaps = aRes?.snapshots || {};
@@ -223,12 +269,15 @@ async function _withAlpacaQuotesFallback(env, tdResult, symbols) {
       if (aSnap && Number(aSnap.price) > 0) {
         tdSnaps[sym] = { ...aSnap, _source: "alpaca_fallback" };
         healed++;
+        _bumpProviderSym(sym, "heal", "snapshot");
       }
     }
+    _providerFallbackStats.counts.snapshots_symbols_healed_by_alpaca += healed;
     if (healed > 0) {
       console.log(`[PROVIDER_FALLBACK] alpaca healed ${healed}/${stockMissing.length} missing snapshots from TD`);
     }
   } catch (e) {
+    _providerFallbackStats.counts.snapshots_alpaca_errors++;
     console.warn(`[PROVIDER_FALLBACK] alpaca snapshots failed:`, String(e?.message || e).slice(0, 200));
   }
   return { ...tdResult, snapshots: tdSnaps };
@@ -664,3 +713,9 @@ export async function backfill(env, tickers, tfKey = "all", opts = null) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export { getProvider, isUltra, SKIP_TICKERS, toTdSymbol, fromTdSymbol, isCrypto };
+
+// 2026-05-26 — Read-only access to the per-isolate provider-fallback
+// counters. Consumed by the admin endpoint registered in worker/index.js.
+export function getProviderFallbackStats() {
+  return _providerFallbackStats;
+}
