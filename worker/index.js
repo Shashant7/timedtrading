@@ -10258,6 +10258,44 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
     }
 
+    // 2026-05-26 — HMM Phase C follow-up #5 (recap §4):
+    // Macro-regime-flip DEFEND. If the HMM has decoded a macro state
+    // strongly against the trade direction (LONG in BEAR_TREND or
+    // SHORT in BULL_TREND), tighten to DEFEND so the existing exit
+    // ladder runs faster. This is additive to the multi-TF `bfState`
+    // bias_flip family above (which is per-ticker) — the latent regime
+    // adds a single market-wide signal that complements per-ticker
+    // signal flips.
+    //
+    // We DEFEND (not EXIT) for two reasons:
+    //   1. The latent state is universe-wide; per-ticker structure
+    //      may still hold even when the macro tape is against us.
+    //   2. Cohort attribution is improved when the defend ladder gets
+    //      to fire its full sequence (PROFIT_PROTECT_TRIM → bracket
+    //      tighten → bias_flip_htf → bias_flip_full → max_loss).
+    //
+    // Confidence gate (posterior ≥ 0.6) prevents firing on noisy
+    // decodes. Min age 60m matches the bias_flip HTF defend path.
+    try {
+      const _macroLr = tickerData?.latent_regime;
+      const _macroPost = _macroLr?.posterior && typeof _macroLr.posterior === "object"
+        ? Math.max(...Object.values(_macroLr.posterior).map((v) => Number(v) || 0))
+        : 0;
+      const _macroState = String(_macroLr?.state || "").toUpperCase();
+      if (positionAgeMin >= 60 && _macroPost >= 0.6) {
+        if (direction === "LONG" && _macroState === "BEAR_TREND") {
+          tickerData.__defend_reason = "macro_regime_flip_bear_vs_long";
+          console.log(`[MACRO REGIME DEFEND] ${tickerData?.ticker}: LONG position (${Math.round(positionAgeMin)}m old) but latent macro state is ${_macroState} (conf=${_macroPost.toFixed(2)}). Defending.`);
+          return "defend";
+        }
+        if (direction === "SHORT" && _macroState === "BULL_TREND") {
+          tickerData.__defend_reason = "macro_regime_flip_bull_vs_short";
+          console.log(`[MACRO REGIME DEFEND] ${tickerData?.ticker}: SHORT position (${Math.round(positionAgeMin)}m old) but latent macro state is ${_macroState} (conf=${_macroPost.toFixed(2)}). Defending.`);
+          return "defend";
+        }
+      }
+    } catch (_) { /* best-effort */ }
+
     // HTF flipped but LTF not confirmed → DEFEND (thesis weakening)
     if (direction === "SHORT" && bfHtfBull && !bfLtfBull && positionAgeMin >= 60) {
       tickerData.__exit_reason = "bias_flip_htf_bull_vs_short";
@@ -21231,6 +21269,36 @@ async function processTradeSimulation(
           ? _p5Factor : 0.5;
         _p5ChopHaircutPlan = { factor: _p5Mult, regime_class: tickerData.regime_class || "CHOPPY" };
 
+        // 2026-05-26 — HMM Phase C follow-up #4 (recap §4):
+        // Latent macro regime hardening. When the HMM has decoded the
+        // current market as CHOP and we're already applying the chop
+        // haircut, floor the multiplier at 0.35 (was the operator-
+        // configured 0.5 default) so we cut harder when the macro
+        // regime confirms structural chop. Independent of the
+        // `markov_chop_haircut_adaptive` flag — this is a one-line
+        // refinement, not the full P-matrix adaptation. Confidence
+        // gate: ignore the latent state unless posterior >= 0.6
+        // (avoid hardening on a noisy/ambiguous decode).
+        try {
+          const _lr = tickerData?.latent_regime;
+          const _lrPost = _lr?.posterior && typeof _lr.posterior === "object"
+            ? Math.max(...Object.values(_lr.posterior).map((v) => Number(v) || 0))
+            : 0;
+          if (String(_lr?.state || "").toUpperCase() === "CHOP" && _lrPost >= 0.6) {
+            const _hardened = Math.min(_p5ChopHaircutPlan.factor, 0.35);
+            if (_hardened < _p5ChopHaircutPlan.factor) {
+              _p5ChopHaircutPlan = {
+                ..._p5ChopHaircutPlan,
+                factor: _hardened,
+                latent_regime_hardened: true,
+                latent_regime_state: _lr.state,
+                latent_regime_confidence: Number(_lrPost.toFixed(3)),
+                base_factor_before_latent: _p5ChopHaircutPlan.base_factor ?? _p5ChopHaircutPlan.factor,
+              };
+            }
+          }
+        } catch (_) { /* best-effort */ }
+
         // 2026-05-22 Phase B / Tier 1.3 — Markov-adaptive haircut.
         // When `markov_chop_haircut_adaptive` is on AND we have a live
         // matrix to consult, scale the base factor by stationary
@@ -21283,7 +21351,23 @@ async function processTradeSimulation(
       try {
         const _mfGates = (tickerData?._env?._deepAuditConfig?.gates && typeof tickerData._env._deepAuditConfig.gates === "object")
           ? tickerData._env._deepAuditConfig.gates : {};
-        if (_mfGates.markov_position_sizing_enabled === true && tickerData?.regime_forecast) {
+        // 2026-05-26 — HMM Phase C follow-up #6 (recap §4):
+        // Confidence gate. The regime_forecast comes from a small in-memory
+        // matrix — when the universe has been in extended chop with thin
+        // transition counts per cell, `regime_forecast.confidence` (when
+        // populated) reflects how much of the active cell row we trust.
+        // Default-off `confidence_floor` keeps current behavior for any
+        // operator who's already running with sizing on; flip it via
+        // model_config.gates.markov_sizing_confidence_floor = 0.6 to suppress
+        // sizing application below that threshold.
+        const _mfConfFloor = Number(_mfGates.markov_sizing_confidence_floor);
+        const _mfForecastConf = Number(tickerData?.regime_forecast?.confidence);
+        const _mfConfGated = Number.isFinite(_mfConfFloor) && _mfConfFloor > 0
+          && Number.isFinite(_mfForecastConf) && _mfForecastConf < _mfConfFloor;
+        if (_mfConfGated) {
+          console.log(`[MARKOV_FAVOR_SKIP] ${sym}: regime_forecast.confidence=${_mfForecastConf.toFixed(2)} < floor=${_mfConfFloor} — skipping sizing multiplier`);
+        }
+        if (!_mfConfGated && _mfGates.markov_position_sizing_enabled === true && tickerData?.regime_forecast) {
           const _matrix = await loadRegimeMatrix(tickerData?._env || env);
           if (_matrix && _matrix.stationary) {
             const _favor = markovComputeRegimeFavorMultiplier({
@@ -25133,6 +25217,25 @@ async function processTradeSimulation(
               rank: Number(tickerData.rank) || 0,
               state: tickerData.state,
               flags: tickerData.flags || {},
+              // 2026-05-26 — HMM Phase C follow-up #3 (recap §4):
+              // Stamp the entry-time macro regime onto the trade record so
+              // trade-autopsy.html can attribute outcomes by regime later.
+              // The fields stay null when the HMM model hasn't been decoded
+              // yet (cold start before bootstrap) or when latent_regime is
+              // missing from tickerData (per-ticker scoring race).
+              entry_latent_regime: tickerData?.latent_regime?.state || null,
+              entry_latent_regime_confidence: (() => {
+                const post = tickerData?.latent_regime?.posterior;
+                if (!post || typeof post !== "object") return null;
+                const vals = Object.values(post).filter((v) => Number.isFinite(Number(v)));
+                return vals.length > 0 ? Math.max(...vals.map(Number)) : null;
+              })(),
+              entry_latent_regime_decoded_at: tickerData?.latent_regime?.decoded_at || null,
+              entry_regime_forecast: tickerData?.regime_forecast ? {
+                state: tickerData.regime_forecast.state || null,
+                p_next: tickerData.regime_forecast.p_next || null,
+                confidence: tickerData.regime_forecast.confidence ?? null,
+              } : null,
               scriptVersion: tickerData.script_version || "unknown",
               trimmedPct: 0,
               history: [
