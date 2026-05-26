@@ -1287,6 +1287,7 @@ const ROUTES = [
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/user-tickers/recent-attempts", "GET /timed/admin/user-tickers/recent-attempts"],
   ["GET", "/timed/admin/sl-guard-stats", "GET /timed/admin/sl-guard-stats"],
+  ["GET", "/timed/admin/sl-guard-stats/daily", "GET /timed/admin/sl-guard-stats/daily"],
   ["GET", "/timed/admin/provider-fallback-stats", "GET /timed/admin/provider-fallback-stats"],
   ["POST", "/timed/admin/pages-cas-flush", "POST /timed/admin/pages-cas-flush"],
   ["GET", "/timed/admin/pages-deployments", "GET /timed/admin/pages-deployments"],
@@ -61484,6 +61485,58 @@ export default {
         }
       }
 
+      // 2026-05-26 — Fleet-wide daily SL-guard aggregator (recap §5).
+      // Walks the timed:sl-guards:daily:{date}:* prefix and sums
+      // counts across all per-isolate blobs. Default date = today
+      // (UTC). The nightly cron at 04:00 UTC writes one blob per
+      // alive isolate; this endpoint reads them all back and rolls up.
+      if (routeKey === "GET /timed/admin/sl-guard-stats/daily") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const date = String(url.searchParams.get("date") || new Date().toISOString().slice(0, 10));
+          const prefix = `timed:sl-guards:daily:${date}:`;
+          const list = await KV.list({ prefix, limit: 500 });
+          const keys = (list?.keys || []).map(k => k.name);
+          const isolates = [];
+          const totalCounts = {
+            ext_wick_defer: 0,
+            htf_cushion_defer: 0,
+            sanity_skip: 0,
+            move_status_skip: 0,
+            safety_net_fired: 0,
+            safety_net_trace: 0,
+          };
+          for (const k of keys) {
+            try {
+              const blob = await kvGetJSON(KV, k);
+              if (!blob || !blob.counts) continue;
+              isolates.push({
+                isolate_id: blob.isolate_id,
+                isolate_started_at: blob.isolate_started_at,
+                flushed_at: blob.flushed_at,
+                uptime_h: Math.round((blob.uptime_ms || 0) / 3600000 * 10) / 10,
+                counts: blob.counts,
+              });
+              for (const [k2, v] of Object.entries(blob.counts)) {
+                totalCounts[k2] = (totalCounts[k2] || 0) + (Number(v) || 0);
+              }
+            } catch (_) { /* skip bad blob */ }
+          }
+          return sendJSON({
+            ok: true,
+            date,
+            isolate_count: isolates.length,
+            fleet_total_counts: totalCounts,
+            fleet_total_fires: Object.values(totalCounts).reduce((a, b) => a + b, 0),
+            isolates,
+            note: "Each isolate writes its counter snapshot at 04:00 UTC. Counters reset on cold start, so isolates that died before the flush window aren't represented. Run on subsequent days to build a trend.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/sl-guard-stats") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -76677,6 +76730,42 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Also resolve expired model predictions.
     if (vc.has("0 4 * * *")) {
       ctx.waitUntil(runDataLifecycle(env));
+
+      // 2026-05-26 — Nightly KV flush of per-isolate SL guard counters
+      // (closes recap §5 follow-up: 'Nightly KV flush of SL guard counts
+      // for multi-isolate aggregation').
+      //
+      // Each isolate has its own in-memory counters that reset on cold
+      // start. To get a fleet-wide daily view, every isolate that's
+      // alive at 04:00 UTC writes its current counter snapshot to a
+      // per-isolate daily key:
+      //
+      //   timed:sl-guards:daily:{date}:{isolate_id}
+      //
+      // 14-day TTL. The aggregator endpoint
+      // /timed/admin/sl-guard-stats/daily?date=YYYY-MM-DD walks the
+      // namespace prefix and sums across all per-isolate blobs for
+      // that date.
+      //
+      // Best-effort: a counter slip can't break the lifecycle.
+      ctx.waitUntil((async () => {
+        try {
+          const KV2 = env?.KV_TIMED;
+          if (!KV2) return;
+          const dateKey = new Date().toISOString().slice(0, 10);
+          const slIsolate = _slGuardStats?.isolate_id || "unknown";
+          await kvPutJSON(KV2, `timed:sl-guards:daily:${dateKey}:${slIsolate}`, {
+            isolate_id: slIsolate,
+            isolate_started_at: _slGuardStats?.isolate_started_at || 0,
+            flushed_at: Date.now(),
+            counts: { ...(_slGuardStats?.counts || {}) },
+            uptime_ms: Date.now() - (_slGuardStats?.isolate_started_at || Date.now()),
+          }, 14 * 86400);
+          console.log(`[GUARD_FLUSH] sl counters flushed for ${dateKey} isolate=${slIsolate}`);
+        } catch (e) {
+          console.warn("[GUARD_FLUSH] failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
       // S1.5 — Trade trajectories: build bubble-map cell sequences for
       // trades closed in the last 7 days. Runs AFTER runDataLifecycle so
       // the trail_5m_facts buckets it sources from are freshly aggregated.
