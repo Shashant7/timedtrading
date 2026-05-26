@@ -1286,6 +1286,7 @@ const ROUTES = [
   ["DELETE", (p) => /^\/timed\/user-tickers\/[A-Z0-9._!-]+$/i.test(p), "DELETE /timed/user-tickers/:ticker"],
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/user-tickers/recent-attempts", "GET /timed/admin/user-tickers/recent-attempts"],
+  ["GET", "/timed/admin/sl-guard-stats", "GET /timed/admin/sl-guard-stats"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
   ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
@@ -9954,11 +9955,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
         if (_extWickCushion > 0 && slOvershoot < _extWickCushion) {
           tickerData.__defend_reason = "sl_ext_wick_defer";
+          _trackSLGuard("ext_wick_defer", { ticker: tickerData?.ticker, overshoot_pct: slOvershoot * 100, cushion_pct: _extWickCushion * 100 });
           console.log(`[EXT WICK GUARD] ${tickerData?.ticker}: SL nicked by ${(slOvershoot * 100).toFixed(2)}% in pre/post-market (cushion ${(_extWickCushion * 100).toFixed(2)}%) — deferring to next tick / RTH open.`);
           return "defend";
         }
         if (_htfTrendSupports && slOvershoot < allowedOvershoot) {
           tickerData.__defend_reason = "sl_htf_trend_cushion";
+          _trackSLGuard("htf_cushion_defer", { ticker: tickerData?.ticker, overshoot_pct: slOvershoot * 100, cushion_pct: allowedOvershoot * 100 });
           console.log(`[HTF GUARD] ${tickerData?.ticker}: SL breached by ${(slOvershoot * 100).toFixed(2)}% but 1H trend supports (ST=${_htfStBull ? "bull" : "bear"}, cloud34=${_cloud3450?.above ? "above" : _cloud3450?.inCloud ? "in" : "below"}, cloud72=${_cloud7289?.above ? "above" : _cloud7289?.inCloud ? "in" : "below"}). Defending.`);
           return "defend";
         }
@@ -10204,6 +10207,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     else if (_msIsSane(_msOpenTradeSL)) _msResolvedSL = Number(_msOpenTradeSL);
     else if (_msIsSane(tickerData?.sl)) _msResolvedSL = Number(tickerData.sl);
     if (_msResolvedSL == null && Number.isFinite(Number(tickerData?.sl)) && Number(tickerData?.sl) > 0) {
+      _trackSLGuard("sanity_skip", { ticker: tickerData?.ticker, dir: _msDir, ticker_sl: tickerData.sl, position_sl: positionSL, anchor: _msAnchorForSlSanity });
       console.log(`[SL_SANITY_SKIP] ${tickerData?.ticker || "?"} dir=${_msDir} tickerData.sl=${tickerData.sl} positionSL=${positionSL} openTrade.sl=${_msOpenTradeSL} anchor=${_msAnchorForSlSanity} — none directionally-sane, dropping SL from moveStatus check this tick`);
     }
     const tickerDataWithPositionSL = _msResolvedSL != null
@@ -10991,6 +10995,7 @@ function computeMoveStatus(tickerData) {
       // and the upstream resolver should have caught it. Log so audits
       // surface the misalignment without polluting normal flow.
       try {
+        try { _trackSLGuard("move_status_skip", { ticker: tickerData?.ticker, side, sl, anchor: anchorPrice, price }); } catch (_) {}
         console.log(`[MOVE_STATUS_SL_SKIP] ${tickerData?.ticker || "?"} side=${side} sl=${sl} anchor=${anchorPrice} price=${price} — sl on wrong side of anchor for direction, skipping breach check`);
       } catch (_) { /* logging guard */ }
     } else {
@@ -19971,6 +19976,7 @@ async function processTradeSimulation(
         _dbgDir === "SHORT" ? _dbgPxNow >= _dbgSlRaw : false
       );
       if (_dbgWouldBreach) {
+        _trackSLGuard("safety_net_trace", { ticker: sym, dir: _dbgDir, px: _dbgPxNow, sl: _dbgSlRaw });
         console.log(`[SL_SAFETY_NET_TRACE] ${sym} dir=${_dbgDir} pxNow=${_dbgPxNow} sl=${_dbgSlRaw} hasPosCtx=${!!openPositionContext} slFinite=${Number.isFinite(_dbgSlRaw)} pxFinite=${Number.isFinite(_dbgPxNow)} fuseExitFired=${fuseExitFired} forceDefend=${tickerData?.__force_defend_stage === true} defendReason=${tickerData?.__defend_reason || "-"} status=${openTrade.status} trimmed=${openTrade.trimmedPct} exitReasonRaw=${exitReasonRaw}`);
       }
     }
@@ -20027,6 +20033,7 @@ async function processTradeSimulation(
           cleared_force_defend_stage: _slForceDefendWas,
           cleared_defend_reason: _slPriorDefendReason,
         };
+        _trackSLGuard("safety_net_fired", { ticker: sym, dir: _dirUp, px: pxNow, sl: _slCheck, overshoot_pct: _slOvershootPct, orig_reason: _origReason });
         console.log(`[SL_SAFETY_NET] ${sym} ${_dirUp} px=${pxNow} past sl=${_slCheck} by ${_slOvershootPct.toFixed(2)}% — orig reason=${_origReason}, forcing sl_breached (cleared fuse=${_slFuseWasFired ? 1 : 0} defend=${_slForceDefendWas ? 1 : 0} defendReason=${_slPriorDefendReason || "-"})`);
       }
     }
@@ -38805,6 +38812,42 @@ let sectorMappingsLoaded = false;
 //   within ~5 min worst-case instead of waiting for cold start.
 let _sectorMappingsLoadedAt = 0;
 let _sectorMappingsVersionSeen = null;
+
+// 2026-05-26 — Per-isolate SL-guard counters + ring buffer.
+// Read-only debugging surface for the smart-SL family added by PRs
+// #270 (sanity), #284 (EXT wick guard, 1.0% pre/post-market cushion +
+// trailing-SL lock-in floor) and the long-standing HTF cushion +
+// SL safety-net. Surfaces via GET /timed/admin/sl-guard-stats.
+//
+// Counter shape — each fire bumps a counter. Counters are
+// per-isolate and reset on cold start; ring buffer captures the
+// last 50 fires across all guards so operators can spot patterns.
+//
+// Operators should poll the admin endpoint to track guard
+// frequency over time — current values capture only THIS
+// isolate's lifetime, not the whole fleet. A nightly KV flush
+// is a separate follow-up.
+const _slGuardStats = {
+  isolate_started_at: Date.now(),
+  isolate_id: Math.random().toString(36).slice(2, 10),
+  counts: {
+    ext_wick_defer: 0,        // [EXT WICK GUARD]      (PR #284)
+    htf_cushion_defer: 0,     // [HTF GUARD]           (long-standing)
+    sanity_skip: 0,           // [SL_SANITY_SKIP]      (PR #270)
+    move_status_skip: 0,      // [MOVE_STATUS_SL_SKIP] (PR #270)
+    safety_net_fired: 0,      // [SL_SAFETY_NET]       (P0 2026-05-19)
+    safety_net_trace: 0,      // [SL_SAFETY_NET_TRACE] (diagnostic-only)
+  },
+  recent_fires: [],
+};
+function _trackSLGuard(type, detail) {
+  try {
+    if (typeof _slGuardStats.counts[type] !== "number") _slGuardStats.counts[type] = 0;
+    _slGuardStats.counts[type]++;
+    _slGuardStats.recent_fires.unshift({ ts: Date.now(), type, ...(detail || {}) });
+    if (_slGuardStats.recent_fires.length > 50) _slGuardStats.recent_fires.length = 50;
+  } catch (_) { /* never throw from a counter */ }
+}
 
 // 2026-05-23 — Regime self-heal bootstrap.
 // _regimeBootstrapLastAttemptAt: ms of the last bootstrap attempt by THIS
@@ -61211,6 +61254,49 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-26 — SL guard stats endpoint (recap §5).
+      // Per-isolate counters + ring buffer for every smart-SL guard
+      // surface (PR #270 sanity, PR #284 EXT wick + lock-in, the long-
+      // standing HTF cushion, and the SL safety-net). Operators poll
+      // this endpoint to see how often each guard catches real edge
+      // cases — too quiet = guard inactive; too noisy = guard tuning
+      // needed.
+      //
+      // Counters are per-isolate (reset on cold start). isolate_id +
+      // isolate_started_at let the operator distinguish runs.
+      if (routeKey === "GET /timed/admin/sl-guard-stats") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const totalFires = Object.values(_slGuardStats.counts || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+          const uptimeMs = Date.now() - (_slGuardStats.isolate_started_at || Date.now());
+          const limitParam = Number(url.searchParams.get("limit"));
+          const cap = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(50, limitParam) : 50;
+          return sendJSON({
+            ok: true,
+            isolate: {
+              id: _slGuardStats.isolate_id,
+              started_at: _slGuardStats.isolate_started_at,
+              uptime_ms: uptimeMs,
+              uptime_h: Math.round(uptimeMs / 3600000 * 10) / 10,
+            },
+            counts: _slGuardStats.counts || {},
+            total_fires: totalFires,
+            recent_fires: (_slGuardStats.recent_fires || []).slice(0, cap),
+            doc: {
+              ext_wick_defer: "[EXT WICK GUARD] PR #284 — pre/post-market wick deferred (1.0% cushion)",
+              htf_cushion_defer: "[HTF GUARD] long-standing — SL nicked but 1H trend supports → defend",
+              sanity_skip: "[SL_SANITY_SKIP] PR #270 — wrong-direction SL dropped from moveStatus this tick",
+              move_status_skip: "[MOVE_STATUS_SL_SKIP] PR #270 — sl on wrong side of anchor for direction",
+              safety_net_fired: "[SL_SAFETY_NET] forced sl_breached after dedup-shadow path tried to defer",
+              safety_net_trace: "[SL_SAFETY_NET_TRACE] diagnostic-only — would-have-breached candidate, fired or not",
+            },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
