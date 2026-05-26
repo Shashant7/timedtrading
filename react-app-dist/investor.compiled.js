@@ -324,6 +324,9 @@ function InvestorApp() {
   }, [panelMounted]);
   const [data, setData] = useState(null);
   const [investorScores, setInvestorScores] = useState(null);
+  const _liveHooks = window.TimedLiveData;
+  if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+  if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -510,6 +513,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779553883169:336560821
+// cache-bust:1779819568209:146069062
 
-// cache-bust:1779553883169:336560821
+// cache-bust:1779819568209:146069062

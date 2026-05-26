@@ -17,6 +17,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-live-data.js?v=20260526a"></script>
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
@@ -1393,6 +1394,13 @@
       function ActiveTraderApp() {
         const [data, setData] = useState(null);
         const [error, setError] = useState(null);
+
+        // 2026-05-26 — Auto-refresh prices (30s) + scoring data (90s) so
+        // the kanban lanes stay live without manual reloads. See
+        // react-app/tt-live-data.js for merge semantics.
+        const _liveHooks = window.TimedLiveData;
+        if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+        if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
 
         useEffect(() => {
           let alive = true;

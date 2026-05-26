@@ -18,6 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260516a"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-live-data.js?v=20260526a"></script>
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
@@ -3408,6 +3409,17 @@
           activeChip: "focus",
           addOns: new Set(),
         });
+
+        // 2026-05-26 — Auto-refresh prices (30s) + scoring data (90s) so the
+        // page stays live without manual reloads. Both hooks are no-ops until
+        // `data` is non-null + non-empty so they don't race the initial load.
+        // See react-app/tt-live-data.js for the merge semantics — price-only
+        // updates from /timed/prices never touch kanban_stage / scores, and
+        // the /timed/all merge preserves the ephemeral _live_price + _ah_*
+        // overlay fields written by the 30s price poll.
+        const _liveHooks = window.TimedLiveData;
+        if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+        if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
 
         useEffect(() => {
           let alive = true;
