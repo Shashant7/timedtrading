@@ -51,7 +51,18 @@ jobs:
           # storage corruption from 2026-05-22). The marker hunks would
           # otherwise make this check fail every PR, masking the real
           # "you forgot to rebuild" signal we want to keep.
-          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$'
+          #
+          # 2026-05-26 — Added the SCRIPT-TAG-VERSION pattern. The build
+          # script also bakes the cache-bust timestamp into the
+          # `<script src="…compiled.js?v=<ms>">` query string in every
+          # HTML file. The original regex only ignored full-line markers,
+          # so HTML files would diff on the `?v=` line and the check would
+          # generate a false-positive failure email on every PR touching
+          # react-app/ — even when react-app-dist/ was perfectly rebuilt.
+          # See PR #303 for the diagnosis. The added alternation matches
+          # the `?v=<digits>` query string anywhere on the script-tag
+          # line, INCLUDING the surrounding indentation.
+          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script src="[^"]+\.compiled\.js\?v=[0-9]+"></script>[[:space:]]*$'
           if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" -- react-app-dist/; then
             echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
             echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
