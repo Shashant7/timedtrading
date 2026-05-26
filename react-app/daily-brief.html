@@ -19,7 +19,29 @@
     <script src="auth-gate.js?v=20260219a"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
+    <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
+         Active Trader + Investor links (open trade count / actionable
+         count), bottom nav on mobile, global search overlay, activity
+         strip pinned to the top. -->
+    <script src="tt-bottom-nav.js?v=20260521b" defer></script>
+    <script src="tt-nav-extras.js?v=20260517e" defer></script>
+    <script src="tt-global-search.js?v=20260522a" defer></script>
+    <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <style>
+      /* 2026-05-26 — Nav-link styles ported from today.html so the
+         shared tt-nav-extras.js badges + Admin dropdown render
+         correctly here. */
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: #9ca3af; text-decoration: none;
+        padding: 6px 12px; border-radius: 8px;
+        transition: color .15s ease, background-color .15s ease;
+        border: 1px solid transparent; white-space: nowrap;
+      }
+      .nav-link:hover { color: #e5e7eb; background: rgba(255,255,255,0.025); }
+      .nav-link.faq, .nav-link.learn { color: #6b7280; font-size: 12px; }
+      .nav-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; }
+
       :root {
         --tt-bg-base: #0b0e11;
         --tt-bg-surface: rgba(255,255,255,0.02);
@@ -485,60 +507,76 @@
                   {indicies.filter((i) => i.levels?.gamePlan).map((idx) => {
                     const gp = idx.levels.gamePlan;
                     const cp = idx.levels.currentPrice ?? idx.price;
-                    // Status helpers: where current price sits vs each trigger.
-                    const bullArmed = cp != null && cp >= gp.bullTrigger; // already through trigger
-                    const bullDist = cp != null ? ((gp.bullTrigger - cp) / cp * 100) : null;
+                    const bullArmed = cp != null && cp >= gp.bullTrigger;
                     const bearArmed = cp != null && cp <= gp.bearTrigger;
-                    const bearDist = cp != null ? ((cp - gp.bearTrigger) / cp * 100) : null;
                     const bullPct = ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100);
                     const bearPct = ((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100);
+                    // 2026-05-26 — Kanban-card-style progress bar.
+                    // Visual: BEAR_TARGET ←─── BEAR_TRIGGER ─── PRICE ─── BULL_TRIGGER ───→ BULL_TARGET
+                    // Two milestone tick marks (the triggers) inside a track,
+                    // with the current price marker positioned proportionally
+                    // between the two trigger ends. Colored zones (red on the
+                    // bear side, green on the bull side) make the bias obvious.
+                    let scaleLo, scaleHi, pricePctOnBar = 50;
+                    if (gp.bearTarget != null && gp.bullTarget != null) {
+                      scaleLo = Math.min(gp.bearTarget, gp.bearTrigger);
+                      scaleHi = Math.max(gp.bullTarget, gp.bullTrigger);
+                      if (cp != null && scaleHi > scaleLo) {
+                        pricePctOnBar = Math.max(0, Math.min(100, ((cp - scaleLo) / (scaleHi - scaleLo)) * 100));
+                      }
+                    }
+                    const bearTriggerPctOnBar = scaleHi > scaleLo ? ((gp.bearTrigger - scaleLo) / (scaleHi - scaleLo)) * 100 : 25;
+                    const bullTriggerPctOnBar = scaleHi > scaleLo ? ((gp.bullTrigger - scaleLo) / (scaleHi - scaleLo)) * 100 : 75;
+                    const stage = bullArmed ? "BULL_ARMED" : bearArmed ? "BEAR_ARMED" : "NEUTRAL";
+                    const stageColor = stage === "BULL_ARMED" ? "#34d399" : stage === "BEAR_ARMED" ? "#fb7185" : "#9ca3af";
+                    const stageLabel = stage === "BULL_ARMED" ? "▲ BULL ARMED" : stage === "BEAR_ARMED" ? "▼ BEAR ARMED" : "◆ NEUTRAL";
                     return (
-                      <div key={"gp-" + idx.sym} className="p-2 rounded bg-white/[0.02] border border-white/[0.06]">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[11px] font-semibold text-white">{idx.sym} Plan</span>
-                          {cp != null && <span className="text-[10px] text-[#9ca3af] tabular-nums">${cp.toFixed(2)}</span>}
+                      <div key={"gp-" + idx.sym} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] font-semibold text-white">{idx.sym}</span>
+                            <span className="text-[9px] font-semibold tracking-wider" style={{color: stageColor}}>{stageLabel}</span>
+                          </div>
+                          {cp != null && <span className="text-[11px] text-white font-semibold tabular-nums">${cp.toFixed(2)}</span>}
                         </div>
-                        <div className="space-y-1.5">
-                          {/* BULL row */}
-                          <div className="flex items-start gap-2">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-10 shrink-0 mt-0.5">Bull</span>
-                            <div className="flex-1 flex flex-col text-[10px] tabular-nums leading-tight">
-                              <div className="flex items-center gap-1">
-                                <span className="text-[#9ca3af]">{bullArmed ? "Hold above" : "Break above"}</span>
-                                <span className="text-[#86efac] font-semibold">${gp.bullTrigger.toFixed(2)}</span>
-                                <span className="text-[#6b7280]">→ target</span>
-                                <span className="text-emerald-300 font-semibold">${gp.bullTarget.toFixed(2)}</span>
-                                <span className="ml-auto text-[9px] text-emerald-400/70">+{bullPct.toFixed(2)}%</span>
-                              </div>
-                              {bullDist != null && (
-                                <div className="text-[9px] text-[#6b7280] mt-0.5">
-                                  {bullArmed
-                                    ? <span className="text-emerald-400/80">● Armed (price {Math.abs(bullDist).toFixed(2)}% above trigger)</span>
-                                    : <span>○ {bullDist.toFixed(2)}% to trigger</span>}
-                                </div>
-                              )}
-                            </div>
+                        {/* Progress track */}
+                        <div className="relative mb-2 mt-3" style={{height: 24}}>
+                          <div className="absolute inset-y-0 left-0 right-0 rounded-full" style={{height: 8, top: 8, background: "linear-gradient(90deg, rgba(244,63,94,0.18) 0%, rgba(244,63,94,0.10) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.10) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.18) 100%)"}}></div>
+                          {/* BEAR trigger tick */}
+                          <div className="absolute" style={{left: bearTriggerPctOnBar + "%", top: 2, transform: "translateX(-50%)"}}>
+                            <div style={{width: 2, height: 20, background: "rgba(244,63,94,0.7)"}}></div>
                           </div>
-                          {/* BEAR row */}
-                          <div className="flex items-start gap-2">
-                            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-10 shrink-0 mt-0.5">Bear</span>
-                            <div className="flex-1 flex flex-col text-[10px] tabular-nums leading-tight">
-                              <div className="flex items-center gap-1">
-                                <span className="text-[#9ca3af]">{bearArmed ? "Hold below" : "Break below"}</span>
-                                <span className="text-[#fecaca] font-semibold">${gp.bearTrigger.toFixed(2)}</span>
-                                <span className="text-[#6b7280]">→ target</span>
-                                <span className="text-red-300 font-semibold">${gp.bearTarget.toFixed(2)}</span>
-                                <span className="ml-auto text-[9px] text-red-400/70">{bearPct.toFixed(2)}%</span>
-                              </div>
-                              {bearDist != null && (
-                                <div className="text-[9px] text-[#6b7280] mt-0.5">
-                                  {bearArmed
-                                    ? <span className="text-red-400/80">● Armed (price {Math.abs(bearDist).toFixed(2)}% below trigger)</span>
-                                    : <span>○ {Math.abs(bearDist).toFixed(2)}% to trigger</span>}
-                                </div>
-                              )}
-                            </div>
+                          {/* BULL trigger tick */}
+                          <div className="absolute" style={{left: bullTriggerPctOnBar + "%", top: 2, transform: "translateX(-50%)"}}>
+                            <div style={{width: 2, height: 20, background: "rgba(52,211,153,0.7)"}}></div>
                           </div>
+                          {/* CURRENT PRICE marker */}
+                          {cp != null && (
+                            <div className="absolute" style={{left: pricePctOnBar + "%", top: 0, transform: "translateX(-50%)"}}>
+                              <div style={{width: 10, height: 24, borderRadius: 3, background: stageColor, boxShadow: "0 0 8px " + stageColor, border: "1.5px solid #0b0e11"}}></div>
+                            </div>
+                          )}
+                        </div>
+                        {/* Trigger labels under the bar */}
+                        <div className="flex items-start justify-between text-[9px] tabular-nums mb-2">
+                          <div className="text-left">
+                            <div className="text-[#fb7185] font-semibold">▼ ${gp.bearTrigger.toFixed(2)}</div>
+                            <div className="text-[#6b7280]">→ ${gp.bearTarget.toFixed(2)} <span className="text-[#fb7185]/70">({bearPct.toFixed(1)}%)</span></div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-[#34d399] font-semibold">${gp.bullTrigger.toFixed(2)} ▲</div>
+                            <div className="text-[#6b7280]">${gp.bullTarget.toFixed(2)} ← <span className="text-[#34d399]/70">(+{bullPct.toFixed(1)}%)</span></div>
+                          </div>
+                        </div>
+                        {/* Status line */}
+                        <div className="text-[10px] text-[#9ca3af] tabular-nums pt-1.5 border-t border-white/[0.04]">
+                          {bullArmed && cp != null ? (
+                            <span><span className="text-[#34d399]">●</span> Above bull trigger by {((cp - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2)}% — target ${gp.bullTarget.toFixed(2)} (+{bullPct.toFixed(1)}%)</span>
+                          ) : bearArmed && cp != null ? (
+                            <span><span className="text-[#fb7185]">●</span> Below bear trigger by {((gp.bearTrigger - cp) / gp.bearTrigger * 100).toFixed(2)}% — target ${gp.bearTarget.toFixed(2)} ({bearPct.toFixed(1)}%)</span>
+                          ) : cp != null ? (
+                            <span>○ Between triggers — needs <span className="text-[#34d399]">{((gp.bullTrigger - cp) / cp * 100).toFixed(2)}%</span> up or <span className="text-[#fb7185]">{((cp - gp.bearTrigger) / cp * 100).toFixed(2)}%</span> down</span>
+                          ) : "No live price"}
                         </div>
                       </div>
                     );
@@ -2220,36 +2258,31 @@
 
         return (
           <div className="min-h-screen pb-16" style={{ background: "var(--tt-bg-base)" }}>
-            {/* Nav — keep in sync with index-react.html Unified Nav */}
-            <nav className="sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
-              <div className="flex items-center justify-between px-4 py-2.5">
-                <div className="flex items-center gap-3 md:gap-5 min-w-0">
-                  <a href="/today.html" className="flex items-center gap-2 no-underline shrink-0">
-                    <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" strokeWidth="2.5" fill="none"/><line x1="24" y1="7.5" x2="24" y2="10.5" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="7.5" y1="24" x2="10.5" y2="24" stroke="#34d399" strokeWidth="1.5" strokeLinecap="round" opacity="0.5"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" strokeWidth="3.5" strokeLinecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" strokeWidth="4" strokeLinecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
-                    <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
-                  </a>
-                  <div className="hidden md:flex items-center gap-0.5">
-                    <a href="today.html" className="px-3 py-1 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium" title="Daily Ingest">Today</a>
-                    <a href="/active-trader.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Active Trader</a>
-                    <a href="/investor.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Investor</a>
-                    <a href="simulation-dashboard.html" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Trades</a>
-                    <a href="system-intelligence.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">System Intelligence</a>
-                    <a href="screener.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Screener</a>
-                    <a href="ticker-management.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Tickers</a>
-                    <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium">Trade Autopsy</a>
-                    {(typeof window !== 'undefined' && (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin')) && (
-                      <a href="admin-clients.html" data-admin-only="true" className="px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium">Admin</a>
-                    )}
-                    <a href="daily-brief.html" id="nav-daily-brief" className="relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium border border-[#f59e0b]/20">
-                      Daily Brief
-                      <span id="brief-badge" className="hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#f59e0b]" style={{animation: "pulse-badge 2s ease-in-out infinite"}} />
-                    </a>
-                  </div>
+            {/*
+              2026-05-26 — Nav parity with today/AT/investor pages. Was a
+              full inline React nav with hand-rolled links; now uses the
+              same `.nav-links / .nav-link` markup tt-nav-extras.js looks
+              for so badges (Active Trader open-trade count, Investor
+              actionable count) and the Admin dropdown render here too.
+              Mobile bottom nav, global search and the activity strip
+              are loaded via the script tags in <head>.
+            */}
+            <nav className="topnav sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+              <div className="nav-row flex items-center justify-between px-4 py-2.5">
+                <a href="/today.html" className="nav-brand flex items-center gap-2 no-underline shrink-0">
+                  <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" strokeWidth="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" strokeWidth="3.5" strokeLinecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" strokeWidth="4" strokeLinecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+                  <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
+                </a>
+                <div className="nav-links hidden md:flex items-center gap-1.5">
+                  <a href="/today.html" className="nav-link">Today</a>
+                  <a href="/active-trader.html" className="nav-link">Active Trader</a>
+                  <a href="/investor.html" className="nav-link">Investor</a>
+                  <a href="/portfolio.html" className="nav-link">Portfolio</a>
+                  <a href="/insights.html" className="nav-link">Insights</a>
+                  <a href="/daily-brief.html" id="nav-daily-brief" className="nav-link" style={{color:"#f59e0b",background:"rgba(245,158,11,0.08)",borderColor:"rgba(245,158,11,0.20)"}}>Daily Brief</a>
+                  <a href="/faq.html" className="nav-link faq">FAQ</a>
                 </div>
                 <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-                  <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</a>
-                  <a href="index-react.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
-                  <a href="/faq.html" className="hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
                   {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
                   {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
                   <button onClick={() => setMobileMenuOpen(v => !v)} className="md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
@@ -2263,25 +2296,19 @@
               </div>
               {mobileMenuOpen && (
                 <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
-                  <a href="index-react.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Analysis</a>
-                  <a href="simulation-dashboard.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Trades</a>
-                  <a href="system-intelligence.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>System Intelligence</a>
-                  <a href="screener.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Screener</a>
-                  <a href="ticker-management.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Tickers</a>
-                  <a href="trade-autopsy.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium" onClick={() => setMobileMenuOpen(false)}>Trade Autopsy</a>
-                  {(typeof window !== 'undefined' && (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin')) && (
-                    <a href="admin-clients.html" data-admin-only="true" className="px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium" onClick={() => setMobileMenuOpen(false)}>Admin</a>
-                  )}
-                  <a href="daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
-                  <div className="border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2">
-                    <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Guide</a>
-                    <a href="index-react.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all" title="Restart tour">Tour</a>
-                    <a href="/faq.html" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">FAQ</a>
-                    <a href="mailto:support@timed-trading.com" className="px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all">Contact</a>
-                  </div>
+                  <a href="/today.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Today</a>
+                  <a href="/active-trader.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Active Trader</a>
+                  <a href="/investor.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
+                  <a href="/portfolio.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Portfolio</a>
+                  <a href="/insights.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Insights</a>
+                  <a href="/daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
+                  <a href="/faq.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>FAQ</a>
                 </div>
               )}
             </nav>
+
+            {/* Mount target for tt-activity-strip.js (parity with today/AT/investor). */}
+            <div data-tt-activity-strip></div>
 
             {/* Content */}
             <div className="max-w-[1100px] mx-auto px-6 py-8">

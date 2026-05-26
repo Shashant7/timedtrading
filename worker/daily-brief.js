@@ -4003,21 +4003,63 @@ export async function generateDailyBrief(env, type, opts = {}) {
     //    `**IWM Prediction**: …` line matching the ES one. We capture
     //    each independently so we don't lose any if one is missing.
     function extractPredictionLine(label) {
-      // Match `**Label Prediction**: <body>` OR `Label Prediction: <body>`
-      // up to the next blank line / next heading. Markdown bold is optional.
+      // 2026-05-26 — Prediction Scorecard MISS false-positive fix.
+      //
+      // The original two regexes both REQUIRED a colon after the label:
+      //     `**ES Prediction**:` OR `ES Prediction:`
+      //
+      // But the model frequently emits the prediction as a MARKDOWN HEADING
+      // with no colon:
+      //     `## ES Prediction\nES likely spends the morning above 7523.24…`
+      //
+      // The heading rendered fine on the page (markdown-rendered) but
+      // extractPredictionLine returned null. Morning brief stored
+      // es_prediction=NULL → evening Prediction Scorecard rendered
+      // "MISS — no morning ES prediction was provided" even though the
+      // prediction was live in the brief content.
+      //
+      // Fix: add a third regex that matches `## Label Prediction\n<body>`
+      // (heading-style, no colon) BEFORE falling back to the original
+      // bullet/bold patterns. Heading body is captured up to the next
+      // heading line or double newline.
+
+      // 1) Heading style: `## ES Prediction` or `### ES Prediction` (no colon),
+      //    followed by newline + body until the next heading/blank line.
+      const reH = new RegExp(
+        `^#{1,6}\\s+${label}\\s+Prediction\\s*$\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
+        "im",
+      );
+      const mH = content.match(reH);
+      if (mH && mH[1]) {
+        const body = mH[1].trim();
+        if (body) return body;
+      }
+
+      // 2) Bold + colon: `**Label Prediction**: body` (original primary).
       const re = new RegExp(
         `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*([\\s\\S]+?)(?:\\n\\s*\\n|\\n\\s*[#*\\-]|\\n\\s*\\*\\*[A-Z])`,
-        "i"
+        "i",
       );
       const m = content.match(re);
       if (m && m[1]) return m[1].trim().replace(/\s+$/g, "");
-      // Fallback: single-line capture (no blank-line terminator)
+
+      // 3) Single-line bold + colon (fallback for tight inline output).
       const re2 = new RegExp(
         `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*(.+?)(?:\\n|$)`,
-        "i"
+        "i",
       );
       const m2 = content.match(re2);
-      return m2 && m2[1] ? m2[1].trim() : null;
+      if (m2 && m2[1]) return m2[1].trim();
+
+      // 4) Last-ditch: `**Label Prediction**\n<body>` (bold heading, no colon).
+      const re3 = new RegExp(
+        `\\*\\*${label}\\s+Prediction\\*\\*\\s*\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
+        "i",
+      );
+      const m3 = content.match(re3);
+      if (m3 && m3[1]) return m3[1].trim();
+
+      return null;
     }
     const esPrediction  = extractPredictionLine("ES");
     const spyPrediction = extractPredictionLine("SPY");

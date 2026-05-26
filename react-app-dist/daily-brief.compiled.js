@@ -293,67 +293,123 @@ function BriefInfographic({
     const gp = idx.levels.gamePlan;
     const cp = idx.levels.currentPrice ?? idx.price;
     const bullArmed = cp != null && cp >= gp.bullTrigger;
-    const bullDist = cp != null ? (gp.bullTrigger - cp) / cp * 100 : null;
     const bearArmed = cp != null && cp <= gp.bearTrigger;
-    const bearDist = cp != null ? (cp - gp.bearTrigger) / cp * 100 : null;
     const bullPct = (gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100;
     const bearPct = (gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100;
+    let scaleLo,
+      scaleHi,
+      pricePctOnBar = 50;
+    if (gp.bearTarget != null && gp.bullTarget != null) {
+      scaleLo = Math.min(gp.bearTarget, gp.bearTrigger);
+      scaleHi = Math.max(gp.bullTarget, gp.bullTrigger);
+      if (cp != null && scaleHi > scaleLo) {
+        pricePctOnBar = Math.max(0, Math.min(100, (cp - scaleLo) / (scaleHi - scaleLo) * 100));
+      }
+    }
+    const bearTriggerPctOnBar = scaleHi > scaleLo ? (gp.bearTrigger - scaleLo) / (scaleHi - scaleLo) * 100 : 25;
+    const bullTriggerPctOnBar = scaleHi > scaleLo ? (gp.bullTrigger - scaleLo) / (scaleHi - scaleLo) * 100 : 75;
+    const stage = bullArmed ? "BULL_ARMED" : bearArmed ? "BEAR_ARMED" : "NEUTRAL";
+    const stageColor = stage === "BULL_ARMED" ? "#34d399" : stage === "BEAR_ARMED" ? "#fb7185" : "#9ca3af";
+    const stageLabel = stage === "BULL_ARMED" ? "▲ BULL ARMED" : stage === "BEAR_ARMED" ? "▼ BEAR ARMED" : "◆ NEUTRAL";
     return React.createElement("div", {
       key: "gp-" + idx.sym,
-      className: "p-2 rounded bg-white/[0.02] border border-white/[0.06]"
+      className: "p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]"
     }, React.createElement("div", {
-      className: "flex items-center justify-between mb-1.5"
+      className: "flex items-center justify-between mb-2"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2"
     }, React.createElement("span", {
-      className: "text-[11px] font-semibold text-white"
-    }, idx.sym, " Plan"), cp != null && React.createElement("span", {
-      className: "text-[10px] text-[#9ca3af] tabular-nums"
+      className: "text-[12px] font-semibold text-white"
+    }, idx.sym), React.createElement("span", {
+      className: "text-[9px] font-semibold tracking-wider",
+      style: {
+        color: stageColor
+      }
+    }, stageLabel)), cp != null && React.createElement("span", {
+      className: "text-[11px] text-white font-semibold tabular-nums"
     }, "$", cp.toFixed(2))), React.createElement("div", {
-      className: "space-y-1.5"
+      className: "relative mb-2 mt-3",
+      style: {
+        height: 24
+      }
     }, React.createElement("div", {
-      className: "flex items-start gap-2"
-    }, React.createElement("span", {
-      className: "text-[9px] font-semibold uppercase tracking-wider text-emerald-300/80 w-10 shrink-0 mt-0.5"
-    }, "Bull"), React.createElement("div", {
-      className: "flex-1 flex flex-col text-[10px] tabular-nums leading-tight"
+      className: "absolute inset-y-0 left-0 right-0 rounded-full",
+      style: {
+        height: 8,
+        top: 8,
+        background: "linear-gradient(90deg, rgba(244,63,94,0.18) 0%, rgba(244,63,94,0.10) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.10) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.18) 100%)"
+      }
+    }), React.createElement("div", {
+      className: "absolute",
+      style: {
+        left: bearTriggerPctOnBar + "%",
+        top: 2,
+        transform: "translateX(-50%)"
+      }
     }, React.createElement("div", {
-      className: "flex items-center gap-1"
-    }, React.createElement("span", {
-      className: "text-[#9ca3af]"
-    }, bullArmed ? "Hold above" : "Break above"), React.createElement("span", {
-      className: "text-[#86efac] font-semibold"
-    }, "$", gp.bullTrigger.toFixed(2)), React.createElement("span", {
+      style: {
+        width: 2,
+        height: 20,
+        background: "rgba(244,63,94,0.7)"
+      }
+    })), React.createElement("div", {
+      className: "absolute",
+      style: {
+        left: bullTriggerPctOnBar + "%",
+        top: 2,
+        transform: "translateX(-50%)"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 2,
+        height: 20,
+        background: "rgba(52,211,153,0.7)"
+      }
+    })), cp != null && React.createElement("div", {
+      className: "absolute",
+      style: {
+        left: pricePctOnBar + "%",
+        top: 0,
+        transform: "translateX(-50%)"
+      }
+    }, React.createElement("div", {
+      style: {
+        width: 10,
+        height: 24,
+        borderRadius: 3,
+        background: stageColor,
+        boxShadow: "0 0 8px " + stageColor,
+        border: "1.5px solid #0b0e11"
+      }
+    }))), React.createElement("div", {
+      className: "flex items-start justify-between text-[9px] tabular-nums mb-2"
+    }, React.createElement("div", {
+      className: "text-left"
+    }, React.createElement("div", {
+      className: "text-[#fb7185] font-semibold"
+    }, "\u25BC $", gp.bearTrigger.toFixed(2)), React.createElement("div", {
       className: "text-[#6b7280]"
-    }, "\u2192 target"), React.createElement("span", {
-      className: "text-emerald-300 font-semibold"
-    }, "$", gp.bullTarget.toFixed(2)), React.createElement("span", {
-      className: "ml-auto text-[9px] text-emerald-400/70"
-    }, "+", bullPct.toFixed(2), "%")), bullDist != null && React.createElement("div", {
-      className: "text-[9px] text-[#6b7280] mt-0.5"
-    }, bullArmed ? React.createElement("span", {
-      className: "text-emerald-400/80"
-    }, "\u25CF Armed (price ", Math.abs(bullDist).toFixed(2), "% above trigger)") : React.createElement("span", null, "\u25CB ", bullDist.toFixed(2), "% to trigger")))), React.createElement("div", {
-      className: "flex items-start gap-2"
-    }, React.createElement("span", {
-      className: "text-[9px] font-semibold uppercase tracking-wider text-red-300/80 w-10 shrink-0 mt-0.5"
-    }, "Bear"), React.createElement("div", {
-      className: "flex-1 flex flex-col text-[10px] tabular-nums leading-tight"
+    }, "\u2192 $", gp.bearTarget.toFixed(2), " ", React.createElement("span", {
+      className: "text-[#fb7185]/70"
+    }, "(", bearPct.toFixed(1), "%)"))), React.createElement("div", {
+      className: "text-right"
     }, React.createElement("div", {
-      className: "flex items-center gap-1"
-    }, React.createElement("span", {
-      className: "text-[#9ca3af]"
-    }, bearArmed ? "Hold below" : "Break below"), React.createElement("span", {
-      className: "text-[#fecaca] font-semibold"
-    }, "$", gp.bearTrigger.toFixed(2)), React.createElement("span", {
+      className: "text-[#34d399] font-semibold"
+    }, "$", gp.bullTrigger.toFixed(2), " \u25B2"), React.createElement("div", {
       className: "text-[#6b7280]"
-    }, "\u2192 target"), React.createElement("span", {
-      className: "text-red-300 font-semibold"
-    }, "$", gp.bearTarget.toFixed(2)), React.createElement("span", {
-      className: "ml-auto text-[9px] text-red-400/70"
-    }, bearPct.toFixed(2), "%")), bearDist != null && React.createElement("div", {
-      className: "text-[9px] text-[#6b7280] mt-0.5"
-    }, bearArmed ? React.createElement("span", {
-      className: "text-red-400/80"
-    }, "\u25CF Armed (price ", Math.abs(bearDist).toFixed(2), "% below trigger)") : React.createElement("span", null, "\u25CB ", Math.abs(bearDist).toFixed(2), "% to trigger"))))));
+    }, "$", gp.bullTarget.toFixed(2), " \u2190 ", React.createElement("span", {
+      className: "text-[#34d399]/70"
+    }, "(+", bullPct.toFixed(1), "%)")))), React.createElement("div", {
+      className: "text-[10px] text-[#9ca3af] tabular-nums pt-1.5 border-t border-white/[0.04]"
+    }, bullArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
+      className: "text-[#34d399]"
+    }, "\u25CF"), " Above bull trigger by ", ((cp - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2), "% \u2014 target $", gp.bullTarget.toFixed(2), " (+", bullPct.toFixed(1), "%)") : bearArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
+      className: "text-[#fb7185]"
+    }, "\u25CF"), " Below bear trigger by ", ((gp.bearTrigger - cp) / gp.bearTrigger * 100).toFixed(2), "% \u2014 target $", gp.bearTarget.toFixed(2), " (", bearPct.toFixed(1), "%)") : cp != null ? React.createElement("span", null, "\u25CB Between triggers \u2014 needs ", React.createElement("span", {
+      className: "text-[#34d399]"
+    }, ((gp.bullTrigger - cp) / cp * 100).toFixed(2), "%"), " up or ", React.createElement("span", {
+      className: "text-[#fb7185]"
+    }, ((cp - gp.bearTrigger) / cp * 100).toFixed(2), "%"), " down") : "No live price"));
   }))), sectors.length > 0 && (() => {
     const themes = {
       "Risk-On / Cyclical": ["XLK", "XLY", "XLC", "XLI"],
@@ -2173,18 +2229,16 @@ function App({
       background: "var(--tt-bg-base)"
     }
   }, React.createElement("nav", {
-    className: "sticky top-0 z-50 border-b border-white/[0.06]",
+    className: "topnav sticky top-0 z-50 border-b border-white/[0.06]",
     style: {
       background: "rgba(10,10,15,0.95)",
       backdropFilter: "blur(12px)"
     }
   }, React.createElement("div", {
-    className: "flex items-center justify-between px-4 py-2.5"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3 md:gap-5 min-w-0"
+    className: "nav-row flex items-center justify-between px-4 py-2.5"
   }, React.createElement("a", {
     href: "/today.html",
-    className: "flex items-center gap-2 no-underline shrink-0"
+    className: "nav-brand flex items-center gap-2 no-underline shrink-0"
   }, React.createElement("svg", {
     width: "28",
     height: "28",
@@ -2214,24 +2268,6 @@ function App({
     stroke: "url(#tt-ring)",
     strokeWidth: "2.5",
     fill: "none"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "7.5",
-    x2: "24",
-    y2: "10.5",
-    stroke: "#34d399",
-    strokeWidth: "1.5",
-    strokeLinecap: "round",
-    opacity: "0.5"
-  }), React.createElement("line", {
-    x1: "7.5",
-    y1: "24",
-    x2: "10.5",
-    y2: "24",
-    stroke: "#34d399",
-    strokeWidth: "1.5",
-    strokeLinecap: "round",
-    opacity: "0.5"
   }), React.createElement("line", {
     x1: "19",
     y1: "18.5",
@@ -2280,63 +2316,37 @@ function App({
       letterSpacing: "-0.03em"
     }
   }, "Timed Trading")), React.createElement("div", {
-    className: "hidden md:flex items-center gap-0.5"
+    className: "nav-links hidden md:flex items-center gap-1.5"
   }, React.createElement("a", {
-    href: "today.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium",
-    title: "Daily Ingest"
+    href: "/today.html",
+    className: "nav-link"
   }, "Today"), React.createElement("a", {
     href: "/active-trader.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
+    className: "nav-link"
   }, "Active Trader"), React.createElement("a", {
     href: "/investor.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
+    className: "nav-link"
   }, "Investor"), React.createElement("a", {
-    href: "simulation-dashboard.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Trades"), React.createElement("a", {
-    href: "system-intelligence.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "System Intelligence"), React.createElement("a", {
-    href: "screener.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Screener"), React.createElement("a", {
-    href: "ticker-management.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Tickers"), React.createElement("a", {
-    href: "trade-autopsy.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium"
-  }, "Trade Autopsy"), typeof window !== 'undefined' && (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin') && React.createElement("a", {
-    href: "admin-clients.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium"
-  }, "Admin"), React.createElement("a", {
-    href: "daily-brief.html",
+    href: "/portfolio.html",
+    className: "nav-link"
+  }, "Portfolio"), React.createElement("a", {
+    href: "/insights.html",
+    className: "nav-link"
+  }, "Insights"), React.createElement("a", {
+    href: "/daily-brief.html",
     id: "nav-daily-brief",
-    className: "relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium border border-[#f59e0b]/20"
-  }, "Daily Brief", React.createElement("span", {
-    id: "brief-badge",
-    className: "hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#f59e0b]",
+    className: "nav-link",
     style: {
-      animation: "pulse-badge 2s ease-in-out infinite"
+      color: "#f59e0b",
+      background: "rgba(245,158,11,0.08)",
+      borderColor: "rgba(245,158,11,0.20)"
     }
-  })))), React.createElement("div", {
+  }, "Daily Brief"), React.createElement("a", {
+    href: "/faq.html",
+    className: "nav-link faq"
+  }, "FAQ")), React.createElement("div", {
     className: "flex items-center gap-1.5 md:gap-2 shrink-0"
-  }, React.createElement("a", {
-    href: "/faq.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Guide"), React.createElement("a", {
-    href: "index-react.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
-    title: "Restart tour"
-  }, "Tour"), React.createElement("a", {
-    href: "/faq.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
+  }, window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
     apiBase: ""
   }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
     user: window.TimedAuthHelpers?.getStoredSession(),
@@ -2394,58 +2404,36 @@ function App({
       background: "rgba(10,10,15,0.98)"
     }
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "Analysis"), React.createElement("a", {
-    href: "simulation-dashboard.html",
+  }, "Today"), React.createElement("a", {
+    href: "/active-trader.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "Trades"), React.createElement("a", {
-    href: "system-intelligence.html",
-    "data-admin-only": "true",
+  }, "Active Trader"), React.createElement("a", {
+    href: "/investor.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "System Intelligence"), React.createElement("a", {
-    href: "screener.html",
-    "data-admin-only": "true",
+  }, "Investor"), React.createElement("a", {
+    href: "/portfolio.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "Screener"), React.createElement("a", {
-    href: "ticker-management.html",
-    "data-admin-only": "true",
+  }, "Portfolio"), React.createElement("a", {
+    href: "/insights.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "Tickers"), React.createElement("a", {
-    href: "trade-autopsy.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Trade Autopsy"), typeof window !== 'undefined' && (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin') && React.createElement("a", {
-    href: "admin-clients.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Admin"), React.createElement("a", {
-    href: "daily-brief.html",
+  }, "Insights"), React.createElement("a", {
+    href: "/daily-brief.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Daily Brief"), React.createElement("div", {
-    className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2"
-  }, React.createElement("a", {
+  }, "Daily Brief"), React.createElement("a", {
     href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Guide"), React.createElement("a", {
-    href: "index-react.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
-    title: "Restart tour"
-  }, "Tour"), React.createElement("a", {
-    href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("a", {
-    href: "mailto:support@timed-trading.com",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Contact")))), React.createElement("div", {
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "FAQ"))), React.createElement("div", {
+    "data-tt-activity-strip": true
+  }), React.createElement("div", {
     className: "max-w-[1100px] mx-auto px-6 py-8"
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-6"
@@ -2602,6 +2590,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1779822003827:716139813
+// cache-bust:1779836218072:404886223
 
-// cache-bust:1779822003827:716139813
+// cache-bust:1779836218072:404886223
