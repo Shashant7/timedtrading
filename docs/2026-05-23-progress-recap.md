@@ -1,5 +1,36 @@
 # 2026-05-23 — Progress recap + Phase 6 / Markov / HMM status
 
+> **STATUS REFRESH 2026-05-26 (after PRs #277–#284).** Major changes
+> since this doc was written:
+>
+> - **Markov / HMM is FULLY LIVE in production**. All three KV keys are
+>   populated (`timed:regime:matrix:global`, `timed:regime:hmm:model:v1`,
+>   `timed:regime:hmm:latest`). The cron-based bootstrap from PR #279
+>   worked — the fetch-handler waitUntil was the wrong context for the
+>   long compute. Latest decoded state is `BULL_TREND` (posterior 1.0)
+>   with all 5 emission features populated.
+> - **trail_5m_facts aggregation is now via the per-ticker light path**
+>   (PR #277). The heavy correlated-subquery `INSERT` that silently
+>   CPU-timed-out for weeks is disabled behind a flag.
+> - **MU stale-price exit incident (2026-05-26)**: closed at $751 vs.
+>   market $785+ in pre-market. Two PRs landed:
+>     - **PR #283** — OOH POSITION RECONCILE freshness guard. Refetches
+>       any quote older than 5 min and uses it; defers if no fresh
+>       quote available. Daily Brief stale-price gate broadened to also
+>       fire when price-feed is fresher than scoring payload.
+>     - **PR #284** — Smart SL: lock-in floor (≥1.5% PnL for breakeven,
+>       ≥2.5% PnL for breakeven+) + EXT-hours wick guard (1.0% cushion
+>       on top of existing HTF/favorable cushions in pre/post-market).
+> - **Portfolio metrics fixes** (PRs #280–#282) closed the headline /
+>   Performance Overview mismatch and the investor equity-curve cliff.
+> - **Pending list (§5) updated below** — bootstrap + investigate items
+>   are struck through; remaining work is HMM→engine wiring, observability,
+>   Phase 6 cell-Markov G3 gate, plus the new "raise wick cushion to
+>   profile-driven if needed" follow-up from the MU incident.
+>
+> The body below is preserved as the snapshot-in-time for the 2026-05-23
+> investigation. Read §5 last for current pending work.
+
 This is the single document that captures: (1) everything shipped over the
 recent arc, (2) where the Phase 6 stochastic-methods program stands today,
 and (3) the full state of the additive Hidden Markov framework (Phases A/B/C).
@@ -347,29 +378,45 @@ the form an operator or contributor can pick up directly.
 - [ ] Add `gates.cell_markov_divergence_enabled` flag to `model_config` (default `false`).
 - [ ] One-week shadow → live flip → one-week watch.
 
-### Universe Markov + HMM (Phases A/B/C)
+### Universe Markov + HMM (Phases A/B/C) — 2026-05-26 status
 
-- [ ] **Bootstrap**: run `POST /timed/admin/regime-transitions/rebuild` and confirm `timed:regime:matrix:global` populates.
-- [ ] **Bootstrap**: run `POST /timed/admin/regime-hmm/train?window_days=365&num_starts=6` and confirm `timed:regime:hmm:model:v1` populates.
-- [ ] **Bootstrap**: run `POST /timed/admin/regime-hmm/decode` and confirm `timed:regime:hmm:latest` populates.
-- [ ] **Verify UI**: Today shows `MARKET REGIME · <state>` pill; Right Rail Technicals shows "Regime Forecast" panel.
-- [ ] **Investigate** why `runDataLifecycle` step 8 didn't write the P-matrix this morning (tail worker logs for `[DATA LIFECYCLE] Markov matrix rebuild`).
-- [ ] **Tune** `windowDays` (currently 90) — bump to 180 if `cells_below_min` is high.
-- [ ] **Enable** `gates.markov_chop_haircut_adaptive` once matrix exists.
-- [ ] **Enable** `gates.markov_position_sizing_enabled` once matrix + at least 5 trading days of `_markovFavorPlan` `meta` audit rows in `admission_cohort_log`.
-- [ ] **Validate** K=3 HMM labelling — if SPY-return doesn't separate cleanly, swap to VIXY change.
-- [ ] **Promote** entry-time `latent_regime.state` onto open trade D1 row.
-- [ ] **Wire** latent state into Phase 5 R3 chop haircut floor.
-- [ ] **Wire** macro-regime-flip-vs-position into bias_flip exit family.
-- [ ] **Gate** `regime_forecast.confidence < 0.6` to suppress UI and skip favor multiplier.
+- [x] ~~**Bootstrap**: matrix~~ → live (PR #279 cron-based bootstrap fixed the waitUntil time-budget issue from PR #277).
+- [x] ~~**Bootstrap**: HMM model~~ → live (`logLikelihood ≈ 2657`, sequence_length 110).
+- [x] ~~**Bootstrap**: HMM decode~~ → live (`state=BULL_TREND`, posterior 1.0, 5 features populated).
+- [x] ~~**Verify UI**~~ → KV populated; pill + panel render whenever the consumer queries.
+- [x] ~~**Investigate** runDataLifecycle missed write~~ → root cause was the heavy correlated-subquery trail_5m_facts INSERT silently CPU-timing-out + the waitUntil context being wrong for the compute. PR #277 fixed the aggregation; PR #279 moved bootstrap to */5 cron context.
+- [ ] **Tune** `windowDays` (currently 90) — bump to 180 if `cells_below_min` is high. (Wait for one full week of live observation before deciding.)
+- [ ] **Enable** `gates.markov_chop_haircut_adaptive` — code path live, default-off in `model_config`. Operator action: flip via admin once a chop regime appears in live decodes.
+- [ ] **Enable** `gates.markov_position_sizing_enabled` — same shape; needs ≥ 5 trading days of `_markovFavorPlan` `meta` audit rows in `admission_cohort_log` before flipping.
+- [ ] **Validate** K=3 HMM labelling — first decode shows breadth_pct = 0.25 (only 25% of universe bullish) yet `BULL_TREND` label was assigned. If observed regime label keeps disagreeing with breadth/VIX intuition for >2 weeks, swap label feature from SPY 1-day return → VIXY change (more direction-agnostic separator).
+- [x] ~~**Promote** entry-time `latent_regime.state` onto open trade D1 row~~ → PR #286.
+- [x] ~~**Wire** latent state into Phase 5 R3 chop haircut floor~~ → PR #286.
+- [x] ~~**Wire** macro-regime-flip-vs-position into bias_flip exit family~~ → PR #286.
+- [x] ~~**Gate** `regime_forecast.confidence < 0.6` to skip favor multiplier~~ → PR #286 (sizing path). UI suppression at low confidence still pending.
 
-### Other open follow-ups from the arc
+### Other open follow-ups from the arc — 2026-05-26 status
 
 - [ ] Add server-side observability around `POST /timed/user-tickers` so silent frontend failures become visible (mentioned in the IBM-add diagnosis).
-- [ ] Promote `[SL_SANITY_SKIP]` and `[MOVE_STATUS_SL_SKIP]` log frequencies into a small metrics endpoint so we can see how often the new SL guards (PR #270) are catching upstream signal-flip bugs.
+- [ ] Promote `[SL_SANITY_SKIP]` / `[MOVE_STATUS_SL_SKIP]` + the new `[EXT WICK GUARD]` (PR #284) + `[HTF GUARD]` log frequencies into a small metrics endpoint so we can see how often each guard is catching real edge cases.
 - [ ] Investigate chronic Twelve Data dropouts surfaced by `[PROVIDER_FALLBACK]` logs (PR #272) — chronic offenders may want Alpaca-primary instead of fallback.
 - [ ] Build an admin endpoint to flush the Cloudflare Pages content-addressed cache (preempting the failure mode the cache-bust marker now defends against).
-- [ ] Adaptive scoring follow-up was deferred when we wrapped the CPU optimizations (#234); pick this back up when the Markov framework is producing.
+- [ ] Adaptive scoring follow-up was deferred when we wrapped the CPU optimizations (#234); pick this back up when the Markov framework is producing (it is now — could revisit).
+- [ ] **NEW (MU follow-up)**: surface per-trade pre-market wick events in `admission_cohort_log` so we can measure how often `[EXT WICK GUARD]` saves us vs. PR #284's 1.0% cushion being too tight in any regime.
+- [ ] **NEW (MU follow-up)**: the trailing-SL ATR multiplier `_tsm.preTrim` could be widened in EXT hours too — `[TRAILING SL]` log lines from EXT cron ticks should be auditable to see if any current SL placements are being driven by EXT-only price action.
+
+### Newly-shipped since 2026-05-23 — completed PRs
+
+| PR | Subject | Status |
+|---|---|---|
+| #277 | self-heal Markov/HMM bootstrap + light trail aggregation | ✅ |
+| #278 | bootstrap retry-on-failure + diagnostic logs | ✅ |
+| #279 | bootstrap from */5 cron instead of fetch waitUntil | ✅ |
+| #280 | Portfolio Performance Overview metrics mismatch | ✅ |
+| #281 | rebuild react-app-dist after #280 | ✅ |
+| #282 | Portfolio ~588 closed count + investor equity cliff | ✅ |
+| #283 | stale pre-market price → bogus MU SL exit + Daily Brief levels | ✅ |
+| #284 | SL lock-in floor + EXT-hours wick guard | ✅ |
+| #286 | HMM→engine wiring: latent_regime onto trade record + chop floor + macro-flip exit + confidence guard | this session |
 
 ---
 
