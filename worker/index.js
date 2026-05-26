@@ -9957,6 +9957,25 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (_extWickCushion > 0 && slOvershoot < _extWickCushion) {
           tickerData.__defend_reason = "sl_ext_wick_defer";
           _trackSLGuard("ext_wick_defer", { ticker: tickerData?.ticker, overshoot_pct: slOvershoot * 100, cushion_pct: _extWickCushion * 100 });
+          // 2026-05-26 — Per-trade wick audit (MU follow-up #1).
+          // Stamp a small event on the open position so trade-autopsy can
+          // count how many pre-market wicks this trade survived. Cap at
+          // 10 entries so a noisy trade doesn't bloat the position blob.
+          try {
+            if (openPosition && typeof openPosition === "object") {
+              if (!Array.isArray(openPosition._premarket_wicks)) openPosition._premarket_wicks = [];
+              openPosition._premarket_wicks.push({
+                ts: Date.now(),
+                price: currentPrice,
+                sl: positionSL,
+                overshoot_pct: Number((slOvershoot * 100).toFixed(3)),
+                cushion_pct: Number((_extWickCushion * 100).toFixed(2)),
+              });
+              if (openPosition._premarket_wicks.length > 10) {
+                openPosition._premarket_wicks.splice(0, openPosition._premarket_wicks.length - 10);
+              }
+            }
+          } catch (_) { /* audit can never throw */ }
           console.log(`[EXT WICK GUARD] ${tickerData?.ticker}: SL nicked by ${(slOvershoot * 100).toFixed(2)}% in pre/post-market (cushion ${(_extWickCushion * 100).toFixed(2)}%) — deferring to next tick / RTH open.`);
           return "defend";
         }
@@ -19090,6 +19109,14 @@ async function processTradeSimulation(
           const _tsm = _getTrailStyleMults(tickerData);
 
           if (atrD > 0 && Number.isFinite(currentSL)) {
+            // 2026-05-26 — EXT trailing-SL audit (MU follow-up #2).
+            // Pre/post-market price action is thin and EXT-only trailing
+            // can lock in stops that get wicked at the open. Tag every
+            // trail update with the session so the operator can audit
+            // which trades had their SLs moved by EXT-hours action only.
+            // The tag flows into the [TRAILING SL] log line below.
+            const _trailIsRth = isNyRegularMarketOpen();
+            const _trailSession = _trailIsRth ? "RTH" : "EXT";
             let newSL;
             if (isLong) {
               newSL = Math.round((pxNow - _tsm.preTrim * atrD) * 100) / 100;
@@ -19104,11 +19131,11 @@ async function processTradeSimulation(
                 const _capped = Math.min(newSL, _entryPx - 0.01);
                 if (_capped > currentSL) {
                   openTrade.sl = _capped;
-                  console.log(`[TRAILING SL] ${sym} LONG trail capped below entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
+                  console.log(`[TRAILING SL ${_trailSession}] ${sym} LONG trail capped below entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
                 }
               } else if (newSL > currentSL) {
                 openTrade.sl = newSL;
-                console.log(`[TRAILING SL] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
+                console.log(`[TRAILING SL ${_trailSession}] ${sym} LONG trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
             } else {
               newSL = Math.round((pxNow + _tsm.preTrim * atrD) * 100) / 100;
@@ -19117,13 +19144,35 @@ async function processTradeSimulation(
                 const _capped = Math.max(newSL, _entryPx + 0.01);
                 if (_capped < currentSL) {
                   openTrade.sl = _capped;
-                  console.log(`[TRAILING SL] ${sym} SHORT trail capped above entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
+                  console.log(`[TRAILING SL ${_trailSession}] ${sym} SHORT trail capped above entry: SL ${currentSL.toFixed(2)} → ${_capped.toFixed(2)} (pnl=${pnlPct.toFixed(2)}% < 1.5% floor, would-have-been ${newSL.toFixed(2)})`);
                 }
               } else if (newSL < currentSL) {
                 openTrade.sl = newSL;
-                console.log(`[TRAILING SL] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
+                console.log(`[TRAILING SL ${_trailSession}] ${sym} SHORT trail: SL ${currentSL.toFixed(2)} → ${newSL.toFixed(2)} (pnl=${pnlPct.toFixed(1)}%, style=${_tsm.style})`);
               }
             }
+            // Per-trade audit: stamp the most recent trail event so a
+            // closed-trade post-mortem can see when/where the SL was
+            // last moved AND whether it was an EXT-only move.
+            try {
+              if (openTrade.sl !== currentSL) {
+                openTrade._last_trail_event = {
+                  ts: Date.now(),
+                  session: _trailSession,
+                  prev_sl: currentSL,
+                  new_sl: openTrade.sl,
+                  pnl_pct: Number(pnlPct.toFixed(3)),
+                  style: _tsm?.style || null,
+                };
+                if (_trailSession === "EXT") {
+                  if (!Array.isArray(openTrade._ext_trail_events)) openTrade._ext_trail_events = [];
+                  openTrade._ext_trail_events.push(openTrade._last_trail_event);
+                  if (openTrade._ext_trail_events.length > 20) {
+                    openTrade._ext_trail_events.splice(0, openTrade._ext_trail_events.length - 20);
+                  }
+                }
+              }
+            } catch (_) { /* audit can never throw */ }
           }
         }
       }
