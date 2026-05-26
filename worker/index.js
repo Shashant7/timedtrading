@@ -26756,6 +26756,60 @@ function computeRank(d) {
     }
   }
 
+  // 2026-05-26 — Adaptive Scoring Layer 1: regime weight multiplier
+  // (docs/2026-05-26-adaptive-scoring-spec.md). Default-off via
+  // `model_config.gates.adaptive_scoring_v1`. When enabled AND the HMM
+  // has decoded the latent regime with confidence >= 0.6:
+  //
+  //   - state agrees with the trade direction → small boost (×1.05)
+  //   - state opposes the trade direction     → small penalty (×0.93)
+  //   - CHOP regime                            → small dampener (×0.96)
+  //
+  // Multiplier bounded so the absolute swing is small (max ~7%); the
+  // gate exists so an operator can turn it off in one config update if
+  // anything regresses. Trace stamp lets admission_cohort_log see what
+  // happened and why.
+  let _adaptiveV1Applied = null;
+  try {
+    const _adaptGates = (d?._env?._deepAuditConfig?.gates && typeof d._env._deepAuditConfig.gates === "object")
+      ? d._env._deepAuditConfig.gates : {};
+    if (_adaptGates.adaptive_scoring_v1 === true) {
+      const _lr = d?.latent_regime;
+      const _lrState = String(_lr?.state || "").toUpperCase();
+      const _lrPost = _lr?.posterior && typeof _lr.posterior === "object"
+        ? Math.max(...Object.values(_lr.posterior).map((v) => Number(v) || 0))
+        : 0;
+      if (_lrPost >= 0.6 && _lrState) {
+        const _isAlignedBull = state === "HTF_BULL_LTF_BULL" || state === "HTF_BULL_LTF_PULLBACK";
+        const _isAlignedBear = state === "HTF_BEAR_LTF_BEAR" || state === "HTF_BEAR_LTF_PULLBACK";
+        let mult = 1.0;
+        let reason = "neutral";
+        if (_lrState === "BULL_TREND" && _isAlignedBull) { mult = 1.05; reason = "bull_aligned"; }
+        else if (_lrState === "BEAR_TREND" && _isAlignedBear) { mult = 1.05; reason = "bear_aligned"; }
+        else if (_lrState === "BULL_TREND" && _isAlignedBear) { mult = 0.93; reason = "bear_vs_bull_macro"; }
+        else if (_lrState === "BEAR_TREND" && _isAlignedBull) { mult = 0.93; reason = "bull_vs_bear_macro"; }
+        else if (_lrState === "CHOP") { mult = 0.96; reason = "chop_dampener"; }
+        if (mult !== 1.0) {
+          const before = score;
+          score = score * mult;
+          _adaptiveV1Applied = {
+            latent_state: _lrState,
+            posterior: Number(_lrPost.toFixed(3)),
+            ticker_state: state,
+            multiplier: mult,
+            reason,
+            score_before: Number(before.toFixed(2)),
+            score_after: Number(score.toFixed(2)),
+            delta: Number((score - before).toFixed(2)),
+          };
+          addRankTrace("adaptive_v1", _adaptiveV1Applied.delta, _adaptiveV1Applied);
+        }
+      }
+    }
+  } catch (_) { /* never throw from a scoring multiplier */ }
+  // Stamp on tickerData so admission_cohort_log can read it
+  if (d && typeof d === "object" && _adaptiveV1Applied) d.__adaptive_v1 = _adaptiveV1Applied;
+
   score = Math.max(0, Math.min(100, score));
   if (rankTrace && d && typeof d === "object") {
     d.__rank_trace = {
@@ -26764,6 +26818,7 @@ function computeRank(d) {
       state,
       finalScore: Math.round(score),
       rawScore: score,
+      adaptive_v1: _adaptiveV1Applied,
       htf,
       ltf,
       completion: comp,
