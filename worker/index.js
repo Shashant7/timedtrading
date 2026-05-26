@@ -1287,6 +1287,7 @@ const ROUTES = [
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
   ["GET", "/timed/admin/user-tickers/recent-attempts", "GET /timed/admin/user-tickers/recent-attempts"],
   ["GET", "/timed/admin/sl-guard-stats", "GET /timed/admin/sl-guard-stats"],
+  ["GET", "/timed/admin/provider-fallback-stats", "GET /timed/admin/provider-fallback-stats"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
   ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
@@ -61267,6 +61268,66 @@ export default {
       //
       // Counters are per-isolate (reset on cold start). isolate_id +
       // isolate_started_at let the operator distinguish runs.
+      // 2026-05-26 — TD→Alpaca provider-fallback observability (recap §5).
+      // Per-isolate counters from worker/data-provider.js, plus a per-symbol
+      // breakdown so chronic offenders are easy to spot. Chronic offenders
+      // (high miss rate, healed every cron cycle) are candidates to flip
+      // to Alpaca-primary in DATA_PROVIDER config, or to escalate to TD
+      // support.
+      //
+      // Counters reset on cold start; isolate_id distinguishes runs.
+      if (routeKey === "GET /timed/admin/provider-fallback-stats") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const stats = DataProvider.getProviderFallbackStats?.() || null;
+          if (!stats) return sendJSON({ ok: false, error: "stats_unavailable" }, 500, corsHeaders(env, req));
+          const uptimeMs = Date.now() - (stats.isolate_started_at || Date.now());
+          // Rank chronic offenders (most-missed symbols) for the operator.
+          const perSymbolArr = Object.entries(stats.per_symbol || {}).map(([ticker, e]) => ({
+            ticker,
+            misses: Number(e?.misses) || 0,
+            heals: Number(e?.heals) || 0,
+            last_tf: e?.last_tf || null,
+            last_ts: Number(e?.last_ts) || 0,
+            heal_rate: (Number(e?.misses) || 0) > 0 ? (Number(e?.heals) || 0) / (Number(e?.misses) || 1) : null,
+          }));
+          perSymbolArr.sort((a, b) => b.misses - a.misses);
+          const limitParam = Number(url.searchParams.get("limit"));
+          const cap = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(100, limitParam) : 50;
+          const topOffenders = perSymbolArr.slice(0, cap);
+          // Symbols that the fallback NEVER healed — TD AND Alpaca both
+          // failed. These need escalation (delisted? Bad symbol?).
+          const unhealable = perSymbolArr.filter((e) => e.misses >= 3 && e.heals === 0);
+          return sendJSON({
+            ok: true,
+            isolate: {
+              id: stats.isolate_id,
+              started_at: stats.isolate_started_at,
+              uptime_ms: uptimeMs,
+              uptime_h: Math.round(uptimeMs / 3600000 * 10) / 10,
+            },
+            counts: stats.counts || {},
+            top_offenders: topOffenders,
+            unhealable_after_3_misses: unhealable,
+            doc: {
+              bars_total_attempts: "# times TD-fetch-with-fallback ran for bars",
+              bars_symbols_missing_from_td: "Σ per-symbol gaps observed before Alpaca retry",
+              bars_symbols_healed_by_alpaca: "Σ symbols Alpaca successfully recovered",
+              bars_per_symbol_errors: "# of Alpaca throws on individual symbol fetch",
+              snapshots_total_attempts: "Same shape for the quote/snapshot path",
+              snapshots_symbols_missing_from_td: "Σ snapshot gaps before Alpaca retry",
+              snapshots_symbols_healed_by_alpaca: "Σ snapshots Alpaca recovered",
+              snapshots_alpaca_errors: "# of Alpaca snapshot batch throws",
+              top_offenders: "Per-symbol miss/heal counts, sorted by misses desc",
+              unhealable_after_3_misses: "Symbols that TD AND Alpaca both failed — escalate or remove",
+            },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/sl-guard-stats") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
