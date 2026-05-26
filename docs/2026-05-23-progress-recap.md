@@ -27,8 +27,31 @@
 >   are struck through; remaining work is HMM→engine wiring, observability,
 >   Phase 6 cell-Markov G3 gate, plus the new "raise wick cushion to
 >   profile-driven if needed" follow-up from the MU incident.
+
+> **STATUS REFRESH 2026-05-26 evening (PRs #285–#287).**
 >
-> The body below is preserved as the snapshot-in-time for the 2026-05-23
+> - **PR #285** — HMM→engine wiring (4 follow-ups in one PR): latent_regime
+>   on trade record + CHOP floor 0.35 + macro-regime-flip DEFEND + sizing
+>   confidence guard. Closes recap §4 follow-ups #3, #4, #5, #6.
+> - **PR #286** — POST /timed/user-tickers observability: structured logs,
+>   KV ring buffer (50 attempts), new admin endpoint
+>   `GET /timed/admin/user-tickers/recent-attempts`. Closes first bullet
+>   of "Other open follow-ups".
+> - **PR #287** — Event-risk fixes:
+>     a) Macro events now block ENTRIES inside the 6h reduction window
+>        (was earnings-only — TLN entered 12:28 PM, trimmed 12:29 PM
+>        for PRE_PCE_RISK_REDUCTION on 2026-05-26).
+>     b) Event-risk dedup now uses event-identity key (drops trim% from
+>        the key). UNP and PCI both fired back-to-back PRE_PCE trim +
+>        close on 2026-05-26 9:31 AM ET because the trim% changing
+>        between ticks built a fresh dedup key and bypassed the guard.
+> - **MU recovery (data fix, no code)** — the stale-price exit from
+>   PR #283 was reversed via direct D1 updates: status OPEN, SL reset
+>   to original $659.51, trim% / cost basis restored, audit row written
+>   to execution_actions, KV `timed:trades:all` updated. Smart-SL from
+>   PR #284 prevents recurrence in the same shape.
+>
+> The lower body below remains the snapshot-in-time for the 2026-05-23
 > investigation. Read §5 last for current pending work.
 
 This is the single document that captures: (1) everything shipped over the
