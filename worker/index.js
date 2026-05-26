@@ -1288,6 +1288,8 @@ const ROUTES = [
   ["GET", "/timed/admin/user-tickers/recent-attempts", "GET /timed/admin/user-tickers/recent-attempts"],
   ["GET", "/timed/admin/sl-guard-stats", "GET /timed/admin/sl-guard-stats"],
   ["GET", "/timed/admin/provider-fallback-stats", "GET /timed/admin/provider-fallback-stats"],
+  ["POST", "/timed/admin/pages-cas-flush", "POST /timed/admin/pages-cas-flush"],
+  ["GET", "/timed/admin/pages-deployments", "GET /timed/admin/pages-deployments"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
   ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
@@ -61319,6 +61321,109 @@ export default {
       //
       // Counters are per-isolate (reset on cold start). isolate_id +
       // isolate_started_at let the operator distinguish runs.
+
+      // 2026-05-26 — Pages CAS flush admin endpoints (recap §5 follow-up).
+      //
+      // Cloudflare Pages' content-addressed storage went corrupt on
+      // 2026-05-22 (incident: "Uploaded 0 files (77 already uploaded)"
+      // + HTTP 500 on every fresh hashed asset path). PR #269 ships a
+      // build-time cache-bust marker so every deploy produces unique
+      // hashes by construction, but if the CAS gets stuck again the
+      // recovery is to (a) list recent deployments, (b) retry the
+      // healthy one (or trigger a fresh build via push) so the
+      // upload pipeline runs with new content hashes.
+      //
+      // These two endpoints expose Cloudflare's Pages API as
+      // admin-only:
+      //
+      //   GET  /timed/admin/pages-deployments?limit=10
+      //   POST /timed/admin/pages-cas-flush { deployment_id?: string }
+      //
+      // POST without a deployment_id retries the latest production
+      // deployment. POST with a specific deployment_id retries that
+      // one. The retry forces a fresh upload pass; combined with PR
+      // #269's per-build cache-bust marker (which guarantees fresh
+      // content hashes), the new pass will re-publish all blobs.
+      if (routeKey === "GET /timed/admin/pages-deployments") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const apiToken = env?.CLOUDFLARE_API_TOKEN;
+          const acctId = env?.CLOUDFLARE_ACCOUNT_ID;
+          if (!apiToken || !acctId) {
+            return sendJSON({ ok: false, error: "cloudflare_credentials_missing", detail: "Set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in worker secrets." }, 500, corsHeaders(env, req));
+          }
+          const project = String(url.searchParams.get("project") || "timedtrading").trim();
+          const limit = Math.max(1, Math.min(25, Number(url.searchParams.get("limit")) || 10));
+          const cfUrl = `https://api.cloudflare.com/client/v4/accounts/${acctId}/pages/projects/${project}/deployments?per_page=${limit}`;
+          const r = await fetch(cfUrl, { headers: { "Authorization": `Bearer ${apiToken}`, "Accept": "application/json" } });
+          const cfJson = await r.json().catch(() => ({}));
+          if (!r.ok || cfJson?.success === false) {
+            return sendJSON({ ok: false, error: "cloudflare_api_failed", status: r.status, detail: cfJson }, 502, corsHeaders(env, req));
+          }
+          const deployments = (cfJson?.result || []).map((d) => ({
+            id: d.id,
+            short_id: d.short_id,
+            environment: d.environment,
+            url: d.url,
+            aliases: d.aliases,
+            created_on: d.created_on,
+            modified_on: d.modified_on,
+            latest_stage: d.latest_stage,
+            branch: d?.deployment_trigger?.metadata?.branch || null,
+            commit_hash: d?.deployment_trigger?.metadata?.commit_hash || null,
+            commit_message: d?.deployment_trigger?.metadata?.commit_message || null,
+          }));
+          return sendJSON({ ok: true, project, count: deployments.length, deployments }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/pages-cas-flush") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const apiToken = env?.CLOUDFLARE_API_TOKEN;
+          const acctId = env?.CLOUDFLARE_ACCOUNT_ID;
+          if (!apiToken || !acctId) {
+            return sendJSON({ ok: false, error: "cloudflare_credentials_missing", detail: "Set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in worker secrets." }, 500, corsHeaders(env, req));
+          }
+          const { obj: body } = await readBodyAsJSON(req).catch(() => ({ obj: null }));
+          const project = String(body?.project || "timedtrading").trim();
+          let deploymentId = String(body?.deployment_id || "").trim();
+
+          // If no deployment_id was supplied, pick the most recent production deployment.
+          if (!deploymentId) {
+            const listUrl = `https://api.cloudflare.com/client/v4/accounts/${acctId}/pages/projects/${project}/deployments?per_page=5`;
+            const listRes = await fetch(listUrl, { headers: { "Authorization": `Bearer ${apiToken}`, "Accept": "application/json" } });
+            const listJson = await listRes.json().catch(() => ({}));
+            const latest = (listJson?.result || []).find((d) => d.environment === "production");
+            if (!latest?.id) {
+              return sendJSON({ ok: false, error: "no_recent_production_deployment", detail: listJson }, 502, corsHeaders(env, req));
+            }
+            deploymentId = latest.id;
+          }
+
+          const retryUrl = `https://api.cloudflare.com/client/v4/accounts/${acctId}/pages/projects/${project}/deployments/${deploymentId}/retry`;
+          const r = await fetch(retryUrl, { method: "POST", headers: { "Authorization": `Bearer ${apiToken}` } });
+          const cfJson = await r.json().catch(() => ({}));
+          if (!r.ok || cfJson?.success === false) {
+            return sendJSON({ ok: false, error: "cloudflare_retry_failed", status: r.status, detail: cfJson }, 502, corsHeaders(env, req));
+          }
+          console.log(`[PAGES_CAS_FLUSH] admin triggered Pages retry — project=${project} deployment=${deploymentId} new_id=${cfJson?.result?.id || "?"}`);
+          return sendJSON({
+            ok: true,
+            project,
+            retried_deployment_id: deploymentId,
+            new_deployment: cfJson?.result || null,
+            note: "Pages will re-upload assets on this deploy. Combined with the per-build cache-bust marker (PR #269), every blob gets a fresh content hash so CAS corruption recovers automatically. Check status with GET /timed/admin/pages-deployments.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-05-26 — TD→Alpaca provider-fallback observability (recap §5).
       // Per-isolate counters from worker/data-provider.js, plus a per-symbol
       // breakdown so chronic offenders are easy to spot. Chronic offenders
