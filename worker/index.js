@@ -1367,6 +1367,8 @@ const ROUTES = [
   ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
   // Trajectory program — Phase 6 prep (S6). Cell Markov visibility.
   ["GET",  "/timed/calibration/cell-markov",              "GET /timed/calibration/cell-markov"],
+  ["GET",  "/timed/admin/phase6-prereq-status",           "GET /timed/admin/phase6-prereq-status"],
+  ["GET",  "/timed/admin/hmm-labelling-check",            "GET /timed/admin/hmm-labelling-check"],
   ["GET", "/timed/calibration/deep-audit", "GET /timed/calibration/deep-audit"],
   ["GET", "/timed/calibration/status", "GET /timed/calibration/status"],
   ["POST", "/timed/calibration/apply", "POST /timed/calibration/apply"],
@@ -64668,6 +64670,216 @@ export default {
           return sendJSON(result, result.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-26 — Phase 6 prerequisites audit (recap §5).
+      // Single endpoint that checks all the Phase-6 entry criteria from
+      // tasks/2026-05-19-stochastic-program-phase-wrapup.md §6 and
+      // returns a yes/no per item + the underlying numbers. The
+      // operator can run this whenever they want a green-light read.
+      //
+      // GET /timed/admin/phase6-prereq-status?lookback_days=180
+      //
+      // Criteria checked:
+      //   - data:   trade_trajectories backfill coverage ≥ 90%
+      //   - data:   ≥ 30 cells with ≥ 50 trades each in cell-markov
+      //   - data:   ≥ 10 cells with KL/χ² significant divergence
+      //   - engine: Phase 4 G2 gate enabled in model_config.gates
+      //   - engine: SL leak closed (proxied: zero sl_breached with
+      //             exit_price on the favorable side of SL in last 7d)
+      if (routeKey === "GET /timed/admin/phase6-prereq-status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const db = env?.DB;
+          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          const lookbackDays = Math.max(30, Math.min(365, Number(url.searchParams.get("lookback_days")) || 180));
+          const sinceMs = Date.now() - lookbackDays * 86400000;
+
+          // a) Trajectory coverage: # of closed trades with a non-null
+          // cell_during_json ÷ total closed trades in the window.
+          let coverage = { covered: 0, total: 0, pct: 0 };
+          try {
+            const totalRes = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trades WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1`,
+            ).bind(sinceMs).first();
+            const coveredRes = await db.prepare(
+              `SELECT COUNT(*) AS n FROM trade_trajectories WHERE outcome IN ('WIN','LOSS','FLAT') AND entry_ts >= ?1 AND cell_during_json IS NOT NULL`,
+            ).bind(sinceMs).first();
+            coverage = {
+              covered: Number(coveredRes?.n) || 0,
+              total: Number(totalRes?.n) || 0,
+              pct: (Number(totalRes?.n) || 0) > 0 ? Math.round((Number(coveredRes?.n) || 0) / (Number(totalRes?.n) || 0) * 1000) / 10 : 0,
+            };
+          } catch (_) { /* table missing — leave defaults */ }
+
+          // b) Cell-markov volume + divergence — leverage existing module.
+          let cellMarkov = { ok: false };
+          try {
+            cellMarkov = await CellMarkov.buildCellMarkov(env, {
+              lookbackDays,
+              minCellObs: 50,
+              divergenceThreshold: 0.15,
+              maxTrades: 5000,
+            });
+          } catch (e) {
+            cellMarkov = { ok: false, error: String(e?.message || e).slice(0, 200) };
+          }
+          const cellVolume = cellMarkov?.cell_volume || {};
+          const cells50plus = Object.values(cellVolume).filter((c) => (c?.total || 0) >= 50).length;
+          const divergentCells = Array.isArray(cellMarkov?.divergent_cells) ? cellMarkov.divergent_cells.length : 0;
+
+          // c) Phase 4 G2 enabled?
+          let g2Enabled = false;
+          try {
+            const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = 'gates'`).first();
+            if (row?.config_value) {
+              const gates = typeof row.config_value === "string" ? JSON.parse(row.config_value) : row.config_value;
+              g2Enabled = gates?.cohort_fail_block === true;
+            }
+          } catch (_) { /* config missing */ }
+
+          // d) SL leak proxy — count of closed trades in last 7d where
+          // exit_reason includes 'sl_breached' AND exit_price is on the
+          // favorable side of the stop_loss (impossible if the SL gate
+          // is honest). 0 = healthy.
+          let slLeakCount = 0;
+          try {
+            const slRes = await db.prepare(
+              `SELECT t.trade_id, t.direction, t.exit_price, p.stop_loss
+                 FROM trades t LEFT JOIN positions p ON p.position_id = t.trade_id
+                WHERE t.status IN ('WIN','LOSS','FLAT')
+                  AND t.exit_ts >= ?1
+                  AND t.exit_reason LIKE '%sl_breached%'`,
+            ).bind(Date.now() - 7 * 86400000).all();
+            for (const r of (slRes?.results || [])) {
+              const ep = Number(r.exit_price), sl = Number(r.stop_loss);
+              if (!Number.isFinite(ep) || !Number.isFinite(sl) || sl <= 0) continue;
+              const dir = String(r.direction || "").toUpperCase();
+              if (dir === "LONG" && ep > sl) slLeakCount++;
+              if (dir === "SHORT" && ep < sl) slLeakCount++;
+            }
+          } catch (_) { /* tables missing */ }
+
+          const criteria = [
+            { id: "trajectory_coverage_90pct", target: ">= 90%", actual: `${coverage.pct}% (${coverage.covered}/${coverage.total})`, met: coverage.pct >= 90 && coverage.total > 0 },
+            { id: "cells_with_50_trades_30+", target: ">= 30 cells", actual: `${cells50plus} cells`, met: cells50plus >= 30 },
+            { id: "divergent_cells_10+",      target: ">= 10 cells (delta >= 0.15)", actual: `${divergentCells} cells`, met: divergentCells >= 10 },
+            { id: "g2_cohort_fail_block_enabled", target: "gates.cohort_fail_block === true", actual: String(g2Enabled), met: g2Enabled },
+            { id: "sl_leak_closed_7d",        target: "0 impossible SL hits in last 7d", actual: `${slLeakCount} impossible hits`, met: slLeakCount === 0 },
+          ];
+          const ready = criteria.every((c) => c.met);
+
+          return sendJSON({
+            ok: true,
+            ready_for_phase6_g3: ready,
+            lookback_days: lookbackDays,
+            criteria,
+            note: ready
+              ? "All Phase 6 entry criteria met. Build shadow-mode G3 evaluator next; flip live behind gates.cell_markov_divergence_enabled."
+              : "Some criteria not met. See per-item status above; ship the missing pieces before enabling G3.",
+            doc: {
+              trajectory_coverage_90pct: "# of trade_trajectories with cell_during_json ÷ # closed trades in window",
+              cells_with_50_trades_30: "cell_markov cell_volume entries with total >= 50",
+              divergent_cells_10: "cell_markov divergent_cells length (delta >= 0.15)",
+              g2_cohort_fail_block_enabled: "model_config.gates.cohort_fail_block",
+              sl_leak_closed_7d: "trades with sl_breached AND exit_price on favorable side of stop_loss",
+            },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-26 — HMM labelling sanity check (recap §5).
+      // Compares the current decoded latent state to the current
+      // breadth_pct value the engine sees, flags if they disagree.
+      // Persistent disagreement (>2 weeks) = swap label feature from
+      // SPY return to VIXY change (recap §4 follow-up).
+      //
+      // GET /timed/admin/hmm-labelling-check
+      if (routeKey === "GET /timed/admin/hmm-labelling-check") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const latent = await KV.get("timed:regime:hmm:latest", "json").catch(() => null);
+          if (!latent || !latent.state) {
+            return sendJSON({ ok: false, error: "no_hmm_decode_yet", remedy: "POST /timed/admin/regime-hmm/decode first" }, 503, corsHeaders(env, req));
+          }
+          // Feature snapshot ordering matches HMM_FEATURE_NAMES from
+          // worker/lib/regime-hmm-features.js:
+          //   [0] spy_ret_1d   [1] spy_atr_pct_5d   [2] vix_level_norm
+          //   [3] breadth_pct  [4] sector_dispersion
+          const features = Array.isArray(latent.feature_snapshot) ? latent.feature_snapshot : [];
+          const spyRet = features[0];
+          const vix = features[2];
+          const breadth = features[3];
+          const state = String(latent.state || "").toUpperCase();
+
+          // Sanity rules (intentionally lenient — flag only obvious mismatches):
+          //   BULL_TREND should have breadth >= 0.5 OR spy_ret >= 0
+          //   BEAR_TREND should have breadth <= 0.5 OR spy_ret <= 0
+          //   CHOP can go either way
+          const checks = [];
+          if (state === "BULL_TREND") {
+            const ok = (Number.isFinite(breadth) && breadth >= 0.5) || (Number.isFinite(spyRet) && spyRet >= 0);
+            checks.push({ rule: "BULL_TREND ↔ (breadth ≥ 0.5 OR spy_ret ≥ 0)", breadth, spy_ret: spyRet, met: ok });
+          }
+          if (state === "BEAR_TREND") {
+            const ok = (Number.isFinite(breadth) && breadth <= 0.5) || (Number.isFinite(spyRet) && spyRet <= 0);
+            checks.push({ rule: "BEAR_TREND ↔ (breadth ≤ 0.5 OR spy_ret ≤ 0)", breadth, spy_ret: spyRet, met: ok });
+          }
+          if (state === "CHOP") {
+            checks.push({ rule: "CHOP — no sanity check", met: true });
+          }
+
+          // Track persistent disagreement using a simple KV counter.
+          // Increments on disagree, resets on agree. >=14 days of
+          // disagreement = recommendation to swap label feature.
+          const disagree = checks.some((c) => c.met === false);
+          let persistKey = "timed:regime:hmm:label-mismatch-streak";
+          let priorStreak = 0;
+          try {
+            const prior = await KV.get(persistKey, "json").catch(() => null);
+            priorStreak = Number(prior?.streak_days) || 0;
+            const dateKey = new Date().toISOString().slice(0, 10);
+            if (prior?.last_date === dateKey) {
+              // already counted today — leave as-is
+            } else if (disagree) {
+              const newStreak = priorStreak + (prior ? 1 : 0);
+              await kvPutJSON(KV, persistKey, { streak_days: newStreak, last_date: dateKey, last_state: state }, 60 * 86400);
+              priorStreak = newStreak;
+            } else {
+              if (priorStreak > 0) await kvPutJSON(KV, persistKey, { streak_days: 0, last_date: dateKey, last_state: state }, 60 * 86400);
+              priorStreak = 0;
+            }
+          } catch (_) { /* best-effort */ }
+
+          const swapRecommended = priorStreak >= 14;
+
+          return sendJSON({
+            ok: true,
+            current_state: state,
+            current_posterior: latent.posterior || null,
+            feature_snapshot_named: {
+              spy_ret_1d: spyRet,
+              spy_atr_pct_5d: features[1],
+              vix_level_norm: vix,
+              breadth_pct: breadth,
+              sector_dispersion: features[4],
+            },
+            checks,
+            disagree_today: disagree,
+            disagree_streak_days: priorStreak,
+            swap_label_feature_recommended: swapRecommended,
+            doc: {
+              what: "Sanity-check that the auto-assigned HMM label (BULL_TREND / CHOP / BEAR_TREND) agrees with the actual breadth + SPY return at decode time.",
+              swap_recommendation: "If disagree_streak_days >= 14 the label feature in worker/lib/regime-hmm-compute.js _labelStates should be swapped from SPY 1d return (feature 0) to VIXY change (feature 2) — a more direction-agnostic separator empirically.",
+            },
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
