@@ -1289,6 +1289,7 @@ const ROUTES = [
   ["GET", "/timed/admin/sl-guard-stats", "GET /timed/admin/sl-guard-stats"],
   ["GET", "/timed/admin/sl-guard-stats/daily", "GET /timed/admin/sl-guard-stats/daily"],
   ["GET", "/timed/admin/provider-fallback-stats", "GET /timed/admin/provider-fallback-stats"],
+  ["GET", "/timed/admin/provider-fallback-stats/daily", "GET /timed/admin/provider-fallback-stats/daily"],
   ["POST", "/timed/admin/pages-cas-flush", "POST /timed/admin/pages-cas-flush"],
   ["GET", "/timed/admin/pages-deployments", "GET /timed/admin/pages-deployments"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
@@ -61425,6 +61426,80 @@ export default {
         }
       }
 
+      // 2026-05-26 — Fleet-wide daily provider-fallback aggregator
+      // (paired follow-up to PR #291 + this evening's batch). Walks
+      // timed:provider-fallback:daily:{date}:* prefix and sums counts
+      // across all per-isolate blobs. Default date = today (UTC). The
+      // nightly cron at 04:00 UTC writes one blob per alive isolate.
+      if (routeKey === "GET /timed/admin/provider-fallback-stats/daily") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const date = String(url.searchParams.get("date") || new Date().toISOString().slice(0, 10));
+          const prefix = `timed:provider-fallback:daily:${date}:`;
+          const list = await KV.list({ prefix, limit: 500 });
+          const keys = (list?.keys || []).map(k => k.name);
+          const isolates = [];
+          const totalCounts = {
+            bars_total_attempts: 0,
+            bars_symbols_missing_from_td: 0,
+            bars_symbols_healed_by_alpaca: 0,
+            bars_per_symbol_errors: 0,
+            snapshots_total_attempts: 0,
+            snapshots_symbols_missing_from_td: 0,
+            snapshots_symbols_healed_by_alpaca: 0,
+            snapshots_alpaca_errors: 0,
+          };
+          // Per-symbol fleet rollup: sum misses + heals across every
+          // isolate so chronic offenders surface even when no single
+          // isolate has the full picture.
+          const symAgg = {};
+          for (const k of keys) {
+            try {
+              const blob = await kvGetJSON(KV, k);
+              if (!blob || !blob.counts) continue;
+              isolates.push({
+                isolate_id: blob.isolate_id,
+                isolate_started_at: blob.isolate_started_at,
+                flushed_at: blob.flushed_at,
+                uptime_h: Math.round((blob.uptime_ms || 0) / 3600000 * 10) / 10,
+                counts: blob.counts,
+              });
+              for (const [k2, v] of Object.entries(blob.counts)) {
+                totalCounts[k2] = (totalCounts[k2] || 0) + (Number(v) || 0);
+              }
+              for (const sym of (blob.top_offenders || [])) {
+                const t = String(sym?.ticker || "").toUpperCase();
+                if (!t) continue;
+                const entry = symAgg[t] || { ticker: t, misses: 0, heals: 0, isolates: 0 };
+                entry.misses += Number(sym.misses) || 0;
+                entry.heals += Number(sym.heals) || 0;
+                entry.isolates++;
+                symAgg[t] = entry;
+              }
+            } catch (_) { /* skip bad blob */ }
+          }
+          const fleetTopOffenders = Object.values(symAgg)
+            .sort((a, b) => (b.misses || 0) - (a.misses || 0))
+            .slice(0, 50);
+          const fleetUnhealable = fleetTopOffenders.filter((e) => e.misses >= 3 && e.heals === 0);
+          return sendJSON({
+            ok: true,
+            date,
+            isolate_count: isolates.length,
+            fleet_total_counts: totalCounts,
+            fleet_total_misses: (totalCounts.bars_symbols_missing_from_td || 0) + (totalCounts.snapshots_symbols_missing_from_td || 0),
+            fleet_total_heals: (totalCounts.bars_symbols_healed_by_alpaca || 0) + (totalCounts.snapshots_symbols_healed_by_alpaca || 0),
+            fleet_top_offenders: fleetTopOffenders,
+            fleet_unhealable_after_3_misses: fleetUnhealable,
+            isolates,
+            note: "Each isolate writes its counter snapshot at 04:00 UTC. Counters reset on cold start, so isolates that died before the flush window aren't represented. Run on subsequent days to build a trend.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-05-26 — TD→Alpaca provider-fallback observability (recap §5).
       // Per-isolate counters from worker/data-provider.js, plus a per-symbol
       // breakdown so chronic offenders are easy to spot. Chronic offenders
@@ -76764,6 +76839,40 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.log(`[GUARD_FLUSH] sl counters flushed for ${dateKey} isolate=${slIsolate}`);
         } catch (e) {
           console.warn("[GUARD_FLUSH] failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
+
+      // 2026-05-26 — Nightly KV flush of per-isolate provider-fallback
+      // counters (paired follow-up to PR #291). Same shape as the SL-guard
+      // flush above so the operator can roll up TD→Alpaca heal frequency
+      // across the fleet via the matching aggregator endpoint.
+      //
+      //   timed:provider-fallback:daily:{date}:{isolate_id}
+      //
+      // 14-day TTL. Aggregator endpoint walks the prefix:
+      //   /timed/admin/provider-fallback-stats/daily?date=YYYY-MM-DD
+      ctx.waitUntil((async () => {
+        try {
+          const KV2 = env?.KV_TIMED;
+          if (!KV2) return;
+          const pfStats = DataProvider.getProviderFallbackStats?.() || null;
+          if (!pfStats) return;
+          const dateKey = new Date().toISOString().slice(0, 10);
+          const pfIsolate = pfStats.isolate_id || "unknown";
+          await kvPutJSON(KV2, `timed:provider-fallback:daily:${dateKey}:${pfIsolate}`, {
+            isolate_id: pfIsolate,
+            isolate_started_at: pfStats.isolate_started_at || 0,
+            flushed_at: Date.now(),
+            counts: { ...(pfStats.counts || {}) },
+            top_offenders: Object.entries(pfStats.per_symbol || {})
+              .map(([t, e]) => ({ ticker: t, ...e }))
+              .sort((a, b) => (b.misses || 0) - (a.misses || 0))
+              .slice(0, 25),
+            uptime_ms: Date.now() - (pfStats.isolate_started_at || Date.now()),
+          }, 14 * 86400);
+          console.log(`[PROVIDER_FALLBACK_FLUSH] counters flushed for ${dateKey} isolate=${pfIsolate}`);
+        } catch (e) {
+          console.warn("[PROVIDER_FALLBACK_FLUSH] failed:", String(e?.message || e).slice(0, 200));
         }
       })());
       // S1.5 — Trade trajectories: build bubble-map cell sequences for
