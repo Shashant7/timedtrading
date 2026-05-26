@@ -3540,7 +3540,22 @@
                         those problems — it renders in the same right pane
                         that's already showing Snapshot/Setup/etc., so tapping
                         Chart just swaps the tab body content. */}
-                    {[["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]].map(([key, label]) => (
+                    {/*
+                       2026-05-26 — User report: desktop right rail shows a Chart
+                       tab that just duplicates the persistent chart on the left.
+                       In workspace mode (`_isWorkspace`) the chart is always
+                       rendered in the left pane, so the CHART tab is redundant.
+                       Drop it from the tab list. On mobile (`_isWorkspace` false)
+                       the persistent chart isn't visible alongside the tabs, so
+                       CHART stays as the primary chart-access tab.
+                       Also: if v2RailTab is currently CHART when we enter
+                       workspace mode (e.g. user resized the viewport), fall
+                       back to SNAPSHOT so they don't see an empty body.
+                    */}
+                    {(() => {
+                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]];
+                      const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
+                      return tabs.map(([key, label]) => (
                       <button
                         key={key}
                         className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`}
@@ -3561,7 +3576,8 @@
                       >
                         <span>{label}</span>
                       </button>
-                    ))}
+                      ));
+                    })()}
                   </div>
                 </div>
                   );
@@ -3938,7 +3954,12 @@
                       on chartCandles, so streaming candle updates don't
                       remount the canvas — the LWChart UPDATE effect handles
                       incremental redraws internally without flicker. */}
-                  {v2RailTab === "CHART" && (
+                  {/* 2026-05-26 — In workspace mode the chart already lives
+                      in the left pane, so the CHART tab is hidden from the
+                      tab nav (see filter above). Guard the body render too so
+                      a stale `v2RailTab === 'CHART'` from before workspace
+                      mode applied doesn't render an empty area. */}
+                  {v2RailTab === "CHART" && !_isWorkspace && (
                     <div
                       key={`chart-tab-${tickerSymbol}`}
                       className="tt-rail-chart-tab"
@@ -5771,6 +5792,22 @@
                                     EXHAUSTED · {exh.sigma_above_mean.toFixed(1)}σ
                                   </span>
                                 )}
+                                {/* 2026-05-26 — PR #285 added the
+                                    macro_regime_flip_* DEFEND family.
+                                    When the engine forces DEFEND because
+                                    the trade direction is against the
+                                    decoded macro regime, surface a
+                                    badge so users understand WHY the
+                                    open trade just tightened. */}
+                                {(() => {
+                                  const _dr = String(ticker?.__defend_reason || "").toLowerCase();
+                                  if (!_dr.startsWith("macro_regime_flip")) return null;
+                                  return (
+                                    <span className="ds-chip ds-chip--sm" title="Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285." style={{ background: "rgba(248,113,113,0.18)", color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>
+                                      MACRO DEFEND
+                                    </span>
+                                  );
+                                })()}
                               </div>
                               <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "8px 0 0 0", lineHeight: 1.5 }}>
                                 {insight}
@@ -7949,6 +7986,32 @@
                                   <div className="text-[9px] text-slate-400/80 mt-0.5">{_szCtx.optionsHint}</div>
                                 )}
                                 {_tSetup && <div className="text-[9px] text-slate-500 mt-1">{_formatPath(_tSetup)}{_tGrade ? ` · TT ${_tGrade}` : ""}</div>}
+                                {/* 2026-05-26 — PR #285 stamped entry_latent_regime
+                                    on the trade record. Surface it here so users
+                                    can see what macro regime this position was
+                                    opened in, and which way the macro tape was
+                                    leaning at the time. Hidden when not present
+                                    (HMM not decoded yet, or pre-#285 trade). */}
+                                {(() => {
+                                  const _elr = trade?.entry_latent_regime || null;
+                                  if (!_elr) return null;
+                                  const _conf = Number(trade?.entry_latent_regime_confidence);
+                                  const _decoded = Number(trade?.entry_latent_regime_decoded_at);
+                                  const _color = _elr === "BULL_TREND" ? "#4ade80" : _elr === "BEAR_TREND" ? "#f87171" : "#fbbf24";
+                                  const _agreeing = (_tDir === "LONG" && _elr === "BULL_TREND") || (_tDir === "SHORT" && _elr === "BEAR_TREND");
+                                  const _opposing = (_tDir === "LONG" && _elr === "BEAR_TREND") || (_tDir === "SHORT" && _elr === "BULL_TREND");
+                                  const _alignChip = _agreeing ? " · macro-aligned" : _opposing ? " · macro-against" : "";
+                                  const _decodedAgo = Number.isFinite(_decoded) && _decoded > 0 ? Math.round((Date.now() - _decoded) / 3600000) : null;
+                                  const _tip = `Entry-time macro regime (HMM, universe-wide).` + (Number.isFinite(_conf) ? ` Posterior ${(_conf * 100).toFixed(0)}%.` : "") + (_decodedAgo != null ? ` Decoded ${_decodedAgo}h before entry.` : "");
+                                  return (
+                                    <div className="text-[9px] mt-1" title={_tip} style={{ color: "#94a3b8" }}>
+                                      <span>Entry regime · </span>
+                                      <span style={{ color: _color, fontWeight: 700, letterSpacing: "0.04em" }}>{_elr}</span>
+                                      {Number.isFinite(_conf) && _conf >= 0 && <span style={{ color: "#64748b" }}> ({(_conf * 100).toFixed(0)}%)</span>}
+                                      {_alignChip && <span style={{ color: _agreeing ? "#4ade80" : "#f87171" }}>{_alignChip}</span>}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             );
                           })()}
@@ -10954,4 +11017,4 @@
   };
 })();
 
-// cache-bust:1779819568209:146069062
+// cache-bust:1779822003827:716139813
