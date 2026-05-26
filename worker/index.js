@@ -1896,6 +1896,19 @@ function eventIsDueForEntryBlock(event, nowTs, tickerData) {
   const nowDateKey = nyTradingDayKey(nowTs);
   const nextDateKey = nextTradingDayKey(nowDateKey);
   if (!nowDateKey) return false;
+
+  // 2026-05-26 — Macro entry block (TLN incident).
+  // Previously this returned false for any non-earnings event, which meant a
+  // trade could enter inside the macro position-reduction window and get
+  // PRE_PCE/CPI/NFP/PPI/FOMC trimmed within seconds of entry (TLN entered
+  // 12:28 PM ET, trimmed for PRE_PCE_RISK_REDUCTION at 12:29 PM ET on
+  // 2026-05-26). Mirror the macro reduction window for entries: if we'd
+  // reduce a position for this macro event, we shouldn't open a new one
+  // either.
+  if (event.eventType === "macro") {
+    return eventIsDueForRiskReduction(event, nowTs);
+  }
+
   if (event.eventType !== "earnings") return false;
 
   const fragileEntry = isFragilePreEarningsEntry(tickerData);
@@ -18009,14 +18022,24 @@ async function processTradeSimulation(
           const forceFullEarningsExit =
             preEarningsFlattenEnabled && upcomingRiskEvent.eventType === "earnings";
           const targetTrimPct = forceFullEarningsExit ? 1.0 : eventRiskProfile.trimPct;
-          const eventRiskKey = [
+          // 2026-05-26 — UNP/PCI back-to-back event-risk fire fix.
+          // Previously the dedup key included `Math.round(targetTrimPct * 100)`
+          // so a tick that computed a different target percentage would skip
+          // the dedup and fire a SECOND trim against the same event for the
+          // same trade. UNP got trimmed 10% at 9:31 AM ET (PRE_PCE) then
+          // closed the remaining 90% at 9:31 AM ET (also PRE_PCE) because
+          // the second tick computed a higher target and built a different
+          // dedup key. Drop trim% from the key — one event-risk action per
+          // (event, trade) pair. If conditions worsen materially the existing
+          // exit ladder (max_loss, bias_flip, atr_week_618) will handle it.
+          const eventIdentityKey = [
             upcomingRiskEvent.eventType,
             upcomingRiskEvent.eventKey || "EVENT",
             upcomingRiskEvent.ticker || "",
             upcomingRiskEvent.dateKey,
             upcomingRiskEvent.session || "unknown",
-            Math.round(targetTrimPct * 100),
           ].join(":");
+          const eventRiskKey = eventIdentityKey;
           const riskReason = forceFullEarningsExit
             ? "PRE_EARNINGS_FORCE_EXIT"
             : upcomingRiskEvent.eventType === "earnings"
@@ -18043,16 +18066,10 @@ async function processTradeSimulation(
           const adjustedRiskReason = adjustedTargetTrimPct > targetTrimPct + 0.01
             ? `${riskReason}_MATERIAL`
             : riskReason;
-          const adjustedRiskKey = adjustedTargetTrimPct === targetTrimPct
-            ? eventRiskKey
-            : [
-              upcomingRiskEvent.eventType,
-              upcomingRiskEvent.eventKey || "EVENT",
-              upcomingRiskEvent.ticker || "",
-              upcomingRiskEvent.dateKey,
-              upcomingRiskEvent.session || "unknown",
-              Math.round(adjustedTargetTrimPct * 100),
-            ].join(":");
+          // 2026-05-26 — Use event-identity key (drop trim% from dedup) so
+          // adjustedTargetTrimPct upgrades don't create a fresh key and
+          // re-fire. See `eventIdentityKey` rationale above.
+          const adjustedRiskKey = eventIdentityKey;
           if (riskSupportiveWait && execState.lastPreEventRiskKey !== adjustedRiskKey) {
             console.log(`[EVENT_RISK] ${sym} ${riskReason}: underwater ${riskPnlPct.toFixed(2)}%, arming recovery exit instead of trimming ${(targetTrimPct * 100).toFixed(0)}% (htfIntact=${riskTrend.htfIntact ? 1 : 0} support=${riskTrend.structuralSupport ? 1 : 0})`);
             const eventRiskExecUpdate = {
@@ -21170,16 +21187,21 @@ async function processTradeSimulation(
         const _entryRiskEvent = (Array.isArray(_allUpcoming) && _allUpcoming.length > 0)
           ? _allUpcoming.find((event) => eventIsDueForEntryBlock(event, now, tickerData))
           : null;
-        if (_entryRiskEvent?.eventType === "earnings") {
+        if (_entryRiskEvent?.eventType === "earnings" || _entryRiskEvent?.eventType === "macro") {
           const _entryHoursToEvent = Number.isFinite(_entryRiskEvent.scheduledTs)
             ? Math.max(0, (_entryRiskEvent.scheduledTs - now) / 3600000)
             : null;
+          const _entryEventLabel = _entryRiskEvent.eventType === "earnings"
+            ? "earnings"
+            : (_entryRiskEvent.eventKey || "macro");
           tickerData.__upcomingRiskEvent = _entryRiskEvent;
-          tickerData.__entry_block_reason = "tt_pre_earnings_entry_block";
+          tickerData.__entry_block_reason = _entryRiskEvent.eventType === "earnings"
+            ? "tt_pre_earnings_entry_block"
+            : `tt_pre_${String(_entryEventLabel).toLowerCase()}_entry_block`;
           smartGateBlocked = true;
-          smartGateReason = `pre_earnings_entry:${_entryRiskEvent.dateKey}:${_entryRiskEvent.session || "unknown"}`;
+          smartGateReason = `pre_${_entryRiskEvent.eventType}_entry:${_entryEventLabel}:${_entryRiskEvent.dateKey}:${_entryRiskEvent.session || "unknown"}`;
           console.log(
-            `[ENTRY_EVENT_BLOCK] ${sym} blocked ${String(tickerData?.__entry_path || tickerData?.entry_path || "entry")} ahead of earnings ` +
+            `[ENTRY_EVENT_BLOCK] ${sym} blocked ${String(tickerData?.__entry_path || tickerData?.entry_path || "entry")} ahead of ${_entryRiskEvent.eventType}:${_entryEventLabel} ` +
             `(${_entryRiskEvent.dateKey} ${_entryRiskEvent.session || "unknown"}${_entryHoursToEvent != null ? `, ${_entryHoursToEvent.toFixed(1)}h` : ""})`
           );
         }
