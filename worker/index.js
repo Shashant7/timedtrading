@@ -1285,6 +1285,7 @@ const ROUTES = [
   ["POST", "/timed/user-tickers", "POST /timed/user-tickers"],
   ["DELETE", (p) => /^\/timed\/user-tickers\/[A-Z0-9._!-]+$/i.test(p), "DELETE /timed/user-tickers/:ticker"],
   ["GET", "/timed/user-tickers/system-stats", "GET /timed/user-tickers/system-stats"],
+  ["GET", "/timed/admin/user-tickers/recent-attempts", "GET /timed/admin/user-tickers/recent-attempts"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
   ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
@@ -61191,6 +61192,40 @@ export default {
         }
       }
 
+      // 2026-05-26 — Observability follow-up (recap §5).
+      // Read the ring buffer of recent POST /timed/user-tickers attempts.
+      // Each entry: { ts, email, ticker, outcome, status, detail }.
+      // Outcomes: added | reseeded | already_added | already_in_universe
+      //           | invalid_ticker | ticker_not_found | slot_limit_reached
+      //           | daily_swap_limit | system_cap_reached | auth_required
+      //           | no_db | exception
+      if (routeKey === "GET /timed/admin/user-tickers/recent-attempts") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const list = (await kvGetJSON(KV, "timed:user_tickers:recent_attempts")) || [];
+          const arr = Array.isArray(list) ? list : [];
+          const limitParam = Number(url.searchParams.get("limit"));
+          const cap = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(50, limitParam) : 50;
+          const trimmed = arr.slice(0, cap);
+          // Build a rolling summary
+          const summary = {};
+          for (const r of arr) {
+            const k = String(r.outcome || "unknown");
+            summary[k] = (summary[k] || 0) + 1;
+          }
+          return sendJSON({
+            ok: true,
+            count: trimmed.length,
+            total_buffered: arr.length,
+            summary,
+            attempts: trimmed,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/user-tickers") {
         try {
           const user = await authenticateUser(req, env);
@@ -61218,18 +61253,57 @@ export default {
       }
 
       if (routeKey === "POST /timed/user-tickers") {
+        // 2026-05-26 — Observability follow-up (recap §5):
+        // Wrap every attempt in a structured log + KV ring buffer so
+        // silent frontend failures (the IBM-add incident scenario)
+        // surface in `GET /timed/admin/user-tickers/recent-attempts`.
+        let _utEmail = null, _utRawTicker = null, _utOutcome = "unknown", _utDetail = null, _utStatus = 0;
+        const _utRecord = async () => {
+          try {
+            const KV2 = env?.KV_TIMED;
+            if (!KV2) return;
+            const _utKey = "timed:user_tickers:recent_attempts";
+            const _utList = (await kvGetJSON(KV2, _utKey)) || [];
+            const _utArr = Array.isArray(_utList) ? _utList : [];
+            _utArr.unshift({
+              ts: Date.now(),
+              email: _utEmail || null,
+              ticker: _utRawTicker || null,
+              outcome: _utOutcome,
+              status: _utStatus,
+              detail: _utDetail ? String(_utDetail).slice(0, 200) : null,
+            });
+            if (_utArr.length > 50) _utArr.length = 50;
+            await kvPutJSON(KV2, _utKey, _utArr);
+          } catch (_) { /* best-effort */ }
+        };
         try {
           const user = await authenticateUser(req, env);
-          if (!user?.email) return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          if (!user?.email) {
+            _utOutcome = "auth_required"; _utStatus = 401;
+            console.log(`[USER_TICKERS POST] outcome=auth_required ip=${req.headers.get("CF-Connecting-IP") || "?"}`);
+            ctx.waitUntil(_utRecord());
+            return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+          }
+          _utEmail = user.email;
 
           const { obj: body } = await readBodyAsJSON(req);
           const rawTicker = normTicker(String(body?.ticker || "").toUpperCase().trim());
+          _utRawTicker = rawTicker || (body?.ticker ? String(body.ticker).slice(0, 16) : null);
           if (!rawTicker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(rawTicker)) {
+            _utOutcome = "invalid_ticker"; _utStatus = 400;
+            _utDetail = "Must be 1-5 uppercase letters";
+            console.log(`[USER_TICKERS POST] outcome=invalid_ticker email=${_utEmail} raw=${_utRawTicker}`);
+            ctx.waitUntil(_utRecord());
             return sendJSON({ ok: false, error: "invalid_ticker", detail: "Must be 1-5 uppercase letters (e.g. PLTR, BRK-B)" }, 400, corsHeaders(env, req));
           }
 
           const db = env?.DB;
-          if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          if (!db) {
+            _utOutcome = "no_db"; _utStatus = 500;
+            ctx.waitUntil(_utRecord());
+            return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          }
           await d1EnsureUserTickersSchema(env);
 
           const slots = await d1GetUserSlots(env, user.email);
@@ -61242,6 +61316,9 @@ export default {
             const hasData = await kvGetJSON(KV, `timed:latest:${rawTicker}`);
             const hasScoring = hasData && Number(hasData.price) > 0 && Number(hasData.htf_score) !== 0 && hasData.sl != null;
             if (hasScoring) {
+              _utOutcome = "already_added"; _utStatus = 409;
+              console.log(`[USER_TICKERS POST] outcome=already_added email=${_utEmail} ticker=${rawTicker}`);
+              ctx.waitUntil(_utRecord());
               return sendJSON({ ok: false, error: "already_added", ticker: rawTicker, detail: `${rawTicker} is already in your custom tickers.` }, 409, corsHeaders(env, req));
             }
             // Fall through to re-validate and re-score (ticker was added but never scored)
@@ -61250,6 +61327,9 @@ export default {
 
           // Check if ticker is already in the seeded universe
           if (SECTOR_MAP[rawTicker]) {
+            _utOutcome = "already_in_universe"; _utStatus = 409;
+            console.log(`[USER_TICKERS POST] outcome=already_in_universe email=${_utEmail} ticker=${rawTicker}`);
+            ctx.waitUntil(_utRecord());
             return sendJSON({ ok: false, error: "already_in_universe", ticker: rawTicker, detail: `${rawTicker} is already tracked in the Timed Trading universe. Search for it by name.` }, 409, corsHeaders(env, req));
           }
 
@@ -61285,6 +61365,9 @@ export default {
             validationError = `Ticker validation failed: ${String(e?.message || e).slice(0, 100)}`;
           }
           if (!quoteSnap && validationError) {
+            _utOutcome = "ticker_not_found"; _utStatus = 400; _utDetail = validationError;
+            console.log(`[USER_TICKERS POST] outcome=ticker_not_found email=${_utEmail} ticker=${rawTicker} reason=${validationError}`);
+            ctx.waitUntil(_utRecord());
             return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: validationError }, 400, corsHeaders(env, req));
           }
 
@@ -61293,6 +61376,10 @@ export default {
 
           // Check slot limit
           if (!isReseed && activeOrHeld.length >= limit) {
+            _utOutcome = "slot_limit_reached"; _utStatus = 403;
+            _utDetail = `${activeOrHeld.length}/${limit} slots used, tier=${user.tier || "free"}`;
+            console.log(`[USER_TICKERS POST] outcome=slot_limit_reached email=${_utEmail} ticker=${rawTicker} slots=${activeOrHeld.length}/${limit} tier=${user.tier || "free"}`);
+            ctx.waitUntil(_utRecord());
             return sendJSON({
               ok: false, error: "slot_limit_reached",
               slots_used: activeOrHeld.length, slots_max: limit,
@@ -61308,6 +61395,9 @@ export default {
             if (!wasDeleted && swapsToday >= USER_TICKER_DAILY_SWAPS) {
               const deletedToday = slots.some(s => s.deleted_at != null && s.deleted_at >= new Date().setUTCHours(0, 0, 0, 0));
               if (deletedToday) {
+                _utOutcome = "daily_swap_limit"; _utStatus = 429;
+                console.log(`[USER_TICKERS POST] outcome=daily_swap_limit email=${_utEmail} ticker=${rawTicker} swaps_today=${swapsToday}`);
+                ctx.waitUntil(_utRecord());
                 return sendJSON({
                   ok: false, error: "daily_swap_limit",
                   detail: `Max ${USER_TICKER_DAILY_SWAPS} swap(s) per day. Try again tomorrow.`,
@@ -61322,6 +61412,10 @@ export default {
           if (!isAlreadyInSystem) {
             const uniqueCount = await d1CountUniqueNewUserTickers(env);
             if (uniqueCount >= USER_TICKER_SYSTEM_CAP) {
+              _utOutcome = "system_cap_reached"; _utStatus = 503;
+              _utDetail = `unique_count=${uniqueCount}, cap=${USER_TICKER_SYSTEM_CAP}`;
+              console.log(`[USER_TICKERS POST] outcome=system_cap_reached email=${_utEmail} ticker=${rawTicker} unique=${uniqueCount}/${USER_TICKER_SYSTEM_CAP}`);
+              ctx.waitUntil(_utRecord());
               return sendJSON({
                 ok: false, error: "system_cap_reached",
                 detail: "The system is at capacity for new unique tickers. Try adding a ticker that's already being tracked.",
@@ -61616,6 +61710,10 @@ export default {
           }
 
           console.log(`[USER_TICKERS] ${user.email} ${isReseed ? "re-seeded" : "added"} ${rawTicker} (core: ${isInCore}, backfill: ${backfillTriggered}, scored: ${!!scoredData}, seeded: ${seeded})`);
+          _utOutcome = isReseed ? "reseeded" : "added"; _utStatus = 200;
+          _utDetail = `core=${isInCore} backfill=${backfillTriggered} scored=${!!scoredData} seeded=${seeded}`;
+          console.log(`[USER_TICKERS POST] outcome=${_utOutcome} email=${_utEmail} ticker=${rawTicker} ${_utDetail}`);
+          ctx.waitUntil(_utRecord());
           return sendJSON({
             ok: true,
             ticker: rawTicker,
@@ -61630,6 +61728,10 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           console.error("[USER_TICKERS] POST error:", e);
+          _utOutcome = "exception"; _utStatus = 500;
+          _utDetail = String(e?.message || e).slice(0, 200);
+          console.log(`[USER_TICKERS POST] outcome=exception email=${_utEmail} ticker=${_utRawTicker} err=${_utDetail}`);
+          try { ctx.waitUntil(_utRecord()); } catch (_) {}
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
       }
