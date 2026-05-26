@@ -1119,10 +1119,28 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     const needsFix = price <= 0 || Math.abs(dayPct) > 5;
     const ts = Number(data.ts || data.ingest_ts) || 0;
     const ageH = ts > 0 ? (Date.now() - ts) / 3600000 : 999;
-    const isStale = ageH > 24;
+    // 2026-05-26 — Morning Daily Brief was rendering SPY/QQQ/IWM
+    // levels anchored on yesterday's RTH close ($742.72) while live
+    // pre-market was already $745.64. Cause: scoring cron skips outside
+    // RTH so `timed:latest:{ticker}.price` and `.ts` are still the
+    // previous RTH close. The price-feed cron (timed:prices) IS firing
+    // in pre-market and has fresh quotes — just not propagated into the
+    // scoring payload that the brief uses.
+    //
+    // Fix: also fix when the price-feed has a STRICTLY FRESHER timestamp
+    // than the scoring payload AND the scoring payload is at least 30
+    // minutes old. The 30-min floor avoids flapping during RTH when both
+    // sources are updating concurrently.
+    const pfTs = Number(pfData?.t) || 0;
+    const pfFresher = pfTs > 0 && pfTs > ts && ageH * 60 > 30;
+    const isStale = ageH > 24 || pfFresher;
 
     if (needsFix || isStale) {
-      const reason = needsFix ? `stale (price=${price}, dayPct=${dayPct}%)` : `${ageH.toFixed(0)}h old`;
+      const reason = needsFix
+        ? `stale (price=${price}, dayPct=${dayPct}%)`
+        : (pfFresher
+          ? `${ageH.toFixed(1)}h old, price-feed fresher (pf_ts ${Math.round((Date.now() - pfTs) / 60000)}m vs data ${Math.round((Date.now() - ts) / 60000)}m)`
+          : `${ageH.toFixed(0)}h old`);
       console.log(`[BRIEF] ${ticker} data ${reason}. Using ${proxyTicker} change % from price feed.`);
 
       // Always safe to copy daily change percentage from the chosen feed source.

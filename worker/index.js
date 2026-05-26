@@ -78361,6 +78361,61 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             
             if (latestData) {
+              // 2026-05-26 — Pre-market staleness guard.
+              //
+              // Production incident: MU (LONG, entry $767.37, stop_loss
+              // raised to $770.44 by trailing logic) closed at $751 on
+              // 2026-05-26 09:16 AM ET with reason `sl_breached`. SL
+              // gate at line ~9741 evaluated `pxNow=$751 <= sl=$770.44`
+              // → exit. But $751 was the FRIDAY AH close still cached
+              // in `timed:latest:MU.price` — TwelveData's pre-market
+              // updates weren't being written into the `timed:latest:*`
+              // key (the scoring cron skips outside RTH and only
+              // `timed:prices` gets refreshed). 14 minutes later MU
+              // actually opened at ~$785+ then rallied to $858.
+              //
+              // Fix: if `latestData.ts` is older than 5 minutes when
+              // we're outside operating hours, refetch a fresh quote
+              // (TwelveData prepost=true with Alpaca fallback per
+              // PR #272) and patch `latestData.price` + change fields
+              // before handing off to processTradeSimulation. Otherwise
+              // hard-exit gates fire against fictional prices.
+              try {
+                const _latestTs = Number(latestData.ts ?? latestData.ingest_ts ?? 0);
+                const _ageMs = _latestTs > 0 ? (Date.now() - _latestTs) : Infinity;
+                const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 min
+                if (_ageMs > STALE_THRESHOLD_MS) {
+                  try {
+                    const snapRes = await dataFetchSnapshots(env, [sym]);
+                    const snap = snapRes?.snapshots?.[sym];
+                    const freshPrice = Number(snap?.price);
+                    if (Number.isFinite(freshPrice) && freshPrice > 0) {
+                      const prevPrice = latestData.price;
+                      latestData.price = freshPrice;
+                      latestData.ts = Date.now();
+                      // Recompute day_change / day_change_pct from the
+                      // refreshed price so downstream gates see consistent
+                      // values. Anchor stays prev_close.
+                      const _pc = Number(latestData.prev_close);
+                      if (Number.isFinite(_pc) && _pc > 0) {
+                        latestData.day_change = freshPrice - _pc;
+                        latestData.day_change_pct = ((freshPrice - _pc) / _pc) * 100;
+                      }
+                      console.log(`[POSITION RECONCILE] ${sym} refreshed stale price: ${prevPrice} → ${freshPrice} (was ${Math.round(_ageMs / 60000)}m old)`);
+                    } else {
+                      // No fresh price available — defer the hard-exit
+                      // check rather than evaluating against stale data.
+                      console.warn(`[POSITION RECONCILE] ${sym} skip: price ${Math.round(_ageMs / 60000)}m stale AND fresh fetch returned nothing — deferring evaluation to RTH`);
+                      continue;
+                    }
+                  } catch (refreshErr) {
+                    console.warn(`[POSITION RECONCILE] ${sym} skip: price stale and refresh failed:`, String(refreshErr?.message || refreshErr).slice(0, 150));
+                    continue;
+                  }
+                }
+              } catch (e) {
+                console.warn(`[POSITION RECONCILE] ${sym} freshness check error:`, String(e?.message || e).slice(0, 150));
+              }
               // Process with position context - ensures DEFEND/TRIM/EXIT logic runs
               try {
                 await processTradeSimulation(KV, sym, latestData, null, env, {
