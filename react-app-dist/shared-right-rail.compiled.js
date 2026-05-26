@@ -3805,21 +3805,25 @@
               scrollbarWidth: "none",
               justifyContent: "flex-end"
             }
-          }, [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]].map(([key, label]) => React.createElement("button", {
-            key: key,
-            className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
-            onClick: () => setRailTab(key),
-            style: {
-              flex: "0 0 auto",
-              justifyContent: "center",
-              padding: "6px 12px",
-              scrollSnapAlign: "start",
-              ...(key === "CHART" ? {
-                color: "#34d399",
-                fontWeight: 700
-              } : {})
-            }
-          }, React.createElement("span", null, label)))));
+          }, (() => {
+            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]];
+            const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
+            return tabs.map(([key, label]) => React.createElement("button", {
+              key: key,
+              className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
+              onClick: () => setRailTab(key),
+              style: {
+                flex: "0 0 auto",
+                justifyContent: "center",
+                padding: "6px 12px",
+                scrollSnapAlign: "start",
+                ...(key === "CHART" ? {
+                  color: "#34d399",
+                  fontWeight: 700
+                } : {})
+              }
+            }, React.createElement("span", null, label)));
+          })()));
         })(), React.createElement("div", {
           className: "tt-rail-area-left-pane"
         }, chartCandles && chartCandles.length >= 2 && (() => {
@@ -4237,7 +4241,7 @@
               padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
             } : {})
           }
-        }, v2RailTab === "CHART" && React.createElement("div", {
+        }, v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
           key: `chart-tab-${tickerSymbol}`,
           className: "tt-rail-chart-tab",
           style: {
@@ -6849,7 +6853,20 @@
           }, "run \xB7 ", runLen, " bar", runLen === 1 ? "" : "s"), exh && React.createElement("span", {
             className: "ds-chip ds-chip--sm ds-chip--accent",
             title: `Run length ${exh.run_length} > mean ${exh.mean_dwell} + 2σ (${exh.dwell_std?.toFixed?.(1)})`
-          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3")), React.createElement("p", {
+          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3"), (() => {
+            const _dr = String(ticker?.__defend_reason || "").toLowerCase();
+            if (!_dr.startsWith("macro_regime_flip")) return null;
+            return React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              title: "Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285.",
+              style: {
+                background: "rgba(248,113,113,0.18)",
+                color: "#f87171",
+                fontWeight: 700,
+                letterSpacing: "0.04em"
+              }
+            }, "MACRO DEFEND");
+          })()), React.createElement("p", {
             style: {
               fontSize: "var(--ds-fs-meta)",
               color: "var(--ds-text-muted)",
@@ -9633,7 +9650,39 @@
             className: "text-[9px] text-slate-400/80 mt-0.5"
           }, _szCtx.optionsHint), _tSetup && React.createElement("div", {
             className: "text-[9px] text-slate-500 mt-1"
-          }, _formatPath(_tSetup), _tGrade ? ` · TT ${_tGrade}` : ""));
+          }, _formatPath(_tSetup), _tGrade ? ` · TT ${_tGrade}` : ""), (() => {
+            const _elr = trade?.entry_latent_regime || null;
+            if (!_elr) return null;
+            const _conf = Number(trade?.entry_latent_regime_confidence);
+            const _decoded = Number(trade?.entry_latent_regime_decoded_at);
+            const _color = _elr === "BULL_TREND" ? "#4ade80" : _elr === "BEAR_TREND" ? "#f87171" : "#fbbf24";
+            const _agreeing = _tDir === "LONG" && _elr === "BULL_TREND" || _tDir === "SHORT" && _elr === "BEAR_TREND";
+            const _opposing = _tDir === "LONG" && _elr === "BEAR_TREND" || _tDir === "SHORT" && _elr === "BULL_TREND";
+            const _alignChip = _agreeing ? " · macro-aligned" : _opposing ? " · macro-against" : "";
+            const _decodedAgo = Number.isFinite(_decoded) && _decoded > 0 ? Math.round((Date.now() - _decoded) / 3600000) : null;
+            const _tip = `Entry-time macro regime (HMM, universe-wide).` + (Number.isFinite(_conf) ? ` Posterior ${(_conf * 100).toFixed(0)}%.` : "") + (_decodedAgo != null ? ` Decoded ${_decodedAgo}h before entry.` : "");
+            return React.createElement("div", {
+              className: "text-[9px] mt-1",
+              title: _tip,
+              style: {
+                color: "#94a3b8"
+              }
+            }, React.createElement("span", null, "Entry regime \xB7 "), React.createElement("span", {
+              style: {
+                color: _color,
+                fontWeight: 700,
+                letterSpacing: "0.04em"
+              }
+            }, _elr), Number.isFinite(_conf) && _conf >= 0 && React.createElement("span", {
+              style: {
+                color: "#64748b"
+              }
+            }, " (", (_conf * 100).toFixed(0), "%)"), _alignChip && React.createElement("span", {
+              style: {
+                color: _agreeing ? "#4ade80" : "#f87171"
+              }
+            }, _alignChip));
+          })());
         })(), (() => {
           const _raw = Number(ticker?.saty_phase_pct ?? ticker?.phase_pct) || 0;
           if (_raw === 0) return null;
@@ -12305,4 +12354,4 @@
   };
 })();
 
-// cache-bust:1779819568209:146069062
+// cache-bust:1779822003827:716139813
