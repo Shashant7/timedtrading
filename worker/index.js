@@ -54552,8 +54552,12 @@ export default {
           // 3) Find the ledger TRIM row(s) for this trade. We match by
           // (mode='trader', ticker, position_id or ticker+ts-window, event_type='TRIM').
           // Some older trims may not have position_id set; widen by ticker + ts proximity (±5 min).
+          // 2026-05-27 — primary key is `ledger_id` (AUTOINCREMENT), NOT
+          // `id`. The original PR #318 query used `SELECT id, ...` which
+          // produced 'D1_ERROR: no such column: id at offset 7'. See
+          // ensureAccountLedgerSchema() ~line 34850 for the column list.
           const ledgerRows = await db.prepare(
-            `SELECT id, ts, qty, price, cash_delta, realized_pnl, balance, position_id
+            `SELECT ledger_id, ts, qty, price, cash_delta, realized_pnl, balance, position_id
                FROM account_ledger
               WHERE mode='trader' AND ticker=?1 AND event_type='TRIM'
                 AND ABS(ts - ?2) <= 300000
@@ -54580,8 +54584,8 @@ export default {
 
           // 5) UPDATE the row + cascade balance forward.
           await db.prepare(
-            `UPDATE account_ledger SET price=?1, cash_delta=?2, realized_pnl=?3, balance=?4 WHERE id=?5`,
-          ).bind(newPrice, newCashDelta, newRealizedPnl, newBalance, trimRow.id).run();
+            `UPDATE account_ledger SET price=?1, cash_delta=?2, realized_pnl=?3, balance=?4 WHERE ledger_id=?5`,
+          ).bind(newPrice, newCashDelta, newRealizedPnl, newBalance, trimRow.ledger_id).run();
 
           // Cascade the delta to ALL subsequent trader-mode rows.
           await db.prepare(
@@ -54633,7 +54637,7 @@ export default {
             new_realized_pnl: newRealizedPnl,
             balance_delta: balanceDelta,
             kv_patched: kvPatched,
-            ledger_row_id: trimRow.id,
+            ledger_row_id: trimRow.ledger_id,
             ledger_ts: Number(trimRow.ts),
           }, 200, corsHeaders(env, req));
         } catch (e) {
