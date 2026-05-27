@@ -4510,6 +4510,7 @@
               marginBottom: 4
             }
           }, "Where it's likely headed \xB7 intraday"), renderRow("Next 5 min", fc.p_next, 1, "1 bar ahead — single 5-minute candle from the Markov transition matrix"), renderRow("Next 25 min", fc.p_5_bar, 5, "5 bars ahead — about half an hour of trading"), renderRow("Next 1h 40m", fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")), (fc.p_1h || fc.p_1d || fc.p_1w) && React.createElement("details", {
+            open: true,
             style: {
               marginTop: "var(--ds-space-2)"
             }
@@ -4523,7 +4524,7 @@
               padding: "4px 0",
               userSelect: "none"
             }
-          }, "Longer horizon \xB7 multi-day \u25BE"), React.createElement("div", {
+          }, "Longer horizon \xB7 multi-day"), React.createElement("div", {
             style: {
               marginTop: 4
             }
@@ -12374,4 +12375,4 @@
   };
 })();
 
-// cache-bust:1779854564007:846906980
+// cache-bust:1779877971495:739895423

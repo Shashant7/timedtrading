@@ -46558,7 +46558,17 @@ export default {
           // to v3 invalidates the stale entries on first access — no
           // hand-rolled KV.delete needed, and the next fetch fills v3
           // with the corrected shape from the fixed transform code below.
-          const cacheKey = `timed:fundamentals_v3:${ticker}`;
+          //
+          // 2026-05-27 (PR #313) — bumped v3 → v4. PR #306 fixed the
+          // gross_margin × 100 bug + added FCF fallback + Beat Rate /
+          // Avg Surprise, but every ticker's v3 cache still had the
+          // OLD shape with gross_margin=0.7% (raw decimal, not %).
+          // User report 2026-05-27 03:59 UTC: MU Fundamentals tab
+          // still shows GROSS MGN 0.7% (impossible vs NET MGN 41.5%).
+          // Bumping to v4 invalidates every stale entry on first
+          // access; first hit re-fetches via the fixed code path
+          // and stores the corrected shape. Same pattern as v2 → v3.
+          const cacheKey = `timed:fundamentals_v4:${ticker}`;
           const TTL_SECONDS = 6 * 60 * 60; // 6h
 
           if (!refresh) {
@@ -46712,7 +46722,18 @@ export default {
           // Next earnings: the closest upcoming row, else the last `period=next`-style record.
           const nextEarnings = upcoming.length > 0 ? upcoming[upcoming.length - 1] : null;
           // Estimate vs YoY same quarter from history (4 quarters back).
-          const nextEpsEst = nextEarnings ? num(nextEarnings.eps_estimate) : null;
+          //
+          // 2026-05-27 (PR #313) — treat eps_estimate=0 as MISSING, not as
+          // a real estimate of $0. The TwelveData /earnings endpoint returns
+          // future-dated placeholder rows where eps_estimate is 0 until
+          // analyst consensus is published; surfacing that as 'EPS EST: 0.00'
+          // in the UI made it look like the company was expected to earn
+          // nothing. Real fix is to also hit /earnings_estimate for the
+          // analyst consensus (~20 credits — flagged as follow-up in PR
+          // #306). This is the cosmetic fix: null → UI renders "—" instead
+          // of "0.00".
+          let nextEpsEst = nextEarnings ? num(nextEarnings.eps_estimate) : null;
+          if (nextEpsEst === 0) nextEpsEst = null;
           const yoyEpsEst = (() => {
             if (!nextEarnings || nextEpsEst == null || past.length < 4) return null;
             // Find the same quarter prior year by month.
