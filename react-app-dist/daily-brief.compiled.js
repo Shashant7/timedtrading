@@ -159,7 +159,7 @@ function BriefInfographic({
       style: {
         color: ggColor(gg)
       }
-    }, gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral")), React.createElement("div", {
+    }, gg === "OPEN_UP" ? "▲ Bullish" : gg === "OPEN_DOWN" ? "▼ Bearish" : "◆ Neutral")), React.createElement("div", {
       className: "flex items-baseline gap-2 mb-2"
     }, React.createElement("span", {
       className: "text-lg font-bold text-white tabular-nums"
@@ -169,27 +169,55 @@ function BriefInfographic({
         color: pctColor(idx.chgPct)
       }
     }, idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""), idx.atr != null && React.createElement("span", {
-      className: "ml-auto text-[10px] text-[#6b7280]"
-    }, "ATR $", idx.atr.toFixed(2))), (() => {
+      className: "ml-auto text-[10px] text-[#6b7280]",
+      title: "Typical daily price move (Average True Range, 14-day)"
+    }, "Typical daily move ~$", idx.atr.toFixed(2))), (() => {
       const up50 = lvls.levels?.["+50%"];
       const up618 = lvls.levels?.["+61.8%"];
       const dn50 = lvls.levels?.["-50%"];
       const dn618 = lvls.levels?.["-61.8%"];
-      const ggDirText = g => g === "OPEN_UP" ? "above +38.2%" : g === "OPEN_DOWN" ? "below -38.2%" : "between gates";
-      const targetText = (g, lbls) => {
-        if (g === "OPEN_UP" && up50 != null && up618 != null) return `next: $${up50.toFixed(2)} (50%) → $${up618.toFixed(2)} (61.8%)`;
-        if (g === "OPEN_DOWN" && dn50 != null && dn618 != null) return `next: $${dn50.toFixed(2)} (50%) → $${dn618.toFixed(2)} (61.8%)`;
+      const ggBiasText = g => g === "OPEN_UP" ? "Bullish bias" : g === "OPEN_DOWN" ? "Bearish bias" : "Mixed signal";
+      const ggBiasIcon = g => g === "OPEN_UP" ? "▲" : g === "OPEN_DOWN" ? "▼" : "◆";
+      const ggBiasColor = g => g === "OPEN_UP" ? "#34d399" : g === "OPEN_DOWN" ? "#fb7185" : "#9ca3af";
+      const dayStatusLine = (() => {
+        if (gg === "NEUTRAL") return cp != null && up382 != null && dn382 != null ? `Trading inside today's expected range ($${dn382.toFixed(2)}–$${up382.toFixed(2)})` : "Inside today's expected range";
+        if (gg === "OPEN_UP" && up618 != null) {
+          const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+          return `Pushing above today's expected high — ${p} closes above $${up618.toFixed(2)} by today's close`;
+        }
+        if (gg === "OPEN_DOWN" && dn618 != null) {
+          const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+          return `Breaking below today's expected low — ${p} closes below $${dn618.toFixed(2)} by today's close`;
+        }
         return null;
-      };
+      })();
+      const weekStatusLine = (() => {
+        if (!wlvls) return null;
+        const wUp618 = wlvls.levels?.["+61.8%"];
+        const wDn618 = wlvls.levels?.["-61.8%"];
+        const dr = weekProb?.daysRemaining;
+        const drText = dr != null ? ` · ${dr}d left this week` : "";
+        if (wgg === "NEUTRAL") return wDn382 != null && wUp382 != null ? `Inside this week's range ($${wDn382.toFixed(2)}–$${wUp382.toFixed(2)})${drText}` : `Inside this week's range${drText}`;
+        if (wgg === "OPEN_UP" && wUp618 != null) {
+          const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+          return `Tracking toward $${wUp618.toFixed(2)} target — ${p} hits by Friday${drText}`;
+        }
+        if (wgg === "OPEN_DOWN" && wDn618 != null) {
+          const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+          return `Heading toward $${wDn618.toFixed(2)} downside target — ${p} hits by Friday${drText}`;
+        }
+        return null;
+      })();
       return React.createElement(React.Fragment, null, React.createElement("div", {
-        className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
-      }, React.createElement("span", null, "Day Gate"), dayProb && gg !== "NEUTRAL" && React.createElement("span", {
+        className: "text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between"
+      }, React.createElement("span", null, "Today's Range"), React.createElement("span", {
         className: "tabular-nums normal-case",
         style: {
-          color: probColor(dayProb.dayLabel)
+          color: ggBiasColor(gg)
         }
-      }, (dayProb.day * 100).toFixed(0), "% holds ", ggDirText(gg))), dn382 != null && up382 != null && React.createElement("div", {
-        className: "relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1"
+      }, ggBiasIcon(gg), " ", ggBiasText(gg), dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "")), dn382 != null && up382 != null && React.createElement("div", {
+        className: "relative h-3 rounded bg-white/[0.05] overflow-hidden mb-1.5",
+        title: `Saty Day Mode: prior daily close ± ATR × 0.382`
       }, React.createElement("div", {
         className: "absolute inset-0",
         style: {
@@ -199,45 +227,51 @@ function BriefInfographic({
         className: "absolute top-0 bottom-0",
         style: {
           left: `${Math.max(0, Math.min(100, (anchor - dn382) / (up382 - dn382) * 100))}%`,
-          width: 1,
-          background: "rgba(156,163,175,0.5)"
+          width: 1.5,
+          background: "rgba(156,163,175,0.6)"
         },
-        title: `Anchor (prev close) ${anchor}`
+        title: `Pivot (prior close) $${anchor.toFixed(2)}`
       }), cp != null && React.createElement("div", {
-        className: "absolute top-[-2px] bottom-[-2px] flex items-center",
+        className: "absolute top-[-3px] bottom-[-3px] flex items-center",
         style: {
           left: `${barProgress}%`,
           transform: "translateX(-50%)"
         }
       }, React.createElement("div", {
         style: {
-          width: 3,
+          width: 4,
           height: "100%",
           background: "#fff",
-          boxShadow: "0 0 4px rgba(255,255,255,0.6)"
+          boxShadow: "0 0 6px rgba(255,255,255,0.7)",
+          borderRadius: 1
         },
         title: `Current $${cp.toFixed(2)}`
       }))), dn382 != null && up382 != null && React.createElement("div", {
-        className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-1"
-      }, React.createElement("span", null, "-38.2% $", dn382.toFixed(2)), React.createElement("span", {
-        style: {
-          color: "#9ca3af"
-        }
-      }, anchor != null ? `mid ${anchor.toFixed(2)}` : ""), React.createElement("span", null, "+38.2% $", up382.toFixed(2))), gg !== "NEUTRAL" && targetText(gg) && React.createElement("div", {
-        className: "text-[9px] text-[#9ca3af] tabular-nums mb-2 italic"
-      }, targetText(gg)), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
-        className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between"
+        className: "grid grid-cols-3 text-[10px] tabular-nums mb-1.5"
       }, React.createElement("span", {
-        style: {
-          color: ggColor(wgg)
-        }
-      }, "Week Gate ", wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"), weekProb && wgg !== "NEUTRAL" && React.createElement("span", {
+        className: "text-left text-[#fb7185]/80"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Expected Low"), "$", dn382.toFixed(2)), React.createElement("span", {
+        className: "text-center text-[#9ca3af]"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Pivot"), anchor != null ? `$${anchor.toFixed(2)}` : "—"), React.createElement("span", {
+        className: "text-right text-[#34d399]/80"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Expected High"), "$", up382.toFixed(2))), dayStatusLine && React.createElement("div", {
+        className: "text-[10px] text-[#9ca3af] tabular-nums mb-2 leading-snug"
+      }, dayStatusLine), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between border-t border-white/[0.04] pt-2"
+      }, React.createElement("span", null, "This Week"), React.createElement("span", {
         className: "tabular-nums normal-case",
         style: {
-          color: probColor(weekProb.weekLabel)
+          color: ggBiasColor(wgg)
         }
-      }, (weekProb.week * 100).toFixed(0), "% holds ", ggDirText(wgg), " \xB7 ", weekProb.daysRemaining, "d left")), wDn382 != null && wUp382 != null && React.createElement(React.Fragment, null, React.createElement("div", {
-        className: "relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1"
+      }, ggBiasIcon(wgg), " ", ggBiasText(wgg), weekProb && wgg !== "NEUTRAL" ? ` · ${(weekProb.week * 100).toFixed(0)}%` : "", weekProb?.daysRemaining ? ` · ${weekProb.daysRemaining}d left` : "")), wDn382 != null && wUp382 != null && React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1.5",
+        title: `Saty Multi-Day Mode: prior weekly close ± weekly ATR × 0.382`
       }, React.createElement("div", {
         className: "absolute inset-0",
         style: {
@@ -247,31 +281,42 @@ function BriefInfographic({
         className: "absolute top-0 bottom-0",
         style: {
           left: `${Math.max(0, Math.min(100, (wlvls.anchor - wDn382) / (wUp382 - wDn382) * 100))}%`,
-          width: 1,
-          background: "rgba(156,163,175,0.5)"
+          width: 1.5,
+          background: "rgba(156,163,175,0.6)"
         },
-        title: `Week anchor ${wlvls.anchor}`
+        title: `Week pivot $${wlvls.anchor.toFixed(2)}`
       }), cp != null && React.createElement("div", {
-        className: "absolute top-[-2px] bottom-[-2px] flex items-center",
+        className: "absolute top-[-3px] bottom-[-3px] flex items-center",
         style: {
           left: `${wBarProgress}%`,
           transform: "translateX(-50%)"
         }
       }, React.createElement("div", {
         style: {
-          width: 3,
+          width: 4,
           height: "100%",
           background: "#fff",
-          boxShadow: "0 0 4px rgba(255,255,255,0.6)"
+          boxShadow: "0 0 6px rgba(255,255,255,0.7)",
+          borderRadius: 1
         },
         title: `Current $${cp.toFixed(2)}`
       }))), React.createElement("div", {
-        className: "flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums"
-      }, React.createElement("span", null, "-38.2% $", wDn382.toFixed(2)), React.createElement("span", {
-        style: {
-          color: "#9ca3af"
-        }
-      }, wlvls.anchor != null ? `mid ${wlvls.anchor.toFixed(2)}` : ""), React.createElement("span", null, "+38.2% $", wUp382.toFixed(2))), wgg !== "NEUTRAL" && (() => {
+        className: "grid grid-cols-3 text-[10px] tabular-nums mb-1"
+      }, React.createElement("span", {
+        className: "text-left text-[#fb7185]/80"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Week Low"), "$", wDn382.toFixed(2)), React.createElement("span", {
+        className: "text-center text-[#9ca3af]"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Week Pivot"), wlvls.anchor != null ? `$${wlvls.anchor.toFixed(2)}` : "—"), React.createElement("span", {
+        className: "text-right text-[#34d399]/80"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+      }, "Week High"), "$", wUp382.toFixed(2))), weekStatusLine && React.createElement("div", {
+        className: "text-[10px] text-[#9ca3af] tabular-nums leading-snug"
+      }, weekStatusLine), false && wgg !== "NEUTRAL" && (() => {
         const wUp50 = wlvls.levels?.["+50%"];
         const wUp618 = wlvls.levels?.["+61.8%"];
         const wDn50 = wlvls.levels?.["-50%"];
@@ -2084,6 +2129,7 @@ function IntradayFlash({
 function App({
   user
 }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isAdmin = user?.role === "admin" || user?.tier === "admin";
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2227,7 +2273,212 @@ function App({
     style: {
       background: "var(--tt-bg-base)"
     }
+  }, React.createElement("nav", {
+    className: "topnav sticky top-0 z-50 border-b border-white/[0.06]",
+    style: {
+      background: "rgba(10,10,15,0.95)",
+      backdropFilter: "blur(12px)"
+    }
   }, React.createElement("div", {
+    className: "nav-row flex items-center justify-between px-4 py-2.5"
+  }, React.createElement("a", {
+    href: "/today.html",
+    className: "nav-brand flex items-center gap-2 no-underline shrink-0"
+  }, React.createElement("svg", {
+    width: "28",
+    height: "28",
+    viewBox: "0 0 48 48",
+    fill: "none"
+  }, React.createElement("defs", null, React.createElement("linearGradient", {
+    id: "tt-ring",
+    x1: "6",
+    y1: "42",
+    x2: "42",
+    y2: "6"
+  }, React.createElement("stop", {
+    offset: "0%",
+    stopColor: "#34d399"
+  }), React.createElement("stop", {
+    offset: "100%",
+    stopColor: "#67e8f9"
+  }))), React.createElement("rect", {
+    width: "48",
+    height: "48",
+    rx: "11",
+    fill: "#000"
+  }), React.createElement("circle", {
+    cx: "24",
+    cy: "24",
+    r: "17",
+    stroke: "url(#tt-ring)",
+    strokeWidth: "2.5",
+    fill: "none"
+  }), React.createElement("line", {
+    x1: "19",
+    y1: "18.5",
+    x2: "16",
+    y2: "15.5",
+    stroke: "#636366",
+    strokeWidth: "1.2",
+    strokeLinecap: "round"
+  }), React.createElement("line", {
+    x1: "24",
+    y1: "24",
+    x2: "19",
+    y2: "18.5",
+    stroke: "#636366",
+    strokeWidth: "3.5",
+    strokeLinecap: "round"
+  }), React.createElement("line", {
+    x1: "29.5",
+    y1: "16.5",
+    x2: "32",
+    y2: "12.9",
+    stroke: "#30d158",
+    strokeWidth: "1.2",
+    strokeLinecap: "round"
+  }), React.createElement("line", {
+    x1: "24",
+    y1: "24",
+    x2: "29.5",
+    y2: "16.5",
+    stroke: "#30d158",
+    strokeWidth: "4",
+    strokeLinecap: "round"
+  }), React.createElement("circle", {
+    cx: "24",
+    cy: "24",
+    r: "3.2",
+    fill: "#30d158"
+  }), React.createElement("circle", {
+    cx: "24",
+    cy: "24",
+    r: "1.3",
+    fill: "#000"
+  })), React.createElement("span", {
+    className: "text-[14px] md:text-[15px] font-bold text-white hidden sm:inline",
+    style: {
+      letterSpacing: "-0.03em"
+    }
+  }, "Timed Trading")), React.createElement("div", {
+    className: "nav-links hidden md:flex items-center gap-1.5"
+  }, React.createElement("a", {
+    href: "/today.html",
+    className: "nav-link"
+  }, "Today"), React.createElement("a", {
+    href: "/active-trader.html",
+    className: "nav-link"
+  }, "Active Trader"), React.createElement("a", {
+    href: "/investor.html",
+    className: "nav-link"
+  }, "Investor"), React.createElement("a", {
+    href: "/portfolio.html",
+    className: "nav-link"
+  }, "Portfolio"), React.createElement("a", {
+    href: "/insights.html",
+    className: "nav-link"
+  }, "Insights"), React.createElement("a", {
+    href: "/daily-brief.html",
+    id: "nav-daily-brief",
+    className: "nav-link",
+    style: {
+      color: "#f59e0b",
+      background: "rgba(245,158,11,0.08)",
+      borderColor: "rgba(245,158,11,0.20)"
+    }
+  }, "Daily Brief"), React.createElement("a", {
+    href: "/faq.html",
+    className: "nav-link faq"
+  }, "FAQ")), React.createElement("div", {
+    className: "flex items-center gap-1.5 md:gap-2 shrink-0"
+  }, window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
+    apiBase: ""
+  }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
+    user: window.TimedAuthHelpers?.getStoredSession(),
+    compact: true
+  }), React.createElement("button", {
+    onClick: () => setMobileMenuOpen(v => !v),
+    className: "md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all",
+    "aria-label": "Toggle menu"
+  }, mobileMenuOpen ? React.createElement("svg", {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "18",
+    y1: "6",
+    x2: "6",
+    y2: "18"
+  }), React.createElement("line", {
+    x1: "6",
+    y1: "6",
+    x2: "18",
+    y2: "18"
+  })) : React.createElement("svg", {
+    width: "20",
+    height: "20",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: "2",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, React.createElement("line", {
+    x1: "3",
+    y1: "6",
+    x2: "21",
+    y2: "6"
+  }), React.createElement("line", {
+    x1: "3",
+    y1: "12",
+    x2: "21",
+    y2: "12"
+  }), React.createElement("line", {
+    x1: "3",
+    y1: "18",
+    x2: "21",
+    y2: "18"
+  }))))), mobileMenuOpen && React.createElement("div", {
+    className: "md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5",
+    style: {
+      background: "rgba(10,10,15,0.98)"
+    }
+  }, React.createElement("a", {
+    href: "/today.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Today"), React.createElement("a", {
+    href: "/active-trader.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Active Trader"), React.createElement("a", {
+    href: "/investor.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Investor"), React.createElement("a", {
+    href: "/portfolio.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Portfolio"), React.createElement("a", {
+    href: "/insights.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Insights"), React.createElement("a", {
+    href: "/daily-brief.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Daily Brief"), React.createElement("a", {
+    href: "/faq.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "FAQ"))), React.createElement("div", {
+    "data-tt-activity-strip": true
+  }), React.createElement("div", {
     className: "max-w-[1100px] mx-auto px-6 py-8"
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-6"
@@ -2384,6 +2635,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1779840008941:795649928
+// cache-bust:1779840496297:558389206
 
-// cache-bust:1779840008941:795649928
+// cache-bust:1779840496297:558389206
