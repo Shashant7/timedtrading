@@ -808,7 +808,9 @@ function MoverRow({
 }) {
   const dc = getDailyChange(t);
   const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-  const price = Number(t?.price);
+  const price = mode === "ext" ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price) : Number(t?.price);
+  const rthClose = mode === "ext" ? Number(t?.price) : null;
+  const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
   return h("a", {
@@ -825,8 +827,20 @@ function MoverRow({
   }, "#" + (rk + 1)), h("span", null, h("div", {
     className: "sym"
   }, sym)), h("span", {
-    className: "px"
-  }, Number.isFinite(price) ? fmtUsd(price) : "—"), h("span", {
+    className: "px",
+    style: showRthSub ? {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      lineHeight: 1.1
+    } : null
+  }, Number.isFinite(price) ? fmtUsd(price) : "—", showRthSub && h("span", {
+    style: {
+      fontSize: 9,
+      color: "var(--tt-text-dim)",
+      fontWeight: 400
+    }
+  }, "RTH " + fmtUsd(rthClose))), h("span", {
     className: `chg ${dir}`
   }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"));
 }
@@ -3189,6 +3203,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779886630662:278464424
+// cache-bust:1779894508091:449249239
 
-// cache-bust:1779886630662:278464424
+// cache-bust:1779894508091:449249239
