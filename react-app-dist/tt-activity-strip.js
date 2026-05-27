@@ -128,6 +128,13 @@
     return parts.join(" · ");
   }
 
+  function isJourneyRailPage() {
+    try {
+      const p = String(window.location.pathname || "").toLowerCase();
+      return p.includes("active-trader") || p.includes("today") || p.includes("investor") || p.includes("portfolio");
+    } catch (_) { return false; }
+  }
+
   function openActivityEvent(ev, sym, meta) {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
@@ -135,23 +142,29 @@
     const evType = meta.evType || "";
     const openAutopsy = evType === "EXIT" || evType === "TRIM";
 
+    try {
+      if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ticker);
+      else window._ttGlobalSearchLastHandled = ticker;
+    } catch (_) {}
+
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({ ticker, initialRailTab: "HISTORY", tradeId, evType, openAutopsy, activityEvent: ev, source: "activity-strip" });
     } else {
       window.dispatchEvent(new CustomEvent("tt-open-ticker", {
-        detail: { ticker, initialRailTab: "HISTORY", tradeId, openAutopsy, activityEvent: ev },
+        detail: { ticker, initialRailTab: "HISTORY", tradeId, openAutopsy, activityEvent: ev, source: "activity-strip" },
         bubbles: true,
       }));
     }
 
     setTimeout(() => {
       if (window._ttGlobalSearchLastHandled === ticker) return;
+      if (isJourneyRailPage()) return;
       const q = new URLSearchParams({ ticker, railTab: "HISTORY" });
       if (tradeId) q.set("trade_id", tradeId);
       if (openAutopsy) q.set("autopsy", "1");
       if (evType) q.set("ev", evType);
       window.location.href = `/active-trader.html?${q.toString()}`;
-    }, 280);
+    }, 400);
   }
 
   function ensureMobileSpacer(host) {
@@ -321,4 +334,4 @@
   else mount();
 })();
 
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661

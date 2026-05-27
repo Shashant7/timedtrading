@@ -171,7 +171,15 @@
     return { saved, toggle };
   }
   function RailOverlay(props) {
-    const { ticker, allLoadedData, onClose } = props || {};
+    const {
+      ticker,
+      allLoadedData,
+      onClose,
+      initialRailTab = null,
+      openAutopsyForTrade = null,
+      highlightTradeId = null,
+    } = props || {};
+    const API_BASE = window.TT_API_BASE || "";
     const tickerSym = useMemo(() => String(ticker?.ticker || ticker?.symbol || "").toUpperCase(), [ticker]);
 
     // Wire saved-ticker state into the rail so the ★ button at the
@@ -304,4 +312,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661

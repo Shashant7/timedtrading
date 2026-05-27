@@ -21,9 +21,8 @@
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
-    <script src="tt-activity-strip.js?v=20260527a" defer></script>
-    <script src="tt-rail-bridge.js?v=20260527a" defer></script>
-    <script src="tt-activity-strip.js?v=20260527a" defer></script>
+    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
+    <script src="tt-activity-strip.js?v=20260528a" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -33,9 +32,9 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260527a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260528a"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260527a"></script>
+    <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -1464,10 +1463,15 @@
         const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
 
         const railTickerObj = useMemo(() => {
-          if (!railTicker || !data) return null;
+          if (!railTicker) return null;
           const key = String(railTicker).toUpperCase();
           const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
-          return found || null;
+          if (found) return found;
+          if (data && typeof data === "object" && data[key]) {
+            const raw = data[key];
+            return raw.ticker ? raw : { ...raw, ticker: key };
+          }
+          return { ticker: key };
         }, [railTicker, allTickers, data]);
         // V15 P0.7.181 — Reactive RailOverlay state so card clicks
         // work the instant the rail scripts load.

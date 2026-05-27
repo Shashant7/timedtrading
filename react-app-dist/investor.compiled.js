@@ -352,8 +352,11 @@ function InvestorApp() {
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const railTickerObj = useMemo(() => {
-    if (!railTicker || !data) return null;
+    if (!railTicker) return null;
     const key = String(railTicker).toUpperCase();
+    if (!data) return {
+      ticker: key
+    };
     const raw = data[key];
     if (!raw) return {
       ticker: key
@@ -525,6 +528,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661
 
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661

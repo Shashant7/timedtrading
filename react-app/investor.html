@@ -21,9 +21,8 @@
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
-    <script src="tt-activity-strip.js?v=20260527a" defer></script>
-    <script src="tt-rail-bridge.js?v=20260527a" defer></script>
-    <script src="tt-activity-strip.js?v=20260527a" defer></script>
+    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
+    <script src="tt-activity-strip.js?v=20260528a" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260517a"></script>
@@ -34,9 +33,9 @@
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260527a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260528a"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260527a"></script>
+    <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -727,8 +726,9 @@
         const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
 
         const railTickerObj = useMemo(() => {
-          if (!railTicker || !data) return null;
+          if (!railTicker) return null;
           const key = String(railTicker).toUpperCase();
+          if (!data) return { ticker: key };
           const raw = data[key];
           if (!raw) return { ticker: key };
           return raw.ticker ? raw : { ticker: key, ...raw };
