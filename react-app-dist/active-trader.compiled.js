@@ -1120,9 +1120,6 @@ function ActiveTraderApp() {
     heads.forEach(t => t?.ticker && ensureSpark(t.ticker));
   }, [lanes, ensureSpark]);
   const [railTicker, setRailTicker] = useState(null);
-  const [railInitialTab, setRailInitialTab] = useState(null);
-  const [highlightTradeId, setHighlightTradeId] = useState(null);
-  const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const railTickerObj = useMemo(() => {
     if (!railTicker || !data) return null;
     const key = String(railTicker).toUpperCase();
@@ -1144,36 +1141,30 @@ function ActiveTraderApp() {
     if (!sym) return;
     setRailTicker(String(sym).toUpperCase());
   }, []);
-  const applyRailOpen = useCallback(detail => {
-    const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
-    const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
-    if (!t) return;
-    setRailTicker(t);
-    setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
-    setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
-    setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
-  }, []);
-  const onCloseRail = useCallback(() => {
-    setRailTicker(null);
-    setRailInitialTab(null);
-    setHighlightTradeId(null);
-    setOpenAutopsyForTrade(null);
-    try {
-      window.ttClearRailUrlParams?.();
-    } catch (_) {}
-  }, []);
+  const onCloseRail = useCallback(() => setRailTicker(null), []);
   useEffect(() => {
     if (!RailOverlay) return;
     const handler = ev => {
-      applyRailOpen(ev?.detail);
+      const t = String(ev?.detail?.ticker || "").toUpperCase();
+      if (!t) return;
+      setRailTicker(t);
       try {
-        if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ev?.detail?.ticker);
+        if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
       } catch (_) {}
     };
     window.addEventListener("tt-open-ticker", handler);
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    try {
+      const u = new URL(window.location.href);
+      const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
+      if (t) {
+        setRailTicker(t);
+        try {
+          if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
+        } catch (_) {}
+      }
+    } catch (_) {}
     return () => window.removeEventListener("tt-open-ticker", handler);
-  }, [RailOverlay, applyRailOpen]);
+  }, [RailOverlay]);
   if (error) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1354,10 +1345,7 @@ function ActiveTraderApp() {
   })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: data,
-    onClose: onCloseRail,
-    initialRailTab: railInitialTab,
-    openAutopsyForTrade,
-    highlightTradeId
+    onClose: onCloseRail
   }));
 }
 const AuthGate = window.TimedAuthGate;
@@ -1368,6 +1356,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779854564007:846906980
+// cache-bust:1779879697613:499740819
 
-// cache-bust:1779854564007:846906980
+// cache-bust:1779879697613:499740819
