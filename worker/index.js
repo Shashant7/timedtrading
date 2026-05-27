@@ -9378,75 +9378,95 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const weekFullExit = Number.isFinite(dirAdjWeekDisp)
             && dirAdjWeekDisp >= weekExitThreshold;
           if (weekFullExit) {
-            // V15 P0.7.3 (2026-04-27): defer when daily 5/12 EMA cloud
-            // is structurally holding. Hitting weekly +0.618 ATR is a
-            // target-reached signal but in trending markets price often
-            // continues through it (LITE Aug runner, GOOGL Jul). Trim
-            // instead of full exit when cloud holds AND there's MFE
-            // capacity left.
-            const _atrWkCloudHold = !!tickerData?.__peak_lock_cloud_hold;
-            const _atrWkDeferEnabled = String(
-              tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_defer_on_cloud_hold ?? "true"
-            ) === "true";
-            if (_atrWkDeferEnabled && _atrWkCloudHold && currentTrimPct < 0.5) {
-              // P0 HOTFIX 2026-05-20 (part 18 — same class): weekly ATR
-              // ladder fires when dirAdjWeekDisp >= 0.618 (week-over-week
-              // displacement). Same bug as daily ladder — if entry was
-              // already past +0.618 weekly ATR (e.g. after a strong move
-              // earlier in the week), this trim fires immediately at
-              // near-zero PnL. FSLR was trimmed at +0.04% PnL on 05-18.
-              // Gate on the same min-PnL floor.
-              const _atrWkMinPnlRaw = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_atr_tp_ladder_min_pnl_pct
-              );
-              const _atrWkMinPnl = Number.isFinite(_atrWkMinPnlRaw) && _atrWkMinPnlRaw >= 0
-                ? _atrWkMinPnlRaw
-                : 0.75;
-              const _atrWkEntryPx = Number(openPosition?.entryPrice);
-              const _atrWkCurPx = Number(tickerData?.price);
-              const _atrWkPnlPct = Number.isFinite(_atrWkEntryPx) && _atrWkEntryPx > 0
-                && Number.isFinite(_atrWkCurPx) && _atrWkCurPx > 0
-                ? (isLong
-                    ? ((_atrWkCurPx - _atrWkEntryPx) / _atrWkEntryPx) * 100
-                    : ((_atrWkEntryPx - _atrWkCurPx) / _atrWkEntryPx) * 100)
-                : 0;
-              if (_atrWkPnlPct < _atrWkMinPnl) {
-                console.log(`[ATR_WEEK_618 SKIP] ${tickerUpper} weekly disp=${dirAdjWeekDisp.toFixed(3)} ATR — pnl ${_atrWkPnlPct.toFixed(2)}% < min ${_atrWkMinPnl.toFixed(2)}% (likely entered at/above target; deferring)`);
-                // Don't return here — let the rest of classifyKanbanStage
-                // make a decision (e.g. defend, hold). Just skip this
-                // specific trim.
-              } else {
-              // Hand off to the trim ladder logic instead — partial trim
-              // here lets the runner keep going as long as cloud holds.
-              const _atrWkTrimPct = Number(
-                tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_partial_trim_pct ?? 0.30
-              );
-              if (currentTrimPct + _atrWkTrimPct < 0.98) {
-                tickerData.__scheduled_trim = {
-                  pct: _atrWkTrimPct,
-                  reason: "atr_week_618_partial_cloud_hold",
-                  cohort: ladderCohort,
-                };
-                tickerData.__exit_reason = "atr_week_618_partial_cloud_hold";
-                tickerData.__exit_family = "target";
-                tickerData.__exit_detail = {
-                  cohort: ladderCohort,
-                  week_disp: dirAdjWeekDisp,
-                  horizon: "week",
-                  cloud_holding: true,
-                };
-                return "trim";
+            // ─────────────────────────────────────────────────────────────
+            // 2026-05-27 (PR #327) — NXT instant-exit fix.
+            //
+            // User report: NXT LONG entered 2:07 PM ET @ $135.97 (Gap
+            // Reversal Long Prime) → atr_week_618_full_exit fired at 2:31
+            // PM @ $135.81 = -0.12% LOSS. The "weekly ATR target reached"
+            // semantic is misleading when the trade is actually
+            // underwater — the entry was at a price ALREADY past the
+            // +0.618 weekly target, so any drift triggers the "target
+            // reached" exit without any actual gain.
+            //
+            // Previously the PnL-floor guard (added 2026-05-20 for FSLR-
+            // style entries past target) was nested INSIDE the
+            // `_atrWkCloudHold` branch — i.e. only checked when the EMA
+            // cloud was holding. For NXT the cloud wasn't holding →
+            // guard bypassed → exit fired at -0.12% loss.
+            //
+            // Fix: HOIST the PnL-floor check OUT of the cloud-hold
+            // branch so it ALWAYS gates the atr_week_618 exit. If the
+            // trade is underwater (or below the configured floor),
+            // the exit is deferred and the rest of classifyKanbanStage
+            // (defend / hold / SL) handles the trade. The semantic
+            // "we hit our target — lock in the gain" should only fire
+            // when there IS a gain to lock in.
+            // ─────────────────────────────────────────────────────────────
+            const _atrWkMinPnlRaw = Number(
+              tickerData?._env?._deepAuditConfig?.deep_audit_atr_tp_ladder_min_pnl_pct
+            );
+            const _atrWkMinPnl = Number.isFinite(_atrWkMinPnlRaw) && _atrWkMinPnlRaw >= 0
+              ? _atrWkMinPnlRaw
+              : 0.75;
+            const _atrWkEntryPx = Number(openPosition?.entryPrice);
+            const _atrWkCurPx = Number(tickerData?.price);
+            const _atrWkPnlPct = Number.isFinite(_atrWkEntryPx) && _atrWkEntryPx > 0
+              && Number.isFinite(_atrWkCurPx) && _atrWkCurPx > 0
+              ? (isLong
+                  ? ((_atrWkCurPx - _atrWkEntryPx) / _atrWkEntryPx) * 100
+                  : ((_atrWkEntryPx - _atrWkCurPx) / _atrWkEntryPx) * 100)
+              : 0;
+
+            if (_atrWkPnlPct < _atrWkMinPnl) {
+              console.log(`[ATR_WEEK_618 SKIP] ${tickerUpper} weekly disp=${dirAdjWeekDisp.toFixed(3)} ATR — pnl ${_atrWkPnlPct.toFixed(2)}% < min ${_atrWkMinPnl.toFixed(2)}% (likely entered at/above target; deferring full exit, letting SL/defend take over).`);
+              // Don't return — let the rest of classifyKanbanStage
+              // make the call (defend / hold / SL hit). Skip this
+              // specific exit reason but continue past the block.
+            } else {
+              // PnL gate passed — trade is genuinely at/past the
+              // weekly target with meaningful profit. Apply the
+              // cloud-hold deferral logic (V15 P0.7.3 2026-04-27):
+              // when the daily 5/12 EMA cloud is structurally
+              // holding AND there's MFE capacity left, partial-trim
+              // (30%) instead of full exit to let the runner ride.
+              const _atrWkCloudHold = !!tickerData?.__peak_lock_cloud_hold;
+              const _atrWkDeferEnabled = String(
+                tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_defer_on_cloud_hold ?? "true"
+              ) === "true";
+              if (_atrWkDeferEnabled && _atrWkCloudHold && currentTrimPct < 0.5) {
+                const _atrWkTrimPct = Number(
+                  tickerData?._env?._deepAuditConfig?.deep_audit_atr_week_618_partial_trim_pct ?? 0.30
+                );
+                if (currentTrimPct + _atrWkTrimPct < 0.98) {
+                  tickerData.__scheduled_trim = {
+                    pct: _atrWkTrimPct,
+                    reason: "atr_week_618_partial_cloud_hold",
+                    cohort: ladderCohort,
+                  };
+                  tickerData.__exit_reason = "atr_week_618_partial_cloud_hold";
+                  tickerData.__exit_family = "target";
+                  tickerData.__exit_detail = {
+                    cohort: ladderCohort,
+                    week_disp: dirAdjWeekDisp,
+                    horizon: "week",
+                    cloud_holding: true,
+                  };
+                  return "trim";
+                }
               }
-              }
+              // Full exit: target reached, cloud isn't holding (or
+              // we already trimmed >= 50%), book the gain.
+              tickerData.__exit_reason = "atr_week_618_full_exit";
+              tickerData.__exit_family = "target";
+              tickerData.__exit_detail = {
+                cohort: ladderCohort,
+                week_disp: dirAdjWeekDisp,
+                horizon: "week",
+                pnl_pct_at_exit: _atrWkPnlPct,
+              };
+              return "exit";
             }
-            tickerData.__exit_reason = "atr_week_618_full_exit";
-            tickerData.__exit_family = "target";
-            tickerData.__exit_detail = {
-              cohort: ladderCohort,
-              week_disp: dirAdjWeekDisp,
-              horizon: "week",
-            };
-            return "exit";
           }
           // Execute incremental trim at each new tier reached
           if (currentTier > prevTier && currentTier <= trims.length) {
