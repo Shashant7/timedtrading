@@ -1191,6 +1191,11 @@ const ROUTES = [
   // close) while TSM had gapped to ~$427. This endpoint repairs the
   // account_ledger TRIM row + cascades the balance forward.
   ["POST", "/timed/admin/trade-autopsy/correct-trim", "POST /timed/admin/trade-autopsy/correct-trim"],
+  // 2026-05-27 (PR #321): nuke a ticker entirely — closes/deletes all
+  // open trades + positions + lots + execution_actions + trade_events +
+  // account_ledger rows, removes from universe overlay, blocks future
+  // re-add. For "added by mistake" cleanup (PCI on 2026-05-27).
+  ["POST", "/timed/admin/purge-ticker", "POST /timed/admin/purge-ticker"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -54631,6 +54636,258 @@ export default {
             ledger_row_id: trimRow.id,
             ledger_ts: Number(trimRow.ts),
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/purge-ticker
+      // body: { ticker, confirm: "YES_PURGE", dryRun?: true, alsoBlock?: true }
+      //
+      // 2026-05-27 (PR #321) — "fully remove this ticker" admin escape
+      // hatch. Used for the PCI 'added by mistake' cleanup but
+      // generally useful for any test ticker / wrong-add scenario
+      // where you want to wipe the ticker AND every record of every
+      // trade/position/event for it (vs. just closing positions and
+      // leaving the history around).
+      //
+      // What it does (D1, in order):
+      //   1. SELECT all position_ids for the ticker
+      //   2. DELETE execution_actions WHERE position_id IN (...)
+      //   3. DELETE lots WHERE position_id IN (...)
+      //   4. DELETE positions WHERE ticker = ?
+      //   5. SELECT all trade_ids for the ticker
+      //   6. DELETE trade_events WHERE trade_id IN (...)
+      //   7. DELETE trades WHERE ticker = ?
+      //   8. DELETE account_ledger WHERE ticker = ? AND mode='trader'
+      //   9. DELETE investor_lots WHERE ticker = ?
+      //  10. DELETE investor_positions WHERE ticker = ?
+      //  11. DELETE timed_trail WHERE ticker = ?  (optional, bounded)
+      //
+      // KV cleanup:
+      //   - Patch timed:trades:all to drop any entries for this ticker
+      //   - DELETE timed:latest:{ticker}
+      //   - Patch timed:prices to drop the ticker entry
+      //
+      // Universe cleanup (when alsoBlock=true, default true):
+      //   - Add to timed:removed blocklist (prevents future re-add)
+      //   - Remove from timed:tickers overlay
+      //   - DELETE timed:sector_map:{ticker}
+      //   - Bump timed:universe:version
+      //
+      // Returns an audit summary listing per-row counts so the operator
+      // can verify the cleanup matched expectations before re-adding
+      // the ticker later (if alsoBlock=false they can re-add immediately).
+      //
+      // Safety:
+      //   - body.confirm MUST equal "YES_PURGE" exactly (string literal).
+      //   - dryRun=true returns the WOULD-DELETE counts without
+      //     touching anything.
+      //   - alsoBlock defaults to true (most common use case is
+      //     "remove this and don't let auto-discovery add it back").
+      if (routeKey === "POST /timed/admin/purge-ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const ticker = String(body?.ticker || "").toUpperCase().trim();
+          const confirm = body?.confirm;
+          const dryRun = body?.dryRun === true;
+          const alsoBlock = body?.alsoBlock !== false; // default true
+          const purgeTrail = body?.purgeTrail === true; // default false (expensive)
+
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          if (!dryRun && confirm !== "YES_PURGE") {
+            return sendJSON({
+              ok: false,
+              error: "missing_confirm",
+              hint: 'Pass {"confirm": "YES_PURGE"} to authorize the delete, or {"dryRun": true} to preview.',
+            }, 400, corsHeaders(env, req));
+          }
+
+          const audit = {
+            ticker,
+            dry_run: dryRun,
+            also_block: alsoBlock,
+            purge_trail: purgeTrail,
+            d1: {},
+            kv: {},
+            universe: {},
+            started_at: Date.now(),
+          };
+
+          // ── COUNTS PHASE (always — for audit + dry-run preview) ──
+          const _count = async (sql, ...binds) => {
+            try {
+              const row = await db.prepare(sql).bind(...binds).first();
+              return Number(row?.n) || 0;
+            } catch (_) { return null; }
+          };
+          audit.d1.positions_count = await _count("SELECT COUNT(*) AS n FROM positions WHERE ticker=?1", ticker);
+          audit.d1.trades_count    = await _count("SELECT COUNT(*) AS n FROM trades WHERE ticker=?1", ticker);
+          audit.d1.account_ledger_count = await _count("SELECT COUNT(*) AS n FROM account_ledger WHERE ticker=?1 AND mode='trader'", ticker);
+          audit.d1.investor_lots_count = await _count("SELECT COUNT(*) AS n FROM investor_lots WHERE ticker=?1", ticker);
+          audit.d1.investor_positions_count = await _count("SELECT COUNT(*) AS n FROM investor_positions WHERE ticker=?1", ticker);
+          if (purgeTrail) {
+            audit.d1.timed_trail_count = await _count("SELECT COUNT(*) AS n FROM timed_trail WHERE ticker=?1", ticker);
+          }
+
+          if (dryRun) {
+            audit.elapsed_ms = Date.now() - audit.started_at;
+            return sendJSON({ ok: true, ...audit, message: "DRY-RUN — no rows deleted. Re-run with confirm=YES_PURGE to apply." }, 200, corsHeaders(env, req));
+          }
+
+          // ── DELETE PHASE ──
+          const _run = async (sql, ...binds) => {
+            try {
+              const res = await db.prepare(sql).bind(...binds).run();
+              return Number(res?.meta?.changes) || 0;
+            } catch (e) {
+              audit.d1.errors = audit.d1.errors || [];
+              audit.d1.errors.push({ sql: sql.slice(0, 80), err: String(e?.message || e).slice(0, 200) });
+              return 0;
+            }
+          };
+
+          // 1) Collect position_ids before deleting parents (FK-ish cleanup)
+          const posRows = await db.prepare("SELECT position_id FROM positions WHERE ticker=?1").bind(ticker).all().catch(() => ({ results: [] }));
+          const posIds = (posRows?.results || []).map((r) => r.position_id).filter(Boolean);
+
+          // 2+3) Children of positions
+          let ea = 0, lots = 0;
+          for (const pid of posIds) {
+            ea += await _run("DELETE FROM execution_actions WHERE position_id=?1", pid);
+            lots += await _run("DELETE FROM lots WHERE position_id=?1", pid);
+          }
+          audit.d1.execution_actions_deleted = ea;
+          audit.d1.lots_deleted = lots;
+
+          // 4) Positions
+          audit.d1.positions_deleted = await _run("DELETE FROM positions WHERE ticker=?1", ticker);
+
+          // 5) Collect trade_ids
+          const tradeRows = await db.prepare("SELECT trade_id FROM trades WHERE ticker=?1").bind(ticker).all().catch(() => ({ results: [] }));
+          const tradeIds = (tradeRows?.results || []).map((r) => r.trade_id).filter(Boolean);
+
+          // 6) Trade events
+          let te = 0;
+          for (const tid of tradeIds) {
+            te += await _run("DELETE FROM trade_events WHERE trade_id=?1", tid);
+          }
+          audit.d1.trade_events_deleted = te;
+
+          // 7) Trades
+          audit.d1.trades_deleted = await _run("DELETE FROM trades WHERE ticker=?1", ticker);
+
+          // 8) Trader ledger entries for this ticker
+          audit.d1.account_ledger_deleted = await _run("DELETE FROM account_ledger WHERE ticker=?1 AND mode='trader'", ticker);
+
+          // 9 + 10) Investor records
+          audit.d1.investor_lots_deleted = await _run("DELETE FROM investor_lots WHERE ticker=?1", ticker);
+          audit.d1.investor_positions_deleted = await _run("DELETE FROM investor_positions WHERE ticker=?1", ticker);
+
+          // 11) Trail rows (optional — expensive, can be tens of thousands per ticker)
+          if (purgeTrail) {
+            audit.d1.timed_trail_deleted = await _run("DELETE FROM timed_trail WHERE ticker=?1", ticker);
+            await _run("DELETE FROM trail_5m_facts WHERE ticker=?1", ticker);
+          }
+
+          // ── KV cleanup ──
+          const KV = env?.KV_TIMED;
+          if (KV) {
+            try {
+              await KV.delete(`timed:latest:${ticker}`);
+              audit.kv.latest_deleted = true;
+            } catch (e) {
+              audit.kv.latest_err = String(e?.message || e).slice(0, 200);
+            }
+
+            // timed:trades:all — drop this ticker's entries
+            try {
+              const all = (await kvGetJSON(KV, "timed:trades:all")) || [];
+              if (Array.isArray(all)) {
+                const before = all.length;
+                const filtered = all.filter((t) => String(t?.ticker || "").toUpperCase() !== ticker);
+                if (filtered.length !== before) {
+                  await kvPutJSON(KV, "timed:trades:all", filtered);
+                  audit.kv.trades_all_dropped = before - filtered.length;
+                } else {
+                  audit.kv.trades_all_dropped = 0;
+                }
+              }
+            } catch (e) {
+              audit.kv.trades_all_err = String(e?.message || e).slice(0, 200);
+            }
+
+            // timed:prices — drop this ticker's entry from the prices object
+            try {
+              const blob = (await kvGetJSON(KV, "timed:prices")) || {};
+              const prices = blob?.prices || blob;
+              if (prices && typeof prices === "object" && prices[ticker]) {
+                delete prices[ticker];
+                // Preserve the wrapper shape if it had a `prices` key
+                await kvPutJSON(KV, "timed:prices", blob?.prices ? { ...blob, prices } : prices);
+                audit.kv.prices_dropped = true;
+              } else {
+                audit.kv.prices_dropped = false;
+              }
+            } catch (e) {
+              audit.kv.prices_err = String(e?.message || e).slice(0, 200);
+            }
+          }
+
+          // ── Universe cleanup ──
+          if (alsoBlock && KV) {
+            try {
+              // Add to removal blocklist
+              const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+              const removedArr = Array.isArray(removedList) ? removedList : [];
+              if (!removedArr.includes(ticker)) {
+                removedArr.push(ticker);
+                removedArr.sort();
+                await kvPutJSON(KV, "timed:removed", removedArr);
+                audit.universe.added_to_removed_blocklist = true;
+              } else {
+                audit.universe.added_to_removed_blocklist = "already_present";
+              }
+
+              // Remove from runtime overlay list
+              const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+              if (Array.isArray(tickersList) && tickersList.includes(ticker)) {
+                const next = tickersList.filter((t) => t !== ticker);
+                await kvPutJSON(KV, "timed:tickers", next);
+                audit.universe.removed_from_overlay = true;
+              } else {
+                audit.universe.removed_from_overlay = false;
+              }
+
+              // Drop sector_map key
+              await KV.delete(`timed:sector_map:${ticker}`).catch(() => {});
+              audit.universe.sector_map_deleted = true;
+
+              // In-isolate SECTOR_MAP (helps this isolate immediately)
+              try { if (typeof SECTOR_MAP === "object") delete SECTOR_MAP[ticker]; } catch (_) {}
+
+              // Bump universe version
+              await KV.put("timed:universe:version", String(Date.now()));
+              audit.universe.version_bumped = true;
+            } catch (e) {
+              audit.universe.err = String(e?.message || e).slice(0, 200);
+            }
+          }
+
+          // ── User-tickers soft-delete (best-effort, only if table exists) ──
+          try {
+            await db.prepare("UPDATE user_tickers SET deleted_at=?1 WHERE ticker=?2 AND deleted_at IS NULL")
+              .bind(Date.now(), ticker).run();
+            audit.user_tickers_soft_deleted = true;
+          } catch (_) { /* table may not exist */ }
+
+          audit.elapsed_ms = Date.now() - audit.started_at;
+          console.log(`[PURGE_TICKER] ${ticker}: ${JSON.stringify(audit.d1)} ${JSON.stringify(audit.universe)}`);
+          return sendJSON({ ok: true, ...audit }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
