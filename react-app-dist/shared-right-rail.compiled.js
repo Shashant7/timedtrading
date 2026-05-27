@@ -2176,6 +2176,7 @@
       savedTickers = null,
       toggleSavedTicker = null,
       openAutopsyForTrade = null,
+      highlightTradeId = null,
       modalOnly = false,
       layoutMode = "modal"
     }) {
@@ -12373,4 +12374,4 @@
   };
 })();
 
-// cache-bust:1779852674872:736067536
+// cache-bust:1779854564007:846906980

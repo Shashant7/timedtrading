@@ -22,7 +22,9 @@
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
-    <script src="tt-activity-strip.js?v=20260521c" defer></script>
+    <script src="tt-activity-strip.js?v=20260527a" defer></script>
+    <script src="tt-rail-bridge.js?v=20260527a" defer></script>
+    <script src="tt-activity-strip.js?v=20260527a" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -36,9 +38,9 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260522a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260527a"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260517f"></script>
+    <script src="shared-rail-bootstrap.js?v=20260527a"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -3521,6 +3523,10 @@
         // with whatever payload we have. Build a minimal object if the
         // ticker isn't anywhere — the rail is robust to sparse data.
         const [railTicker, setRailTicker] = useState(null);
+        const [railInitialTab, setRailInitialTab] = useState(null);
+        const [highlightTradeId, setHighlightTradeId] = useState(null);
+        const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
+
         const railTickerObj = useMemo(() => {
           if (!railTicker) return null;
           const key = String(railTicker).toUpperCase();
@@ -3553,36 +3559,37 @@
           if (!sym) return;
           setRailTicker(String(sym).toUpperCase());
         }, []);
-        const onCloseRail = useCallback(() => setRailTicker(null), []);
+                const applyRailOpen = useCallback((detail) => {
+          const p = typeof window.ttConsumeRailOpenForReact === "function"
+            ? window.ttConsumeRailOpenForReact(detail)
+            : null;
+          const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
+          if (!t) return;
+          setRailTicker(t);
+          setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+          setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
+          setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
+        }, []);
 
-        // 2026-05-21 — Global ticker search integration.
-        // tt-global-search.js dispatches a `tt-open-ticker` CustomEvent
-        // when the user picks a ticker from the nav search palette, and
-        // also re-fires it on first paint when ?ticker=… is in the URL
-        // (deep-link / cross-page handoff). We open the right rail and
-        // mark the event handled so the widget's 250ms fallback redirect
-        // does not fire over the top of our successful open.
+        const onCloseRail = useCallback(() => {
+          setRailTicker(null);
+          setRailInitialTab(null);
+          setHighlightTradeId(null);
+          setOpenAutopsyForTrade(null);
+          try { window.ttClearRailUrlParams?.(); } catch (_) {}
+        }, []);
+
         useEffect(() => {
           if (!RailOverlay) return;
           const handler = (ev) => {
-            const t = String(ev?.detail?.ticker || "").toUpperCase();
-            if (!t) return;
-            setRailTicker(t);
-            try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t); } catch (_) {}
+            applyRailOpen(ev?.detail);
+            try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ev?.detail?.ticker); } catch (_) {}
           };
           window.addEventListener("tt-open-ticker", handler);
-          // Catch-up: if the URL already has ?ticker= before this effect
-          // wires up (script execution order race), open it now.
-          try {
-            const u = new URL(window.location.href);
-            const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
-            if (t) {
-              setRailTicker(t);
-              try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t); } catch (_) {}
-            }
-          } catch (_) {}
+          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
           return () => window.removeEventListener("tt-open-ticker", handler);
-        }, [RailOverlay]);
+        }, [RailOverlay, applyRailOpen]);
+
 
         if (error) {
           return h("main", null,
@@ -3656,6 +3663,9 @@
             ticker: railTickerObj,
             allLoadedData: data,
             onClose: onCloseRail,
+            initialRailTab: railInitialTab,
+            openAutopsyForTrade,
+            highlightTradeId,
           }),
         );
       }
