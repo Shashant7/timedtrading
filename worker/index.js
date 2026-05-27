@@ -54674,6 +54674,50 @@ export default {
           const dirSign = direction === "SHORT" ? -1 : 1;
           const entryPrice = Number(tradeRow.entry_price) || 0;
           const oldTrimPrice = Number(tradeRow.trim_price) || 0;
+
+          // 2026-05-27 (PR #326) — Multi-trim safety. trade.trim_ts on the
+          // trades table tracks the MOST RECENT trim only. If the trade
+          // has been trimmed multiple times and the caller didn't pass
+          // trim_ts explicitly, defaulting to trade.trim_ts silently
+          // corrects the LATEST trim — which is almost never the one
+          // the caller wanted (typically they want to repair an OLDER
+          // stale-price trim like the TSM 9:31 PRE_PCE @ $412.32).
+          //
+          // Pre-check: count account_ledger TRIM rows for this trade.
+          // If >1 AND caller didn't pass trim_ts, return 409 with the
+          // full list of trims (ts + price) so the caller can pick the
+          // right one. No silent miscorrections.
+          if (!overrideTrimTs) {
+            try {
+              const allTrimRows = await db.prepare(
+                `SELECT ledger_id, ts, qty, price, realized_pnl, note
+                   FROM account_ledger
+                  WHERE mode='trader' AND ticker=?1 AND event_type='TRIM'
+                    AND ts >= ?2
+                  ORDER BY ts ASC`,
+              ).bind(ticker, Number(tradeRow.entry_ts) || 0).all().catch(() => ({ results: [] }));
+              const trims = allTrimRows?.results || [];
+              if (trims.length > 1) {
+                return sendJSON({
+                  ok: false,
+                  error: "multiple_trims_found",
+                  trade_id: tradeId,
+                  trim_count: trims.length,
+                  trims: trims.map((r) => ({
+                    ledger_id: r.ledger_id,
+                    ts: Number(r.ts),
+                    ts_iso: new Date(Number(r.ts)).toISOString(),
+                    qty: Number(r.qty),
+                    price: Number(r.price),
+                    realized_pnl: Number(r.realized_pnl),
+                    note: r.note,
+                  })),
+                  hint: "Pass body.trim_ts (e.g. the ts from one of the trims listed above) to target a specific trim. Without it the endpoint would default to the latest trim (trade.trim_ts), which is rarely what you want for a stale-price correction.",
+                }, 409, corsHeaders(env, req));
+              }
+            } catch (_) { /* if pre-check fails, fall through to original behavior */ }
+          }
+
           const trimTs = overrideTrimTs || Number(tradeRow.trim_ts) || 0;
           if (!Number.isFinite(trimTs) || trimTs <= 0) {
             return sendJSON({ ok: false, error: "invalid_trim_ts" }, 400, corsHeaders(env, req));
