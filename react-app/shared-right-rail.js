@@ -2330,6 +2330,211 @@
                         {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
                       </div>
                     </div>
+
+                    {/* 2026-05-27 (PR #323) — Receipt-style chronological event log.
+                        User asked: 'enhance the Trade Autopsy to show clear the date
+                        of entry, shares, price, then followed by trims and then exit?
+                        It should be crystal clear to follow like a receipt.'
+
+                        Builds rows from:
+                          - ENTRY: synthesized from trade.entry_ts + .shares + .entry_price
+                          - TRIMs/EXIT: from trade.history[] (already populated by the
+                            engine on each trim/close — see worker/index.js line ~17620
+                            for the event shape).
+
+                        Renders a compact table with running share count + cumulative
+                        realized P&L so it reads like a fill receipt. Total row at the
+                        bottom sums everything. */}
+                    {(() => {
+                      const events = [];
+                      const initialShares = Number(mt.shares ?? mt.quantity ?? 0);
+                      const entryPx = Number(mt.entry_price ?? mt.entryPrice ?? 0);
+                      const entryTsRaw = Number(mt.entry_ts ?? mt.entryTs ?? 0);
+                      const dirMul = _dir === "SHORT" ? -1 : 1;
+
+                      // 1) Entry — synthesized row. The history array doesn't
+                      // include the initial entry (only trims + exits), so we
+                      // reconstruct it from the trade record.
+                      if (initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
+                        events.push({
+                          type: "ENTRY",
+                          ts: entryTsRaw,
+                          shares: initialShares,
+                          price: entryPx,
+                          value: initialShares * entryPx,
+                          realized_pnl: 0,
+                          reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null,
+                        });
+                      }
+
+                      // 2) Trims + Exit from trade.history
+                      const hist = Array.isArray(mt.history) ? mt.history : [];
+                      for (const h of hist) {
+                        const t = String(h?.type || "").toUpperCase();
+                        if (t !== "TRIM" && t !== "EXIT") continue;
+                        events.push({
+                          type: t,
+                          ts: Number(h.timestamp ?? h.ts ?? 0),
+                          shares: Number(h.shares ?? 0),
+                          price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
+                          value: Number(h.value ?? (Number(h.shares) * Number(h.price)) ?? 0),
+                          realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
+                          reason: h.reason_human || h.reason || h.note || null,
+                          pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null,
+                        });
+                      }
+
+                      // 3) Fallback for older records that didn't accumulate
+                      // history but have a single trim_price + exit_price
+                      // on the trade record itself. Synthesize a row for
+                      // each so old trades still render the log.
+                      if (events.length <= 1) {
+                        const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
+                        const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
+                        const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
+                        if (trimPx > 0 && trimPctFrac > 0 && trimTs > 0) {
+                          const trimShares = initialShares * trimPctFrac;
+                          events.push({
+                            type: "TRIM",
+                            ts: trimTs,
+                            shares: trimShares,
+                            price: trimPx,
+                            value: trimShares * trimPx,
+                            realized_pnl: (trimPx - entryPx) * trimShares * dirMul,
+                            reason: "Trim (legacy record)",
+                          });
+                        }
+                        const exitPxF = Number(mt.exit_price ?? mt.exitPrice ?? 0);
+                        const exitTsF = Number(mt.exit_ts ?? mt.exitTs ?? 0);
+                        if (exitPxF > 0 && exitTsF > 0) {
+                          const remShares = initialShares * (1 - Math.min(trimPctFrac, 1));
+                          events.push({
+                            type: "EXIT",
+                            ts: exitTsF,
+                            shares: remShares,
+                            price: exitPxF,
+                            value: remShares * exitPxF,
+                            realized_pnl: Number(mt.pnl ?? mt.realized_pnl ?? 0) || ((exitPxF - entryPx) * remShares * dirMul),
+                            reason: mt.exit_reason || null,
+                          });
+                        }
+                      }
+
+                      events.sort((a, b) => Number(a.ts) - Number(b.ts));
+                      if (events.length === 0) return null;
+
+                      // 4) Build display rows with running share count + cumulative P&L.
+                      let runningShares = 0;
+                      let cumPnl = 0;
+                      const displayRows = events.map((ev) => {
+                        const sh = Number(ev.shares) || 0;
+                        if (ev.type === "ENTRY") runningShares += sh;
+                        else runningShares = Math.max(0, runningShares - sh);
+                        cumPnl += Number(ev.realized_pnl) || 0;
+                        return { ...ev, running_shares: runningShares, cum_pnl: cumPnl };
+                      });
+
+                      // Total realized vs current open (mark-to-market). For
+                      // OPEN trades, also show the unrealized PnL as a final
+                      // 'OPEN POSITION' row so users see what's still at risk.
+                      const realizedTotal = cumPnl;
+                      const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && entryPx > 0
+                        ? (_liveCurrentPx - entryPx) * runningShares * dirMul
+                        : 0;
+
+                      const typeChipCls = (t) => t === "ENTRY"
+                        ? "bg-[#60a5fa]/15 text-[#60a5fa] border-[#60a5fa]/40"
+                        : t === "EXIT"
+                          ? "bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/40"
+                          : "bg-[#a78bfa]/15 text-[#a78bfa] border-[#a78bfa]/40";
+
+                      const _fmtDateShort = (ts) => {
+                        if (!Number.isFinite(ts) || ts <= 0) return "—";
+                        const t = ts < 1e12 ? ts * 1000 : ts;
+                        return new Date(t).toLocaleString("en-US", {
+                          month: "short", day: "numeric",
+                          hour: "numeric", minute: "2-digit", hour12: true,
+                          timeZone: "America/New_York",
+                        });
+                      };
+                      const _fmtShares = (s) => {
+                        const n = Number(s);
+                        if (!Number.isFinite(n)) return "—";
+                        return n >= 100 ? Math.round(n).toString() : n.toFixed(2);
+                      };
+
+                      return (
+                        <div className="rounded-lg border border-white/[0.08] bg-white/[0.015] shrink-0">
+                          <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
+                            <span className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-[0.14em]">Event Log · Receipt</span>
+                            <span className="text-[10px] text-[#6b7280]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
+                          </div>
+                          <div style={{ overflowX: "auto" }}>
+                            <table className="w-full text-[12px] tabular-nums" style={{ fontVariantNumeric: "tabular-nums", borderCollapse: "collapse", minWidth: 560 }}>
+                              <thead>
+                                <tr className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+                                  <th className="text-left px-3 py-1.5 font-medium">When (ET)</th>
+                                  <th className="text-left px-2 py-1.5 font-medium">Event</th>
+                                  <th className="text-right px-2 py-1.5 font-medium">Shares</th>
+                                  <th className="text-right px-2 py-1.5 font-medium">Price</th>
+                                  <th className="text-right px-2 py-1.5 font-medium">Value</th>
+                                  <th className="text-right px-2 py-1.5 font-medium">P&amp;L</th>
+                                  <th className="text-right px-3 py-1.5 font-medium">Held after</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {displayRows.map((r, i) => {
+                                  const pnlCls = r.type === "ENTRY"
+                                    ? "text-[#6b7280]"
+                                    : r.realized_pnl >= 0
+                                      ? "text-[#22c55e]"
+                                      : "text-[#ef4444]";
+                                  return (
+                                    <React.Fragment key={`evlog-${i}`}>
+                                      <tr className="border-t border-white/[0.04]">
+                                        <td className="px-3 py-2 text-[#9ca3af] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
+                                        <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
+                                        <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
+                                        <td className="px-2 py-2 text-right text-white">{Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"}</td>
+                                        <td className="px-2 py-2 text-right text-[#9ca3af]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
+                                        <td className={`px-2 py-2 text-right font-semibold ${pnlCls}`}>{r.type === "ENTRY" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)}</td>
+                                        <td className="px-3 py-2 text-right text-[#6b7280]">{_fmtShares(r.running_shares)}</td>
+                                      </tr>
+                                      {r.reason && (
+                                        <tr className="border-t-0">
+                                          <td colSpan="7" className="px-3 pb-2 -mt-1 text-[10px] text-[#6b7280] italic">↳ {String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}</td>
+                                        </tr>
+                                      )}
+                                    </React.Fragment>
+                                  );
+                                })}
+                                {/* Total realized row */}
+                                <tr className="border-t border-white/[0.12] bg-white/[0.02]">
+                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af] font-semibold" colSpan="5">Total realized</td>
+                                  <td className={`px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)}</td>
+                                  <td className="px-3 py-2 text-right text-[11px] text-[#6b7280]">{_fmtShares(runningShares)} held</td>
+                                </tr>
+                                {_isOpenStatus && unrealized !== 0 && (
+                                  <tr className="bg-[#22c55e]/[0.04]">
+                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af]" colSpan="5">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
+                                    <td className={`px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)}</td>
+                                    <td className="px-3 py-2 text-right text-[10px] text-[#6b7280]">open</td>
+                                  </tr>
+                                )}
+                                {_isOpenStatus && unrealized !== 0 && (
+                                  <tr className="border-t border-white/[0.12]">
+                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold" colSpan="5">Net P&amp;L (realized + open)</td>
+                                    <td className={`px-2 py-2 text-right text-[14px] font-bold ${(realizedTotal + unrealized) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{((realizedTotal + unrealized) >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)}</td>
+                                    <td className="px-3 py-2"></td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0">
                       <div className="lg:col-span-1 flex flex-col gap-3 min-h-0 lg:overflow-y-auto order-2 lg:order-1">
                         {(entrySnap || tfStack || _entryPath || _grade) && (
