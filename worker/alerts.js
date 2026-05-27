@@ -181,20 +181,26 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
   }
 
   if (t === "TRADE_ENTRY") {
-    const rr = Number(ctx.rr);
-    const rank = Number(ctx.rank);
-    const momentumElite = !!ctx.momentumElite;
-    if (Number.isFinite(rank) && rank >= 80 && Number.isFinite(rr) && rr >= 2.0)
-      return true;
-    if (
-      momentumElite &&
-      Number.isFinite(rank) &&
-      rank >= 75 &&
-      Number.isFinite(rr) &&
-      rr >= 1.6
-    )
-      return true;
-    return false;
+    // 2026-05-27 (PR #328) — Always alert on entry.
+    //
+    // User report: 'I see the Active Trader Lane has GS as an open
+    // trade and in Defend lane. But I did not see any alert for it,
+    // it is not in the activity stream nor discord.'
+    //
+    // Root cause: this filter previously required rank≥80 AND rr≥2.0
+    // (or momentum_elite path rank≥75 + rr≥1.6) for the Discord alert
+    // to fire. GS entered below those thresholds → Discord suppressed.
+    // Combined with the user's observation that the activity strip was
+    // also missing the entry (separate but related visibility gap),
+    // entries below the 'critical' threshold became invisible.
+    //
+    // The 'critical_only' mode was originally designed to reduce noise
+    // when Discord alerts were dispatched for many event types. But
+    // TRADE_ENTRY is bounded (~3-10 entries/day max) — spam isn't a
+    // concern — and visibility into EVERY trade is more valuable than
+    // skipping low-rank ones. Matches the TRADE_EXIT semantic above
+    // which always returns true.
+    return true;
   }
 
   // Kanban lane transitions (aligned with 7-lane system)
