@@ -120,6 +120,8 @@ Only the user can update this — it lives in the Cloudflare Dashboard.
 - Deploy worker to BOTH default + production envs
 - ROUTES array must include new endpoints
 - Worker routes use `/timed/` prefix
+- **"Deploy Failure" emails can be lying** — `Check react-app-dist is up-to-date` workflow's `IGNORE_PATTERN` must list every per-build varying string. If build adds a new cache-bust insertion point, extend the regex in `.github/workflows/check-dist.yml` at the same time. (PR #303)
+- **`git apply` silently clobbers** when rebasing a PR onto a fresh main that has co-merged dependency PRs. Use `git cherry-pick <original-commit>` instead — it surfaces real conflicts. After ANY rebase that touches files a dependency PR also touched, `grep -nE` for the dependency's added symbols to verify. (PR #311 incident)
 
 **D1**
 - Batch reads: `db.batch()` max ~500 per call
@@ -130,6 +132,12 @@ Only the user can update this — it lives in the Cloudflare Dashboard.
 - `getDailyChange(t)` from shared-price-utils.js — never inline daily change
 - TwelveData native fields over manual `price - prevClose`
 - `timed:prices` keys: `p`, `pc`, `dc`, `dp`, `ahp`, `ahdc`, `ahdp`
+- **Babel-standalone pages MUST render nav as static HTML** outside `<div id="root">` — JSX compile is 1-3s cold-load → blank-page bug otherwise. See `today.html` / `active-trader.html` for the pattern. (PR #304)
+- **New pages using `.nav-links` markup MUST be added to `JOURNEY_PATHS`** in `tt-nav-extras.js` (line ~370). Otherwise the script prepends a duplicate journey-link strip. (PR #304)
+- **Don't render `<TimedNotificationCenter />` + `<TimedUserBadge />` in React** on pages with `tt-nav-extras.js` — `injectRightWidgets()` already mounts them. Double-rendering = two bells + two avatars. (PR #304)
+- **TwelveData margin fields all multiply by 100** (decimal → percent) — `profit_margin`, `operating_margin`, `gross_margin`, `return_on_equity_ttm`, `return_on_assets_ttm`. Forgetting on any one ships impossible values like `gross_margin 0.7%` when net is `41.5%`. (PR #306)
+- **TwelveData FCF: `free_cash_flow_ttm` is canonical** — `levered_free_cash_flow_ttm` is inconsistently populated per ticker. Use the fallback chain in `worker/index.js` to avoid 8× under-reports. (PR #306)
+- **Saty ATR labels are jargon to users** — `DAY GATE / +38.2%` should render as `Today's Range / Expected High` in any UI a non-Saty-reader will see. Math unchanged; vocab swapped. (PR #305)
 
 **Trades**
 - `exit_ts` on ALL exit paths
@@ -161,6 +169,15 @@ Only the user can update this — it lives in the Cloudflare Dashboard.
 - Continuous learning: `d1UpdateLearningOnClose()` adjusts SL/TP multipliers per trade outcome
 - UI: System Intelligence → Ticker Profiles tab; Trade Autopsy → Learning Profile card
 - `build-ticker-learning.js` must sanitize candle arrays before indicator/canonical enrichment: drop unreasonable future timestamps and trim each TF to `since` + bounded warmup so legacy manual-history outliers (for example `SPX`) do not blow up `slice(0, idx + 1)` costs.
+
+**Markov / Regime Forecast** (5m bars, daily KV refresh)
+- 5m bar = 1 tick → `timed_trail`; daily aggregation → `trail_5m_facts` (per `bucket_ts = floor(ts/300000)*300000`); daily compute → `timed:regime:matrix:global`
+- **Universe matrix** + **per-ticker matrices for top-50 active tickers** at `timed:regime:matrix:ticker:{TICKER}` (manifest at `:_manifest`). Forecast read path prefers per-ticker, falls back to universe. (PR #309)
+- **Expanded 12-state matrix** at `timed:regime:matrix:expanded:global` (4 quadrants × 3 completion bands: EARLY <30% / MID 30-70% / LATE >70%). Surfaced in `regime_forecast.expanded` alongside the 4-state version. 4-state still primary. (PR #311)
+- Forecast payload: `regime_forecast = { state, p_next, p_5_bar, p_20_bar, p_1h, p_1d, p_1w, matrix_source, matrix_total_transitions, matrix_window_days, matrix_computed_at, expanded: {...} }`. Horizons via `matrixPower()` repeated squaring (cheap). (PR #310 added the long-horizon set)
+- Matrix builder hardening (PR #308): `maxGapMs=12min` drops cross-session transitions; exponential recency decay (half-life 30d) means recent transitions count more. `counts` stays integer (back-compat); new `effective_counts` is weighted.
+- Mathematically correct longer horizons via `P^n` — by `p_1w` (390 bars) the distribution converges to the stationary π (long-run regime baseline). Not a bug; informative for investor-mode users.
+- Operator gates: `gates.markov_per_ticker_enabled` (default-on), `gates.adaptive_scoring_v1` (default-off), `gates.cell_markov_divergence_enabled` (default-off, shadow only).
 
 **Inspecting candles**
 - `TICKER=FIX DATE=2025-09-18 TIME=12:10 node scripts/inspect-candles.js` — API
