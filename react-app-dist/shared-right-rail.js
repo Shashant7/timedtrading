@@ -2119,15 +2119,67 @@
           setAutopsyModalProfile(null);
           const _tid = t.trade_id || t.id || "";
           const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
+          // 2026-05-27 (PR #320) — Trade Autopsy entry/P&L recovery.
+          // User report: FN Long Exit chip on the Activity Strip
+          // opened Trade Review showing "Entry — @ $0.00" + "P&L: $0.00".
+          //
+          // Root cause: the admin trade-autopsy endpoint requires
+          // `?key=${window._ttApiKey}`. If _ttApiKey isn't populated
+          // (which it often isn't for non-admin sessions, even though
+          // the user is logged in as admin via CF Access), the fetch
+          // returns 401 → catch path → falls back to the stub `t`
+          // which has entry_price=undefined for EXIT-chip clicks
+          // (see tt-rail-bridge.js ttBuildAutopsyStubFromActivity).
+          //
+          // Fix: when the admin fetch doesn't find the trade (404 OR
+          // empty match OR auth fail), fall back to the PUBLIC
+          // /timed/ledger/trades/:id endpoint which returns the full
+          // trade row (no admin key required). Both sources have
+          // entry_price + exit_price + pnl so the modal renders
+          // correctly regardless of which one wins.
+          const finalizeWith = (rec) => {
+            // Merge: stub from click as baseline, server record overlays.
+            // Prefer server fields when present, even if 0/null.
+            setAutopsyModalData({ ...t, ...(rec || {}) });
+            setAutopsyModalLoading(false);
+          };
           fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
-            .then(r => r.json())
+            .then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`)))
             .then(d => {
               const allTrades = Array.isArray(d?.trades) ? d.trades : [];
               const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-              setAutopsyModalData(match || d?.trade || t);
-              setAutopsyModalLoading(false);
+              if (match) {
+                finalizeWith(match);
+                return;
+              }
+              if (d?.trade) {
+                finalizeWith(d.trade);
+                return;
+              }
+              throw new Error("no_match_in_admin_response");
             })
-            .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+            .catch((_adminErr) => {
+              // Admin fetch failed or returned no match — try the public
+              // ledger endpoint as a fallback.
+              if (!_tid) {
+                setAutopsyModalData(t);
+                setAutopsyModalLoading(false);
+                return;
+              }
+              fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`)
+                .then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`)))
+                .then(d => {
+                  // Public ledger returns { ok: true, trade: {...} } or top-level fields.
+                  const rec = d?.trade || d?.row || (d?.ok ? d : null);
+                  if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
+                    finalizeWith(rec);
+                  } else {
+                    setAutopsyModalData(t);
+                    setAutopsyModalLoading(false);
+                  }
+                })
+                .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+            });
           // /timed/profile/:ticker legitimately 404s for tickers without a
           // behavioral profile yet (most freshly-onboarded tickers). Catch
           // the rejection AND swallow the response error so the browser
@@ -11056,4 +11108,4 @@
   };
 })();
 
-// cache-bust:1779894508091:449249239
+// cache-bust:1779897604111:263205226

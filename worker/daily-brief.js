@@ -1169,6 +1169,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false);
   spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true);
   qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true);
+  // 2026-05-27 (PR #320) — IWM was MISSING from the validate list.
+  // Symptom: SPY/QQQ in the morning brief showed pre-market price
+  // (validate refreshed from price-feed) but IWM was stuck at the
+  // prior daily close. Same shape as the bug PR #283 fixed for SPY/
+  // QQQ — just never extended to IWM. Adding now so all three index
+  // ETFs get pre-market refresh consistently.
+  iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true);
 
   // Process sector performance
   const sectors = SECTOR_ETFS.map(sym => {
@@ -2890,6 +2897,19 @@ the prose, the card, and the per-ETF Prediction all speak the same language.
 
 ${(() => {
   const lines = [];
+  // 2026-05-27 (PR #320) — Include LIVE/PRE-MARKET current price
+  // for each ETF so the AI substitutes the right value in the
+  // "@$[currentPrice]" template placeholder downstream.
+  // ETF-data maps: SPY/QQQ/IWM come from validateMarketData() above,
+  // which patches `price` from the price-feed when scoring payload
+  // is stale (handles pre-market / extended-hours correctly).
+  const _curPxMap = {
+    ES:  Number(data.market?.ES?.price) || null,
+    NQ:  Number(data.market?.NQ?.price) || null,
+    SPY: Number(data.market?.SPY?.price) || null,
+    QQQ: Number(data.market?.QQQ?.price) || null,
+    IWM: Number(data.market?.IWM?.price) || null,
+  };
   for (const [sym, tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     const af = tech?.atrFibLevels;
     const gp = af?.gamePlan;
@@ -2900,8 +2920,10 @@ ${(() => {
     const range = (Number.isFinite(dn38) && Number.isFinite(up38))
       ? `expected day range $${dn38}–$${up38} (Day Gate)`
       : "";
-    const midStr = Number.isFinite(mid) ? `mid $${mid}` : "";
-    const head = [midStr, range].filter(Boolean).join(" · ");
+    const curPx = _curPxMap[sym];
+    const curStr = Number.isFinite(curPx) && curPx > 0 ? `current $${curPx.toFixed(2)}` : "";
+    const midStr = Number.isFinite(mid) ? `Saty pivot $${mid}` : "";
+    const head = [curStr, midStr, range].filter(Boolean).join(" · ");
     lines.push(`${sym}: ${head}${head ? " | " : ""}BULL break above $${gp.bullTrigger} → target $${gp.bullTarget} | BEAR break below $${gp.bearTrigger} → target $${gp.bearTarget}`);
   }
   return lines.length > 0 ? lines.join("\n") : "Use SMC support/resistance levels as triggers.";
@@ -3114,10 +3136,17 @@ End with FIVE clear sections (in this exact order):
   PLAIN ENGLISH. Use ONLY the SPY numbers from "Game Plan Triggers + Day Gate" above.
   Required shape (replace bracketed placeholders verbatim — do NOT rephrase the labels):
 
-  "**SPY @ \\$[mid]** · Range today \\$[dayLow]–\\$[dayHigh]
+  "**SPY @ \\$[currentPrice]** · Range today \\$[dayLow]–\\$[dayHigh]
    ▲ **Bull above \\$[bullTrigger] → \\$[bullTarget]**
    ▼ **Bear below \\$[bearTrigger] → \\$[bearTarget]**
    Lean: [BULL|BEAR|NEUTRAL] — [≤ 10 words explaining why]."
+
+  IMPORTANT: [currentPrice] MUST be the "current $X.XX" value from the
+  Game Plan block above (the LIVE / pre-market price), NOT the Saty
+  pivot. This is what the user is comparing against the triggers.
+  2026-05-27 (PR #320) fix — previously this template used the Saty
+  pivot (= prior daily close) which made the "@$X" anchor look like
+  yesterday's stale data in pre-market.
 
   Rules:
   - Keep the 4-line structure exactly. No extra prose.
