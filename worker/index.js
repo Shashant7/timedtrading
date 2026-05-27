@@ -1090,6 +1090,12 @@ const ROUTES = [
   ["GET", "/timed/alert-debug", "GET /timed/alert-debug"],
   ["GET", "/timed/alert-replay", "GET /timed/alert-replay"],
   ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/decision-card"), "GET /timed/ledger/trades/:id/decision-card"],
+  // 2026-05-27 (PR #324) — per-trade event log for the Trade Autopsy
+  // receipt. Returns all account_ledger rows (ENTRY/TRIM/EXIT) matched
+  // by trade_id (via position_id) so the modal can render the full
+  // chronological history. Matched BEFORE the bare /:id route so the
+  // suffix match wins.
+  ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/events"), "GET /timed/ledger/trades/:id/events"],
   ["GET", (p) => p.startsWith("/timed/ledger/trades/"), "GET /timed/ledger/trades/:id"],
   ["GET", "/timed/ledger/trades", "GET /timed/ledger/trades"],
   ["GET", "/timed/ledger/alerts", "GET /timed/ledger/alerts"],
@@ -51218,6 +51224,125 @@ export default {
         );
       }
 
+      // 2026-05-27 (PR #324) — GET /timed/ledger/trades/:id/events
+      // Returns the chronological event log for a trade:
+      //   - ENTRY: synthesized from trades.entry_ts / .shares / .entry_price
+      //   - TRIM + EXIT: pulled from account_ledger rows matching the trade
+      //     (via position_id; falls back to ticker + time-window for legacy
+      //     trades where position_id wasn't recorded on the ledger row).
+      //
+      // Used by the Trade Autopsy receipt panel (PR #323). Public read-only
+      // endpoint — no admin key required (matches /timed/ledger/trades/:id).
+      if (routeKey === "GET /timed/ledger/trades/:id/events") {
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const tradeId = decodeURIComponent(
+          url.pathname.split("/timed/ledger/trades/")[1].replace(/\/events$/, "") || "",
+        ).trim();
+        if (!tradeId) return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+        try {
+          const tradeRow = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, shares,
+                    trim_ts, trim_price, trimmed_pct, exit_ts, exit_price,
+                    pnl, pnl_pct, status, setup_name, setup_grade
+               FROM trades WHERE trade_id = ?1 LIMIT 1`,
+          ).bind(tradeId).first();
+          if (!tradeRow) {
+            return sendJSON({ ok: false, error: "trade_not_found", trade_id: tradeId }, 404, corsHeaders(env, req));
+          }
+          const ticker = tradeRow.ticker;
+          const direction = String(tradeRow.direction || "LONG").toUpperCase();
+          const dirSign = direction === "SHORT" ? -1 : 1;
+          const entryPrice = Number(tradeRow.entry_price) || 0;
+          const entryTs = Number(tradeRow.entry_ts) || 0;
+          const totalShares = Number(tradeRow.shares) || 0;
+
+          // Look up the position_id for this trade. trades and positions
+          // are 1:1 by ticker+entry+direction; position_id lives on the
+          // ledger rows.
+          const posRow = await db.prepare(
+            `SELECT position_id FROM positions WHERE ticker=?1 AND direction=?2
+              ORDER BY entry_ts DESC LIMIT 1`,
+          ).bind(ticker, direction).first().catch(() => null);
+          const positionId = posRow?.position_id || null;
+
+          // Pull TRIM + EXIT events from account_ledger.
+          // Try position_id match first (most reliable); fall back to
+          // ticker + entry-after match for legacy trades.
+          let ledgerRows = { results: [] };
+          if (positionId) {
+            ledgerRows = await db.prepare(
+              `SELECT ts, event_type, qty, price, cash_delta, realized_pnl, balance, note
+                 FROM account_ledger
+                WHERE mode='trader' AND position_id=?1
+                  AND event_type IN ('ENTRY','TRIM','EXIT')
+                ORDER BY ts ASC`,
+            ).bind(positionId).all().catch(() => ({ results: [] }));
+          }
+          if (!ledgerRows.results?.length && entryTs > 0) {
+            // Legacy fallback: by ticker + ts >= entry_ts (with 1 min buffer
+            // for ms-precision differences between when the trade started and
+            // when the entry ledger row was written).
+            ledgerRows = await db.prepare(
+              `SELECT ts, event_type, qty, price, cash_delta, realized_pnl, balance, note
+                 FROM account_ledger
+                WHERE mode='trader' AND ticker=?1
+                  AND event_type IN ('ENTRY','TRIM','EXIT')
+                  AND ts >= ?2
+                ORDER BY ts ASC`,
+            ).bind(ticker, entryTs - 60000).all().catch(() => ({ results: [] }));
+          }
+
+          const rawEvents = (ledgerRows.results || []).map((r) => ({
+            type: String(r.event_type || "").toUpperCase(),
+            ts: Number(r.ts) || 0,
+            shares: Math.abs(Number(r.qty) || 0),
+            price: Number(r.price) || 0,
+            value: Math.abs(Number(r.cash_delta) || 0),
+            realized_pnl: Number(r.realized_pnl) || 0,
+            note: r.note || null,
+          }));
+          const hasEntryEvent = rawEvents.some((e) => e.type === "ENTRY");
+
+          // If no ENTRY event in account_ledger (older trades sometimes
+          // skipped the ENTRY ledger write), synthesize from the trades
+          // row so the receipt always starts with an ENTRY.
+          const events = [];
+          if (!hasEntryEvent && entryTs > 0 && entryPrice > 0 && totalShares > 0) {
+            events.push({
+              type: "ENTRY",
+              ts: entryTs,
+              shares: totalShares,
+              price: entryPrice,
+              value: totalShares * entryPrice,
+              realized_pnl: 0,
+              note: tradeRow.setup_name || null,
+              source: "synthesized_from_trade",
+            });
+          }
+          for (const ev of rawEvents) events.push({ ...ev, source: "account_ledger" });
+          events.sort((a, b) => a.ts - b.ts);
+
+          return sendJSON({
+            ok: true,
+            trade_id: tradeId,
+            ticker,
+            direction,
+            position_id: positionId,
+            entry_ts: entryTs,
+            entry_price: entryPrice,
+            total_shares_at_entry: totalShares,
+            trimmed_pct: Number(tradeRow.trimmed_pct) || 0,
+            status: tradeRow.status,
+            events,
+            event_count: events.length,
+            data_source: events.length > 0 ? (rawEvents.length > 0 ? "account_ledger" : "synthesized_from_trade") : "none",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/ledger/trades/:id") {
         const db = env?.DB;
         if (!db) {
@@ -51244,9 +51369,15 @@ export default {
 
         const tradeRow = await db
           .prepare(
+            // 2026-05-27 (PR #324) — added trim_price + trim_ts to the SELECT.
+            // Trade Autopsy receipt-log fallback (PR #323) needs these to
+            // synthesize a TRIM row for trades that pre-date the
+            // trade.history array. Without them the receipt only shows
+            // ENTRY for legacy trades.
             `SELECT
               trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-              exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
+              exit_ts, exit_price, exit_reason, trim_ts, trim_price,
+              trimmed_pct, pnl, pnl_pct,
               script_version, created_at, updated_at,
               setup_name, setup_grade, risk_budget, shares, notional
              FROM trades WHERE trade_id = ?1 LIMIT 1`,
@@ -54594,6 +54725,7 @@ export default {
 
           // 6) Patch the live trade in KV: trim_price + lastUpdate.
           let kvPatched = false;
+          let activityPatched = 0;
           if (KV) {
             try {
               const tradesKvKey = `timed:trades:all`;
@@ -54608,12 +54740,72 @@ export default {
                     __corrected_at: Date.now(),
                     __corrected_reason: "stale_price_correction",
                   };
-                  await kvPutJSON(KV, tradesKvKey, all);
+                  // 2026-05-27 (PR #324) — also patch the trade.history
+                  // entry for this trim so the Trade Autopsy receipt
+                  // shows the corrected price (it reads history when
+                  // available; account_ledger is the new fallback).
+                  if (Array.isArray(all[idx].history)) {
+                    const histIdx = all[idx].history.findIndex((h) => {
+                      const t = String(h?.type || "").toUpperCase();
+                      if (t !== "TRIM") return false;
+                      const hts = Number(h?.timestamp ?? h?.ts ?? 0);
+                      return Math.abs(hts - Number(trimRow.ts)) <= 300000;
+                    });
+                    if (histIdx >= 0) {
+                      const oldHist = all[idx].history[histIdx];
+                      all[idx].history[histIdx] = {
+                        ...oldHist,
+                        price: newPrice,
+                        trim_price: newPrice,
+                        value: newPrice * Number(oldHist.shares || 0),
+                        pnl_realized: newRealizedPnl,
+                        __corrected_at: Date.now(),
+                      };
+                    }
+                    await kvPutJSON(KV, tradesKvKey, all);
+                  } else {
+                    await kvPutJSON(KV, tradesKvKey, all);
+                  }
                   kvPatched = true;
                 }
               }
             } catch (kvErr) {
               console.warn("[CORRECT-TRIM] KV patch failed:", String(kvErr).slice(0, 150));
+            }
+
+            // 2026-05-27 (PR #324) — Activity feed patch. timed:activity:feed
+            // is what tt-activity-strip.js renders ('RECENT ACTIVITY · TRIM
+            // TSM LONG @ $412.32 ...'); if we don't patch it the activity
+            // strip keeps showing the stale price even though the trade
+            // ledger has been corrected. Match by (ticker, type='TRIM', ts
+            // within ±5min of the corrected ledger row) and update the
+            // event's price + summary text.
+            try {
+              const feedKey = "timed:activity:feed";
+              const feed = (await kvGetJSON(KV, feedKey)) || [];
+              if (Array.isArray(feed)) {
+                let feedPatched = 0;
+                for (let i = 0; i < feed.length; i++) {
+                  const ev = feed[i];
+                  if (!ev || String(ev.ticker || "").toUpperCase() !== ticker) continue;
+                  const evType = String(ev.type || ev.event_type || "").toUpperCase();
+                  if (evType !== "TRIM" && evType !== "TRADE_TRIM") continue;
+                  const evTs = Number(ev.ts ?? ev.timestamp ?? 0);
+                  if (Math.abs(evTs - Number(trimRow.ts)) > 300000) continue;
+                  feed[i] = {
+                    ...ev,
+                    price: newPrice,
+                    __corrected_at: Date.now(),
+                  };
+                  feedPatched++;
+                }
+                if (feedPatched > 0) {
+                  await kvPutJSON(KV, feedKey, feed);
+                  activityPatched = feedPatched;
+                }
+              }
+            } catch (feedErr) {
+              console.warn("[CORRECT-TRIM] activity feed patch failed:", String(feedErr).slice(0, 150));
             }
           }
 
@@ -54637,6 +54829,7 @@ export default {
             new_realized_pnl: newRealizedPnl,
             balance_delta: balanceDelta,
             kv_patched: kvPatched,
+            activity_feed_patched: activityPatched,
             ledger_row_id: trimRow.ledger_id,
             ledger_ts: Number(trimRow.ts),
           }, 200, corsHeaders(env, req));

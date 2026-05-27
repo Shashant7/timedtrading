@@ -2486,13 +2486,22 @@
       const [autopsyModalData, setAutopsyModalData] = useState(null);
       const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
       const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
+      const [autopsyEvents, setAutopsyEvents] = useState(null);
       const _openAutopsy = useCallback(t => {
         if (!t) return;
         setAutopsyModal(t);
         setAutopsyModalLoading(true);
         setAutopsyModalData(null);
         setAutopsyModalProfile(null);
+        setAutopsyEvents(null);
         const _tid = t.trade_id || t.id || "";
+        if (_tid) {
+          fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/events`).then(r => r.ok ? r.json() : null).then(d => {
+            if (d?.ok && Array.isArray(d.events) && d.events.length > 0) {
+              setAutopsyEvents(d);
+            }
+          }).catch(() => {});
+        }
         const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
         const finalizeWith = rec => {
           setAutopsyModalData({
@@ -2686,7 +2695,22 @@
           const entryPx = Number(mt.entry_price ?? mt.entryPrice ?? 0);
           const entryTsRaw = Number(mt.entry_ts ?? mt.entryTs ?? 0);
           const dirMul = _dir === "SHORT" ? -1 : 1;
-          if (initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
+          const ledgerEvents = autopsyEvents && Array.isArray(autopsyEvents.events) ? autopsyEvents.events : null;
+          if (ledgerEvents && ledgerEvents.length > 0) {
+            for (const ev of ledgerEvents) {
+              events.push({
+                type: String(ev.type || "").toUpperCase(),
+                ts: Number(ev.ts) || 0,
+                shares: Number(ev.shares) || 0,
+                price: Number(ev.price) || 0,
+                value: Number(ev.value) || 0,
+                realized_pnl: Number(ev.realized_pnl) || 0,
+                reason: ev.note || null
+              });
+            }
+            events.sort((a, b) => Number(a.ts) - Number(b.ts));
+          }
+          if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
             events.push({
               type: "ENTRY",
               ts: entryTsRaw,
@@ -2697,22 +2721,24 @@
               reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null
             });
           }
-          const hist = Array.isArray(mt.history) ? mt.history : [];
-          for (const h of hist) {
-            const t = String(h?.type || "").toUpperCase();
-            if (t !== "TRIM" && t !== "EXIT") continue;
-            events.push({
-              type: t,
-              ts: Number(h.timestamp ?? h.ts ?? 0),
-              shares: Number(h.shares ?? 0),
-              price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
-              value: Number(h.value ?? Number(h.shares) * Number(h.price) ?? 0),
-              realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
-              reason: h.reason_human || h.reason || h.note || null,
-              pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null
-            });
+          if (!ledgerEvents || ledgerEvents.length === 0) {
+            const hist = Array.isArray(mt.history) ? mt.history : [];
+            for (const h of hist) {
+              const t = String(h?.type || "").toUpperCase();
+              if (t !== "TRIM" && t !== "EXIT") continue;
+              events.push({
+                type: t,
+                ts: Number(h.timestamp ?? h.ts ?? 0),
+                shares: Number(h.shares ?? 0),
+                price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
+                value: Number(h.value ?? Number(h.shares) * Number(h.price) ?? 0),
+                realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
+                reason: h.reason_human || h.reason || h.note || null,
+                pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null
+              });
+            }
           }
-          if (events.length <= 1) {
+          if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
             const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
             const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
             const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
@@ -12614,4 +12640,4 @@
   };
 })();
 
-// cache-bust:1779901787722:478831947
+// cache-bust:1779904052626:120932828
