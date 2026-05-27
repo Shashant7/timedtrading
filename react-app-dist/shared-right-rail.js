@@ -4144,39 +4144,41 @@
                             </div>
                             <div style={{ borderTop: "1px solid var(--ds-stroke)", paddingTop: "var(--ds-space-2)" }}>
                               <div style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>
-                                Where it's likely headed
+                                Where it's likely headed · intraday
                               </div>
                               {renderRow("Next 5 min",    fc.p_next,   1,  "1 bar ahead — single 5-minute candle from the Markov transition matrix")}
                               {renderRow("Next 25 min",   fc.p_5_bar,  5,  "5 bars ahead — about half an hour of trading")}
                               {renderRow("Next 1h 40m",   fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")}
                             </div>
-                            {fc.matrix_window_days && (() => {
-                              /* 2026-05-27 (PR #309) — surface matrix source.
-                                 'per_ticker' = built from this ticker's own
-                                 90-day transition history (~5K transitions —
-                                 idiosyncratic to this name). 'universe' = built
-                                 from all 250 tickers (~1.2M transitions —
-                                 statistically robust but generic). The per-
-                                 ticker matrix only exists for the top-50 most
-                                 active tickers; the long tail uses universe. */
-                              const isPerTicker = fc.matrix_source === "per_ticker";
-                              const sampleN = Number(fc.matrix_total_transitions) || 0;
-                              const sampleStr = sampleN >= 1_000_000 ? `${(sampleN / 1_000_000).toFixed(1)}M`
-                                              : sampleN >= 1_000     ? `${(sampleN / 1_000).toFixed(1)}K`
-                                              : `${sampleN}`;
-                              const sourceLabel = isPerTicker
-                                ? `${tickerSymbol || "ticker"}'s own behavior (${sampleStr} obs)`
-                                : `universe-wide (${sampleStr} obs)`;
-                              const sourceColor = isPerTicker ? "var(--ds-accent, #f5c25c)" : "var(--ds-text-dim)";
-                              return (
-                                <p style={{ margin: "10px 0 0 0", fontSize: 9, color: "var(--ds-text-dim)", letterSpacing: "0.04em", opacity: 0.85 }}>
-                                  <span style={{ color: sourceColor, fontWeight: 600 }}>{sourceLabel}</span>
-                                  {" · "}{fc.matrix_window_days}-day window
-                                  {fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : ""}
-                                  {" · "}Bars are 5 min
-                                </p>
-                              );
-                            })()}
+
+                            {/* 2026-05-27 (PR #310 — improvement 4) — longer-
+                                horizon block. Same matrix raised to higher
+                                powers (Chapman–Kolmogorov: P^n applied to
+                                current state). As n grows the distribution
+                                converges toward the stationary distribution
+                                π; by 1 week (390 5-min bars) it's essentially
+                                showing the long-run regime baseline. Useful
+                                for investor-mode users + setting the
+                                multi-day context for intraday traders. */}
+                            {(fc.p_1h || fc.p_1d || fc.p_1w) && (
+                              <details style={{ marginTop: "var(--ds-space-2)" }}>
+                                <summary style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: "4px 0", userSelect: "none" }}>
+                                  Longer horizon · multi-day ▾
+                                </summary>
+                                <div style={{ marginTop: 4 }}>
+                                  {renderRow("Next 1 hour",  fc.p_1h, 12,  "12 bars ahead — one trading hour")}
+                                  {renderRow("Next 1 day",   fc.p_1d, 78,  "78 RTH bars ahead — one full trading session")}
+                                  {renderRow("Next 1 week",  fc.p_1w, 390, "390 RTH bars ahead — one trading week. Approaches the long-run baseline regime distribution.")}
+                                </div>
+                              </details>
+                            )}
+                            {fc.matrix_window_days && (
+                              <p style={{ margin: "10px 0 0 0", fontSize: 9, color: "var(--ds-text-dim)", letterSpacing: "0.04em", opacity: 0.7 }}>
+                                Markov matrix · {fc.matrix_window_days}-day window
+                                {fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : ""}
+                                {" · "}Bars are 5 min
+                              </p>
+                            )}
                           </Panel>
                         );
                       })()}
@@ -11022,4 +11024,4 @@
   };
 })();
 
-// cache-bust:1779850391495:829666481
+// cache-bust:1779851311206:755189395
