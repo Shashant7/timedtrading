@@ -377,6 +377,13 @@
       "/insights",
       "/learn",
       "/faq",
+      // 2026-05-26 — Added /daily-brief. PR #299 wired the Daily
+      // Brief page to use the same .nav-links / .nav-link structure
+      // as the other journey pages, so it now ALSO already has all
+      // these links in its HTML — injecting the journey-strip on
+      // top of them produced a duplicate text-only nav row above
+      // the branded nav row (user report 2026-05-26 11:51 PM UTC).
+      "/daily-brief",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a
@@ -564,4 +571,4 @@
   })();
 })();
 
-// cache-bust:1779836218072:404886223
+// cache-bust:1779840008941:795649928
