@@ -76889,12 +76889,33 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // separate one-time DELETE; this guard prevents the next
           // accidental insertion from permanently masking real staleness.
           const FUTURE_GUARD_MS = nowMs + 86400000;
-          // Worst-case D (among active tickers only)
+          // 2026-05-27 (PR #320) — Exclude macro / spot-metals tickers
+          // from the freshness monitor. These show up in ticker_candles
+          // because we ingest them for the homepage indices ribbon,
+          // but their data feeds are inherently lower-cadence (spot
+          // metals are often daily-only) so they trigger nuisance
+          // alerts every day. None of them are tradable on the platform.
+          // User report 2026-05-27: 'remove US500' from the monitor +
+          // 'look into the GOLD candle stale notice' (which is just
+          // the same data-coverage gap, not a real bug).
+          const FRESHNESS_EXCLUDE = [
+            "US500", "US100", "US30", "US2000",  // TV-style index aliases (we use SPY/QQQ/IWM/DIA instead)
+            "DXY",                                 // Dollar index — daily-only from most vendors
+            "USOIL",                               // Crude oil index alias
+            "GOLD", "SILVER", "COPPER",            // Spot metals — daily only on TD
+            "PLATINUM", "PALLADIUM",
+            "SPX",                                 // S&P 500 cash index — daily only
+          ];
+          const _frExcludeNotIn = FRESHNESS_EXCLUDE.map((_, i) => `?${i + 4}`).join(",");
+          // Worst-case D (among active tickers only, excluding non-tradable macros)
           const dRow = await db.prepare(
             `SELECT ticker, max_ts FROM (
-               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' AND ts <= ?3 GROUP BY ticker
+               SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
+                WHERE tf = 'D' AND ts <= ?3
+                  AND ticker NOT IN (${_frExcludeNotIn})
+                GROUP BY ticker
              ) WHERE max_ts >= ?1 ORDER BY max_ts ASC LIMIT 1`
-          ).bind(nowMs - ACTIVE_WINDOW_D_MS, 0, FUTURE_GUARD_MS).first();
+          ).bind(nowMs - ACTIVE_WINDOW_D_MS, 0, FUTURE_GUARD_MS, ...FRESHNESS_EXCLUDE).first();
           if (dRow) {
             const dDays = (nowMs - Number(dRow.max_ts)) / 86400000;
             if (dDays > STALE_D_DAYS) {
@@ -76914,15 +76935,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Worst-case 60m, scoped to tickers whose D feed is also fresh
           // (catches genuine 60m ingestion failure; ignores tickers that
           // have stopped trading intraday for corporate-action reasons but
-          // still get a daily aggregate).
+          // still get a daily aggregate). Same exclude list as the D check.
+          // Note: the placeholder positions starting at ?4 are re-used in
+          // both NOT IN clauses below — single bind of FRESHNESS_EXCLUDE
+          // serves both.
+          const _frExcludeNotIn60 = FRESHNESS_EXCLUDE.map((_, i) => `?${i + 4}`).join(",");
           const _h60Row = await db.prepare(
             `SELECT c60.ticker AS ticker, c60.max_ts AS max_ts FROM (
                SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles
-               WHERE tf = '60' AND ts <= ?2 GROUP BY ticker
+               WHERE tf = '60' AND ts <= ?2
+                 AND ticker NOT IN (${_frExcludeNotIn60})
+               GROUP BY ticker
              ) c60
              JOIN (
                SELECT ticker, MAX(ts) AS d_ts FROM ticker_candles
-               WHERE tf = 'D' AND ts <= ?2 GROUP BY ticker
+               WHERE tf = 'D' AND ts <= ?2
+                 AND ticker NOT IN (${_frExcludeNotIn60})
+               GROUP BY ticker
              ) cD ON c60.ticker = cD.ticker
              WHERE c60.max_ts >= ?1
                AND cD.d_ts >= ?3
@@ -76931,6 +76960,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             nowMs - ACTIVE_WINDOW_60_MS,
             FUTURE_GUARD_MS,
             nowMs - 7 * 86400000,   // D candle within the last 7 days
+            ...FRESHNESS_EXCLUDE,    // shared by both NOT IN clauses (?4..?N)
           ).first();
           if (_h60Row) {
             const h60Hours = (nowMs - Number(_h60Row.max_ts)) / 3600000;

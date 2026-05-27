@@ -2494,14 +2494,43 @@
         setAutopsyModalProfile(null);
         const _tid = t.trade_id || t.id || "";
         const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
-        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.json()).then(d => {
+        const finalizeWith = rec => {
+          setAutopsyModalData({
+            ...t,
+            ...(rec || {})
+          });
+          setAutopsyModalLoading(false);
+        };
+        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`))).then(d => {
           const allTrades = Array.isArray(d?.trades) ? d.trades : [];
           const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-          setAutopsyModalData(match || d?.trade || t);
-          setAutopsyModalLoading(false);
-        }).catch(() => {
-          setAutopsyModalData(t);
-          setAutopsyModalLoading(false);
+          if (match) {
+            finalizeWith(match);
+            return;
+          }
+          if (d?.trade) {
+            finalizeWith(d.trade);
+            return;
+          }
+          throw new Error("no_match_in_admin_response");
+        }).catch(_adminErr => {
+          if (!_tid) {
+            setAutopsyModalData(t);
+            setAutopsyModalLoading(false);
+            return;
+          }
+          fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`))).then(d => {
+            const rec = d?.trade || d?.row || (d?.ok ? d : null);
+            if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
+              finalizeWith(rec);
+            } else {
+              setAutopsyModalData(t);
+              setAutopsyModalLoading(false);
+            }
+          }).catch(() => {
+            setAutopsyModalData(t);
+            setAutopsyModalLoading(false);
+          });
         });
         if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, {
           cache: "no-store"
@@ -12397,4 +12426,4 @@
   };
 })();
 
-// cache-bust:1779894508091:449249239
+// cache-bust:1779897604111:263205226
