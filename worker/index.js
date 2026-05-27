@@ -54627,10 +54627,37 @@ export default {
         const KV = env?.KV_TIMED;
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
-          const body = await req.json().catch(() => ({}));
+          // 2026-05-27 (PR #325) — distinguish "no body / invalid JSON"
+          // from "valid JSON missing trade_id". Previous code returned
+          // 'missing trade_id' in BOTH cases, which confused users who
+          // pasted a placeholder like '<ACTUAL_PRICE>' verbatim — JSON
+          // parsing failed → caught → body was {} → 'missing trade_id'.
+          let body = null;
+          let jsonParseError = null;
+          try { body = await req.json(); }
+          catch (e) { jsonParseError = String(e?.message || e).slice(0, 200); }
+          if (jsonParseError) {
+            return sendJSON({
+              ok: false,
+              error: "invalid_json_body",
+              detail: jsonParseError,
+              hint: "Make sure your --data arg is valid JSON. Did you forget to replace a placeholder like <ACTUAL_PRICE> with an actual number?",
+            }, 400, corsHeaders(env, req));
+          }
+          if (!body || typeof body !== "object") {
+            return sendJSON({
+              ok: false,
+              error: "missing_body",
+              hint: 'Request body required: {"trade_id": "..."} (optionally + "trim_ts" or "new_price")',
+            }, 400, corsHeaders(env, req));
+          }
           const tradeId = body?.trade_id || body?.tradeId;
           if (!tradeId || typeof tradeId !== "string") {
-            return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+            return sendJSON({
+              ok: false,
+              error: "missing trade_id",
+              hint: 'Pass {"trade_id": "TSM-..."} in the request body.',
+            }, 400, corsHeaders(env, req));
           }
           const overrideTrimTs = Number(body?.trim_ts) || null;
           const overridePrice = Number(body?.new_price) > 0 ? Number(body.new_price) : null;
