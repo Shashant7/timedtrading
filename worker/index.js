@@ -1186,6 +1186,11 @@ const ROUTES = [
   ["POST", "/timed/admin/trade-autopsy/correct-all-entries", "POST /timed/admin/trade-autopsy/correct-all-entries"],
   ["POST", "/timed/admin/trade-autopsy/correct-exit", "POST /timed/admin/trade-autopsy/correct-exit"],
   ["POST", "/timed/admin/trade-autopsy/correct-all-exits", "POST /timed/admin/trade-autopsy/correct-all-exits"],
+  // 2026-05-27 (PR #318): mirror of correct-exit for TRIM events. The
+  // TSM PRE_PCE trim incident fired at $412.32 (yesterday's stale
+  // close) while TSM had gapped to ~$427. This endpoint repairs the
+  // account_ledger TRIM row + cascades the balance forward.
+  ["POST", "/timed/admin/trade-autopsy/correct-trim", "POST /timed/admin/trade-autopsy/correct-trim"],
   ["POST", "/timed/admin/refresh-prices", "POST /timed/admin/refresh-prices"],
   ["POST", "/timed/admin/seed-ticker", "POST /timed/admin/seed-ticker"],
   ["POST", "/timed/admin/candle-replay", "POST /timed/admin/candle-replay"],
@@ -54452,6 +54457,179 @@ export default {
             errors: errors.length,
             details: corrected.slice(0, 50),
             skipped_sample: skipped.slice(0, 10),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/correct-trim
+      // body: { trade_id, trim_ts?, new_price? }
+      //
+      // 2026-05-27 (PR #318) — repairs a single TRIM event in
+      // account_ledger when the trim was recorded against a stale
+      // price. Specifically built for the TSM PRE_PCE_RISK_REDUCTION
+      // incident at 9:31 AM ET 2026-05-27 (filled @ $412.32, the
+      // Tuesday 16:00 close, while TSM had gapped overnight to
+      // ~$427). Mirrors correct-exit shape but operates on
+      // account_ledger TRIM rows + updates the live trade KV.
+      //
+      // How it picks the new price (in order of preference):
+      //   1. body.new_price (explicit override)
+      //   2. The 5m candle close at trim_ts (or body.trim_ts override)
+      //   3. The 10m candle close at trim_ts (fallback)
+      //
+      // It then:
+      //   - UPDATE account_ledger SET price=?, cash_delta=?, realized_pnl=?, balance=? WHERE …
+      //   - Recomputes balance for ALL subsequent rows (cascade)
+      //   - Patches the live trade in KV: trade.trim_price, recompute
+      //     pnl_pct on the still-open remainder
+      if (routeKey === "POST /timed/admin/trade-autopsy/correct-trim") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        const KV = env?.KV_TIMED;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const tradeId = body?.trade_id || body?.tradeId;
+          if (!tradeId || typeof tradeId !== "string") {
+            return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
+          }
+          const overrideTrimTs = Number(body?.trim_ts) || null;
+          const overridePrice = Number(body?.new_price) > 0 ? Number(body.new_price) : null;
+
+          // 1) Find the trade in the trades table (gives us ticker + direction + entry_price + trim_ts).
+          const tradeRow = await db.prepare(
+            `SELECT trade_id, ticker, direction, entry_ts, entry_price, trim_ts, trim_price, exit_price, pnl, pnl_pct, status FROM trades WHERE trade_id = ?`
+          ).bind(tradeId).first();
+          if (!tradeRow) {
+            return sendJSON({ ok: false, error: "trade_not_found" }, 404, corsHeaders(env, req));
+          }
+          const ticker = tradeRow.ticker;
+          const direction = String(tradeRow.direction || "LONG").toUpperCase();
+          const dirSign = direction === "SHORT" ? -1 : 1;
+          const entryPrice = Number(tradeRow.entry_price) || 0;
+          const oldTrimPrice = Number(tradeRow.trim_price) || 0;
+          const trimTs = overrideTrimTs || Number(tradeRow.trim_ts) || 0;
+          if (!Number.isFinite(trimTs) || trimTs <= 0) {
+            return sendJSON({ ok: false, error: "invalid_trim_ts" }, 400, corsHeaders(env, req));
+          }
+          const asOfMs = trimTs < 1e12 ? trimTs * 1000 : trimTs;
+
+          // 2) Pick the new price.
+          let newPrice = overridePrice;
+          let priceSource = overridePrice ? "override" : null;
+          if (!newPrice) {
+            for (const tf of ["5", "10"]) {
+              try {
+                const candleRes = await d1GetCandlesAsOf(env, ticker, tf, 10, asOfMs);
+                const arr = candleRes?.candles;
+                if (Array.isArray(arr) && arr.length > 0) {
+                  const bar = arr.filter((c) => c.ts <= asOfMs).pop() || arr[arr.length - 1];
+                  const cp = Number(bar?.c);
+                  if (Number.isFinite(cp) && cp > 0) {
+                    newPrice = cp;
+                    priceSource = `${tf}m_candle_at_${bar.ts}`;
+                    break;
+                  }
+                }
+              } catch (_) { /* try next tf */ }
+            }
+          }
+          if (!Number.isFinite(newPrice) || newPrice <= 0) {
+            return sendJSON({ ok: false, error: "could_not_derive_new_price" }, 400, corsHeaders(env, req));
+          }
+          if (Math.abs(newPrice - oldTrimPrice) < 0.001 && !overridePrice) {
+            return sendJSON({ ok: true, corrected: false, message: "trim_price_already_correct", new_price: newPrice }, 200, corsHeaders(env, req));
+          }
+
+          // 3) Find the ledger TRIM row(s) for this trade. We match by
+          // (mode='trader', ticker, position_id or ticker+ts-window, event_type='TRIM').
+          // Some older trims may not have position_id set; widen by ticker + ts proximity (±5 min).
+          const ledgerRows = await db.prepare(
+            `SELECT id, ts, qty, price, cash_delta, realized_pnl, balance, position_id
+               FROM account_ledger
+              WHERE mode='trader' AND ticker=?1 AND event_type='TRIM'
+                AND ABS(ts - ?2) <= 300000
+              ORDER BY ts ASC`,
+          ).bind(ticker, asOfMs).all();
+          const trimRows = ledgerRows?.results || [];
+          if (trimRows.length === 0) {
+            return sendJSON({ ok: false, error: "no_matching_ledger_trim", ticker, trim_ts: asOfMs, hint: "passed body.trim_ts or trade.trim_ts didn't match an account_ledger TRIM within ±5min" }, 404, corsHeaders(env, req));
+          }
+          if (trimRows.length > 1) {
+            return sendJSON({ ok: false, error: "multiple_matching_trims", count: trimRows.length, hint: "pass body.trim_ts more precisely (±5 min match returned >1 row)" }, 409, corsHeaders(env, req));
+          }
+          const trimRow = trimRows[0];
+          const qty = Number(trimRow.qty) || 0;
+          if (qty <= 0) {
+            return sendJSON({ ok: false, error: "invalid_qty", qty }, 400, corsHeaders(env, req));
+          }
+
+          // 4) Recompute the row values from the new price.
+          const newCashDelta = newPrice * qty;     // proceeds added to cash
+          const newRealizedPnl = (newPrice - entryPrice) * qty * dirSign;
+          const balanceDelta = newCashDelta - (Number(trimRow.cash_delta) || 0);
+          const newBalance = (Number(trimRow.balance) || 0) + balanceDelta;
+
+          // 5) UPDATE the row + cascade balance forward.
+          await db.prepare(
+            `UPDATE account_ledger SET price=?1, cash_delta=?2, realized_pnl=?3, balance=?4 WHERE id=?5`,
+          ).bind(newPrice, newCashDelta, newRealizedPnl, newBalance, trimRow.id).run();
+
+          // Cascade the delta to ALL subsequent trader-mode rows.
+          await db.prepare(
+            `UPDATE account_ledger SET balance = balance + ?1 WHERE mode='trader' AND ts > ?2`,
+          ).bind(balanceDelta, Number(trimRow.ts)).run();
+
+          // 6) Patch the live trade in KV: trim_price + lastUpdate.
+          let kvPatched = false;
+          if (KV) {
+            try {
+              const tradesKvKey = `timed:trades:all`;
+              const all = (await kvGetJSON(KV, tradesKvKey)) || [];
+              if (Array.isArray(all)) {
+                const idx = all.findIndex((t) => String(t?.trade_id || t?.id || "") === String(tradeId));
+                if (idx >= 0) {
+                  all[idx] = {
+                    ...all[idx],
+                    trim_price: newPrice,
+                    trimPrice: newPrice,
+                    __corrected_at: Date.now(),
+                    __corrected_reason: "stale_price_correction",
+                  };
+                  await kvPutJSON(KV, tradesKvKey, all);
+                  kvPatched = true;
+                }
+              }
+            } catch (kvErr) {
+              console.warn("[CORRECT-TRIM] KV patch failed:", String(kvErr).slice(0, 150));
+            }
+          }
+
+          // 7) Update the trades row's trim_price (kept in sync with KV).
+          await db.prepare(
+            `UPDATE trades SET trim_price=?1, updated_at=?2 WHERE trade_id=?3`,
+          ).bind(newPrice, Date.now(), tradeId).run();
+
+          return sendJSON({
+            ok: true,
+            corrected: true,
+            trade_id: tradeId,
+            ticker,
+            direction,
+            entry_price: entryPrice,
+            old_trim_price: oldTrimPrice,
+            new_trim_price: newPrice,
+            price_source: priceSource,
+            qty,
+            old_realized_pnl: Number(trimRow.realized_pnl) || 0,
+            new_realized_pnl: newRealizedPnl,
+            balance_delta: balanceDelta,
+            kv_patched: kvPatched,
+            ledger_row_id: trimRow.id,
+            ledger_ts: Number(trimRow.ts),
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
