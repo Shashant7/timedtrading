@@ -28,21 +28,9 @@
     <script src="tt-global-search.js?v=20260522a" defer></script>
     <script src="tt-activity-strip.js?v=20260521c" defer></script>
     <style>
-      /* 2026-05-26 (PR #304) — Static-HTML nav styles ported from
-         today.html so the now-static nav at top of <body> (replacing
-         the in-React version) looks identical to today/AT/investor
-         and so tt-nav-extras.js can find the same `.nav-links /
-         .nav-link` selectors to attach badges + Admin dropdown. */
-      .topnav {
-        position: sticky; top: 0; z-index: 50;
-        background: rgba(10,10,15,0.95);
-        backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-        border-bottom: 1px solid rgba(255,255,255,0.06);
-      }
-      .nav-row {
-        display: flex; align-items: center; justify-content: space-between;
-        padding: 10px 16px; gap: 12px;
-      }
+      /* 2026-05-26 — Nav-link styles ported from today.html so the
+         shared tt-nav-extras.js badges + Admin dropdown render
+         correctly here. */
       .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
       .nav-link {
         font-size: 12.5px; color: #9ca3af; text-decoration: none;
@@ -52,25 +40,7 @@
       }
       .nav-link:hover { color: #e5e7eb; background: rgba(255,255,255,0.025); }
       .nav-link.faq, .nav-link.learn { color: #6b7280; font-size: 12px; }
-      .nav-link.active {
-        color: #f59e0b;
-        background: rgba(245,158,11,0.08);
-        border-color: rgba(245,158,11,0.20);
-      }
-      .nav-brand {
-        display: inline-flex; align-items: center; gap: 8px;
-        text-decoration: none; color: inherit; flex-shrink: 0;
-      }
-      .nav-brand .brand-text {
-        font-size: 15px; font-weight: 700; color: #fff;
-        letter-spacing: -0.03em;
-      }
-      @media (max-width: 720px) {
-        /* Hide the desktop nav-links on mobile — tt-bottom-nav.js
-           handles primary nav at the bottom of the screen there. */
-        .nav-links { display: none; }
-        .nav-brand .brand-text { display: none; }
-      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; }
 
       :root {
         --tt-bg-base: #0b0e11;
@@ -234,50 +204,7 @@
     </style>
   </head>
   <body class="ds-v2">
-    <!--
-      2026-05-26 (PR #304) — Static nav OUTSIDE the React mount. The page
-      uses babel-standalone to compile JSX in-browser, which adds 1-3s of
-      cold-load latency before React hydrates. Previously the nav was
-      rendered INSIDE the React tree, so users saw a blank page (just the
-      footer) until Babel finished — they perceived this as the page
-      'failing to load' (user report 2026-05-26 11:51 PM UTC: clicked
-      'Read full brief' on /today, saw blank page, had to refresh).
-
-      Same fix today.html, active-trader.html, investor.html use: render
-      the nav as plain HTML at the top of <body> so it appears
-      immediately, and let React fill in the body content below it.
-      tt-nav-extras.js then enhances this nav in-place with badges +
-      Admin dropdown + right-side widgets (Discord/Alerts/Avatar). The
-      mobile menu state is no longer needed since tt-bottom-nav.js
-      handles mobile navigation.
-    -->
-    <nav class="topnav sticky-nav">
-      <div class="nav-row">
-        <a href="/today.html" class="nav-brand">
-          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
-          <span class="brand-text">Timed Trading</span>
-        </a>
-        <div class="nav-links">
-          <a href="/today.html" class="nav-link">Today</a>
-          <a href="/active-trader.html" class="nav-link">Active Trader</a>
-          <a href="/investor.html" class="nav-link">Investor</a>
-          <a href="/portfolio.html" class="nav-link">Portfolio</a>
-          <a href="/insights.html" class="nav-link">Insights</a>
-          <a href="/daily-brief.html" id="nav-daily-brief" class="nav-link active">Daily Brief</a>
-          <a href="/faq.html" class="nav-link faq">FAQ</a>
-        </div>
-      </div>
-    </nav>
-    <div data-tt-activity-strip></div>
-    <div id="root">
-      <!-- Initial loading state shown while babel-standalone compiles
-           the JSX below. React replaces this on mount. -->
-      <div style="max-width:1100px;margin:80px auto;padding:0 24px;text-align:center;color:#6b7280;font-family:'Inter',system-ui,sans-serif;">
-        <div style="display:inline-block;width:32px;height:32px;border:2px solid rgba(255,255,255,0.08);border-top-color:#34d399;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px;"></div>
-        <div style="font-size:13px;letter-spacing:0.02em;">Loading Daily Brief…</div>
-      </div>
-      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-    </div>
+    <div id="root"></div>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
@@ -441,7 +368,7 @@
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[12px] font-semibold text-white">{idx.sym}</span>
                         <span className="text-[10px] font-semibold" style={{ color: ggColor(gg) }}>
-                          {gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral"}
+                          {gg === "OPEN_UP" ? "▲ Bullish" : gg === "OPEN_DOWN" ? "▼ Bearish" : "◆ Neutral"}
                         </span>
                       </div>
                       <div className="flex items-baseline gap-2 mb-2">
@@ -451,96 +378,151 @@
                         <span className="text-[11px] font-semibold tabular-nums" style={{ color: pctColor(idx.chgPct) }}>
                           {idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""}
                         </span>
+                        {/* 2026-05-26 (PR #305) — "ATR" → "Typical daily move ~$X"
+                            so non-quant users understand what the number means. */}
                         {idx.atr != null && (
-                          <span className="ml-auto text-[10px] text-[#6b7280]">ATR ${idx.atr.toFixed(2)}</span>
+                          <span className="ml-auto text-[10px] text-[#6b7280]" title="Typical daily price move (Average True Range, 14-day)">Typical daily move ~${idx.atr.toFixed(2)}</span>
                         )}
                       </div>
-                      {/* V15 P0.7.62 (2026-05-05) — clearer Day/Week GG cards.
-                         Adds: price marker on the bar, +50% / +61.8% target
-                         labels, and natural-language probability text
-                         ("78% chance closes ABOVE +38.2%" instead of just "78%"). */}
+                      {/*
+                        2026-05-26 (PR #305) — Plain-language rewrite.
+
+                        Previously: "DAY GATE · 0% holds between gates · -38.2% mid +38.2%"
+                        which is jargon-rich Saty ATR terminology that's
+                        meaningless to a user who hasn't read Saty's docs.
+
+                        Now: same underlying Saty math (prior daily close ±
+                        daily-ATR × 0.382 / 0.618), but the user sees:
+
+                          "Today's Range · Bullish bias (78%)
+                           Expected Low $742  •  Pivot $745  •  Expected High $748
+                           Pushing through upper end — 78% chance closes
+                           above $748 by today's close."
+
+                        Math is unchanged. Math reference:
+                        worker/daily-brief.js _satyGoldenGateState +
+                        atrFibLevels.goldenGateProbability.
+
+                        Key vocab swaps:
+                          "DAY GATE"          → "Today's Range"
+                          "WEEK GATE"         → "This Week"
+                          "-38.2% / +38.2%"   → "Expected Low / Expected High"
+                          "anchor"            → "Pivot" (or "prior close")
+                          "holds between gates" → "stays inside today's range"
+                          "GG Up / GG Down"   → "Bullish / Bearish bias"
+                          "NEUTRAL"           → "Mixed signal"
+                          "ATR"               → "Typical daily move"
+                      */}
                       {(() => {
                         const up50 = lvls.levels?.["+50%"];
                         const up618 = lvls.levels?.["+61.8%"];
                         const dn50 = lvls.levels?.["-50%"];
                         const dn618 = lvls.levels?.["-61.8%"];
-                        const ggDirText = (g) => g === "OPEN_UP" ? "above +38.2%" : g === "OPEN_DOWN" ? "below -38.2%" : "between gates";
-                        const targetText = (g, lbls) => {
-                          if (g === "OPEN_UP" && up50 != null && up618 != null) return `next: $${up50.toFixed(2)} (50%) → $${up618.toFixed(2)} (61.8%)`;
-                          if (g === "OPEN_DOWN" && dn50 != null && dn618 != null) return `next: $${dn50.toFixed(2)} (50%) → $${dn618.toFixed(2)} (61.8%)`;
+                        const ggBiasText = (g) => g === "OPEN_UP" ? "Bullish bias" : g === "OPEN_DOWN" ? "Bearish bias" : "Mixed signal";
+                        const ggBiasIcon = (g) => g === "OPEN_UP" ? "▲" : g === "OPEN_DOWN" ? "▼" : "◆";
+                        const ggBiasColor = (g) => g === "OPEN_UP" ? "#34d399" : g === "OPEN_DOWN" ? "#fb7185" : "#9ca3af";
+                        // Plain-language status line per state for the DAY card
+                        const dayStatusLine = (() => {
+                          if (gg === "NEUTRAL") return cp != null && up382 != null && dn382 != null ? `Trading inside today's expected range ($${dn382.toFixed(2)}–$${up382.toFixed(2)})` : "Inside today's expected range";
+                          if (gg === "OPEN_UP" && up618 != null) {
+                            const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+                            return `Pushing above today's expected high — ${p} closes above $${up618.toFixed(2)} by today's close`;
+                          }
+                          if (gg === "OPEN_DOWN" && dn618 != null) {
+                            const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+                            return `Breaking below today's expected low — ${p} closes below $${dn618.toFixed(2)} by today's close`;
+                          }
                           return null;
-                        };
+                        })();
+                        // Same logic for the WEEK card
+                        const weekStatusLine = (() => {
+                          if (!wlvls) return null;
+                          const wUp618 = wlvls.levels?.["+61.8%"];
+                          const wDn618 = wlvls.levels?.["-61.8%"];
+                          const dr = weekProb?.daysRemaining;
+                          const drText = dr != null ? ` · ${dr}d left this week` : "";
+                          if (wgg === "NEUTRAL") return wDn382 != null && wUp382 != null ? `Inside this week's range ($${wDn382.toFixed(2)}–$${wUp382.toFixed(2)})${drText}` : `Inside this week's range${drText}`;
+                          if (wgg === "OPEN_UP" && wUp618 != null) {
+                            const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+                            return `Tracking toward $${wUp618.toFixed(2)} target — ${p} hits by Friday${drText}`;
+                          }
+                          if (wgg === "OPEN_DOWN" && wDn618 != null) {
+                            const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+                            return `Heading toward $${wDn618.toFixed(2)} downside target — ${p} hits by Friday${drText}`;
+                          }
+                          return null;
+                        })();
                         return (
                           <>
-                            {/* Day GG */}
-                            <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
-                              <span>Day Gate</span>
-                              {dayProb && gg !== "NEUTRAL" && (
-                                <span className="tabular-nums normal-case" style={{ color: probColor(dayProb.dayLabel) }}>
-                                  {(dayProb.day * 100).toFixed(0)}% holds {ggDirText(gg)}
-                                </span>
-                              )}
+                            {/* TODAY card */}
+                            <div className="text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between">
+                              <span>Today's Range</span>
+                              <span className="tabular-nums normal-case" style={{ color: ggBiasColor(gg) }}>
+                                {ggBiasIcon(gg)} {ggBiasText(gg)}{dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : ""}
+                              </span>
                             </div>
                             {dn382 != null && up382 != null && (
-                              <div className="relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1">
-                                {/* gradient backdrop: bear (red) | mid | bull (green) */}
+                              <div className="relative h-3 rounded bg-white/[0.05] overflow-hidden mb-1.5" title={`Saty Day Mode: prior daily close ± ATR × 0.382`}>
                                 <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(239,68,68,0.30) 0%, rgba(239,68,68,0.18) 35%, rgba(107,114,128,0.20) 50%, rgba(52,211,153,0.18) 65%, rgba(52,211,153,0.30) 100%)" }} />
-                                {/* mid (anchor) tick */}
                                 {anchor != null && (
-                                  <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((anchor - dn382) / (up382 - dn382)) * 100))}%`, width: 1, background: "rgba(156,163,175,0.5)" }} title={`Anchor (prev close) ${anchor}`} />
+                                  <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((anchor - dn382) / (up382 - dn382)) * 100))}%`, width: 1.5, background: "rgba(156,163,175,0.6)" }} title={`Pivot (prior close) $${anchor.toFixed(2)}`} />
                                 )}
-                                {/* current price marker */}
                                 {cp != null && (
-                                  <div className="absolute top-[-2px] bottom-[-2px] flex items-center" style={{ left: `${barProgress}%`, transform: "translateX(-50%)" }}>
-                                    <div style={{ width: 3, height: "100%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.6)" }} title={`Current $${cp.toFixed(2)}`} />
+                                  <div className="absolute top-[-3px] bottom-[-3px] flex items-center" style={{ left: `${barProgress}%`, transform: "translateX(-50%)" }}>
+                                    <div style={{ width: 4, height: "100%", background: "#fff", boxShadow: "0 0 6px rgba(255,255,255,0.7)", borderRadius: 1 }} title={`Current $${cp.toFixed(2)}`} />
                                   </div>
                                 )}
                               </div>
                             )}
                             {dn382 != null && up382 != null && (
-                              <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums mb-1">
-                                <span>-38.2% ${dn382.toFixed(2)}</span>
-                                <span style={{ color: "#9ca3af" }}>{anchor != null ? `mid ${anchor.toFixed(2)}` : ""}</span>
-                                <span>+38.2% ${up382.toFixed(2)}</span>
+                              <div className="grid grid-cols-3 text-[10px] tabular-nums mb-1.5">
+                                <span className="text-left text-[#fb7185]/80"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Expected Low</span>${dn382.toFixed(2)}</span>
+                                <span className="text-center text-[#9ca3af]"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Pivot</span>{anchor != null ? `$${anchor.toFixed(2)}` : "—"}</span>
+                                <span className="text-right text-[#34d399]/80"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Expected High</span>${up382.toFixed(2)}</span>
                               </div>
                             )}
-                            {gg !== "NEUTRAL" && targetText(gg) && (
-                              <div className="text-[9px] text-[#9ca3af] tabular-nums mb-2 italic">
-                                {targetText(gg)}
+                            {dayStatusLine && (
+                              <div className="text-[10px] text-[#9ca3af] tabular-nums mb-2 leading-snug">
+                                {dayStatusLine}
                               </div>
                             )}
-                            {/* Week GG */}
+                            {/* THIS WEEK card */}
                             {wlvls && (
                               <>
-                                <div className="text-[9px] uppercase tracking-wider text-[#6b7280] mb-0.5 flex items-center justify-between">
-                                  <span style={{ color: ggColor(wgg) }}>
-                                    Week Gate {wgg === "OPEN_UP" ? "▲" : wgg === "OPEN_DOWN" ? "▼" : "◆"}
+                                <div className="text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between border-t border-white/[0.04] pt-2">
+                                  <span>This Week</span>
+                                  <span className="tabular-nums normal-case" style={{ color: ggBiasColor(wgg) }}>
+                                    {ggBiasIcon(wgg)} {ggBiasText(wgg)}{weekProb && wgg !== "NEUTRAL" ? ` · ${(weekProb.week * 100).toFixed(0)}%` : ""}{weekProb?.daysRemaining ? ` · ${weekProb.daysRemaining}d left` : ""}
                                   </span>
-                                  {weekProb && wgg !== "NEUTRAL" && (
-                                    <span className="tabular-nums normal-case" style={{ color: probColor(weekProb.weekLabel) }}>
-                                      {(weekProb.week * 100).toFixed(0)}% holds {ggDirText(wgg)} · {weekProb.daysRemaining}d left
-                                    </span>
-                                  )}
                                 </div>
                                 {wDn382 != null && wUp382 != null && (
                                   <>
-                                    <div className="relative h-2 rounded bg-white/[0.05] overflow-hidden mb-1">
+                                    <div className="relative h-2.5 rounded bg-white/[0.05] overflow-hidden mb-1.5" title={`Saty Multi-Day Mode: prior weekly close ± weekly ATR × 0.382`}>
                                       <div className="absolute inset-0" style={{ background: "linear-gradient(90deg, rgba(239,68,68,0.20) 0%, rgba(239,68,68,0.12) 35%, rgba(107,114,128,0.15) 50%, rgba(52,211,153,0.12) 65%, rgba(52,211,153,0.20) 100%)" }} />
                                       {wlvls.anchor != null && (
-                                        <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((wlvls.anchor - wDn382) / (wUp382 - wDn382)) * 100))}%`, width: 1, background: "rgba(156,163,175,0.5)" }} title={`Week anchor ${wlvls.anchor}`} />
+                                        <div className="absolute top-0 bottom-0" style={{ left: `${Math.max(0, Math.min(100, ((wlvls.anchor - wDn382) / (wUp382 - wDn382)) * 100))}%`, width: 1.5, background: "rgba(156,163,175,0.6)" }} title={`Week pivot $${wlvls.anchor.toFixed(2)}`} />
                                       )}
                                       {cp != null && (
-                                        <div className="absolute top-[-2px] bottom-[-2px] flex items-center" style={{ left: `${wBarProgress}%`, transform: "translateX(-50%)" }}>
-                                          <div style={{ width: 3, height: "100%", background: "#fff", boxShadow: "0 0 4px rgba(255,255,255,0.6)" }} title={`Current $${cp.toFixed(2)}`} />
+                                        <div className="absolute top-[-3px] bottom-[-3px] flex items-center" style={{ left: `${wBarProgress}%`, transform: "translateX(-50%)" }}>
+                                          <div style={{ width: 4, height: "100%", background: "#fff", boxShadow: "0 0 6px rgba(255,255,255,0.7)", borderRadius: 1 }} title={`Current $${cp.toFixed(2)}`} />
                                         </div>
                                       )}
                                     </div>
-                                    <div className="flex items-center justify-between text-[9px] text-[#6b7280] tabular-nums">
-                                      <span>-38.2% ${wDn382.toFixed(2)}</span>
-                                      <span style={{ color: "#9ca3af" }}>{wlvls.anchor != null ? `mid ${wlvls.anchor.toFixed(2)}` : ""}</span>
-                                      <span>+38.2% ${wUp382.toFixed(2)}</span>
+                                    <div className="grid grid-cols-3 text-[10px] tabular-nums mb-1">
+                                      <span className="text-left text-[#fb7185]/80"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Week Low</span>${wDn382.toFixed(2)}</span>
+                                      <span className="text-center text-[#9ca3af]"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Week Pivot</span>{wlvls.anchor != null ? `$${wlvls.anchor.toFixed(2)}` : "—"}</span>
+                                      <span className="text-right text-[#34d399]/80"><span className="text-[#6b7280] uppercase tracking-wide text-[8px] block">Week High</span>${wUp382.toFixed(2)}</span>
                                     </div>
-                                    {wgg !== "NEUTRAL" && (() => {
+                                    {weekStatusLine && (
+                                      <div className="text-[10px] text-[#9ca3af] tabular-nums leading-snug">
+                                        {weekStatusLine}
+                                      </div>
+                                    )}
+                                    {/* Suppress the duplicate "next: $X (50%) → $Y (61.8%)" line — the
+                                        plain-language statusLine above already conveys the same target
+                                        more naturally. Kept the surrounding IIFE shape for minimum diff
+                                        churn. */}
+                                    {false && wgg !== "NEUTRAL" && (() => {
                                       const wUp50 = wlvls.levels?.["+50%"];
                                       const wUp618 = wlvls.levels?.["+61.8%"];
                                       const wDn50 = wlvls.levels?.["-50%"];
@@ -2200,6 +2182,7 @@
       }
 
       function App({ user }) {
+        const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const isAdmin = user?.role === "admin" || user?.tier === "admin";
         const [brief, setBrief] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -2330,12 +2313,58 @@
 
         return (
           <div className="min-h-screen pb-16" style={{ background: "var(--tt-bg-base)" }}>
-            {/* Nav is now rendered as static HTML at the top of <body> in the
-                page shell (PR #304) — see <body class="ds-v2"> for markup.
-                That ensures the nav appears immediately on cold-load while
-                babel-standalone compiles this JSX. tt-nav-extras.js attaches
-                badges (Active Trader / Investor open-count) + Admin dropdown
-                + Discord/Alerts/Avatar widgets to the same selectors. */}
+            {/*
+              2026-05-26 — Nav parity with today/AT/investor pages. Was a
+              full inline React nav with hand-rolled links; now uses the
+              same `.nav-links / .nav-link` markup tt-nav-extras.js looks
+              for so badges (Active Trader open-trade count, Investor
+              actionable count) and the Admin dropdown render here too.
+              Mobile bottom nav, global search and the activity strip
+              are loaded via the script tags in <head>.
+            */}
+            <nav className="topnav sticky top-0 z-50 border-b border-white/[0.06]" style={{background:"rgba(10,10,15,0.95)",backdropFilter:"blur(12px)"}}>
+              <div className="nav-row flex items-center justify-between px-4 py-2.5">
+                <a href="/today.html" className="nav-brand flex items-center gap-2 no-underline shrink-0">
+                  <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="tt-ring" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stopColor="#34d399"/><stop offset="100%" stopColor="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#tt-ring)" strokeWidth="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" strokeWidth="3.5" strokeLinecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" strokeWidth="1.2" strokeLinecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" strokeWidth="4" strokeLinecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+                  <span className="text-[14px] md:text-[15px] font-bold text-white hidden sm:inline" style={{letterSpacing:"-0.03em"}}>Timed Trading</span>
+                </a>
+                <div className="nav-links hidden md:flex items-center gap-1.5">
+                  <a href="/today.html" className="nav-link">Today</a>
+                  <a href="/active-trader.html" className="nav-link">Active Trader</a>
+                  <a href="/investor.html" className="nav-link">Investor</a>
+                  <a href="/portfolio.html" className="nav-link">Portfolio</a>
+                  <a href="/insights.html" className="nav-link">Insights</a>
+                  <a href="/daily-brief.html" id="nav-daily-brief" className="nav-link" style={{color:"#f59e0b",background:"rgba(245,158,11,0.08)",borderColor:"rgba(245,158,11,0.20)"}}>Daily Brief</a>
+                  <a href="/faq.html" className="nav-link faq">FAQ</a>
+                </div>
+                <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+                  {window.TimedNotificationCenter && <window.TimedNotificationCenter apiBase="" />}
+                  {window.TimedUserBadge && <window.TimedUserBadge user={window.TimedAuthHelpers?.getStoredSession()} compact />}
+                  <button onClick={() => setMobileMenuOpen(v => !v)} className="md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all" aria-label="Toggle menu">
+                    {mobileMenuOpen ? (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    ) : (
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+              {mobileMenuOpen && (
+                <div className="md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5" style={{background:"rgba(10,10,15,0.98)"}}>
+                  <a href="/today.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Today</a>
+                  <a href="/active-trader.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Active Trader</a>
+                  <a href="/investor.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Investor</a>
+                  <a href="/portfolio.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Portfolio</a>
+                  <a href="/insights.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>Insights</a>
+                  <a href="/daily-brief.html" className="px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium" onClick={() => setMobileMenuOpen(false)}>Daily Brief</a>
+                  <a href="/faq.html" className="px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all" onClick={() => setMobileMenuOpen(false)}>FAQ</a>
+                </div>
+              )}
+            </nav>
+
+            {/* Mount target for tt-activity-strip.js (parity with today/AT/investor). */}
+            <div data-tt-activity-strip></div>
+
             {/* Content */}
             <div className="max-w-[1100px] mx-auto px-6 py-8">
               {/* Header */}
