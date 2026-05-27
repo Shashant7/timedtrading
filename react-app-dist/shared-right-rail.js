@@ -4160,11 +4160,21 @@
                                 π; by 1 week (390 5-min bars) it's essentially
                                 showing the long-run regime baseline. Useful
                                 for investor-mode users + setting the
-                                multi-day context for intraday traders. */}
+                                multi-day context for intraday traders.
+
+                                2026-05-27 (PR #313) — default-OPEN now. User
+                                report 03:59 UTC: "where the 1HR Markov Regime
+                                Forecast in the UI?" The collapsed <details>
+                                summary hid the most-actionable longer-horizon
+                                row entirely; users had no signal it was
+                                clickable. Opening by default makes all 6
+                                horizons visible at once; users can still
+                                collapse it manually if they want a denser
+                                panel. */}
                             {(fc.p_1h || fc.p_1d || fc.p_1w) && (
-                              <details style={{ marginTop: "var(--ds-space-2)" }}>
+                              <details open style={{ marginTop: "var(--ds-space-2)" }}>
                                 <summary style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: "4px 0", userSelect: "none" }}>
-                                  Longer horizon · multi-day ▾
+                                  Longer horizon · multi-day
                                 </summary>
                                 <div style={{ marginTop: 4 }}>
                                   {renderRow("Next 1 hour",  fc.p_1h, 12,  "12 bars ahead — one trading hour")}
@@ -11025,4 +11035,4 @@
   };
 })();
 
-// cache-bust:1779854564007:846906980
+// cache-bust:1779877971495:739895423
