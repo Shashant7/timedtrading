@@ -16788,6 +16788,88 @@ async function processTradeSimulation(
         }
       }
     }
+    // ─────────────────────────────────────────────────────────────────────
+    // 2026-05-27 (PR #315) — LIVE market-open stale-price guard
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // P0: TSM trimmed 10% @ $412.32 at 9:31 AM ET on 2026-05-27 for
+    // PRE_PCE_RISK_REDUCTION while TSM had GAPPED UP overnight to ~$427.
+    // Same shape as the MU $751 stale-exit incident from 2026-05-26.
+    //
+    // Root cause: at the first */5 cron tick right after RTH open
+    // (9:30 ET), `tickerData.price` is the LAST CLOSED 5m bar — which
+    // is yesterday's 16:00 ET close (the 15:55 bar). The 9:30 bar
+    // hasn't completed yet, so we have nothing fresher in the candle
+    // store. PR #283 fixed this for the OOH POSITION RECONCILE path
+    // (a different caller); this fix covers the SCORING CRON path
+    // where event-risk trims, SL gates, and exit decisions fire
+    // against `pxNow` during the first 5-10 min after RTH open.
+    //
+    // Guard: when LIVE (not replay), open trade exists, AND the
+    // tickerData bar timestamp is older than 10 minutes, refetch a
+    // fresh quote via dataFetchSnapshots (TwelveData /quote with
+    // prepost=true, Alpaca fallback). On a gap >0.5% from the stale
+    // price, swap pxNow + tickerData.price so all downstream decision
+    // logic in this tick uses the gapped price.
+    //
+    // Cost: bounded — only fires for tickers with OPEN TRADES and only
+    // when their data is >10 min stale. In normal RTH operation the
+    // payload.ts is 5-10 min old so the guard never fires. At market
+    // open it fires once per open trade (typically 5-15 tickers) →
+    // 5-15 extra TwelveData /quote calls per session = trivial.
+    //
+    // Skipped in replay: replay candles are deliberately as-of the
+    // replay timestamp; refetching live would corrupt the backtest.
+    if (!isReplay && openTrade && Number.isFinite(pxNow) && pxNow > 0) {
+      try {
+        const _bundleTs = Number(tickerData?.ts ?? tickerData?.ingest_ts ?? 0);
+        const _ageMs = _bundleTs > 0 ? (now - _bundleTs) : Infinity;
+        const OPEN_STALE_THRESHOLD_MS = 10 * 60 * 1000;
+        if (_ageMs > OPEN_STALE_THRESHOLD_MS) {
+          try {
+            const snapRes = await dataFetchSnapshots(env, [sym]);
+            const snap = snapRes?.snapshots?.[sym];
+            const freshPrice = Number(snap?.price);
+            if (Number.isFinite(freshPrice) && freshPrice > 0) {
+              const gapPct = Math.abs(freshPrice - pxNow) / pxNow * 100;
+              // Only swap when the gap is material (>0.5%). Below that the
+              // stale price is "close enough" and we avoid noise.
+              if (gapPct > 0.5) {
+                console.log(`[OPEN-FRESH-GUARD] ${sym} pxNow $${pxNow.toFixed(2)} stale ${Math.round(_ageMs / 60000)}m → fresh $${freshPrice.toFixed(2)} (gap ${gapPct.toFixed(2)}%). Refreshing decision price.`);
+                pxNow = freshPrice;
+                // Patch tickerData so downstream consumers see the same fresh
+                // price + a recomputed day_change/day_change_pct from prev_close.
+                tickerData.price = freshPrice;
+                tickerData.ts = now;
+                const _pc = Number(tickerData.prev_close);
+                if (Number.isFinite(_pc) && _pc > 0) {
+                  tickerData.day_change = freshPrice - _pc;
+                  tickerData.day_change_pct = ((freshPrice - _pc) / _pc) * 100;
+                }
+                // Track that we refreshed for observability + audit logs.
+                tickerData.__open_fresh_guard = {
+                  was_price: Number((Number(pxNow) || 0).toFixed(2)),
+                  fresh_price: freshPrice,
+                  gap_pct: Number(gapPct.toFixed(2)),
+                  age_min: Math.round(_ageMs / 60000),
+                  fetched_at: now,
+                };
+              }
+            } else {
+              // No fresh quote available — log and continue with stale pxNow
+              // (the original behavior). Future improvement: also defer the
+              // event-risk path the same way POSITION RECONCILE does.
+              console.warn(`[OPEN-FRESH-GUARD] ${sym} bundle ${Math.round(_ageMs / 60000)}m stale; fresh fetch returned nothing — proceeding with stale pxNow`);
+            }
+          } catch (refreshErr) {
+            console.warn(`[OPEN-FRESH-GUARD] ${sym} fresh-fetch error:`, String(refreshErr?.message || refreshErr).slice(0, 150));
+          }
+        }
+      } catch (e) {
+        console.warn(`[OPEN-FRESH-GUARD] ${sym} guard error:`, String(e?.message || e).slice(0, 150));
+      }
+    }
+
     // CRITICAL: Always prefer current market price (pxNow) for entry.
     // tickerData.entry_price is set when the signal first fires and can be
     // hours/days stale by the time the trade is actually opened.
