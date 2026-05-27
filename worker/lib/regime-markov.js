@@ -50,6 +50,26 @@ export const MIN_TRANSITIONS_PER_CELL = 20;
 // buckets = ~5K observations per ticker, ample for the 4×4 matrix.
 export const DEFAULT_WINDOW_DAYS = 90;
 
+// 2026-05-27 (PR #308 — Markov hardening, improvement 1):
+// Session-boundary handling. Transitions across time gaps wider than
+// this are dropped (treated as "no transition observed"). Prevents
+// the matrix from learning bogus "Friday 4 PM HTF_BULL → Monday 9:35
+// HTF_BEAR" as a 5-minute transition. Defaults to 12 minutes so a
+// single missed bucket (cron skip, brief outage) still counts as one
+// transition while a multi-hour gap does not.
+export const DEFAULT_MAX_GAP_MS = 12 * 60 * 1000;
+
+// 2026-05-27 (PR #308 — Markov hardening, improvement 5):
+// Recency decay. Each observed transition gets a weight of
+//   exp(-ln(2) × age_in_days / half_life_days)
+// so a transition observed 30 days ago counts half as much as one
+// observed today (with the default half-life of 30 days). Counts are
+// no longer integers but fractional "effective observations" — same
+// matrix shape and read path. Pass `null` to disable (back to
+// uniform weighting) for backtests or sanity checks.
+export const DEFAULT_DECAY_HALF_LIFE_DAYS = 30;
+const LN_2 = Math.log(2);
+
 // Article §3 — "the stationary distribution is the long-run baseline."
 // Power-iteration convergence parameters.
 const STATIONARY_TOL = 1e-9;
@@ -102,10 +122,37 @@ export function buildTransitionMatrix(buckets, opts = {}) {
   const minObs = Number.isFinite(opts.minObs) ? opts.minObs : MIN_TRANSITIONS_PER_CELL;
   const skipSelfTransitions = !!opts.skipSelfTransitions; // for "dwell-removed" matrix; default false
 
+  // 2026-05-27 (PR #308) — improvements 1 + 5.
+  //
+  // gapThresholdMs: drop transitions across larger gaps. Was a hardcoded
+  // 12 min on line 144; now configurable via opts.maxGapMs so backtests
+  // / replays can opt out (set to Infinity) and so the constant is named.
+  const gapThresholdMs = Number.isFinite(opts.maxGapMs) ? opts.maxGapMs : DEFAULT_MAX_GAP_MS;
+  // decayHalfLifeDays: weight observations by exp(-ln(2)·age/halfLife).
+  // Default 30d so a 30-day-old transition counts half, 60-day half-of-
+  // half, etc. Set to null/undefined-via-explicit-false-positive to disable.
+  const decayHalfLifeDays = opts.decayHalfLifeDays === null
+    ? null
+    : (Number.isFinite(opts.decayHalfLifeDays) ? opts.decayHalfLifeDays : DEFAULT_DECAY_HALF_LIFE_DAYS);
+  // nowMs: anchor for the decay calculation. Defaults to Date.now() so
+  // tests can pin a value for determinism.
+  const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+
+  // counts is now FRACTIONAL — recency weights add fractional contributions.
   const counts = Array.from({ length: N_STATES }, () => new Array(N_STATES).fill(0));
+  // rawCounts keeps the integer count for observability (and the
+  // low-obs gate uses RAW counts, not the weighted ones — the article's
+  // "20 observations" guidance is about real data presence, not weight).
+  const rawCounts = Array.from({ length: N_STATES }, () => new Array(N_STATES).fill(0));
   const suspicious = [];
   let suspiciousCount = 0;
   let total = 0;
+  // 2026-05-27 (PR #308, improvement 1): track transitions dropped due
+  // to session-boundary gaps (>gapThresholdMs). Exposed in output for
+  // operator visibility; a sudden spike means tickers stopped scoring.
+  let droppedGapTransitions = 0;
+  let maxObservedGapMs = 0;
+  let sumWeights = 0; // sum of all applied recency weights — for diagnostics
 
   // Group consecutive same-ticker rows
   let prevTicker = null;
@@ -113,6 +160,15 @@ export function buildTransitionMatrix(buckets, opts = {}) {
   let prevTs = null;
   const dwellRuns = {}; // state -> [runLength, runLength, …]
   let currentRun = 0;
+
+  // Weight calculator. exp(-λ·age_days), λ = ln(2) / halfLife.
+  // Returns 1.0 when decay is disabled, when bucket is in the future,
+  // or when bucket is from "right now" (age <= 0).
+  const weightForTs = (ts) => {
+    if (decayHalfLifeDays == null || !Number.isFinite(decayHalfLifeDays) || decayHalfLifeDays <= 0) return 1;
+    const ageDays = Math.max(0, (nowMs - ts) / 86400000);
+    return Math.exp(-LN_2 * ageDays / decayHalfLifeDays);
+  };
 
   for (let i = 0; i < buckets.length; i++) {
     const r = buckets[i];
@@ -138,17 +194,22 @@ export function buildTransitionMatrix(buckets, opts = {}) {
     }
 
     // Same ticker, has a prev — record transition. Only count consecutive
-    // 5-min buckets (within 10 min). Gaps imply a missing bucket; skipping
-    // avoids spurious "double flips" caused by ingest holes.
+    // buckets (gap <= gapThresholdMs). Larger gaps almost always mean a
+    // session boundary (Fri 4 PM → Mon 9:35 AM = 65h) or a multi-day
+    // outage and learning them as "5-min transitions" biases the matrix.
     const gap = prevTs != null ? ts - prevTs : 0;
-    const isConsecutive = gap > 0 && gap <= 12 * 60 * 1000; // 12 min tolerance for one missed bucket
+    if (gap > maxObservedGapMs) maxObservedGapMs = gap;
+    const isConsecutive = gap > 0 && gap <= gapThresholdMs;
     if (isConsecutive) {
       if (skipSelfTransitions && s === prevState) {
         // don't count; just extend the run
       } else {
         const fi = STATE_IDX[prevState];
         const ti = STATE_IDX[s];
-        counts[fi][ti]++;
+        const w = weightForTs(ts);
+        counts[fi][ti] += w;
+        rawCounts[fi][ti] += 1;
+        sumWeights += w;
         total++;
         if (_isDoubleFlip(prevState, s)) {
           suspiciousCount++;
@@ -158,7 +219,10 @@ export function buildTransitionMatrix(buckets, opts = {}) {
         }
       }
     } else if (prevState && currentRun > 0) {
-      // gap broke the run — close it.
+      // gap broke the run — close it. Count gaps that look session-boundary-y
+      // so operators can see how many were excluded (helpful when investigating
+      // a sudden change in matrix shape).
+      if (gap > gapThresholdMs) droppedGapTransitions++;
       (dwellRuns[prevState] || (dwellRuns[prevState] = [])).push(currentRun);
       currentRun = 0;
     }
@@ -179,19 +243,23 @@ export function buildTransitionMatrix(buckets, opts = {}) {
     (dwellRuns[prevState] || (dwellRuns[prevState] = [])).push(currentRun);
   }
 
-  // Build P. For cells with count >= minObs use the empirical MLE.
-  // For cells with low obs, fall back to a Laplace add-one smoothing
-  // so the matrix is still row-stochastic. Mark low-obs cells.
+  // Build P. Use the FRACTIONAL (recency-weighted) counts for the
+  // probability MLE — recent transitions matter more. The low-obs gate
+  // uses RAW counts, not the weighted ones — the article's "20
+  // observations" guidance is about real data presence (Are we actually
+  // measuring this transition? — yes/no), not statistical weight.
   const P = Array.from({ length: N_STATES }, () => new Array(N_STATES).fill(0));
   const lowObsCells = [];
   for (let i = 0; i < N_STATES; i++) {
     const rowTotal = counts[i].reduce((a, b) => a + b, 0);
-    const denom = rowTotal + N_STATES; // Laplace
+    // Laplace prior: +1 effective observation per cell. Matches the
+    // pre-decay behavior — a row with zero observations still produces
+    // a uniform row, never NaN.
+    const denom = rowTotal + N_STATES;
     for (let j = 0; j < N_STATES; j++) {
-      // Always Laplace-smooth so a zero cell doesn't lock out a state.
       P[i][j] = (counts[i][j] + 1) / denom;
-      if (counts[i][j] < minObs) {
-        lowObsCells.push({ from: REGIME_STATES[i], to: REGIME_STATES[j], count: counts[i][j] });
+      if (rawCounts[i][j] < minObs) {
+        lowObsCells.push({ from: REGIME_STATES[i], to: REGIME_STATES[j], count: rawCounts[i][j] });
       }
     }
   }
@@ -214,9 +282,19 @@ export function buildTransitionMatrix(buckets, opts = {}) {
     dwellStd[s] = +Math.sqrt(variance).toFixed(3);
   }
 
+  // Round the fractional counts for the serialized output — keeps the
+  // KV payload size identical to pre-PR-308 while preserving fractional
+  // precision in the MLE itself.
+  const countsRounded = counts.map((row) => row.map((v) => +v.toFixed(3)));
+
   return {
     P,
-    counts,
+    // Keep the legacy `counts` field as the RAW integer counts for
+    // back-compat with downstream readers that interpret it as
+    // observation count. The decay-weighted version is exposed
+    // separately as effective_counts.
+    counts: rawCounts,
+    effective_counts: countsRounded,
     stationary,
     mean_dwell: meanDwell,
     dwell_std: dwellStd,
@@ -227,6 +305,16 @@ export function buildTransitionMatrix(buckets, opts = {}) {
     low_obs_cells: lowObsCells,
     states: REGIME_STATES.slice(),
     min_obs: minObs,
+    // 2026-05-27 (PR #308) — new diagnostics
+    config: {
+      gap_threshold_ms: gapThresholdMs,
+      decay_half_life_days: decayHalfLifeDays,
+    },
+    dropped_gap_transitions: droppedGapTransitions,
+    max_observed_gap_ms: maxObservedGapMs,
+    // Avg effective weight = sumWeights / total. < 0.5 means most
+    // transitions are old; ~1.0 means most are recent.
+    avg_effective_weight: total > 0 ? +(sumWeights / total).toFixed(4) : null,
     computed_at: Date.now(),
   };
 }
