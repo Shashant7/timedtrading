@@ -1124,10 +1124,20 @@ function ActiveTraderApp() {
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const railTickerObj = useMemo(() => {
-    if (!railTicker || !data) return null;
+    if (!railTicker) return null;
     const key = String(railTicker).toUpperCase();
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
-    return found || null;
+    if (found) return found;
+    if (data && typeof data === "object" && data[key]) {
+      const raw = data[key];
+      return raw.ticker ? raw : {
+        ...raw,
+        ticker: key
+      };
+    }
+    return {
+      ticker: key
+    };
   }, [railTicker, allTickers, data]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   useEffect(() => {
@@ -1368,6 +1378,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661
 
-// cache-bust:1779877971495:739895423
+// cache-bust:1779885112246:262067661

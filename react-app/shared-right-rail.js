@@ -2459,10 +2459,16 @@
           setCrosshair(null);
         }, [tickerSymbol, chartTf, railTab]);
 
-        // Default tab: use initialRailTab when provided (Investor mode → INVESTOR, Trade Tracker → TRADE_HISTORY), else Analysis
         useEffect(() => {
-          const def = initialRailTab || "ANALYSIS";
-          setRailTab(def === "INVESTOR" ? "INVESTOR" : def);
+          const raw = String(initialRailTab || "ANALYSIS").toUpperCase();
+          let tab = raw;
+          if (raw === "INVESTOR") tab = "INVESTOR";
+          else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";
+          else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";
+          else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL"].includes(raw)) {
+            tab = "SNAPSHOT";
+          }
+          setRailTab(tab);
         }, [tickerSymbol, initialRailTab]);
 
         // Trade History: default chart selection to first trade when trades load
