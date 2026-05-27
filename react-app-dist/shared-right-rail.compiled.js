@@ -4328,7 +4328,196 @@
         }, String(ticker.state).replace(/_/g, " ")), ticker?.kanban_stage && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           title: "Active management stage"
-        }, String(ticker.kanban_stage).replace(/_/g, " ")))), (() => {
+        }, String(ticker.kanban_stage).replace(/_/g, " ")))), ticker?.regime_forecast?.p_next && (() => {
+          const fc = ticker.regime_forecast;
+          const exh = ticker.regime_exhausted || null;
+          const runLen = Number(ticker._regime_run_length) || 0;
+          const latent = ticker.latent_regime || null;
+          const PRETTY = {
+            HTF_BULL_LTF_BULL: {
+              short: "Bull",
+              color: "var(--ds-up, #4ade80)"
+            },
+            HTF_BULL_LTF_PULLBACK: {
+              short: "Bull · Pull",
+              color: "var(--ds-warn, #fbbf24)"
+            },
+            HTF_BEAR_LTF_BEAR: {
+              short: "Bear",
+              color: "var(--ds-dn, #f87171)"
+            },
+            HTF_BEAR_LTF_PULLBACK: {
+              short: "Bear · Rally",
+              color: "var(--ds-warn, #fbbf24)"
+            }
+          };
+          const CURRENT = PRETTY[fc.state] || {
+            short: fc.state,
+            color: "var(--ds-text-muted)"
+          };
+          const top5 = Object.entries(fc.p_5_bar || {}).sort((a, b) => b[1] - a[1])[0] || ["", 0];
+          const renderRow = (label, vec, barCount, tooltip) => {
+            if (!vec) return null;
+            const entries = Object.entries(vec).sort((a, b) => b[1] - a[1]);
+            return React.createElement("div", {
+              key: `fc-${label}`,
+              title: tooltip,
+              style: {
+                display: "grid",
+                gridTemplateColumns: "92px 1fr 96px",
+                gap: 8,
+                alignItems: "center",
+                padding: "6px 0"
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 11,
+                color: "var(--ds-text-muted)"
+              }
+            }, label), React.createElement("span", {
+              style: {
+                display: "flex",
+                height: 8,
+                borderRadius: 4,
+                overflow: "hidden",
+                background: "rgba(255,255,255,0.04)"
+              }
+            }, entries.map(([s, p]) => React.createElement("span", {
+              key: s,
+              title: `${(PRETTY[s] || {}).short || s}: ${(p * 100).toFixed(0)}%`,
+              style: {
+                width: `${Math.max(2, p * 100)}%`,
+                background: (PRETTY[s] || {}).color || "var(--ds-text-muted)",
+                opacity: p < 0.05 ? 0 : 1
+              }
+            }))), React.createElement("span", {
+              style: {
+                fontSize: 11,
+                color: "var(--ds-text)",
+                fontFamily: "var(--tt-font-mono)",
+                textAlign: "right"
+              }
+            }, React.createElement("span", {
+              style: {
+                color: (PRETTY[entries[0][0]] || {}).color || "inherit"
+              }
+            }, (entries[0][1] * 100).toFixed(0), "%"), React.createElement("span", {
+              style: {
+                color: "var(--ds-text-muted)",
+                marginLeft: 4
+              }
+            }, (PRETTY[entries[0][0]] || {}).short || entries[0][0])));
+          };
+          const insight = (() => {
+            if (exh) {
+              return `Stuck in ${CURRENT.short} for ${runLen} bars — ${exh.sigma_above_mean.toFixed(1)}σ above typical (mean ${exh.mean_dwell}). A transition is statistically overdue.`;
+            }
+            if (top5[0] && top5[0] !== fc.state && top5[1] > 0.45) {
+              const target = PRETTY[top5[0]] || {
+                short: top5[0]
+              };
+              return `Currently ${CURRENT.short}, run length ${runLen}. Model says ${target.short} in the next 25 min (${(top5[1] * 100).toFixed(0)}% probability).`;
+            }
+            if (top5[0] === fc.state && top5[1] >= 0.65) {
+              return `Holding ${CURRENT.short} — model says ${(top5[1] * 100).toFixed(0)}% chance it stays for the next 25 min.`;
+            }
+            return `Mixed signal — no single state above 65% probability over the next 25 min.`;
+          })();
+          const LATENT_COLOR = {
+            BULL_TREND: "var(--ds-up, #4ade80)",
+            CHOP: "var(--ds-warn, #fbbf24)",
+            BEAR_TREND: "var(--ds-dn, #f87171)"
+          };
+          const latentChip = latent && latent.state ? React.createElement("span", {
+            title: `HMM latent regime — decoded from market-wide observations (SPY return, ATR, VIX, breadth, sector dispersion). Posterior: ${Object.entries(latent.posterior || {}).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" / ")}`,
+            style: {
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "2px 7px",
+              borderRadius: 999,
+              background: `${LATENT_COLOR[latent.state] || "var(--ds-text-muted)"}22`,
+              color: LATENT_COLOR[latent.state] || "var(--ds-text-muted)",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "\u25CF ", latent.state) : null;
+          return React.createElement(Panel, {
+            title: "Regime Forecast",
+            action: latentChip
+          }, React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              background: `${CURRENT.color}22`,
+              color: CURRENT.color,
+              fontWeight: 700,
+              letterSpacing: "0.04em"
+            }
+          }, CURRENT.short.toUpperCase()), React.createElement("span", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "run \xB7 ", runLen, " bar", runLen === 1 ? "" : "s"), exh && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent",
+            title: `Run length ${exh.run_length} > mean ${exh.mean_dwell} + 2σ (${exh.dwell_std?.toFixed?.(1)})`
+          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3"), (() => {
+            const _dr = String(ticker?.__defend_reason || "").toLowerCase();
+            if (!_dr.startsWith("macro_regime_flip")) return null;
+            return React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              title: "Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285.",
+              style: {
+                background: "rgba(248,113,113,0.18)",
+                color: "#f87171",
+                fontWeight: 700,
+                letterSpacing: "0.04em"
+              }
+            }, "MACRO DEFEND");
+          })()), React.createElement("p", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)",
+              margin: "8px 0 0 0",
+              lineHeight: 1.5
+            }
+          }, insight)), React.createElement("div", {
+            style: {
+              borderTop: "1px solid var(--ds-stroke)",
+              paddingTop: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-dim)",
+              letterSpacing: "0.1em",
+              textTransform: "uppercase",
+              marginBottom: 4
+            }
+          }, "Where it's likely headed"), renderRow("Next 5 min", fc.p_next, 1, "1 bar ahead — single 5-minute candle from the Markov transition matrix"), renderRow("Next 25 min", fc.p_5_bar, 5, "5 bars ahead — about half an hour of trading"), renderRow("Next 1h 40m", fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")), fc.matrix_window_days && React.createElement("p", {
+            style: {
+              margin: "10px 0 0 0",
+              fontSize: 9,
+              color: "var(--ds-text-dim)",
+              letterSpacing: "0.04em",
+              opacity: 0.7
+            }
+          }, "Markov matrix \xB7 ", fc.matrix_window_days, "-day window", fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : "", " · ", "Bars are 5 min"));
+        })(), (() => {
           const tp = ticker?._ticker_profile;
           const learn = tp?.learning;
           if (!learn) return null;
@@ -6707,194 +6896,6 @@
               }
             }, arrow, r.count)));
           })));
-        })(), ticker?.regime_forecast?.p_next && (() => {
-          const fc = ticker.regime_forecast;
-          const exh = ticker.regime_exhausted || null;
-          const runLen = Number(ticker._regime_run_length) || 0;
-          const latent = ticker.latent_regime || null;
-          const PRETTY = {
-            HTF_BULL_LTF_BULL: {
-              short: "Bull",
-              color: "var(--ds-up, #4ade80)"
-            },
-            HTF_BULL_LTF_PULLBACK: {
-              short: "Bull · Pull",
-              color: "var(--ds-warn, #fbbf24)"
-            },
-            HTF_BEAR_LTF_BEAR: {
-              short: "Bear",
-              color: "var(--ds-dn, #f87171)"
-            },
-            HTF_BEAR_LTF_PULLBACK: {
-              short: "Bear · Rally",
-              color: "var(--ds-warn, #fbbf24)"
-            }
-          };
-          const CURRENT = PRETTY[fc.state] || {
-            short: fc.state,
-            color: "var(--ds-text-muted)"
-          };
-          const top5 = Object.entries(fc.p_5_bar || {}).sort((a, b) => b[1] - a[1])[0] || ["", 0];
-          const renderRow = (label, vec, horizonMins) => {
-            if (!vec) return null;
-            const entries = Object.entries(vec).sort((a, b) => b[1] - a[1]);
-            return React.createElement("div", {
-              key: `fc-${label}`,
-              style: {
-                display: "grid",
-                gridTemplateColumns: "80px 1fr 90px",
-                gap: 8,
-                alignItems: "center",
-                padding: "6px 0"
-              }
-            }, React.createElement("span", {
-              style: {
-                fontSize: 11,
-                color: "var(--ds-text-muted)"
-              }
-            }, label), React.createElement("span", {
-              style: {
-                display: "flex",
-                height: 8,
-                borderRadius: 4,
-                overflow: "hidden",
-                background: "rgba(255,255,255,0.04)"
-              }
-            }, entries.map(([s, p]) => React.createElement("span", {
-              key: s,
-              title: `${(PRETTY[s] || {}).short || s}: ${(p * 100).toFixed(0)}%`,
-              style: {
-                width: `${Math.max(2, p * 100)}%`,
-                background: (PRETTY[s] || {}).color || "var(--ds-text-muted)",
-                opacity: p < 0.05 ? 0 : 1
-              }
-            }))), React.createElement("span", {
-              style: {
-                fontSize: 11,
-                color: "var(--ds-text)",
-                fontFamily: "var(--tt-font-mono)",
-                textAlign: "right"
-              }
-            }, React.createElement("span", {
-              style: {
-                color: (PRETTY[entries[0][0]] || {}).color || "inherit"
-              }
-            }, (entries[0][1] * 100).toFixed(0), "%"), React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                marginLeft: 4
-              }
-            }, (PRETTY[entries[0][0]] || {}).short || entries[0][0])));
-          };
-          const insight = (() => {
-            if (exh) {
-              return `Stuck in ${CURRENT.short} for ${runLen} bars — ${exh.sigma_above_mean.toFixed(1)}σ above typical (mean ${exh.mean_dwell}). A transition is statistically overdue.`;
-            }
-            if (top5[0] && top5[0] !== fc.state && top5[1] > 0.45) {
-              const target = PRETTY[top5[0]] || {
-                short: top5[0]
-              };
-              return `Currently ${CURRENT.short}, run length ${runLen}. Model says ${target.short} in the next ~25 min (${(top5[1] * 100).toFixed(0)}% probability).`;
-            }
-            if (top5[0] === fc.state && top5[1] >= 0.65) {
-              return `Holding ${CURRENT.short} — model says ${(top5[1] * 100).toFixed(0)}% chance it stays for the next ~25 min.`;
-            }
-            return `Mixed signal — no single state above 65% probability over the next 5 bars.`;
-          })();
-          const LATENT_COLOR = {
-            BULL_TREND: "var(--ds-up, #4ade80)",
-            CHOP: "var(--ds-warn, #fbbf24)",
-            BEAR_TREND: "var(--ds-dn, #f87171)"
-          };
-          const latentChip = latent && latent.state ? React.createElement("span", {
-            title: `HMM latent regime — decoded from market-wide observations (SPY return, ATR, VIX, breadth, sector dispersion). Posterior: ${Object.entries(latent.posterior || {}).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" / ")}`,
-            style: {
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "2px 7px",
-              borderRadius: 999,
-              background: `${LATENT_COLOR[latent.state] || "var(--ds-text-muted)"}22`,
-              color: LATENT_COLOR[latent.state] || "var(--ds-text-muted)",
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.05em",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "\u25CF ", latent.state) : null;
-          return React.createElement(Panel, {
-            title: "Regime Forecast",
-            action: latentChip
-          }, React.createElement("div", {
-            style: {
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              background: `${CURRENT.color}22`,
-              color: CURRENT.color,
-              fontWeight: 700,
-              letterSpacing: "0.04em"
-            }
-          }, CURRENT.short.toUpperCase()), React.createElement("span", {
-            style: {
-              fontSize: 11,
-              color: "var(--ds-text-muted)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "run \xB7 ", runLen, " bar", runLen === 1 ? "" : "s"), exh && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--accent",
-            title: `Run length ${exh.run_length} > mean ${exh.mean_dwell} + 2σ (${exh.dwell_std?.toFixed?.(1)})`
-          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3"), (() => {
-            const _dr = String(ticker?.__defend_reason || "").toLowerCase();
-            if (!_dr.startsWith("macro_regime_flip")) return null;
-            return React.createElement("span", {
-              className: "ds-chip ds-chip--sm",
-              title: "Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285.",
-              style: {
-                background: "rgba(248,113,113,0.18)",
-                color: "#f87171",
-                fontWeight: 700,
-                letterSpacing: "0.04em"
-              }
-            }, "MACRO DEFEND");
-          })()), React.createElement("p", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)",
-              margin: "8px 0 0 0",
-              lineHeight: 1.5
-            }
-          }, insight)), React.createElement("div", {
-            style: {
-              borderTop: "1px solid var(--ds-stroke)",
-              paddingTop: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-dim)",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-              marginBottom: 4
-            }
-          }, "Where it's likely headed"), renderRow("Next bar", fc.p_next, 5), renderRow("Next 25m", fc.p_5_bar, 25), renderRow("Next 100m", fc.p_20_bar, 100)), fc.matrix_window_days && React.createElement("p", {
-            style: {
-              margin: "10px 0 0 0",
-              fontSize: 9,
-              color: "var(--ds-text-dim)",
-              letterSpacing: "0.04em",
-              opacity: 0.7
-            }
-          }, "Markov matrix \xB7 ", fc.matrix_window_days, "-day window", fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : ""));
         })(), (ticker?.daily_ema_cloud || ticker?.fourh_ema_cloud || ticker?.oneh_ema_cloud) && React.createElement(Panel, {
           title: "EMA Clouds"
         }, React.createElement("div", {
@@ -7698,30 +7699,9 @@
             value: fmtNum(earn.eps_ttm, 2)
           }))), Array.isArray(earn.history) && earn.history.length > 0 && React.createElement(Panel, {
             title: "Earnings History",
-            action: React.createElement("div", {
-              style: {
-                display: "flex",
-                gap: 6,
-                alignItems: "center",
-                flexWrap: "wrap"
-              }
-            }, earn.beat_rate_pct != null && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${earn.beat_rate_pct >= 75 ? "ds-chip--up" : earn.beat_rate_pct >= 50 ? "ds-chip--accent" : "ds-chip--dn"}`,
-              title: "% of recent quarters that beat analyst EPS estimates",
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                letterSpacing: "0.04em"
-              }
-            }, "BEAT ", earn.beat_rate_pct.toFixed(0), "%"), earn.avg_surprise_pct != null && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${earn.avg_surprise_pct >= 5 ? "ds-chip--up" : earn.avg_surprise_pct >= 0 ? "ds-chip--solid" : "ds-chip--dn"}`,
-              title: "Average EPS surprise % across recent quarters",
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                letterSpacing: "0.04em"
-              }
-            }, "AVG ", earn.avg_surprise_pct >= 0 ? "+" : "", earn.avg_surprise_pct.toFixed(1), "%"), React.createElement("span", {
+            action: React.createElement("span", {
               className: "ds-chip ds-chip--sm"
-            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s"))
+            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s")
           }, React.createElement("div", {
             style: {
               overflowX: "auto",
@@ -12375,4 +12355,4 @@
   };
 })();
 
-// cache-bust:1779848444546:847608273
+// cache-bust:1779849354568:893392858
