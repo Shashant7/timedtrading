@@ -21,8 +21,8 @@
     <script src="tt-bottom-nav.js?v=20260521b" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
     <script src="tt-global-search.js?v=20260522a" defer></script>
-    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
-    <script src="tt-activity-strip.js?v=20260528a" defer></script>
+    <script src="tt-rail-bridge.js?v=20260528b" defer></script>
+    <script src="tt-activity-strip.js?v=20260528b" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -32,9 +32,9 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260528a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260528b"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260528a"></script>
+    <script src="shared-rail-bootstrap.js?v=20260528b"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -1429,13 +1429,42 @@
           const raw = Object.entries(data)
             .filter(([k, v]) => !!k && v && typeof v === "object")
             .map(([k, v]) => v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) });
-          return raw.map((t) => {
+          const mapped = raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const trade = tradeByTicker.get(sym) || null;
             const eff = computeEffectiveStage(t, trade);
             if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
             return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff };
           });
+          const known = new Set(mapped.map((t) => String(t?.ticker || "").toUpperCase()));
+          const injected = [];
+          tradeByTicker.forEach((trade, sym) => {
+            if (!sym || known.has(sym)) return;
+            const status = String(trade?.status || "").toUpperCase();
+            const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+            const isClosed =
+              status === "WIN" || status === "LOSS" || status === "FLAT" ||
+              status === "CLOSED" || status === "CANCELED" ||
+              !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+            if (!isOpen) return;
+            const stub = {
+              ticker: sym,
+              kanban_stage: "hold",
+              price: Number(trade?.mark_price ?? trade?.current_price ?? trade?.entry_price) || null,
+              has_open_position: true,
+              position_direction: trade?.direction || null,
+            };
+            const eff = computeEffectiveStage(stub, trade);
+            injected.push({
+              ...stub,
+              kanban_stage: eff,
+              _openTrade: trade,
+              _effectiveKanbanStage: eff,
+              _injectedOpenTrade: true,
+            });
+          });
+          return injected.length ? mapped.concat(injected) : mapped;
         }, [data, tradeByTicker]);
 
         const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);

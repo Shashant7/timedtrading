@@ -259,6 +259,15 @@
         regime: fullPayload.regime ?? ticker.regime,
         regime_class: fullPayload.regime_class ?? ticker.regime_class,
         market_internals: fullPayload.market_internals ?? ticker.market_internals,
+        price: ticker._live_price ?? ticker.price ?? fullPayload.price,
+        _live_price: ticker._live_price ?? fullPayload._live_price,
+        prev_close: ticker._live_prev_close ?? ticker.prev_close ?? fullPayload.prev_close,
+        _live_prev_close: ticker._live_prev_close ?? fullPayload._live_prev_close,
+        pc: ticker.pc ?? fullPayload.pc,
+        dc: ticker.dc ?? fullPayload.dc,
+        dp: ticker.dp ?? fullPayload.dp,
+        day_change: ticker.day_change ?? fullPayload.day_change,
+        day_change_pct: ticker.day_change_pct ?? fullPayload.day_change_pct,
         // Ensure ticker symbol field is preserved (some /timed/latest
         // payloads don't include a top-level `ticker` field).
         ticker: ticker.ticker || fullPayload.ticker || tickerSym,

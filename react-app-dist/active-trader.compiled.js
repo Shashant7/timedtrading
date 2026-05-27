@@ -1100,7 +1100,7 @@ function ActiveTraderApp() {
       ticker: String(k).toUpperCase(),
       ...(v || {})
     });
-    return raw.map(t => {
+    const mapped = raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = tradeByTicker.get(sym) || null;
       const eff = computeEffectiveStage(t, trade);
@@ -1112,6 +1112,32 @@ function ActiveTraderApp() {
         kanban_stage: eff
       };
     });
+    const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
+    const injected = [];
+    tradeByTicker.forEach((trade, sym) => {
+      if (!sym || known.has(sym)) return;
+      const status = String(trade?.status || "").toUpperCase();
+      const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+      const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+      if (!isOpen) return;
+      const stub = {
+        ticker: sym,
+        kanban_stage: "hold",
+        price: Number(trade?.mark_price ?? trade?.current_price ?? trade?.entry_price) || null,
+        has_open_position: true,
+        position_direction: trade?.direction || null
+      };
+      const eff = computeEffectiveStage(stub, trade);
+      injected.push({
+        ...stub,
+        kanban_stage: eff,
+        _openTrade: trade,
+        _effectiveKanbanStage: eff,
+        _injectedOpenTrade: true
+      });
+    });
+    return injected.length ? mapped.concat(injected) : mapped;
   }, [data, tradeByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
   useEffect(() => {
@@ -1378,6 +1404,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779885112246:262067661
+// cache-bust:1779886630662:278464424
 
-// cache-bust:1779885112246:262067661
+// cache-bust:1779886630662:278464424

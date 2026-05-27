@@ -1403,7 +1403,11 @@
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [tf, setTf] = useState("15");
-      const [showIndicators, setShowIndicators] = useState({ cloud512: true, cloud3450: true, cloud7289: false, cloud180200: false, superTrend: false, tdSeq: false });
+      const [showIndicators, setShowIndicators] = useState(
+        compact
+          ? { cloud512: false, cloud3450: false, cloud7289: false, cloud180200: false, superTrend: false, tdSeq: false }
+          : { cloud512: true, cloud3450: true, cloud7289: false, cloud180200: false, superTrend: false, tdSeq: false }
+      );
 
       const ticker = rawTicker ? String(rawTicker).toUpperCase() : "";
       const LWC = typeof LightweightCharts !== "undefined" ? LightweightCharts : null;
@@ -1454,7 +1458,7 @@
         const entryMs = Number.isFinite(Number(entryTs)) && entryTs ? (Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs)) : null;
         const exitMs = Number.isFinite(Number(exitTs)) && exitTs ? (Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs)) : null;
         const threeDaysMs = 3 * 24 * 3600 * 1000;
-        const asOfMs = exitMs ? exitMs + threeDaysMs : (entryMs || Date.now());
+        const asOfMs = exitMs ? exitMs + threeDaysMs : Date.now();
         const limit = 3000;
         const container = containerRef.current;
         const initialWidth = Math.max(container.clientWidth || 400, 200);
@@ -1657,7 +1661,7 @@
           <div className="shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#9ca3af]">
             <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
-            {INDICATOR_KEYS.map(key => {
+            {!compact && INDICATOR_KEYS.map(key => {
               const labels = { cloud512: "5-12", cloud3450: "34-50", cloud7289: "72-89", cloud180200: "180-200", superTrend: "ST", tdSeq: "TD" };
               const colors = { cloud512: "#4caf50", cloud3450: "#42a5f5", cloud7289: "#26a69a", cloud180200: "#26c6da", superTrend: "#f97316", tdSeq: "#2962ff" };
               const on = showIndicators[key];
@@ -2169,7 +2173,11 @@
           // pnl as-is.
           const _shares = Number(mt.shares || mt.quantity) || 0;
           const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-          const _liveCurrentPx = Number(ticker?.price ?? ticker?.close) || 0;
+          const _liveCurrentPx = (() => {
+            const live = Number(ticker?._live_price);
+            if (Number.isFinite(live) && live > 0) return live;
+            return Number(ticker?.price ?? ticker?.close) || 0;
+          })();
           const _livePnl = (() => {
             if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
             if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
@@ -2438,6 +2446,7 @@
                           slPrice={mt.sl || mt.stop_loss || mt.sl_price}
                           tpPrices={mt.tpArray || mt.tp_array || (mt.tp_price ? [{ price: mt.tp_price, label: "TP" }] : null)}
                           height={typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320}
+                          compact={true}
                         />
                       </div>
                     </div>
@@ -2452,6 +2461,12 @@
         // for price/change display. latestTicker is only for context/scoring data.
         // This guarantees the right rail shows identical values to the card.
         const priceSrc = ticker || {};
+        const resolveDisplayPrice = (src) => {
+          if (!src) return 0;
+          const live = Number(src._live_price);
+          if (Number.isFinite(live) && live > 0) return live;
+          return Number(src.price ?? src.close) || 0;
+        };
 
         // Prevent stale crosshair data from crashing renders when switching
         // tickers/timeframes/tabs quickly (e.g. clicking Chart right after selecting a ticker).
@@ -3211,9 +3226,9 @@
             return "";
           })();
           const v2Dir = v2BiasDirection;
-          const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
+          const v2Price = resolveDisplayPrice(priceSrc);
           const v2DayChange = (() => {
-            const src = latestTicker || ticker;
+            const src = priceSrc;
             if (!src) return null;
             try { return getDailyChange(src); } catch (_) { return null; }
           })();
@@ -3221,7 +3236,7 @@
           const v2Spark = (() => {
             const arr = (ticker?.intraday_5m || ticker?.intraday || []).slice(-50).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
             if (arr.length >= 2) return arr;
-            const pc = Number(latestTicker?.prev_close ?? ticker?.prev_close ?? ticker?.pc) || v2Price;
+            const pc = Number(priceSrc?._live_prev_close ?? priceSrc?.prev_close ?? priceSrc?.pc) || v2Price;
             return [pc, v2Price];
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
