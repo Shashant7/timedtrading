@@ -1,5 +1,128 @@
 # 2026-05-23 — Progress recap + Phase 6 / Markov / HMM status
 
+> **STATUS REFRESH 2026-05-27 (PRs #303–#311).**
+>
+> Heavy iteration window covering: 2 Daily-Brief UI regressions, 1
+> noisy-CI fix, 2 reconciliations (Fundamentals vs Tenet, Regime
+> Forecast placement), and a complete 4-PR series implementing all 5
+> Markov improvements from the architectural review.
+>
+> **CI hygiene + Daily-Brief stability**
+> - **PR #303** — Stop false-positive "Deploy Failure" emails. The
+>   `Check react-app-dist is up-to-date` workflow's `IGNORE_PATTERN`
+>   regex only matched standalone `<!-- cache-bust -->` lines; the
+>   build script ALSO bakes the timestamp into the
+>   `<script src="…compiled.js?v=<ms>">` query string in every HTML
+>   file. Every PR touching `react-app/` produced a 2+/2- diff on 18
+>   HTML files → spurious failure email. Extended regex to also
+>   ignore `?v=<digits>` script-tag lines.
+> - **PR #304** — Daily Brief double-nav + blank-page regression
+>   from PR #299. Root causes:
+>   1. `tt-nav-extras.js` `injectJourneyLinks()` has an allowlist of
+>      paths where it skips the duplicate strip; `/daily-brief` was
+>      missing from the allowlist (added).
+>   2. My React render of `<TimedNotificationCenter />` +
+>      `<TimedUserBadge />` duplicated what `injectRightWidgets()`
+>      also adds → two bells, two avatars (removed React widgets).
+>   3. Babel-standalone takes 1-3s to compile JSX on cold-load and
+>      the entire nav lived inside React → blank page until React
+>      mounted. Moved nav to STATIC HTML at top of `<body>` (parity
+>      with today/AT/investor), added "Loading Daily Brief…" spinner
+>      inside `<div id="root">`.
+> - **PR #305** — Plain-language rewrite of Daily Brief Day/Week
+>   outlook cards. Math (Saty ATR ± daily/weekly ATR × 0.382/0.618)
+>   unchanged. Vocabulary swaps:
+>     `DAY GATE` → `Today's Range`
+>     `WEEK GATE` → `This Week`
+>     `-38.2% / +38.2%` → `Expected Low / Expected High`
+>     `holds between gates` → `stays inside today's range`
+>     `GG Up / GG Down` → `Bullish / Bearish bias`
+>     `ATR` → `Typical daily move`
+>   Bottom status line reads as a full sentence now.
+>
+> **Fundamentals reconciliation (PR #306)** — User compared our
+> Fundamentals tab against Tenet Research for MU. Three fixes:
+> 1. **Gross Margin × 100 bug.** Showed `0.7%` (impossible — gross >
+>    net always). Was the only margin field not multiplied by 100.
+> 2. **FCF fallback chain.** Showed `$2.89B` vs Tenet's `$22.06B TTM`.
+>    TwelveData populates `levered_free_cash_flow_ttm` inconsistently;
+>    added fallback to `free_cash_flow_ttm` (canonical vendor field).
+> 3. **Beat Rate + Avg Surprise.** Computed from the same `/earnings`
+>    history we already fetch — no new API credits. Rendered as
+>    colored chips in the Earnings History panel header.
+>
+> Still missing (follow-up): per-row revenue + next-quarter revenue
+> estimate. Requires `/income_statement?period=quarterly` (~50
+> credits) + `/earnings_estimate` (~20 credits) — would push per-
+> ticker cost from 80 → 150 credits per 6h refresh.
+>
+> **Regime Forecast placement (PR #307)** — Moved from deep inside
+> Technicals to TOP of Snapshot (second panel after `Today` chips).
+> Relabeled time horizons: `Next bar` → `Next 5 min`; `Next 25m` →
+> `Next 25 min`; `Next 100m` → `Next 1h 40m`. Added "Bars are 5 min"
+> footer.
+>
+> **Markov improvements — 4-PR series (#308 → #311)**
+>
+> User asked: "Is 5m the correct grain? What else could we improve?"
+> 5 architectural improvements identified; all 5 shipped:
+>
+> - **PR #308** — Session-boundary hardening + recency decay.
+>   `regime-markov.js buildTransitionMatrix()` now:
+>   - Configurable `maxGapMs` (default 12 min) drops cross-session
+>     transitions explicitly (Fri 4 PM → Mon 9:35 AM was previously
+>     treated as a 5-min transition in some code paths).
+>   - Exponential recency decay `weight = exp(-ln(2) × age / 30d)`
+>     so a 30d-old transition counts half. Half-life configurable.
+>   - New diagnostics: `dropped_gap_transitions`, `max_observed_gap_ms`,
+>     `avg_effective_weight`.
+>   - `counts` retains integer semantics (back-compat); new
+>     `effective_counts` field carries the weighted version.
+>
+> - **PR #309** — Per-ticker matrices for top-50 most-active tickers.
+>   New KV keys `timed:regime:matrix:ticker:{TICKER}` + `_manifest`.
+>   Forecast read path prefers per-ticker (~5K obs) when available,
+>   falls back to universe (~1.2M obs) for the long tail.
+>   `regime_forecast.matrix_source` + `matrix_total_transitions`
+>   surfaced in UI footer ("MU's own behavior (5.4K obs)" vs
+>   "universe-wide (1.2M obs)"). Gated by
+>   `model_config.gates.markov_per_ticker_enabled` (default-on).
+>
+> - **PR #310** — Longer-horizon 1h/1d/1w forecast vectors. Pure math
+>   — same 5-min matrix raised to higher powers (Chapman-Kolmogorov).
+>   No new tables, KV keys, or cron passes. New payload fields
+>   `p_1h` (12 bars), `p_1d` (78 bars = 1 RTH session), `p_1w` (390
+>   bars). UI: new collapsible "Longer horizon · multi-day" section
+>   in the Regime Forecast panel.
+>
+> - **PR #311** — Expanded 12-state space (4 quadrants × 3 completion
+>   bands: EARLY <30% / MID 30-70% / LATE >70%). Built alongside the
+>   existing 4-state matrix from the same `trail_5m_facts` data,
+>   stored at `timed:regime:matrix:expanded:global`. New payload field
+>   `regime_forecast.expanded` with `band` + 12-state distribution
+>   (collapsed-to-4 view for UI compatibility, raw 12-state under
+>   `_expanded_vectors` for power users). 4-state path and all
+>   existing consumers unchanged.
+>
+> Combined payload after all 4 lands:
+>
+>     ticker.regime_forecast = {
+>       state, p_next, p_5_bar, p_20_bar,        // 4-state intraday (#308 hardened)
+>       p_1h, p_1d, p_1w,                         // longer horizons (#310)
+>       matrix_source, matrix_total_transitions,   // per-ticker tagging (#309)
+>       matrix_window_days, matrix_computed_at,
+>       expanded: {                                // 12-state (#311)
+>         current_state, base_state, band,
+>         p_next, p_5_bar, p_20_bar,
+>         _expanded_vectors: { ... }
+>       }
+>     }
+>
+> **Lessons** — see `tasks/lessons.md` 2026-05-27 entries for the
+> three sharp-edges encountered this session (Babel-standalone cold
+> load on Daily Brief, `git apply` silently clobbering co-merged
+> patches, CI false-positive failure emails).
+
 > **STATUS REFRESH 2026-05-26 (after PRs #277–#284).** Major changes
 > since this doc was written:
 >

@@ -5,6 +5,205 @@
 
 ---
 
+## Daily Brief + Fundamentals + Markov hardening session [2026-05-26 → 2026-05-27]
+
+Multi-PR window (#299 → #311) covering: Daily Brief UI refactor + regression
+fix, Fundamentals reconciliation against Tenet Research, Regime Forecast
+placement + units, and a complete architectural overhaul of the Markov regime
+matrix (5 improvements landed in 4 PRs). Recap §2026-05-27 in
+`docs/2026-05-23-progress-recap.md` is the full PR list.
+
+### Babel-standalone + nav-inside-React = blank-page on cold load
+
+`react-app/daily-brief.html` (and any page that uses `babel-standalone` for
+in-browser JSX compilation) takes **1–3 seconds** to compile the JSX block on
+a cold load. If the nav lives INSIDE the React tree (the entire `<App />`),
+the page is BLANK during that window — users see only the footer and report
+"the page failed to load."
+
+Other journey pages (today/AT/investor/portfolio) avoid this by rendering the
+nav as **static HTML at the top of `<body>`**, before `<div id="root">`.
+`tt-nav-extras.js` then enhances it in-place with badges + Admin dropdown +
+right-side widgets.
+
+PR #299 moved the Daily Brief nav into the React tree to get the same
+`.nav-links` structure for badges → introduced the blank-page regression.
+PR #304 fixed by moving the nav back to static HTML + adding a "Loading…"
+spinner inside `<div id="root">` for visible feedback during the compile
+window.
+
+**Rule for future agents:** if a page uses `babel-standalone` for JSX, render
+the nav as static HTML outside the React mount. Always.
+
+### `tt-nav-extras.js` `injectJourneyLinks()` allowlist must include every page
+
+`tt-nav-extras.js` prepends a duplicate journey-link strip to any page where
+it finds a `<nav>` element BUT the path isn't in `JOURNEY_PATHS`. Adding a
+page that already renders the journey links inline → duplicate text-only nav
+row above the real nav.
+
+PR #299 added `/daily-brief` to the nav structure but forgot to add it to
+`JOURNEY_PATHS`. PR #304 added the path. Same pattern would happen for any
+new top-nav page added in the future.
+
+**Rule:** any new page that uses the shared `.nav-links` markup MUST be added
+to `JOURNEY_PATHS` in `tt-nav-extras.js`. The list lives at line ~370 of that
+file.
+
+### Also: `injectRightWidgets()` already mounts bell + avatar
+
+If the new page's React render ALSO mounts `<TimedNotificationCenter />` and
+`<TimedUserBadge />` directly, you'll get TWO bells and TWO avatars —
+`tt-nav-extras.js` `injectRightWidgets()` always appends them to
+`nav.topnav .nav-row`. The right answer is: **don't render the widgets in
+React; let `tt-nav-extras` own them.**
+
+### CI "Deploy Failure" emails were lying — the `Check react-app-dist` regex was incomplete
+
+The workflow at `.github/workflows/check-dist.yml` greps for diffs in
+`react-app-dist/` after rebuilding the frontend, ignoring cache-bust marker
+lines via an `IGNORE_PATTERN` regex. The regex only matched standalone
+`<!-- cache-bust:… -->` lines, but the build script ALSO bakes the
+timestamp into the `<script src="…compiled.js?v=<ms>">` query string in
+every HTML file:
+
+    -    <script src="active-trader.compiled.js?v=1779836218072"></script>
+    +    <script src="active-trader.compiled.js?v=1779838685959"></script>
+
+Every PR that touched `react-app/` produced an exactly 2+/2- diff on 18
+HTML files → spurious failure → GitHub fired a "Deploy Failure" email.
+
+**The check was lying.** The actual deploys all succeeded; the user just saw
+the failure emails and reasonably thought deployment was broken.
+
+PR #303 extended the regex to also ignore `?v=<digits>` script-tag lines.
+**Rule:** if you add a NEW location where the build script writes a unique
+per-build value into `react-app-dist/`, you MUST extend `IGNORE_PATTERN` in
+`check-dist.yml` at the same time.
+
+### `git apply` silently clobbers when context lines have changed (use `cherry-pick`)
+
+When rebasing a PR onto a fresh main that has dependency PRs already merged,
+the cleanest approach is to:
+
+1. `git diff origin/main..PR-branch -- path/to/file > /tmp/source.patch`
+2. `git reset --hard origin/main`
+3. `git apply /tmp/source.patch`
+4. Rebuild dist + commit + force-push
+
+**This works ONLY when no co-merged PR touched the same context lines.** If
+PR #309 added a line at the location my PR #311 has as patch context, `git
+apply` will silently REWRITE the context (overwriting #309's addition) and
+report "Applied patch cleanly" — no warning, no conflict marker.
+
+**Symptom in this session:** I rebased PR #311 by applying the saved source
+patch; the apply succeeded silently; but the import line that PR #309 had
+extended (`loadPerTickerMatrix`) was overwritten back to the pre-#309
+version. Only caught by a careful `grep -nE 'loadPerTickerMatrix'` after the
+fact.
+
+**Rule for future agents:** when a PR depends on or co-mutates code with
+another already-merged PR, use `git cherry-pick <original-commit>` instead of
+`git apply`. Cherry-pick will surface real conflicts you can resolve hunk-by-
+hunk; `git apply` will not. If you must use `git apply`, verify after with
+explicit `grep` checks for each added symbol from the dependency PR.
+
+### Saty ATR levels: the math vs the vocabulary are two different problems
+
+User asked: "Are the SPY/QQQ/IWM Day Gate and Week Gate levels correct?
+Using the Saty ATR calcs?"
+
+The math WAS correct (Saty Day Mode = prior daily close ± daily-ATR ×
+0.382/0.618; Saty Multi-Day Mode = prior weekly close ± weekly-ATR ×
+0.382/0.618). The user's confusion was entirely vocabulary:
+
+- "DAY GATE" — meaningless to non-Saty readers → renamed "Today's Range"
+- "+38.2% / -38.2%" — implies a percentage when it's actually an ATR-scaled
+  price level → renamed "Expected High / Expected Low"
+- "holds between gates" → renamed "stays inside today's range"
+- "ATR" → renamed "Typical daily move"
+
+**Rule for future agents:** before defending the math when a user questions
+a metric, check if the labels are jargon. If yes, rewrite the labels first
+and see if the question goes away. PR #305 was a pure vocabulary PR — no
+math touched.
+
+### TwelveData margin fields: 4 multiply by 100, 1 does not
+
+`worker/index.js` line ~46954 had `gross_margin_pct: num(financials.gross_margin)`
+without the `* 100` that the four other margin fields all had:
+
+    profit_margin_pct: num(financials.profit_margin) * 100,         // correct
+    operating_margin_pct: num(financials.operating_margin) * 100,   // correct
+    roe_ttm_pct: num(financials.return_on_equity_ttm) * 100,        // correct
+    roa_ttm_pct: num(financials.return_on_assets_ttm) * 100,        // correct
+    gross_margin_pct: num(financials.gross_margin),                 // BUG
+
+MU's gross margin rendered as `0.7%` (raw 0.007 from TwelveData) instead of
+the correct ~31% (raw 0.31 × 100). User caught it because gross > net always
+in accounting and net was 41.5% (clearly impossible for gross to be 0.7%).
+
+**Rule:** when a unit-conversion pattern is repeated across N fields, audit
+ALL N to make sure they have the same pattern. Don't trust "we did this
+elsewhere" — verify.
+
+### TwelveData `levered_free_cash_flow_ttm` is populated inconsistently
+
+MU's FCF showed `$2.89B` in our app vs `$22.06B TTM` on Tenet Research. The
+field we read (`cashFlow.levered_free_cash_flow_ttm`) is empty/zero for some
+tickers; the canonical TTM figure lives under `cashFlow.free_cash_flow_ttm`
+in those cases.
+
+PR #306 added a fallback chain that prefers the canonical field first:
+
+    const fcfTtm = num(cashFlow.free_cash_flow_ttm)
+      ?? num(cashFlow.levered_free_cash_flow_ttm)
+      ?? num(cashFlow.free_cash_flow)
+      ?? num(cashFlow.levered_free_cash_flow);
+
+**Rule:** for any vendor field that the user notices is off by an order of
+magnitude vs a peer service, check whether the vendor has multiple
+equivalent fields and add a fallback chain. Don't assume the first field
+name is the canonical one.
+
+### Markov: 5m bars is right for swing/intraday, but 4 structural issues need fixing
+
+This session shipped all 5 improvements identified in the architectural
+review:
+
+1. **Session boundaries** (PR #308) — drop transitions across >12-min gaps.
+   Previously: Friday 4 PM → Monday 9:35 AM treated as a 5-min transition.
+
+2. **Expanded state space** (PR #311) — 4 quadrants → 12 (× 3 completion
+   bands EARLY/MID/LATE). The 4-state matrix averaged over all bands and
+   lost the distinction between "MU just past trigger" and "MU near
+   completion exhaustion."
+
+3. **Per-ticker matrices** (PR #309) — for top-50 active tickers, build a
+   ticker-specific matrix. ~5K obs per ticker is enough for a 4×4 matrix
+   with good confidence. Long-tail uses universe matrix as fallback.
+
+4. **Longer horizons** (PR #310) — pure math (Chapman-Kolmogorov). Same
+   5-min matrix raised to higher powers gives 1h / 1d / 1w forecasts. By
+   1w (390 bars) the distribution converges to the stationary π — that's
+   the correct "long-run regime baseline" for investor-mode users.
+
+5. **Recency decay** (PR #308) — `weight = exp(-ln(2) × age_days / 30)` so
+   recent transitions count more. 30-day half-life. Counts stay integer
+   for back-compat; new `effective_counts` field has the weighted version.
+
+**Composition principle:** all 4 PRs are additive. Existing readers ignore
+new payload fields. Each PR is independently revertable via its own KV key
+or config gate.
+
+**Architectural lesson:** when an existing model already has the right
+data and the right math, the easiest improvements are usually
+**re-interpretation** (raise the matrix to a higher power) and **weighting**
+(decay old transitions), not re-architecting (new D1 tables / new cron
+jobs). Three of the 5 improvements above are pure math on existing data.
+
+---
+
 ## UX redesign + May 2026 calibration session [2026-05-14 → 2026-05-17]
 
 Comprehensive session covering (a) UX redesign into journey pages, (b)
