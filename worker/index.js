@@ -396,7 +396,7 @@ import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
    to KV. See worker/lib/regime-markov.js for the math and
    docs/D1_RETENTION_POLICY.md / tasks notes for context. */
 import { forecastBundle as regimeForecastBundle } from "./lib/regime-markov.js";
-import { computeAndPersistRegimeMatrix, loadRegimeMatrix } from "./lib/regime-markov-compute.js";
+import { computeAndPersistRegimeMatrix, loadRegimeMatrix, computeAndPersistPerTickerMatrices, loadPerTickerMatrix } from "./lib/regime-markov-compute.js";
 /* 2026-05-22 Phase B — converts the matrix into actual trade-time
    decisions. All three policy helpers are pure functions; the
    behavioral changes that consume them are feature-flagged via
@@ -27731,6 +27731,40 @@ async function runDataLifecycle(env, opts = {}) {
       }
     } catch (markovErr) {
       console.error("[DATA LIFECYCLE] Markov matrix rebuild error:", String(markovErr?.message || markovErr).slice(0, 300));
+    }
+
+    // 8b. Per-ticker Markov matrices (2026-05-27, PR #309 — improvement 3)
+    //
+    // Builds individual transition matrices for the top-50 most active
+    // tickers (by trail_5m_facts row count in the window), persists each
+    // to timed:regime:matrix:ticker:{TICKER}, and writes a manifest at
+    // timed:regime:matrix:ticker:_manifest. The forecast read path
+    // prefers the per-ticker matrix when available (~5K transitions per
+    // ticker — solid stats) and falls back to the universe matrix for
+    // the long tail. Gated behind model_config.gates.markov_per_ticker_enabled
+    // so an operator can disable if KV write cost becomes a concern
+    // (currently ~150 KB/day for 50 tickers × 3 KB each).
+    try {
+      // Inline tiny lookup — runDataLifecycle isn't called from a
+      // request context so env._deepAuditConfig isn't necessarily set.
+      const _gatesRow = await db.prepare(
+        "SELECT config_value FROM model_config WHERE config_key='gates'",
+      ).first().catch(() => null);
+      let _gates = {};
+      try { _gates = _gatesRow?.config_value ? JSON.parse(_gatesRow.config_value) : {}; } catch { _gates = {}; }
+      const _ptEnabled = _gates.markov_per_ticker_enabled !== false; // default-on
+      if (_ptEnabled) {
+        const _ptRes = await computeAndPersistPerTickerMatrices(env, { topN: 50, windowDays: 90, minObs: 10 });
+        if (_ptRes?.ok) {
+          console.log(`[DATA LIFECYCLE] Per-ticker matrices: ${_ptRes.count} written, ${_ptRes.errors} errors, ${_ptRes.elapsed_ms}ms`);
+        } else {
+          console.warn(`[DATA LIFECYCLE] Per-ticker matrices skipped/failed: ${_ptRes?.error || "unknown"}`);
+        }
+      } else {
+        console.log("[DATA LIFECYCLE] Per-ticker matrices skipped (gates.markov_per_ticker_enabled=false)");
+      }
+    } catch (ptErr) {
+      console.error("[DATA LIFECYCLE] Per-ticker matrices error:", String(ptErr?.message || ptErr).slice(0, 300));
     }
 
     // 9. HMM decode (2026-05-22)
@@ -78765,12 +78799,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
 
                 if (_regimeMatrixCache && _regimeMatrixCache.P) {
-                  const fc = regimeForecastBundle(_regimeMatrixCache.P, result.state);
+                  // 2026-05-27 (PR #309 — improvement 3): prefer the
+                  // per-ticker matrix when this ticker is in the top-50
+                  // active set; falls back to universe matrix otherwise.
+                  // loadPerTickerMatrix is cheap (in-isolate cache + KV
+                  // manifest avoids per-tick lookups for the long tail).
+                  let _matrixForFc = _regimeMatrixCache;
+                  let _matrixSource = "universe";
+                  try {
+                    const _ptMat = await loadPerTickerMatrix(env, ticker);
+                    if (_ptMat && _ptMat.P) {
+                      _matrixForFc = _ptMat;
+                      _matrixSource = "per_ticker";
+                    }
+                  } catch (_ptErr) { /* fall back to universe — non-fatal */ }
+
+                  const fc = regimeForecastBundle(_matrixForFc.P, result.state);
                   if (fc) {
                     result.regime_forecast = {
                       ...fc,
-                      matrix_window_days: _regimeMatrixCache.window_days,
-                      matrix_computed_at: _regimeMatrixCache.computed_at,
+                      matrix_window_days: _matrixForFc.window_days,
+                      matrix_computed_at: _matrixForFc.computed_at,
+                      matrix_source: _matrixSource,
+                      // total_transitions surfaces the underlying sample
+                      // size in the UI tooltip: "from MU's own behavior
+                      // (5K obs)" vs "from universe-wide (1.2M obs)".
+                      matrix_total_transitions: _matrixForFc.total_transitions || null,
                     };
                   }
                   // Phase C — Attach the HMM latent regime when we have one.
