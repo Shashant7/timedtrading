@@ -1853,10 +1853,30 @@
       }
 
       // ── Top movers ─────────────────────────────────────────────
+      // 2026-05-27 (PR #319) — Two changes:
+      //   1. mode='ext' now picks AH price (_ah_price / extended_price)
+      //      not t.price. Previously t.price was the same field both
+      //      RTH and EXT rows read from, so the EXT row sometimes
+      //      showed the RTH close instead of the AH price.
+      //   2. mode='ext' shows the RTH close stacked below the AH
+      //      price so users can see how the EXT move compares to
+      //      where the stock closed in the regular session.
       function MoverRow({ rk, t, mode, onSelectTicker }) {
         const dc = getDailyChange(t);
         const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-        const price = Number(t?.price);
+        // Pick the right price for the mode.
+        //   RTH: t.price is now (post PR #319 in tt-live-data.js) the
+        //        RTH close when market is closed, or the live tick when
+        //        market is open — both correct for an "RTH Gainer" row.
+        //   EXT: prefer the explicit AH price field; fall back to the
+        //        live tick or t.price as last resort.
+        const price = mode === "ext"
+          ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price)
+          : Number(t?.price);
+        // For EXT rows also show the RTH close beneath, so users can
+        // contextualize the after-hours move.
+        const rthClose = mode === "ext" ? Number(t?.price) : null;
+        const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
         const sym = String(t?.ticker || "").toUpperCase();
         const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
         return h("a", {
@@ -1873,7 +1893,13 @@
           h("span", null,
             h("div", { className: "sym" }, sym),
           ),
-          h("span", { className: "px" }, Number.isFinite(price) ? fmtUsd(price) : "—"),
+          // Price stack: EXT price on top, RTH close beneath (dim) for EXT rows.
+          h("span", { className: "px", style: showRthSub ? { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.1 } : null },
+            Number.isFinite(price) ? fmtUsd(price) : "—",
+            showRthSub && h("span", { style: { fontSize: 9, color: "var(--tt-text-dim)", fontWeight: 400 } },
+              "RTH " + fmtUsd(rthClose),
+            ),
+          ),
           h("span", { className: `chg ${dir}` }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"),
         );
       }

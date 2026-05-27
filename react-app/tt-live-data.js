@@ -104,12 +104,49 @@
             const ahdc = Number(p.ahdc);
             const ahdp = Number(p.ahdp);
 
+            // 2026-05-27 (PR #319) — Market-closed RTH/EXT mixing fix.
+            //
+            // User report (2026-05-27 13:18 UTC): Kanban cards flicker
+            // between two prices (e.g. MU $895.88 → $957.50 → $895.88
+            // every 30-90s) and the RTH GAINERS row sometimes shows
+            // MU at $961 +28% (EXT-inflated) and sometimes $895 +19%
+            // (correct RTH-only).
+            //
+            // Root cause: `/timed/prices` `p.p` is the LATEST TICK,
+            // which after RTH close includes extended-hours moves.
+            // We were unconditionally overwriting `existing.price` with
+            // feedP → next refresh of `/timed/all` (90s cycle) puts
+            // RTH price back → bouncing.
+            //
+            // Backend already preserves `dc/dp/pc` correctly across
+            // session boundaries (per .cursor/rules/price-data-pipeline.mdc),
+            // so the bouncing is specifically `p` (price) when market
+            // is closed.
+            //
+            // Fix: when market is CLOSED, keep `existing.price` = RTH
+            // close (from the bundle); only write `_live_price` + the
+            // dedicated AH fields. Consumers that want the live tick
+            // for any reason can read `_live_price` directly.
+            //
+            // When market is OPEN, the existing behavior is correct
+            // (feedP IS the canonical price during RTH).
+            const marketOpen = (() => {
+              try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+              catch (_) { return true; }
+            })();
+
             next[key] = {
               ...existing,
-              price: feedP,
+              // Only overwrite the canonical price field DURING RTH.
+              // When market is closed, keep the RTH close (existing.price)
+              // intact; the live tick goes to _live_price only.
+              ...(marketOpen ? { price: feedP } : {}),
               _live_price: feedP,
               _price_updated_at: feedTs,
+              _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+              // dc/dp are session-close values; backend preserves them
+              // across the close (see rule). Safe to apply in both states.
               ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
               ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
               ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
