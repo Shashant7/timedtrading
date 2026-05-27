@@ -292,10 +292,9 @@
           allLoadedData: allLoadedData || null,
           onClose,
           layoutMode,
-          // Save (★) button data — wired automatically in the rail
-          // bootstrap so every host page gets the toggle without
-          // having to thread savedTickers / toggleSavedTicker
-          // through manually.
+          initialRailTab,
+          openAutopsyForTrade,
+          highlightTradeId,
           savedTickers,
           toggleSavedTicker,
         }),
@@ -305,4 +304,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1779852674872:736067536
+// cache-bust:1779854564007:846906980

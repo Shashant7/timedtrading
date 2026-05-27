@@ -1707,6 +1707,7 @@
         savedTickers = null,
         toggleSavedTicker = null,
         openAutopsyForTrade = null,
+        highlightTradeId = null,
         modalOnly = false,
         /* V15 P0.7.76 (2026-05-06) — Workspace mode. When "workspace",
            the rail uses CSS Grid to split into two panes:
