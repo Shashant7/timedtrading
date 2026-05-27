@@ -1520,7 +1520,14 @@
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [tf, setTf] = useState("15");
-      const [showIndicators, setShowIndicators] = useState({
+      const [showIndicators, setShowIndicators] = useState(compact ? {
+        cloud512: false,
+        cloud3450: false,
+        cloud7289: false,
+        cloud180200: false,
+        superTrend: false,
+        tdSeq: false
+      } : {
         cloud512: true,
         cloud3450: true,
         cloud7289: false,
@@ -1606,7 +1613,7 @@
         const entryMs = Number.isFinite(Number(entryTs)) && entryTs ? Number(entryTs) < 1e12 ? Number(entryTs) * 1000 : Number(entryTs) : null;
         const exitMs = Number.isFinite(Number(exitTs)) && exitTs ? Number(exitTs) < 1e12 ? Number(exitTs) * 1000 : Number(exitTs) : null;
         const threeDaysMs = 3 * 24 * 3600 * 1000;
-        const asOfMs = exitMs ? exitMs + threeDaysMs : entryMs || Date.now();
+        const asOfMs = exitMs ? exitMs + threeDaysMs : Date.now();
         const limit = 3000;
         const container = containerRef.current;
         const initialWidth = Math.max(container.clientWidth || 400, 200);
@@ -2097,7 +2104,7 @@
         className: "flex items-center gap-1.5"
       }, React.createElement("span", {
         className: "inline-block w-3 h-0.5 rounded bg-[#f59e0b]"
-      }), " Exit"), INDICATOR_KEYS.map(key => {
+      }), " Exit"), !compact && INDICATOR_KEYS.map(key => {
         const labels = {
           cloud512: "5-12",
           cloud3450: "34-50",
@@ -2520,7 +2527,11 @@
         const _isOpenStatus = _status === "OPEN" || _status === "TP_HIT_TRIM" || !_status && !(mt.exit_ts ?? mt.exitTs);
         const _shares = Number(mt.shares || mt.quantity) || 0;
         const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-        const _liveCurrentPx = Number(ticker?.price ?? ticker?.close) || 0;
+        const _liveCurrentPx = (() => {
+          const live = Number(ticker?._live_price);
+          if (Number.isFinite(live) && live > 0) return live;
+          return Number(ticker?.price ?? ticker?.close) || 0;
+        })();
         const _livePnl = (() => {
           if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
           if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
@@ -2859,10 +2870,17 @@
             price: mt.tp_price,
             label: "TP"
           }] : null),
-          height: typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320
+          height: typeof window !== "undefined" && window.innerWidth < 768 ? 220 : 320,
+          compact: true
         }))))));
       }
       const priceSrc = ticker || {};
+      const resolveDisplayPrice = src => {
+        if (!src) return 0;
+        const live = Number(src._live_price);
+        if (Number.isFinite(live) && live > 0) return live;
+        return Number(src.price ?? src.close) || 0;
+      };
       useEffect(() => {
         setCrosshair(null);
       }, [tickerSymbol, chartTf, railTab]);
@@ -3461,9 +3479,9 @@
           return "";
         })();
         const v2Dir = v2BiasDirection;
-        const v2Price = Number(latestTicker?.price ?? ticker?.price) || 0;
+        const v2Price = resolveDisplayPrice(priceSrc);
         const v2DayChange = (() => {
-          const src = latestTicker || ticker;
+          const src = priceSrc;
           if (!src) return null;
           try {
             return getDailyChange(src);
@@ -3475,7 +3493,7 @@
         const v2Spark = (() => {
           const arr = (ticker?.intraday_5m || ticker?.intraday || []).slice(-50).map(p => Number(p?.c ?? p)).filter(Number.isFinite);
           if (arr.length >= 2) return arr;
-          const pc = Number(latestTicker?.prev_close ?? ticker?.prev_close ?? ticker?.pc) || v2Price;
+          const pc = Number(priceSrc?._live_prev_close ?? priceSrc?.prev_close ?? priceSrc?.pc) || v2Price;
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
@@ -12379,4 +12397,4 @@
   };
 })();
 
-// cache-bust:1779885112246:262067661
+// cache-bust:1779886630662:278464424
