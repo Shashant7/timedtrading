@@ -2102,6 +2102,11 @@
         const [autopsyModalData, setAutopsyModalData] = useState(null);
         const [autopsyModalLoading, setAutopsyModalLoading] = useState(false);
         const [autopsyModalProfile, setAutopsyModalProfile] = useState(null);
+        // 2026-05-27 (PR #324) — Trade event log from /timed/ledger/trades/:id/events.
+        // Authoritative source for the receipt panel; populated alongside
+        // the trade record fetch. Falls back to trade.history / synthesized
+        // rows when the events endpoint returns nothing.
+        const [autopsyEvents, setAutopsyEvents] = useState(null);
 
         // Reusable opener for the in-rail trade-autopsy modal. Used by:
         //  (1) the prop-driven auto-open path below (parent-trigger),
@@ -2117,7 +2122,22 @@
           setAutopsyModalLoading(true);
           setAutopsyModalData(null);
           setAutopsyModalProfile(null);
+          setAutopsyEvents(null);
           const _tid = t.trade_id || t.id || "";
+          // 2026-05-27 (PR #324) — Kick off event-log fetch in parallel
+          // with the trade record fetch. Non-blocking — the receipt
+          // renders from trade.history if events isn't back yet, and
+          // hot-swaps when events lands.
+          if (_tid) {
+            fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/events`)
+              .then(r => r.ok ? r.json() : null)
+              .then(d => {
+                if (d?.ok && Array.isArray(d.events) && d.events.length > 0) {
+                  setAutopsyEvents(d);
+                }
+              })
+              .catch(() => { /* silent — receipt falls back to trade.history */ });
+          }
           const _tk = String(t.ticker || tickerSymbol || "").toUpperCase();
           // 2026-05-27 (PR #320) — Trade Autopsy entry/P&L recovery.
           // User report: FN Long Exit chip on the Activity Strip
@@ -2331,7 +2351,17 @@
                       </div>
                     </div>
 
-                    {/* 2026-05-27 (PR #323) — Receipt-style chronological event log.
+                    {/* 2026-05-27 (PR #323 + PR #324) — Receipt-style chronological event log.
+
+                        PR #324 added autopsyEvents (from /timed/ledger/trades/:id/events)
+                        as the primary data source. It pulls from account_ledger which
+                        has EVERY trim event, not just the latest, fixing the case
+                        where TSM showed only ENTRY in the receipt despite having
+                        2 actual trims. Falls back to trade.history / legacy
+                        trim_price+trim_ts when autopsyEvents isn't loaded yet.
+
+                        Original PR #323 comment:
+                        ─────────────────────────
                         User asked: 'enhance the Trade Autopsy to show clear the date
                         of entry, shares, price, then followed by trims and then exit?
                         It should be crystal clear to follow like a receipt.'
@@ -2352,10 +2382,39 @@
                       const entryTsRaw = Number(mt.entry_ts ?? mt.entryTs ?? 0);
                       const dirMul = _dir === "SHORT" ? -1 : 1;
 
+                      // PR #324 source-1: account_ledger via the new
+                      // /timed/ledger/trades/:id/events endpoint. When this is
+                      // loaded, use ONLY this — it's the most accurate and
+                      // includes every trim (not just the latest). The fetch
+                      // is kicked off in _openAutopsy() in parallel with the
+                      // trade record fetch; receipt hot-swaps when it lands.
+                      const ledgerEvents = autopsyEvents && Array.isArray(autopsyEvents.events)
+                        ? autopsyEvents.events
+                        : null;
+                      if (ledgerEvents && ledgerEvents.length > 0) {
+                        for (const ev of ledgerEvents) {
+                          events.push({
+                            type: String(ev.type || "").toUpperCase(),
+                            ts: Number(ev.ts) || 0,
+                            shares: Number(ev.shares) || 0,
+                            price: Number(ev.price) || 0,
+                            value: Number(ev.value) || 0,
+                            realized_pnl: Number(ev.realized_pnl) || 0,
+                            reason: ev.note || null,
+                          });
+                        }
+                        // Sort + render below.
+                        events.sort((a, b) => Number(a.ts) - Number(b.ts));
+                      }
+
+                      // PR #323 fallback chain — only runs when ledgerEvents
+                      // didn't return any rows (load failure OR account_ledger
+                      // has no entries for this trade).
+
                       // 1) Entry — synthesized row. The history array doesn't
                       // include the initial entry (only trims + exits), so we
                       // reconstruct it from the trade record.
-                      if (initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
+                      if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
                         events.push({
                           type: "ENTRY",
                           ts: entryTsRaw,
@@ -2367,28 +2426,31 @@
                         });
                       }
 
-                      // 2) Trims + Exit from trade.history
-                      const hist = Array.isArray(mt.history) ? mt.history : [];
-                      for (const h of hist) {
-                        const t = String(h?.type || "").toUpperCase();
-                        if (t !== "TRIM" && t !== "EXIT") continue;
-                        events.push({
-                          type: t,
-                          ts: Number(h.timestamp ?? h.ts ?? 0),
-                          shares: Number(h.shares ?? 0),
-                          price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
-                          value: Number(h.value ?? (Number(h.shares) * Number(h.price)) ?? 0),
-                          realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
-                          reason: h.reason_human || h.reason || h.note || null,
-                          pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null,
-                        });
+                      // 2) Trims + Exit from trade.history (only when ledgerEvents
+                      // didn't populate the receipt).
+                      if (!ledgerEvents || ledgerEvents.length === 0) {
+                        const hist = Array.isArray(mt.history) ? mt.history : [];
+                        for (const h of hist) {
+                          const t = String(h?.type || "").toUpperCase();
+                          if (t !== "TRIM" && t !== "EXIT") continue;
+                          events.push({
+                            type: t,
+                            ts: Number(h.timestamp ?? h.ts ?? 0),
+                            shares: Number(h.shares ?? 0),
+                            price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
+                            value: Number(h.value ?? (Number(h.shares) * Number(h.price)) ?? 0),
+                            realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
+                            reason: h.reason_human || h.reason || h.note || null,
+                            pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null,
+                          });
+                        }
                       }
 
                       // 3) Fallback for older records that didn't accumulate
                       // history but have a single trim_price + exit_price
                       // on the trade record itself. Synthesize a row for
                       // each so old trades still render the log.
-                      if (events.length <= 1) {
+                      if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
                         const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
                         const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
                         const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
@@ -11313,4 +11375,4 @@
   };
 })();
 
-// cache-bust:1779901787722:478831947
+// cache-bust:1779904052626:120932828
