@@ -13,9 +13,20 @@
 // - We do NOT persist to D1. The source (trail_5m_facts) lives in D1
 //   already and our compute reads SELECT-only.
 
-import { buildTransitionMatrix, summarizeMatrix, DEFAULT_WINDOW_DAYS, REGIME_STATES } from "./regime-markov.js";
+import {
+  buildTransitionMatrix,
+  buildExpandedTransitionMatrix,
+  summarizeMatrix,
+  DEFAULT_WINDOW_DAYS,
+  REGIME_STATES,
+  EXPANDED_REGIME_STATES,
+} from "./regime-markov.js";
 
 const KV_KEY = "timed:regime:matrix:global";
+// 2026-05-27 (PR #311 — improvement 2): expanded 12-state matrix.
+// Stored separately so the 4-state matrix (universe-wide and
+// per-ticker, the existing reads) is never affected.
+const EXPANDED_KV_KEY = "timed:regime:matrix:expanded:global";
 const KV_TTL_SECONDS = 14 * 24 * 3600; // 14 days — daily refresh should always be fresher than this
 const READ_BATCH_LIMIT = 5000; // page size for trail_5m_facts SELECTs
 
@@ -70,8 +81,13 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
     // after the last row of the previous page. trail_5m_facts PK is
     // (ticker, bucket_ts) so ORDER BY ticker, bucket_ts is the cheap
     // index walk.
+    //
+    // 2026-05-27 (PR #311 — improvement 2): also SELECT max_completion
+    // so the expanded 12-state matrix builder can assign each row to
+    // its completion band (EARLY/MID/LATE). The 4-state builder
+    // ignores the extra column.
     const sql = tickersFilter
-      ? `SELECT ticker, bucket_ts, state
+      ? `SELECT ticker, bucket_ts, state, max_completion
            FROM trail_5m_facts
           WHERE bucket_ts >= ?1
             AND state IS NOT NULL
@@ -79,7 +95,7 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
           ORDER BY ticker, bucket_ts
           LIMIT ${READ_BATCH_LIMIT}
          OFFSET ?${tickersFilter.length + 2}`
-      : `SELECT ticker, bucket_ts, state
+      : `SELECT ticker, bucket_ts, state, max_completion
            FROM trail_5m_facts
           WHERE bucket_ts >= ?1
             AND state IS NOT NULL
@@ -99,7 +115,15 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
     }
     if (!rows.length) break;
     for (const r of rows) {
-      buckets.push({ ticker: r.ticker, bucket_ts: Number(r.bucket_ts), state: String(r.state) });
+      buckets.push({
+        ticker: r.ticker,
+        bucket_ts: Number(r.bucket_ts),
+        state: String(r.state),
+        // completion is null/missing on tickers/buckets that don't have
+        // a tracked move; expandedStateFor() defaults to "MID" in that
+        // case so nothing disappears from the count.
+        completion: Number(r.max_completion),
+      });
       tickerSet.add(String(r.ticker || "").toUpperCase());
     }
     totalRows += rows.length;
@@ -139,6 +163,33 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
     await KV.put(KV_KEY, JSON.stringify(payload), { expirationTtl: KV_TTL_SECONDS });
   } catch (e) {
     return { ok: false, error: "kv_put_failed", details: String(e?.message || e).slice(0, 300) };
+  }
+
+  // 2026-05-27 (PR #311 — improvement 2): build + persist the EXPANDED
+  // 12-state matrix from the same buckets in parallel. Same reads, same
+  // window — just a different state encoding. Non-fatal if it fails:
+  // the 4-state matrix is already persisted at this point.
+  try {
+    const expandedReport = buildExpandedTransitionMatrix(buckets, { minObs: 8 });
+    const expandedPayload = {
+      schema_version: 1,
+      scope: "expanded_global",
+      states: EXPANDED_REGIME_STATES.slice(),
+      n_states: expandedReport.n_states,
+      P: expandedReport.P,
+      counts: expandedReport.counts,
+      total_transitions: expandedReport.total_transitions,
+      low_obs_cells: expandedReport.low_obs_cells,
+      min_obs: expandedReport.min_obs,
+      window_days: windowDays,
+      distinct_tickers: tickerSet.size,
+      rows_read: totalRows,
+      computed_at: expandedReport.computed_at,
+    };
+    await KV.put(EXPANDED_KV_KEY, JSON.stringify(expandedPayload), { expirationTtl: KV_TTL_SECONDS });
+    console.log(`[REGIME MATRIX] Expanded 12-state matrix built: ${expandedReport.total_transitions} transitions, ${expandedReport.low_obs_cells.length} low-obs cells`);
+  } catch (expErr) {
+    console.warn("[REGIME MATRIX] Expanded matrix build failed (non-fatal):", String(expErr?.message || expErr).slice(0, 200));
   }
 
   console.log(`[REGIME MATRIX] Built from ${totalRows} rows / ${tickerSet.size} tickers / ${windowDays}d window. ${payload.summary}`);
@@ -385,3 +436,40 @@ export async function loadPerTickerMatrix(env, ticker) {
 }
 
 export const PER_TICKER_MATRIX_KV_PREFIX = PER_TICKER_KV_PREFIX;
+
+// ═══════════════════════════════════════════════════════════════════════
+// 2026-05-27 (PR #311 — improvement 2): expanded 12-state matrix loader
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Built + persisted by the modified computeAndPersistRegimeMatrix above
+// (writes BOTH 4-state and 12-state matrices in the same daily pass).
+// Stored under EXPANDED_KV_KEY ("timed:regime:matrix:expanded:global")
+// with the same 14-day TTL as the 4-state matrix.
+
+export { EXPANDED_KV_KEY as EXPANDED_REGIME_MATRIX_KV_KEY };
+
+// Per-isolate cache for the expanded 12-state matrix. Same 5-min TTL
+// as the 4-state matrix since it's refreshed by the same daily cron.
+let _cachedExpanded = null;
+let _cachedExpandedAt = 0;
+
+export async function loadExpandedRegimeMatrix(env, opts = {}) {
+  const force = !!opts.force;
+  const now = Date.now();
+  if (!force && _cachedExpanded && (now - _cachedExpandedAt) < CACHE_TTL_MS) {
+    return _cachedExpanded;
+  }
+  const KV = env?.KV_TIMED;
+  if (!KV) return null;
+  try {
+    const v = await KV.get(EXPANDED_KV_KEY, "json");
+    if (v && v.P) {
+      _cachedExpanded = v;
+      _cachedExpandedAt = now;
+      return v;
+    }
+  } catch (e) {
+    console.warn("[REGIME MATRIX] loadExpandedRegimeMatrix failed:", String(e?.message || e).slice(0, 200));
+  }
+  return null;
+}

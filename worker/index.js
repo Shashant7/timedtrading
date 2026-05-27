@@ -395,8 +395,8 @@ import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
    the scoring payload. Read-only of trail_5m_facts; result persisted
    to KV. See worker/lib/regime-markov.js for the math and
    docs/D1_RETENTION_POLICY.md / tasks notes for context. */
-import { forecastBundle as regimeForecastBundle } from "./lib/regime-markov.js";
-import { computeAndPersistRegimeMatrix, loadRegimeMatrix, computeAndPersistPerTickerMatrices, loadPerTickerMatrix } from "./lib/regime-markov-compute.js";
+import { forecastBundle as regimeForecastBundle, expandedForecastBundle, expandedStateFor } from "./lib/regime-markov.js";
+import { computeAndPersistRegimeMatrix, loadRegimeMatrix, computeAndPersistPerTickerMatrices, loadPerTickerMatrix, loadExpandedRegimeMatrix } from "./lib/regime-markov-compute.js";
 /* 2026-05-22 Phase B — converts the matrix into actual trade-time
    decisions. All three policy helpers are pure functions; the
    behavioral changes that consume them are feature-flagged via
@@ -78826,6 +78826,42 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       // (5K obs)" vs "from universe-wide (1.2M obs)".
                       matrix_total_transitions: _matrixForFc.total_transitions || null,
                     };
+                  }
+
+                  // 2026-05-27 (PR #311 — improvement 2): expanded
+                  // 12-state forecast alongside the 4-state one.
+                  // Same scoring tick, same horizons; extra dimension
+                  // is the completion band (EARLY/MID/LATE) of the
+                  // current move. Cheap — one extra KV read per
+                  // isolate (cached for 5 min) + one matrix power
+                  // per horizon. Result is attached as
+                  // result.regime_forecast.expanded and the existing
+                  // 4-state fields are unchanged.
+                  try {
+                    const _expandedMatrix = await loadExpandedRegimeMatrix(env);
+                    if (_expandedMatrix?.P && result.regime_forecast) {
+                      const _expState = expandedStateFor(result.state, Number(result.completion));
+                      if (_expState) {
+                        const _expFc = expandedForecastBundle(_expandedMatrix.P, _expState);
+                        if (_expFc) {
+                          result.regime_forecast.expanded = {
+                            current_state: _expState,
+                            base_state: _expFc.base_state,
+                            band: _expFc.band,
+                            // collapsed-to-4-state distribution (same shape
+                            // as the existing fields, so the UI can render
+                            // identically if it wants):
+                            p_next: _expFc.p_next,
+                            p_5_bar: _expFc.p_5_bar,
+                            p_20_bar: _expFc.p_20_bar,
+                            // raw 12-state distribution for power users:
+                            _expanded_vectors: _expFc._expanded,
+                          };
+                        }
+                      }
+                    }
+                  } catch (expErr) {
+                    // Non-fatal; the 4-state forecast already attached.
                   }
                   // Phase C — Attach the HMM latent regime when we have one.
                   // Universe-wide signal — same value across every ticker
