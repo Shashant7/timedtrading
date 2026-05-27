@@ -4508,15 +4508,27 @@
               textTransform: "uppercase",
               marginBottom: 4
             }
-          }, "Where it's likely headed"), renderRow("Next 5 min", fc.p_next, 1, "1 bar ahead — single 5-minute candle from the Markov transition matrix"), renderRow("Next 25 min", fc.p_5_bar, 5, "5 bars ahead — about half an hour of trading"), renderRow("Next 1h 40m", fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")), fc.matrix_window_days && React.createElement("p", {
-            style: {
-              margin: "10px 0 0 0",
-              fontSize: 9,
-              color: "var(--ds-text-dim)",
-              letterSpacing: "0.04em",
-              opacity: 0.7
-            }
-          }, "Markov matrix \xB7 ", fc.matrix_window_days, "-day window", fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : "", " · ", "Bars are 5 min"));
+          }, "Where it's likely headed"), renderRow("Next 5 min", fc.p_next, 1, "1 bar ahead — single 5-minute candle from the Markov transition matrix"), renderRow("Next 25 min", fc.p_5_bar, 5, "5 bars ahead — about half an hour of trading"), renderRow("Next 1h 40m", fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")), fc.matrix_window_days && (() => {
+            const isPerTicker = fc.matrix_source === "per_ticker";
+            const sampleN = Number(fc.matrix_total_transitions) || 0;
+            const sampleStr = sampleN >= 1_000_000 ? `${(sampleN / 1_000_000).toFixed(1)}M` : sampleN >= 1_000 ? `${(sampleN / 1_000).toFixed(1)}K` : `${sampleN}`;
+            const sourceLabel = isPerTicker ? `${tickerSymbol || "ticker"}'s own behavior (${sampleStr} obs)` : `universe-wide (${sampleStr} obs)`;
+            const sourceColor = isPerTicker ? "var(--ds-accent, #f5c25c)" : "var(--ds-text-dim)";
+            return React.createElement("p", {
+              style: {
+                margin: "10px 0 0 0",
+                fontSize: 9,
+                color: "var(--ds-text-dim)",
+                letterSpacing: "0.04em",
+                opacity: 0.85
+              }
+            }, React.createElement("span", {
+              style: {
+                color: sourceColor,
+                fontWeight: 600
+              }
+            }, sourceLabel), " · ", fc.matrix_window_days, "-day window", fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : "", " · ", "Bars are 5 min");
+          })());
         })(), (() => {
           const tp = ticker?._ticker_profile;
           const learn = tp?.learning;
@@ -12355,4 +12367,4 @@
   };
 })();
 
-// cache-bust:1779849354568:893392858
+// cache-bust:1779850391495:829666481

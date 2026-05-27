@@ -19,6 +19,17 @@ const KV_KEY = "timed:regime:matrix:global";
 const KV_TTL_SECONDS = 14 * 24 * 3600; // 14 days — daily refresh should always be fresher than this
 const READ_BATCH_LIMIT = 5000; // page size for trail_5m_facts SELECTs
 
+// 2026-05-27 (PR #309 — improvement 3): per-ticker matrices for the
+// top-N most active tickers. Stored at
+//   timed:regime:matrix:ticker:{TICKER}
+// alongside the universe-wide matrix. The forecast read path prefers
+// the per-ticker variant when available; falls back to the universe
+// matrix for the long tail. Cap on N to bound KV write cost: a 90d
+// per-ticker matrix is ~3 KB so 50 = ~150 KB of KV writes per day.
+const PER_TICKER_KV_PREFIX = "timed:regime:matrix:ticker:";
+const PER_TICKER_DEFAULT_TOP_N = 50;
+const PER_TICKER_MIN_OBS_PER_CELL = 10; // looser than universe; per-ticker sample is smaller
+
 /**
  * computeAndPersistRegimeMatrix
  *
@@ -179,3 +190,198 @@ export async function loadRegimeMatrix(env, opts = {}) {
 }
 
 export { KV_KEY as REGIME_MATRIX_KV_KEY };
+
+// ═══════════════════════════════════════════════════════════════════════
+// 2026-05-27 — Per-ticker matrices (PR #309, improvement 3)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Universe-wide matrices have great sample-size statistical power
+// (~1.2M transitions across 250 tickers × 90d) but lose ticker-specific
+// behavior. Volatile semiconductors transition differently from utility
+// ETFs. For the top-N most-active tickers we have enough per-ticker
+// observations (~5K transitions per ticker per 90d) to build a per-
+// ticker matrix with reasonable confidence. For the long tail of
+// infrequently-scored tickers we fall back to the universe matrix.
+//
+// Top-N selection: ranked by trail_5m_facts row count in the window.
+
+/**
+ * computeAndPersistPerTickerMatrices
+ *
+ * @param {object} env
+ * @param {object} [opts]
+ * @param {number} [opts.topN=50]
+ * @param {number} [opts.windowDays=90]
+ * @param {number} [opts.minObs=10]
+ * @returns {Promise<{ok, count, tickers, errors, elapsed_ms}>}
+ */
+export async function computeAndPersistPerTickerMatrices(env, opts = {}) {
+  const db = env?.DB;
+  const KV = env?.KV_TIMED;
+  if (!db) return { ok: false, error: "no_d1_binding" };
+  if (!KV) return { ok: false, error: "no_kv_binding" };
+
+  const t0 = Date.now();
+  const topN = Number.isFinite(opts.topN) ? Math.max(1, Math.min(200, opts.topN)) : PER_TICKER_DEFAULT_TOP_N;
+  const windowDays = Number.isFinite(opts.windowDays) ? Math.max(7, opts.windowDays) : DEFAULT_WINDOW_DAYS;
+  const minObs = Number.isFinite(opts.minObs) ? opts.minObs : PER_TICKER_MIN_OBS_PER_CELL;
+  const cutoff = Date.now() - windowDays * 86400000;
+
+  // 1) Pick the top-N most active tickers (row count in window).
+  let topTickers;
+  try {
+    const res = await db.prepare(
+      `SELECT ticker, COUNT(*) AS n
+         FROM trail_5m_facts
+        WHERE bucket_ts >= ?1 AND state IS NOT NULL
+        GROUP BY ticker
+        ORDER BY n DESC
+        LIMIT ?2`,
+    ).bind(cutoff, topN).all();
+    topTickers = (res?.results || []).map(r => ({ ticker: String(r.ticker), n: Number(r.n) }));
+  } catch (e) {
+    return { ok: false, error: "topN_query_failed", details: String(e?.message || e).slice(0, 200) };
+  }
+  if (topTickers.length === 0) {
+    return { ok: false, error: "no_data", window_days: windowDays };
+  }
+
+  // 2) For each top ticker, pull its rows + build matrix + write KV.
+  const tickerSummaries = [];
+  let errors = 0;
+  for (const { ticker, n: rowCount } of topTickers) {
+    try {
+      const rows = await _fetchTickerBuckets(db, ticker, cutoff);
+      if (rows.length < 50) {
+        // Too few observations even for a per-ticker matrix; skip
+        // (forecast will fall back to universe).
+        tickerSummaries.push({ ticker, rows: rows.length, written: false, reason: "below_min_rows" });
+        continue;
+      }
+      const report = buildTransitionMatrix(rows, { minObs });
+      const payload = {
+        schema_version: 1,
+        scope: "per_ticker",
+        ticker,
+        states: REGIME_STATES.slice(),
+        P: report.P,
+        counts: report.counts,
+        effective_counts: report.effective_counts,
+        stationary: report.stationary,
+        mean_dwell: report.mean_dwell,
+        dwell_std: report.dwell_std,
+        suspicious_pct: report.suspicious_pct,
+        suspicious_count: report.suspicious_count,
+        total_transitions: report.total_transitions,
+        low_obs_cells: report.low_obs_cells,
+        min_obs: minObs,
+        window_days: windowDays,
+        config: report.config,
+        dropped_gap_transitions: report.dropped_gap_transitions,
+        avg_effective_weight: report.avg_effective_weight,
+        rows_read: rows.length,
+        computed_at: report.computed_at,
+        summary: summarizeMatrix(report),
+      };
+      await KV.put(`${PER_TICKER_KV_PREFIX}${ticker}`, JSON.stringify(payload), { expirationTtl: KV_TTL_SECONDS });
+      tickerSummaries.push({
+        ticker,
+        rows: rows.length,
+        written: true,
+        total_transitions: report.total_transitions,
+        low_obs_count: report.low_obs_cells.length,
+      });
+    } catch (e) {
+      errors++;
+      tickerSummaries.push({ ticker, written: false, error: String(e?.message || e).slice(0, 200) });
+    }
+  }
+
+  // 3) Persist a manifest listing the tickers with per-ticker matrices,
+  // so the forecast read path can fast-check without N KV lookups.
+  const manifest = {
+    schema_version: 1,
+    computed_at: Date.now(),
+    window_days: windowDays,
+    min_obs: minObs,
+    top_n_requested: topN,
+    tickers: tickerSummaries.filter(t => t.written).map(t => t.ticker),
+  };
+  try {
+    await KV.put(`${PER_TICKER_KV_PREFIX}_manifest`, JSON.stringify(manifest), { expirationTtl: KV_TTL_SECONDS });
+  } catch (_) { /* non-fatal */ }
+
+  const elapsed = Date.now() - t0;
+  console.log(`[REGIME MATRIX] Per-ticker: ${manifest.tickers.length}/${topTickers.length} written, ${errors} errors, ${elapsed}ms`);
+
+  return {
+    ok: true,
+    count: manifest.tickers.length,
+    errors,
+    elapsed_ms: elapsed,
+    tickers: tickerSummaries,
+  };
+}
+
+async function _fetchTickerBuckets(db, ticker, cutoff) {
+  const out = [];
+  let offset = 0;
+  for (;;) {
+    const res = await db.prepare(
+      `SELECT ticker, bucket_ts, state
+         FROM trail_5m_facts
+        WHERE ticker = ?1 AND bucket_ts >= ?2 AND state IS NOT NULL
+        ORDER BY bucket_ts
+        LIMIT ${READ_BATCH_LIMIT}
+        OFFSET ?3`,
+    ).bind(ticker, cutoff, offset).all();
+    const rows = res?.results || [];
+    if (!rows.length) break;
+    for (const r of rows) out.push({ ticker: r.ticker, bucket_ts: Number(r.bucket_ts), state: String(r.state) });
+    if (rows.length < READ_BATCH_LIMIT) break;
+    offset += rows.length;
+    if (offset >= 200_000) break; // hard safety cap per ticker
+  }
+  return out;
+}
+
+// Per-isolate cache so the every-5-min scoring path doesn't re-fetch
+// the manifest + N per-ticker entries from KV on every tick.
+let _perTickerManifest = null;
+let _perTickerManifestAt = 0;
+const _perTickerCache = new Map(); // ticker -> { matrix, fetchedAt }
+const PER_TICKER_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+
+export async function loadPerTickerMatrix(env, ticker) {
+  const KV = env?.KV_TIMED;
+  if (!KV || !ticker) return null;
+  const sym = String(ticker).toUpperCase();
+  const now = Date.now();
+
+  // Manifest first — cheap O(1) check whether we have a per-ticker
+  // matrix for this symbol at all. Avoids 200+ "key not found" KV
+  // reads per cron tick for the long-tail tickers.
+  if (!_perTickerManifest || (now - _perTickerManifestAt) > PER_TICKER_CACHE_TTL_MS) {
+    try {
+      _perTickerManifest = (await KV.get(`${PER_TICKER_KV_PREFIX}_manifest`, "json")) || { tickers: [] };
+      _perTickerManifestAt = now;
+    } catch (_) {
+      _perTickerManifest = { tickers: [] };
+      _perTickerManifestAt = now;
+    }
+  }
+  if (!Array.isArray(_perTickerManifest.tickers) || !_perTickerManifest.tickers.includes(sym)) return null;
+
+  const cached = _perTickerCache.get(sym);
+  if (cached && (now - cached.fetchedAt) < PER_TICKER_CACHE_TTL_MS) return cached.matrix;
+  try {
+    const m = await KV.get(`${PER_TICKER_KV_PREFIX}${sym}`, "json");
+    if (m && m.P) {
+      _perTickerCache.set(sym, { matrix: m, fetchedAt: now });
+      return m;
+    }
+  } catch (_) { /* non-fatal */ }
+  return null;
+}
+
+export const PER_TICKER_MATRIX_KV_PREFIX = PER_TICKER_KV_PREFIX;
