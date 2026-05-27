@@ -46594,8 +46594,21 @@ export default {
           const shortFloatPct = (sharesShort && float) ? (sharesShort / float) * 100 : shortPctPct;
           const totalDebt = num(balanceSheet.total_debt_mrq);
           const totalCash = num(balanceSheet.total_cash_mrq);
-          const fcfTtm = num(cashFlow.levered_free_cash_flow_ttm);
-          const operatingCashFlow = num(cashFlow.operating_cash_flow_ttm);
+          // 2026-05-27 — User report on MU: our FCF showed $2.89B but Tenet
+          // Research showed $22.06B TTM. Root cause: TwelveData populates
+          // different cash-flow fields for different tickers; sometimes
+          // `levered_free_cash_flow_ttm` is empty/zero and the actual TTM
+          // figure lives under `free_cash_flow_ttm`. Add a defensive fallback
+          // chain so we pick the first populated value. Prefer the larger
+          // "unlevered" / generic FCF where available since that's the
+          // industry-standard figure most data vendors (Yahoo, Bloomberg,
+          // Tenet) display.
+          const fcfTtm = num(cashFlow.free_cash_flow_ttm)
+            ?? num(cashFlow.levered_free_cash_flow_ttm)
+            ?? num(cashFlow.free_cash_flow)
+            ?? num(cashFlow.levered_free_cash_flow);
+          const operatingCashFlow = num(cashFlow.operating_cash_flow_ttm)
+            ?? num(cashFlow.operating_cash_flow);
           const cashRich = (totalCash != null && totalDebt != null) ? totalCash > totalDebt : null;
 
           // ── Growth ──────────────────────────────────────────────────────
@@ -46736,6 +46749,34 @@ export default {
             const avg = surprises.reduce((s, v) => s + v, 0) / surprises.length;
             return avg >= 5;
           })();
+
+          // 2026-05-27 — Add Beat Rate + Avg Surprise aggregates over the
+          // full earnings history. Tenet Research's earnings panel headlines
+          // these two stats (e.g. "Beat Rate: 100% · Avg Surprise: +34.5%")
+          // and they're a one-line summary of how reliably the company beats
+          // analyst estimates. Computed from existing TwelveData /earnings
+          // history we already fetch — no additional API credits.
+          //
+          //   beat_rate_pct = (# of quarters where surprise_pct > 0) / total * 100
+          //   avg_surprise_pct = mean of surprise_pct across all quarters
+          //
+          // Uses the last 8 quarters (≈2 years) to match Tenet's display
+          // window; falls back to whatever's available if fewer.
+          const recentForStats = past.slice(0, 8).filter(
+            (p) => num(p?.surprise_prc) != null,
+          );
+          const beatRatePct = recentForStats.length > 0
+            ? Number((
+                (recentForStats.filter((p) => Number(p.surprise_prc) > 0).length
+                  / recentForStats.length) * 100
+              ).toFixed(1))
+            : null;
+          const avgSurprisePct = recentForStats.length > 0
+            ? Number((
+                recentForStats.reduce((s, p) => s + Number(p.surprise_prc), 0)
+                  / recentForStats.length
+              ).toFixed(2))
+            : null;
 
           // ── Fair Value — multi-method blend ────────────────────────────
           // Mirrors the methodology in tradingview/PERatioAnalyzer.txt and
@@ -46951,7 +46992,15 @@ export default {
               rev_growth_pct: revGrowthPct != null ? Number(revGrowthPct.toFixed(2)) : null,
               eps_growth_class: epsGrowthClass,
               rev_growth_class: revGrowthClass,
-              gross_margin_pct: num(financials.gross_margin),
+              // 2026-05-27 — Bug fix: gross_margin was the only margin
+              // field NOT multiplied by 100. TwelveData returns all margin
+              // fields as fractions (0.41 for 41%); the others were
+              // converted but this one wasn't, so MU's gross margin
+              // rendered as "0.7%" (actually 0.007 raw = 0.7%) instead of
+              // the correct ~31% (raw 0.31 × 100). User report 2026-05-27:
+              // 'GROSS MGN 0.7%' is impossible since gross > net always
+              // (net was rendering correctly at 41.5%).
+              gross_margin_pct: num(financials.gross_margin) != null ? num(financials.gross_margin) * 100 : null,
               profit_margin_pct: num(financials.profit_margin) != null ? num(financials.profit_margin) * 100 : null,
               operating_margin_pct: num(financials.operating_margin) != null ? num(financials.operating_margin) * 100 : null,
               roe_ttm_pct: num(financials.return_on_equity_ttm) != null ? num(financials.return_on_equity_ttm) * 100 : null,
@@ -46965,6 +47014,10 @@ export default {
               estimates_up: estimatesUp,
               guidance_higher: guidanceHigher,
               eps_ttm: dilutedEpsTtm,
+              // 2026-05-27 — New aggregates (PR #306). Parity with Tenet
+              // Research's "Beat Rate: 100% · Avg Surprise: +34.5%" headline.
+              beat_rate_pct: beatRatePct,
+              avg_surprise_pct: avgSurprisePct,
               fiscal_year_ends: financials.fiscal_year_ends || null,
               most_recent_quarter: financials.most_recent_quarter || null,
               history,

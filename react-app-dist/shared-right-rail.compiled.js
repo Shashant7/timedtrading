@@ -7698,9 +7698,30 @@
             value: fmtNum(earn.eps_ttm, 2)
           }))), Array.isArray(earn.history) && earn.history.length > 0 && React.createElement(Panel, {
             title: "Earnings History",
-            action: React.createElement("span", {
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                flexWrap: "wrap"
+              }
+            }, earn.beat_rate_pct != null && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${earn.beat_rate_pct >= 75 ? "ds-chip--up" : earn.beat_rate_pct >= 50 ? "ds-chip--accent" : "ds-chip--dn"}`,
+              title: "% of recent quarters that beat analyst EPS estimates",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.04em"
+              }
+            }, "BEAT ", earn.beat_rate_pct.toFixed(0), "%"), earn.avg_surprise_pct != null && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${earn.avg_surprise_pct >= 5 ? "ds-chip--up" : earn.avg_surprise_pct >= 0 ? "ds-chip--solid" : "ds-chip--dn"}`,
+              title: "Average EPS surprise % across recent quarters",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.04em"
+              }
+            }, "AVG ", earn.avg_surprise_pct >= 0 ? "+" : "", earn.avg_surprise_pct.toFixed(1), "%"), React.createElement("span", {
               className: "ds-chip ds-chip--sm"
-            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s")
+            }, earn.history.length, " qtr", earn.history.length === 1 ? "" : "s"))
           }, React.createElement("div", {
             style: {
               overflowX: "auto",
@@ -12354,4 +12375,4 @@
   };
 })();
 
-// cache-bust:1779840496297:558389206
+// cache-bust:1779848444546:847608273

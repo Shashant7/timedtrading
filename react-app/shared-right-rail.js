@@ -6287,7 +6287,37 @@
 
                         {/* Earnings History — sortable */}
                         {Array.isArray(earn.history) && earn.history.length > 0 && (
-                          <Panel title="Earnings History" action={<span className="ds-chip ds-chip--sm">{earn.history.length} qtr{earn.history.length === 1 ? "" : "s"}</span>}>
+                          <Panel
+                            title="Earnings History"
+                            action={(
+                              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                                {/* 2026-05-27 (PR #306) — Beat Rate + Avg Surprise headline,
+                                    parity with Tenet Research. Both computed from the last 8
+                                    quarters of TwelveData /earnings data we already fetch
+                                    (no extra API credits). Colored chips: beat-rate green
+                                    when ≥75%, amber 50–75%, red <50%. */}
+                                {earn.beat_rate_pct != null && (
+                                  <span
+                                    className={`ds-chip ds-chip--sm ${earn.beat_rate_pct >= 75 ? "ds-chip--up" : earn.beat_rate_pct >= 50 ? "ds-chip--accent" : "ds-chip--dn"}`}
+                                    title="% of recent quarters that beat analyst EPS estimates"
+                                    style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}
+                                  >
+                                    BEAT {earn.beat_rate_pct.toFixed(0)}%
+                                  </span>
+                                )}
+                                {earn.avg_surprise_pct != null && (
+                                  <span
+                                    className={`ds-chip ds-chip--sm ${earn.avg_surprise_pct >= 5 ? "ds-chip--up" : earn.avg_surprise_pct >= 0 ? "ds-chip--solid" : "ds-chip--dn"}`}
+                                    title="Average EPS surprise % across recent quarters"
+                                    style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.04em" }}
+                                  >
+                                    AVG {earn.avg_surprise_pct >= 0 ? "+" : ""}{earn.avg_surprise_pct.toFixed(1)}%
+                                  </span>
+                                )}
+                                <span className="ds-chip ds-chip--sm">{earn.history.length} qtr{earn.history.length === 1 ? "" : "s"}</span>
+                              </div>
+                            )}
+                          >
                             {/* Bug 2026-05-20 (user screenshot): the grid
                                 template was minmax(70,1fr)+60+60+70+70+90 ≈
                                 440px minimum which overflowed the right
