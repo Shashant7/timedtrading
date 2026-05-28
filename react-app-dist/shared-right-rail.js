@@ -1888,6 +1888,15 @@
         const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
         const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
 
+        // 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
+        // news + insider + theme rotation + macro tilt + coverage-gap history.
+        // Mirrors the Fundamentals fetch pattern (5min client cache, lazy on
+        // tab open, worker caches 10min in KV).
+        const [catalysts, setCatalysts] = useState(null);
+        const [catalystsLoading, setCatalystsLoading] = useState(false);
+        const [catalystsError, setCatalystsError] = useState(null);
+        const catalystsCacheRef = useRef(new Map()); // ticker -> { data, ts }
+
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
         /* V2.1 round 11 (2026-05-04) — Default to 30m per user feedback:
            "default to 30m timeframe with indicators OFF" so the chart
@@ -2799,7 +2808,7 @@
           if (raw === "INVESTOR") tab = "INVESTOR";
           else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";
           else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";
-          else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL"].includes(raw)) {
+          else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS"].includes(raw)) {
             tab = "SNAPSHOT";
           }
           setRailTab(tab);
@@ -2898,6 +2907,53 @@
               }
             } finally {
               if (!cancelled) setFundamentalsLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol]);
+
+        // 2026-05-28 — Catalysts tab lazy-fetch. Bundled endpoint returns
+        // news + insider + themes + macro + coverage in one round-trip.
+        // 5-min client cache; 10-min worker KV cache underneath.
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setCatalysts(null);
+            setCatalystsError(null);
+            setCatalystsLoading(false);
+            return;
+          }
+          if (railTab !== "CATALYSTS") return;
+          const cached = catalystsCacheRef.current.get(sym);
+          if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
+            setCatalysts(cached.data);
+            setCatalystsError(null);
+            setCatalystsLoading(false);
+            return;
+          }
+          let cancelled = false;
+          (async () => {
+            try {
+              setCatalystsLoading(true);
+              setCatalystsError(null);
+              const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
+              const qs = new URLSearchParams({ ticker: sym });
+              if (apiKey) qs.set("key", apiKey);
+              const res = await fetch(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "catalysts_failed");
+              if (!cancelled) {
+                catalystsCacheRef.current.set(sym, { data: json, ts: Date.now() });
+                setCatalysts(json);
+              }
+            } catch (e) {
+              if (!cancelled) {
+                setCatalysts(null);
+                setCatalystsError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setCatalystsLoading(false);
             }
           })();
           return () => { cancelled = true; };
@@ -3559,7 +3615,7 @@
             return [pc, v2Price];
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY","CHART"].includes(railTab) ? railTab : "SNAPSHOT";
+          const v2RailTab = ["SNAPSHOT","SETUP","TECHNICALS","FUNDAMENTALS","HISTORY","CHART","CATALYSTS"].includes(railTab) ? railTab : "SNAPSHOT";
           // ds-metric helpers
           const Metric = ({ label, value, delta, deltaClass = "accent" }) => (
             <div className="ds-metric">
@@ -3852,25 +3908,24 @@
                       </div>
                     );
                   })()}
-                  {/* Tab nav — horizontal scroll on mobile so Fundamentals
-                      / History stay reachable instead of overflowing the
-                      panel width. flex: 0 0 auto on each tab keeps each
-                      label intact (no wrapping or truncation). */}
-                  {/* P0.7.102 — tabs justify-content: flex-end so the
-                      Snapshot/Setup/.../History buttons sit on the
-                      RIGHT side of the rail. Closer to the user's
-                      mouse since the rail is on the right side of
-                      the viewport. Mobile horizontal-scroll preserved. */}
+                  {/* Tab nav — 2026-05-28 IA fix.
+                      Old behavior: overflow-x: auto. On mobile this clipped
+                      the leftmost tab ("Snapshot" → "...not" in user's
+                      screenshot) and hid existence of off-screen tabs.
+                      New behavior: flex-wrap so 7 tabs (after adding
+                      Catalysts) gracefully wrap to 2 rows on narrow
+                      screens. Single row stays on tablet+ where there's
+                      room. Tab pills keep their fixed-width pill style
+                      (flex: 0 0 auto) so the affordance reads identically. */}
                   <div
                     className="ds-tab tt-rail-tabs tt-rail-area-tabnav"
                     role="tablist"
                     style={{
                       width: "100%",
-                      overflowX: "auto",
-                      WebkitOverflowScrolling: "touch",
-                      scrollSnapType: "x proximity",
-                      scrollbarWidth: "none",
+                      flexWrap: "wrap",
+                      rowGap: 6,
                       justifyContent: "flex-end",
+                      scrollbarWidth: "none",
                     }}
                   >
                     {/* V15 P0.7.161 (2026-05-14) — CHART is a real tab now.
@@ -3894,7 +3949,12 @@
                        back to SNAPSHOT so they don't see an empty body.
                     */}
                     {(() => {
-                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["HISTORY","History"]];
+                      // 2026-05-28 — Added "Catalysts" tab to surface news +
+                      // insider + theme rotation + macro tilt + detection
+                      // history. Placed before History so the time-axis flow
+                      // is preserved (Snapshot/Setup = now, Technicals/
+                      // Fundamentals = state, Catalysts = why, History = past).
+                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
                       const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
                       return tabs.map(([key, label]) => (
                       <button
@@ -3911,6 +3971,13 @@
                              to fight a button-vs-pane layout. */
                           ...(key === "CHART" ? {
                             color: "#34d399",
+                            fontWeight: 700,
+                          } : {}),
+                          /* Accent the CATALYSTS tab the first time it's
+                             relevant — light amber tinge so users notice
+                             this new entry point. */
+                          ...(key === "CATALYSTS" && v2RailTab !== "CATALYSTS" ? {
+                            color: "#f59e0b",
                             fontWeight: 700,
                           } : {}),
                         }}
@@ -6722,6 +6789,361 @@
                     );
                   })()}
 
+                  {/* ═══════════════════════════════════════════════════════ */}
+                  {/* CATALYSTS TAB — 2026-05-28 (Discovery Phase 2/3/4a/5).  */}
+                  {/* Section order is deliberate (most actionable → context):*/}
+                  {/*   1. News Catalysts (most timely)                        */}
+                  {/*   2. Insider Activity (high-signal leading indicator)    */}
+                  {/*   3. Theme Rotation (peer-validation context)            */}
+                  {/*   4. Macro Context (regime/positioning)                  */}
+                  {/*   5. Detection History (system's capture record)         */}
+                  {/* Each card cites its data source in the footer.           */}
+                  {/* ═══════════════════════════════════════════════════════ */}
+                  {v2RailTab === "CATALYSTS" && (() => {
+                    if (catalystsLoading && !catalysts) {
+                      return (
+                        <div style={{ padding: "var(--ds-space-4)", textAlign: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-meta)" }}>
+                          Loading catalysts for {tickerSymbol}…
+                        </div>
+                      );
+                    }
+                    if (catalystsError && !catalysts) {
+                      return (
+                        <div style={{ padding: "var(--ds-space-4)", textAlign: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-meta)" }}>
+                          Couldn't load catalysts: {String(catalystsError).slice(0, 100)}
+                        </div>
+                      );
+                    }
+                    if (!catalysts) return null;
+                    const C = catalysts;
+                    const fmtMoney = (n) => {
+                      const x = Number(n) || 0;
+                      const abs = Math.abs(x);
+                      if (abs >= 1e6) return `$${(x / 1e6).toFixed(1)}M`;
+                      if (abs >= 1e3) return `$${(x / 1e3).toFixed(0)}k`;
+                      return `$${x.toFixed(0)}`;
+                    };
+                    const fmtAgo = (iso) => {
+                      if (!iso) return "—";
+                      const ms = typeof iso === "string" ? Date.parse(iso) : Number(iso);
+                      if (!Number.isFinite(ms)) return "—";
+                      const mins = (Date.now() - ms) / 60000;
+                      if (mins < 60) return `${Math.round(mins)}m ago`;
+                      const hours = mins / 60;
+                      if (hours < 24) return `${Math.round(hours)}h ago`;
+                      const days = hours / 24;
+                      return `${Math.round(days)}d ago`;
+                    };
+                    const sentimentChip = (s) => {
+                      const color = s === "bullish" ? "var(--ds-color-up, #34d399)"
+                        : s === "bearish" ? "var(--ds-color-down, #f87171)"
+                        : "var(--ds-text-muted)";
+                      const bg = s === "bullish" ? "rgba(52,211,153,0.12)"
+                        : s === "bearish" ? "rgba(248,113,113,0.12)"
+                        : "rgba(255,255,255,0.05)";
+                      const label = s === "bullish" ? "BULL" : s === "bearish" ? "BEAR" : "NEUT";
+                      return (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: "1px 6px",
+                          borderRadius: 4, color, background: bg,
+                          letterSpacing: "0.05em",
+                        }}>{label}</span>
+                      );
+                    };
+
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+
+                        {/* ── 1. News Catalysts ────────────────────────── */}
+                        <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
+                          <span className="ds-chip ds-chip--sm">{C.news.count} headlines · 5d</span>
+                        )}>
+                          {!C.news?.has_data ? (
+                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
+                              No news in the last 5 days.
+                            </div>
+                          ) : (
+                            <>
+                              {C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && (
+                                <div style={{
+                                  marginBottom: "var(--ds-space-3)",
+                                  padding: "var(--ds-space-2)",
+                                  background: C.news.top_catalyst.sentiment === "bullish"
+                                    ? "rgba(52,211,153,0.06)"
+                                    : C.news.top_catalyst.sentiment === "bearish"
+                                      ? "rgba(248,113,113,0.06)"
+                                      : "rgba(255,255,255,0.03)",
+                                  border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+                                  borderRadius: "var(--ds-radius-md)",
+                                }}>
+                                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TOP CATALYST</span>
+                                    {sentimentChip(C.news.top_catalyst.sentiment)}
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                      color: "var(--ds-text-body)", background: "rgba(255,255,255,0.08)",
+                                    }}>STR {C.news.top_catalyst.catalyst_strength}/10</span>
+                                  </div>
+                                  <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4 }}>
+                                    {C.news.top_catalyst.headline}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                    {C.news.top_catalyst.source} · {fmtAgo(C.news.top_catalyst.datetime)}
+                                  </div>
+                                </div>
+                              )}
+                              <div style={{ display: "flex", gap: 4, marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                                {C.news.bull > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.10)", color: "var(--ds-color-up, #34d399)" }}>{C.news.bull} bull</span>}
+                                {C.news.bear > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(248,113,113,0.10)", color: "var(--ds-color-down, #f87171)" }}>{C.news.bear} bear</span>}
+                                {C.news.neutral > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-muted)" }}>{C.news.neutral} neutral</span>}
+                                {C.news.dominant_sentiment && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-faint)" }}>DOMINANT: {String(C.news.dominant_sentiment).toUpperCase()}</span>}
+                              </div>
+                              {Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: "var(--ds-space-2)" }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>RECENT HEADLINES</div>
+                                  {C.news.latest_3.map((h, i) => (
+                                    <div key={`hl-${i}`} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: "var(--ds-fs-meta)" }}>
+                                      {sentimentChip(h.sentiment)}
+                                      <div style={{ flex: 1, color: "var(--ds-text-body)", lineHeight: 1.35 }}>
+                                        {h.headline}
+                                        <div style={{ fontSize: 9, color: "var(--ds-text-muted)", marginTop: 1 }}>
+                                          {h.source} · {fmtAgo(h.datetime)}
+                                          {h.catalyst_strength >= 5 && <> · str {h.catalyst_strength}/10</>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                            NEWS · FINNHUB · SENTIMENT GPT-4O-MINI · 10MIN CACHE
+                          </div>
+                        </Panel>
+
+                        {/* ── 2. Insider Activity ──────────────────────── */}
+                        <Panel title="💼 Insider Activity" action={C.insider?.has_data && (
+                          <span className="ds-chip ds-chip--sm">{C.insider.lookback_days}d window</span>
+                        )}>
+                          {!C.insider?.has_data ? (
+                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
+                              No Form-4 insider transactions in the last 30 days.
+                            </div>
+                          ) : (() => {
+                            const buyVal = C.insider.buys?.total_value || 0;
+                            const sellVal = C.insider.sells?.total_value || 0;
+                            const netVal = C.insider.net_value || 0;
+                            const hiBuys = C.insider.buys?.high_signal_count || 0;
+                            const hiBuysValue = C.insider.buys?.high_signal_value || 0;
+                            return (
+                              <>
+                                <div style={{ display: "flex", gap: "var(--ds-space-3)", marginBottom: "var(--ds-space-2)" }}>
+                                  <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>NET 30d</div>
+                                    <div style={{
+                                      fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2,
+                                      fontSize: "var(--ds-fs-h4, 16px)",
+                                      color: netVal >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
+                                    }}>{netVal >= 0 ? "+" : "−"}{fmtMoney(Math.abs(netVal))}</div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                      buys {fmtMoney(buyVal)} · sells {fmtMoney(sellVal)}
+                                    </div>
+                                  </div>
+                                  <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>HIGH-SIGNAL BUYS</div>
+                                    <div style={{
+                                      fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2,
+                                      fontSize: "var(--ds-fs-h4, 16px)",
+                                      color: hiBuys > 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)",
+                                    }}>{hiBuys}</div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                      CEO/CFO/Dir · {fmtMoney(hiBuysValue)}
+                                    </div>
+                                  </div>
+                                </div>
+                                {Array.isArray(C.insider.buys?.top_3) && C.insider.buys.top_3.length > 0 && (
+                                  <div style={{ marginTop: "var(--ds-space-2)" }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>RECENT BUYS</div>
+                                    {C.insider.buys.top_3.map((t, i) => (
+                                      <div key={`ib-${i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: i < C.insider.buys.top_3.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                          <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {t.high_signal && <span style={{ color: "var(--ds-color-up, #34d399)", marginRight: 4 }}>★</span>}
+                                            {t.name}
+                                          </div>
+                                          <div style={{ fontSize: 9, color: "var(--ds-text-muted)" }}>{t.title} · {t.date}</div>
+                                        </div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", fontWeight: 700, color: "var(--ds-color-up, #34d399)" }}>
+                                          {fmtMoney(t.value)}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </>
+                            );
+                          })()}
+                          <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                            INSIDER · FINNHUB FORM-4 · ★ = CEO/CFO/COO/CTO/PRESIDENT/CHAIRMAN/DIRECTOR/10%+
+                          </div>
+                        </Panel>
+
+                        {/* ── 3. Theme Rotation ─────────────────────────── */}
+                        {Array.isArray(C.themes) && C.themes.length > 0 && (
+                          <Panel title="🎭 Theme Rotation" action={
+                            <span className="ds-chip ds-chip--sm">{C.themes.length} theme{C.themes.length === 1 ? "" : "s"}</span>
+                          }>
+                            {C.themes.map((th, i) => {
+                              const active = th.active;
+                              const dir = th.active_direction;
+                              const peers = dir === "up" ? th.top_up : th.top_down;
+                              return (
+                                <div key={`th-${i}`} style={{
+                                  marginBottom: i < C.themes.length - 1 ? "var(--ds-space-2)" : 0,
+                                  padding: "var(--ds-space-2)",
+                                  background: active
+                                    ? (dir === "up" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)")
+                                    : "rgba(255,255,255,0.03)",
+                                  border: `1px solid ${active ? (dir === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)") : "rgba(255,255,255,0.06)"}`,
+                                  borderRadius: "var(--ds-radius-md)",
+                                }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", fontWeight: 600 }}>
+                                      {String(th.theme).replace(/_/g, " ")}
+                                    </span>
+                                    {active && (
+                                      <span style={{
+                                        fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                        background: dir === "up" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)",
+                                        color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
+                                        letterSpacing: "0.05em",
+                                      }}>{dir === "up" ? "▲ ACTIVE" : "▼ ACTIVE"}</span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginBottom: 4 }}>
+                                    {th.has_data} of {th.members} peers reporting · {th.up} up · {th.down} down (≥2%)
+                                  </div>
+                                  {Array.isArray(peers) && peers.length > 0 && (
+                                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                      {peers.slice(0, 4).map((p, j) => (
+                                        <span key={`pmv-${j}`} style={{
+                                          fontFamily: "var(--tt-font-mono)", fontSize: 10,
+                                          padding: "2px 6px", borderRadius: 4,
+                                          background: "rgba(255,255,255,0.05)",
+                                          color: p.dp >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
+                                        }}>
+                                          {p.ticker || p.t} {p.dp >= 0 ? "+" : ""}{p.dp}%
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                              THEME · CURATED PEER GROUPS · ACTIVE = ≥30% PEERS MOVED ≥2% TODAY
+                            </div>
+                          </Panel>
+                        )}
+
+                        {/* ── 4. Macro Context ─────────────────────────── */}
+                        {C.macro && (
+                          <Panel title="🌐 Macro Context">
+                            {C.macro.narrative && (
+                              <div style={{
+                                padding: "var(--ds-space-2)",
+                                background: "rgba(255,255,255,0.03)",
+                                border: "1px solid rgba(255,255,255,0.06)",
+                                borderRadius: "var(--ds-radius-md)",
+                                fontSize: "var(--ds-fs-meta)",
+                                color: "var(--ds-text-body)",
+                                lineHeight: 1.4,
+                                marginBottom: "var(--ds-space-2)",
+                              }}>
+                                {C.macro.narrative}
+                              </div>
+                            )}
+                            {C.macro.cross_asset_regime && (
+                              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: "var(--ds-space-2)" }}>
+                                {Object.entries(C.macro.cross_asset_regime).map(([k, v]) => {
+                                  if (v === "no_data") return null;
+                                  const color = v === "outperforming" ? "var(--ds-color-up, #34d399)"
+                                    : v === "underperforming" ? "var(--ds-color-down, #f87171)"
+                                    : "var(--ds-text-muted)";
+                                  const arrow = v === "outperforming" ? "▲" : v === "underperforming" ? "▼" : "─";
+                                  const label = k.replace(/_20d$/, "").replace(/_/g, " ");
+                                  return (
+                                    <span key={`xa-${k}`} style={{
+                                      fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                                      background: "rgba(255,255,255,0.05)", color,
+                                    }}>{arrow} {label}</span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {C.macro.ticker_country && (
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 2 }}>COUNTRY: {C.macro.ticker_country.label}</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  20d {C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : "")}{C.macro.ticker_country.ret_20d}% · RS vs SPY {C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : "")}{C.macro.ticker_country.rs_20d_vs_spy}
+                                </div>
+                              </div>
+                            )}
+                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                              MACRO · 20D RELATIVE STRENGTH vs SPY · COUNTRY + CROSS-ASSET ETFs
+                            </div>
+                          </Panel>
+                        )}
+
+                        {/* ── 5. Detection History ─────────────────────── */}
+                        {C.coverage && (
+                          <Panel title="📊 Detection History">
+                            <div style={{ display: "flex", gap: "var(--ds-space-3)", marginBottom: "var(--ds-space-2)" }}>
+                              <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>CAPTURE RATE</div>
+                                <div style={{
+                                  fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2,
+                                  fontSize: "var(--ds-fs-h4, 16px)",
+                                  color: (C.coverage.capture_rate_pct || 0) >= 70 ? "var(--ds-color-up, #34d399)"
+                                    : (C.coverage.capture_rate_pct || 0) >= 40 ? "var(--ds-text-body)"
+                                    : "var(--ds-color-down, #f87171)",
+                                }}>{C.coverage.capture_rate_pct != null ? `${C.coverage.capture_rate_pct}%` : "—"}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                  {C.coverage.captured} of {C.coverage.big_moves} big moves
+                                </div>
+                              </div>
+                              <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>GAPS · {C.coverage.window_lookback_days || 14}D</div>
+                                <div style={{
+                                  fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2,
+                                  fontSize: "var(--ds-fs-h4, 16px)",
+                                  color: (C.coverage.gaps || 0) === 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)",
+                                }}>{C.coverage.gaps || 0}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                  last gap {C.coverage.last_gap_day || "—"}
+                                </div>
+                              </div>
+                            </div>
+                            {C.coverage.dominant_miss_reason && (
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", padding: "var(--ds-space-2)", background: "rgba(255,193,7,0.05)", border: "1px solid rgba(255,193,7,0.20)", borderRadius: "var(--ds-radius-md)" }}>
+                                <strong style={{ color: "var(--ds-text-body)" }}>Dominant miss reason:</strong> {String(C.coverage.dominant_miss_reason).replace(/_/g, " ")}
+                              </div>
+                            )}
+                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                              DETECTION · ATR-RELATIVE BIG MOVES · UNIVERSE CAPTURE {C.coverage.universe_capture_rate_pct != null ? `${C.coverage.universe_capture_rate_pct}%` : "—"}
+                            </div>
+                          </Panel>
+                        )}
+
+                        {/* Footer: source + freshness */}
+                        <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textAlign: "right", letterSpacing: "0.05em", paddingTop: 4 }}>
+                          BUNDLED · 10MIN CACHE · FETCHED {new Date(C.fetched_at || Date.now()).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
                     <>
@@ -7065,12 +7487,20 @@
                     })()}
                   </div>
 
-                  {/* Right Rail Tabs — single row, scrollable on mobile */}
-                  <div className="mt-3 flex items-center gap-1 overflow-x-auto" style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+                  {/* Right Rail Tabs — 2026-05-28 IA fix.
+                      Switched from overflow-x: auto to flex-wrap. With 7
+                      tabs (after adding Catalysts) the horizontal scroll
+                      pattern was clipping leftmost tab labels on mobile.
+                      Wrap to 2 rows on narrow screens; single row on
+                      tablet+. Catalysts is intentionally free (no Pro
+                      lock) — news + insider + theme awareness is
+                      foundational analysis, not a premium feature. */}
+                  <div className="mt-3 flex flex-wrap items-center gap-1 gap-y-1.5" style={{ scrollbarWidth: "none" }}>
                     {[
                       { k: "ANALYSIS", label: "Analysis", proOnly: false },
                       { k: "INVESTOR", label: "Investor", proOnly: false },
                       { k: "TECHNICALS", label: "Technicals", proOnly: false },
+                      { k: "CATALYSTS", label: "Catalysts", proOnly: false },
                       { k: "MODEL", label: "Model", proOnly: true },
                       { k: "JOURNEY", label: "Journey", proOnly: true },
                       {
@@ -10708,6 +11138,12 @@
                     </>
                   ) : null}
 
+                  {/* 2026-05-28 — Catalysts tab content lives in the v2 panel
+                      block above (search for v2RailTab === "CATALYSTS"). Both
+                      modal-mode AND workspace-mode flow through the same
+                      render tree, so adding the panel once renders it in both
+                      contexts. No separate outer-modal block needed. */}
+
                   {railTab === "MODEL" ? (
                     <>
                       {(() => {
@@ -11375,4 +11811,4 @@
   };
 })();
 
-// cache-bust:1779937783681:193256033
+// cache-bust:1779940875043:633358095

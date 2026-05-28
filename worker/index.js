@@ -1405,6 +1405,11 @@ const ROUTES = [
   ["POST", "/timed/admin/discovery/promotion-queue/decide","POST /timed/admin/discovery/promotion-queue/decide"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
+  // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
+  //   Composes news + insider + theme + macro + coverage-gap history
+  //   into a single payload. Cached in KV per ticker for 10 min so the
+  //   rail can be opened repeatedly without hammering the DB.
+  ["GET",  "/timed/discovery/ticker-catalysts",           "GET /timed/discovery/ticker-catalysts"],
   ["GET",  "/timed/admin/cohort-admission/summary",       "GET /timed/admin/cohort-admission/summary"],
   ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
   // Trajectory program — Phase 6 prep (S6). Cell Markov visibility.
@@ -66340,6 +66345,131 @@ export default {
           const limit = Number(url.searchParams.get("limit")) || 100;
           const result = await PromotionQueue.loadPromotionQueueRows(env, { status, limit });
           return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Bundled per-ticker catalyst payload for the right rail (2026-05-28) ──
+      // GET /timed/discovery/ticker-catalysts?ticker=SYM
+      //   Composes Phase 2 (news) + Phase 4a (insider) + Phase 3 (themes) +
+      //   Phase 5 (macro) + Phase 1 (coverage-gap history) into a single
+      //   payload so the right-rail Catalysts tab can fetch once on open.
+      //
+      // Auth: `requireKeyOrAdmin` accepts either the user's API key (set by
+      // the frontend as ?key=) OR the CF Access JWT for admins. Same model
+      // as /timed/admin/fundamentals.
+      //
+      // Cache: 10-min KV per ticker (`timed:discovery:catalysts:{SYM}`).
+      // The underlying data updates daily via cron, so 10min is generous.
+      if (routeKey === "GET /timed/discovery/ticker-catalysts") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const sym = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!sym) return sendJSON({ ok: false, error: "ticker_param_required" }, 400, corsHeaders(env, req));
+        const cacheKey = `timed:discovery:catalysts:${sym}`;
+        const force = url.searchParams.get("force") === "1";
+        // 1. KV cache check.
+        if (!force) {
+          try {
+            const cached = await KV.get(cacheKey);
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              if (parsed && (Date.now() - (parsed.fetched_at || 0)) < 10 * 60 * 1000) {
+                return sendJSON({ ...parsed, from_cache: true }, 200, corsHeaders(env, req));
+              }
+            }
+          } catch (_) { /* fall through to recompute */ }
+        }
+        // 2. Compose from the four modules in parallel.
+        try {
+          const [NewsTracker, InsiderTracker, SectorMap, Macro] = await Promise.all([
+            import("./discovery/news-tracker.js"),
+            import("./discovery/insider-tracker.js"),
+            import("./sector-mapping.js"),
+            import("./macro/cross-asset-tracker.js"),
+          ]);
+
+          // Live prices for theme-activity calc.
+          let livePrices = null;
+          try {
+            const lpRaw = await KV.get("timed:prices");
+            if (lpRaw) livePrices = JSON.parse(lpRaw);
+          } catch (_) {}
+
+          // Coverage-gap summary for this ticker.
+          let coverageGap = null;
+          try {
+            const gapsRaw = await KV.get("timed:discovery:coverage-gaps-summary");
+            if (gapsRaw) {
+              const gaps = JSON.parse(gapsRaw);
+              const mine = gaps?.by_ticker?.[sym];
+              if (mine) {
+                coverageGap = {
+                  ...mine,
+                  universe_capture_rate_pct: gaps.universe_capture_rate_pct,
+                  window_lookback_days: gaps?.window?.lookback_days,
+                  computed_at: gaps?.window?.computed_at,
+                };
+              }
+            }
+          } catch (_) {}
+
+          // Run the rest in parallel.
+          const [news, insider, macroSnapshot, themesActivity] = await Promise.all([
+            NewsTracker.loadRecentNewsSummary(env, sym, { lookbackDays: 5 }).catch(() => null),
+            InsiderTracker.loadRecentInsiderSummary(env, sym, { lookbackDays: 30 }).catch(() => null),
+            Macro.loadMacroSnapshot(env).catch(() => null),
+            (async () => {
+              const themes = SectorMap.getThemesForTicker(sym);
+              if (!Array.isArray(themes) || themes.length === 0) return null;
+              return themes.map((t) => SectorMap.computeThemeActivity(t, livePrices)).filter(Boolean);
+            })(),
+          ]);
+
+          // For macro, narrow to "is this ticker country-linked?" so the UI
+          // can show only the relevant country row + general cross-asset.
+          let macroForTicker = null;
+          if (macroSnapshot) {
+            const tickerThemes = SectorMap.getThemesForTicker(sym);
+            const isCountryLinked = tickerThemes.some((t) => t.startsWith("country_"));
+            const countryRow = isCountryLinked
+              ? (macroSnapshot.country_rotation?.all || []).find((c) => tickerThemes.includes(c.theme))
+              : null;
+            macroForTicker = {
+              narrative: macroSnapshot.macro_narrative,
+              cross_asset_regime: macroSnapshot.cross_asset_regime ? {
+                dollar_20d: macroSnapshot.cross_asset_regime.dollar_20d,
+                gold_20d: macroSnapshot.cross_asset_regime.gold_20d,
+                oil_20d: macroSnapshot.cross_asset_regime.oil_20d,
+                nat_gas_20d: macroSnapshot.cross_asset_regime.nat_gas_20d,
+                rates_20d: macroSnapshot.cross_asset_regime.rates_20d,
+                credit_20d: macroSnapshot.cross_asset_regime.credit_20d,
+              } : null,
+              country_top_outperformers: macroSnapshot.country_rotation?.top_outperformers?.slice(0, 3) || [],
+              country_top_underperformers: macroSnapshot.country_rotation?.top_underperformers?.slice(0, 3) || [],
+              ticker_country: countryRow,
+              computed_at: macroSnapshot.computed_at,
+            };
+          }
+
+          const payload = {
+            ok: true,
+            ticker: sym,
+            fetched_at: Date.now(),
+            news,
+            insider,
+            themes: themesActivity,
+            macro: macroForTicker,
+            coverage: coverageGap,
+          };
+
+          // Persist to KV cache (10min TTL).
+          try {
+            await KV.put(cacheKey, JSON.stringify(payload), { expirationTtl: 10 * 60 });
+          } catch (_) { /* best-effort */ }
+
+          return sendJSON(payload, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
