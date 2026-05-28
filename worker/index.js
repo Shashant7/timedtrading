@@ -1701,13 +1701,22 @@ async function checkPriceFeedStale(env, sym, pxNow) {
 // `tickerData.__candle_data_stale` on still-stale tickers so
 // processTradeSimulation can refuse to act on them.
 //
-// Thresholds — chosen tighter than the universe-wide freshness monitor
-// because OPEN positions are loss-bearing:
-//   D    ≤ 24h
-//   60m  ≤ 2h during RTH, ≤ 14h overnight/weekend (covers Fri close → Mon open)
-//   5m   ≤ 15min during RTH only (5m feed pauses outside RTH; skip check OOH)
+// Thresholds — 2026-05-28 retuned. Daily candles are dated by their START
+// (e.g., Wednesday's D bar carries ts = Wed 00:00 UTC). By Thursday 9 AM UTC
+// the freshest D bar is already 33h "old" by absolute clock — that's still
+// the correct freshest state, not staleness. Likewise, a Tuesday morning
+// after a Monday holiday has a Friday D bar that's ~70h old. The threshold
+// must accommodate normal weekends + holidays + the TD daily-settlement
+// window without false-positiving every morning.
+//
+//   D    ≤ 72h (covers weekend gap Fri close → Tue morning + holiday Mondays)
+//   60m  ≤ 2h during RTH, ≤ 14h overnight/weekend
+//   5m   ≤ 15min during RTH only (5m feed pauses outside RTH; skip OOH)
+//
+// At >72h on D we genuinely have an ingestion gap worth alerting on (the
+// May 2026 fleet-wide 13d stale incident was always >>72h).
 // ─────────────────────────────────────────────────────────────────────────────
-const OPEN_POS_STALE_D_MS = 24 * 60 * 60 * 1000;
+const OPEN_POS_STALE_D_MS = 72 * 60 * 60 * 1000;
 const OPEN_POS_STALE_60M_RTH_MS = 2 * 60 * 60 * 1000;
 const OPEN_POS_STALE_60M_OOH_MS = 14 * 60 * 60 * 1000;
 const OPEN_POS_STALE_5M_RTH_MS = 15 * 60 * 1000;
