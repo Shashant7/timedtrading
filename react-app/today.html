@@ -1596,82 +1596,88 @@
       // ── Market Pulse — port from AT's Market Pulse row.
       // User feedback: 'The Today Page should use the Market Pulse Tiles.'
       // ─────────────────────────────────────────────────────────────
-      // IndexPredictionCard / IndexPredictionsStrip — 2026-05-28
+      // BriefIndexCard / IndexPredictionsStrip — 2026-05-28 (rewrite)
       //
-      // User request: "Can we utilize the space next to What the Model is
-      // Watching today, with prediction cards for SPY, QQQ, IWM..."
+      // User report: "the index predictions don't align with the Daily
+      // Brief. The predictions should be what we publish in the Daily
+      // Brief and in the morning it should show the prediction once the
+      // brief is published and in the evening it should provide a clear
+      // score. This gives people a preview of the Daily Brief."
       //
-      // Renders the model's directional bias + R:R + key levels for the
-      // three major indices. Lives in the hero alongside the Daily Brief.
-      // Data sources are existing:
-      //   - data[SYM] for live price / day change (from /timed/all)
-      //   - /timed/prediction-contract?ticker=SYM&mode=trader for bias,
-      //     R:R, support/resistance (lazy-fetched per index, cached 5min)
+      // Previous version fetched /timed/prediction-contract per index
+      // — a DIFFERENT model output than what the Daily Brief publishes.
+      // Replaced with brief-sourced data so the Today hero is now a
+      // genuine LIGHTWEIGHT VIEW of the Brief, not a parallel surface.
       //
-      // Click → opens that ticker in the rail overlay (uses the same
-      // onSelectTicker handler the Market Pulse tiles use).
+      // Data source: brief.infographic.indices[*] which carries:
+      //   - sym, price, chgPct, atr
+      //   - levels.gamePlan: { bullTrigger, bullTarget, bearTrigger, bearTarget }
+      //   - weeklyLevels.gamePlan: same shape for week horizon
+      //
+      // Direction is computed from gamePlan vs current price:
+      //   currentPrice > bullTrigger        → BULL bias active
+      //   currentPrice < bearTrigger        → BEAR bias active
+      //   else                              → NEUTRAL, watch triggers
+      //
+      // Morning brief: shows the BULL/BEAR setup with trigger + target.
+      // Evening brief: same data, plus a small "Day's Move" score
+      //   computed from the live day change relative to the morning
+      //   trigger (was bull setup triggered? did it hit target?).
       // ─────────────────────────────────────────────────────────────
-      const _PRED_CACHE = window._ttIndexPredCache = window._ttIndexPredCache || {};
+      function BriefIndexCard({ idx, briefType, livePx, dayPct, onSelectTicker }) {
+        const SYM = String(idx?.sym || "").toUpperCase();
+        const briefPx = Number(idx?.price);
+        const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
+        const gp = idx?.levels?.gamePlan || {};
+        const bullT = Number(gp.bullTrigger);
+        const bullTgt = Number(gp.bullTarget);
+        const bearT = Number(gp.bearTrigger);
+        const bearTgt = Number(gp.bearTarget);
 
-      function IndexPredictionCard({ sym, t, onSelectTicker }) {
-        const SYM = String(sym || "").toUpperCase();
-        const tx = t && typeof t === "object"
-          ? (t.ticker ? t : { ticker: SYM, ...t })
-          : { ticker: SYM };
-        const dc = getDailyChange(tx);
-        const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-        const price = Number(tx.price);
-        const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+        // Direction inference vs current price
+        const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
+        const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
+        const biasMeta = bullActive
+          ? { label: "BULL ACTIVE", color: "var(--tt-up, #34d399)", bg: "rgba(52,211,153,0.10)" }
+          : bearActive
+            ? { label: "BEAR ACTIVE", color: "var(--tt-dn, #f87171)", bg: "rgba(248,113,113,0.10)" }
+            : { label: "WATCH TRIGGERS", color: "var(--tt-text-muted, #9ca3af)", bg: "rgba(156,163,175,0.08)" };
 
-        const [pred, setPred] = useState(() => _PRED_CACHE[SYM]?.data || null);
-        const [pLoading, setPLoading] = useState(false);
+        const _fmt = (n) => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
+        const _pctMove = (from, to) =>
+          (Number.isFinite(from) && Number.isFinite(to) && from > 0)
+            ? ((to - from) / from) * 100
+            : null;
+        const bullR = _pctMove(bullT, bullTgt);
+        const bearR = _pctMove(bearT, bearTgt); // negative for SHORT (target below trigger)
 
-        useEffect(() => {
-          const cached = _PRED_CACHE[SYM];
-          if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
-            setPred(cached.data);
-            return;
+        // Evening scorecard — if briefType=evening, compute whether the
+        // morning prediction "worked". A bull setup is HIT if price closed
+        // above bullTarget; MISS if it fell back to bear side; OPEN otherwise.
+        let scorecard = null;
+        if (briefType === "evening" && Number.isFinite(price)) {
+          if (Number.isFinite(bullT) && price >= bullTgt && bullTgt > 0) {
+            scorecard = { label: "BULL TARGET HIT", color: "var(--tt-up)" };
+          } else if (Number.isFinite(bearT) && price <= bearTgt && bearTgt > 0) {
+            scorecard = { label: "BEAR TARGET HIT", color: "var(--tt-dn)" };
+          } else if (Number.isFinite(bullT) && price >= bullT) {
+            scorecard = { label: "BULL TRIGGERED · WORKING", color: "var(--tt-up)" };
+          } else if (Number.isFinite(bearT) && price <= bearT) {
+            scorecard = { label: "BEAR TRIGGERED · WORKING", color: "var(--tt-dn)" };
+          } else {
+            scorecard = { label: "NEITHER SIDE TRIGGERED", color: "var(--tt-text-muted)" };
           }
-          let cancelled = false;
-          setPLoading(true);
-          fetch(`/timed/prediction-contract?ticker=${SYM}&mode=trader`, { cache: "no-store" })
-            .then((r) => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)))
-            .then((j) => {
-              if (cancelled) return;
-              const c = j?.ok ? j.contract : null;
-              _PRED_CACHE[SYM] = { data: c, ts: Date.now() };
-              setPred(c);
-            })
-            .catch(() => {})
-            .finally(() => { if (!cancelled) setPLoading(false); });
-          return () => { cancelled = true; };
-        }, [SYM]);
-
-        const bias = String(pred?.direction || "").toUpperCase();
-        const biasMeta = bias === "LONG"
-          ? { label: "LONG", color: "var(--tt-up, #34d399)", bg: "rgba(52,211,153,0.10)" }
-          : bias === "SHORT"
-            ? { label: "SHORT", color: "var(--tt-dn, #f87171)", bg: "rgba(248,113,113,0.10)" }
-            : { label: "NEUTRAL", color: "var(--tt-text-muted, #9ca3af)", bg: "rgba(156,163,175,0.08)" };
-
-        const rr = Number(pred?.risk?.rr);
-        const conf = String(pred?.confidence || "").toLowerCase();
-        const confColor = conf === "high" ? "var(--tt-up, #34d399)"
-                       : conf === "medium" ? "var(--tt-accent, #f5c25c)"
-                       : conf === "low" ? "var(--tt-dn, #f87171)"
-                       : "var(--tt-text-muted, #9ca3af)";
-
-        // First target above + first stop below (or vice versa for SHORT)
-        const targets = Array.isArray(pred?.targets) ? pred.targets : [];
-        const tp1 = Number(targets[0]?.price);
-        const sl = Number(pred?.risk?.stop_loss);
-        const horizon = pred?.horizon ? String(pred.horizon).replace(/_/g, " ") : null;
+        }
 
         const onClick = (e) => {
           e.preventDefault();
           if (typeof onSelectTicker === "function") onSelectTicker(SYM);
           else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
         };
+
+        const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
+        const _dirColor = dayPct == null ? "var(--tt-text-muted)"
+                       : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
 
         return h("button", {
           onClick,
@@ -1686,75 +1692,231 @@
           },
           onMouseEnter: (e) => { e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))"; },
           onMouseLeave: (e) => { e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))"; },
-          title: `Open ${SYM} in detail`,
+          title: `${SYM} — open in detail`,
         },
           h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "space-between" } },
             h("div", { style: { display: "flex", alignItems: "baseline", gap: 6 } },
-              h("span", { style: { fontWeight: 700, fontSize: 13, color: "var(--tt-text, #e5e7eb)", letterSpacing: "0.02em" } }, SYM),
-              h("span", { style: { fontSize: 11, color: "var(--tt-text-muted)" } }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"),
+              h("span", { style: { fontWeight: 700, fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, SYM),
+              h("span", { style: { fontSize: 11, color: "var(--tt-text-muted)" } }, _fmt(price) || "—"),
             ),
             dayPct != null && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 600,
-                color: dir === "up" ? "var(--tt-up)" : dir === "dn" ? "var(--tt-dn)" : "var(--tt-text-muted)" },
-            }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
+              style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 600, color: _dirColor },
+            }, `${_dirGlyph} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
           ),
-          // Bias pill + R:R + confidence
+          // Bias chip — what the brief is calling for
           h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 } },
             h("span", {
               style: {
-                padding: "2px 8px", borderRadius: 999, fontSize: 10, fontWeight: 700,
+                padding: "2px 8px", borderRadius: 999, fontSize: 9, fontWeight: 700,
                 letterSpacing: "0.08em", fontFamily: "var(--tt-font-mono)",
                 background: biasMeta.bg, color: biasMeta.color,
                 border: `1px solid ${biasMeta.color}55`,
               },
             }, biasMeta.label),
-            Number.isFinite(rr) && rr > 0 && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: rr >= 2 ? "var(--tt-up)" : "var(--tt-text-muted)" },
-            }, `R:R ${rr.toFixed(2)}`),
-            conf && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 9, color: confColor, textTransform: "uppercase", letterSpacing: "0.08em" },
-            }, conf),
-            horizon && h("span", {
-              style: { fontSize: 9, color: "var(--tt-text-faint)", marginLeft: "auto", fontFamily: "var(--tt-font-mono)", textTransform: "uppercase" },
-            }, horizon),
+            scorecard && h("span", {
+              style: {
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+                fontFamily: "var(--tt-font-mono)", color: scorecard.color,
+              },
+            }, "· " + scorecard.label),
           ),
-          // Targets line (only when contract is loaded + has data)
-          (Number.isFinite(tp1) || Number.isFinite(sl)) && h("div", {
-            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-muted)", display: "flex", gap: 10, flexWrap: "wrap" },
+          // Game plan — bull above / bear below with target hint
+          (_fmt(bullT) || _fmt(bearT)) && h("div", {
+            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-muted)", display: "flex", flexDirection: "column", gap: 3 },
           },
-            Number.isFinite(tp1) && tp1 > 0 && h("span", null,
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "TP "),
-              h("span", { style: { color: "var(--tt-up)" } }, `$${tp1.toFixed(2)}`),
+            _fmt(bullT) && h("div", null,
+              h("span", { style: { color: "var(--tt-up)" } }, `↑ `),
+              h("span", { style: { color: "var(--tt-text-faint)" } }, "above "),
+              h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullT)),
+              _fmt(bullTgt) && h(React.Fragment, null,
+                h("span", { style: { color: "var(--tt-text-faint)" } }, " → target "),
+                h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullTgt)),
+                Number.isFinite(bullR) && bullR > 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (+${bullR.toFixed(1)}%)`),
+              ),
             ),
-            Number.isFinite(sl) && sl > 0 && h("span", null,
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "SL "),
-              h("span", { style: { color: "var(--tt-dn)" } }, `$${sl.toFixed(2)}`),
+            _fmt(bearT) && h("div", null,
+              h("span", { style: { color: "var(--tt-dn)" } }, `↓ `),
+              h("span", { style: { color: "var(--tt-text-faint)" } }, "below "),
+              h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearT)),
+              _fmt(bearTgt) && h(React.Fragment, null,
+                h("span", { style: { color: "var(--tt-text-faint)" } }, " → target "),
+                h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearTgt)),
+                Number.isFinite(bearR) && bearR < 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (${bearR.toFixed(1)}%)`),
+              ),
             ),
           ),
-          // Loading shimmer (only when no cached data yet)
-          !pred && pLoading && h("div", {
-            style: { fontSize: 10, color: "var(--tt-text-faint)", fontStyle: "italic" },
-          }, "Loading model bias…"),
-          !pred && !pLoading && h("div", {
-            style: { fontSize: 10, color: "var(--tt-text-faint)" },
-          }, "No active model bias right now."),
         );
       }
 
-      function IndexPredictionsStrip({ data, onSelectTicker }) {
-        const SYMS = ["SPY", "QQQ", "IWM"];
-        const available = SYMS.filter((s) => data?.[s]);
-        if (available.length === 0) return null;
+      function IndexPredictionsStrip({ brief, data, onSelectTicker }) {
+        // 2026-05-28 — Now reads from the brief's per-index gamePlan
+        // (morning.infographic.indices[*]) so this strip is a TRUE
+        // preview of what the Brief publishes — not a parallel
+        // prediction-contract surface.
+        const morning = brief?.morning || (brief?.type === "morning" ? brief : null);
+        const evening = brief?.evening || (brief?.type === "evening" ? brief : null);
+        // Prefer evening (scorecard view) when published, else morning
+        const active = evening || morning;
+        if (!active) return null;
+        const briefType = active.type || (evening ? "evening" : "morning");
+        const indices = (active?.infographic?.indices || []).filter(
+          (i) => ["SPY", "QQQ", "IWM"].includes(String(i?.sym || "").toUpperCase()),
+        );
+        if (indices.length === 0) return null;
+
+        const briefDate = active?.date || morning?.date || null;
+        const _label = briefType === "evening" ? "Evening Scorecard" : "Morning Game Plan";
+
         return h("aside", {
           className: "tt-card tt-card-pad",
           style: { display: "flex", flexDirection: "column", gap: 10, height: "100%" },
         },
-          h("div", { className: "tt-sec-title" }, "INDEX PREDICTIONS"),
-          h("div", { className: "tt-sec-h", style: { fontSize: 16 } }, "Today's model bias on the broad market"),
+          h("div", { className: "tt-sec-title" }, "DAILY BRIEF · PREDICTIONS"),
+          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "space-between", flexWrap: "wrap" } },
+            h("div", { className: "tt-sec-h", style: { fontSize: 16, margin: 0 } }, _label),
+            briefDate && h("span", {
+              style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-faint)" },
+            }, briefDate),
+          ),
           h("div", {
             style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 4 },
           },
-            available.map((sym) => h(IndexPredictionCard, { key: sym, sym, t: data[sym], onSelectTicker })),
+            indices.map((idx) => {
+              const sym = String(idx?.sym || "").toUpperCase();
+              const live = data?.[sym] || null;
+              const liveDc = live ? getDailyChange({ ticker: sym, ...live }) : null;
+              return h(BriefIndexCard, {
+                key: sym,
+                idx,
+                briefType,
+                livePx: Number(live?.price),
+                dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
+                onSelectTicker,
+              });
+            }),
+          ),
+          h("a", {
+            href: "/daily-brief.html",
+            style: {
+              fontSize: 11, color: "var(--tt-accent, #f5c25c)", textDecoration: "none",
+              marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4,
+            },
+          },
+            "Read the full brief →",
+          ),
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // OpenPositionsPreview — 2026-05-28
+      //
+      // User: "we should provide a preview of our open positions and
+      // what the model guidance is, which would be what the Daily Brief
+      // also provides."
+      //
+      // Compact strip of open positions across Active Trader + Investor
+      // modes. Each pill: ticker · direction · current P&L · lane.
+      // Click → opens the rail overlay (same handler the Daily Brief uses).
+      // Lazy-fetched on mount, cached 60s. Hidden when no open trades.
+      // ─────────────────────────────────────────────────────────────
+      function OpenPositionsPreview({ onSelectTicker }) {
+        const [trades, setTrades] = useState([]);
+        const [loading, setLoading] = useState(true);
+        useEffect(() => {
+          let cancelled = false;
+          (async () => {
+            try {
+              const [traderRes, investorRes] = await Promise.all([
+                fetch(`/timed/ledger/trades?status=open&limit=20`, { cache: "no-store" }),
+                fetch(`/timed/ledger/trades?status=open&limit=20&mode=investor`, { cache: "no-store" }).catch(() => null),
+              ]);
+              if (cancelled) return;
+              const all = [];
+              if (traderRes?.ok) {
+                const j = await traderRes.json();
+                if (j?.ok && Array.isArray(j.trades)) {
+                  for (const t of j.trades) all.push({ ...t, _mode: "trader" });
+                }
+              }
+              if (investorRes?.ok) {
+                const j = await investorRes.json();
+                if (j?.ok && Array.isArray(j.trades)) {
+                  for (const t of j.trades) all.push({ ...t, _mode: "investor" });
+                }
+              }
+              if (!cancelled) setTrades(all);
+            } catch (_) { /* silent */ }
+            finally { if (!cancelled) setLoading(false); }
+          })();
+          return () => { cancelled = true; };
+        }, []);
+
+        if (loading) return null;
+        if (trades.length === 0) return null;
+
+        // Sort by largest P&L magnitude so the most-actionable are first.
+        // Tradesp's pnl_pct comes from the trade row (live mark-to-market
+        // by the worker scoring path).
+        const sorted = [...trades].sort((a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0));
+
+        return h("section", {
+          className: "tt-card tt-card-pad tt-row",
+          style: { marginBottom: 14 },
+        },
+          h("div", { className: "tt-sec-title" }, "OPEN POSITIONS · MODEL GUIDANCE"),
+          h("div", { className: "tt-sec-h", style: { fontSize: 16, marginBottom: 8 } },
+            `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`,
+          ),
+          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+            sorted.slice(0, 12).map((t) => {
+              const sym = String(t?.ticker || "").toUpperCase();
+              const dir = String(t?.direction || "").toUpperCase();
+              const pnlPct = Number(t?.pnl_pct);
+              const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)"
+                            : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
+              const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
+              const stageMeta = stage === "DEFEND" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                              : stage === "TRIM" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                              : stage === "EXIT" ? { color: "var(--tt-dn)", bg: "rgba(248,113,113,0.10)" }
+                              : { color: "var(--tt-up)", bg: "rgba(52,211,153,0.10)" };
+              const dirColor = dir === "LONG" ? "var(--tt-up)" : dir === "SHORT" ? "var(--tt-dn)" : "var(--tt-text-muted)";
+              const onClick = (e) => {
+                e.preventDefault();
+                if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
+              };
+              return h("button", {
+                key: t?.trade_id || sym,
+                onClick,
+                style: {
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  padding: "6px 10px", borderRadius: 8, cursor: "pointer",
+                  background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
+                  border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
+                  fontFamily: "var(--tt-font-mono)", fontSize: 11,
+                  transition: "border-color 0.15s",
+                },
+                onMouseEnter: (e) => { e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))"; },
+                onMouseLeave: (e) => { e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))"; },
+                title: `${sym} ${dir} · ${stage} · open in detail`,
+              },
+                h("span", { style: { fontWeight: 700, color: "var(--tt-text)" } }, sym),
+                h("span", { style: { fontSize: 9, fontWeight: 700, color: dirColor, letterSpacing: "0.08em" } }, dir),
+                Number.isFinite(pnlPct) && h("span", {
+                  style: { color: pnlColor, fontWeight: 600 },
+                }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
+                h("span", {
+                  style: {
+                    padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 700,
+                    letterSpacing: "0.06em", color: stageMeta.color, background: stageMeta.bg,
+                    border: `1px solid ${stageMeta.color}40`,
+                  },
+                }, stage),
+                t?._mode === "investor" && h("span", {
+                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.08em" },
+                }, "INV"),
+              );
+            }),
           ),
         );
       }
@@ -1782,7 +1944,7 @@
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
           ),
           h("div", { style: { minWidth: 0 } },
-            data && h(IndexPredictionsStrip, { data, onSelectTicker }),
+            brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker }),
           ),
         );
       }
@@ -3942,9 +4104,15 @@
             // ── Digest (passive read) — render skeletons until each part lands ──
             h(StatusHeader, { cal, briefDate: brief?.date }),
             // 2026-05-28 — Hero is now a 2-column layout: Daily Brief on
-            // the left, Index Predictions (SPY/QQQ/IWM bias + R:R + key
-            // levels) on the right. Stacks vertically below 980px.
+            // the left, Index Predictions (sourced from brief.gamePlan,
+            // not raw prediction-contract) on the right. Stacks
+            // vertically below 980px.
             h(TodayHero, { brief, data, earnings, onSelectTicker }),
+            // 2026-05-28 — Open Positions strip: lightweight preview of
+            // what the model is currently managing. Renders nothing
+            // when there are no open positions. Hidden until the trade
+            // ledger fetch resolves.
+            h(OpenPositionsPreview, { onSelectTicker }),
             // 2026-05-20 (user request): Market Pulse moved ABOVE the
             // Focus rows. The session-level context (where SPY / QQQ /
             // sectors are right now) sets the frame for evaluating

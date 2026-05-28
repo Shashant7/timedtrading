@@ -1088,6 +1088,16 @@
       .earn-row .date { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); }
       .earn-row .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); }
       .earn-row .hour { font-size: 10.5px; color: var(--tt-text-dim); }
+      /* Earnings universe-priority — bold symbol + accent dot
+         distinguishes tickers in our SECTOR_MAP universe from the
+         long-tail Finnhub events (2026-05-28). */
+      .earn-row.is-universe { background: rgba(76, 175, 220, 0.06); border-color: rgba(76, 175, 220, 0.22); }
+      .earn-row.is-universe .sym { color: var(--tt-accent, #4cb9dc); }
+      .earn-row .sym .uni-dot {
+        display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+        background: var(--tt-accent, #4cb9dc); margin-right: 5px; vertical-align: middle;
+      }
+      .earn-day-foot { font-size: 10.5px; color: var(--tt-text-dim); padding: 4px 4px 0; }
       /* Markdown content from brief */
       .brief-md p { font-size: 13.5px; color: var(--tt-text-muted); line-height: 1.65; margin-bottom: 10px; }
       .brief-md strong { color: var(--tt-text); }
@@ -1150,7 +1160,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.js?v=1780001978006"></script>
+    <script src="today.compiled.js?v=1780010779241"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -1159,4 +1169,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1780001978006:37845996 -->
+<!-- cache-bust:1780010779241:720205514 -->
