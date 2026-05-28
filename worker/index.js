@@ -16144,8 +16144,8 @@ function svgToBase64DataUri(svgString) {
   return _cioSvgToBase64(svgString);
 }
 
-async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
-  return _cioEvaluateEntry(env, proposal, memory, chartSvg);
+async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, modelOverride = null) {
+  return _cioEvaluateEntry(env, proposal, memory, chartSvg, modelOverride);
 }
 
 // CIO Memory → worker/cio/cio-memory.js
@@ -16175,8 +16175,8 @@ function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, pxNow) {
   return _cioBuildLifecycleProposal(action, sym, openTrade, tickerData, pxNow, getTickerProfile);
 }
 
-async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null) {
-  return _cioEvaluateLifecycle(env, proposal, memory, chartSvg);
+async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null, modelOverride = null) {
+  return _cioEvaluateLifecycle(env, proposal, memory, chartSvg, modelOverride);
 }
 
 // Process trade simulation for a ticker (called on ingest)
@@ -16257,6 +16257,10 @@ async function processTradeSimulation(
       // wouldn't see the new behavior until the next */5 scoring cron run.
       const _daKeys = [
         "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled",
+        // 2026-05-28 — operator-configurable CIO model selection. Defaults
+        // preserve existing behavior; setting any of these to a model
+        // string (e.g. "gpt-5.4") routes the next CIO call through it.
+        "ai_cio_entry_model", "ai_cio_lifecycle_model", "ai_cio_vision_model",
         "deep_audit_continuation_trigger_enabled",
         "deep_audit_continuation_trigger_include_tickers",
         "deep_audit_continuation_trigger_min_rank",
@@ -19913,7 +19917,7 @@ async function processTradeSimulation(
                     `${sym}-${now}-stall-${_sfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `STALL_${_sfcCio.decision}`, _sfcCio.confidence, _sfcCio.reasoning,
                     JSON.stringify(_sfcCio.risk_flags || []), _sfcCio.edge_remaining || 0,
-                    _sfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    _sfcCio.latency_ms, 0, _sfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now(),
                     _sfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 stall insert failed:", e));
@@ -19998,7 +20002,7 @@ async function processTradeSimulation(
                     `${sym}-${now}-runner-${_rsfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `RUNNER_STALE_${_rsfcCio.decision}`, _rsfcCio.confidence, _rsfcCio.reasoning,
                     JSON.stringify(_rsfcCio.risk_flags || []), _rsfcCio.edge_remaining || 0,
-                    _rsfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    _rsfcCio.latency_ms, 0, _rsfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now(),
                     _rsfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] runner stale insert failed:", e));
@@ -20574,7 +20578,7 @@ async function processTradeSimulation(
                 `${sym}-${now}-exit-${_exitCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `EXIT_${_exitCio.decision}`, _exitCio.confidence, _exitCio.reasoning,
                 JSON.stringify(_exitCio.risk_flags || []), _exitCio.edge_remaining || 0,
-                _exitCio.latency_ms, 0, AI_CIO_MODEL,
+                _exitCio.latency_ms, 0, _exitCio.model || AI_CIO_MODEL,
                 JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now(),
                 _exitShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 insert failed:", e));
@@ -20950,7 +20954,7 @@ async function processTradeSimulation(
                 `${sym}-${now}-trim-${_trimCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `TRIM_${_trimCio.decision}`, _trimCio.confidence, _trimCio.reasoning,
                 JSON.stringify(_trimCio.risk_flags || []), _trimCio.edge_remaining || 0,
-                _trimCio.latency_ms, 0, AI_CIO_MODEL,
+                _trimCio.latency_ms, 0, _trimCio.model || AI_CIO_MODEL,
                 JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now(),
                 _trimShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_TRIM] D1 insert failed:", e));
@@ -61007,7 +61011,11 @@ export default {
             episodic_market_backdrop: [],
             event_driven_context: { events: [] },
           };
-          const probeDecision = await evaluateWithAICIO(env, probeProposal, probeMemory, null);
+          // 2026-05-28 — Allow ?model=<name> override so operators can A/B
+          // test a stronger model (e.g. gpt-5.4) before flipping it as the
+          // default via model_config.ai_cio_entry_model.
+          const probeModelOverride = String(url.searchParams.get("model") || "").trim() || null;
+          const probeDecision = await evaluateWithAICIO(env, probeProposal, probeMemory, null, probeModelOverride);
           probeDecision.latency_ms = Date.now() - probeStart;
           return sendJSON({
             ok: true,

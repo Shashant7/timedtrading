@@ -4,12 +4,107 @@
 import {
   AI_CIO_TIMEOUT_MS,
   AI_CIO_MODEL,
+  AI_CIO_REASONING_MODEL,
   AI_CIO_SYSTEM_PROMPT,
   AI_CIO_USER_TEMPLATE,
   AI_CIO_LIFECYCLE_PROMPT,
   AI_CIO_LIFECYCLE_TEMPLATE,
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
+
+// ── Model Resolver ────────────────────────────────────────────────────────
+// 2026-05-28 — Make the CIO model operator-configurable. Three call sites:
+//   ENTRY (text only)            → resolveCioModel(env, "entry", false)
+//   ENTRY (vision / chart SVG)   → resolveCioModel(env, "entry", true)
+//   LIFECYCLE                    → resolveCioModel(env, "lifecycle", chartSvg)
+//
+// Resolution order (first wins):
+//   1. explicit `modelOverride` argument (used by /timed/admin/ai-cio/probe?model=...)
+//   2. model_config row (ai_cio_entry_model / ai_cio_vision_model / ai_cio_lifecycle_model)
+//      Resolved either from env._deepAuditConfig (already lazy-loaded by
+//      processTradeSimulation) OR from a per-isolate cache populated by
+//      ensureCioModelCache() below for non-scoring HTTP paths.
+//   3. env var (AI_CIO_ENTRY_MODEL / AI_CIO_VISION_MODEL / AI_CIO_LIFECYCLE_MODEL)
+//   4. lane fallback: vision path → "gpt-4o" (vision-capable). text path → AI_CIO_MODEL
+export function resolveCioModel(env, lane = "entry", useVision = false, modelOverride = null) {
+  // 1. Explicit override (probe / smoke testing)
+  if (modelOverride && typeof modelOverride === "string" && modelOverride.trim()) {
+    return modelOverride.trim();
+  }
+  // 2. model_config (operator override, no-redeploy). Merge env._deepAuditConfig
+  //    with the per-isolate _cioModelCache so HTTP-path callers (like the
+  //    probe endpoint and any future direct CIO invocation) see model_config
+  //    values without going through the */5 scoring cron first.
+  const fromDaCfg = env?._deepAuditConfig || {};
+  const fromCioCache = env?._cioModelCache || {};
+  const merged = { ...fromCioCache, ...fromDaCfg };
+  const keys = useVision
+    ? ["ai_cio_vision_model", `ai_cio_${lane}_model`]
+    : [`ai_cio_${lane}_model`];
+  for (const k of keys) {
+    const v = merged?.[k];
+    if (v && typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 3. env var
+  const envKeys = useVision
+    ? ["AI_CIO_VISION_MODEL", `AI_CIO_${lane.toUpperCase()}_MODEL`]
+    : [`AI_CIO_${lane.toUpperCase()}_MODEL`];
+  for (const k of envKeys) {
+    const v = env?.[k];
+    if (v && typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 4. lane fallback.
+  return useVision ? "gpt-4o" : AI_CIO_MODEL;
+}
+
+// Lazily load just the three CIO model_config keys into a per-isolate cache.
+// Called once per CIO eval so HTTP-path callers (probe + admin tools) see the
+// operator's model selection without needing the */5 scoring cron to have run
+// first. The cache is per-isolate and TTL'd at 5 minutes so model_config
+// flips propagate to running isolates within one CIO cycle.
+const CIO_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+async function ensureCioModelCache(env) {
+  try {
+    if (!env?.DB) return;
+    const cache = env._cioModelCache;
+    if (cache && cache._loadedAt && (Date.now() - cache._loadedAt) < CIO_MODEL_CACHE_TTL_MS) {
+      return;
+    }
+    const rows = await env.DB.prepare(
+      `SELECT config_key, config_value FROM model_config
+        WHERE config_key IN ('ai_cio_entry_model','ai_cio_lifecycle_model','ai_cio_vision_model')`
+    ).all().catch(() => ({ results: [] }));
+    const out = { _loadedAt: Date.now() };
+    for (const r of (rows?.results || [])) {
+      if (!r?.config_key) continue;
+      const raw = r.config_value;
+      let v = raw;
+      try { v = JSON.parse(raw); } catch { /* keep raw string */ }
+      if (v && typeof v === "string") out[r.config_key] = v;
+    }
+    env._cioModelCache = out;
+  } catch (e) {
+    console.warn("[AI_CIO] ensureCioModelCache failed:", String(e?.message || e).slice(0, 150));
+  }
+}
+
+// Some newer OpenAI models (gpt-5.x family in particular) require
+// `max_completion_tokens` instead of the legacy `max_tokens`, and may not
+// accept the `temperature` field for deterministic JSON tasks. This helper
+// builds a model-aware request body so a single switch works for both eras.
+function buildOpenAIBody(model, messages, maxCompletionTokens, options = {}) {
+  const isGpt5Family = String(model || "").toLowerCase().startsWith("gpt-5");
+  const body = {
+    model,
+    messages,
+    max_completion_tokens: maxCompletionTokens,
+  };
+  if (!isGpt5Family) {
+    body.temperature = options.temperature ?? 0.1;
+  }
+  if (options.responseFormat) body.response_format = options.responseFormat;
+  return body;
+}
 
 // ── Signal Condensers ─────────────────────────────────────────────────────
 // Helpers that compress the rich tickerData signals into compact, CIO-ready
@@ -637,16 +732,24 @@ export function svgToBase64DataUri(svgString) {
 
 // ── API Evaluation Functions ────────────────────────────────────────────────
 
-export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
+export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, modelOverride = null) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { decision: "APPROVE", fallback: true, reason: "no_api_key" };
+
+  // 2026-05-28 — populate per-isolate model_config cache for HTTP-path
+  // callers (probe + future direct invocations). Skipped silently in
+  // replay since replay routes already pre-load deepAuditConfig.
+  if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
 
     const useVision = !!chartSvg;
-    const entryModel = useVision ? "gpt-4o" : AI_CIO_MODEL;
+    // 2026-05-28 — resolved model: explicit override → model_config → env var
+    // → lane fallback. Lets operators upgrade to gpt-5.4 (or any other model)
+    // via a single model_config row, no redeploy.
+    const entryModel = resolveCioModel(env, "entry", useVision, modelOverride);
 
     const userContent = useVision ? [
       { type: "text", text: AI_CIO_USER_TEMPLATE(proposal, memory) },
@@ -659,16 +762,15 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: entryModel,
-        messages: [
+      body: JSON.stringify(buildOpenAIBody(
+        entryModel,
+        [
           { role: "system", content: AI_CIO_SYSTEM_PROMPT },
           { role: "user", content: userContent },
         ],
-        temperature: 0.1,
-        max_completion_tokens: 500,
-        response_format: { type: "json_object" },
-      }),
+        500,
+        { temperature: 0.1, responseFormat: { type: "json_object" } },
+      )),
       signal: controller.signal,
     });
 
@@ -676,8 +778,8 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
-      console.warn(`[AI_CIO] OpenAI ${resp.status}: ${errText.slice(0, 150)}`);
-      return { decision: "APPROVE", fallback: true, reason: `api_error_${resp.status}` };
+      console.warn(`[AI_CIO] OpenAI ${resp.status} (model=${entryModel}): ${errText.slice(0, 150)}`);
+      return { decision: "APPROVE", fallback: true, reason: `api_error_${resp.status}`, model: entryModel };
     }
 
     const json = await resp.json();
@@ -687,8 +789,8 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
     try {
       parsed = JSON.parse(raw);
     } catch {
-      console.warn(`[AI_CIO] Failed to parse response: ${raw.slice(0, 200)}`);
-      return { decision: "APPROVE", fallback: true, reason: "parse_error" };
+      console.warn(`[AI_CIO] Failed to parse response (model=${entryModel}): ${raw.slice(0, 200)}`);
+      return { decision: "APPROVE", fallback: true, reason: "parse_error", model: entryModel };
     }
 
     parsed.model_used = entryModel;
@@ -696,7 +798,7 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
 
     const decision = String(parsed.decision || "APPROVE").toUpperCase();
     if (!["APPROVE", "ADJUST", "REJECT"].includes(decision)) {
-      return { decision: "APPROVE", fallback: true, reason: "invalid_decision" };
+      return { decision: "APPROVE", fallback: true, reason: "invalid_decision", model: entryModel };
     }
 
     return {
@@ -714,7 +816,10 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.slice(0, 5).map(f => String(f).slice(0, 50)) : [],
       edge_score: Math.max(0, Math.min(1, Number(parsed.edge_score) || 0.5)),
       fallback: false,
-      model: AI_CIO_MODEL,
+      // 2026-05-28 — record the actual model that decided this trade, not the
+      // hardcoded AI_CIO_MODEL constant. Critical for A/B comparison and for
+      // operator visibility when running mixed models.
+      model: entryModel,
       latency_ms: null,
     };
   } catch (err) {
@@ -724,15 +829,23 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
   }
 }
 
-export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null) {
+export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null, modelOverride = null) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { decision: "PROCEED", fallback: true, reason: "no_api_key" };
+
+  // 2026-05-28 — populate per-isolate model_config cache (see evaluateWithAICIO).
+  if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
 
     const useVision = !!chartSvg;
+    // 2026-05-28 — lifecycle decisions are loss-bearing (per-position) and
+    // deserve the same model-selection plumbing as entry. Previously
+    // hardcoded to AI_CIO_MODEL (gpt-4o-mini) even when chartSvg was passed.
+    const lifecycleModel = resolveCioModel(env, "lifecycle", useVision, modelOverride);
+
     const userContent = useVision ? [
       { type: "text", text: AI_CIO_LIFECYCLE_TEMPLATE(proposal, memory) },
       { type: "image_url", image_url: { url: svgToBase64DataUri(chartSvg), detail: "low" } },
@@ -744,16 +857,15 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: AI_CIO_MODEL,
-        messages: [
+      body: JSON.stringify(buildOpenAIBody(
+        lifecycleModel,
+        [
           { role: "system", content: AI_CIO_LIFECYCLE_PROMPT },
           { role: "user", content: userContent },
         ],
-        temperature: 0.1,
-        max_completion_tokens: 400,
-        response_format: { type: "json_object" },
-      }),
+        400,
+        { temperature: 0.1, responseFormat: { type: "json_object" } },
+      )),
       signal: controller.signal,
     });
 
@@ -761,8 +873,8 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
-      console.warn(`[AI_CIO_LIFECYCLE] OpenAI ${resp.status}: ${errText.slice(0, 150)}`);
-      return { decision: "PROCEED", fallback: true, reason: `api_error_${resp.status}` };
+      console.warn(`[AI_CIO_LIFECYCLE] OpenAI ${resp.status} (model=${lifecycleModel}): ${errText.slice(0, 150)}`);
+      return { decision: "PROCEED", fallback: true, reason: `api_error_${resp.status}`, model: lifecycleModel };
     }
 
     const json = await resp.json();
@@ -772,13 +884,13 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
     try {
       parsed = JSON.parse(raw);
     } catch (_) {
-      console.warn(`[AI_CIO_LIFECYCLE] Parse error: ${raw.slice(0, 200)}`);
-      return { decision: "PROCEED", fallback: true, reason: "parse_error" };
+      console.warn(`[AI_CIO_LIFECYCLE] Parse error (model=${lifecycleModel}): ${raw.slice(0, 200)}`);
+      return { decision: "PROCEED", fallback: true, reason: "parse_error", model: lifecycleModel };
     }
 
     const decision = String(parsed.decision || "PROCEED").toUpperCase();
     if (!["PROCEED", "HOLD", "OVERRIDE"].includes(decision)) {
-      return { decision: "PROCEED", fallback: true, reason: "invalid_decision" };
+      return { decision: "PROCEED", fallback: true, reason: "invalid_decision", model: lifecycleModel };
     }
 
     return {
@@ -793,7 +905,7 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.slice(0, 5) : [],
       edge_remaining: Math.max(0, Math.min(1, Number(parsed.edge_remaining) || 0.5)),
       fallback: false,
-      model: AI_CIO_MODEL,
+      model: lifecycleModel,
     };
   } catch (err) {
     if (err?.name === "AbortError") {

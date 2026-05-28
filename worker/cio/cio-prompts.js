@@ -2,7 +2,17 @@
 // System prompts and user templates for the AI CIO agent.
 
 export const AI_CIO_TIMEOUT_MS = 15000;
+// Default CIO model. May be overridden per-call via env or model_config — see
+// resolveCioModel() in cio-service.js. Kept as gpt-4o-mini for backward
+// compatibility; operators should upgrade to a stronger reasoning model
+// (e.g. gpt-5.4 — same model the Daily Brief uses, already verified-working
+// in this codebase) via either:
+//   wrangler.toml  → AI_CIO_ENTRY_MODEL / AI_CIO_LIFECYCLE_MODEL / AI_CIO_VISION_MODEL
+//   model_config   → ai_cio_entry_model / ai_cio_lifecycle_model / ai_cio_vision_model
+// model_config wins, so operators can flip without redeploying.
 export const AI_CIO_MODEL = "gpt-4o-mini";
+// Reasoning-tier default if the operator opts into model_config-driven upgrade.
+export const AI_CIO_REASONING_MODEL = "gpt-5.4";
 
 export const AI_CIO_SYSTEM_PROMPT = `You are the Chief Investment Officer (CIO) for Timed Trading, a systematic trading platform. You review trade opportunities BEFORE execution and provide a final decision.
 
