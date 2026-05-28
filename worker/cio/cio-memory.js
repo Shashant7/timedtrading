@@ -317,5 +317,67 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     }
   }
 
+  // ── Layer 8: Markov regime forecast summary (2026-05-28) ─────────────────
+  // The regime_forecast bundle (PRs #308-#311) gives forward-looking
+  // probabilities over the universe state space. Memory-side compact summary
+  // — the full forecast is also surfaced in the entry/lifecycle proposal so
+  // CIO has both the immediate probability snapshot and the longer-horizon
+  // continuation view.
+  const forecast = tickerData?.regime_forecast;
+  if (forecast && typeof forecast === "object") {
+    const dirFriendly = (probMap) => {
+      if (!probMap) return null;
+      const dir = String(direction || "").toUpperCase();
+      const keys = dir === "LONG"
+        ? ["HTF_BULL_LTF_BULL", "HTF_BULL_LTF_PULLBACK"]
+        : dir === "SHORT"
+          ? ["HTF_BEAR_LTF_BEAR", "HTF_BEAR_LTF_PULLBACK"]
+          : [];
+      let s = 0;
+      for (const k of keys) {
+        const v = Number(probMap[k]);
+        if (Number.isFinite(v)) s += v;
+      }
+      return Math.round(s * 1000) / 1000;
+    };
+    const summary = {
+      current_state: forecast.state || null,
+      matrix_source: forecast.matrix_source || null,
+      p_5_bar_in_direction: dirFriendly(forecast.p_5_bar),
+      p_1h_in_direction: dirFriendly(forecast.p_1h),
+      p_1d_in_direction: dirFriendly(forecast.p_1d),
+    };
+    if (forecast.expanded?.band) summary.completion_band = forecast.expanded.band;
+    mem.markov_regime = summary;
+  }
+
+  // ── Layer 8b: Move archetype + adaptive lineage (2026-05-28) ─────────────
+  // Canonical move policy (Phase 4 / Phase 5) writes a per-ticker archetype
+  // recommendation onto tickerData.__learning_policy.recommend. CIO can use
+  // the archetype to decide: fast_impulse_fragile = quick-trim bias,
+  // slow_grinder = wider stops, etc.
+  const lp = tickerData?.__learning_policy?.recommend;
+  if (lp && typeof lp === "object") {
+    mem.move_archetype = {
+      archetype: lp.archetype || null,
+      sl_tp_style: lp.sl_tp_style || null,
+      trim_run_bias: lp.trim_run_bias || null,
+      exit_style: lp.exit_style || null,
+      entry_timing: lp.entry_timing || null,
+    };
+  }
+
+  // ── Layer 8c: Move-phase exhaustion (2026-05-28) ─────────────────────────
+  // Late-phase entries are statistically more fragile. Surface phase_pct,
+  // completion_pct, and the run-length + exhaustion of the current regime.
+  if (tickerData?.regime_exhausted === true || Number(tickerData?._regime_run_length) > 0) {
+    mem.regime_run = {
+      run_bars: Number(tickerData._regime_run_length) || null,
+      exhausted: tickerData.regime_exhausted === true,
+      phase_pct: Number.isFinite(Number(tickerData.phase_pct)) ? Math.round(Number(tickerData.phase_pct) * 10) / 10 : null,
+      completion_pct: Number.isFinite(Number(tickerData.completion)) ? Math.round(Number(tickerData.completion) * 10) / 10 : null,
+    };
+  }
+
   return mem;
 }

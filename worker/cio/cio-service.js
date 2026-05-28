@@ -11,18 +11,277 @@ import {
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
+// ── Signal Condensers ─────────────────────────────────────────────────────
+// Helpers that compress the rich tickerData signals into compact, CIO-ready
+// shapes. Goal: keep the prompt token budget reasonable while still surfacing
+// every decision-impacting field. All helpers are tolerant of missing data.
+
+const round = (n, p = 2) => {
+  if (n == null || !Number.isFinite(Number(n))) return null;
+  const m = Math.pow(10, p);
+  return Math.round(Number(n) * m) / m;
+};
+
+// Take a {state: prob} object and return the top-N states by probability.
+function topStates(probMap, n = 2) {
+  if (!probMap || typeof probMap !== "object") return null;
+  const entries = Object.entries(probMap)
+    .filter(([, v]) => Number.isFinite(Number(v)))
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, n)
+    .map(([k, v]) => ({ state: k, p: round(v, 3) }));
+  return entries.length > 0 ? entries : null;
+}
+
+// Sum of probability mass that aligns with the trade direction.
+// LONG-friendly states contain "BULL_LTF_BULL" or "BULL_LTF_PULLBACK" (entry chance).
+// SHORT-friendly states contain "BEAR_LTF_BEAR" or "BEAR_LTF_PULLBACK".
+function probInDirection(probMap, direction) {
+  if (!probMap || typeof probMap !== "object") return null;
+  const dir = String(direction || "").toUpperCase();
+  const friendly = dir === "LONG"
+    ? ["HTF_BULL_LTF_BULL", "HTF_BULL_LTF_PULLBACK"]
+    : dir === "SHORT"
+      ? ["HTF_BEAR_LTF_BEAR", "HTF_BEAR_LTF_PULLBACK"]
+      : [];
+  if (!friendly.length) return null;
+  let s = 0;
+  for (const k of friendly) {
+    const v = Number(probMap[k]);
+    if (Number.isFinite(v)) s += v;
+  }
+  return round(s, 3);
+}
+
+// Condense the full regime_forecast payload to a compact CIO-friendly summary.
+function condenseMarkovForecast(forecast, direction) {
+  if (!forecast || typeof forecast !== "object") return null;
+  const out = {
+    current_state: forecast.state || null,
+    matrix_source: forecast.matrix_source || null,
+    matrix_total_transitions: forecast.matrix_total_transitions || null,
+  };
+  if (forecast.p_next) {
+    out.p_next_top2 = topStates(forecast.p_next, 2);
+    if (direction) out.p_next_in_direction = probInDirection(forecast.p_next, direction);
+  }
+  if (forecast.p_5_bar) {
+    out.p_5_bar_top2 = topStates(forecast.p_5_bar, 2);
+    if (direction) out.p_5_bar_in_direction = probInDirection(forecast.p_5_bar, direction);
+  }
+  if (forecast.p_20_bar && direction) {
+    out.p_20_bar_in_direction = probInDirection(forecast.p_20_bar, direction);
+  }
+  if (forecast.p_1h && direction) {
+    out.p_1h_in_direction = probInDirection(forecast.p_1h, direction);
+  }
+  if (forecast.p_1d && direction) {
+    out.p_1d_in_direction = probInDirection(forecast.p_1d, direction);
+  }
+  // Expanded 12-state — just the band (EARLY / MID / LATE) is enough for CIO.
+  if (forecast.expanded?.band) {
+    out.expanded_band = forecast.expanded.band;
+  }
+  return out;
+}
+
+// Condense HMM latent_regime: state + posterior + confidence label + age.
+function condenseHmmRegime(latent) {
+  if (!latent || typeof latent !== "object" || !latent.state) return null;
+  const post = latent.posterior || {};
+  const topProb = Math.max(...Object.values(post).map(v => Number(v) || 0), 0);
+  let confidence = "low";
+  if (topProb >= 0.8) confidence = "high";
+  else if (topProb >= 0.6) confidence = "medium";
+  return {
+    state: latent.state,
+    posterior_top: round(topProb, 3),
+    confidence_label: confidence,
+    decoded_at: latent.decoded_at || null,
+  };
+}
+
+// Condense __learning_policy.recommend into a compact archetype card.
+function condenseMoveArchetype(learningPolicy) {
+  const rec = learningPolicy?.recommend;
+  if (!rec || typeof rec !== "object") return null;
+  return {
+    archetype: rec.archetype || null,
+    entry_timing: rec.entry_timing || null,
+    guard_bundle: rec.guard_bundle || null,
+    sl_tp_style: rec.sl_tp_style || null,
+    trim_run_bias: rec.trim_run_bias || null,
+    exit_style: rec.exit_style || null,
+    source: learningPolicy?.source || null,
+  };
+}
+
+// Per-TF TD Sequential counts. Only include TFs with non-trivial counts (>=4)
+// or active countdowns. Filters out null/zero rows to save tokens.
+function condenseTdSequential(tickerData) {
+  const tfs = ["D", "4H", "1H", "30", "15", "10"];
+  const out = {};
+  for (const tf of tfs) {
+    const tf_tech = tickerData?.tf_tech?.[tf];
+    const td = tf_tech?.td;
+    if (!td) continue;
+    const setup = Number(td.setup_count ?? td.tv_count) || 0;
+    const countdown = Number(td.countdown) || 0;
+    if (setup < 4 && countdown < 1) continue;
+    out[tf] = {
+      setup_count: setup || null,
+      countdown: countdown || null,
+      direction: td.direction || null,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Direction-aware divergence summary. "Adverse" = bearish div on LONG entries
+// or bullish div on SHORT entries.
+function condenseDivergence(tickerData, direction) {
+  const summary = tickerData?.__entry_divergence_summary;
+  if (!summary || typeof summary !== "object") return null;
+  const out = {};
+  // Pre-computed adverse_rsi / adverse_phase already direction-correct.
+  if (summary.adverse_rsi) {
+    out.rsi = {
+      count: summary.adverse_rsi.count || null,
+      strongest_tf: summary.adverse_rsi.strongest?.tf || null,
+      strongest_strength: round(summary.adverse_rsi.strongest?.strength, 1),
+      bars_since: summary.adverse_rsi.strongest?.barsSince || null,
+    };
+  }
+  if (summary.adverse_phase) {
+    out.phase = {
+      count: summary.adverse_phase.count || null,
+      strongest_tf: summary.adverse_phase.strongest?.tf || null,
+      strongest_strength: round(summary.adverse_phase.strongest?.strength, 1),
+      bars_since: summary.adverse_phase.strongest?.barsSince || null,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Multi-window ORB summary: primary breakout/bias + how many targets hit in
+// trade direction across all 4 windows.
+function condenseOrb(tickerData, direction) {
+  const orb = tickerData?.orb;
+  if (!orb || typeof orb !== "object") return null;
+  const out = {};
+  if (orb.primary) {
+    out.primary = {
+      window: orb.primary.window || "15m",
+      breakout: orb.primary.breakout || null,
+      priceVsORM: orb.primary.priceVsORM || null,
+      dayBias: orb.primary.dayBias || null,
+      widthPct: round(orb.primary.widthPct, 2),
+    };
+  }
+  // Multi-window consensus: how many windows agree with dayBias?
+  if (orb.byTf && typeof orb.byTf === "object") {
+    let consensus = 0;
+    const targetsHitInDir = { 5: 0, 15: 0, 30: 0, 60: 0 };
+    for (const [tfKey, tfOrb] of Object.entries(orb.byTf)) {
+      if (!tfOrb) continue;
+      if (tfOrb.dayBias && tfOrb.dayBias === out.primary?.dayBias) consensus++;
+      if (direction === "LONG") {
+        targetsHitInDir[tfKey] = Number(tfOrb.targetsHitUp) || 0;
+      } else if (direction === "SHORT") {
+        targetsHitInDir[tfKey] = Number(tfOrb.targetsHitDn) || 0;
+      }
+    }
+    out.window_consensus_count = consensus;
+    out.max_targets_hit_in_dir = Math.max(...Object.values(targetsHitInDir), 0);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Sizing overrides already applied by the system upstream of CIO. CIO should
+// know what's already been baked in so it doesn't double-discount.
+function condenseSizingOverrides(tickerData, sizingMeta) {
+  const out = {};
+  const markov = Number(tickerData?.__regime_favor_mult);
+  if (Number.isFinite(markov) && markov !== 1) out.markov_favor_mult = round(markov, 2);
+  const chop = Number(tickerData?.__chop_size_mult);
+  if (Number.isFinite(chop) && chop !== 1) out.chop_size_mult = round(chop, 2);
+  const danger = Number(tickerData?.__danger_size_mult);
+  if (Number.isFinite(danger) && danger !== 1) out.danger_size_mult = round(danger, 2);
+  const rvolHigh = Number(tickerData?.__da_rvol_high_size_mult);
+  if (Number.isFinite(rvolHigh) && rvolHigh !== 1) out.rvol_high_size_mult = round(rvolHigh, 2);
+  const pdz = Number(tickerData?.__pdz_size_mult);
+  if (Number.isFinite(pdz) && pdz !== 1) out.pdz_size_mult = round(pdz, 2);
+  const orb = Number(tickerData?.__da_orb_size_mult);
+  if (Number.isFinite(orb) && orb !== 1) out.orb_size_mult = round(orb, 2);
+  const effective = Number(sizingMeta?.effectiveMult);
+  if (Number.isFinite(effective) && effective !== 1) out.effective_combined_mult = round(effective, 2);
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Current book context for the CIO — concentration / direction balance.
+function condenseOpenBook(sym, direction, allTrades) {
+  if (!Array.isArray(allTrades)) return null;
+  const open = allTrades.filter(t =>
+    t && (t.status === "OPEN" || t.status === "TP_HIT_TRIM" || !t.status)
+  );
+  if (open.length === 0) return null;
+  const sameTicker = open.filter(t => String(t.ticker || "").toUpperCase() === sym).length;
+  const sameDir = open.filter(t => String(t.direction || "").toUpperCase() === String(direction || "").toUpperCase()).length;
+  return {
+    total_open: open.length,
+    same_ticker_open: sameTicker,
+    same_direction_open: sameDir,
+  };
+}
+
+// Move-phase + regime-run-length + exhaustion. Cheap forward indicator.
+function condenseMovePhase(tickerData) {
+  const out = {
+    profile_class: tickerData?.move_phase_profile?.class || tickerData?.move_phase_profile || null,
+    phase_pct: round(Number(tickerData?.phase_pct), 1),
+    completion_pct: round(Number(tickerData?.completion), 1),
+    regime_run_bars: Number(tickerData?._regime_run_length) || null,
+    regime_exhausted: tickerData?.regime_exhausted === true ? true : null,
+  };
+  // Drop empties
+  for (const k of Object.keys(out)) if (out[k] == null) delete out[k];
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // ── Proposal Builders ──────────────────────────────────────────────────────
 
 /**
  * Build an entry proposal object for CIO review.
  * @param {Function} getTickerProfile - (sym) => profile object
+ * @param {Array} [allTrades] - optional, for open-book concentration context
  */
-export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile) {
+export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile, allTrades) {
   const orb = tickerData?.orb?.primary;
   const _tp = getTickerProfile(sym);
   const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
     executionFallback: tickerData?.regime_class || "UNKNOWN",
   });
+  // 2026-05-28 — Enrichment. CIO previously could not see Markov regime
+  // forecasts, HMM latent regime, TD9 / divergence / multi-window ORB,
+  // move archetype, or the sizing overrides the system already applied
+  // upstream. Each helper returns null when its source data is absent
+  // (safe to omit field).
+  const markovForecast = condenseMarkovForecast(tickerData?.regime_forecast, direction);
+  const hmmRegime = condenseHmmRegime(tickerData?.latent_regime);
+  const moveArchetype = condenseMoveArchetype(tickerData?.__learning_policy);
+  const engineResolution = tickerData?.__adaptive_lineage?.entry_engine_resolution
+    ? {
+        source: tickerData.__adaptive_lineage.entry_engine_resolution.source,
+        selected_engine: tickerData.__adaptive_lineage.entry_engine_resolution.selected_engine,
+        management_engine: tickerData.__adaptive_lineage.entry_engine_resolution.selected_management_engine,
+      }
+    : null;
+  const tdSequential = condenseTdSequential(tickerData);
+  const divergence = condenseDivergence(tickerData, direction);
+  const orbFull = condenseOrb(tickerData, direction);
+  const movePhase = condenseMovePhase(tickerData);
+  const sizingOverrides = condenseSizingOverrides(tickerData, sizingMeta);
+  const openBook = condenseOpenBook(sym, direction, allTrades);
   return {
     ticker: sym,
     direction,
@@ -33,6 +292,17 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
     rank: Number(tickerData?.rank) || 0,
     setup: { name: setupName, grade: setupGrade, path: tickerData?.__entry_path },
     confidence: Math.round((confidence || 0) * 100) / 100,
+    // 2026-05-28 — Stochastic + adaptive signal stack (Markov + HMM + archetype
+    // + engine selection). All omitted if the source data is unavailable.
+    ...(markovForecast && { markov_forecast: markovForecast }),
+    ...(hmmRegime && { hmm_regime: hmmRegime }),
+    ...(moveArchetype && { move_archetype: moveArchetype }),
+    ...(engineResolution && { engine_resolution: engineResolution }),
+    ...(tdSequential && { td_sequential: tdSequential }),
+    ...(divergence && { divergence }),
+    ...(movePhase && { move_phase: movePhase }),
+    ...(sizingOverrides && { sizing_overrides: sizingOverrides }),
+    ...(openBook && { open_book: openBook }),
     state: tickerData?.state,
     ticker_profile: {
       type: _tp.profileKey,
@@ -81,10 +351,10 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
       orb_against: !!tickerData?.__orb_against,
       orb_fakeout: !!tickerData?.__orb_fakeout,
     },
-    orb: orb ? {
+    orb: orbFull || (orb ? {
       breakout: orb.breakout, priceVsORM: orb.priceVsORM,
       dayBias: orb.dayBias, widthPct: orb.widthPct,
-    } : null,
+    } : null),
     danger: {
       score: tickerData?.__danger_score ?? 0,
       flags: tickerData?.__danger_flags || [],
@@ -136,6 +406,16 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
   const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
     executionFallback: tickerData?.regime_class || "UNKNOWN",
   });
+  // 2026-05-28 — Same stochastic + adaptive enrichment as entry. For lifecycle
+  // decisions, the in-direction probabilities (p_5_bar, p_1h) and divergence
+  // firing right now are the key HOLD-vs-PROCEED signals.
+  const markovForecast = condenseMarkovForecast(tickerData?.regime_forecast, dir);
+  const hmmRegime = condenseHmmRegime(tickerData?.latent_regime);
+  const moveArchetype = condenseMoveArchetype(tickerData?.__learning_policy);
+  const tdSequential = condenseTdSequential(tickerData);
+  const divergence = condenseDivergence(tickerData, dir);
+  const orbFull = condenseOrb(tickerData, dir);
+  const movePhase = condenseMovePhase(tickerData);
 
   return {
     action,
@@ -195,6 +475,18 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
         : !!(tickerData?.tf_tech?.["10"]?.ripster?.c72_89?.bear),
     },
     exit_family: tickerData?.__exit_family || null,
+    // 2026-05-28 — Stochastic + adaptive signal stack on the lifecycle side.
+    // For TRIM/EXIT: prob-in-direction tells CIO whether to HOLD or PROCEED.
+    // For HOLD: divergence firing now or TD9 setup_count >= 9 should flip
+    // the decision back to PROCEED. Move archetype tells CIO whether this
+    // ticker's trim_run_bias historically favors holding or trimming early.
+    ...(markovForecast && { markov_forecast: markovForecast }),
+    ...(hmmRegime && { hmm_regime: hmmRegime }),
+    ...(moveArchetype && { move_archetype: moveArchetype }),
+    ...(tdSequential && { td_sequential: tdSequential }),
+    ...(divergence && { divergence }),
+    ...(orbFull && { orb_full: orbFull }),
+    ...(movePhase && { move_phase: movePhase }),
   };
 }
 

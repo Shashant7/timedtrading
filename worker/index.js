@@ -16131,8 +16131,8 @@ function _cioShadowMode(env) {
   return String(v) === "true" || v === true || v === 1 || v === "1";
 }
 
-function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR) {
-  return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile);
+function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, allTrades) {
+  return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile, allTrades);
 }
 
 function generateCIOChartSVG(ticker, candleCache, entryAnnotation = null) {
@@ -22569,7 +22569,7 @@ async function processTradeSimulation(
             if (_cioEnabled) {
               try {
                 const _cioStart = Date.now();
-                const proposal = buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR);
+                const proposal = buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, allTrades);
                 const _memoryCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
                 const _cioMemory = buildCIOMemory(sym, direction, tickerData, allTrades, _memoryCache);
                 let _cioChartSvg = null;
