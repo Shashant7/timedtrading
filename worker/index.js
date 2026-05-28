@@ -51208,33 +51208,48 @@ export default {
           );
         }
 
-        const sqlFull = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts, trim_price,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
+        // 2026-05-28 — LEFT JOIN positions to surface stop_loss / take_profit.
+        // The `trades` table does not carry SL/TP (only entry/exit/pnl), but
+        // `positions` does (via the execution adapter — see d1-schema.sql:166
+        // and migrations/add-position-sl.sql). The Right Rail and the trade
+        // alert email both need the SL/TP that match the actual open trade
+        // (e.g. TSLA $436.40), not the freshly-proposed prediction-contract
+        // SL ($423.85). Aliased as `sl` and `tp` so all existing frontend
+        // reads (`trade.sl` / `trade.tp`) pick them up with no changes.
+        //
+        // Rebuild the WHERE clause with table-qualified column names so
+        // the JOIN doesn't introduce ambiguity (ticker/status/entry_ts/
+        // exit_ts/trade_id all exist on the `trades` table; we want those,
+        // not the position counterparts).
+        // Qualify trades-table column references with `t.` so the JOIN
+        // does not introduce ambiguity (positions also has status, ticker,
+        // direction columns). Negative-lookbehind avoids re-prefixing
+        // already-qualified names; word-boundary lookahead is permissive
+        // because the where clause uses many operators (=, IN, NOT IN,
+        // IS NULL, <, >, ?).
+        const _qualifyTrades = (s) => s
+          .replace(/(?<![.\w])ticker\b/g, "t.ticker")
+          .replace(/(?<![.\w])status\b/g, "t.status")
+          .replace(/(?<![.\w])entry_ts\b/g, "t.entry_ts")
+          .replace(/(?<![.\w])exit_ts\b/g, "t.exit_ts")
+          .replace(/(?<![.\w])trade_id\b/g, "t.trade_id");
+        const whereJoin = _qualifyTrades(where);
+        const _selectCols = (incTrimPrice, incTrimTs) => `
+            t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+            t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
+            t.script_version, t.created_at, t.updated_at${incTrimTs ? ", t.trim_ts" : ""}${incTrimPrice ? ", t.trim_price" : ""},
+            t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
+            p.stop_loss AS sl, p.take_profit AS tp`;
+        const _buildSql = (incTrimPrice, incTrimTs) => `SELECT
+            ${_selectCols(incTrimPrice, incTrimTs)}
+          FROM trades t
+          LEFT JOIN positions p ON p.position_id = t.trade_id
+          ${whereJoin}
+          ORDER BY t.entry_ts DESC, t.trade_id DESC
           LIMIT ?`;
-        const sqlWithoutTrimPrice = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
-          LIMIT ?`;
-        const sqlWithoutTrimTs = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
-          LIMIT ?`;
+        const sqlFull = _buildSql(true, true);
+        const sqlWithoutTrimPrice = _buildSql(false, true);
+        const sqlWithoutTrimTs = _buildSql(false, false);
 
         let rows;
         try {
@@ -51901,17 +51916,19 @@ export default {
         const tradeRow = await db
           .prepare(
             // 2026-05-27 (PR #324) — added trim_price + trim_ts to the SELECT.
-            // Trade Autopsy receipt-log fallback (PR #323) needs these to
-            // synthesize a TRIM row for trades that pre-date the
-            // trade.history array. Without them the receipt only shows
-            // ENTRY for legacy trades.
+            // 2026-05-28 — LEFT JOIN positions to surface stop_loss / take_profit
+            //   as sl/tp aliases. Same rationale as the /timed/ledger/trades
+            //   batch endpoint — see comment there.
             `SELECT
-              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-              exit_ts, exit_price, exit_reason, trim_ts, trim_price,
-              trimmed_pct, pnl, pnl_pct,
-              script_version, created_at, updated_at,
-              setup_name, setup_grade, risk_budget, shares, notional
-             FROM trades WHERE trade_id = ?1 LIMIT 1`,
+              t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+              t.exit_ts, t.exit_price, t.exit_reason, t.trim_ts, t.trim_price,
+              t.trimmed_pct, t.pnl, t.pnl_pct,
+              t.script_version, t.created_at, t.updated_at,
+              t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
+              p.stop_loss AS sl, p.take_profit AS tp
+             FROM trades t
+             LEFT JOIN positions p ON p.position_id = t.trade_id
+             WHERE t.trade_id = ?1 LIMIT 1`,
           )
           .bind(tradeId)
           .first();
@@ -64314,9 +64331,42 @@ export default {
             ["subscription_paid", () => sendSubscriptionEmail(env, to, false)],
             ["daily_brief_morning", () => sendDailyBriefEmail(env, to, { type: "morning", date: today, content: "## Sample Morning Brief\n\nThis is **sample content** for the morning brief. In production you get the full AI-generated analysis, ES prediction, and market recap.\n\n- Bullet one\n- Bullet two", esPrediction: "Sample ES prediction for verification." })],
             ["daily_brief_evening", () => sendDailyBriefEmail(env, to, { type: "evening", date: today, content: "## Sample Evening Brief\n\nThis is **sample content** for the evening brief.\n\n- Recap item\n- Another point", esPrediction: null })],
-            ["trade_entry", () => sendTradeAlertEmail(env, to, { type: "TRADE_ENTRY", ticker: "AAPL", direction: "long", price: 175.50, rank: 78, rr: 2.1 })],
-            ["trade_trim", () => sendTradeAlertEmail(env, to, { type: "TRADE_TRIM", ticker: "AAPL", direction: "long", price: 178.20, trimmedPct: 50 })],
-            ["trade_exit", () => sendTradeAlertEmail(env, to, { type: "TRADE_EXIT", ticker: "AAPL", direction: "long", price: 180.10, pnlPct: 2.6, exitReason: "TP hit" })],
+            // 2026-05-28 — Test samples now exercise the Discord-parity
+            // payload (SL/TP, setup grade, risk %, AI CIO verdict) so the
+            // operator can preview the rich email format with one curl.
+            ["trade_entry", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_ENTRY", ticker: "AAPL", direction: "LONG",
+              price: 175.50, rank: 78, rr: 2.1,
+              trade_id: "AAPL-test-sample", entry: 175.50, sl: 172.40, tp: 182.00,
+              shares: 50, notional: 8775,
+              risk_budget: 0.02, setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
+              action_ts: Date.now(),
+              momentum_elite: true, vwap_pct: 1.8,
+              cio: {
+                decision: "APPROVE",
+                confidence: 0.84, edge_score: 0.71,
+                reasoning: "Prime-ranked AAPL long aligns with the active bull regime. Pullback to 1H VWAP +1.8% offers a controlled entry above the daily 5/12 EMA cloud, with TD Sequential at bar 3 (well clear of exhaustion). News sentiment is bullish (5/5 recent headlines positive on AI integration). Macro tilt favors large-cap tech this rotation, and theme rotation shows 6/8 ai_infra peers up >2% today.",
+                risk_flags: [], model: "gpt-5.4", shadow: false,
+              },
+            })],
+            ["trade_trim", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_TRIM", ticker: "AAPL", direction: "LONG",
+              price: 178.20, trimmedPct: 50, newTrimmedPct: 50, trimDeltaPct: 0.50,
+              trade_id: "AAPL-test-sample", entry: 175.50, fillPrice: 178.20,
+              pnl: 67.50, pnlPct: 1.54,
+              shares_trimmed: 25, shares_remaining: 25,
+              setup_name: "tt_gap_reversal_long", setup_grade: "Prime", risk_budget: 0.02,
+              trim_reason: "atr_tp_ladder_tier1_fib0_382",
+              action_ts: Date.now(),
+            })],
+            ["trade_exit", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_EXIT", ticker: "AAPL", direction: "LONG",
+              price: 180.10, pnlPct: 2.6, exitReason: "TP_FULL", status: "WIN",
+              trade_id: "AAPL-test-sample", entry: 175.50, exit: 180.10,
+              pnl: 230, rank: 78, rr: 2.1,
+              setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
+              action_ts: Date.now(),
+            })],
             ["re_engagement", () => sendReEngagementEmail(env, to, { daysSince: 18, signalCount: 12, tradeCount: 4, briefCount: 10 })],
           ];
           const results = await Promise.all(tasks.map(async ([name, fn]) => {
