@@ -386,3 +386,75 @@ per-ticker error and re-investigate.
    in SECTOR_MAP today (PR #265 put it back). That comment block was
    written *before* the SECTOR_MAP fix landed and is now misleading.
    Should also be cleaned up.
+
+---
+
+## 6. Resolution — what actually shipped on this branch
+
+What we found during implementation that wasn't in the original §2:
+
+### 6.1 THE actual systemic cause for recurring SECTOR_MAP staleness
+
+There are TWO `SECTOR_MAP` definitions in this repo:
+
+  - `worker/index.js`           inline `const SECTOR_MAP = { ... }`
+  - `worker/sector-mapping.js`  exported `SECTOR_MAP = { ... }`
+
+The runtime ALWAYS used the inline one. Every PR that "added a
+ticker to SECTOR_MAP" (PR #254 added CF/NOW/PM, PR #265 added DELL,
+PR #287 added IBM) only edited the FILE map — because that's where
+a developer expects ticker → sector mappings to live. The deployed
+worker silently kept using the inline map and the "added" ticker
+stayed invisible.
+
+Audit at the time of fix:
+
+  IN file but NOT in inline (5): CF, DELL, IBM, NOW, PM
+  Sector mismatches (5):
+    NOC   file=Industrials              inline=Aerospace & Defense
+    RKLB  file=Industrials              inline=Aerospace & Defense
+    NBIS  file=Information Technology   inline=Health Care
+    UUUU  file=Basic Materials          inline=Energy
+    DBA   file=Thematic ETF             inline=Commodity ETF
+
+This explains every prior incident. The systemic fix is at module
+load: merge `SECTOR_MAP_FILE` into the inline `SECTOR_MAP` (file
+wins on conflict), log the audit, and surface it via
+`/timed/admin/sector-map-health`.
+
+### 6.2 The third silent path in scoreTicker
+
+Discovered post-deploy when DELL was still missing even after the
+KV stub clear. When `computeServerSideScores` returns `null` AND
+the existing KV stub is null (e.g., right after an auto-heal),
+the cron previously did `skipped++` with NO write, NO tombstone.
+Closed by writing a minimal placeholder stub + `recordCronFailure`
+tombstone with `op: score_ticker_${TICKER}` on every insufficient-
+data skip. Now visible in `/timed/admin/cron-status`.
+
+### 6.3 Auto-backfill extended
+
+Previously the auto-backfill self-heal only triggered for
+user-added tickers. Extended to fire for any SECTOR_MAP ticker
+too — the universe-grade case (DELL/IBM/NOW class) is the more
+important one to self-heal.
+
+### 6.4 Verification — DELL is fully alive
+
+```
+GET /timed/all?ticker=DELL          → present, price $317.89, rank 65,
+                                      state HTF_BULL_LTF_BULL,
+                                      data_source twelvedata
+GET /timed/prices  → DELL: p=317.89 pc=305.32 dp=+4.12%
+GET /timed/latest?ticker=DELL       → 116 keys, full scored payload
+GET /timed/admin/sector-map-health  → merge_audit.added=[PM,NOW,DELL,IBM,CF]
+                                      universe_size_runtime=255
+GET /timed/admin/cron-status        → 0 score_ticker_* tombstones
+                                      (4 prior ones auto-cleared on
+                                      the next successful score)
+GET /timed/earnings/upcoming?debug=1 → DELL `_source: primary` (was
+                                       `d1_market_events`) — kept by
+                                       the soft TwelveData gate
+```
+
+IBM, NOW, CF, PM, NBIS all healed in the same cycle as DELL.
