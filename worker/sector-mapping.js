@@ -328,6 +328,187 @@ function getAllSectors() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// THEMES — 2026-05-28 (Discovery Phase 3)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// Themes are a finer-grained grouping than `sector`. Sectors are FactSet-style
+// taxonomy ("Information Technology"); themes are *trade narratives* the
+// market actually rotates through ("AI infra memory cycle"). One ticker can
+// belong to multiple themes (NVDA is in ai_infra_compute AND ai_infra_semicap
+// via its broader chip-cycle exposure).
+//
+// Used by:
+//   - CIO memory L11 — surface "this ticker is in `ai_infra_memory`; theme
+//     is ACTIVE today (5/6 peers up >2%)"
+//   - Promotion Queue THEME_ACTIVE scoring component (Phase 1 of the queue)
+//   - Future: theme-rotation-aware sizing
+//
+// Curated rather than auto-derived: theme membership is editorial work. Add
+// new themes as new narratives emerge.
+
+const THEMES = {
+  // AI infrastructure stack — driver of 2024-2026 mega-cycle.
+  ai_infra_compute:  ["NVDA","AMD","AVGO","MRVL","ANET","CIEN","ARM","SMCI","NBIS","CRDO","ALAB"],
+  ai_infra_memory:   ["MU","WDC","STX","SNDK","HIMX"],
+  ai_infra_energy:   ["NEE","VST","CEG","PWR","TLN","NXT","AES","BE","CWEN","NRG","FSLR","ENPH","SEDG","ARRY","SHLS"],
+  ai_infra_cooling:  ["VRT","MOD","JCI","DOV","BMI"],
+  ai_infra_dc_reit:  ["DLR","EQIX","IRM","COR"],
+  ai_infra_semicap:  ["AMAT","LRCX","KLAC","ASML","ENTG","KLIC","ONTO","ICHR"],
+
+  // AI software / data infra.
+  ai_software:       ["PLTR","SNOW","DDOG","CRWD","ZS","PANW","NOW","NET","S","CFLT","DT","ESTC","TEAM","MDB"],
+  ai_consumer:       ["GOOGL","META","MSFT","ORCL","ADBE","CRM"],
+
+  // Space / defense.
+  space_tech:        ["RKLB","ASTS","IRDM","SPCE","LUNR"],
+  defense:           ["LMT","RTX","NOC","GD","HII","LDOS","BWXT","BA"],
+
+  // Healthcare narratives.
+  weight_loss:       ["LLY","NVO","VKTX","ALT","TERN","SLRX"],
+  obesity_adjacent:  ["ABBV","AMGN","PFE","REGN"],
+
+  // Crypto + crypto-adjacent.
+  crypto_miners:     ["RIOT","MARA","CIFR","WULF","IREN","HUT","BTBT","CLSK","CORZ","GREE"],
+  crypto_proxies:    ["COIN","MSTR","HOOD"],
+  crypto_etf:        ["IBIT","BITO","ETHE","BTCO","FBTC","ETHA"],
+
+  // Fintech.
+  fintech:           ["SOFI","UPST","NU","AFRM","HOOD","PYPL","SQ","TOST","NWG","ADYEY"],
+  banks_money_center:["JPM","BAC","WFC","C","GS","MS"],
+  banks_regional:    ["KEY","CFG","RF","HBAN","FITB","CMA","ZION","EWBC","BNY"],
+
+  // Energy + commodities.
+  oil_gas:           ["XOM","CVX","COP","EOG","DVN","SLB","HAL","OXY","PSX","MPC","VLO"],
+  oil_services:      ["SLB","HAL","BKR","NOV","CHX"],
+  uranium_nuclear:   ["UEC","DNN","CCJ","NXE","UUUU","SMR","BWXT","LEU","OKLO"],
+  refiners:          ["VLO","MPC","PSX","DK","DINO"],
+  metals_miners:     ["FCX","NEM","GOLD","AU","AEM","KGC","HMY","AG","RGLD","SAND"],
+  uranium_etf:       ["URA","URNM","NLR"],
+
+  // Consumer / cyclical.
+  ev_battery:        ["TSLA","RIVN","LCID","CHPT","ALB","LITE","ALU","LAC","SQM"],
+  travel_leisure:    ["BKNG","ABNB","MAR","HLT","UAL","DAL","CCL","RCL","NCLH","LVS","WYNN"],
+  ecom_logistics:    ["AMZN","SHOP","FDX","UPS","JBHT","ODFL","XPO","CHRW"],
+
+  // Cyber.
+  cybersecurity:     ["CRWD","ZS","PANW","NET","S","FTNT","OKTA","CYBR","RBRK","TENB"],
+
+  // Country / cross-region ETFs (Phase 5 — referenced by macro tracker).
+  country_us_broad:  ["SPY","QQQ","IWM","DIA","VTI"],
+  country_korea:     ["EWY"],
+  country_germany:   ["EWG"],
+  country_japan:     ["EWJ","DXJ"],
+  country_china:     ["FXI","MCHI","KWEB","ASHR","YINN"],
+  country_india:     ["INDA","SMIN","EPI"],
+  country_brazil:    ["EWZ","BRZU"],
+  country_taiwan:    ["EWT","TSM"],
+  country_uk:        ["EWU"],
+  country_emerging:  ["EEM","VWO","SPEM"],
+  country_developed: ["EFA","VEA","IDEV"],
+
+  // Cross-asset ETFs (Phase 5).
+  cross_asset_dollar:["UUP","UDN"],
+  cross_asset_gold:  ["GLD","IAU","SGOL"],
+  cross_asset_silver:["SLV","SLVO"],
+  cross_asset_oil:   ["USO","BNO","UCO"],
+  cross_asset_nat_gas:["UNG","BOIL","KOLD"],
+  cross_asset_rates: ["TLT","IEF","SHY","TLH"],
+  cross_asset_credit:["HYG","LQD","JNK","EMB"],
+  cross_asset_fx:    ["FXE","FXY","FXB","FXA","CYB"],
+  cross_asset_vix:   ["VXX","UVXY","SVXY","VIXY"],
+};
+
+// Build a reverse index ticker → [themes] for O(1) lookup.
+const _THEMES_BY_TICKER = (() => {
+  const out = {};
+  for (const [theme, syms] of Object.entries(THEMES)) {
+    for (const s of syms) {
+      const k = String(s || "").toUpperCase();
+      if (!k) continue;
+      if (!out[k]) out[k] = [];
+      out[k].push(theme);
+    }
+  }
+  return out;
+})();
+
+function getThemesForTicker(ticker) {
+  return _THEMES_BY_TICKER[String(ticker || "").toUpperCase()] || [];
+}
+
+function getTickersInTheme(theme) {
+  return THEMES[theme] || [];
+}
+
+function getAllThemes() {
+  return Object.keys(THEMES);
+}
+
+// Theme is "active" when ≥ thresholdPct of its members moved > moveThresholdPct
+// in the same direction today. `livePriceMap` is the timed:prices KV blob shape:
+//   { [SYM]: { dp: dayChangePct, ... } }
+function computeThemeActivity(themeName, livePriceMap, opts = {}) {
+  const moveThreshPct = Number(opts.moveThresholdPct) || 2.0;
+  const minActivePct = Number(opts.minActivePct) || 0.30;
+  const members = THEMES[themeName] || [];
+  if (members.length === 0) return null;
+  const map = (livePriceMap && typeof livePriceMap === "object")
+    ? (livePriceMap.prices && typeof livePriceMap.prices === "object" ? livePriceMap.prices : livePriceMap)
+    : null;
+  if (!map) return { theme: themeName, members: members.length, has_data: 0, up: 0, down: 0, top_up: [], top_down: [], active: false };
+  let up = 0, down = 0, hasData = 0;
+  const upDetail = [], downDetail = [];
+  for (const sym of members) {
+    const row = map[sym];
+    if (!row) continue;
+    const dp = Number(row.dp ?? row.day_change_pct ?? row.change_pct);
+    if (!Number.isFinite(dp)) continue;
+    hasData++;
+    if (dp >= moveThreshPct) {
+      up++;
+      upDetail.push({ ticker: sym, dp: Math.round(dp * 10) / 10 });
+    } else if (dp <= -moveThreshPct) {
+      down++;
+      downDetail.push({ ticker: sym, dp: Math.round(dp * 10) / 10 });
+    }
+  }
+  upDetail.sort((a, b) => b.dp - a.dp);
+  downDetail.sort((a, b) => a.dp - b.dp);
+  const activeDir = (up >= members.length * minActivePct) ? "up"
+                  : (down >= members.length * minActivePct) ? "down"
+                  : null;
+  return {
+    theme: themeName,
+    members: members.length,
+    has_data: hasData,
+    up,
+    down,
+    top_up: upDetail.slice(0, 5),
+    top_down: downDetail.slice(0, 5),
+    active: !!activeDir,
+    active_direction: activeDir,
+  };
+}
+
+// Returns the activity payload for ALL themes a ticker is in.
+function getTickerThemeActivity(ticker, livePriceMap, opts = {}) {
+  const themes = getThemesForTicker(ticker);
+  if (themes.length === 0) return null;
+  return themes.map((t) => computeThemeActivity(t, livePriceMap, opts)).filter(Boolean);
+}
+
+// Returns all currently-active themes, sorted by activity strength.
+function activeThemesNow(livePriceMap, opts = {}) {
+  const out = [];
+  for (const t of Object.keys(THEMES)) {
+    const r = computeThemeActivity(t, livePriceMap, opts);
+    if (r?.active) out.push(r);
+  }
+  out.sort((a, b) => Math.max(b.up, b.down) - Math.max(a.up, a.down));
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TICKER TYPE CLASSIFICATION
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -509,6 +690,7 @@ module.exports = {
   SECTOR_ETF_MAP,
   TICKER_TYPE_MAP,
   TICKER_PROXY_MAP,
+  THEMES,
   getSector,
   getSectorRating,
   getSectorETF,
@@ -516,4 +698,11 @@ module.exports = {
   getAllSectors,
   getTickerType,
   getProxies,
+  // 2026-05-28 — Discovery Phase 3 theme helpers
+  getThemesForTicker,
+  getTickersInTheme,
+  getAllThemes,
+  computeThemeActivity,
+  getTickerThemeActivity,
+  activeThemesNow,
 };

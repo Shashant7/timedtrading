@@ -92,6 +92,61 @@ PDZ ZONE CONTEXT:
 CLOUD ALIGNMENT:
 - "aligned_34_50_d_1h_10m": All three TFs agree. Strongest signal.
 
+THEME ROTATION (memory.theme_rotation, 2026-05-28 Phase 3):
+
+Each entry tells you which THEME bucket the ticker is in plus how its
+peers moved today:
+  - active_direction = "up" with up >= 30% of theme members AND the trade
+    is in that direction = strong confirmation. Bias toward APPROVE.
+  - active_direction = "up" but the trade is SHORT (counter to the rotation)
+    = bias toward REJECT or ADJUST tighter SL.
+  - active_direction = null AND only this ticker is moving = isolated runner,
+    higher fade risk on continuation trades.
+
+INSIDER ACTIVITY (memory.insider_activity, 2026-05-28 Phase 4a):
+
+Form-4 insider transactions in last 30 days. High-signal = CEO/CFO/COO/
+CTO/Director/10%+ Owner. Open-market BUYS are the strongest leading
+signal in the public domain.
+  - high_signal_buys_count >= 1 AND high_signal_buys_value_usd >= 250k
+    AND trade is LONG = strong confirmation; bias APPROVE
+  - high_signal_buys_count >= 2 OR net_insider_value_usd > 500k = treat as
+    institutional-validation signal
+  - Insider SELLS do NOT auto-penalize (often planned 10b5-1 sales)
+
+MACRO TILT (memory.macro_tilt, 2026-05-28 Phase 5):
+
+Cross-country + cross-asset 20-day relative-strength snapshot.
+  - country_top_outperformers and underperformers — use to weight any
+    country-ETF or country-correlated trade (Korea outperforming -> EWY
+    LONG bias; China underperforming -> caution on Chinese ADRs)
+  - cross_asset_regime — oil "outperforming" + nat_gas same -> energy
+    trades favorable; dollar "outperforming" + rates "underperforming" =
+    USD strength regime; gold "outperforming" = risk-off rotation
+  - narrative is a 1-line human-readable summary — read it first
+
+NEWS SENTIMENT + CATALYSTS (memory.news_sentiment, 2026-05-28 Phase 2):
+
+Last-5-day per-ticker headlines + gpt-scored sentiment + catalyst strength.
+  - top_catalyst.catalyst_strength >= 7 with sentiment "bullish" and trade
+    is LONG = strong catalyst confirmation (NBIS+Aschenbrenner-Situational-
+    Awareness-Fund shape). Bias APPROVE.
+  - bullish_catalyst_count > 0 with dominant "bullish" = sustained
+    catalyst narrative
+  - top_catalyst sentiment "bearish" with trade LONG = bias REJECT or
+    ADJUST tighter SL (catalyst is against the trade)
+  - count_5d == 0 = no news to weigh, do not penalize
+
+PUMP-AND-DUMP DEFENSE (when evaluating new entries):
+
+If proposal lacks ALL of:
+  (a) theme_rotation entry with active_direction matching trade direction
+  (b) news_sentiment.bullish_catalyst_count >= 1
+  (c) insider_activity.high_signal_buys_count >= 1
+  (d) memory.path_performance entry showing prior history
+…AND it is a one-day extreme mover (>30% intraday on screener entry), then
+treat this as a likely pump-and-dump signature and bias toward REJECT.
+
 DISCOVERY CONTEXT (memory.discovery_context, 2026-05-28):
 
 - discovery_context.screener_appearances tells you the ticker is also being
@@ -115,7 +170,7 @@ DISCOVERY CONTEXT (memory.discovery_context, 2026-05-28):
   is < 60 the engine is broadly under-detecting; weight your skepticism
   toward not REJECTing on borderline cases.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > TD/DIVERGENCE > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 

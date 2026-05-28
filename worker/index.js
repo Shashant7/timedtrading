@@ -1388,6 +1388,23 @@ const ROUTES = [
   // for CIO memory L9 to consume. Daily cron also runs POST automatically.
   ["GET",  "/timed/admin/discovery/coverage-gaps",        "GET /timed/admin/discovery/coverage-gaps"],
   ["POST", "/timed/admin/discovery/coverage-gaps/refresh","POST /timed/admin/discovery/coverage-gaps/refresh"],
+  // 2026-05-28 — Discovery Phases 2/3/4a/5 + Promotion Queue.
+  // Phase 4a — insider transactions.
+  ["POST", "/timed/admin/discovery/insider/refresh",      "POST /timed/admin/discovery/insider/refresh"],
+  ["GET",  "/timed/admin/discovery/insider",              "GET /timed/admin/discovery/insider"],
+  // Phase 2 — news + sentiment.
+  ["POST", "/timed/admin/discovery/news/refresh",         "POST /timed/admin/discovery/news/refresh"],
+  ["POST", "/timed/admin/discovery/news/score",           "POST /timed/admin/discovery/news/score"],
+  ["GET",  "/timed/admin/discovery/news",                 "GET /timed/admin/discovery/news"],
+  // Phase 5 — cross-asset macro tracker.
+  ["POST", "/timed/admin/macro/refresh",                  "POST /timed/admin/macro/refresh"],
+  ["GET",  "/timed/admin/macro/snapshot",                 "GET /timed/admin/macro/snapshot"],
+  // Promotion queue (consumes outputs of Phases 1/2/3/4a/5).
+  ["GET",  "/timed/admin/discovery/promotion-queue",      "GET /timed/admin/discovery/promotion-queue"],
+  ["POST", "/timed/admin/discovery/promotion-queue/rebuild","POST /timed/admin/discovery/promotion-queue/rebuild"],
+  ["POST", "/timed/admin/discovery/promotion-queue/decide","POST /timed/admin/discovery/promotion-queue/decide"],
+  // Phase 3 — theme activity probe.
+  ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   ["GET",  "/timed/admin/cohort-admission/summary",       "GET /timed/admin/cohort-admission/summary"],
   ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
   // Trajectory program — Phase 6 prep (S6). Cell Markov visibility.
@@ -66122,6 +66139,235 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // Discovery Phases 2/3/4a/5 + Promotion Queue (2026-05-28).
+      // See tasks/2026-05-28-discovery-phases-2-3-4a-5-plan.md
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // ── Phase 4a: Insider Transactions ──
+      // POST /timed/admin/discovery/insider/refresh?tickers=A,B,C&lookback_days=30
+      //   Pulls Finnhub /stock/insider-transactions for the given tickers
+      //   (default: all open positions + top 30 in-review).
+      if (routeKey === "POST /timed/admin/discovery/insider/refresh") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const InsiderTracker = await import("./discovery/insider-tracker.js");
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 30;
+          const tickerParam = (url.searchParams.get("tickers") || "").trim();
+          let tickers = [];
+          if (tickerParam) {
+            tickers = tickerParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+          } else {
+            // Default: open positions + active screener candidates (out of universe ones go in the queue).
+            const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+            const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+            // Plus top screener candidates by appearance count.
+            const screenerRaw = await KV.get("timed:screener:candidates");
+            const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+            const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 25);
+            tickers = [...new Set([...openTickers, ...screenerTickers])];
+          }
+          if (tickers.length === 0) {
+            return sendJSON({ ok: false, error: "no_tickers_resolved" }, 400, corsHeaders(env, req));
+          }
+          if (tickers.length > 100) tickers = tickers.slice(0, 100); // safety cap
+          const result = await InsiderTracker.fetchAndStoreInsiderTransactions(env, tickers, { lookbackDays });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/discovery/insider?ticker=NBIS&lookback_days=30
+      if (routeKey === "GET /timed/admin/discovery/insider") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const InsiderTracker = await import("./discovery/insider-tracker.js");
+          const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 30;
+          if (!ticker) {
+            return sendJSON({ ok: false, error: "ticker_param_required" }, 400, corsHeaders(env, req));
+          }
+          const summary = await InsiderTracker.loadRecentInsiderSummary(env, ticker, { lookbackDays });
+          return sendJSON({ ok: true, ticker, summary }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Phase 2: News + Sentiment ──
+      // POST /timed/admin/discovery/news/refresh?tickers=A,B,C&lookback_days=5
+      if (routeKey === "POST /timed/admin/discovery/news/refresh") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const NewsTracker = await import("./discovery/news-tracker.js");
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 5;
+          const tickerParam = (url.searchParams.get("tickers") || "").trim();
+          let tickers = [];
+          if (tickerParam) {
+            tickers = tickerParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+          } else {
+            // Default: open positions + top in-review + top screener candidates.
+            const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+            const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+            const screenerRaw = await KV.get("timed:screener:candidates");
+            const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+            const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 40);
+            tickers = [...new Set([...openTickers, ...screenerTickers])];
+          }
+          if (tickers.length === 0) {
+            return sendJSON({ ok: false, error: "no_tickers_resolved" }, 400, corsHeaders(env, req));
+          }
+          if (tickers.length > 75) tickers = tickers.slice(0, 75);
+          const result = await NewsTracker.fetchAndStoreNewsForTickers(env, tickers, { lookbackDays });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/discovery/news/score?limit=100
+      //   Scores any ticker_news rows where sentiment IS NULL via gpt-4o-mini
+      //   batched 20 at a time.
+      if (routeKey === "POST /timed/admin/discovery/news/score") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const NewsTracker = await import("./discovery/news-tracker.js");
+          const limit = Number(url.searchParams.get("limit")) || 100;
+          const modelOverride = (url.searchParams.get("model") || "").trim() || null;
+          const result = await NewsTracker.scoreUnscoredNews(env, { limit, model: modelOverride });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/discovery/news?ticker=NBIS&lookback_days=5
+      if (routeKey === "GET /timed/admin/discovery/news") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const NewsTracker = await import("./discovery/news-tracker.js");
+          const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 5;
+          if (!ticker) {
+            return sendJSON({ ok: false, error: "ticker_param_required" }, 400, corsHeaders(env, req));
+          }
+          const summary = await NewsTracker.loadRecentNewsSummary(env, ticker, { lookbackDays });
+          return sendJSON({ ok: true, ticker, summary }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Phase 5: Cross-asset macro tracker ──
+      // POST /timed/admin/macro/refresh — computes + caches the snapshot.
+      if (routeKey === "POST /timed/admin/macro/refresh") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Macro = await import("./macro/cross-asset-tracker.js");
+          const result = await Macro.runMacroSnapshot(env);
+          return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/macro/snapshot — read latest cached snapshot.
+      if (routeKey === "GET /timed/admin/macro/snapshot") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Macro = await import("./macro/cross-asset-tracker.js");
+          const snapshot = await Macro.loadMacroSnapshot(env);
+          if (!snapshot) return sendJSON({ ok: false, error: "no_snapshot_run_refresh_first" }, 404, corsHeaders(env, req));
+          return sendJSON({ ok: true, ...snapshot }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Phase 3: Theme activity probe ──
+      // GET /timed/admin/discovery/themes/active?move_threshold_pct=2&min_active_pct=0.30
+      if (routeKey === "GET /timed/admin/discovery/themes/active") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const SectorMap = await import("./sector-mapping.js");
+          const moveThresholdPct = Number(url.searchParams.get("move_threshold_pct")) || 2;
+          const minActivePct = Number(url.searchParams.get("min_active_pct")) || 0.30;
+          const livePricesRaw = await KV.get("timed:prices");
+          const livePrices = livePricesRaw ? JSON.parse(livePricesRaw) : null;
+          if (!livePrices) return sendJSON({ ok: false, error: "no_live_prices" }, 404, corsHeaders(env, req));
+          const active = SectorMap.activeThemesNow(livePrices, { moveThresholdPct, minActivePct });
+          return sendJSON({
+            ok: true,
+            move_threshold_pct: moveThresholdPct,
+            min_active_pct: minActivePct,
+            active_count: active.length,
+            active,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── Promotion Queue (consumes all 5 phases) ──
+      // POST /timed/admin/discovery/promotion-queue/rebuild
+      if (routeKey === "POST /timed/admin/discovery/promotion-queue/rebuild") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const PromotionQueue = await import("./discovery/promotion-queue.js");
+          const result = await PromotionQueue.rebuildPromotionQueue(env);
+          return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/discovery/promotion-queue?status=needs_review&limit=100
+      if (routeKey === "GET /timed/admin/discovery/promotion-queue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const PromotionQueue = await import("./discovery/promotion-queue.js");
+          const status = (url.searchParams.get("status") || "").trim();
+          const limit = Number(url.searchParams.get("limit")) || 100;
+          const result = await PromotionQueue.loadPromotionQueueRows(env, { status, limit });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/discovery/promotion-queue/decide  body: {candidate_id, decision, note?}
+      if (routeKey === "POST /timed/admin/discovery/promotion-queue/decide") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const PromotionQueue = await import("./discovery/promotion-queue.js");
+          const body = await req.json().catch(() => ({}));
+          const candidateId = String(body?.candidate_id || "").trim();
+          const decision = String(body?.decision || "").toLowerCase();
+          const decidedBy = String(body?.decided_by || body?.note || "operator").slice(0, 200);
+          if (!candidateId || !["approve", "decline"].includes(decision)) {
+            return sendJSON({ ok: false, error: "candidate_id + decision (approve|decline) required" }, 400, corsHeaders(env, req));
+          }
+          const result = await PromotionQueue.decideOnCandidate(env, {
+            candidate_id: candidateId, decision, decided_by: decidedBy,
+          });
+          return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // PHASE 2 VISIBILITY ROUTES — trigger hit-rate, k-NN trajectory cohort,
       // stage Markov. All read-only.
       // See tasks/2026-05-18-stochastic-research-program.md §0.6 phase 2.
@@ -77860,37 +78106,115 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Discovery: Coverage Gap Summary refresh (2026-05-28) ──
-    // Runs once a day at 22:00 UTC (after market close) and writes the per-
-    // ticker summary to KV so CIO memory L9 can read it cheap (O(1)).
-    // Limited to once-daily because the full analysis takes ~1-2s and
-    // there's no value in running it more often than the daily candles
-    // refresh.
+    // ── Daily Discovery Batch (2026-05-28) ──
+    // CF Workers caps at 5 cron triggers per worker; the `0 22 * * *` slot
+    // is reserved for the entire discovery pipeline. Inside this single
+    // trigger we sequentially run:
+    //   1. Coverage-gap summary refresh (Phase 1)
+    //   2. Cross-asset macro snapshot (Phase 5)
+    //   3. Insider transactions pull (Phase 4a)
+    //   4. News pull + sentiment scoring (Phase 2)
+    //   5. Promotion queue rebuild (consumes 1-4 above)
+    // Order matters: queue rebuild reads the auxiliary blobs produced by
+    // the first four jobs.
+    //
+    // Each step is wrapped in its own try/catch + recordCronSuccess/Failure
+    // so a single failure doesn't cascade. The whole batch is in
+    // ctx.waitUntil so it doesn't block the cron's response.
     if (vc.has("0 22 * * *")) {
       ctx.waitUntil((async () => {
+        const batchStart = Date.now();
+        console.log("[DISCOVERY BATCH] Starting daily discovery pipeline...");
+
+        // 1. Coverage gaps (Phase 1).
         try {
-          console.log("[DISCOVERY CRON] Refreshing universe coverage-gap summary...");
           const CoverageGaps = await import("./discovery/coverage-gaps.js");
           const tickers = Object.keys(SECTOR_MAP).slice(0, 250);
           const report = await CoverageGaps.runCoverageGapAnalysis(env, {
-            lookbackDays: 14,  // 2-week window catches the most recent setup-detection drift
-            minAtrMult: 3,
-            tickers,
+            lookbackDays: 14, minAtrMult: 3, tickers,
           });
           const summary = CoverageGaps.buildCoverageGapsSummary(report);
-          await KV.put("timed:discovery:coverage-gaps-summary", JSON.stringify(summary), {
-            expirationTtl: 7 * 86400,
-          });
-          console.log(`[DISCOVERY CRON] Coverage-gap summary written: ${Object.keys(summary.by_ticker).length} tickers with gaps, universe capture ${report.summary.capture_rate_pct}%`);
+          await KV.put("timed:discovery:coverage-gaps-summary", JSON.stringify(summary), { expirationTtl: 7 * 86400 });
+          console.log(`[DISCOVERY BATCH 1/5] Coverage-gap summary: ${Object.keys(summary.by_ticker).length} tickers with gaps`);
           recordCronSuccess(env, "discovery_coverage_gaps_refresh").catch(() => {});
         } catch (e) {
-          console.error("[DISCOVERY CRON] Coverage-gap refresh failed:", String(e?.message || e).slice(0, 300));
-          recordCronFailure(env, {
-            op: "discovery_coverage_gaps_refresh",
-            error: String(e?.message || e).slice(0, 200),
-            caller: "scheduled_event",
-          }).catch(() => {});
+          console.error("[DISCOVERY BATCH 1/5] Coverage-gap refresh failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "discovery_coverage_gaps_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
+
+        // 2. Cross-asset macro snapshot (Phase 5).
+        try {
+          const Macro = await import("./macro/cross-asset-tracker.js");
+          const result = await Macro.runMacroSnapshot(env);
+          if (result?.ok) {
+            console.log(`[DISCOVERY BATCH 2/5] Macro snapshot: top outperformers ${(result.country_rotation?.top_outperformers || []).map(c => c.label).join(", ")}`);
+            recordCronSuccess(env, "macro_cross_asset_refresh").catch(() => {});
+          } else {
+            recordCronFailure(env, { op: "macro_cross_asset_refresh", error: result?.error || "unknown", caller: "scheduled_event" }).catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 2/5] Macro failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "macro_cross_asset_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 3. Insider transactions (Phase 4a).
+        try {
+          const InsiderTracker = await import("./discovery/insider-tracker.js");
+          const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+          const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          const screenerRaw = await KV.get("timed:screener:candidates");
+          const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+          const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 25);
+          const tickers = [...new Set([...openTickers, ...screenerTickers])].slice(0, 50);
+          if (tickers.length === 0) {
+            console.log("[DISCOVERY BATCH 3/5] No tickers to fetch — skipping");
+          } else {
+            const result = await InsiderTracker.fetchAndStoreInsiderTransactions(env, tickers, { lookbackDays: 30 });
+            console.log(`[DISCOVERY BATCH 3/5] Insider: ${tickers.length} fetched, ${result.upserted} new rows, ${result.errors} errors`);
+            recordCronSuccess(env, "insider_refresh").catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 3/5] Insider failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "insider_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 4. News + sentiment scoring (Phase 2).
+        try {
+          const NewsTracker = await import("./discovery/news-tracker.js");
+          const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+          const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          const screenerRaw = await KV.get("timed:screener:candidates");
+          const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+          const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 50);
+          const tickers = [...new Set([...openTickers, ...screenerTickers])].slice(0, 60);
+          if (tickers.length > 0) {
+            const fetchResult = await NewsTracker.fetchAndStoreNewsForTickers(env, tickers, { lookbackDays: 5 });
+            const scoreResult = await NewsTracker.scoreUnscoredNews(env, { limit: 200 });
+            console.log(`[DISCOVERY BATCH 4/5] News: ${fetchResult.upserted} headlines fetched, ${scoreResult.scored} scored`);
+            recordCronSuccess(env, "news_refresh_and_score").catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 4/5] News failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "news_refresh_and_score", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 5. Promotion queue rebuild — reads 1-4 above.
+        try {
+          const PromotionQueue = await import("./discovery/promotion-queue.js");
+          const result = await PromotionQueue.rebuildPromotionQueue(env);
+          if (result?.ok) {
+            const byStatus = result.by_status || {};
+            console.log(`[DISCOVERY BATCH 5/5] Promotion queue: ${result.unique_tickers_scored} scored | ready=${byStatus.ready_to_add || 0} review=${byStatus.needs_review || 0} rejected=${byStatus.rejected || 0}`);
+            recordCronSuccess(env, "promotion_queue_rebuild").catch(() => {});
+          } else {
+            recordCronFailure(env, { op: "promotion_queue_rebuild", error: result?.error || "unknown", caller: "scheduled_event" }).catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 5/5] Promotion queue failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "promotion_queue_rebuild", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        console.log(`[DISCOVERY BATCH] Complete in ${Date.now() - batchStart}ms`);
       })());
     }
 
@@ -79644,12 +79968,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (String(env._deepAuditConfig?.ai_cio_reference_enabled ?? "false") === "true" && cioRefLive?.config_value) {
               try { cioRef = JSON.parse(cioRefLive.config_value); } catch {}
             }
-            // 2026-05-28 — Preload discovery context for CIO memory L9:
-            //   1. screener candidates (from the daily TradingView screener cron)
-            //   2. universe coverage-gap summary (from /timed/admin/discovery/
-            //      coverage-gaps/refresh nightly cron)
-            // Both are KV blobs, cheap to read once per scoring cycle.
-            let screenerCands = null, coverageGapsSummary = null;
+            // 2026-05-28 — Preload discovery + macro + insider + news +
+            // theme context for CIO memory L9-L14. All are KV blobs or
+            // small D1 reads, cheap to read once per scoring cycle.
+            let screenerCands = null, coverageGapsSummary = null, macroSnapshot = null, livePrices = null;
             try {
               const screenerRaw = await KV.get("timed:screener:candidates");
               if (screenerRaw) {
@@ -79661,6 +79983,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const gapsRaw = await KV.get("timed:discovery:coverage-gaps-summary");
               if (gapsRaw) coverageGapsSummary = JSON.parse(gapsRaw);
             } catch (_) {}
+            try {
+              const macroRaw = await KV.get("timed:macro:cross-asset-summary");
+              if (macroRaw) macroSnapshot = JSON.parse(macroRaw);
+            } catch (_) {}
+            try {
+              const lpRaw = await KV.get("timed:prices");
+              if (lpRaw) livePrices = JSON.parse(lpRaw);
+            } catch (_) {}
+
+            // Insider + news summaries for open positions only (small N,
+            // direct relevance to lifecycle CIO). Out-of-universe candidates
+            // get their summaries via the Promotion Queue path.
+            let insiderSummaries = {}, newsSummaries = {};
+            try {
+              const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+              const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+              if (openTickers.length > 0) {
+                const InsiderTracker = await import("./discovery/insider-tracker.js");
+                const NewsTracker = await import("./discovery/news-tracker.js");
+                insiderSummaries = await InsiderTracker.loadInsiderSummariesBatch(env, openTickers, { lookbackDays: 30 });
+                newsSummaries = await NewsTracker.loadNewsSummariesBatch(env, openTickers, { lookbackDays: 5 });
+              }
+            } catch (e) {
+              console.warn("[CIO_MEM] discovery summaries preload failed:", String(e?.message || e).slice(0, 150));
+            }
+
             env._cioMemoryCache = {
               pathPerf: ppMap,
               marketSnapshots: (snapLive?.results || []).reverse(),
@@ -79671,6 +80019,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               cioDecisions: [],
               screenerCandidates: screenerCands,
               coverageGapsSummary: coverageGapsSummary,
+              macroSnapshot,
+              livePrices,
+              insiderSummaries,
+              newsSummaries,
             };
           } catch (e) {
             console.warn("[CIO_MEM] Live cache load failed:", String(e).slice(0, 150));

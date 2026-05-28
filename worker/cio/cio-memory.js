@@ -1,7 +1,7 @@
 // worker/cio/cio-memory.js
 // 7-layer CIO memory builder + helper functions for episodic context.
 
-import { TICKER_PROXY_MAP } from "../sector-mapping.js";
+import { TICKER_PROXY_MAP, getThemesForTicker, THEMES } from "../sector-mapping.js";
 import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
@@ -378,6 +378,112 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
       completion_pct: Number.isFinite(Number(tickerData.completion)) ? Math.round(Number(tickerData.completion) * 10) / 10 : null,
     };
   }
+
+  // ── Layer 10: Theme rotation (2026-05-28 — Phase 3) ──────────────────────
+  // Surface theme(s) the ticker is in + how many peers are moving today in
+  // the same direction. Lets CIO weight "this LONG is in ai_infra_memory
+  // and 5/6 memory peers are up >2% today" as confirmation.
+  try {
+    const themes = getThemesForTicker(sym);
+    const livePrices = memoryCache?.livePrices;
+    if (themes.length > 0 && livePrices) {
+      const themeRows = [];
+      const map = livePrices.prices && typeof livePrices.prices === "object" ? livePrices.prices : livePrices;
+      for (const theme of themes) {
+        const members = THEMES[theme] || [];
+        let up = 0, down = 0, hasData = 0;
+        const upDetail = [], downDetail = [];
+        for (const m of members) {
+          if (m === sym) continue;
+          const row = map[m];
+          if (!row) continue;
+          const dp = Number(row.dp ?? row.day_change_pct ?? row.change_pct);
+          if (!Number.isFinite(dp)) continue;
+          hasData++;
+          if (dp >= 2.0) { up++; upDetail.push({ t: m, dp: +dp.toFixed(1) }); }
+          else if (dp <= -2.0) { down++; downDetail.push({ t: m, dp: +dp.toFixed(1) }); }
+        }
+        if (hasData === 0) continue;
+        upDetail.sort((a, b) => b.dp - a.dp);
+        downDetail.sort((a, b) => a.dp - b.dp);
+        const themeActive = (up >= members.length * 0.30) ? "up"
+                          : (down >= members.length * 0.30) ? "down" : null;
+        themeRows.push({
+          theme, members: members.length, has_data: hasData,
+          up, down,
+          top_up_peers: upDetail.slice(0, 3),
+          top_down_peers: downDetail.slice(0, 3),
+          active_direction: themeActive,
+        });
+      }
+      if (themeRows.length > 0) {
+        mem.theme_rotation = themeRows;
+      }
+    }
+  } catch (_) { /* best-effort */ }
+
+  // ── Layer 12: Insider transactions (2026-05-28 — Phase 4a) ──────────────
+  // Pre-loaded into memoryCache.insiderSummaries by the live scoring cron.
+  try {
+    const ins = memoryCache?.insiderSummaries?.[sym];
+    if (ins) {
+      mem.insider_activity = {
+        high_signal_buys_count: ins.hi_buys_count || 0,
+        high_signal_buys_value_usd: ins.hi_buys_value || 0,
+        total_buys_count: ins.buys_count || 0,
+        total_buys_value_usd: ins.buys_value || 0,
+        total_sells_count: ins.sells_count || 0,
+        total_sells_value_usd: ins.sells_value || 0,
+        net_insider_value_usd: ins.net_value || 0,
+      };
+    }
+  } catch (_) {}
+
+  // ── Layer 13: Macro tilt (2026-05-28 — Phase 5) ─────────────────────────
+  // Pre-loaded into memoryCache.macroSnapshot by the live scoring cron.
+  try {
+    const macro = memoryCache?.macroSnapshot;
+    if (macro) {
+      mem.macro_tilt = {
+        narrative: macro.macro_narrative || null,
+        country_top_outperformers: (macro.country_rotation?.top_outperformers || []).slice(0, 3),
+        country_top_underperformers: (macro.country_rotation?.top_underperformers || []).slice(0, 3),
+        cross_asset_regime: macro.cross_asset_regime ? {
+          dollar_20d: macro.cross_asset_regime.dollar_20d,
+          gold_20d: macro.cross_asset_regime.gold_20d,
+          oil_20d: macro.cross_asset_regime.oil_20d,
+          rates_20d: macro.cross_asset_regime.rates_20d,
+          credit_20d: macro.cross_asset_regime.credit_20d,
+        } : null,
+      };
+    }
+  } catch (_) {}
+
+  // ── Layer 14: News sentiment + catalysts (2026-05-28 — Phase 2) ─────────
+  // Pre-loaded into memoryCache.newsSummaries by the live scoring cron.
+  try {
+    const news = memoryCache?.newsSummaries?.[sym];
+    if (news && news.has_data !== false) {
+      mem.news_sentiment = {
+        count_5d: news.count,
+        dominant: news.dominant_sentiment,
+        bullish_catalyst_count: news.bullish_catalyst_count,
+        bearish_catalyst_count: news.bearish_catalyst_count,
+        top_catalyst: news.top_catalyst ? {
+          headline: (news.top_catalyst.headline || "").slice(0, 200),
+          source: news.top_catalyst.source,
+          datetime: news.top_catalyst.datetime,
+          sentiment: news.top_catalyst.sentiment,
+          catalyst_strength: news.top_catalyst.catalyst_strength,
+        } : null,
+        latest_3_headlines: (news.latest_3 || []).map((h) => ({
+          headline: (h.headline || "").slice(0, 160),
+          sentiment: h.sentiment,
+          catalyst_strength: h.catalyst_strength,
+        })),
+      };
+    }
+  } catch (_) {}
 
   // ── Layer 9: Discovery context (2026-05-28) ──────────────────────────────
   // Surface what the daily TradingView screener saw, plus the universe
