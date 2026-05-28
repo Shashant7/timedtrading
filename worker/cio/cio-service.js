@@ -4,6 +4,7 @@
 import {
   AI_CIO_TIMEOUT_MS,
   AI_CIO_MODEL,
+  AI_CIO_REASONING_MODEL,
   AI_CIO_SYSTEM_PROMPT,
   AI_CIO_USER_TEMPLATE,
   AI_CIO_LIFECYCLE_PROMPT,
@@ -11,18 +12,371 @@ import {
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
+// ── Model Resolver ────────────────────────────────────────────────────────
+// 2026-05-28 — Make the CIO model operator-configurable. Three call sites:
+//   ENTRY (text only)            → resolveCioModel(env, "entry", false)
+//   ENTRY (vision / chart SVG)   → resolveCioModel(env, "entry", true)
+//   LIFECYCLE                    → resolveCioModel(env, "lifecycle", chartSvg)
+//
+// Resolution order (first wins):
+//   1. explicit `modelOverride` argument (used by /timed/admin/ai-cio/probe?model=...)
+//   2. model_config row (ai_cio_entry_model / ai_cio_vision_model / ai_cio_lifecycle_model)
+//      Resolved either from env._deepAuditConfig (already lazy-loaded by
+//      processTradeSimulation) OR from a per-isolate cache populated by
+//      ensureCioModelCache() below for non-scoring HTTP paths.
+//   3. env var (AI_CIO_ENTRY_MODEL / AI_CIO_VISION_MODEL / AI_CIO_LIFECYCLE_MODEL)
+//   4. lane fallback: vision path → "gpt-4o" (vision-capable). text path → AI_CIO_MODEL
+export function resolveCioModel(env, lane = "entry", useVision = false, modelOverride = null) {
+  // 1. Explicit override (probe / smoke testing)
+  if (modelOverride && typeof modelOverride === "string" && modelOverride.trim()) {
+    return modelOverride.trim();
+  }
+  // 2. model_config (operator override, no-redeploy). Merge env._deepAuditConfig
+  //    with the per-isolate _cioModelCache so HTTP-path callers (like the
+  //    probe endpoint and any future direct CIO invocation) see model_config
+  //    values without going through the */5 scoring cron first.
+  const fromDaCfg = env?._deepAuditConfig || {};
+  const fromCioCache = env?._cioModelCache || {};
+  const merged = { ...fromCioCache, ...fromDaCfg };
+  const keys = useVision
+    ? ["ai_cio_vision_model", `ai_cio_${lane}_model`]
+    : [`ai_cio_${lane}_model`];
+  for (const k of keys) {
+    const v = merged?.[k];
+    if (v && typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 3. env var
+  const envKeys = useVision
+    ? ["AI_CIO_VISION_MODEL", `AI_CIO_${lane.toUpperCase()}_MODEL`]
+    : [`AI_CIO_${lane.toUpperCase()}_MODEL`];
+  for (const k of envKeys) {
+    const v = env?.[k];
+    if (v && typeof v === "string" && v.trim()) return v.trim();
+  }
+  // 4. lane fallback.
+  return useVision ? "gpt-4o" : AI_CIO_MODEL;
+}
+
+// Lazily load just the three CIO model_config keys into a per-isolate cache.
+// Called once per CIO eval so HTTP-path callers (probe + admin tools) see the
+// operator's model selection without needing the */5 scoring cron to have run
+// first. The cache is per-isolate and TTL'd at 5 minutes so model_config
+// flips propagate to running isolates within one CIO cycle.
+const CIO_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+async function ensureCioModelCache(env) {
+  try {
+    if (!env?.DB) return;
+    const cache = env._cioModelCache;
+    if (cache && cache._loadedAt && (Date.now() - cache._loadedAt) < CIO_MODEL_CACHE_TTL_MS) {
+      return;
+    }
+    const rows = await env.DB.prepare(
+      `SELECT config_key, config_value FROM model_config
+        WHERE config_key IN ('ai_cio_entry_model','ai_cio_lifecycle_model','ai_cio_vision_model')`
+    ).all().catch(() => ({ results: [] }));
+    const out = { _loadedAt: Date.now() };
+    for (const r of (rows?.results || [])) {
+      if (!r?.config_key) continue;
+      const raw = r.config_value;
+      let v = raw;
+      try { v = JSON.parse(raw); } catch { /* keep raw string */ }
+      if (v && typeof v === "string") out[r.config_key] = v;
+    }
+    env._cioModelCache = out;
+  } catch (e) {
+    console.warn("[AI_CIO] ensureCioModelCache failed:", String(e?.message || e).slice(0, 150));
+  }
+}
+
+// Some newer OpenAI models (gpt-5.x family in particular) require
+// `max_completion_tokens` instead of the legacy `max_tokens`, and may not
+// accept the `temperature` field for deterministic JSON tasks. This helper
+// builds a model-aware request body so a single switch works for both eras.
+function buildOpenAIBody(model, messages, maxCompletionTokens, options = {}) {
+  const isGpt5Family = String(model || "").toLowerCase().startsWith("gpt-5");
+  const body = {
+    model,
+    messages,
+    max_completion_tokens: maxCompletionTokens,
+  };
+  if (!isGpt5Family) {
+    body.temperature = options.temperature ?? 0.1;
+  }
+  if (options.responseFormat) body.response_format = options.responseFormat;
+  return body;
+}
+
+// ── Signal Condensers ─────────────────────────────────────────────────────
+// Helpers that compress the rich tickerData signals into compact, CIO-ready
+// shapes. Goal: keep the prompt token budget reasonable while still surfacing
+// every decision-impacting field. All helpers are tolerant of missing data.
+
+const round = (n, p = 2) => {
+  if (n == null || !Number.isFinite(Number(n))) return null;
+  const m = Math.pow(10, p);
+  return Math.round(Number(n) * m) / m;
+};
+
+// Take a {state: prob} object and return the top-N states by probability.
+function topStates(probMap, n = 2) {
+  if (!probMap || typeof probMap !== "object") return null;
+  const entries = Object.entries(probMap)
+    .filter(([, v]) => Number.isFinite(Number(v)))
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, n)
+    .map(([k, v]) => ({ state: k, p: round(v, 3) }));
+  return entries.length > 0 ? entries : null;
+}
+
+// Sum of probability mass that aligns with the trade direction.
+// LONG-friendly states contain "BULL_LTF_BULL" or "BULL_LTF_PULLBACK" (entry chance).
+// SHORT-friendly states contain "BEAR_LTF_BEAR" or "BEAR_LTF_PULLBACK".
+function probInDirection(probMap, direction) {
+  if (!probMap || typeof probMap !== "object") return null;
+  const dir = String(direction || "").toUpperCase();
+  const friendly = dir === "LONG"
+    ? ["HTF_BULL_LTF_BULL", "HTF_BULL_LTF_PULLBACK"]
+    : dir === "SHORT"
+      ? ["HTF_BEAR_LTF_BEAR", "HTF_BEAR_LTF_PULLBACK"]
+      : [];
+  if (!friendly.length) return null;
+  let s = 0;
+  for (const k of friendly) {
+    const v = Number(probMap[k]);
+    if (Number.isFinite(v)) s += v;
+  }
+  return round(s, 3);
+}
+
+// Condense the full regime_forecast payload to a compact CIO-friendly summary.
+function condenseMarkovForecast(forecast, direction) {
+  if (!forecast || typeof forecast !== "object") return null;
+  const out = {
+    current_state: forecast.state || null,
+    matrix_source: forecast.matrix_source || null,
+    matrix_total_transitions: forecast.matrix_total_transitions || null,
+  };
+  if (forecast.p_next) {
+    out.p_next_top2 = topStates(forecast.p_next, 2);
+    if (direction) out.p_next_in_direction = probInDirection(forecast.p_next, direction);
+  }
+  if (forecast.p_5_bar) {
+    out.p_5_bar_top2 = topStates(forecast.p_5_bar, 2);
+    if (direction) out.p_5_bar_in_direction = probInDirection(forecast.p_5_bar, direction);
+  }
+  if (forecast.p_20_bar && direction) {
+    out.p_20_bar_in_direction = probInDirection(forecast.p_20_bar, direction);
+  }
+  if (forecast.p_1h && direction) {
+    out.p_1h_in_direction = probInDirection(forecast.p_1h, direction);
+  }
+  if (forecast.p_1d && direction) {
+    out.p_1d_in_direction = probInDirection(forecast.p_1d, direction);
+  }
+  // Expanded 12-state — just the band (EARLY / MID / LATE) is enough for CIO.
+  if (forecast.expanded?.band) {
+    out.expanded_band = forecast.expanded.band;
+  }
+  return out;
+}
+
+// Condense HMM latent_regime: state + posterior + confidence label + age.
+function condenseHmmRegime(latent) {
+  if (!latent || typeof latent !== "object" || !latent.state) return null;
+  const post = latent.posterior || {};
+  const topProb = Math.max(...Object.values(post).map(v => Number(v) || 0), 0);
+  let confidence = "low";
+  if (topProb >= 0.8) confidence = "high";
+  else if (topProb >= 0.6) confidence = "medium";
+  return {
+    state: latent.state,
+    posterior_top: round(topProb, 3),
+    confidence_label: confidence,
+    decoded_at: latent.decoded_at || null,
+  };
+}
+
+// Condense __learning_policy.recommend into a compact archetype card.
+function condenseMoveArchetype(learningPolicy) {
+  const rec = learningPolicy?.recommend;
+  if (!rec || typeof rec !== "object") return null;
+  return {
+    archetype: rec.archetype || null,
+    entry_timing: rec.entry_timing || null,
+    guard_bundle: rec.guard_bundle || null,
+    sl_tp_style: rec.sl_tp_style || null,
+    trim_run_bias: rec.trim_run_bias || null,
+    exit_style: rec.exit_style || null,
+    source: learningPolicy?.source || null,
+  };
+}
+
+// Per-TF TD Sequential counts. Only include TFs with non-trivial counts (>=4)
+// or active countdowns. Filters out null/zero rows to save tokens.
+function condenseTdSequential(tickerData) {
+  const tfs = ["D", "4H", "1H", "30", "15", "10"];
+  const out = {};
+  for (const tf of tfs) {
+    const tf_tech = tickerData?.tf_tech?.[tf];
+    const td = tf_tech?.td;
+    if (!td) continue;
+    const setup = Number(td.setup_count ?? td.tv_count) || 0;
+    const countdown = Number(td.countdown) || 0;
+    if (setup < 4 && countdown < 1) continue;
+    out[tf] = {
+      setup_count: setup || null,
+      countdown: countdown || null,
+      direction: td.direction || null,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Direction-aware divergence summary. "Adverse" = bearish div on LONG entries
+// or bullish div on SHORT entries.
+function condenseDivergence(tickerData, direction) {
+  const summary = tickerData?.__entry_divergence_summary;
+  if (!summary || typeof summary !== "object") return null;
+  const out = {};
+  // Pre-computed adverse_rsi / adverse_phase already direction-correct.
+  if (summary.adverse_rsi) {
+    out.rsi = {
+      count: summary.adverse_rsi.count || null,
+      strongest_tf: summary.adverse_rsi.strongest?.tf || null,
+      strongest_strength: round(summary.adverse_rsi.strongest?.strength, 1),
+      bars_since: summary.adverse_rsi.strongest?.barsSince || null,
+    };
+  }
+  if (summary.adverse_phase) {
+    out.phase = {
+      count: summary.adverse_phase.count || null,
+      strongest_tf: summary.adverse_phase.strongest?.tf || null,
+      strongest_strength: round(summary.adverse_phase.strongest?.strength, 1),
+      bars_since: summary.adverse_phase.strongest?.barsSince || null,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Multi-window ORB summary: primary breakout/bias + how many targets hit in
+// trade direction across all 4 windows.
+function condenseOrb(tickerData, direction) {
+  const orb = tickerData?.orb;
+  if (!orb || typeof orb !== "object") return null;
+  const out = {};
+  if (orb.primary) {
+    out.primary = {
+      window: orb.primary.window || "15m",
+      breakout: orb.primary.breakout || null,
+      priceVsORM: orb.primary.priceVsORM || null,
+      dayBias: orb.primary.dayBias || null,
+      widthPct: round(orb.primary.widthPct, 2),
+    };
+  }
+  // Multi-window consensus: how many windows agree with dayBias?
+  if (orb.byTf && typeof orb.byTf === "object") {
+    let consensus = 0;
+    const targetsHitInDir = { 5: 0, 15: 0, 30: 0, 60: 0 };
+    for (const [tfKey, tfOrb] of Object.entries(orb.byTf)) {
+      if (!tfOrb) continue;
+      if (tfOrb.dayBias && tfOrb.dayBias === out.primary?.dayBias) consensus++;
+      if (direction === "LONG") {
+        targetsHitInDir[tfKey] = Number(tfOrb.targetsHitUp) || 0;
+      } else if (direction === "SHORT") {
+        targetsHitInDir[tfKey] = Number(tfOrb.targetsHitDn) || 0;
+      }
+    }
+    out.window_consensus_count = consensus;
+    out.max_targets_hit_in_dir = Math.max(...Object.values(targetsHitInDir), 0);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Sizing overrides already applied by the system upstream of CIO. CIO should
+// know what's already been baked in so it doesn't double-discount.
+function condenseSizingOverrides(tickerData, sizingMeta) {
+  const out = {};
+  const markov = Number(tickerData?.__regime_favor_mult);
+  if (Number.isFinite(markov) && markov !== 1) out.markov_favor_mult = round(markov, 2);
+  const chop = Number(tickerData?.__chop_size_mult);
+  if (Number.isFinite(chop) && chop !== 1) out.chop_size_mult = round(chop, 2);
+  const danger = Number(tickerData?.__danger_size_mult);
+  if (Number.isFinite(danger) && danger !== 1) out.danger_size_mult = round(danger, 2);
+  const rvolHigh = Number(tickerData?.__da_rvol_high_size_mult);
+  if (Number.isFinite(rvolHigh) && rvolHigh !== 1) out.rvol_high_size_mult = round(rvolHigh, 2);
+  const pdz = Number(tickerData?.__pdz_size_mult);
+  if (Number.isFinite(pdz) && pdz !== 1) out.pdz_size_mult = round(pdz, 2);
+  const orb = Number(tickerData?.__da_orb_size_mult);
+  if (Number.isFinite(orb) && orb !== 1) out.orb_size_mult = round(orb, 2);
+  const effective = Number(sizingMeta?.effectiveMult);
+  if (Number.isFinite(effective) && effective !== 1) out.effective_combined_mult = round(effective, 2);
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Current book context for the CIO — concentration / direction balance.
+function condenseOpenBook(sym, direction, allTrades) {
+  if (!Array.isArray(allTrades)) return null;
+  const open = allTrades.filter(t =>
+    t && (t.status === "OPEN" || t.status === "TP_HIT_TRIM" || !t.status)
+  );
+  if (open.length === 0) return null;
+  const sameTicker = open.filter(t => String(t.ticker || "").toUpperCase() === sym).length;
+  const sameDir = open.filter(t => String(t.direction || "").toUpperCase() === String(direction || "").toUpperCase()).length;
+  return {
+    total_open: open.length,
+    same_ticker_open: sameTicker,
+    same_direction_open: sameDir,
+  };
+}
+
+// Move-phase + regime-run-length + exhaustion. Cheap forward indicator.
+function condenseMovePhase(tickerData) {
+  const out = {
+    profile_class: tickerData?.move_phase_profile?.class || tickerData?.move_phase_profile || null,
+    phase_pct: round(Number(tickerData?.phase_pct), 1),
+    completion_pct: round(Number(tickerData?.completion), 1),
+    regime_run_bars: Number(tickerData?._regime_run_length) || null,
+    regime_exhausted: tickerData?.regime_exhausted === true ? true : null,
+  };
+  // Drop empties
+  for (const k of Object.keys(out)) if (out[k] == null) delete out[k];
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 // ── Proposal Builders ──────────────────────────────────────────────────────
 
 /**
  * Build an entry proposal object for CIO review.
  * @param {Function} getTickerProfile - (sym) => profile object
+ * @param {Array} [allTrades] - optional, for open-book concentration context
  */
-export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile) {
+export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile, allTrades) {
   const orb = tickerData?.orb?.primary;
   const _tp = getTickerProfile(sym);
   const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
     executionFallback: tickerData?.regime_class || "UNKNOWN",
   });
+  // 2026-05-28 — Enrichment. CIO previously could not see Markov regime
+  // forecasts, HMM latent regime, TD9 / divergence / multi-window ORB,
+  // move archetype, or the sizing overrides the system already applied
+  // upstream. Each helper returns null when its source data is absent
+  // (safe to omit field).
+  const markovForecast = condenseMarkovForecast(tickerData?.regime_forecast, direction);
+  const hmmRegime = condenseHmmRegime(tickerData?.latent_regime);
+  const moveArchetype = condenseMoveArchetype(tickerData?.__learning_policy);
+  const engineResolution = tickerData?.__adaptive_lineage?.entry_engine_resolution
+    ? {
+        source: tickerData.__adaptive_lineage.entry_engine_resolution.source,
+        selected_engine: tickerData.__adaptive_lineage.entry_engine_resolution.selected_engine,
+        management_engine: tickerData.__adaptive_lineage.entry_engine_resolution.selected_management_engine,
+      }
+    : null;
+  const tdSequential = condenseTdSequential(tickerData);
+  const divergence = condenseDivergence(tickerData, direction);
+  const orbFull = condenseOrb(tickerData, direction);
+  const movePhase = condenseMovePhase(tickerData);
+  const sizingOverrides = condenseSizingOverrides(tickerData, sizingMeta);
+  const openBook = condenseOpenBook(sym, direction, allTrades);
   return {
     ticker: sym,
     direction,
@@ -33,6 +387,17 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
     rank: Number(tickerData?.rank) || 0,
     setup: { name: setupName, grade: setupGrade, path: tickerData?.__entry_path },
     confidence: Math.round((confidence || 0) * 100) / 100,
+    // 2026-05-28 — Stochastic + adaptive signal stack (Markov + HMM + archetype
+    // + engine selection). All omitted if the source data is unavailable.
+    ...(markovForecast && { markov_forecast: markovForecast }),
+    ...(hmmRegime && { hmm_regime: hmmRegime }),
+    ...(moveArchetype && { move_archetype: moveArchetype }),
+    ...(engineResolution && { engine_resolution: engineResolution }),
+    ...(tdSequential && { td_sequential: tdSequential }),
+    ...(divergence && { divergence }),
+    ...(movePhase && { move_phase: movePhase }),
+    ...(sizingOverrides && { sizing_overrides: sizingOverrides }),
+    ...(openBook && { open_book: openBook }),
     state: tickerData?.state,
     ticker_profile: {
       type: _tp.profileKey,
@@ -81,10 +446,10 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
       orb_against: !!tickerData?.__orb_against,
       orb_fakeout: !!tickerData?.__orb_fakeout,
     },
-    orb: orb ? {
+    orb: orbFull || (orb ? {
       breakout: orb.breakout, priceVsORM: orb.priceVsORM,
       dayBias: orb.dayBias, widthPct: orb.widthPct,
-    } : null,
+    } : null),
     danger: {
       score: tickerData?.__danger_score ?? 0,
       flags: tickerData?.__danger_flags || [],
@@ -136,6 +501,16 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
   const regimeVocabulary = resolveRegimeVocabulary(tickerData, {
     executionFallback: tickerData?.regime_class || "UNKNOWN",
   });
+  // 2026-05-28 — Same stochastic + adaptive enrichment as entry. For lifecycle
+  // decisions, the in-direction probabilities (p_5_bar, p_1h) and divergence
+  // firing right now are the key HOLD-vs-PROCEED signals.
+  const markovForecast = condenseMarkovForecast(tickerData?.regime_forecast, dir);
+  const hmmRegime = condenseHmmRegime(tickerData?.latent_regime);
+  const moveArchetype = condenseMoveArchetype(tickerData?.__learning_policy);
+  const tdSequential = condenseTdSequential(tickerData);
+  const divergence = condenseDivergence(tickerData, dir);
+  const orbFull = condenseOrb(tickerData, dir);
+  const movePhase = condenseMovePhase(tickerData);
 
   return {
     action,
@@ -195,6 +570,18 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
         : !!(tickerData?.tf_tech?.["10"]?.ripster?.c72_89?.bear),
     },
     exit_family: tickerData?.__exit_family || null,
+    // 2026-05-28 — Stochastic + adaptive signal stack on the lifecycle side.
+    // For TRIM/EXIT: prob-in-direction tells CIO whether to HOLD or PROCEED.
+    // For HOLD: divergence firing now or TD9 setup_count >= 9 should flip
+    // the decision back to PROCEED. Move archetype tells CIO whether this
+    // ticker's trim_run_bias historically favors holding or trimming early.
+    ...(markovForecast && { markov_forecast: markovForecast }),
+    ...(hmmRegime && { hmm_regime: hmmRegime }),
+    ...(moveArchetype && { move_archetype: moveArchetype }),
+    ...(tdSequential && { td_sequential: tdSequential }),
+    ...(divergence && { divergence }),
+    ...(orbFull && { orb_full: orbFull }),
+    ...(movePhase && { move_phase: movePhase }),
   };
 }
 
@@ -345,16 +732,24 @@ export function svgToBase64DataUri(svgString) {
 
 // ── API Evaluation Functions ────────────────────────────────────────────────
 
-export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
+export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, modelOverride = null) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { decision: "APPROVE", fallback: true, reason: "no_api_key" };
+
+  // 2026-05-28 — populate per-isolate model_config cache for HTTP-path
+  // callers (probe + future direct invocations). Skipped silently in
+  // replay since replay routes already pre-load deepAuditConfig.
+  if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
 
     const useVision = !!chartSvg;
-    const entryModel = useVision ? "gpt-4o" : AI_CIO_MODEL;
+    // 2026-05-28 — resolved model: explicit override → model_config → env var
+    // → lane fallback. Lets operators upgrade to gpt-5.4 (or any other model)
+    // via a single model_config row, no redeploy.
+    const entryModel = resolveCioModel(env, "entry", useVision, modelOverride);
 
     const userContent = useVision ? [
       { type: "text", text: AI_CIO_USER_TEMPLATE(proposal, memory) },
@@ -367,16 +762,15 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: entryModel,
-        messages: [
+      body: JSON.stringify(buildOpenAIBody(
+        entryModel,
+        [
           { role: "system", content: AI_CIO_SYSTEM_PROMPT },
           { role: "user", content: userContent },
         ],
-        temperature: 0.1,
-        max_completion_tokens: 500,
-        response_format: { type: "json_object" },
-      }),
+        500,
+        { temperature: 0.1, responseFormat: { type: "json_object" } },
+      )),
       signal: controller.signal,
     });
 
@@ -384,8 +778,8 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
-      console.warn(`[AI_CIO] OpenAI ${resp.status}: ${errText.slice(0, 150)}`);
-      return { decision: "APPROVE", fallback: true, reason: `api_error_${resp.status}` };
+      console.warn(`[AI_CIO] OpenAI ${resp.status} (model=${entryModel}): ${errText.slice(0, 150)}`);
+      return { decision: "APPROVE", fallback: true, reason: `api_error_${resp.status}`, model: entryModel };
     }
 
     const json = await resp.json();
@@ -395,8 +789,8 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
     try {
       parsed = JSON.parse(raw);
     } catch {
-      console.warn(`[AI_CIO] Failed to parse response: ${raw.slice(0, 200)}`);
-      return { decision: "APPROVE", fallback: true, reason: "parse_error" };
+      console.warn(`[AI_CIO] Failed to parse response (model=${entryModel}): ${raw.slice(0, 200)}`);
+      return { decision: "APPROVE", fallback: true, reason: "parse_error", model: entryModel };
     }
 
     parsed.model_used = entryModel;
@@ -404,7 +798,7 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
 
     const decision = String(parsed.decision || "APPROVE").toUpperCase();
     if (!["APPROVE", "ADJUST", "REJECT"].includes(decision)) {
-      return { decision: "APPROVE", fallback: true, reason: "invalid_decision" };
+      return { decision: "APPROVE", fallback: true, reason: "invalid_decision", model: entryModel };
     }
 
     return {
@@ -422,7 +816,10 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.slice(0, 5).map(f => String(f).slice(0, 50)) : [],
       edge_score: Math.max(0, Math.min(1, Number(parsed.edge_score) || 0.5)),
       fallback: false,
-      model: AI_CIO_MODEL,
+      // 2026-05-28 — record the actual model that decided this trade, not the
+      // hardcoded AI_CIO_MODEL constant. Critical for A/B comparison and for
+      // operator visibility when running mixed models.
+      model: entryModel,
       latency_ms: null,
     };
   } catch (err) {
@@ -432,15 +829,23 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) 
   }
 }
 
-export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null) {
+export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null, modelOverride = null) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { decision: "PROCEED", fallback: true, reason: "no_api_key" };
+
+  // 2026-05-28 — populate per-isolate model_config cache (see evaluateWithAICIO).
+  if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
 
     const useVision = !!chartSvg;
+    // 2026-05-28 — lifecycle decisions are loss-bearing (per-position) and
+    // deserve the same model-selection plumbing as entry. Previously
+    // hardcoded to AI_CIO_MODEL (gpt-4o-mini) even when chartSvg was passed.
+    const lifecycleModel = resolveCioModel(env, "lifecycle", useVision, modelOverride);
+
     const userContent = useVision ? [
       { type: "text", text: AI_CIO_LIFECYCLE_TEMPLATE(proposal, memory) },
       { type: "image_url", image_url: { url: svgToBase64DataUri(chartSvg), detail: "low" } },
@@ -452,16 +857,15 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: AI_CIO_MODEL,
-        messages: [
+      body: JSON.stringify(buildOpenAIBody(
+        lifecycleModel,
+        [
           { role: "system", content: AI_CIO_LIFECYCLE_PROMPT },
           { role: "user", content: userContent },
         ],
-        temperature: 0.1,
-        max_completion_tokens: 400,
-        response_format: { type: "json_object" },
-      }),
+        400,
+        { temperature: 0.1, responseFormat: { type: "json_object" } },
+      )),
       signal: controller.signal,
     });
 
@@ -469,8 +873,8 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
 
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
-      console.warn(`[AI_CIO_LIFECYCLE] OpenAI ${resp.status}: ${errText.slice(0, 150)}`);
-      return { decision: "PROCEED", fallback: true, reason: `api_error_${resp.status}` };
+      console.warn(`[AI_CIO_LIFECYCLE] OpenAI ${resp.status} (model=${lifecycleModel}): ${errText.slice(0, 150)}`);
+      return { decision: "PROCEED", fallback: true, reason: `api_error_${resp.status}`, model: lifecycleModel };
     }
 
     const json = await resp.json();
@@ -480,13 +884,13 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
     try {
       parsed = JSON.parse(raw);
     } catch (_) {
-      console.warn(`[AI_CIO_LIFECYCLE] Parse error: ${raw.slice(0, 200)}`);
-      return { decision: "PROCEED", fallback: true, reason: "parse_error" };
+      console.warn(`[AI_CIO_LIFECYCLE] Parse error (model=${lifecycleModel}): ${raw.slice(0, 200)}`);
+      return { decision: "PROCEED", fallback: true, reason: "parse_error", model: lifecycleModel };
     }
 
     const decision = String(parsed.decision || "PROCEED").toUpperCase();
     if (!["PROCEED", "HOLD", "OVERRIDE"].includes(decision)) {
-      return { decision: "PROCEED", fallback: true, reason: "invalid_decision" };
+      return { decision: "PROCEED", fallback: true, reason: "invalid_decision", model: lifecycleModel };
     }
 
     return {
@@ -501,7 +905,7 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.slice(0, 5) : [],
       edge_remaining: Math.max(0, Math.min(1, Number(parsed.edge_remaining) || 0.5)),
       fallback: false,
-      model: AI_CIO_MODEL,
+      model: lifecycleModel,
     };
   } catch (err) {
     if (err?.name === "AbortError") {

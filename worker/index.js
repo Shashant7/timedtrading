@@ -1654,6 +1654,156 @@ async function checkPriceFeedStale(env, sym, pxNow) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-05-27 — Open-position candle freshness guarantee.
+//
+// The product promise is: the engine must NEVER make a trim / SL move / exit /
+// new entry decision against stale candle data. The MU 2026-05-22 incident
+// ($751 close at market $785+) was the live-quote variant of this; the same
+// shape can leak through stale ticker_candles even when the live quote is
+// fresh, because trend / cloud / EMA structure is computed off the candle
+// table.
+//
+// This guard runs preflight before every per-cron-tick management pass:
+//   1. Read MAX(ts) per (ticker, tf) for the open-position set.
+//   2. Detect any ticker stale beyond per-TF thresholds.
+//   3. Synchronously force-backfill the stale subset (small N, fast).
+//   4. Re-check. Return { healed: [...], still_stale: [...] }.
+//
+// Callers (OOH and in-scoring RECONCILE loops) stamp
+// `tickerData.__candle_data_stale` on still-stale tickers so
+// processTradeSimulation can refuse to act on them.
+//
+// Thresholds — chosen tighter than the universe-wide freshness monitor
+// because OPEN positions are loss-bearing:
+//   D    ≤ 24h
+//   60m  ≤ 2h during RTH, ≤ 14h overnight/weekend (covers Fri close → Mon open)
+//   5m   ≤ 15min during RTH only (5m feed pauses outside RTH; skip check OOH)
+// ─────────────────────────────────────────────────────────────────────────────
+const OPEN_POS_STALE_D_MS = 24 * 60 * 60 * 1000;
+const OPEN_POS_STALE_60M_RTH_MS = 2 * 60 * 60 * 1000;
+const OPEN_POS_STALE_60M_OOH_MS = 14 * 60 * 60 * 1000;
+const OPEN_POS_STALE_5M_RTH_MS = 15 * 60 * 1000;
+
+async function checkOpenPositionCandlesFresh(env, openTickers) {
+  if (!env?.DB) return { healthy: openTickers || [], stale: [] };
+  const tickers = Array.from(new Set((openTickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean)));
+  if (tickers.length === 0) return { healthy: [], stale: [] };
+  const rthOpen = isNyRegularMarketOpen();
+  const nowMs = Date.now();
+  const thresh60 = rthOpen ? OPEN_POS_STALE_60M_RTH_MS : OPEN_POS_STALE_60M_OOH_MS;
+  const stale = [];
+  const healthy = [];
+  try {
+    // One D1 read covers all (ticker, tf) MAX(ts) pairs for the open set.
+    // ticker_candles has an index on (ticker, tf, ts). Bound expansion is
+    // 3 × tickers.length (worst case 24 binds for 8 open positions).
+    const tfList = rthOpen ? ["D", "60", "5"] : ["D", "60"];
+    const tickerPH = tickers.map((_, i) => `?${i + 1}`).join(",");
+    const tfPH = tfList.map((_, i) => `?${tickers.length + 1 + i}`).join(",");
+    const rows = (await env.DB.prepare(
+      `SELECT ticker, tf, MAX(ts) AS max_ts
+         FROM ticker_candles
+        WHERE ticker IN (${tickerPH})
+          AND tf IN (${tfPH})
+        GROUP BY ticker, tf`
+    ).bind(...tickers, ...tfList).all().catch(() => ({ results: [] })))?.results || [];
+    const byTicker = new Map();
+    for (const r of rows) {
+      const t = String(r?.ticker || "").toUpperCase();
+      if (!byTicker.has(t)) byTicker.set(t, {});
+      byTicker.get(t)[String(r?.tf)] = Number(r?.max_ts) || 0;
+    }
+    for (const t of tickers) {
+      const tfMap = byTicker.get(t) || {};
+      const ageD = nowMs - (Number(tfMap.D) || 0);
+      const age60 = nowMs - (Number(tfMap["60"]) || 0);
+      const age5 = nowMs - (Number(tfMap["5"]) || 0);
+      const reasons = [];
+      if (!tfMap.D || ageD > OPEN_POS_STALE_D_MS) {
+        reasons.push(`D=${tfMap.D ? (ageD / 3600000).toFixed(1) + "h" : "missing"}`);
+      }
+      if (!tfMap["60"] || age60 > thresh60) {
+        reasons.push(`60=${tfMap["60"] ? (age60 / 3600000).toFixed(1) + "h" : "missing"}`);
+      }
+      if (rthOpen && (!tfMap["5"] || age5 > OPEN_POS_STALE_5M_RTH_MS)) {
+        reasons.push(`5=${tfMap["5"] ? (age5 / 60000).toFixed(1) + "min" : "missing"}`);
+      }
+      if (reasons.length > 0) {
+        stale.push({ ticker: t, reasons, ages: { D: ageD, "60": age60, "5": age5 } });
+      } else {
+        healthy.push(t);
+      }
+    }
+  } catch (e) {
+    console.warn("[OPEN_POS_FRESHNESS] check failed:", String(e?.message || e).slice(0, 200));
+    return { healthy: tickers, stale: [], check_error: String(e?.message || e).slice(0, 200) };
+  }
+  return { healthy, stale };
+}
+
+async function ensureOpenPositionCandlesFresh(env, openTickers) {
+  const initial = await checkOpenPositionCandlesFresh(env, openTickers);
+  if (!Array.isArray(initial?.stale) || initial.stale.length === 0) {
+    return { healed: [], still_stale: [], initial_stale_count: 0 };
+  }
+  const staleTickers = initial.stale.map((s) => s.ticker);
+  console.warn(`[OPEN_POS_FRESHNESS] ${staleTickers.length} open-position ticker(s) stale → force-backfill: ${staleTickers.join(",")}`);
+  // Best-effort backfill. Small set (1-8 tickers typical) = a single 8-symbol
+  // TwelveData batch per TF. Wraps in try/catch — even if backfill fails, we
+  // still emit the still_stale list so callers can defer management actions.
+  for (const tf of ["D", "60", "5"]) {
+    try {
+      await DataProvider.backfill(env, staleTickers, tf, { sinceDays: 5 });
+    } catch (bfErr) {
+      console.warn(`[OPEN_POS_FRESHNESS] heal tf=${tf} failed:`, String(bfErr?.message || bfErr).slice(0, 200));
+    }
+  }
+  const after = await checkOpenPositionCandlesFresh(env, staleTickers);
+  const stillStaleMap = new Map();
+  for (const s of (after?.stale || [])) stillStaleMap.set(s.ticker, s);
+  const healed = staleTickers.filter((t) => !stillStaleMap.has(t));
+  const still_stale = Array.from(stillStaleMap.values());
+  if (healed.length > 0) {
+    console.log(`[OPEN_POS_FRESHNESS] healed ${healed.length}: ${healed.join(",")}`);
+  }
+  if (still_stale.length > 0) {
+    const _stillStaleSummary = still_stale.map((s) => `${s.ticker}(${s.reasons.join(",")})`).join("; ");
+    console.warn(`[OPEN_POS_FRESHNESS] STILL STALE after backfill: ${_stillStaleSummary}`);
+    // Audit + Discord (deduped per ticker per 1h via KV)
+    try {
+      auditDataChange(env, {
+        op: "OPEN_POS_CANDLES_STILL_STALE",
+        scope: still_stale.map((s) => s.ticker).join(","),
+        caller: "ensureOpenPositionCandlesFresh",
+        rowsAffected: still_stale.length,
+        meta: { still_stale },
+      }).catch(() => {});
+    } catch (_) {}
+    try {
+      const _KV = env?.KV_TIMED || env?.KV;
+      if (_KV) {
+        const _alertKey = `timed:freshness:open_pos_alert:${still_stale.map((s) => s.ticker).sort().join(",")}`;
+        const _seen = await _KV.get(_alertKey);
+        if (!_seen) {
+          await kvPutText(_KV, _alertKey, "1", 3600);
+          notifyDiscord(env, {
+            title: `⚠️ Open-position candle data stale`,
+            description: `${still_stale.length} ticker(s) have stale candles after auto-heal. Trading paused for affected tickers until data refreshes.`,
+            color: 0xff8800,
+            fields: still_stale.slice(0, 10).map((s) => ({
+              name: s.ticker,
+              value: s.reasons.join(", "),
+              inline: true,
+            })),
+          }).catch(() => {});
+        }
+      }
+    } catch (_) {}
+  }
+  return { healed, still_stale, initial_stale_count: staleTickers.length };
+}
+
 // Convert a wall-clock time in a TZ (YYYY-MM-DD at 00:00:00) to a UTC ms timestamp.
 // We use a small fixed-point iteration to handle DST correctly.
 const NY_TS_PARTS_FMT = new Intl.DateTimeFormat("en-US", {
@@ -15981,8 +16131,8 @@ function _cioShadowMode(env) {
   return String(v) === "true" || v === true || v === 1 || v === "1";
 }
 
-function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR) {
-  return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile);
+function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, allTrades) {
+  return _cioBuildProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, getTickerProfile, allTrades);
 }
 
 function generateCIOChartSVG(ticker, candleCache, entryAnnotation = null) {
@@ -15994,8 +16144,8 @@ function svgToBase64DataUri(svgString) {
   return _cioSvgToBase64(svgString);
 }
 
-async function evaluateWithAICIO(env, proposal, memory, chartSvg = null) {
-  return _cioEvaluateEntry(env, proposal, memory, chartSvg);
+async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, modelOverride = null) {
+  return _cioEvaluateEntry(env, proposal, memory, chartSvg, modelOverride);
 }
 
 // CIO Memory → worker/cio/cio-memory.js
@@ -16025,8 +16175,8 @@ function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, pxNow) {
   return _cioBuildLifecycleProposal(action, sym, openTrade, tickerData, pxNow, getTickerProfile);
 }
 
-async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null) {
-  return _cioEvaluateLifecycle(env, proposal, memory, chartSvg);
+async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = null, modelOverride = null) {
+  return _cioEvaluateLifecycle(env, proposal, memory, chartSvg, modelOverride);
 }
 
 // Process trade simulation for a ticker (called on ingest)
@@ -16049,6 +16199,21 @@ async function processTradeSimulation(
   // Watch-only tickers go through scoring + kanban but never generate trades
   if (WATCH_ONLY.has(sym)) {
     return { ticker: sym, skipped: true, reason: "watch_only", watch_only: true };
+  }
+
+  // 2026-05-27 — Stale-candle hard-block. The OOH RECONCILE + in-scoring
+  // TRADE UPDATE preflight calls ensureOpenPositionCandlesFresh() and stamps
+  // `__candle_data_stale` on tickers whose D/60m/5m candles remain stale
+  // after a best-effort backfill. Those tickers MUST NOT receive new entries,
+  // trims, SL moves, or exits — the management surface would be operating on
+  // out-of-date structure (a real MU 2026-05-22-class failure).
+  //
+  // Replay path is exempt: replay uses sanitized historical candles so the
+  // freshness concept doesn't apply, and the test surfaces (focused replay,
+  // backtests) need to run regardless of live data state.
+  if (!options?.replayBatchContext && tickerData?.__candle_data_stale === true) {
+    console.warn(`[STALE_CANDLE_BLOCKED] ${sym}: management actions deferred — open-position candles stale after auto-heal`);
+    return { ticker: sym, skipped: true, reason: "candle_data_stale", stale: true };
   }
 
   const forceUseIngestTs = !!options?.forceUseIngestTs;
@@ -16076,7 +16241,15 @@ async function processTradeSimulation(
   // Fix: if not already loaded, pull just the ai_cio_* keys from model_config
   // here. Cheap point lookup. Subsequent calls within the same isolate use
   // the cached env._deepAuditConfig.
-  if (!isReplay && env?.DB && !env._deepAuditConfig) {
+  //
+  // 2026-05-27 — guard tightened. Old `!env._deepAuditConfig` returned false
+  // when a previous load failed and left `env._deepAuditConfig = {}` (empty
+  // object). That meant the lazy-load only retried on the very first cron
+  // tick of a fresh isolate, never recovering if the failure was transient.
+  // New guard treats empty `{}` as "needs re-load" so the next invocation
+  // tries again.
+  const _daCfgMissing = !env?._deepAuditConfig || Object.keys(env?._deepAuditConfig || {}).length === 0;
+  if (!isReplay && env?.DB && _daCfgMissing) {
     try {
       // P0.7.184 (2026-05-15) — expanded lazy-load to include the
       // continuation_trigger + thesis_flip + gap-knife + early-trim knobs
@@ -16084,6 +16257,10 @@ async function processTradeSimulation(
       // wouldn't see the new behavior until the next */5 scoring cron run.
       const _daKeys = [
         "ai_cio_enabled", "ai_cio_replay_enabled", "ai_cio_shadow_mode", "ai_cio_reference_enabled",
+        // 2026-05-28 — operator-configurable CIO model selection. Defaults
+        // preserve existing behavior; setting any of these to a model
+        // string (e.g. "gpt-5.4") routes the next CIO call through it.
+        "ai_cio_entry_model", "ai_cio_lifecycle_model", "ai_cio_vision_model",
         "deep_audit_continuation_trigger_enabled",
         "deep_audit_continuation_trigger_include_tickers",
         "deep_audit_continuation_trigger_min_rank",
@@ -19740,7 +19917,7 @@ async function processTradeSimulation(
                     `${sym}-${now}-stall-${_sfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `STALL_${_sfcCio.decision}`, _sfcCio.confidence, _sfcCio.reasoning,
                     JSON.stringify(_sfcCio.risk_flags || []), _sfcCio.edge_remaining || 0,
-                    _sfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    _sfcCio.latency_ms, 0, _sfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now(),
                     _sfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 stall insert failed:", e));
@@ -19825,7 +20002,7 @@ async function processTradeSimulation(
                     `${sym}-${now}-runner-${_rsfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `RUNNER_STALE_${_rsfcCio.decision}`, _rsfcCio.confidence, _rsfcCio.reasoning,
                     JSON.stringify(_rsfcCio.risk_flags || []), _rsfcCio.edge_remaining || 0,
-                    _rsfcCio.latency_ms, 0, AI_CIO_MODEL,
+                    _rsfcCio.latency_ms, 0, _rsfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now(),
                     _rsfcShadow ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] runner stale insert failed:", e));
@@ -20401,7 +20578,7 @@ async function processTradeSimulation(
                 `${sym}-${now}-exit-${_exitCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `EXIT_${_exitCio.decision}`, _exitCio.confidence, _exitCio.reasoning,
                 JSON.stringify(_exitCio.risk_flags || []), _exitCio.edge_remaining || 0,
-                _exitCio.latency_ms, 0, AI_CIO_MODEL,
+                _exitCio.latency_ms, 0, _exitCio.model || AI_CIO_MODEL,
                 JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now(),
                 _exitShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 insert failed:", e));
@@ -20777,7 +20954,7 @@ async function processTradeSimulation(
                 `${sym}-${now}-trim-${_trimCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `TRIM_${_trimCio.decision}`, _trimCio.confidence, _trimCio.reasoning,
                 JSON.stringify(_trimCio.risk_flags || []), _trimCio.edge_remaining || 0,
-                _trimCio.latency_ms, 0, AI_CIO_MODEL,
+                _trimCio.latency_ms, 0, _trimCio.model || AI_CIO_MODEL,
                 JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now(),
                 _trimShadow ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_TRIM] D1 insert failed:", e));
@@ -22396,7 +22573,7 @@ async function processTradeSimulation(
             if (_cioEnabled) {
               try {
                 const _cioStart = Date.now();
-                const proposal = buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR);
+                const proposal = buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tickerData, sizingMeta, confidence, setupGrade, setupName, calculatedRR, allTrades);
                 const _memoryCache = isReplay ? replayCtx?.cioMemoryCache : (env?._cioMemoryCache || null);
                 const _cioMemory = buildCIOMemory(sym, direction, tickerData, allTrades, _memoryCache);
                 let _cioChartSvg = null;
@@ -55396,16 +55573,25 @@ export default {
         // Load config (same as candle-replay, but much faster — no candle loading)
         const replayEnv = { ...env, _isReplay: true };
         try {
-          const daKeys = REPLAY_DA_KEYS;
+          // 2026-05-27 (PR for AI-CIO restore): drop the `IN (?,?,…)` filter.
+          // REPLAY_DA_KEYS now exceeds Cloudflare D1's ~100 bind-param cap
+          // (474 keys today), so the bound `IN (…)` form silently throws and
+          // leaves `_deepAuditConfig` empty. Mirror Bug C's loadRunConfigSubset
+          // pattern in worker/replay-runtime-setup.js: read all rows, filter
+          // in JS against the allow-set.
+          const _daAllow = new Set(REPLAY_DA_KEYS);
           const daRows = (await db.prepare(
-            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-          ).bind(...daKeys).all())?.results || [];
+            `SELECT config_key, config_value FROM model_config`
+          ).all())?.results || [];
           const _daConfig = {};
           for (const r of daRows) {
+            if (!r?.config_key || !_daAllow.has(r.config_key)) continue;
             try { _daConfig[r.config_key] = JSON.parse(r.config_value); } catch { _daConfig[r.config_key] = r.config_value; }
           }
           replayEnv._deepAuditConfig = _daConfig;
-        } catch {}
+        } catch (_daLoadErr) {
+          console.warn("[REPLAY] deep-audit config load failed:", String(_daLoadErr?.message || _daLoadErr).slice(0, 200));
+        }
         try {
           const derRow = await db.prepare(`SELECT config_value FROM model_config WHERE config_key='dynamic_engine_rules'`).first();
           if (derRow?.config_value) _dynamicEngineRulesCache = JSON.parse(derRow.config_value);
@@ -60825,7 +61011,11 @@ export default {
             episodic_market_backdrop: [],
             event_driven_context: { events: [] },
           };
-          const probeDecision = await evaluateWithAICIO(env, probeProposal, probeMemory, null);
+          // 2026-05-28 — Allow ?model=<name> override so operators can A/B
+          // test a stronger model (e.g. gpt-5.4) before flipping it as the
+          // default via model_config.ai_cio_entry_model.
+          const probeModelOverride = String(url.searchParams.get("model") || "").trim() || null;
+          const probeDecision = await evaluateWithAICIO(env, probeProposal, probeMemory, null, probeModelOverride);
           probeDecision.latency_ms = Date.now() - probeStart;
           return sendJSON({
             ok: true,
@@ -61367,12 +61557,16 @@ export default {
           };
 
           // 3. Load daCfg (same path as live cron + replay).
-          const daKeys = REPLAY_DA_KEYS;
+          //    2026-05-27: read all rows + filter in JS to avoid the D1
+          //    bind-param overflow that affects REPLAY_DA_KEYS (>100 keys).
+          //    See worker/replay-runtime-setup.js:loadRunConfigSubset.
+          const _daAllow = new Set(REPLAY_DA_KEYS);
           const daRows = (await db.prepare(
-            `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-          ).bind(...daKeys).all())?.results || [];
+            `SELECT config_key, config_value FROM model_config`
+          ).all())?.results || [];
           const daCfg = {};
           for (const r of daRows) {
+            if (!r?.config_key || !_daAllow.has(r.config_key)) continue;
             try { daCfg[r.config_key] = JSON.parse(r.config_value); } catch { daCfg[r.config_key] = r.config_value; }
           }
 
@@ -77561,19 +77755,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (t && !_staleTickersToHeal.includes(t)) _staleTickersToHeal.push(t);
             }
 
-            if (_staleTickersToHeal.length > 0 && _staleTickersToHeal.length <= 50) {
-              console.log(`[FRESHNESS MONITOR] auto-backfill heal: ${_staleTickersToHeal.join(",")}`);
-              // Use the same backfill plumbing as the admin route
+            if (_staleTickersToHeal.length > 0) {
+              // 2026-05-27 — chunked auto-heal. The previous `>50 → skip`
+              // gate meant a fleet-wide outage (every ticker stale at once)
+              // permanently disabled self-heal. That's our exact 252-stale-
+              // ticker failure mode from May 2026. Chunk into batches of 50
+              // and process all of them. Rate limit still respected inside
+              // DataProvider.backfill (8 symbols × 8s = 64s per TF batch of 8).
               const _bfTfs = ["D", "60", "240"];
-              for (const tf of _bfTfs) {
-                try {
-                  await DataProvider.backfill(env, _staleTickersToHeal, tf, { sinceDays: 5 });
-                } catch (bfErr) {
-                  console.warn(`[FRESHNESS MONITOR] auto-backfill tf=${tf} failed:`, String(bfErr?.message || bfErr).slice(0, 200));
+              const _bfChunkSize = 50;
+              const _bfTotal = _staleTickersToHeal.length;
+              const _bfChunks = [];
+              for (let i = 0; i < _bfTotal; i += _bfChunkSize) {
+                _bfChunks.push(_staleTickersToHeal.slice(i, i + _bfChunkSize));
+              }
+              console.log(`[FRESHNESS MONITOR] auto-backfill heal: ${_bfTotal} tickers in ${_bfChunks.length} chunk(s) of <=${_bfChunkSize}`);
+              for (let ci = 0; ci < _bfChunks.length; ci++) {
+                const _chunk = _bfChunks[ci];
+                for (const tf of _bfTfs) {
+                  try {
+                    await DataProvider.backfill(env, _chunk, tf, { sinceDays: 5 });
+                  } catch (bfErr) {
+                    console.warn(`[FRESHNESS MONITOR] auto-backfill chunk ${ci + 1}/${_bfChunks.length} tf=${tf} failed:`, String(bfErr?.message || bfErr).slice(0, 200));
+                  }
                 }
               }
-            } else if (_staleTickersToHeal.length > 50) {
-              console.warn(`[FRESHNESS MONITOR] auto-backfill SKIPPED — ${_staleTickersToHeal.length} stale tickers (too many for safe self-heal). Manual /timed/admin/alpaca-backfill required.`);
+              console.log(`[FRESHNESS MONITOR] auto-backfill heal: complete (${_bfTotal} tickers)`);
             }
           } catch (healErr) {
             console.warn("[FRESHNESS MONITOR] auto-backfill failed:", String(healErr?.message || healErr).slice(0, 200));
@@ -79040,8 +79247,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const _oohOpen = _oohPositions?.results || [];
         if (_oohIsOOH && _oohOpen.length > 0) {
           console.log(`[OOH POSITION RECONCILE] ${_oohOpen.length} open positions — running outside operating hours`);
+          // 2026-05-27 — preflight: ensure candle data for every open-
+          // position ticker is fresh before management. Force-backfill any
+          // stale subset; surface still-stale tickers via __candle_data_stale
+          // so processTradeSimulation can refuse to act on them.
+          let _oohStillStaleSet = new Set();
+          try {
+            const _oohFresh = await ensureOpenPositionCandlesFresh(env, _oohOpen.map((p) => p.ticker));
+            for (const s of (_oohFresh?.still_stale || [])) {
+              _oohStillStaleSet.add(String(s.ticker).toUpperCase());
+            }
+          } catch (_freshErr) {
+            console.warn("[OOH POSITION RECONCILE] freshness preflight failed:", String(_freshErr?.message || _freshErr).slice(0, 200));
+          }
           let _oohReconciled = 0;
           let _oohErrors = 0;
+          let _oohStaleBlocked = 0;
           for (const _oohPos of _oohOpen) {
             const _oohSym = String(_oohPos.ticker || "").toUpperCase();
             if (!_oohSym) continue;
@@ -79058,6 +79279,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
               if (_oohLatest) {
+                if (_oohStillStaleSet.has(_oohSym)) {
+                  _oohLatest.__candle_data_stale = true;
+                  _oohStaleBlocked++;
+                }
                 await processTradeSimulation(KV, _oohSym, _oohLatest, null, env, {
                   cachedAllTrades: _cachedAllTradesForTick || undefined,
                 });
@@ -79068,8 +79293,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               console.error(`[OOH POSITION RECONCILE] ${_oohSym} processTradeSimulation failed:`, _oohErr);
             }
           }
-          if (_oohReconciled > 0 || _oohErrors > 0) {
-            console.log(`[OOH POSITION RECONCILE] Done: ${_oohReconciled} processed, ${_oohErrors} errors`);
+          if (_oohReconciled > 0 || _oohErrors > 0 || _oohStaleBlocked > 0) {
+            console.log(`[OOH POSITION RECONCILE] Done: ${_oohReconciled} processed, ${_oohErrors} errors, ${_oohStaleBlocked} stale-blocked`);
           }
         }
       }
@@ -79230,19 +79455,35 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (_) {}
 
         // Load deep audit config from model_config
+        //
+        // 2026-05-27 — AI CIO restore. REPLAY_DA_KEYS now exceeds Cloudflare
+        // D1's ~100 bind-param cap (474 keys), so the previous bound
+        // `IN (?1,…,?474)` query silently threw inside the catch and left
+        // `_deepAuditConfig` empty. Every CIO gate read (`String(env?.
+        // _deepAuditConfig?.ai_cio_enabled ?? "false") === "true"`) then
+        // evaluated to false, so CIO was bypassed on every entry/trim/exit
+        // for 65+ days even though `ai_cio_enabled=true` in model_config.
+        //
+        // Fix: mirror the Bug C pattern used in worker/replay-runtime-setup.js
+        // (loadRunConfigSubset) — read all rows, filter in JS. ~470 rows is
+        // ~50 KB of D1 read, cheap. Surface load failures via console.warn
+        // so the next outage shows up in wrangler tail instead of going silent.
         let _deepAuditConfig = {};
         try {
           const db2 = env?.DB;
           if (db2) {
-          const daKeys = REPLAY_DA_KEYS;
+            const _daAllow = new Set(REPLAY_DA_KEYS);
             const daRows = (await db2.prepare(
-              `SELECT config_key, config_value FROM model_config WHERE config_key IN (${daKeys.map((_, i) => `?${i + 1}`).join(",")})`
-            ).bind(...daKeys).all())?.results || [];
+              `SELECT config_key, config_value FROM model_config`
+            ).all())?.results || [];
             for (const r of daRows) {
+              if (!r?.config_key || !_daAllow.has(r.config_key)) continue;
               try { _deepAuditConfig[r.config_key] = JSON.parse(r.config_value); } catch { _deepAuditConfig[r.config_key] = r.config_value; }
             }
           }
-        } catch (_) {}
+        } catch (_daLoadErr) {
+          console.warn("[SCORING CRON] deep-audit config load failed:", String(_daLoadErr?.message || _daLoadErr).slice(0, 200));
+        }
         env._deepAuditConfig = _deepAuditConfig;
 
         try {
@@ -80320,14 +80561,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             `[TRADE UPDATE CRON] Updating ${openTrades.length} open trades`,
           );
 
+          // 2026-05-27 — Open-position candle freshness preflight. Same
+          // shape as the OOH RECONCILE path: force-backfill any stale
+          // candles, mark still-stale tickers via __candle_data_stale so
+          // processTradeSimulation refuses trim/SL/exit actions on them.
+          let _tuStillStaleSet = new Set();
+          try {
+            const _tuFresh = await ensureOpenPositionCandlesFresh(env, openTrades.map((t) => t.ticker));
+            for (const s of (_tuFresh?.still_stale || [])) {
+              _tuStillStaleSet.add(String(s.ticker).toUpperCase());
+            }
+          } catch (_freshErr) {
+            console.warn("[TRADE UPDATE CRON] freshness preflight failed:", String(_freshErr?.message || _freshErr).slice(0, 200));
+          }
+
+          let _tuStaleBlocked = 0;
           for (const trade of openTrades) {
             try {
-              processedTickers.add(String(trade.ticker || "").toUpperCase());
+              const _tuSym = String(trade.ticker || "").toUpperCase();
+              processedTickers.add(_tuSym);
               const latestData = await kvGetJSON(
                 KV,
                 `timed:latest:${trade.ticker}`,
               );
               if (latestData) {
+                if (_tuStillStaleSet.has(_tuSym)) {
+                  latestData.__candle_data_stale = true;
+                  _tuStaleBlocked++;
+                }
                 const prevLatest = null;
                 await processTradeSimulation(
                   KV,
@@ -80344,6 +80605,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 err,
               );
             }
+          }
+          if (_tuStaleBlocked > 0) {
+            console.warn(`[TRADE UPDATE CRON] ${_tuStaleBlocked} ticker(s) had stale candle data → management actions deferred`);
           }
 
           const finalTrades = (await kvGetJSON(KV, tradesKey)) || [];
