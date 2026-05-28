@@ -3973,13 +3973,9 @@
                             color: "#34d399",
                             fontWeight: 700,
                           } : {}),
-                          /* Accent the CATALYSTS tab the first time it's
-                             relevant — light amber tinge so users notice
-                             this new entry point. */
-                          ...(key === "CATALYSTS" && v2RailTab !== "CATALYSTS" ? {
-                            color: "#f59e0b",
-                            fontWeight: 700,
-                          } : {}),
+                          /* 2026-05-28 follow-up — Catalysts tab uses the
+                             same styling as every other tab. Earlier amber
+                             accent removed per user feedback. */
                         }}
                       >
                         <span>{label}</span>
@@ -6917,9 +6913,6 @@
                               )}
                             </>
                           )}
-                          <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                            NEWS · FINNHUB · SENTIMENT GPT-4O-MINI · 10MIN CACHE
-                          </div>
                         </Panel>
 
                         {/* ── 2. Insider Activity ──────────────────────── */}
@@ -6984,9 +6977,6 @@
                               </>
                             );
                           })()}
-                          <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                            INSIDER · FINNHUB FORM-4 · ★ = CEO/CFO/COO/CTO/PRESIDENT/CHAIRMAN/DIRECTOR/10%+
-                          </div>
                         </Panel>
 
                         {/* ── 3. Theme Rotation ─────────────────────────── */}
@@ -7041,9 +7031,6 @@
                                 </div>
                               );
                             })}
-                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                              THEME · CURATED PEER GROUPS · ACTIVE = ≥30% PEERS MOVED ≥2% TODAY
-                            </div>
                           </Panel>
                         )}
 
@@ -7083,16 +7070,13 @@
                               </div>
                             )}
                             {C.macro.ticker_country && (
-                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" }}>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 2 }}>COUNTRY: {C.macro.ticker_country.label}</div>
                                 <div style={{ fontFamily: "var(--tt-font-mono)" }}>
                                   20d {C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : "")}{C.macro.ticker_country.ret_20d}% · RS vs SPY {C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : "")}{C.macro.ticker_country.rs_20d_vs_spy}
                                 </div>
                               </div>
                             )}
-                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                              MACRO · 20D RELATIVE STRENGTH vs SPY · COUNTRY + CROSS-ASSET ETFs
-                            </div>
                           </Panel>
                         )}
 
@@ -7130,16 +7114,8 @@
                                 <strong style={{ color: "var(--ds-text-body)" }}>Dominant miss reason:</strong> {String(C.coverage.dominant_miss_reason).replace(/_/g, " ")}
                               </div>
                             )}
-                            <div style={{ marginTop: "var(--ds-space-2)", fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                              DETECTION · ATR-RELATIVE BIG MOVES · UNIVERSE CAPTURE {C.coverage.universe_capture_rate_pct != null ? `${C.coverage.universe_capture_rate_pct}%` : "—"}
-                            </div>
                           </Panel>
                         )}
-
-                        {/* Footer: source + freshness */}
-                        <div style={{ fontSize: 9, color: "var(--ds-text-faint)", textAlign: "right", letterSpacing: "0.05em", paddingTop: 4 }}>
-                          BUNDLED · 10MIN CACHE · FETCHED {new Date(C.fetched_at || Date.now()).toLocaleTimeString()}
-                        </div>
                       </div>
                     );
                   })()}
@@ -11811,4 +11787,4 @@
   };
 })();
 
-// cache-bust:1779940875043:633358095
+// cache-bust:1779961224808:140149429

@@ -4141,10 +4141,6 @@
                 ...(key === "CHART" ? {
                   color: "#34d399",
                   fontWeight: 700
-                } : {}),
-                ...(key === "CATALYSTS" && v2RailTab !== "CATALYSTS" ? {
-                  color: "#f59e0b",
-                  fontWeight: 700
                 } : {})
               }
             }, React.createElement("span", null, label)));
@@ -8350,14 +8346,7 @@
               color: "var(--ds-text-muted)",
               marginTop: 1
             }
-          }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10"))))))), React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "NEWS \xB7 FINNHUB \xB7 SENTIMENT GPT-4O-MINI \xB7 10MIN CACHE")), React.createElement(Panel, {
+          }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10")))))))), React.createElement(Panel, {
             title: "\uD83D\uDCBC Insider Activity",
             action: C.insider?.has_data && React.createElement("span", {
               className: "ds-chip ds-chip--sm"
@@ -8490,14 +8479,7 @@
                 color: "var(--ds-color-up, #34d399)"
               }
             }, fmtMoney(t.value))))));
-          })(), React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "INSIDER \xB7 FINNHUB FORM-4 \xB7 \u2605 = CEO/CFO/COO/CTO/PRESIDENT/CHAIRMAN/DIRECTOR/10%+")), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
+          })()), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
             title: "\uD83C\uDFAD Theme Rotation",
             action: React.createElement("span", {
               className: "ds-chip ds-chip--sm"
@@ -8562,14 +8544,7 @@
                 color: p.dp >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
               }
             }, p.ticker || p.t, " ", p.dp >= 0 ? "+" : "", p.dp, "%"))));
-          }), React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "THEME \xB7 CURATED PEER GROUPS \xB7 ACTIVE = \u226530% PEERS MOVED \u22652% TODAY")), C.macro && React.createElement(Panel, {
+          })), C.macro && React.createElement(Panel, {
             title: "\uD83C\uDF10 Macro Context"
           }, C.macro.narrative && React.createElement("div", {
             style: {
@@ -8611,8 +8586,7 @@
               padding: "var(--ds-space-2)",
               background: "rgba(255,255,255,0.03)",
               border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)",
-              marginBottom: "var(--ds-space-2)"
+              borderRadius: "var(--ds-radius-md)"
             }
           }, React.createElement("div", {
             style: {
@@ -8626,14 +8600,7 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, "20d ", C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : ""), C.macro.ticker_country.ret_20d, "% \xB7 RS vs SPY ", C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : ""), C.macro.ticker_country.rs_20d_vs_spy)), React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "MACRO \xB7 20D RELATIVE STRENGTH vs SPY \xB7 COUNTRY + CROSS-ASSET ETFs")), C.coverage && React.createElement(Panel, {
+          }, "20d ", C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : ""), C.macro.ticker_country.ret_20d, "% \xB7 RS vs SPY ", C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : ""), C.macro.ticker_country.rs_20d_vs_spy))), C.coverage && React.createElement(Panel, {
             title: "\uD83D\uDCCA Detection History"
           }, React.createElement("div", {
             style: {
@@ -8712,22 +8679,7 @@
             style: {
               color: "var(--ds-text-body)"
             }
-          }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " ")), React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "DETECTION \xB7 ATR-RELATIVE BIG MOVES \xB7 UNIVERSE CAPTURE ", C.coverage.universe_capture_rate_pct != null ? `${C.coverage.universe_capture_rate_pct}%` : "—")), React.createElement("div", {
-            style: {
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              textAlign: "right",
-              letterSpacing: "0.05em",
-              paddingTop: 4
-            }
-          }, "BUNDLED \xB7 10MIN CACHE \xB7 FETCHED ", new Date(C.fetched_at || Date.now()).toLocaleTimeString()));
+          }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " "))));
         })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
@@ -13271,4 +13223,4 @@
   };
 })();
 
-// cache-bust:1779940875043:633358095
+// cache-bust:1779961224808:140149429
