@@ -2789,8 +2789,14 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
   return added;
 }
 
+// 2026-05-28 — SPX + US500 removed from MARKET_PULSE_SYMS. Neither has a
+// real data ingestion path (no Alpaca, no TwelveData equity feed); they
+// were always-empty placeholders that the snapshot path was force-adding
+// back via the "Market Pulse placeholders" loop. Result: open-position
+// stale-monitor kept firing for them daily. SPY / QQQ / DIA / IWM
+// already track the same indices with real bars and remain.
 const MARKET_PULSE_SYMS = [
-  "SPX","US500","ES1!","NQ1!","RTY1!","YM1!","VX1!",
+  "ES1!","NQ1!","RTY1!","YM1!","VX1!",
   "CL1!","GC1!","SI1!","HG1!","NG1!",
   // P0.7.133 — proxy ETFs for the futures above. SPY/QQQ/DIA/IWM track
   // ES/NQ/YM/RTY 1:1 directionally; UNG/CPER added for NG/HG so the
@@ -44871,12 +44877,22 @@ export default {
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
+            // 2026-05-28 — Honor the removed blocklist when building activeSet.
+            // Before, `removedSet` was computed but NEVER applied to the snapshot
+            // filter — so tickers the operator explicitly purged via
+            // POST /timed/watchlist/remove kept coming back in /timed/all because
+            // they were still in SECTOR_MAP (which the worker bundles at deploy
+            // time). Symptom: SPX / US500 kept tripping the stale-candle monitor
+            // 24h after being "removed". Fix: subtract removedSet from activeSet
+            // so SECTOR_MAP membership alone is not enough — a ticker must also
+            // not be on the blocklist.
             const activeSet = new Set([
               ...Object.keys(SECTOR_MAP),
               ...userAddedForReq,
               ...MARKET_PULSE_SYMS,
               ..._openPosTickers,  // 2026-05-28 — always include open positions
             ]);
+            for (const t of removedSet) activeSet.delete(t);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -45449,12 +45465,16 @@ export default {
           // position (same fix as the snapshot fast-path above). Without
           // this, a Pro user with an open HIMX trade sees the card go
           // blank when the D1 fallback path runs.
+          // 2026-05-28 — Also honor the removed blocklist here (same bug
+          // as the snapshot fast-path). See comment at line 44883.
+          const _removedFallback = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           const activeSet = new Set([
             ...Object.keys(SECTOR_MAP),
             ...userAddedForReq,
             ...MARKET_PULSE_SYMS,
             ..._openPosTickers,
           ]);
+          for (const t of _removedFallback) activeSet.delete(t);
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
