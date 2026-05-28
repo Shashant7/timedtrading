@@ -1226,7 +1226,8 @@ function TopMovers({
   })));
 }
 function EarningsStrip({
-  earnings
+  earnings,
+  universe
 }) {
   const events = safeArr(earnings?.events).slice();
   if (events.length === 0) return null;
@@ -1237,20 +1238,23 @@ function EarningsStrip({
     if (hl.startsWith("amc") || hl.includes("after")) return 2;
     return 3;
   };
+  const uniSet = universe instanceof Set ? universe : new Set((universe || []).map(s => String(s).toUpperCase()));
   events.sort((a, b) => {
     const da = String(a?.date || "");
     const db = String(b?.date || "");
     if (da !== db) return da.localeCompare(db);
+    const aUni = uniSet.has(String(a?.symbol || "").toUpperCase()) ? 0 : 1;
+    const bUni = uniSet.has(String(b?.symbol || "").toUpperCase()) ? 0 : 1;
+    if (aUni !== bUni) return aUni - bUni;
     const ho = HOUR_ORDER(a?.hour) - HOUR_ORDER(b?.hour);
     if (ho !== 0) return ho;
     return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
   });
-  const limited = events.slice(0, 18);
   const byDay = {};
-  for (const ev of limited) {
+  for (const ev of events) {
     (byDay[ev.date] = byDay[ev.date] || []).push(ev);
   }
-  const days = Object.keys(byDay).slice(0, 5);
+  const days = Object.keys(byDay).sort();
   if (days.length === 0) return null;
   return h("section", {
     className: "tt-row"
@@ -1258,41 +1262,61 @@ function EarningsStrip({
     className: "tt-sec-title"
   }, "EARNINGS THIS WEEK"), h("div", {
     className: "tt-sec-h"
-  }, "Event-driven risk on the radar"), h("div", {
+  }, "Event-driven risk on the radar — universe tickers first"), h("div", {
     className: "tt-grid tt-grid-3"
-  }, days.slice(0, 6).map(d => h("div", {
-    key: d,
-    className: "tt-card tt-card-pad"
-  }, h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-dim)",
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      marginBottom: 8
-    }
-  }, d), h("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 5
-    }
-  }, byDay[d].slice(0, 6).map((ev, i) => {
-    const rawEps = ev?.epsEstimate ?? ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
-    const eps = Number(rawEps);
-    const hasEps = Number.isFinite(eps) && eps !== 0;
+  }, days.map(d => {
+    const dayEvents = byDay[d];
+    const uniCount = dayEvents.filter(ev => uniSet.has(String(ev?.symbol || "").toUpperCase())).length;
     return h("div", {
-      key: i,
-      className: "earn-row"
-    }, h("span", {
-      className: "date"
-    }, String(ev?.hour || "—").toUpperCase()), h("span", null, h("span", {
-      className: "sym"
-    }, ev?.symbol || "?")), h("span", {
-      className: "hour",
-      title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available"
-    }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"));
-  }))))));
+      key: d,
+      className: "tt-card tt-card-pad"
+    }, h("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--tt-text-dim)",
+        fontWeight: 700,
+        letterSpacing: "0.06em",
+        marginBottom: 8,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }
+    }, h("span", null, d), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        fontWeight: 600
+      }
+    }, `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` · ${uniCount} universe` : ""}`)), h("div", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        gap: 5,
+        maxHeight: 480,
+        overflowY: "auto"
+      }
+    }, dayEvents.map((ev, i) => {
+      const rawEps = ev?.epsEstimate ?? ev?.eps_est ?? ev?.eps_est_avg ?? ev?.estimate ?? ev?.consensus_eps_est;
+      const eps = Number(rawEps);
+      const hasEps = Number.isFinite(eps) && eps !== 0;
+      const sym = String(ev?.symbol || "").toUpperCase();
+      const isUni = uniSet.has(sym);
+      return h("div", {
+        key: `${sym}-${i}`,
+        className: "earn-row" + (isUni ? " is-universe" : "")
+      }, h("span", {
+        className: "date"
+      }, String(ev?.hour || "—").toUpperCase()), h("span", null, h("span", {
+        className: "sym",
+        title: isUni ? "In our SECTOR_MAP universe" : undefined
+      }, isUni ? h("span", {
+        className: "uni-dot",
+        "aria-hidden": "true"
+      }) : null, ev?.symbol || "?")), h("span", {
+        className: "hour",
+        title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available"
+      }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"));
+    })));
+  })));
 }
 function classifyStateBucket(state) {
   const s = String(state || "");
@@ -3063,7 +3087,8 @@ function TodayApp() {
     data,
     onSelectTicker
   }), earnings && h(EarningsStrip, {
-    earnings
+    earnings,
+    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
@@ -3474,6 +3499,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779997053058:945418523
+// cache-bust:1780009933777:577150596
 
-// cache-bust:1779997053058:945418523
+// cache-bust:1780009933777:577150596
