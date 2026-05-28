@@ -1055,7 +1055,10 @@ function FocusRail({
       }
     }, bias || "·"), h("div", {
       className: "focus-chip-main"
-    }, h("span", {
+    }, h(TickerLogo, {
+      sym,
+      size: 18
+    }), h("span", {
       className: "focus-chip-sym"
     }, sym), metric && h("span", {
       className: "focus-chip-metric"
@@ -1072,11 +1075,45 @@ function FocusRail({
     }, (extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT"))));
   }))))));
 }
+function TickerLogo({
+  sym,
+  size = 22
+}) {
+  const SYM = String(sym || "").toUpperCase();
+  const mono = SYM.slice(0, 2) || "?";
+  return h("span", {
+    className: "tt-trow__logo",
+    style: {
+      width: size,
+      height: size
+    },
+    ref: el => {
+      if (!el || el.dataset.dsInit) return;
+      if (!window.DS || typeof window.DS.tickerLogo !== "function") return;
+      el.dataset.dsInit = "1";
+      try {
+        const node = window.DS.tickerLogo(SYM, {
+          size
+        });
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.textContent = node.textContent || "";
+        if (node.style.background) el.style.background = node.style.background;
+        const img = node.querySelector("img");
+        if (img) {
+          el.appendChild(img.cloneNode(true));
+          el.style.background = "#ffffff";
+          el.textContent = "";
+        }
+      } catch (_) {}
+    }
+  }, mono);
+}
 function MoverRow({
   rk,
   t,
   mode,
-  onSelectTicker
+  onSelectTicker,
+  universe
 }) {
   const dc = getDailyChange(t);
   const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
@@ -1084,43 +1121,39 @@ function MoverRow({
   const rthClose = mode === "ext" ? Number(t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
-  const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
-  return h("a", {
-    className: "mvr",
-    href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
-    onClick: e => {
-      if (typeof onSelectTicker === "function") {
-        e.preventDefault();
-        onSelectTicker(sym);
-      }
-    }
+  const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
+  const isUni = universe instanceof Set ? universe.has(sym) : false;
+  const onClick = e => {
+    e.preventDefault();
+    if (typeof onSelectTicker === "function") onSelectTicker(sym);
+  };
+  return h("button", {
+    type: "button",
+    className: "tt-trow tt-trow--mover" + (isUni ? " is-universe" : ""),
+    onClick,
+    title: `Open ${sym} in the right rail`
   }, h("span", {
-    className: "rk"
-  }, "#" + (rk + 1)), h("span", null, h("div", {
-    className: "sym"
-  }, sym)), h("span", {
-    className: "px",
-    style: showRthSub ? {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-end",
-      lineHeight: 1.1
-    } : null
-  }, Number.isFinite(price) ? fmtUsd(price) : "—", showRthSub && h("span", {
-    style: {
-      fontSize: 9,
-      color: "var(--tt-text-dim)",
-      fontWeight: 400
-    }
-  }, "RTH " + fmtUsd(rthClose))), h("span", {
-    className: `chg ${dir}`
-  }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"));
+    className: "tt-trow__rank"
+  }, "#" + (rk + 1)), h(TickerLogo, {
+    sym
+  }), h("span", {
+    className: "tt-trow__sym"
+  }, sym), h("span", null), h("span", {
+    className: "tt-trow__right"
+  }, h("span", {
+    className: "tt-trow__px"
+  }, Number.isFinite(price) ? fmtUsd(price) : "—"), h("span", {
+    className: `tt-trow__chg ${dir}`
+  }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"), showRthSub && h("span", {
+    className: "tt-trow__sub"
+  }, "RTH " + fmtUsd(rthClose))));
 }
 function MoversCol({
   title,
   items,
   mode,
-  onSelectTicker
+  onSelectTicker,
+  universe
 }) {
   return h("div", {
     className: "tt-card tt-card-pad"
@@ -1146,12 +1179,14 @@ function MoversCol({
     rk: i,
     t,
     mode,
-    onSelectTicker
+    onSelectTicker,
+    universe
   }))));
 }
 function TopMovers({
   data,
-  onSelectTicker
+  onSelectTicker,
+  universe
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -1202,12 +1237,14 @@ function TopMovers({
     title: "RTH GAINERS",
     items: rthGain,
     mode: "rth",
-    onSelectTicker
+    onSelectTicker,
+    universe
   }), h(MoversCol, {
     title: "RTH LOSERS",
     items: rthLoss,
     mode: "rth",
-    onSelectTicker
+    onSelectTicker,
+    universe
   })), hasExt && h("div", {
     className: "tt-grid tt-grid-2",
     style: {
@@ -1217,17 +1254,20 @@ function TopMovers({
     title: "EXT GAINERS (after-hours)",
     items: extGain,
     mode: "ext",
-    onSelectTicker
+    onSelectTicker,
+    universe
   }), h(MoversCol, {
     title: "EXT LOSERS (after-hours)",
     items: extLoss,
     mode: "ext",
-    onSelectTicker
+    onSelectTicker,
+    universe
   })));
 }
 function EarningsStrip({
   earnings,
-  universe
+  universe,
+  onSelectTicker
 }) {
   const events = safeArr(earnings?.events).slice();
   if (events.length === 0) return null;
@@ -1256,13 +1296,20 @@ function EarningsStrip({
   }
   const days = Object.keys(byDay).sort();
   if (days.length === 0) return null;
+  const hourClass = hr => {
+    const hl = String(hr || "").toLowerCase();
+    if (hl.startsWith("bmo") || hl.includes("before")) return "bmo";
+    if (hl.startsWith("dmh") || hl.includes("during")) return "dmh";
+    if (hl.startsWith("amc") || hl.includes("after")) return "amc";
+    return "unk";
+  };
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "EARNINGS THIS WEEK"), h("div", {
     className: "tt-sec-h"
-  }, "Event-driven risk on the radar — universe tickers first"), h("div", {
+  }, "Event-driven risk on the radar \u2014 universe tickers first"), h("div", {
     className: "tt-grid tt-grid-3"
   }, days.map(d => {
     const dayEvents = byDay[d];
@@ -1271,22 +1318,10 @@ function EarningsStrip({
       key: d,
       className: "tt-card tt-card-pad"
     }, h("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--tt-text-dim)",
-        fontWeight: 700,
-        letterSpacing: "0.06em",
-        marginBottom: 8,
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center"
-      }
+      className: "tt-day-head"
     }, h("span", null, d), h("span", {
-      style: {
-        color: "var(--tt-text-muted)",
-        fontWeight: 600
-      }
-    }, `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` · ${uniCount} universe` : ""}`)), h("div", {
+      className: "tt-day-head__count"
+    }, `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` \u00b7 ${uniCount} universe` : ""}`)), h("div", {
       style: {
         display: "flex",
         flexDirection: "column",
@@ -1300,21 +1335,30 @@ function EarningsStrip({
       const hasEps = Number.isFinite(eps) && eps !== 0;
       const sym = String(ev?.symbol || "").toUpperCase();
       const isUni = uniSet.has(sym);
-      return h("div", {
+      const hcls = hourClass(ev?.hour);
+      const hourLabel = (ev?.hour || "—").toUpperCase();
+      const onClick = e => {
+        e.preventDefault();
+        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+      };
+      return h("button", {
+        type: "button",
         key: `${sym}-${i}`,
-        className: "earn-row" + (isUni ? " is-universe" : "")
+        className: "tt-trow tt-trow--earnings" + (isUni ? " is-universe" : ""),
+        onClick,
+        title: isUni ? `Open ${sym} in the right rail \u00b7 in our universe` : `Open ${sym} in the right rail`
+      }, h(TickerLogo, {
+        sym
+      }), h("span", {
+        className: "tt-trow__sym"
+      }, sym || "?"), h("span", {
+        className: `tt-hour-chip ${hcls}`
+      }, hourLabel), h("span", {
+        className: "tt-trow__right"
       }, h("span", {
-        className: "date"
-      }, String(ev?.hour || "—").toUpperCase()), h("span", null, h("span", {
-        className: "sym",
-        title: isUni ? "In our SECTOR_MAP universe" : undefined
-      }, isUni ? h("span", {
-        className: "uni-dot",
-        "aria-hidden": "true"
-      }) : null, ev?.symbol || "?")), h("span", {
-        className: "hour",
+        className: "tt-trow__chg " + (hasEps ? "mut" : "mut"),
         title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available"
-      }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"));
+      }, hasEps ? "$" + eps.toFixed(2) + " est" : "—")));
     })));
   })));
 }
@@ -3085,9 +3129,11 @@ function TodayApp() {
     brief
   }), data && h(TopMovers, {
     data,
-    onSelectTicker
+    onSelectTicker,
+    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), earnings && h(EarningsStrip, {
     earnings,
+    onSelectTicker,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), data ? h(AnalysisControls, {
     chips,
@@ -3499,6 +3545,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780009933777:577150596
+// cache-bust:1780011247637:996709241
 
-// cache-bust:1780009933777:577150596
+// cache-bust:1780011247637:996709241

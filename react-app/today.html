@@ -1075,7 +1075,158 @@
         color: var(--tt-text);
       }
       .macro-chip .ts { color: var(--tt-text-dim); font-size: 11px; font-family: var(--tt-font-mono); }
-      /* Earnings list */
+      /* ── Unified ticker row (.tt-trow) ─────────────────────────────
+         2026-05-28 — shared row component for Earnings, Movers, and
+         the Focus rail. Every row has the same info-lockup:
+
+           [logo 22] [SYM]  [meta: small chip]            [right primary] [right secondary]
+
+         Slots are optional; the grid columns auto-collapse for rows
+         that don't use them. The wrapper element is button-or-anchor
+         (rendered as <button> for click-handlers) so every row is
+         keyboard-focusable and selectable to open the right rail.
+
+         Variants:
+           .tt-trow--earnings   — used by EarningsStrip
+           .tt-trow--mover      — used by MoverRow (adds a rank slot)
+           .tt-trow--focus      — used by FocusRail (adds a bias slot)
+
+         Accent on universe-membership applies to the parent
+         .tt-trow.is-universe. */
+      .tt-trow {
+        display: grid;
+        grid-template-columns: 24px auto 1fr auto;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        font-family: var(--tt-font);
+        text-align: left;
+        width: 100%;
+        transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+      }
+      .tt-trow:hover {
+        background: var(--tt-bg-elev);
+        border-color: var(--tt-border-hi);
+      }
+      .tt-trow:focus-visible {
+        outline: 2px solid var(--tt-accent, #4cb9dc);
+        outline-offset: 1px;
+      }
+      .tt-trow:active { transform: translateY(0.5px); }
+      .tt-trow__logo {
+        width: 22px; height: 22px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.04);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+        color: var(--tt-text-dim);
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .tt-trow__sym {
+        font-family: var(--tt-font);
+        font-size: 13px; font-weight: 700;
+        color: var(--tt-text);
+        letter-spacing: 0.01em;
+        line-height: 1.1;
+      }
+      .tt-trow__meta {
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        font-family: var(--tt-font-mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .tt-trow__right {
+        display: flex; flex-direction: column;
+        align-items: flex-end;
+        gap: 1px;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.15;
+      }
+      .tt-trow__px {
+        font-family: var(--tt-font-mono);
+        font-size: 12.5px; font-weight: 600;
+        color: var(--tt-text);
+      }
+      .tt-trow__chg {
+        font-family: var(--tt-font-mono);
+        font-size: 11.5px; font-weight: 700;
+      }
+      .tt-trow__chg.up  { color: var(--tt-up, #34d399); }
+      .tt-trow__chg.dn  { color: var(--tt-dn, #fb7185); }
+      .tt-trow__chg.mut { color: var(--tt-text-dim); font-weight: 600; }
+      .tt-trow__sub {
+        font-size: 9.5px; color: var(--tt-text-dim);
+        font-weight: 500;
+        font-family: var(--tt-font-mono);
+      }
+      /* Universe-priority accent — applies to any .tt-trow.is-universe */
+      .tt-trow.is-universe {
+        background: rgba(76, 175, 220, 0.06);
+        border-color: rgba(76, 175, 220, 0.22);
+      }
+      .tt-trow.is-universe .tt-trow__sym {
+        color: var(--tt-accent, #4cb9dc);
+      }
+      /* Rank slot for Movers — sits before the logo */
+      .tt-trow__rank {
+        font-family: var(--tt-font-mono);
+        font-size: 10px;
+        color: var(--tt-text-faint);
+        font-weight: 700;
+        text-align: center;
+        min-width: 16px;
+      }
+      /* Variant grids */
+      .tt-trow--mover { grid-template-columns: 18px 24px auto 1fr auto; gap: 8px; }
+      .tt-trow--focus { grid-template-columns: 24px auto 1fr auto; gap: 8px; }
+      .tt-trow--earnings { grid-template-columns: 24px auto 1fr auto; gap: 8px; }
+
+      /* Hour chip (BMO/DMH/AMC) used by Earnings rows */
+      .tt-hour-chip {
+        display: inline-flex; align-items: center; justify-content: center;
+        font-family: var(--tt-font-mono);
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--tt-text-dim);
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--tt-border);
+        white-space: nowrap;
+      }
+      .tt-hour-chip.bmo { color: #f5c25c; background: rgba(245, 194, 92, 0.10); border-color: rgba(245, 194, 92, 0.20); }
+      .tt-hour-chip.amc { color: #818cf8; background: rgba(129, 140, 248, 0.10); border-color: rgba(129, 140, 248, 0.20); }
+      .tt-hour-chip.dmh { color: #34d399; background: rgba(52, 211, 153, 0.10); border-color: rgba(52, 211, 153, 0.20); }
+      .tt-hour-chip.unk { opacity: 0.55; }
+
+      /* Section card header used by Earnings/Movers/Focus cards */
+      .tt-day-head {
+        display: flex; justify-content: space-between; align-items: center;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+      .tt-day-head__count {
+        font-weight: 600;
+        color: var(--tt-text-muted);
+        font-family: var(--tt-font-mono);
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      /* ── Legacy earnings/mover classes kept for components that still
+            reference them. New code should prefer .tt-trow above. ─── */
       .earn-row {
         display: grid;
         grid-template-columns: 80px 1fr auto;
@@ -1089,9 +1240,6 @@
       .earn-row .date { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); }
       .earn-row .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); }
       .earn-row .hour { font-size: 10.5px; color: var(--tt-text-dim); }
-      /* Earnings universe-priority — bold symbol + accent dot
-         distinguishes tickers in our SECTOR_MAP universe from the
-         long-tail Finnhub events (2026-05-28). */
       .earn-row.is-universe { background: rgba(76, 175, 220, 0.06); border-color: rgba(76, 175, 220, 0.22); }
       .earn-row.is-universe .sym { color: var(--tt-accent, #4cb9dc); }
       .earn-row .sym .uni-dot {
@@ -2090,8 +2238,11 @@
                       className: `focus-chip-bias ${biasCls}`,
                       style: bias ? null : { visibility: "hidden" },
                     }, bias || "·"),
-                    // Col 2: symbol + metric (inline, left-aligned, wraps on tiny screens)
+                    // Col 2: logo + symbol + metric (inline, left-aligned,
+                    // wraps on tiny screens). Logo added 2026-05-28
+                    // to match the Earnings/Movers info-lockup.
                     h("div", { className: "focus-chip-main" },
+                      h(TickerLogo, { sym, size: 18 }),
                       h("span", { className: "focus-chip-sym" }, sym),
                       metric && h("span", { className: "focus-chip-metric" }, metric),
                     ),
@@ -2115,6 +2266,46 @@
         );
       }
 
+      // ── TickerLogo ─────────────────────────────────────────────
+      //
+      // 2026-05-28 — React-friendly wrapper around window.DS.tickerLogo
+      // (defined in ds-components.js). The DS helper returns a vanilla
+      // DOM node that loads the logo image from a CDN and falls back to
+      // a coloured monogram on error. We mount it via a ref so it works
+      // even when DS is loaded asynchronously after the React tree first
+      // paints. The wrapper element is what carries the .tt-trow__logo
+      // class (sized to slot into the unified row); the DS swap
+      // replaces the inner monogram when the image finishes loading.
+      function TickerLogo({ sym, size = 22 }) {
+        const SYM = String(sym || "").toUpperCase();
+        const mono = SYM.slice(0, 2) || "?";
+        return h("span", {
+          className: "tt-trow__logo",
+          style: { width: size, height: size },
+          ref: (el) => {
+            if (!el || el.dataset.dsInit) return;
+            if (!window.DS || typeof window.DS.tickerLogo !== "function") return;
+            el.dataset.dsInit = "1";
+            try {
+              const node = window.DS.tickerLogo(SYM, { size });
+              // DS returns its own div with the logo class — copy its
+              // children/styles into our wrapper rather than replacing
+              // the wrapper itself (preserves our React reconciliation
+              // and keeps the .tt-trow__logo class intact for theming).
+              while (el.firstChild) el.removeChild(el.firstChild);
+              el.textContent = node.textContent || "";
+              if (node.style.background) el.style.background = node.style.background;
+              const img = node.querySelector("img");
+              if (img) {
+                el.appendChild(img.cloneNode(true));
+                el.style.background = "#ffffff";
+                el.textContent = "";
+              }
+            } catch (_) { /* keep monogram fallback */ }
+          },
+        }, mono);
+      }
+
       // ── Top movers ─────────────────────────────────────────────
       // 2026-05-27 (PR #319) — Two changes:
       //   1. mode='ext' now picks AH price (_ah_price / extended_price)
@@ -2124,59 +2315,59 @@
       //   2. mode='ext' shows the RTH close stacked below the AH
       //      price so users can see how the EXT move compares to
       //      where the stock closed in the regular session.
-      function MoverRow({ rk, t, mode, onSelectTicker }) {
+      //
+      // 2026-05-28 — Refactored to use the unified .tt-trow component
+      // so it visually matches the Earnings strip and the Focus rail
+      // (logo + symbol + meta + right-side stack). Click handler still
+      // calls onSelectTicker to open the right rail.
+      function MoverRow({ rk, t, mode, onSelectTicker, universe }) {
         const dc = getDailyChange(t);
         const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-        // Pick the right price for the mode.
-        //   RTH: t.price is now (post PR #319 in tt-live-data.js) the
-        //        RTH close when market is closed, or the live tick when
-        //        market is open — both correct for an "RTH Gainer" row.
-        //   EXT: prefer the explicit AH price field; fall back to the
-        //        live tick or t.price as last resort.
         const price = mode === "ext"
           ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price)
           : Number(t?.price);
-        // For EXT rows also show the RTH close beneath, so users can
-        // contextualize the after-hours move.
         const rthClose = mode === "ext" ? Number(t?.price) : null;
         const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
         const sym = String(t?.ticker || "").toUpperCase();
-        const dir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
-        return h("a", {
-          className: "mvr",
-          href: `/index-react.html?ticker=${encodeURIComponent(sym)}`,
-          onClick: (e) => {
-            if (typeof onSelectTicker === "function") {
-              e.preventDefault();
-              onSelectTicker(sym);
-            }
-          },
+        const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
+        const isUni = universe instanceof Set ? universe.has(sym) : false;
+        const onClick = (e) => {
+          e.preventDefault();
+          if (typeof onSelectTicker === "function") onSelectTicker(sym);
+        };
+        return h("button", {
+          type: "button",
+          className: "tt-trow tt-trow--mover" + (isUni ? " is-universe" : ""),
+          onClick,
+          title: `Open ${sym} in the right rail`,
         },
-          h("span", { className: "rk" }, "#" + (rk + 1)),
-          h("span", null,
-            h("div", { className: "sym" }, sym),
-          ),
-          // Price stack: EXT price on top, RTH close beneath (dim) for EXT rows.
-          h("span", { className: "px", style: showRthSub ? { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.1 } : null },
-            Number.isFinite(price) ? fmtUsd(price) : "—",
-            showRthSub && h("span", { style: { fontSize: 9, color: "var(--tt-text-dim)", fontWeight: 400 } },
-              "RTH " + fmtUsd(rthClose),
+          h("span", { className: "tt-trow__rank" }, "#" + (rk + 1)),
+          h(TickerLogo, { sym }),
+          h("span", { className: "tt-trow__sym" }, sym),
+          // Empty meta cell so the price column lines up across rows
+          // (the grid template reserves the 1fr column for the meta
+          // even when blank — keeps everything visually aligned).
+          h("span", null),
+          h("span", { className: "tt-trow__right" },
+            h("span", { className: "tt-trow__px" }, Number.isFinite(price) ? fmtUsd(price) : "—"),
+            h("span", { className: `tt-trow__chg ${dir}` },
+              Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—",
             ),
+            showRthSub && h("span", { className: "tt-trow__sub" }, "RTH " + fmtUsd(rthClose)),
           ),
-          h("span", { className: `chg ${dir}` }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"),
         );
       }
-      function MoversCol({ title, items, mode, onSelectTicker }) {
+      function MoversCol({ title, items, mode, onSelectTicker, universe }) {
         return h("div", { className: "tt-card tt-card-pad" },
           h("div", { className: "tt-sec-title", style: { marginBottom: 10 } }, title),
           items.length === 0
             ? h("div", { style: { fontSize: 12, color: "var(--tt-text-dim)", fontStyle: "italic" } }, "No movers right now")
             : h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-                items.map((t, i) => h(MoverRow, { key: t.ticker || i, rk: i, t, mode, onSelectTicker })),
+                items.map((t, i) => h(MoverRow, { key: t.ticker || i, rk: i, t, mode, onSelectTicker, universe })),
               ),
         );
       }
-      function TopMovers({ data, onSelectTicker }) {
+      function TopMovers({ data, onSelectTicker, universe }) {
         const arr = useMemo(() => {
           if (!data) return [];
           return Object.values(data).filter(t => t && t.ticker);
@@ -2234,12 +2425,12 @@
               : "RTH movers from today's session. EXT row shows after-hours follow-through."
           ),
           h("div", { className: "tt-grid tt-grid-2" },
-            h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
-            h(MoversCol, { title: "RTH LOSERS",  items: rthLoss, mode: "rth", onSelectTicker }),
+            h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker, universe }),
+            h(MoversCol, { title: "RTH LOSERS",  items: rthLoss, mode: "rth", onSelectTicker, universe }),
           ),
           hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 12 } },
-            h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext", onSelectTicker }),
-            h(MoversCol, { title: "EXT LOSERS (after-hours)",  items: extLoss, mode: "ext", onSelectTicker }),
+            h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext", onSelectTicker, universe }),
+            h(MoversCol, { title: "EXT LOSERS (after-hours)",  items: extLoss, mode: "ext", onSelectTicker, universe }),
           ),
         );
       }
@@ -2250,10 +2441,15 @@
       // SECTOR_MAP universe tickers first (then session, then symbol).
       // The previous version capped each day at 6 rows + total at 18,
       // which silently dropped DELL, COST, MDB, NTAP, OKTA, PATH on a
-      // single busy day (2026-05-28). Pass `universe` (a Set of symbols
-      // we actually trade) so the strip can both prioritise AND
-      // visually distinguish those rows.
-      function EarningsStrip({ earnings, universe }) {
+      // single busy day. Pass `universe` (a Set of symbols we actually
+      // trade) so the strip can both prioritise AND visually distinguish
+      // those rows.
+      //
+      // 2026-05-28 (cohesion pass) — Rows are now the unified
+      // .tt-trow component (same shape as MoverRow and FocusRail).
+      // Logo + bold symbol + hour chip + EPS estimate, fully
+      // clickable via onSelectTicker → opens the right rail.
+      function EarningsStrip({ earnings, universe, onSelectTicker }) {
         const events = safeArr(earnings?.events).slice();
         if (events.length === 0) return null;
         const HOUR_ORDER = (h) => {
@@ -2279,31 +2475,32 @@
           return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
         });
         // Group by date — no per-day or total cap. Card auto-scrolls
-        // vertically beyond a soft 480px height so a 22-event day on the
-        // 2026-05-28 cluster doesn't push the rest of the page down.
+        // vertically beyond a soft 480px height so a 22-event day
+        // doesn't push the rest of the page down.
         const byDay = {};
         for (const ev of events) { (byDay[ev.date] = byDay[ev.date] || []).push(ev); }
         const days = Object.keys(byDay).sort();
         if (days.length === 0) return null;
+        const hourClass = (hr) => {
+          const hl = String(hr || "").toLowerCase();
+          if (hl.startsWith("bmo") || hl.includes("before")) return "bmo";
+          if (hl.startsWith("dmh") || hl.includes("during")) return "dmh";
+          if (hl.startsWith("amc") || hl.includes("after"))  return "amc";
+          return "unk";
+        };
 
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "EARNINGS THIS WEEK"),
-          h("div", { className: "tt-sec-h" }, "Event-driven risk on the radar — universe tickers first"),
+          h("div", { className: "tt-sec-h" }, "Event-driven risk on the radar \u2014 universe tickers first"),
           h("div", { className: "tt-grid tt-grid-3" },
             days.map(d => {
               const dayEvents = byDay[d];
               const uniCount = dayEvents.filter(ev => uniSet.has(String(ev?.symbol || "").toUpperCase())).length;
               return h("div", { key: d, className: "tt-card tt-card-pad" },
-                h("div", {
-                  style: {
-                    fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700,
-                    letterSpacing: "0.06em", marginBottom: 8,
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                  },
-                },
+                h("div", { className: "tt-day-head" },
                   h("span", null, d),
-                  h("span", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } },
-                    `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` · ${uniCount} universe` : ""}`),
+                  h("span", { className: "tt-day-head__count" },
+                    `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` \u00b7 ${uniCount} universe` : ""}`),
                 ),
                 h("div", {
                   style: {
@@ -2326,19 +2523,29 @@
                     const hasEps = Number.isFinite(eps) && eps !== 0;
                     const sym = String(ev?.symbol || "").toUpperCase();
                     const isUni = uniSet.has(sym);
-                    return h("div", {
-                        key: `${sym}-${i}`,
-                        className: "earn-row" + (isUni ? " is-universe" : ""),
-                      },
-                      h("span", { className: "date" }, String(ev?.hour || "—").toUpperCase()),
-                      h("span", null,
-                        h("span", { className: "sym", title: isUni ? "In our SECTOR_MAP universe" : undefined },
-                          isUni ? h("span", { className: "uni-dot", "aria-hidden": "true" }) : null,
-                          ev?.symbol || "?",
-                        ),
-                      ),
-                      h("span", { className: "hour", title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available" },
-                        hasEps ? "$" + eps.toFixed(2) + " est" : "—",
+                    const hcls = hourClass(ev?.hour);
+                    const hourLabel = (ev?.hour || "—").toUpperCase();
+                    const onClick = (e) => {
+                      e.preventDefault();
+                      if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                    };
+                    return h("button", {
+                      type: "button",
+                      key: `${sym}-${i}`,
+                      className: "tt-trow tt-trow--earnings" + (isUni ? " is-universe" : ""),
+                      onClick,
+                      title: isUni
+                        ? `Open ${sym} in the right rail \u00b7 in our universe`
+                        : `Open ${sym} in the right rail`,
+                    },
+                      h(TickerLogo, { sym }),
+                      h("span", { className: "tt-trow__sym" }, sym || "?"),
+                      h("span", { className: `tt-hour-chip ${hcls}` }, hourLabel),
+                      h("span", { className: "tt-trow__right" },
+                        h("span", {
+                          className: "tt-trow__chg " + (hasEps ? "mut" : "mut"),
+                          title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available",
+                        }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"),
                       ),
                     );
                   }),
@@ -3960,9 +4167,17 @@
             // user can read the regime first, then the actionable list.
             data && h(FocusRail, { data, onSelectTicker }),
             brief && h(MacroStrip, { brief }),
-            data && h(TopMovers, { data, onSelectTicker }),
+            data && h(TopMovers, {
+              data,
+              onSelectTicker,
+              // Highlight universe rows (small accent treatment that
+              // matches the Earnings strip) — gives the user a quick
+              // visual cue that a mover is a tradable ticker we score.
+              universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
+            }),
             earnings && h(EarningsStrip, {
               earnings,
+              onSelectTicker,           // 2026-05-28 — clickable rows
               // Pass the live universe so EarningsStrip can prioritise
               // tickers we actually trade (DELL, COST, MDB, NTAP, OKTA,
               // PATH) above long-tail Finnhub-only names.
