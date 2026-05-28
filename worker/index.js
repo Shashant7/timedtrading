@@ -280,7 +280,10 @@ else apikeyInput.addEventListener('change', startPolling, { once:true });
 
 </body></html>`;
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
-import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
+import {
+  getTickerType as getTickerTypeForFocus,
+  SECTOR_MAP as SECTOR_MAP_FILE,
+} from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
@@ -39054,6 +39057,54 @@ const SECTOR_MAP = {
   "YM1!": "Futures",                    // Dow Jones futures
 };
 
+// 2026-05-28 — Unify with sector-mapping.js (THE actual systemic fix for
+// the recurring SECTOR_MAP staleness pattern).
+//
+// Background: this file used to define SECTOR_MAP inline (above), AND
+// `worker/sector-mapping.js` also defined a SECTOR_MAP. The two were
+// added independently and drifted over time — PRs #254 (CF/NOW/PM),
+// #265 (DELL), #287 (IBM) only touched the FILE map but never the
+// inline one. The runtime always used the inline map, so every one of
+// those PRs silently failed for the affected tickers.
+//
+// State at the time this merge shipped (audited via
+// `node -e "import('./sector-mapping.js')..."`):
+//   - 5 tickers in file but missing from inline: CF, DELL, IBM, NOW, PM
+//   - 5 sector mismatches between the two maps:
+//       NOC   file=Industrials              inline=Aerospace & Defense
+//       RKLB  file=Industrials              inline=Aerospace & Defense
+//       NBIS  file=Information Technology   inline=Health Care
+//       UUUU  file=Basic Materials          inline=Energy
+//       DBA   file=Thematic ETF             inline=Commodity ETF
+//
+// Fix: at module load, merge every file-map entry into the inline map
+// (file map wins on conflict — it's the human-edited source most PRs
+// touch). New SECTOR_MAP additions in either file then automatically
+// flow through to the runtime.
+//
+// To prevent future drift we also surface a `__sector_map_audit`
+// snapshot for the operator (added/overridden) and log it on cold
+// start so any silent divergence shows up in the worker logs.
+const __sectorMapAudit = { added: [], overridden: [] };
+try {
+  if (SECTOR_MAP_FILE && typeof SECTOR_MAP_FILE === "object") {
+    for (const [sym, sector] of Object.entries(SECTOR_MAP_FILE)) {
+      if (!(sym in SECTOR_MAP)) {
+        SECTOR_MAP[sym] = sector;
+        __sectorMapAudit.added.push(sym);
+      } else if (SECTOR_MAP[sym] !== sector) {
+        __sectorMapAudit.overridden.push({ sym, from: SECTOR_MAP[sym], to: sector });
+        SECTOR_MAP[sym] = sector;
+      }
+    }
+    if (__sectorMapAudit.added.length > 0 || __sectorMapAudit.overridden.length > 0) {
+      console.log(`[SECTOR_MAP MERGE] added=${__sectorMapAudit.added.length} (${__sectorMapAudit.added.join(",")}) overridden=${__sectorMapAudit.overridden.length}`);
+    }
+  }
+} catch (e) {
+  console.error("[SECTOR_MAP MERGE] failed to unify sector maps:", String(e?.message || e).slice(0, 200));
+}
+
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
 // Account P&L reflects only tradeable instruments (stocks + sector ETFs).
 // Phase-E (2026-04-19): SPY/QQQ/IWM removed from WATCH_ONLY so the new
@@ -58676,6 +58727,10 @@ export default {
       // missing from timed:latest, plus the per-cycle counts of
       // replay-stub auto-heals and stale-stub auto-heals. Lightweight
       // probe — just a KV read.
+      //
+      // Also surfaces __sectorMapAudit (the module-load merge from
+      // sector-mapping.js → inline SECTOR_MAP) so the operator can
+      // verify the two maps are in sync at runtime, not just on file.
       if (routeKey === "GET /timed/admin/sector-map-health") {
         const _smAuthFail = await requireKeyOrAdmin(req, env);
         if (_smAuthFail) return _smAuthFail;
@@ -58683,14 +58738,29 @@ export default {
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         try {
           const blob = await kvGetJSON(KV, "timed:sector_map_health");
+          const merge_audit = {
+            added: __sectorMapAudit.added,
+            added_count: __sectorMapAudit.added.length,
+            overridden: __sectorMapAudit.overridden,
+            overridden_count: __sectorMapAudit.overridden.length,
+            note: "Tickers in sector-mapping.js that were missing from index.js inline SECTOR_MAP, auto-merged at module load.",
+          };
+          const universe_size_runtime = Object.keys(SECTOR_MAP || {}).length;
           if (!blob) {
             return sendJSON({
               ok: true,
               ts: null,
               detail: "No health snapshot yet — the monitor runs at 9 AM and 3 PM ET.",
+              merge_audit,
+              universe_size_runtime,
             }, 200, corsHeaders(env, req));
           }
-          return sendJSON({ ok: true, ...blob }, 200, corsHeaders(env, req));
+          return sendJSON({
+            ok: true,
+            ...blob,
+            merge_audit,
+            universe_size_runtime,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -81447,17 +81517,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
             if (!result) {
+              const now = Date.now();
               if (existing && typeof existing === "object") {
-                const now = Date.now();
                 existing.trigger_ts = now;
                 existing.data_source_ts = now;
                 existing.ingest_ts = now;
                 existing.ingest_time = new Date(now).toISOString();
                 existing._scoring_skip_reason = "insufficient_candle_data";
                 await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
+              } else {
+                // 2026-05-28 — Write a minimal placeholder when existing
+                // is null. Otherwise the ticker stays completely invisible
+                // in /timed/all + /timed/prices (the DELL post-heal state:
+                // we clear the stale replay stub, scoring fails to
+                // assemble a usable bundle from D1 candles, and the
+                // ticker stays a black hole). A minimal stub with
+                // _scoring_skip_reason is what the existing path writes
+                // when existing != null — apply the same shape here so
+                // downstream snapshot loops include the ticker and the
+                // operator can see WHY it's empty.
+                const minimalStub = {
+                  ticker,
+                  ts: now,
+                  trigger_ts: now,
+                  data_source_ts: now,
+                  ingest_ts: now,
+                  ingest_time: new Date(now).toISOString(),
+                  data_source: _usesTwelveData(env) ? "twelvedata" : "alpaca",
+                  _scoring_skip_reason: "insufficient_candle_data",
+                  kanban_stage: "watch",
+                  state: null,
+                  htf_score: null,
+                  ltf_score: null,
+                  rank: null,
+                  score: null,
+                };
+                await kvPutJSON(KV, `timed:latest:${ticker}`, minimalStub);
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, minimalStub));
               }
-              // Auto-backfill user-added tickers that lack scoring-TF candles
-              if (_userAddedSet.has(ticker) && !(await d1TickerHasCandles(env, ticker))) {
+              // 2026-05-28 — Tombstone every insufficient-candle-data
+              // skip (not just throws). The DELL incident: scoring was
+              // skipping silently because at least one required TF
+              // bundle wasn't assembling, but the per-ticker catch
+              // block never saw an exception and the SECTOR_MAP
+              // completeness monitor only runs at 9 AM / 3 PM. Daily
+              // operator visibility was effectively zero.
+              ctx.waitUntil(recordCronFailure(env, {
+                op: `score_ticker_${ticker}`,
+                error: "insufficient_candle_data — at least one scoring TF (W/D/240/60/30/leading-LTF) failed to assemble",
+                caller: "scoring_cron",
+                skipDiscord: true,
+              }).catch(() => {}));
+              // Auto-backfill — now triggers for ANY SECTOR_MAP ticker
+              // (not just user-added), since the universe-grade case is
+              // the more important one to self-heal.
+              const _isCoreOrUserAdded = _userAddedSet.has(ticker)
+                || (SECTOR_MAP && Object.prototype.hasOwnProperty.call(SECTOR_MAP, ticker));
+              if (_isCoreOrUserAdded && !(await d1TickerHasCandles(env, ticker))) {
                 ctx.waitUntil((async () => {
                   try {
                     if (_usesTwelveData(env)) {
@@ -81465,7 +81581,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     } else {
                       await alpacaBackfill(env, [ticker], d1UpsertCandle, "all", null);
                     }
-                    console.log(`[SCORING] Auto-backfilled user ticker ${ticker} (insufficient candle data)`);
+                    console.log(`[SCORING] Auto-backfilled ${ticker} (insufficient candle data, ${_userAddedSet.has(ticker) ? "user-added" : "SECTOR_MAP"})`);
                   } catch (bfErr) {
                     console.warn(`[SCORING] Auto-backfill failed for ${ticker}:`, String(bfErr?.message || bfErr).slice(0, 150));
                   }
