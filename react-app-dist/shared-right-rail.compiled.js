@@ -2312,6 +2312,10 @@
       });
       const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
       const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
+      const [catalysts, setCatalysts] = useState(null);
+      const [catalystsLoading, setCatalystsLoading] = useState(false);
+      const [catalystsError, setCatalystsError] = useState(null);
+      const catalystsCacheRef = useRef(new Map());
       const [chartTf, setChartTf] = useState("30");
       const [chartCandles, setChartCandles] = useState([]);
       const [chartLoading, setChartLoading] = useState(false);
@@ -3130,7 +3134,7 @@
       useEffect(() => {
         const raw = String(initialRailTab || "ANALYSIS").toUpperCase();
         let tab = raw;
-        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL"].includes(raw)) {
+        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
         setRailTab(tab);
@@ -3232,6 +3236,58 @@
             }
           } finally {
             if (!cancelled) setFundamentalsLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) {
+          setCatalysts(null);
+          setCatalystsError(null);
+          setCatalystsLoading(false);
+          return;
+        }
+        if (railTab !== "CATALYSTS") return;
+        const cached = catalystsCacheRef.current.get(sym);
+        if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+          setCatalysts(cached.data);
+          setCatalystsError(null);
+          setCatalystsLoading(false);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            setCatalystsLoading(true);
+            setCatalystsError(null);
+            const apiKey = typeof window !== "undefined" && window._ttApiKey ? window._ttApiKey : "";
+            const qs = new URLSearchParams({
+              ticker: sym
+            });
+            if (apiKey) qs.set("key", apiKey);
+            const res = await fetch(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, {
+              cache: "no-store"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "catalysts_failed");
+            if (!cancelled) {
+              catalystsCacheRef.current.set(sym, {
+                data: json,
+                ts: Date.now()
+              });
+              setCatalysts(json);
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setCatalysts(null);
+              setCatalystsError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setCatalystsLoading(false);
           }
         })();
         return () => {
@@ -3740,7 +3796,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART"].includes(railTab) ? railTab : "SNAPSHOT";
+        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "CATALYSTS"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
           value,
@@ -4065,14 +4121,13 @@
             role: "tablist",
             style: {
               width: "100%",
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch",
-              scrollSnapType: "x proximity",
-              scrollbarWidth: "none",
-              justifyContent: "flex-end"
+              flexWrap: "wrap",
+              rowGap: 6,
+              justifyContent: "flex-end",
+              scrollbarWidth: "none"
             }
           }, (() => {
-            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["HISTORY", "History"]];
+            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
             const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
             return tabs.map(([key, label]) => React.createElement("button", {
               key: key,
@@ -4085,6 +4140,10 @@
                 scrollSnapAlign: "start",
                 ...(key === "CHART" ? {
                   color: "#34d399",
+                  fontWeight: 700
+                } : {}),
+                ...(key === "CATALYSTS" && v2RailTab !== "CATALYSTS" ? {
+                  color: "#f59e0b",
                   fontWeight: 700
                 } : {})
               }
@@ -8100,6 +8159,575 @@
               letterSpacing: "0.12em"
             }
           }, "DATA \xB7 TWELVEDATA \xB7 CACHED 6H \xB7 FETCHED ", new Date(F.as_of || Date.now()).toLocaleTimeString()));
+        })(), v2RailTab === "CATALYSTS" && (() => {
+          if (catalystsLoading && !catalysts) {
+            return React.createElement("div", {
+              style: {
+                padding: "var(--ds-space-4)",
+                textAlign: "center",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Loading catalysts for ", tickerSymbol, "\u2026");
+          }
+          if (catalystsError && !catalysts) {
+            return React.createElement("div", {
+              style: {
+                padding: "var(--ds-space-4)",
+                textAlign: "center",
+                color: "var(--ds-text-muted)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, "Couldn't load catalysts: ", String(catalystsError).slice(0, 100));
+          }
+          if (!catalysts) return null;
+          const C = catalysts;
+          const fmtMoney = n => {
+            const x = Number(n) || 0;
+            const abs = Math.abs(x);
+            if (abs >= 1e6) return `$${(x / 1e6).toFixed(1)}M`;
+            if (abs >= 1e3) return `$${(x / 1e3).toFixed(0)}k`;
+            return `$${x.toFixed(0)}`;
+          };
+          const fmtAgo = iso => {
+            if (!iso) return "—";
+            const ms = typeof iso === "string" ? Date.parse(iso) : Number(iso);
+            if (!Number.isFinite(ms)) return "—";
+            const mins = (Date.now() - ms) / 60000;
+            if (mins < 60) return `${Math.round(mins)}m ago`;
+            const hours = mins / 60;
+            if (hours < 24) return `${Math.round(hours)}h ago`;
+            const days = hours / 24;
+            return `${Math.round(days)}d ago`;
+          };
+          const sentimentChip = s => {
+            const color = s === "bullish" ? "var(--ds-color-up, #34d399)" : s === "bearish" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)";
+            const bg = s === "bullish" ? "rgba(52,211,153,0.12)" : s === "bearish" ? "rgba(248,113,113,0.12)" : "rgba(255,255,255,0.05)";
+            const label = s === "bullish" ? "BULL" : s === "bearish" ? "BEAR" : "NEUT";
+            return React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color,
+                background: bg,
+                letterSpacing: "0.05em"
+              }
+            }, label);
+          };
+          return React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--ds-space-3)"
+            }
+          }, React.createElement(Panel, {
+            title: "\uD83D\uDD25 News Catalysts",
+            action: C.news?.count > 0 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, C.news.count, " headlines \xB7 5d")
+          }, !C.news?.has_data ? React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-3)",
+              padding: "var(--ds-space-2)",
+              background: C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.06)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+              marginBottom: 4
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "TOP CATALYST"), sentimentChip(C.news.top_catalyst.sentiment), React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              padding: "1px 6px",
+              borderRadius: 4,
+              color: "var(--ds-text-body)",
+              background: "rgba(255,255,255,0.08)"
+            }
+          }, "STR ", C.news.top_catalyst.catalyst_strength, "/10")), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              fontWeight: 600,
+              lineHeight: 1.4
+            }
+          }, C.news.top_catalyst.headline), React.createElement("div", {
+            style: {
+              marginTop: 4,
+              fontSize: 10,
+              color: "var(--ds-text-muted)"
+            }
+          }, C.news.top_catalyst.source, " \xB7 ", fmtAgo(C.news.top_catalyst.datetime))), React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 4,
+              marginBottom: "var(--ds-space-2)",
+              flexWrap: "wrap"
+            }
+          }, C.news.bull > 0 && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(52,211,153,0.10)",
+              color: "var(--ds-color-up, #34d399)"
+            }
+          }, C.news.bull, " bull"), C.news.bear > 0 && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(248,113,113,0.10)",
+              color: "var(--ds-color-down, #f87171)"
+            }
+          }, C.news.bear, " bear"), C.news.neutral > 0 && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--ds-text-muted)"
+            }
+          }, C.news.neutral, " neutral"), C.news.dominant_sentiment && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--ds-text-faint)"
+            }
+          }, "DOMINANT: ", String(C.news.dominant_sentiment).toUpperCase())), Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              marginTop: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "RECENT HEADLINES"), C.news.latest_3.map((h, i) => React.createElement("div", {
+            key: `hl-${i}`,
+            style: {
+              display: "flex",
+              gap: 6,
+              alignItems: "flex-start",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, sentimentChip(h.sentiment), React.createElement("div", {
+            style: {
+              flex: 1,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.35
+            }
+          }, h.headline, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-muted)",
+              marginTop: 1
+            }
+          }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10"))))))), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "NEWS \xB7 FINNHUB \xB7 SENTIMENT GPT-4O-MINI \xB7 10MIN CACHE")), React.createElement(Panel, {
+            title: "\uD83D\uDCBC Insider Activity",
+            action: C.insider?.has_data && React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, C.insider.lookback_days, "d window")
+          }, !C.insider?.has_data ? React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "No Form-4 insider transactions in the last 30 days.") : (() => {
+            const buyVal = C.insider.buys?.total_value || 0;
+            const sellVal = C.insider.sells?.total_value || 0;
+            const netVal = C.insider.net_value || 0;
+            const hiBuys = C.insider.buys?.high_signal_count || 0;
+            const hiBuysValue = C.insider.buys?.high_signal_value || 0;
+            return React.createElement(React.Fragment, null, React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: "var(--ds-space-3)",
+                marginBottom: "var(--ds-space-2)"
+              }
+            }, React.createElement("div", {
+              style: {
+                flex: 1,
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "NET 30d"), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                marginTop: 2,
+                fontSize: "var(--ds-fs-h4, 16px)",
+                color: netVal >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
+              }
+            }, netVal >= 0 ? "+" : "−", fmtMoney(Math.abs(netVal))), React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                marginTop: 2
+              }
+            }, "buys ", fmtMoney(buyVal), " \xB7 sells ", fmtMoney(sellVal))), React.createElement("div", {
+              style: {
+                flex: 1,
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "HIGH-SIGNAL BUYS"), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                marginTop: 2,
+                fontSize: "var(--ds-fs-h4, 16px)",
+                color: hiBuys > 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)"
+              }
+            }, hiBuys), React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                marginTop: 2
+              }
+            }, "CEO/CFO/Dir \xB7 ", fmtMoney(hiBuysValue)))), Array.isArray(C.insider.buys?.top_3) && C.insider.buys.top_3.length > 0 && React.createElement("div", {
+              style: {
+                marginTop: "var(--ds-space-2)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em",
+                marginBottom: 4
+              }
+            }, "RECENT BUYS"), C.insider.buys.top_3.map((t, i) => React.createElement("div", {
+              key: `ib-${i}`,
+              style: {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "4px 0",
+                borderBottom: i < C.insider.buys.top_3.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none"
+              }
+            }, React.createElement("div", {
+              style: {
+                flex: 1,
+                minWidth: 0
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap"
+              }
+            }, t.high_signal && React.createElement("span", {
+              style: {
+                color: "var(--ds-color-up, #34d399)",
+                marginRight: 4
+              }
+            }, "\u2605"), t.name), React.createElement("div", {
+              style: {
+                fontSize: 9,
+                color: "var(--ds-text-muted)"
+              }
+            }, t.title, " \xB7 ", t.date)), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-meta)",
+                fontWeight: 700,
+                color: "var(--ds-color-up, #34d399)"
+              }
+            }, fmtMoney(t.value))))));
+          })(), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "INSIDER \xB7 FINNHUB FORM-4 \xB7 \u2605 = CEO/CFO/COO/CTO/PRESIDENT/CHAIRMAN/DIRECTOR/10%+")), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
+            title: "\uD83C\uDFAD Theme Rotation",
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, C.themes.length, " theme", C.themes.length === 1 ? "" : "s")
+          }, C.themes.map((th, i) => {
+            const active = th.active;
+            const dir = th.active_direction;
+            const peers = dir === "up" ? th.top_up : th.top_down;
+            return React.createElement("div", {
+              key: `th-${i}`,
+              style: {
+                marginBottom: i < C.themes.length - 1 ? "var(--ds-space-2)" : 0,
+                padding: "var(--ds-space-2)",
+                background: active ? dir === "up" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${active ? dir === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600
+              }
+            }, String(th.theme).replace(/_/g, " ")), active && React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                background: dir === "up" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)",
+                color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
+                letterSpacing: "0.05em"
+              }
+            }, dir === "up" ? "▲ ACTIVE" : "▼ ACTIVE")), React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                marginBottom: 4
+              }
+            }, th.has_data, " of ", th.members, " peers reporting \xB7 ", th.up, " up \xB7 ", th.down, " down (\u22652%)"), Array.isArray(peers) && peers.length > 0 && React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                flexWrap: "wrap"
+              }
+            }, peers.slice(0, 4).map((p, j) => React.createElement("span", {
+              key: `pmv-${j}`,
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color: p.dp >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
+              }
+            }, p.ticker || p.t, " ", p.dp >= 0 ? "+" : "", p.dp, "%"))));
+          }), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "THEME \xB7 CURATED PEER GROUPS \xB7 ACTIVE = \u226530% PEERS MOVED \u22652% TODAY")), C.macro && React.createElement(Panel, {
+            title: "\uD83C\uDF10 Macro Context"
+          }, C.macro.narrative && React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)",
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-body)",
+              lineHeight: 1.4,
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, C.macro.narrative), C.macro.cross_asset_regime && React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 4,
+              flexWrap: "wrap",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, Object.entries(C.macro.cross_asset_regime).map(([k, v]) => {
+            if (v === "no_data") return null;
+            const color = v === "outperforming" ? "var(--ds-color-up, #34d399)" : v === "underperforming" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)";
+            const arrow = v === "outperforming" ? "▲" : v === "underperforming" ? "▼" : "─";
+            const label = k.replace(/_20d$/, "").replace(/_/g, " ");
+            return React.createElement("span", {
+              key: `xa-${k}`,
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color
+              }
+            }, arrow, " ", label);
+          })), C.macro.ticker_country && React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-body)",
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em",
+              marginBottom: 2
+            }
+          }, "COUNTRY: ", C.macro.ticker_country.label), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "20d ", C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : ""), C.macro.ticker_country.ret_20d, "% \xB7 RS vs SPY ", C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : ""), C.macro.ticker_country.rs_20d_vs_spy)), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "MACRO \xB7 20D RELATIVE STRENGTH vs SPY \xB7 COUNTRY + CROSS-ASSET ETFs")), C.coverage && React.createElement(Panel, {
+            title: "\uD83D\uDCCA Detection History"
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: "var(--ds-space-3)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              flex: 1,
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "CAPTURE RATE"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: "var(--ds-fs-h4, 16px)",
+              color: (C.coverage.capture_rate_pct || 0) >= 70 ? "var(--ds-color-up, #34d399)" : (C.coverage.capture_rate_pct || 0) >= 40 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)"
+            }
+          }, C.coverage.capture_rate_pct != null ? `${C.coverage.capture_rate_pct}%` : "—"), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, C.coverage.captured, " of ", C.coverage.big_moves, " big moves")), React.createElement("div", {
+            style: {
+              flex: 1,
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "GAPS \xB7 ", C.coverage.window_lookback_days || 14, "D"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: "var(--ds-fs-h4, 16px)",
+              color: (C.coverage.gaps || 0) === 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
+            }
+          }, C.coverage.gaps || 0), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, "last gap ", C.coverage.last_gap_day || "—"))), C.coverage.dominant_miss_reason && React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)",
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,193,7,0.05)",
+              border: "1px solid rgba(255,193,7,0.20)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " ")), React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "DETECTION \xB7 ATR-RELATIVE BIG MOVES \xB7 UNIVERSE CAPTURE ", C.coverage.universe_capture_rate_pct != null ? `${C.coverage.universe_capture_rate_pct}%` : "—")), React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textAlign: "right",
+              letterSpacing: "0.05em",
+              paddingTop: 4
+            }
+          }, "BUNDLED \xB7 10MIN CACHE \xB7 FETCHED ", new Date(C.fetched_at || Date.now()).toLocaleTimeString()));
         })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
@@ -8495,10 +9123,9 @@
           title: b.tip
         }, b.icon, " ", b.label));
       })()), React.createElement("div", {
-        className: "mt-3 flex items-center gap-1 overflow-x-auto",
+        className: "mt-3 flex flex-wrap items-center gap-1 gap-y-1.5",
         style: {
-          scrollbarWidth: "none",
-          WebkitOverflowScrolling: "touch"
+          scrollbarWidth: "none"
         }
       }, [{
         k: "ANALYSIS",
@@ -8511,6 +9138,10 @@
       }, {
         k: "TECHNICALS",
         label: "Technicals",
+        proOnly: false
+      }, {
+        k: "CATALYSTS",
+        label: "Catalysts",
         proOnly: false
       }, {
         k: "MODEL",
@@ -12640,4 +13271,4 @@
   };
 })();
 
-// cache-bust:1779937783681:193256033
+// cache-bust:1779940875043:633358095
