@@ -92,7 +92,30 @@ PDZ ZONE CONTEXT:
 CLOUD ALIGNMENT:
 - "aligned_34_50_d_1h_10m": All three TFs agree. Strongest signal.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > TD/DIVERGENCE > ENTRY SYSTEM > MOVE ARCHETYPE > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+DISCOVERY CONTEXT (memory.discovery_context, 2026-05-28):
+
+- discovery_context.screener_appearances tells you the ticker is also being
+  flagged by the daily TradingView screener (top_gainer / top_loser / weekly_
+  momentum). A count_last_7d >= 3 with consistent scan_type is a strong
+  sustained-momentum signal — bias toward APPROVE if other signals neutral.
+
+- discovery_context.coverage_gap_history tells you how often the model has
+  recently MISSED valid moves on this ticker:
+    capture_rate_pct < 50 with dominant_miss_reason = "cohort_fail" → the
+      cohort gates have been over-tight on this ticker. Bias toward APPROVE
+      when the current setup is otherwise sound (the model is the bottleneck,
+      not the trade quality).
+    dominant_miss_reason = "setup_not_detected" → the engine literally did
+      not flag valid setups during big-move days. Trust the rare entry that
+      DOES make it through more, not less.
+    capture_rate_pct >= 70 → engine is doing fine on this ticker; standard
+      evaluation applies.
+
+- discovery_context.universe_capture_rate_pct is system-wide context: if it
+  is < 60 the engine is broadly under-detecting; weight your skepticism
+  toward not REJECTing on borderline cases.
+
+Evaluation order: CHART > MARKOV/HMM REGIME > TD/DIVERGENCE > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 

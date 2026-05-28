@@ -1383,6 +1383,11 @@ const ROUTES = [
   ["GET",  "/timed/calibration/random-walk-null",         "GET /timed/calibration/random-walk-null"],
   // Trajectory program — Phase 4 cohort-gated admission ledger + status.
   ["GET",  "/timed/admin/cohort-admission/log",           "GET /timed/admin/cohort-admission/log"],
+  // 2026-05-28 — Universe Coverage Gap Diagnostic (discovery Phase 1).
+  // GET runs analysis on-demand; POST writes a fresh summary blob to KV
+  // for CIO memory L9 to consume. Daily cron also runs POST automatically.
+  ["GET",  "/timed/admin/discovery/coverage-gaps",        "GET /timed/admin/discovery/coverage-gaps"],
+  ["POST", "/timed/admin/discovery/coverage-gaps/refresh","POST /timed/admin/discovery/coverage-gaps/refresh"],
   ["GET",  "/timed/admin/cohort-admission/summary",       "GET /timed/admin/cohort-admission/summary"],
   ["GET",  "/timed/admin/cohort-admission/gates",         "GET /timed/admin/cohort-admission/gates"],
   // Trajectory program — Phase 6 prep (S6). Cell Markov visibility.
@@ -66053,6 +66058,70 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // DISCOVERY — Universe Coverage Gap Diagnostic (2026-05-28).
+      // Answers: "tickers in our universe that may be getting lost in our
+      // ability to detect the setup but are valid movers." Plus closes the
+      // loop on the daily TradingView screener cron by surfacing the gaps
+      // with classified reasons. See tasks/2026-05-28-opportunity-surface-plan.md
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /timed/admin/discovery/coverage-gaps?lookback_days=10&min_atr_mult=3&ticker=AAPL
+      //   On-demand analysis. ~1-2s for full universe over 10-day window.
+      if (routeKey === "GET /timed/admin/discovery/coverage-gaps") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const CoverageGaps = await import("./discovery/coverage-gaps.js");
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 10;
+          const minAtrMult = Number(url.searchParams.get("min_atr_mult")) || 3;
+          const tickerParam = (url.searchParams.get("ticker") || "").trim();
+          let tickers = tickerParam
+            ? tickerParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+            : Object.keys(SECTOR_MAP);
+          // 2026-05-28 — Capacity safety: full-universe with no ticker filter
+          // could exceed CPU budget on a cold isolate. Cap at 250 in-universe
+          // tickers per call; operator can specify ticker= for targeted slices.
+          if (tickers.length > 250) tickers = tickers.slice(0, 250);
+          const report = await CoverageGaps.runCoverageGapAnalysis(env, {
+            lookbackDays, minAtrMult, tickers,
+          });
+          return sendJSON({ ok: true, ...report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/discovery/coverage-gaps/refresh?lookback_days=10&min_atr_mult=3
+      //   Runs analysis + writes summary blob to KV for CIO memory L9 to read.
+      //   Daily cron also calls this automatically (see scheduled handler).
+      if (routeKey === "POST /timed/admin/discovery/coverage-gaps/refresh") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const CoverageGaps = await import("./discovery/coverage-gaps.js");
+          const lookbackDays = Number(url.searchParams.get("lookback_days")) || 10;
+          const minAtrMult = Number(url.searchParams.get("min_atr_mult")) || 3;
+          const tickers = Object.keys(SECTOR_MAP).slice(0, 250);
+          const report = await CoverageGaps.runCoverageGapAnalysis(env, {
+            lookbackDays, minAtrMult, tickers,
+          });
+          const summary = CoverageGaps.buildCoverageGapsSummary(report);
+          await KV.put("timed:discovery:coverage-gaps-summary", JSON.stringify(summary), {
+            expirationTtl: 7 * 86400,
+          });
+          return sendJSON({
+            ok: true,
+            summary,
+            universe_capture_rate_pct: report.summary.capture_rate_pct,
+            tickers_with_gaps: Object.keys(summary.by_ticker).length,
+            written_to: "timed:discovery:coverage-gaps-summary",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // PHASE 2 VISIBILITY ROUTES — trigger hit-rate, k-NN trajectory cohort,
       // stage Markov. All read-only.
       // See tasks/2026-05-18-stochastic-research-program.md §0.6 phase 2.
@@ -77791,6 +77860,40 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
+    // ── Discovery: Coverage Gap Summary refresh (2026-05-28) ──
+    // Runs once a day at 22:00 UTC (after market close) and writes the per-
+    // ticker summary to KV so CIO memory L9 can read it cheap (O(1)).
+    // Limited to once-daily because the full analysis takes ~1-2s and
+    // there's no value in running it more often than the daily candles
+    // refresh.
+    if (vc.has("0 22 * * *")) {
+      ctx.waitUntil((async () => {
+        try {
+          console.log("[DISCOVERY CRON] Refreshing universe coverage-gap summary...");
+          const CoverageGaps = await import("./discovery/coverage-gaps.js");
+          const tickers = Object.keys(SECTOR_MAP).slice(0, 250);
+          const report = await CoverageGaps.runCoverageGapAnalysis(env, {
+            lookbackDays: 14,  // 2-week window catches the most recent setup-detection drift
+            minAtrMult: 3,
+            tickers,
+          });
+          const summary = CoverageGaps.buildCoverageGapsSummary(report);
+          await KV.put("timed:discovery:coverage-gaps-summary", JSON.stringify(summary), {
+            expirationTtl: 7 * 86400,
+          });
+          console.log(`[DISCOVERY CRON] Coverage-gap summary written: ${Object.keys(summary.by_ticker).length} tickers with gaps, universe capture ${report.summary.capture_rate_pct}%`);
+          recordCronSuccess(env, "discovery_coverage_gaps_refresh").catch(() => {});
+        } catch (e) {
+          console.error("[DISCOVERY CRON] Coverage-gap refresh failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "discovery_coverage_gaps_refresh",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
     // ── Daily Brief: Morning (9 AM ET — 13:00 UTC in EDT, 14:00 UTC in EST) ──
     if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5")) {
       const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
@@ -79541,6 +79644,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (String(env._deepAuditConfig?.ai_cio_reference_enabled ?? "false") === "true" && cioRefLive?.config_value) {
               try { cioRef = JSON.parse(cioRefLive.config_value); } catch {}
             }
+            // 2026-05-28 — Preload discovery context for CIO memory L9:
+            //   1. screener candidates (from the daily TradingView screener cron)
+            //   2. universe coverage-gap summary (from /timed/admin/discovery/
+            //      coverage-gaps/refresh nightly cron)
+            // Both are KV blobs, cheap to read once per scoring cycle.
+            let screenerCands = null, coverageGapsSummary = null;
+            try {
+              const screenerRaw = await KV.get("timed:screener:candidates");
+              if (screenerRaw) {
+                const parsed = JSON.parse(screenerRaw);
+                screenerCands = Array.isArray(parsed?.candidates) ? parsed.candidates : null;
+              }
+            } catch (_) {}
+            try {
+              const gapsRaw = await KV.get("timed:discovery:coverage-gaps-summary");
+              if (gapsRaw) coverageGapsSummary = JSON.parse(gapsRaw);
+            } catch (_) {}
             env._cioMemoryCache = {
               pathPerf: ppMap,
               marketSnapshots: (snapLive?.results || []).reverse(),
@@ -79549,6 +79669,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               franchise: fVal,
               referenceFeatures: cioRef,
               cioDecisions: [],
+              screenerCandidates: screenerCands,
+              coverageGapsSummary: coverageGapsSummary,
             };
           } catch (e) {
             console.warn("[CIO_MEM] Live cache load failed:", String(e).slice(0, 150));
