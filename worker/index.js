@@ -1508,6 +1508,12 @@ const ROUTES = [
   ["POST", "/timed/admin/close-stale-open-trades", "POST /timed/admin/close-stale-open-trades"],
   ["GET", "/timed/admin/data-audit-log", "GET /timed/admin/data-audit-log"],
   ["GET", "/timed/admin/activity-feed", "GET /timed/admin/activity-feed"],
+  // 2026-05-28 — DMARC posture monitor. Reads the live DNS TXT record,
+  // parses the policy, compares to the last-seen-posture in KV, and
+  // flags drift. Backed by a daily cron that pages a Discord system
+  // alert on drift so an accidental DNS revert is caught within 24h.
+  // See tasks/2026-05-28-dmarc-runbook.md for the ramp schedule.
+  ["GET", "/timed/admin/dmarc/posture", "GET /timed/admin/dmarc/posture"],
   ["POST", "/timed/admin/model-config", "POST /timed/admin/model-config"],
   ["GET",  "/timed/admin/model-config", "GET /timed/admin/model-config"],
   ["GET",  "/timed/admin/grade-config",  "GET /timed/admin/grade-config"],
@@ -59935,6 +59941,112 @@ export default {
         }
       }
 
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/dmarc/posture
+      //
+      // Reads the live DNS TXT record for _dmarc.timed-trading.com via
+      // Cloudflare's 1.1.1.1 DoH endpoint, parses the policy, compares
+      // against the last-seen-posture in KV, and flags drift.
+      //
+      // Backed by the daily cron at 13:00 UTC which posts a Discord
+      // system-lane alert when drift is detected (e.g. someone reverts
+      // the record in DNS by accident). Companion to the runbook at
+      // tasks/2026-05-28-dmarc-runbook.md.
+      //
+      // Public-admin behind ?key= so the operator can poll any time.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/dmarc/posture") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const domain = String(url.searchParams.get("domain") || "timed-trading.com").trim();
+          const _dohRes = await fetch(`https://1.1.1.1/dns-query?name=_dmarc.${encodeURIComponent(domain)}&type=TXT`, {
+            headers: { Accept: "application/dns-json" },
+            cf: { cacheTtl: 60 },
+          });
+          if (!_dohRes.ok) {
+            return sendJSON({ ok: false, error: `doh_${_dohRes.status}` }, 502, corsHeaders(env, req));
+          }
+          const _doh = await _dohRes.json();
+          const _answers = Array.isArray(_doh?.Answer) ? _doh.Answer : [];
+          const _txtRecords = _answers
+            .filter((a) => a?.type === 16) // TXT
+            .map((a) => String(a.data || "").replace(/^"|"$/g, ""));
+          const _dmarcRecords = _txtRecords.filter((s) => s.toLowerCase().startsWith("v=dmarc1"));
+
+          // Per RFC 7489: multiple v=DMARC1 records means no policy.
+          const _multipleRecords = _dmarcRecords.length > 1;
+          const _noRecord = _dmarcRecords.length === 0;
+          const _raw = _dmarcRecords[0] || null;
+
+          // Parse the policy into a flat object
+          const _parsed = {};
+          if (_raw) {
+            for (const part of _raw.split(";")) {
+              const [k, ...rest] = part.split("=");
+              if (!k || rest.length === 0) continue;
+              _parsed[k.trim().toLowerCase()] = rest.join("=").trim();
+            }
+          }
+
+          // Expected posture (what the runbook target is)
+          const _expectedPolicies = ["none", "quarantine", "reject"];
+          const _hasReporting = !!(_parsed.rua || _parsed.ruf);
+
+          // Flags
+          const flags = [];
+          if (_noRecord) flags.push("no_dmarc_record_at_all");
+          if (_multipleRecords) flags.push("multiple_dmarc_records_treated_as_none");
+          if (!_hasReporting) flags.push("no_rua_or_ruf_reporting_endpoint");
+          if (_parsed.p === "none") flags.push("policy_is_none_no_enforcement");
+          if (_parsed.sp === "none" && _parsed.p && _parsed.p !== "none") flags.push("subdomain_policy_weaker_than_parent");
+          if (_expectedPolicies.indexOf(_parsed.p) < 0 && _parsed.p) flags.push(`unknown_policy_${_parsed.p}`);
+
+          // Drift detection vs last-seen posture in KV
+          const _KV = env?.KV_TIMED;
+          let drift = null;
+          let _lastSeen = null;
+          if (_KV) {
+            try {
+              _lastSeen = await kvGetJSON(_KV, `timed:dmarc:posture:${domain}`);
+              if (_lastSeen?.parsed) {
+                const prev = _lastSeen.parsed;
+                const _curr = _parsed;
+                const _drifted = [];
+                const _RANK = { reject: 3, quarantine: 2, none: 1 };
+                if ((_RANK[_curr.p] || 0) < (_RANK[prev.p] || 0)) _drifted.push(`policy_relaxed_${prev.p}_to_${_curr.p}`);
+                if ((_RANK[_curr.sp] || 0) < (_RANK[prev.sp] || 0)) _drifted.push(`subpolicy_relaxed_${prev.sp}_to_${_curr.sp}`);
+                if (Number(prev.pct || 100) < Number(_curr.pct || 100) === false &&
+                    Number(prev.pct || 100) > Number(_curr.pct || 100)) {
+                  _drifted.push(`pct_reduced_${prev.pct || 100}_to_${_curr.pct || 100}`);
+                }
+                if (prev.rua && !_curr.rua) _drifted.push("rua_removed");
+                drift = _drifted.length > 0 ? _drifted : null;
+              }
+              await kvPutText(_KV, `timed:dmarc:posture:${domain}`,
+                JSON.stringify({ raw: _raw, parsed: _parsed, flags, seen_at: Date.now() }),
+                86400 * 30,
+              );
+            } catch (_) { /* best-effort */ }
+          }
+
+          return sendJSON({
+            ok: true,
+            domain,
+            raw_record: _raw,
+            parsed: _parsed,
+            flags,
+            drift,
+            last_seen: _lastSeen ? { ts: _lastSeen.seen_at, raw: _lastSeen.raw, parsed: _lastSeen.parsed } : null,
+            healthy: flags.filter((f) => f !== "policy_is_none_no_enforcement").length === 0 && !drift,
+            runbook: "tasks/2026-05-28-dmarc-runbook.md",
+            note: "See runbook for the +2/+3/+4 wk ramp schedule. 'flags' lists structural issues; 'drift' lists changes since last check (relaxation = bad).",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/patch-trade-fields?trade_id=X&[field=value...]&key=...
       // V15 P0.7.113 (2026-05-08): generic UPDATE endpoint for the trades
       // row. Accepts an explicit allowlist of fields to avoid SQL surprises:
@@ -78839,6 +78951,89 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         })());
       }
       // Don't return — allow other handlers
+    }
+
+    // ── DMARC drift monitor — once daily at 13:00 UTC ─────────────────
+    // Piggybacks the hourly cron (we're at the 5-trigger CF limit). The
+    // 13:00 UTC anchor lines up with the morning daily brief so the
+    // operator sees both signals at the same time of day. Posts a
+    // Discord system-lane alert if drift is detected. See
+    // tasks/2026-05-28-dmarc-runbook.md.
+    if (vc.has("0 13 * * *") || vc.has("0 14 * * *")) {
+      ctx.waitUntil((async () => {
+        try {
+          // Re-use the posture endpoint's logic inline (no DB needed,
+          // just DoH + KV diff).
+          const domain = "timed-trading.com";
+          const _dohRes = await fetch(`https://1.1.1.1/dns-query?name=_dmarc.${domain}&type=TXT`, {
+            headers: { Accept: "application/dns-json" },
+            cf: { cacheTtl: 60 },
+          });
+          if (!_dohRes.ok) {
+            console.warn(`[DMARC MONITOR] DoH lookup failed: ${_dohRes.status}`);
+            return;
+          }
+          const _doh = await _dohRes.json();
+          const _txt = (Array.isArray(_doh?.Answer) ? _doh.Answer : [])
+            .filter((a) => a?.type === 16)
+            .map((a) => String(a.data || "").replace(/^"|"$/g, ""))
+            .filter((s) => s.toLowerCase().startsWith("v=dmarc1"));
+          const _raw = _txt[0] || null;
+          const _parsed = {};
+          if (_raw) {
+            for (const part of _raw.split(";")) {
+              const [k, ...rest] = part.split("=");
+              if (!k || rest.length === 0) continue;
+              _parsed[k.trim().toLowerCase()] = rest.join("=").trim();
+            }
+          }
+          const flags = [];
+          if (_txt.length === 0) flags.push("no_dmarc_record");
+          if (_txt.length > 1) flags.push("multiple_dmarc_records");
+          if (!_parsed.rua && !_parsed.ruf) flags.push("no_rua_or_ruf_reporting");
+          const _KV = env?.KV_TIMED;
+          const _last = _KV ? await kvGetJSON(_KV, `timed:dmarc:posture:${domain}`) : null;
+          const _RANK = { reject: 3, quarantine: 2, none: 1 };
+          const drift = [];
+          if (_last?.parsed) {
+            const prev = _last.parsed;
+            if ((_RANK[_parsed.p] || 0) < (_RANK[prev.p] || 0)) drift.push(`policy_relaxed_${prev.p}_to_${_parsed.p}`);
+            if (prev.rua && !_parsed.rua) drift.push("rua_removed");
+          }
+          if (_KV) {
+            await kvPutText(_KV, `timed:dmarc:posture:${domain}`,
+              JSON.stringify({ raw: _raw, parsed: _parsed, flags, seen_at: Date.now() }),
+              86400 * 30,
+            );
+          }
+          // Alert only on bad signals — flags.length>0 OR drift.length>0
+          // — and 24h dedupe so we don't spam if the operator is still
+          // working on the ramp.
+          if ((flags.length > 0 || drift.length > 0) && _KV) {
+            const _alertKey = `timed:dmarc:alert:${domain}:${flags.sort().join(",")}::${drift.sort().join(",")}`;
+            const _seen = await _KV.get(_alertKey);
+            if (!_seen) {
+              await kvPutText(_KV, _alertKey, "1", 86400);
+              await notifyDiscord(env, {
+                title: drift.length > 0
+                  ? `⚠️ DMARC drift detected on ${domain}`
+                  : `ℹ️ DMARC posture review for ${domain}`,
+                description: [
+                  _raw ? `Current: \`${_raw}\`` : "No DMARC record found",
+                  drift.length > 0 ? `Drift: ${drift.join(", ")}` : null,
+                  flags.length > 0 ? `Flags: ${flags.join(", ")}` : null,
+                  "See tasks/2026-05-28-dmarc-runbook.md for the ramp schedule.",
+                ].filter(Boolean).join("\n"),
+                color: drift.length > 0 ? 0xef4444 : 0xfbbf24,
+                timestamp: new Date().toISOString(),
+              }, "system").catch(() => {});
+            }
+          }
+          console.log(`[DMARC MONITOR] ${domain} p=${_parsed.p} flags=[${flags.join(",")}] drift=[${drift.join(",")}]`);
+        } catch (e) {
+          console.warn("[DMARC MONITOR] failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
     }
 
     // ── Daily Brief: Evening (5 PM ET — 21:00 UTC in EDT, 22:00 UTC in EST) ──
