@@ -26,11 +26,14 @@ import {
 } from "./twelvedata.js";
 
 // 2026-05-22 — Alpaca fallback for "never stale" guarantee.
-// TwelveData is the primary provider, but some symbols (DELL in M&A limbo,
-// PCI as a low-liquidity CEF, etc.) have spotty TD coverage that produces
-// stale intraday data. Alpaca's bars/snapshots endpoints are part of the
-// Algo Trader+ plan we already pay for (used for execution), so wiring it
-// as a transparent fallback costs nothing and closes the staleness gap.
+// TwelveData is the primary provider, but some symbols have spotty TD
+// coverage that produces stale intraday data — historically PCI (low-
+// liquidity CEF), PSTG (M&A corporate-action gap), and intermittently
+// some large caps (DELL has gone missing from TD batch responses on
+// multiple occasions despite being a fully active public name). Alpaca's
+// bars/snapshots endpoints are part of the Algo Trader+ plan we already
+// pay for (used for execution), so wiring it as a transparent fallback
+// costs nothing and closes the staleness gap.
 import {
   alpacaFetchSnapshots,
   alpacaFetchBars,

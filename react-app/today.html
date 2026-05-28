@@ -1089,6 +1089,16 @@
       .earn-row .date { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); }
       .earn-row .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); }
       .earn-row .hour { font-size: 10.5px; color: var(--tt-text-dim); }
+      /* Earnings universe-priority — bold symbol + accent dot
+         distinguishes tickers in our SECTOR_MAP universe from the
+         long-tail Finnhub events (2026-05-28). */
+      .earn-row.is-universe { background: rgba(76, 175, 220, 0.06); border-color: rgba(76, 175, 220, 0.22); }
+      .earn-row.is-universe .sym { color: var(--tt-accent, #4cb9dc); }
+      .earn-row .sym .uni-dot {
+        display: inline-block; width: 5px; height: 5px; border-radius: 50%;
+        background: var(--tt-accent, #4cb9dc); margin-right: 5px; vertical-align: middle;
+      }
+      .earn-day-foot { font-size: 10.5px; color: var(--tt-text-dim); padding: 4px 4px 0; }
       /* Markdown content from brief */
       .brief-md p { font-size: 13.5px; color: var(--tt-text-muted); line-height: 1.65; margin-bottom: 10px; }
       .brief-md strong { color: var(--tt-text); }
@@ -2235,10 +2245,17 @@
       }
 
       // ── Earnings strip ─────────────────────────────────────────
-      function EarningsStrip({ earnings }) {
+      //
+      // 2026-05-28 — Show the FULL day of earnings, sorted with our
+      // SECTOR_MAP universe tickers first (then session, then symbol).
+      // The previous version capped each day at 6 rows + total at 18,
+      // which silently dropped DELL, COST, MDB, NTAP, OKTA, PATH on a
+      // single busy day (2026-05-28). Pass `universe` (a Set of symbols
+      // we actually trade) so the strip can both prioritise AND
+      // visually distinguish those rows.
+      function EarningsStrip({ earnings, universe }) {
         const events = safeArr(earnings?.events).slice();
         if (events.length === 0) return null;
-        // Sort by date asc then BMO < DMH < AMC then symbol asc
         const HOUR_ORDER = (h) => {
           const hl = String(h || "").toLowerCase();
           if (hl.startsWith("bmo") || hl.includes("before")) return 0;
@@ -2246,29 +2263,55 @@
           if (hl.startsWith("amc") || hl.includes("after"))  return 2;
           return 3;
         };
+        const uniSet = universe instanceof Set
+          ? universe
+          : new Set((universe || []).map((s) => String(s).toUpperCase()));
+        // Sort by date asc, then universe-membership (universe first),
+        // then session (bmo < dmh < amc < unknown), then symbol asc.
         events.sort((a, b) => {
           const da = String(a?.date || ""); const db = String(b?.date || "");
           if (da !== db) return da.localeCompare(db);
+          const aUni = uniSet.has(String(a?.symbol || "").toUpperCase()) ? 0 : 1;
+          const bUni = uniSet.has(String(b?.symbol || "").toUpperCase()) ? 0 : 1;
+          if (aUni !== bUni) return aUni - bUni;
           const ho = HOUR_ORDER(a?.hour) - HOUR_ORDER(b?.hour);
           if (ho !== 0) return ho;
           return String(a?.symbol || "").localeCompare(String(b?.symbol || ""));
         });
-        const limited = events.slice(0, 18);
-        // Group by date
+        // Group by date — no per-day or total cap. Card auto-scrolls
+        // vertically beyond a soft 480px height so a 22-event day on the
+        // 2026-05-28 cluster doesn't push the rest of the page down.
         const byDay = {};
-        for (const ev of limited) { (byDay[ev.date] = byDay[ev.date] || []).push(ev); }
-        const days = Object.keys(byDay).slice(0, 5);
+        for (const ev of events) { (byDay[ev.date] = byDay[ev.date] || []).push(ev); }
+        const days = Object.keys(byDay).sort();
         if (days.length === 0) return null;
 
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "EARNINGS THIS WEEK"),
-          h("div", { className: "tt-sec-h" }, "Event-driven risk on the radar"),
+          h("div", { className: "tt-sec-h" }, "Event-driven risk on the radar — universe tickers first"),
           h("div", { className: "tt-grid tt-grid-3" },
-            days.slice(0, 6).map(d =>
-              h("div", { key: d, className: "tt-card tt-card-pad" },
-                h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700, letterSpacing: "0.06em", marginBottom: 8 } }, d),
-                h("div", { style: { display: "flex", flexDirection: "column", gap: 5 } },
-                  byDay[d].slice(0, 6).map((ev, i) => {
+            days.map(d => {
+              const dayEvents = byDay[d];
+              const uniCount = dayEvents.filter(ev => uniSet.has(String(ev?.symbol || "").toUpperCase())).length;
+              return h("div", { key: d, className: "tt-card tt-card-pad" },
+                h("div", {
+                  style: {
+                    fontSize: 11, color: "var(--tt-text-dim)", fontWeight: 700,
+                    letterSpacing: "0.06em", marginBottom: 8,
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                  },
+                },
+                  h("span", null, d),
+                  h("span", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } },
+                    `${dayEvents.length} event${dayEvents.length === 1 ? "" : "s"}${uniCount > 0 ? ` · ${uniCount} universe` : ""}`),
+                ),
+                h("div", {
+                  style: {
+                    display: "flex", flexDirection: "column", gap: 5,
+                    maxHeight: 480, overflowY: "auto",
+                  },
+                },
+                  dayEvents.map((ev, i) => {
                     // EPS estimate (user request 2026-05-20): show actual
                     // estimate when present, em-dash when not. The worker
                     // /timed/earnings/upcoming response uses `epsEstimate`
@@ -2281,17 +2324,27 @@
                       ?? ev?.consensus_eps_est;
                     const eps = Number(rawEps);
                     const hasEps = Number.isFinite(eps) && eps !== 0;
-                    return h("div", { key: i, className: "earn-row" },
+                    const sym = String(ev?.symbol || "").toUpperCase();
+                    const isUni = uniSet.has(sym);
+                    return h("div", {
+                        key: `${sym}-${i}`,
+                        className: "earn-row" + (isUni ? " is-universe" : ""),
+                      },
                       h("span", { className: "date" }, String(ev?.hour || "—").toUpperCase()),
-                      h("span", null, h("span", { className: "sym" }, ev?.symbol || "?")),
+                      h("span", null,
+                        h("span", { className: "sym", title: isUni ? "In our SECTOR_MAP universe" : undefined },
+                          isUni ? h("span", { className: "uni-dot", "aria-hidden": "true" }) : null,
+                          ev?.symbol || "?",
+                        ),
+                      ),
                       h("span", { className: "hour", title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available" },
                         hasEps ? "$" + eps.toFixed(2) + " est" : "—",
                       ),
                     );
                   }),
                 ),
-              ),
-            ),
+              );
+            }),
           ),
         );
       }
@@ -3908,7 +3961,13 @@
             data && h(FocusRail, { data, onSelectTicker }),
             brief && h(MacroStrip, { brief }),
             data && h(TopMovers, { data, onSelectTicker }),
-            earnings && h(EarningsStrip, { earnings }),
+            earnings && h(EarningsStrip, {
+              earnings,
+              // Pass the live universe so EarningsStrip can prioritise
+              // tickers we actually trade (DELL, COST, MDB, NTAP, OKTA,
+              // PATH) above long-tail Finnhub-only names.
+              universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
+            }),
             // ── Analysis (interactive) ──
             data
               ? h(AnalysisControls, {

@@ -1229,6 +1229,8 @@ const ROUTES = [
   ["GET", "/timed/admin/kv/get", "GET /timed/admin/kv/get"],
   ["GET", "/timed/admin/kv/list", "GET /timed/admin/kv/list"],
   ["POST", "/timed/admin/kv/put", "POST /timed/admin/kv/put"],
+  ["POST", "/timed/admin/kv/delete", "POST /timed/admin/kv/delete"],
+  ["GET", "/timed/admin/sector-map-health", "GET /timed/admin/sector-map-health"],
   ["POST", "/timed/admin/backtests/start", "POST /timed/admin/backtests/start"],
   ["POST", "/timed/admin/backtests/cancel", "POST /timed/admin/backtests/cancel"],
   ["GET", "/timed/admin/backtests/status", "GET /timed/admin/backtests/status"],
@@ -2924,6 +2926,32 @@ function stalenessBucket(ticker, ts) {
 function hasPayloadChangedMeaningfully(existing, newPayload) {
   if (!existing || typeof existing !== "object") return true;
   if (!newPayload || typeof newPayload !== "object") return true;
+
+  // 2026-05-28 — Stale-stub force-overwrite. Two systemic SECTOR_MAP
+  // staleness sources observed in production (DELL, NOW, IBM, PSTG, the
+  // GRNY rebalance batch, etc.):
+  //
+  //   1. A replay run wrote `data_source: "candle_replay"` to the live
+  //      KV namespace. The live scoring cron's diff check then matches
+  //      score/price/stage to the replay stub (because replay used the
+  //      same indicator code) and skips the write — so the replay
+  //      tombstone rides indefinitely. DELL was frozen at $203.14 for
+  //      24 days through exactly this path.
+  //   2. The scoring cron throws an exception for a ticker (caught and
+  //      swallowed at the per-ticker try/catch) and the existing record
+  //      never gets refreshed. Even `ingest_ts` stays stale because the
+  //      "unchanged" branch is never reached.
+  //
+  // Force a fresh write whenever the existing record carries a stale-
+  // source marker OR its timestamp is >12h old. This guarantees the
+  // live cron always wins over a replay stub on the next cycle in which
+  // it successfully computes a result.
+  if (String(existing?.data_source || "") === "candle_replay") return true;
+  const _existingTs = Number(existing?.ts);
+  if (Number.isFinite(_existingTs) && _existingTs > 0
+      && (Date.now() - _existingTs) > 12 * 3600 * 1000) {
+    return true;
+  }
 
   // Schema migration: force write if new payload has ema_map but existing doesn't
   if (newPayload.ema_map && !existing.ema_map) return true;
@@ -39036,8 +39064,12 @@ const WATCH_ONLY = new Set([
 // Aligned with the live KV upticks list at timed:admin:upticks (PUT
 // /timed/admin/upticks is the source of truth). This hardcoded Set is a
 // fallback for dev/offline contexts; runtime merges KV on top so the
-// live list always wins. DELL removed because it's no longer in
-// SECTOR_MAP (unscorable) — update the KV list too.
+// live list always wins.
+//
+// Historical note: DELL was previously removed from this list when it
+// fell out of SECTOR_MAP. PR #265 (2026-05-22) put DELL back in
+// SECTOR_MAP; whether to re-add it as a TT_SELECTED pick is an
+// editorial call separate from the universe membership.
 const TT_SELECTED = new Set([
   "AMGN", "AMZN", "AXP", "BABA", "BG", "BRK-B", "CLS", "CRS", "CRWV",
   "CSX", "DBA", "ETHA", "GEV", "GILD", "JCI", "MRK", "MTB", "PH",
@@ -46829,7 +46861,25 @@ export default {
               let filtered = rawFinnhub
                 .filter(e => e.symbol && universeSet.has(e.symbol.toUpperCase()))
                 .map(e => ({ ...e, symbol: e.symbol.toUpperCase() }));
-              // TwelveData gate: only show earnings when TwelveData confirms (avoids Finnhub false positives)
+              // TwelveData gate (softened 2026-05-28): keep a Finnhub row
+              // when ANY of the following is true:
+              //   1. TwelveData calendar confirms the same symbol+date, OR
+              //   2. The symbol is in SECTOR_MAP (our tradable universe), OR
+              //   3. The symbol has a D1 `market_events` row for that date.
+              //
+              // Background: TwelveData's earnings calendar legitimately
+              // misses universe-grade names regularly (DELL 2026-05-28,
+              // INTU 2026-05-20, NFLX in multiple windows). The previous
+              // strict-AND gate silently dropped those, with the only
+              // rescue being the D1 merge tacked on AFTER the cache build.
+              // That merge survives only if a separate path (daily-brief
+              // seeding, admin/seed) already populated D1. For a tracked
+              // universe ticker that wasn't D1-seeded ahead of time, the
+              // event simply disappears.
+              //
+              // The original false-positive concern is still addressed
+              // because long-tail Finnhub-only rows for symbols NOT in
+              // our universe AND NOT in D1 still get filtered out.
               try {
                 const tdRes = await tdFetchEarningsCalendar(env, today, future);
                 if (!tdRes._error && tdRes.earnings && typeof tdRes.earnings === "object") {
@@ -46840,7 +46890,37 @@ export default {
                       if (sym) tdConfirmed.add(`${sym}|${(date || "").slice(0, 10)}`);
                     }
                   }
-                  if (tdConfirmed.size > 0) filtered = filtered.filter(e => tdConfirmed.has(`${e.symbol}|${(e.date || "").slice(0, 10)}`));
+                  if (tdConfirmed.size > 0) {
+                    // Pre-build the D1 keep-set for the current window.
+                    const d1KeepSet = new Set();
+                    try {
+                      if (env?.DB) {
+                        const _meRows = await env.DB.prepare(
+                          `SELECT date, ticker FROM market_events
+                            WHERE event_type='earnings'
+                              AND date >= ?1 AND date <= ?2
+                              AND ticker IS NOT NULL`
+                        ).bind(today, future).all().catch(() => ({ results: [] }));
+                        for (const r of (_meRows?.results || [])) {
+                          const sym = String(r.ticker || "").toUpperCase();
+                          if (sym) d1KeepSet.add(`${sym}|${String(r.date || "").slice(0, 10)}`);
+                        }
+                      }
+                    } catch (_) {}
+                    const sectorSet = new Set(Object.keys(SECTOR_MAP || {}).map((s) => String(s).toUpperCase()));
+                    const beforeCount = filtered.length;
+                    filtered = filtered.filter(e => {
+                      const key = `${e.symbol}|${(e.date || "").slice(0, 10)}`;
+                      if (tdConfirmed.has(key)) return true;
+                      if (sectorSet.has(e.symbol)) return true;       // universe ticker
+                      if (d1KeepSet.has(key)) return true;            // D1-known event
+                      return false;
+                    });
+                    const droppedCount = beforeCount - filtered.length;
+                    if (droppedCount > 0) {
+                      console.log(`[EARNINGS] Soft-AND gate kept ${filtered.length}/${beforeCount} (dropped ${droppedCount} long-tail Finnhub-only rows)`);
+                    }
+                  }
                 }
               } catch (_) {}
 
@@ -58514,6 +58594,85 @@ export default {
           return sendJSON({ ok: true, key: k, size: toWrite.length }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-28 — POST /timed/admin/kv/delete?k=<key>&key=<api-key>
+      //
+      // Surgical KV stub removal — pairs with /timed/admin/kv/put. Used
+      // by the systemic SECTOR_MAP staleness recovery flow: after a
+      // replay run or a scoring-cron exception leaves a stale
+      // timed:latest:${ticker} blob in KV, an operator (or the
+      // sector-map auto-heal) can call this to clear the stub so the
+      // next live scoring cycle writes a fresh record.
+      //
+      // Protected-namespace guard mirrors kv/put so we can't nuke
+      // trade or portfolio state through this path.
+      if (routeKey === "POST /timed/admin/kv/delete") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const k = String(url.searchParams.get("k") || "").trim();
+          if (!k) return sendJSON({ ok: false, error: "k_required" }, 400, corsHeaders(env, req));
+          const isPreprod = String(env?.ENVIRONMENT_LABEL || "").toLowerCase() === "preprod";
+          const PROTECTED_PREFIXES = [
+            "timed:trades:",
+            "timed:portfolio:",
+            "timed:activity:",
+            "account_ledger:",
+            "timed:replay:lock",
+          ];
+          if (!isPreprod) {
+            for (const pre of PROTECTED_PREFIXES) {
+              if (k.startsWith(pre)) {
+                return sendJSON({
+                  ok: false,
+                  error: "kv_delete_blocked_protected_namespace",
+                  detail: `Key '${k}' starts with protected prefix '${pre}'.`,
+                }, 409, corsHeaders(env, req));
+              }
+            }
+          }
+          await auditDataChange(env, {
+            op: "KV_DELETE",
+            scope: `key=${k}`,
+            caller: req?.url || "unknown",
+            rowsAffected: 1,
+            meta: { env_label: env?.ENVIRONMENT_LABEL || "production" },
+          });
+          await KV.delete(k);
+          return sendJSON({ ok: true, key: k }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-28 — GET /timed/admin/sector-map-health?key=<api-key>
+      //
+      // Operator surface for the SECTOR_MAP completeness monitor that
+      // runs at 9 AM and 3 PM ET. Returns whichever tickers are
+      // missing from timed:latest, plus the per-cycle counts of
+      // replay-stub auto-heals and stale-stub auto-heals. Lightweight
+      // probe — just a KV read.
+      if (routeKey === "GET /timed/admin/sector-map-health") {
+        const _smAuthFail = await requireKeyOrAdmin(req, env);
+        if (_smAuthFail) return _smAuthFail;
+        const KV = env?.KV_TIMED;
+        if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
+        try {
+          const blob = await kvGetJSON(KV, "timed:sector_map_health");
+          if (!blob) {
+            return sendJSON({
+              ok: true,
+              ts: null,
+              detail: "No health snapshot yet — the monitor runs at 9 AM and 3 PM ET.",
+            }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, ...blob }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -79023,6 +79182,100 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (healErr) {
             console.warn("[FRESHNESS MONITOR] auto-backfill failed:", String(healErr?.message || healErr).slice(0, 200));
           }
+
+          // 2026-05-28 — SECTOR_MAP completeness monitor + auto-heal.
+          //
+          // The candle-freshness monitor above only tells us "D1 bars are
+          // stale," not "the consumer-facing snapshot is missing a ticker."
+          // Those are different failure modes:
+          //
+          //   Candles fresh   + snapshot stub fresh   = healthy.
+          //   Candles fresh   + snapshot stub stale   = scoring cron is
+          //                                             skipping/failing
+          //                                             for this ticker.
+          //                                             (the DELL pattern)
+          //   Candles stale   + snapshot stub stale   = candle pipeline
+          //                                             dead; handled
+          //                                             above.
+          //   Candles stale   + snapshot stub fresh   = ticker is being
+          //                                             scored from older
+          //                                             cached data — ok.
+          //
+          // This block catches the second case: every SECTOR_MAP ticker
+          // gets its `timed:latest:${t}` checked for (a) existence,
+          // (b) data_source not == "candle_replay", and (c) ts <24h old.
+          // Stale or replay-tagged stubs are DELETED so the next live
+          // scoring cron starts from a clean slate (any score/price
+          // delta vs null trivially triggers a write).
+          //
+          // Anything still bad after the heal attempt is recorded as a
+          // tombstone under `sector_map_completeness` for operator
+          // visibility in /timed/admin/cron-status.
+          try {
+            const _sectorTickers = Object.keys(SECTOR_MAP || {});
+            const STALE_LATEST_MS = 24 * 60 * 60 * 1000;
+            const _stubProbes = await Promise.allSettled(
+              _sectorTickers.map(async (t) => {
+                const stub = await kvGetJSON(env?.KV_TIMED, `timed:latest:${t}`);
+                return { t, stub };
+              })
+            );
+            const _missing = [];
+            const _replayStubs = [];
+            const _staleStubs = [];
+            for (const r of _stubProbes) {
+              if (r.status !== "fulfilled") continue;
+              const { t, stub } = r.value;
+              if (!stub || typeof stub !== "object") { _missing.push(t); continue; }
+              const ds = String(stub.data_source || "");
+              if (ds === "candle_replay") { _replayStubs.push(t); continue; }
+              const ts = Number(stub.ts);
+              if (Number.isFinite(ts) && ts > 0 && (Date.now() - ts) > STALE_LATEST_MS) {
+                _staleStubs.push(t);
+              }
+            }
+            const _toHeal = [..._replayStubs, ..._staleStubs];
+            // Auto-heal: delete the stale/replay stubs so the next */5
+            // scoring tick writes a fresh record (no diff guard against
+            // a null `existing`).
+            for (const t of _toHeal) {
+              try {
+                await env.KV_TIMED.delete(`timed:latest:${t}`);
+              } catch (_) {}
+            }
+            if (_toHeal.length > 0 || _missing.length > 0) {
+              console.warn(`[SECTOR_MAP MONITOR] universe=${_sectorTickers.length} missing=${_missing.length} replay_stubs=${_replayStubs.length} stale_stubs=${_staleStubs.length} healed=${_toHeal.length}`);
+            }
+            // Tombstone only when something is unhealed-bad (i.e. missing
+            // AFTER the heal pass — replay/stale stubs that just got
+            // cleared will repopulate next tick and aren't an alarm).
+            if (_missing.length > 0) {
+              recordCronFailure(env, {
+                op: "sector_map_completeness",
+                error: `${_missing.length}/${_sectorTickers.length} SECTOR_MAP tickers missing from timed:latest (sample: ${_missing.slice(0, 10).join(",")})`,
+                caller: "freshness_monitor",
+                // Discord-route this one — a missing stub means the
+                // scoring cron is broken for that ticker AND the
+                // auto-heal couldn't recover it. Operator-actionable.
+                skipDiscord: false,
+              }).catch(() => {});
+            } else {
+              recordCronSuccess(env, "sector_map_completeness").catch(() => {});
+            }
+            // Persist a snapshot for /timed/admin/sector-map-health
+            // (small, fits well within KV value limits).
+            try {
+              await kvPutJSON(env.KV_TIMED, "timed:sector_map_health", {
+                ts: Date.now(),
+                universe_size: _sectorTickers.length,
+                missing: _missing,
+                replay_stubs_healed: _replayStubs,
+                stale_stubs_healed: _staleStubs,
+              });
+            } catch (_) {}
+          } catch (smErr) {
+            console.warn("[SECTOR_MAP MONITOR] failed:", String(smErr?.message || smErr).slice(0, 200));
+          }
         } catch (e) {
           console.warn("[FRESHNESS MONITOR] Probe failed:", String(e?.message || e).slice(0, 200));
         }
@@ -81517,6 +81770,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               skipped++;
             }
 
+            // 2026-05-28 — Per-ticker scoring success tombstone clear.
+            // Pair with the catch-block failure tombstone below so
+            // /timed/admin/cron-status reflects the live state for
+            // SECTOR_MAP completeness audits. skipDiscord because per-
+            // ticker noise would drown out real ops alerts.
+            ctx.waitUntil(recordCronSuccess(env, `score_ticker_${ticker}`).catch(() => {}));
+
             // Collect trail points for batch write (don't make individual D1 calls here)
             const TRAIL_CADENCE_MS = 10 * 60 * 1000;
             const lastTrailTs = Number(existing?._last_trail_ts) || 0;
@@ -81526,6 +81786,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (e) {
             errors++;
             console.warn(`[SCORING] ${ticker}:`, String(e));
+            // 2026-05-28 — Tombstone-on-error so silent per-ticker scoring
+            // failures surface in /timed/admin/cron-status. Six days of
+            // DELL silence (PR #265 → 2026-05-28) was the canonical
+            // example of why this was needed. `skipDiscord: true` so we
+            // don't carpet-bomb the ops channel — these are visible via
+            // the cron-status endpoint and the SECTOR_MAP completeness
+            // monitor instead.
+            ctx.waitUntil(recordCronFailure(env, {
+              op: `score_ticker_${ticker}`,
+              error: String(e?.message || e).slice(0, 300),
+              caller: "scoring_cron",
+              skipDiscord: true,
+            }).catch(() => {}));
           }
         };
 
