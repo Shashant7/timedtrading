@@ -81414,17 +81414,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             const result = await computeServerSideScores(ticker, getCandlesCached, env, existWithWeights);
             if (!result) {
+              const now = Date.now();
               if (existing && typeof existing === "object") {
-                const now = Date.now();
                 existing.trigger_ts = now;
                 existing.data_source_ts = now;
                 existing.ingest_ts = now;
                 existing.ingest_time = new Date(now).toISOString();
                 existing._scoring_skip_reason = "insufficient_candle_data";
                 await kvPutJSON(KV, `timed:latest:${ticker}`, existing);
+              } else {
+                // 2026-05-28 — Write a minimal placeholder when existing
+                // is null. Otherwise the ticker stays completely invisible
+                // in /timed/all + /timed/prices (the DELL post-heal state:
+                // we clear the stale replay stub, scoring fails to
+                // assemble a usable bundle from D1 candles, and the
+                // ticker stays a black hole). A minimal stub with
+                // _scoring_skip_reason is what the existing path writes
+                // when existing != null — apply the same shape here so
+                // downstream snapshot loops include the ticker and the
+                // operator can see WHY it's empty.
+                const minimalStub = {
+                  ticker,
+                  ts: now,
+                  trigger_ts: now,
+                  data_source_ts: now,
+                  ingest_ts: now,
+                  ingest_time: new Date(now).toISOString(),
+                  data_source: _usesTwelveData(env) ? "twelvedata" : "alpaca",
+                  _scoring_skip_reason: "insufficient_candle_data",
+                  kanban_stage: "watch",
+                  state: null,
+                  htf_score: null,
+                  ltf_score: null,
+                  rank: null,
+                  score: null,
+                };
+                await kvPutJSON(KV, `timed:latest:${ticker}`, minimalStub);
+                ctx.waitUntil(d1UpsertTickerLatest(env, ticker, minimalStub));
               }
-              // Auto-backfill user-added tickers that lack scoring-TF candles
-              if (_userAddedSet.has(ticker) && !(await d1TickerHasCandles(env, ticker))) {
+              // 2026-05-28 — Tombstone every insufficient-candle-data
+              // skip (not just throws). The DELL incident: scoring was
+              // skipping silently because at least one required TF
+              // bundle wasn't assembling, but the per-ticker catch
+              // block never saw an exception and the SECTOR_MAP
+              // completeness monitor only runs at 9 AM / 3 PM. Daily
+              // operator visibility was effectively zero.
+              ctx.waitUntil(recordCronFailure(env, {
+                op: `score_ticker_${ticker}`,
+                error: "insufficient_candle_data — at least one scoring TF (W/D/240/60/30/leading-LTF) failed to assemble",
+                caller: "scoring_cron",
+                skipDiscord: true,
+              }).catch(() => {}));
+              // Auto-backfill — now triggers for ANY SECTOR_MAP ticker
+              // (not just user-added), since the universe-grade case is
+              // the more important one to self-heal.
+              const _isCoreOrUserAdded = _userAddedSet.has(ticker)
+                || (SECTOR_MAP && Object.prototype.hasOwnProperty.call(SECTOR_MAP, ticker));
+              if (_isCoreOrUserAdded && !(await d1TickerHasCandles(env, ticker))) {
                 ctx.waitUntil((async () => {
                   try {
                     if (_usesTwelveData(env)) {
@@ -81432,7 +81478,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     } else {
                       await alpacaBackfill(env, [ticker], d1UpsertCandle, "all", null);
                     }
-                    console.log(`[SCORING] Auto-backfilled user ticker ${ticker} (insufficient candle data)`);
+                    console.log(`[SCORING] Auto-backfilled ${ticker} (insufficient candle data, ${_userAddedSet.has(ticker) ? "user-added" : "SECTOR_MAP"})`);
                   } catch (bfErr) {
                     console.warn(`[SCORING] Auto-backfill failed for ${ticker}:`, String(bfErr?.message || bfErr).slice(0, 150));
                   }
