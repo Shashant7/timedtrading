@@ -51477,7 +51477,7 @@ export default {
           const tradeRow = await db.prepare(
             `SELECT trade_id, ticker, direction, entry_ts, entry_price, shares,
                     trim_ts, trim_price, trimmed_pct, exit_ts, exit_price,
-                    pnl, pnl_pct, status, setup_name, setup_grade
+                    pnl, pnl_pct, status, setup_name, setup_grade, exit_reason
                FROM trades WHERE trade_id = ?1 LIMIT 1`,
           ).bind(tradeId).first();
           if (!tradeRow) {
@@ -51489,14 +51489,68 @@ export default {
           const entryPrice = Number(tradeRow.entry_price) || 0;
           const entryTs = Number(tradeRow.entry_ts) || 0;
           const totalShares = Number(tradeRow.shares) || 0;
+          const tradeStatus = String(tradeRow.status || "").toUpperCase();
+          const isOpenLike = tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM";
+          const exitTsRaw = Number(tradeRow.exit_ts) || 0;
+          const exitReason = String(tradeRow.exit_reason || "");
+          // 2026-05-28 — When a trade's stored exit was administratively
+          // REVERSED (e.g. MU 2026-05-22 stale-price exit fix), the trades
+          // row is back to OPEN and the exit_ts/exit_price fields are
+          // preserved for audit but no longer represent a real close.
+          const exitWasReversed = isOpenLike && exitReason.startsWith("REVERSED_");
+
+          // 2026-05-28 — Compute the LIFECYCLE WINDOW for this specific
+          // trade so the receipt shows only events that belong to THIS
+          // trade, not adjacent trades on the same ticker. Two bugs this
+          // fixes:
+          //   (a) Closed trade (e.g. MU 5/18 LOSS) was returning the 5/22
+          //       trade's events because the legacy fallback query had no
+          //       upper time bound — ts >= entry_ts pulled everything
+          //       after, including the next trade entirely.
+          //   (b) Open trade (e.g. MU 5/22) was returning the stale-price
+          //       EXIT row that we administratively reversed.
+          // Resolution: lower bound at entry_ts - 60s, upper bound at
+          // either exit_ts + 60s (closed trade) OR the next trade's
+          // entry_ts - 60s (open trade with a later trade on file) OR
+          // unbounded (open trade with no successor).
+          const _LIFECYCLE_BUFFER_MS = 60000;
+          const windowLowerMs = entryTs > 0 ? entryTs - _LIFECYCLE_BUFFER_MS : 0;
+          let windowUpperMs = null;
+          if (!isOpenLike && exitTsRaw > 0) {
+            windowUpperMs = exitTsRaw + _LIFECYCLE_BUFFER_MS;
+          } else if (isOpenLike && entryTs > 0) {
+            // For open trades, look for a successor trade on the same
+            // ticker+direction with a LATER entry_ts. If found, bound
+            // upper at successor.entry_ts - 60s. This handles the
+            // (rare) case where an open trade is followed by another
+            // entry on the same ticker before the operator views the
+            // autopsy.
+            try {
+              const _nextRow = await db.prepare(
+                `SELECT entry_ts FROM trades
+                  WHERE ticker = ?1 AND direction = ?2 AND entry_ts > ?3
+                    AND trade_id != ?4
+                  ORDER BY entry_ts ASC LIMIT 1`,
+              ).bind(ticker, direction, entryTs, tradeId).first();
+              const _nextTs = Number(_nextRow?.entry_ts) || 0;
+              if (_nextTs > 0) windowUpperMs = _nextTs - _LIFECYCLE_BUFFER_MS;
+            } catch (_) { /* unbounded is fine */ }
+          }
 
           // Look up the position_id for this trade. trades and positions
           // are 1:1 by ticker+entry+direction; position_id lives on the
-          // ledger rows.
+          // ledger rows. 2026-05-28: ORDER BY entry_ts DESC LIMIT 1 was
+          // wrong when the ticker has multiple positions over time (e.g.
+          // a closed older trade + a current open one for same ticker+
+          // direction). The lifecycle-window filter below catches the
+          // cross-contamination either way, but we now prefer the position
+          // whose entry_ts is closest to THIS trade's entry_ts.
           const posRow = await db.prepare(
-            `SELECT position_id FROM positions WHERE ticker=?1 AND direction=?2
-              ORDER BY entry_ts DESC LIMIT 1`,
-          ).bind(ticker, direction).first().catch(() => null);
+            `SELECT position_id, entry_ts FROM positions
+              WHERE ticker = ?1 AND direction = ?2
+              ORDER BY ABS(COALESCE(entry_ts, 0) - ?3) ASC
+              LIMIT 1`,
+          ).bind(ticker, direction, entryTs).first().catch(() => null);
           const positionId = posRow?.position_id || null;
 
           // Pull TRIM + EXIT events from account_ledger.
@@ -51526,15 +51580,34 @@ export default {
             ).bind(ticker, entryTs - 60000).all().catch(() => ({ results: [] }));
           }
 
-          const rawEvents = (ledgerRows.results || []).map((r) => ({
-            type: String(r.event_type || "").toUpperCase(),
-            ts: Number(r.ts) || 0,
-            shares: Math.abs(Number(r.qty) || 0),
-            price: Number(r.price) || 0,
-            value: Math.abs(Number(r.cash_delta) || 0),
-            realized_pnl: Number(r.realized_pnl) || 0,
-            note: r.note || null,
-          }));
+          const rawEvents = (ledgerRows.results || [])
+            .map((r) => ({
+              type: String(r.event_type || "").toUpperCase(),
+              ts: Number(r.ts) || 0,
+              shares: Math.abs(Number(r.qty) || 0),
+              price: Number(r.price) || 0,
+              value: Math.abs(Number(r.cash_delta) || 0),
+              realized_pnl: Number(r.realized_pnl) || 0,
+              note: r.note || null,
+            }))
+            // 2026-05-28 — Lifecycle-window filter. Drops events from
+            // adjacent trades on the same ticker.
+            .filter((e) => {
+              if (windowLowerMs > 0 && e.ts < windowLowerMs) return false;
+              if (windowUpperMs != null && e.ts > windowUpperMs) return false;
+              return true;
+            })
+            // 2026-05-28 — Reversed-EXIT filter. When a trade is currently
+            // OPEN but its trades row carries a REVERSED_* exit_reason
+            // (admin reversal of a bogus exit), drop any orphan EXIT row
+            // from the receipt — that EXIT no longer represents reality.
+            // Plus: any EXIT row on an OPEN-status trade is by definition
+            // orphan (open trades haven't fully exited), so we drop them
+            // even without an explicit REVERSED_ marker for safety.
+            .filter((e) => {
+              if (e.type === "EXIT" && isOpenLike) return false;
+              return true;
+            });
           const hasEntryEvent = rawEvents.some((e) => e.type === "ENTRY");
 
           // If no ENTRY event in account_ledger (older trades sometimes
