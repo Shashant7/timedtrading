@@ -83,12 +83,15 @@
     </style>
   </head>
   <body>
-    <!-- 2026-05-28 — Static nav scaffold so tt-nav-extras.js can attach
-         the Admin dropdown + (admin-only) journey-link strip. Mission
-         Control was previously unreachable from the admin dropdown
-         because this page lacked any nav structure for tt-nav-extras
-         to inject into. The link list mirrors the user-facing journey
-         items so this page also gives users a way to navigate back. -->
+    <!-- 2026-05-28 v2 — Static nav scaffold so tt-nav-extras.js can attach
+         the Admin dropdown + (admin-only) journey-link strip. The
+         .nav-links container holds ADMIN tools only (mirroring the
+         React-rendered nav on admin-clients / system-intelligence /
+         screener). The journey row (Today / Active Trader / Investor /
+         Portfolio / Insights / Learn / FAQ) is injected ABOVE this
+         nav by tt-nav-extras.injectJourneyLinks at runtime. Previous
+         version had journey links INSIDE .nav-links which produced
+         a duplicate journey row on Mission Control. -->
     <nav class="topnav">
       <div class="nav-row">
         <a href="/today.html" class="nav-brand">
@@ -96,19 +99,20 @@
           Timed Trading
         </a>
         <div class="nav-links">
-          <a href="/today.html" class="nav-link">Today</a>
-          <a href="/active-trader.html" class="nav-link">Active Trader</a>
-          <a href="/investor.html" class="nav-link">Investor</a>
-          <a href="/portfolio.html" class="nav-link">Portfolio</a>
-          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/today.html" class="nav-link">Analysis</a>
+          <a href="/portfolio.html" class="nav-link">Trades</a>
+          <a href="/system-intelligence.html" class="nav-link">System Intelligence</a>
+          <a href="/screener.html" class="nav-link">Screener</a>
+          <a href="/ticker-management.html" class="nav-link">Tickers</a>
+          <a href="/trade-autopsy.html" class="nav-link" style="color:#14b8a6">Trade Autopsy</a>
           <a href="/daily-brief.html" class="nav-link" style="color:#f59e0b">Daily Brief</a>
         </div>
       </div>
     </nav>
 
     <div id="root"></div>
-    <script src="mission-control.compiled.js?v=1780011247637"></script>
+    <script src="mission-control.compiled.js?v=1780011761292"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780011247637:996709241 -->
+<!-- cache-bust:1780011761292:492001491 -->
