@@ -280,7 +280,10 @@ else apikeyInput.addEventListener('change', startPolling, { once:true });
 
 </body></html>`;
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
-import { getTickerType as getTickerTypeForFocus } from "./sector-mapping.js";
+import {
+  getTickerType as getTickerTypeForFocus,
+  SECTOR_MAP as SECTOR_MAP_FILE,
+} from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
 export { PriceStream } from "./price-stream.js";
@@ -39048,6 +39051,54 @@ const SECTOR_MAP = {
   "YM1!": "Futures",                    // Dow Jones futures
 };
 
+// 2026-05-28 — Unify with sector-mapping.js (THE actual systemic fix for
+// the recurring SECTOR_MAP staleness pattern).
+//
+// Background: this file used to define SECTOR_MAP inline (above), AND
+// `worker/sector-mapping.js` also defined a SECTOR_MAP. The two were
+// added independently and drifted over time — PRs #254 (CF/NOW/PM),
+// #265 (DELL), #287 (IBM) only touched the FILE map but never the
+// inline one. The runtime always used the inline map, so every one of
+// those PRs silently failed for the affected tickers.
+//
+// State at the time this merge shipped (audited via
+// `node -e "import('./sector-mapping.js')..."`):
+//   - 5 tickers in file but missing from inline: CF, DELL, IBM, NOW, PM
+//   - 5 sector mismatches between the two maps:
+//       NOC   file=Industrials              inline=Aerospace & Defense
+//       RKLB  file=Industrials              inline=Aerospace & Defense
+//       NBIS  file=Information Technology   inline=Health Care
+//       UUUU  file=Basic Materials          inline=Energy
+//       DBA   file=Thematic ETF             inline=Commodity ETF
+//
+// Fix: at module load, merge every file-map entry into the inline map
+// (file map wins on conflict — it's the human-edited source most PRs
+// touch). New SECTOR_MAP additions in either file then automatically
+// flow through to the runtime.
+//
+// To prevent future drift we also surface a `__sector_map_audit`
+// snapshot for the operator (added/overridden) and log it on cold
+// start so any silent divergence shows up in the worker logs.
+const __sectorMapAudit = { added: [], overridden: [] };
+try {
+  if (SECTOR_MAP_FILE && typeof SECTOR_MAP_FILE === "object") {
+    for (const [sym, sector] of Object.entries(SECTOR_MAP_FILE)) {
+      if (!(sym in SECTOR_MAP)) {
+        SECTOR_MAP[sym] = sector;
+        __sectorMapAudit.added.push(sym);
+      } else if (SECTOR_MAP[sym] !== sector) {
+        __sectorMapAudit.overridden.push({ sym, from: SECTOR_MAP[sym], to: sector });
+        SECTOR_MAP[sym] = sector;
+      }
+    }
+    if (__sectorMapAudit.added.length > 0 || __sectorMapAudit.overridden.length > 0) {
+      console.log(`[SECTOR_MAP MERGE] added=${__sectorMapAudit.added.length} (${__sectorMapAudit.added.join(",")}) overridden=${__sectorMapAudit.overridden.length}`);
+    }
+  }
+} catch (e) {
+  console.error("[SECTOR_MAP MERGE] failed to unify sector maps:", String(e?.message || e).slice(0, 200));
+}
+
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
 // Account P&L reflects only tradeable instruments (stocks + sector ETFs).
 // Phase-E (2026-04-19): SPY/QQQ/IWM removed from WATCH_ONLY so the new
@@ -58656,6 +58707,10 @@ export default {
       // missing from timed:latest, plus the per-cycle counts of
       // replay-stub auto-heals and stale-stub auto-heals. Lightweight
       // probe — just a KV read.
+      //
+      // Also surfaces __sectorMapAudit (the module-load merge from
+      // sector-mapping.js → inline SECTOR_MAP) so the operator can
+      // verify the two maps are in sync at runtime, not just on file.
       if (routeKey === "GET /timed/admin/sector-map-health") {
         const _smAuthFail = await requireKeyOrAdmin(req, env);
         if (_smAuthFail) return _smAuthFail;
@@ -58663,14 +58718,29 @@ export default {
         if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
         try {
           const blob = await kvGetJSON(KV, "timed:sector_map_health");
+          const merge_audit = {
+            added: __sectorMapAudit.added,
+            added_count: __sectorMapAudit.added.length,
+            overridden: __sectorMapAudit.overridden,
+            overridden_count: __sectorMapAudit.overridden.length,
+            note: "Tickers in sector-mapping.js that were missing from index.js inline SECTOR_MAP, auto-merged at module load.",
+          };
+          const universe_size_runtime = Object.keys(SECTOR_MAP || {}).length;
           if (!blob) {
             return sendJSON({
               ok: true,
               ts: null,
               detail: "No health snapshot yet — the monitor runs at 9 AM and 3 PM ET.",
+              merge_audit,
+              universe_size_runtime,
             }, 200, corsHeaders(env, req));
           }
-          return sendJSON({ ok: true, ...blob }, 200, corsHeaders(env, req));
+          return sendJSON({
+            ok: true,
+            ...blob,
+            merge_audit,
+            universe_size_runtime,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
