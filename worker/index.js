@@ -17638,6 +17638,19 @@ async function processTradeSimulation(
                 price: trade.exitPrice, pnlPct: trade.pnlPct || 0,
                 exitReason: closeReason || trade.status,
                 mode: "trader",
+                // 2026-05-28 — Discord-parity payload (see entry callsite
+                // comment ~line 23501 for rationale).
+                trade_id: trade.id || null,
+                entry: Number(trade.entryPrice) || null,
+                exit: Number(trade.exitPrice) || null,
+                pnl: Number(trade.pnl) || null,
+                status: trade.status || null,
+                rank: Number(trade.rank) || null,
+                rr: Number(trade.rr) || null,
+                setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+                setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+                action_ts: tsMs,
+                chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
               }, requestCtx));
               await upsertAlertSafe({
                 alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
@@ -18068,11 +18081,26 @@ async function processTradeSimulation(
               body: `Trimmed ${sym} ${dir} ${tgt}% of position${_trimPriceFmt ? ` filled at ${_trimPriceFmt}` : ""}${_trimEtTime ? ` (${_trimEtTime})` : ""} — P&L ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(2)}%`,
               link: `/index-react.html?ticker=${sym}`,
             }));
-            // Email trade alert
+            // Email trade alert — 2026-05-28 — Discord-parity payload.
             queueBackground(dispatchTradeAlertEmails(env, {
               type: "TRADE_TRIM", ticker: sym, direction: dir,
               price: trade.currentPrice || p, trimmedPct: tgt,
               mode: "trader",
+              trade_id: trade.id || null,
+              entry: Number(trade.entryPrice) || null,
+              fillPrice: Number(p) || null,
+              pnl: Number(pnlRealized) || null,
+              pnlPct: Number(pnlPctAtTrim) || null,
+              trimDeltaPct: Number(delta) || null,
+              newTrimmedPct: tgt,
+              shares_trimmed: Number(trimShares) || null,
+              shares_remaining: (Number(trade.shares) || 0) - (Number(trimShares) || 0),
+              setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+              setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+              risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
+              trim_reason: trade.exitReason || tickerData?.__exit_reason || null,
+              action_ts: tsMs,
+              chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
             }, requestCtx));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
@@ -23497,11 +23525,37 @@ async function processTradeSimulation(
                     body: `Entered ${sym} ${direction}${_entryEtTime ? ` at ${_entryEtTime}` : ""} · Filled $${Number(entryPx).toFixed(2)} · Rank ${Number(trade.rank || 0)} · R:R ${Number(trade.rr || 0).toFixed(1)}`,
                     link: `/index-react.html?ticker=${sym}`,
                   }));
-                  // Email trade alert
+                  // Email trade alert — 2026-05-28 — expanded payload so
+                  // the email renders the same fields as the Discord embed
+                  // (entry/SL/TP/risk/setup/grade/AI CIO). Lets users on
+                  // the go act on the alert without opening the dashboard.
                   queueBackground(dispatchTradeAlertEmails(env, {
                     type: "TRADE_ENTRY", ticker: sym, direction,
                     price: entryPx, rank: trade.rank, rr: trade.rr,
                     mode: "trader",
+                    trade_id: trade.id || tradeId || null,
+                    entry: entryPx,
+                    sl: Number(trade.sl) || Number(tickerData?.sl) || null,
+                    tp: Number(trade.tp) || Number(tickerData?.tp) || null,
+                    shares: Number(trade.shares) || null,
+                    notional: Number.isFinite(Number(entryPx)) && Number.isFinite(Number(trade.shares))
+                      ? Number(entryPx) * Number(trade.shares) : null,
+                    risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
+                    setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+                    setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+                    action_ts: tsMs,
+                    chart_url: getTradeAutopsyChartUrl(env, tradeId) || null,
+                    momentum_elite: !!(tickerData?.flags?.momentum_elite),
+                    vwap_pct: Number(tickerData?.tf_tech?.["1H"]?.vwap?.pct ?? tickerData?.vwap_pct) || null,
+                    cio: (_cioDecision && !_cioDecision.fallback) ? {
+                      decision: _cioDecision.decision,
+                      confidence: Number(_cioDecision.confidence) || 0,
+                      edge_score: Number(_cioDecision.edge_score) || 0,
+                      reasoning: String(_cioDecision.reasoning || "").slice(0, 4000),
+                      risk_flags: Array.isArray(_cioDecision.risk_flags) ? _cioDecision.risk_flags.slice(0, 8) : [],
+                      model: _cioDecision.model || null,
+                      shadow: !!_entryShadow,
+                    } : null,
                   }, requestCtx));
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
