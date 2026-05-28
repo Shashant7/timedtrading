@@ -154,6 +154,65 @@
         const [backfillBusy, setBackfillBusy] = useState(false);
         const [backfillMsg, setBackfillMsg] = useState(null);
 
+        // 2026-05-28 — AI CIO surfaces. Separate fetch (different
+        // admin endpoints) so a slow CIO query doesn't block the main
+        // Mission Control payload.
+        const [cioReadiness, setCioReadiness] = useState(null);
+        const [cioAccuracy, setCioAccuracy] = useState(null);
+        const [cioLoading, setCioLoading] = useState(false);
+        const [cioErr, setCioErr] = useState(null);
+        const [cioBackfillBusy, setCioBackfillBusy] = useState(false);
+        const [cioBackfillMsg, setCioBackfillMsg] = useState(null);
+
+        const fetchCio = useCallback(async () => {
+          setCioLoading(true);
+          try {
+            const [rRes, aRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/admin/ai-cio/go-live-readiness?_t=${Date.now()}`, { credentials: "include", cache: "no-store" }),
+              fetch(`${API_BASE}/timed/admin/ai-cio/accuracy?_t=${Date.now()}`, { credentials: "include", cache: "no-store" }),
+            ]);
+            if (rRes.ok) {
+              const j = await rRes.json();
+              if (j.ok) setCioReadiness(j);
+            }
+            if (aRes.ok) {
+              const j = await aRes.json();
+              if (j.ok) setCioAccuracy(j);
+            }
+            setCioErr(null);
+          } catch (e) {
+            setCioErr(String(e.message || e));
+          } finally {
+            setCioLoading(false);
+          }
+        }, []);
+
+        const triggerCioBackfill = useCallback(async () => {
+          if (cioBackfillBusy) return;
+          if (!confirm("Sweep ai_cio_decisions and fill trade_outcome / trade_pnl_pct for all closed trades that haven't been attributed yet? Idempotent and safe.")) return;
+          setCioBackfillBusy(true);
+          setCioBackfillMsg("Backfilling CIO outcomes…");
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/ai-cio/backfill-outcomes`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            });
+            const j = await res.json();
+            if (j.ok) {
+              setCioBackfillMsg(`Backfilled ${j.updated} of ${j.scanned} candidate rows${j.failed ? ` (${j.failed} failed)` : ""}.`);
+              fetchCio();
+            } else {
+              setCioBackfillMsg(`Backfill failed: ${j.error || "unknown"}`);
+            }
+          } catch (e) {
+            setCioBackfillMsg(`Backfill failed: ${String(e.message || e)}`);
+          } finally {
+            setCioBackfillBusy(false);
+          }
+        }, [cioBackfillBusy, fetchCio]);
+
         const fetchData = useCallback(async () => {
           setRefreshing(true);
           try {
@@ -174,17 +233,18 @@
           }
         }, []);
 
-        useEffect(() => { fetchData(); }, [fetchData]);
+        useEffect(() => { fetchData(); fetchCio(); }, [fetchData, fetchCio]);
 
         // Auto-refresh every 30s for system health + data coverage parts
         useEffect(() => {
           if (!autoRefresh) return;
           const id = setInterval(() => {
             fetchData();
+            fetchCio();
             setRefreshTs(Date.now());
           }, 30000);
           return () => clearInterval(id);
-        }, [autoRefresh, fetchData]);
+        }, [autoRefresh, fetchData, fetchCio]);
 
         const triggerBackfill = useCallback(async (tf) => {
           if (backfillBusy) return;
@@ -888,6 +948,288 @@
                   <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug" style={{ maxHeight: 380, overflowY: "auto", background: "rgba(0,0,0,0.3)", padding: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>{wr.markdown}</pre>
                 </>
               )}
+            </div>
+
+            {/* ── Section 7: AI CIO Readiness ── 2026-05-28 ── */}
+            <div className="mc-card mb-5">
+              <div className="mc-section-title">
+                <span className="mc-dot"></span>
+                7. AI CIO — Shadow → Live Readiness
+                {cioReadiness?.ready_for_live === true && (
+                  <span className="mc-pill mc-pill-ok ml-2">READY FOR LIVE</span>
+                )}
+                {cioReadiness?.ready_for_live === false && (
+                  <span className="mc-pill mc-pill-warn ml-2">STAY IN SHADOW</span>
+                )}
+                {cioLoading && <span className="text-[10px] mc-mute ml-2 mc-loading">refreshing…</span>}
+              </div>
+
+              {cioErr && (
+                <div className="text-red-400 text-xs mb-3">{cioErr}</div>
+              )}
+
+              {!cioReadiness && !cioErr && cioLoading && (
+                <div className="text-xs mc-mute py-3">Loading CIO readiness…</div>
+              )}
+
+              {cioReadiness && (() => {
+                const cfg = cioReadiness.config || {};
+                const s = cioReadiness.summary || {};
+                const gates = cioReadiness.gates || {};
+                const allGates = [
+                  ...(gates.A_sample || []),
+                  ...(gates.B_quality || []),
+                  ...(gates.C_edge || []),
+                  ...(gates.D_operator || []),
+                ];
+                const greenCount = allGates.filter((g) => g.met === true).length;
+                const totalGates = allGates.length;
+                const groupOrder = [
+                  { key: "A_sample", label: "A. Sample Size", desc: "Statistical confidence in the data we have" },
+                  { key: "B_quality", label: "B. Model Quality", desc: "Latency, fallback, balance, truncation" },
+                  { key: "C_edge", label: "C. Edge", desc: "Does CIO improve outcomes vs no-CIO baseline?" },
+                  { key: "D_operator", label: "D. Operator", desc: "Human checks + safeguards" },
+                ];
+
+                const fmtVal = (g) => {
+                  if (g.value == null) return "—";
+                  if (typeof g.value === "boolean") return g.value ? "yes" : "no";
+                  if (typeof g.value === "number") {
+                    if (g.id?.includes("latency")) return `${Math.round(g.value)}ms`;
+                    if (g.id?.includes("rate") || g.id?.includes("pct") || g.id?.includes("win")) {
+                      return `${g.value.toFixed(1)}%`;
+                    }
+                    return Number.isInteger(g.value) ? String(g.value) : g.value.toFixed(2);
+                  }
+                  return String(g.value);
+                };
+
+                return (
+                  <>
+                    {/* Verdict + config strip */}
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                      <div className="mc-kpi">
+                        <div className="mc-kpi-label">Verdict</div>
+                        <div className={`mc-kpi-value text-[15px] ${cioReadiness.ready_for_live ? "mc-pos" : "mc-warn"}`}>
+                          {cioReadiness.ready_for_live ? "✅ Ready" : "⚠ Stay shadow"}
+                        </div>
+                        <div className="mc-kpi-sub">{greenCount}/{totalGates} gates met</div>
+                      </div>
+                      <div className="mc-kpi">
+                        <div className="mc-kpi-label">Shadow Mode</div>
+                        <div className={`mc-kpi-value text-[15px] ${String(cfg.ai_cio_shadow_mode) === "true" ? "mc-warn" : "mc-pos"}`}>
+                          {String(cfg.ai_cio_shadow_mode) === "true" ? "ON" : "OFF (LIVE)"}
+                        </div>
+                        <div className="mc-kpi-sub">Decisions {String(cfg.ai_cio_shadow_mode) === "true" ? "logged only" : "ENFORCED"}</div>
+                      </div>
+                      <div className="mc-kpi">
+                        <div className="mc-kpi-label">Entry Model</div>
+                        <div className="mc-kpi-value text-[15px]">{cfg.ai_cio_entry_model || "—"}</div>
+                        <div className="mc-kpi-sub">Lifecycle: {cfg.ai_cio_lifecycle_model || "—"}</div>
+                      </div>
+                      <div className="mc-kpi">
+                        <div className="mc-kpi-label">Decisions (14d)</div>
+                        <div className="mc-kpi-value">{s.total_decisions || 0}</div>
+                        <div className="mc-kpi-sub">{s.entry_decisions || 0} entry · {s.lifecycle_decisions || 0} lifecycle</div>
+                      </div>
+                      <div className="mc-kpi">
+                        <div className="mc-kpi-label">Outcomes Attributed</div>
+                        <div className="mc-kpi-value">{s.outcomes_attributed || 0}</div>
+                        <div className="mc-kpi-sub">
+                          <button
+                            className="underline hover:text-[#22c55e]"
+                            onClick={triggerCioBackfill}
+                            disabled={cioBackfillBusy}
+                          >
+                            {cioBackfillBusy ? "Backfilling…" : "Backfill now"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {cioBackfillMsg && (
+                      <div className="text-[11px] mc-mute mb-3 px-2 py-1.5 rounded border border-white/[0.06] bg-white/[0.02]">
+                        {cioBackfillMsg}
+                      </div>
+                    )}
+
+                    {/* Gate checklist — 4 groups in a 2-up grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {groupOrder.map((g) => {
+                        const rows = gates[g.key] || [];
+                        const groupGreen = rows.filter((r) => r.met).length;
+                        return (
+                          <div key={g.key} className="mc-kpi" style={{ padding: 14 }}>
+                            <div className="flex items-baseline justify-between mb-1">
+                              <div>
+                                <div className="text-[12px] font-bold text-white">{g.label}</div>
+                                <div className="text-[10px] mc-mute">{g.desc}</div>
+                              </div>
+                              <span className={`mc-pill ${groupGreen === rows.length ? "mc-pill-ok" : "mc-pill-warn"}`}>
+                                {groupGreen}/{rows.length}
+                              </span>
+                            </div>
+                            <table className="mc-table mt-2" style={{ fontSize: 11 }}>
+                              <tbody>
+                                {rows.map((r) => (
+                                  <tr key={r.id}>
+                                    <td style={{ padding: "5px 4px", width: 20, textAlign: "center" }}>
+                                      {r.met === true ? <span className="mc-pos">✓</span>
+                                       : r.met === false ? <span className="mc-neg">✗</span>
+                                       : <span className="mc-mute">—</span>}
+                                    </td>
+                                    <td style={{ padding: "5px 4px" }}>
+                                      <div className="text-[11px] text-[#d1d5db]">{r.label}</div>
+                                      <div className="text-[10px] mc-mute">Target: {r.threshold}</div>
+                                    </td>
+                                    <td style={{ padding: "5px 4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                                      <span className={`text-[11px] font-mono ${r.met ? "mc-pos" : "text-[#d1d5db]"}`}>
+                                        {fmtVal(r)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Recommendation banner */}
+                    {cioReadiness.recommendation && (
+                      <div
+                        className="mt-4 px-3 py-2.5 rounded text-[11.5px] leading-relaxed"
+                        style={{
+                          background: cioReadiness.ready_for_live ? "rgba(34,197,94,0.08)" : "rgba(251,191,36,0.08)",
+                          border: cioReadiness.ready_for_live ? "1px solid rgba(34,197,94,0.25)" : "1px solid rgba(251,191,36,0.25)",
+                          color: cioReadiness.ready_for_live ? "#86efac" : "#fcd34d",
+                        }}
+                      >
+                        <span className="font-semibold">Recommendation: </span>{cioReadiness.recommendation}
+                      </div>
+                    )}
+
+                    {cioReadiness.note && (
+                      <div className="text-[10px] mc-mute mt-2 italic">{cioReadiness.note}</div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* CIO accuracy detail table */}
+              {cioAccuracy?.summary && cioAccuracy.summary.length > 0 && (
+                <>
+                  <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
+                    Decision Detail — All-Time Outcomes
+                  </div>
+                  <table className="mc-table">
+                    <thead>
+                      <tr>
+                        <th>Decision</th>
+                        <th>Mode</th>
+                        <th style={{ textAlign: "right" }}>Count</th>
+                        <th style={{ textAlign: "right" }}>Wins</th>
+                        <th style={{ textAlign: "right" }}>Losses</th>
+                        <th style={{ textAlign: "right" }}>Win Rate</th>
+                        <th style={{ textAlign: "right" }}>Avg P&L %</th>
+                        <th style={{ textAlign: "right" }}>Avg Conf</th>
+                        <th style={{ textAlign: "right" }}>Avg Edge</th>
+                        <th style={{ textAlign: "right" }}>Latency</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cioAccuracy.summary.map((row, i) => {
+                        const count = Number(row.count) || 0;
+                        const wins = Number(row.wins) || 0;
+                        const losses = Number(row.losses) || 0;
+                        const wr = (wins + losses) > 0 ? (wins / (wins + losses)) * 100 : null;
+                        const pnl = Number(row.avg_pnl_pct);
+                        const conf = Number(row.avg_confidence);
+                        const edge = Number(row.avg_edge_score);
+                        const lat = Number(row.avg_latency_ms);
+                        const isShadow = Number(row.shadow) === 1;
+                        return (
+                          <tr key={`${row.decision}-${row.shadow}-${i}`}>
+                            <td><span className="font-semibold text-white">{row.decision}</span></td>
+                            <td>
+                              <span className={`mc-pill ${isShadow ? "mc-pill-warn" : "mc-pill-ok"}`}>
+                                {isShadow ? "SHADOW" : "ACTED"}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: "right" }}>{count}</td>
+                            <td style={{ textAlign: "right" }} className="mc-pos">{wins}</td>
+                            <td style={{ textAlign: "right" }} className="mc-neg">{losses}</td>
+                            <td style={{ textAlign: "right" }}>
+                              {wr != null ? `${wr.toFixed(1)}%` : "—"}
+                            </td>
+                            <td style={{ textAlign: "right" }} className={Number.isFinite(pnl) ? (pnl >= 0 ? "mc-pos" : "mc-neg") : ""}>
+                              {Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}%` : "—"}
+                            </td>
+                            <td style={{ textAlign: "right" }}>{Number.isFinite(conf) ? conf.toFixed(2) : "—"}</td>
+                            <td style={{ textAlign: "right" }}>{Number.isFinite(edge) ? edge.toFixed(2) : "—"}</td>
+                            <td style={{ textAlign: "right" }} className="mc-mute">
+                              {Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
+              )}
+
+              {/* Recent rejections — top 5 most recent */}
+              {cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && (
+                <>
+                  <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
+                    Recent CIO Rejections (latest 5)
+                  </div>
+                  <table className="mc-table">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Ticker</th>
+                        <th>Dir</th>
+                        <th>Conf</th>
+                        <th>Edge</th>
+                        <th>Mode</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cioAccuracy.recent_rejections.slice(0, 5).map((r, i) => (
+                        <tr key={`rej-${i}`}>
+                          <td className="mc-mute">{fmtAgo(r.created_at)}</td>
+                          <td><span className="font-semibold text-white">{r.ticker}</span></td>
+                          <td>
+                            <span className={String(r.direction).toUpperCase() === "LONG" ? "mc-pos" : "mc-neg"}>
+                              {r.direction}
+                            </span>
+                          </td>
+                          <td>{Number(r.confidence).toFixed(2)}</td>
+                          <td>{Number(r.edge_score).toFixed(2)}</td>
+                          <td>
+                            <span className={`mc-pill ${Number(r.shadow) === 1 ? "mc-pill-warn" : "mc-pill-ok"}`}>
+                              {Number(r.shadow) === 1 ? "SHADOW" : "ACTED"}
+                            </span>
+                          </td>
+                          <td className="text-[11px] text-[#d1d5db]" style={{ maxWidth: 460 }}>
+                            {String(r.reasoning || "").slice(0, 240)}
+                            {String(r.reasoning || "").length > 240 && "…"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+
+              <div className="text-[10px] mc-mute mt-4">
+                Backed by <code>GET /timed/admin/ai-cio/go-live-readiness</code> and{" "}
+                <code>GET /timed/admin/ai-cio/accuracy</code>. Full audit doc:{" "}
+                <code>tasks/2026-05-28-cio-shadow-to-live-audit.md</code>.
+              </div>
             </div>
 
             {/* ── Footer ── */}
