@@ -1090,6 +1090,12 @@ const ROUTES = [
   ["GET", "/timed/alert-debug", "GET /timed/alert-debug"],
   ["GET", "/timed/alert-replay", "GET /timed/alert-replay"],
   ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/decision-card"), "GET /timed/ledger/trades/:id/decision-card"],
+  // 2026-05-28 — Per-trade AI CIO decision lookup for the Right Rail
+  // Setup tab. Returns the LATEST ai_cio_decisions row for a given
+  // trade_id (decision, confidence, edge, reasoning, risk_flags, model,
+  // shadow flag, ts). Public-readable: CIO decisions are part of the
+  // trade record and already surfaced in Discord embeds.
+  ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/cio"), "GET /timed/ledger/trades/:id/cio"],
   // 2026-05-27 (PR #324) — per-trade event log for the Trade Autopsy
   // receipt. Returns all account_ledger rows (ENTRY/TRIM/EXIT) matched
   // by trade_id (via position_id) so the modal can render the full
@@ -23433,11 +23439,47 @@ async function processTradeSimulation(
                   if (_cioDecision && !_cioDecision.fallback) {
                     embed.fields = embed.fields || [];
                     const cioEmoji = _cioDecision.decision === "APPROVE" ? "✅" : _cioDecision.decision === "ADJUST" ? "⚙️" : "🛑";
+                    // 2026-05-28 — Discord embed `field.value` caps at 1024
+                    // chars. User reported the AI CIO reasoning was
+                    // truncated mid-sentence (ended with "...sitting in
+                    // premium PDZ with"). Split the reasoning into a header
+                    // field + as many "AI CIO (cont'd)" fields as needed.
+                    // Header is short and ALWAYS visible; reasoning chunks
+                    // wrap at word boundaries to avoid hyphen-style breaks.
+                    const _cioHeader = `**${_cioDecision.decision}** (${(_cioDecision.confidence * 100).toFixed(0)}% conf, edge ${(_cioDecision.edge_score * 100).toFixed(0)}%)`;
+                    const _cioReasoning = String(_cioDecision.reasoning || "—");
+                    const FIELD_CAP = 1024;
+                    // First field combines header + first chunk of reasoning
+                    const _firstCap = FIELD_CAP - _cioHeader.length - 1; // -1 for \n
+                    const _chunks = [];
+                    if (_cioReasoning.length <= _firstCap) {
+                      _chunks.push(_cioReasoning);
+                    } else {
+                      // Split on word boundary near _firstCap, then 1024-char
+                      // chunks for the rest.
+                      let remaining = _cioReasoning;
+                      let cap = _firstCap;
+                      while (remaining.length > 0) {
+                        if (remaining.length <= cap) { _chunks.push(remaining); break; }
+                        let cut = remaining.lastIndexOf(" ", cap);
+                        if (cut <= 0 || cut < cap * 0.6) cut = cap; // hard cut if no good break
+                        _chunks.push(remaining.slice(0, cut).trim());
+                        remaining = remaining.slice(cut).trim();
+                        cap = FIELD_CAP;
+                      }
+                    }
                     embed.fields.push({
                       name: `${cioEmoji} AI CIO`,
-                      value: `**${_cioDecision.decision}** (${(_cioDecision.confidence * 100).toFixed(0)}% conf, edge ${(_cioDecision.edge_score * 100).toFixed(0)}%)\n${_cioDecision.reasoning || "—"}`,
+                      value: `${_cioHeader}\n${_chunks[0]}`,
                       inline: false,
                     });
+                    for (let _i = 1; _i < _chunks.length; _i++) {
+                      embed.fields.push({
+                        name: `${cioEmoji} AI CIO (cont'd ${_i})`,
+                        value: _chunks[_i],
+                        inline: false,
+                      });
+                    }
                   }
                   const sendRes = allow
                     ? await notifyDiscord(env, embed).catch((err) => ({
@@ -51519,6 +51561,71 @@ export default {
           200,
           corsHeaders(env, req),
         );
+      }
+
+      // 2026-05-28 — GET /timed/ledger/trades/:id/cio
+      // Returns the LATEST AI CIO decision row for a given trade_id so
+      // the Right Rail Setup tab can render the same verdict + full
+      // reasoning the operator sees in the Discord entry embed. Public
+      // read: CIO decisions are part of the trade record.
+      if (routeKey === "GET /timed/ledger/trades/:id/cio") {
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const _raw = url.pathname.split("/timed/ledger/trades/")[1] || "";
+        const _tradeId = decodeURIComponent(_raw.replace(/\/cio$/, "")).trim();
+        if (!_tradeId) return sendJSON({ ok: false, error: "missing_trade_id" }, 400, corsHeaders(env, req));
+        try {
+          const row = await db
+            .prepare(
+              `SELECT trade_id, ticker, direction, decision, confidence, reasoning,
+                      risk_flags, edge_score, latency_ms, fallback, model,
+                      adjustments_json, created_at, shadow, trade_outcome, trade_pnl_pct
+               FROM ai_cio_decisions
+               WHERE trade_id = ?1
+               ORDER BY created_at DESC
+               LIMIT 1`
+            )
+            .bind(_tradeId)
+            .first();
+          if (!row) {
+            return sendJSON({ ok: true, trade_id: _tradeId, cio: null, reason: "no_decision_for_trade" }, 200, corsHeaders(env, req));
+          }
+          // Parse adjustments_json so the client can read structured
+          // model-applied changes without re-parsing.
+          let _adj = null;
+          try { if (row.adjustments_json) _adj = JSON.parse(row.adjustments_json); } catch (_) {}
+          // 2026-05-28 — risk_flags is stored as JSON.stringify(array)
+          // upstream (see worker/index.js:19986 etc), so parse as JSON
+          // first; only fall back to CSV split if the JSON parse fails
+          // (legacy rows where the writer used join(",") at some point).
+          const _parseFlags = (raw) => {
+            if (Array.isArray(raw)) return raw;
+            if (typeof raw !== "string" || !raw) return [];
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+            } catch (_) { /* fall through to legacy CSV path */ }
+            return raw.split(",").map((s) => s.trim()).filter(Boolean);
+          };
+          const cio = {
+            decision: row.decision,
+            confidence: Number(row.confidence) || 0,
+            edge_score: Number(row.edge_score) || 0,
+            reasoning: row.reasoning || "",
+            risk_flags: _parseFlags(row.risk_flags),
+            model: row.model || null,
+            latency_ms: Number(row.latency_ms) || null,
+            fallback: row.fallback === 1 || row.fallback === true,
+            shadow: row.shadow === 1 || row.shadow === true,
+            adjustments: _adj,
+            created_at: Number(row.created_at) || null,
+            trade_outcome: row.trade_outcome || null,
+            trade_pnl_pct: row.trade_pnl_pct != null ? Number(row.trade_pnl_pct) : null,
+          };
+          return sendJSON({ ok: true, trade_id: _tradeId, cio }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
       }
 
       // 2026-05-27 (PR #324) — GET /timed/ledger/trades/:id/events

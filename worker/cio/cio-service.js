@@ -768,7 +768,16 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
           { role: "system", content: AI_CIO_SYSTEM_PROMPT },
           { role: "user", content: userContent },
         ],
-        500,
+        // 2026-05-28 — 500 -> 1200. User reported reasoning truncated
+        // mid-sentence in the Discord embed AND in the rail (ends with
+        // "...sitting in premium PDZ with"). Root cause: this cap was
+        // tight enough that the JSON payload (decision/confidence/edge/
+        // risk_flags/adjustments + reasoning) consumed the full 500
+        // tokens and the model ran out of tokens partway through the
+        // reasoning string. 1200 leaves comfortable headroom for the
+        // reasoning paragraph without spending materially more on
+        // latency/cost (the model still stops at the end of the JSON).
+        1200,
         { temperature: 0.1, responseFormat: { type: "json_object" } },
       )),
       signal: controller.signal,
@@ -863,7 +872,12 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
           { role: "system", content: AI_CIO_LIFECYCLE_PROMPT },
           { role: "user", content: userContent },
         ],
-        400,
+        // 2026-05-28 — 400 -> 900. Same truncation pattern as the
+        // entry call above (just smaller because lifecycle JSON is
+        // tighter). Lifecycle decisions still need 1-2 paragraphs of
+        // reasoning so the operator/trader understands why we held,
+        // proceeded, or pulled the trigger.
+        900,
         { temperature: 0.1, responseFormat: { type: "json_object" } },
       )),
       signal: controller.signal,
