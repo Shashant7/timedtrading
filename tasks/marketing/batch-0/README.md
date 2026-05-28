@@ -89,6 +89,7 @@ tasks/
       06-youtube-long-form.md
       07-youtube-shorts.md
     x-queue-2026-05.md              ← 30-day rolling queue for the cron runner
+    marketing-automation-spec.md    ← Batch 0.5 — HITL marketing pipeline + public Daily Brief spec
     (future) x-queue-engagement-log.md
     (future) assets/x/              ← image assets referenced by the queue
 ```
