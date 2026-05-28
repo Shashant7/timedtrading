@@ -1090,6 +1090,12 @@ const ROUTES = [
   ["GET", "/timed/alert-debug", "GET /timed/alert-debug"],
   ["GET", "/timed/alert-replay", "GET /timed/alert-replay"],
   ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/decision-card"), "GET /timed/ledger/trades/:id/decision-card"],
+  // 2026-05-28 — Per-trade AI CIO decision lookup for the Right Rail
+  // Setup tab. Returns the LATEST ai_cio_decisions row for a given
+  // trade_id (decision, confidence, edge, reasoning, risk_flags, model,
+  // shadow flag, ts). Public-readable: CIO decisions are part of the
+  // trade record and already surfaced in Discord embeds.
+  ["GET", (p) => p.startsWith("/timed/ledger/trades/") && p.endsWith("/cio"), "GET /timed/ledger/trades/:id/cio"],
   // 2026-05-27 (PR #324) — per-trade event log for the Trade Autopsy
   // receipt. Returns all account_ledger rows (ENTRY/TRIM/EXIT) matched
   // by trade_id (via position_id) so the modal can render the full
@@ -1701,24 +1707,36 @@ async function checkPriceFeedStale(env, sym, pxNow) {
 // `tickerData.__candle_data_stale` on still-stale tickers so
 // processTradeSimulation can refuse to act on them.
 //
-// Thresholds — 2026-05-28 retuned. Daily candles are dated by their START
-// (e.g., Wednesday's D bar carries ts = Wed 00:00 UTC). By Thursday 9 AM UTC
-// the freshest D bar is already 33h "old" by absolute clock — that's still
-// the correct freshest state, not staleness. Likewise, a Tuesday morning
-// after a Monday holiday has a Friday D bar that's ~70h old. The threshold
-// must accommodate normal weekends + holidays + the TD daily-settlement
-// window without false-positiving every morning.
+// Thresholds — 2026-05-28 retuned (twice). The MARKET DOES NOT EMIT NEW
+// BARS between RTH close (4 PM ET) and the next RTH open (9:30 AM ET).
+// That's a natural 17.5-hour gap on every weekday morning. Add weekends
+// and Monday holidays and the gap stretches to ~90 hours. The freshest
+// possible candle during these gaps IS the last RTH bar; that's not
+// staleness, it's the correct current state going into the next session.
 //
-//   D    ≤ 72h (covers weekend gap Fri close → Tue morning + holiday Mondays)
-//   60m  ≤ 2h during RTH, ≤ 14h overnight/weekend
-//   5m   ≤ 15min during RTH only (5m feed pauses outside RTH; skip OOH)
+// First fix attempt (24h → 72h on D) handled the overnight case but left
+// the 60m_OOH at 14h, which kept firing every morning because Wed 4 PM ET
+// → Thu 8:35 AM ET = 16.5h on the 60m bar. Likewise D at 72h was right
+// for normal weekdays + weekends but would fire on Tuesday-after-Monday-
+// holiday. Lifting both to 96h covers:
 //
-// At >72h on D we genuinely have an ingestion gap worth alerting on (the
-// May 2026 fleet-wide 13d stale incident was always >>72h).
+//   gap source            actual age   old (72h/14h)  new (96h/96h)
+//   normal overnight      17.5h        ❌ fires (60m) ✅
+//   normal weekend        65.5h        ❌ fires (60m) ✅
+//   Mon-holiday weekend   89.5h        ❌ fires both  ✅
+//   Thanksgiving weekend  94h          ❌ fires both  ✅
+//   real ingest failure   >>96h        ❌ fires       ❌ fires (correct)
+//
+// 5m thresholds untouched — 5m only checked during RTH where the natural
+// cadence is 5 minutes and 15-min staleness is a real problem.
+//
+//   D    ≤ 96h (covers weekend + Mon-holiday)
+//   60m  ≤ 2h during RTH, ≤ 96h overnight/weekend
+//   5m   ≤ 15min during RTH only
 // ─────────────────────────────────────────────────────────────────────────────
-const OPEN_POS_STALE_D_MS = 72 * 60 * 60 * 1000;
+const OPEN_POS_STALE_D_MS = 96 * 60 * 60 * 1000;
 const OPEN_POS_STALE_60M_RTH_MS = 2 * 60 * 60 * 1000;
-const OPEN_POS_STALE_60M_OOH_MS = 14 * 60 * 60 * 1000;
+const OPEN_POS_STALE_60M_OOH_MS = 96 * 60 * 60 * 1000;
 const OPEN_POS_STALE_5M_RTH_MS = 15 * 60 * 1000;
 
 async function checkOpenPositionCandlesFresh(env, openTickers) {
@@ -1819,20 +1837,33 @@ async function ensureOpenPositionCandlesFresh(env, openTickers) {
     try {
       const _KV = env?.KV_TIMED || env?.KV;
       if (_KV) {
-        const _alertKey = `timed:freshness:open_pos_alert:${still_stale.map((s) => s.ticker).sort().join(",")}`;
+        // 2026-05-28 — Dedup TTL 1h -> 24h keyed on SORTED ticker list +
+        // dominant reason. Was firing every hour while the underlying
+        // issue persisted; same set+reason within 24h is now suppressed.
+        const _reasonSig = still_stale.map((s) => (s.reasons || []).join("|")).sort().join(";").slice(0, 80);
+        const _alertKey = `timed:freshness:open_pos_alert:${still_stale.map((s) => s.ticker).sort().join(",")}::${_reasonSig}`;
         const _seen = await _KV.get(_alertKey);
         if (!_seen) {
-          await kvPutText(_KV, _alertKey, "1", 3600);
+          await kvPutText(_KV, _alertKey, "1", 86400);
+          const _maxAgeH = Math.max(
+            ...still_stale.flatMap((s) => Object.values(s.ages || {}).map((ms) => Number(ms) / 3600000)),
+            0,
+          );
           notifyDiscord(env, {
-            title: `⚠️ Open-position candle data stale`,
-            description: `${still_stale.length} ticker(s) have stale candles after auto-heal. Trading paused for affected tickers until data refreshes.`,
+            title: `⚠️ Open-position candle data stale (worst ${_maxAgeH.toFixed(1)}h)`,
+            description:
+              `${still_stale.length} open-position ticker(s) have candles older than the ` +
+              `D/60m/5m thresholds AFTER an auto-heal backfill attempt failed. Management ` +
+              `(trim / SL move / exit) is paused for these tickers until data refreshes. ` +
+              `Verify ingest: \`POST /timed/admin/alpaca-backfill?include_user=1&sinceDays=5\`. ` +
+              `Deduped 24h on (tickers × reasons).`,
             color: 0xff8800,
             fields: still_stale.slice(0, 10).map((s) => ({
               name: s.ticker,
               value: s.reasons.join(", "),
               inline: true,
             })),
-          }).catch(() => {});
+          }, "system").catch(() => {});
         }
       }
     } catch (_) {}
@@ -17607,6 +17638,19 @@ async function processTradeSimulation(
                 price: trade.exitPrice, pnlPct: trade.pnlPct || 0,
                 exitReason: closeReason || trade.status,
                 mode: "trader",
+                // 2026-05-28 — Discord-parity payload (see entry callsite
+                // comment ~line 23501 for rationale).
+                trade_id: trade.id || null,
+                entry: Number(trade.entryPrice) || null,
+                exit: Number(trade.exitPrice) || null,
+                pnl: Number(trade.pnl) || null,
+                status: trade.status || null,
+                rank: Number(trade.rank) || null,
+                rr: Number(trade.rr) || null,
+                setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+                setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+                action_ts: tsMs,
+                chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
               }, requestCtx));
               await upsertAlertSafe({
                 alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
@@ -18037,11 +18081,26 @@ async function processTradeSimulation(
               body: `Trimmed ${sym} ${dir} ${tgt}% of position${_trimPriceFmt ? ` filled at ${_trimPriceFmt}` : ""}${_trimEtTime ? ` (${_trimEtTime})` : ""} — P&L ${Number(pnlPctAtTrim || 0) >= 0 ? "+" : ""}${Number(pnlPctAtTrim || 0).toFixed(2)}%`,
               link: `/index-react.html?ticker=${sym}`,
             }));
-            // Email trade alert
+            // Email trade alert — 2026-05-28 — Discord-parity payload.
             queueBackground(dispatchTradeAlertEmails(env, {
               type: "TRADE_TRIM", ticker: sym, direction: dir,
               price: trade.currentPrice || p, trimmedPct: tgt,
               mode: "trader",
+              trade_id: trade.id || null,
+              entry: Number(trade.entryPrice) || null,
+              fillPrice: Number(p) || null,
+              pnl: Number(pnlRealized) || null,
+              pnlPct: Number(pnlPctAtTrim) || null,
+              trimDeltaPct: Number(delta) || null,
+              newTrimmedPct: tgt,
+              shares_trimmed: Number(trimShares) || null,
+              shares_remaining: (Number(trade.shares) || 0) - (Number(trimShares) || 0),
+              setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+              setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+              risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
+              trim_reason: trade.exitReason || tickerData?.__exit_reason || null,
+              action_ts: tsMs,
+              chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
             }, requestCtx));
             await upsertAlertSafe({
               alert_id: buildAlertId(sym, tsMs, "TRADE_TRIM"),
@@ -23408,11 +23467,47 @@ async function processTradeSimulation(
                   if (_cioDecision && !_cioDecision.fallback) {
                     embed.fields = embed.fields || [];
                     const cioEmoji = _cioDecision.decision === "APPROVE" ? "✅" : _cioDecision.decision === "ADJUST" ? "⚙️" : "🛑";
+                    // 2026-05-28 — Discord embed `field.value` caps at 1024
+                    // chars. User reported the AI CIO reasoning was
+                    // truncated mid-sentence (ended with "...sitting in
+                    // premium PDZ with"). Split the reasoning into a header
+                    // field + as many "AI CIO (cont'd)" fields as needed.
+                    // Header is short and ALWAYS visible; reasoning chunks
+                    // wrap at word boundaries to avoid hyphen-style breaks.
+                    const _cioHeader = `**${_cioDecision.decision}** (${(_cioDecision.confidence * 100).toFixed(0)}% conf, edge ${(_cioDecision.edge_score * 100).toFixed(0)}%)`;
+                    const _cioReasoning = String(_cioDecision.reasoning || "—");
+                    const FIELD_CAP = 1024;
+                    // First field combines header + first chunk of reasoning
+                    const _firstCap = FIELD_CAP - _cioHeader.length - 1; // -1 for \n
+                    const _chunks = [];
+                    if (_cioReasoning.length <= _firstCap) {
+                      _chunks.push(_cioReasoning);
+                    } else {
+                      // Split on word boundary near _firstCap, then 1024-char
+                      // chunks for the rest.
+                      let remaining = _cioReasoning;
+                      let cap = _firstCap;
+                      while (remaining.length > 0) {
+                        if (remaining.length <= cap) { _chunks.push(remaining); break; }
+                        let cut = remaining.lastIndexOf(" ", cap);
+                        if (cut <= 0 || cut < cap * 0.6) cut = cap; // hard cut if no good break
+                        _chunks.push(remaining.slice(0, cut).trim());
+                        remaining = remaining.slice(cut).trim();
+                        cap = FIELD_CAP;
+                      }
+                    }
                     embed.fields.push({
                       name: `${cioEmoji} AI CIO`,
-                      value: `**${_cioDecision.decision}** (${(_cioDecision.confidence * 100).toFixed(0)}% conf, edge ${(_cioDecision.edge_score * 100).toFixed(0)}%)\n${_cioDecision.reasoning || "—"}`,
+                      value: `${_cioHeader}\n${_chunks[0]}`,
                       inline: false,
                     });
+                    for (let _i = 1; _i < _chunks.length; _i++) {
+                      embed.fields.push({
+                        name: `${cioEmoji} AI CIO (cont'd ${_i})`,
+                        value: _chunks[_i],
+                        inline: false,
+                      });
+                    }
                   }
                   const sendRes = allow
                     ? await notifyDiscord(env, embed).catch((err) => ({
@@ -23430,11 +23525,37 @@ async function processTradeSimulation(
                     body: `Entered ${sym} ${direction}${_entryEtTime ? ` at ${_entryEtTime}` : ""} · Filled $${Number(entryPx).toFixed(2)} · Rank ${Number(trade.rank || 0)} · R:R ${Number(trade.rr || 0).toFixed(1)}`,
                     link: `/index-react.html?ticker=${sym}`,
                   }));
-                  // Email trade alert
+                  // Email trade alert — 2026-05-28 — expanded payload so
+                  // the email renders the same fields as the Discord embed
+                  // (entry/SL/TP/risk/setup/grade/AI CIO). Lets users on
+                  // the go act on the alert without opening the dashboard.
                   queueBackground(dispatchTradeAlertEmails(env, {
                     type: "TRADE_ENTRY", ticker: sym, direction,
                     price: entryPx, rank: trade.rank, rr: trade.rr,
                     mode: "trader",
+                    trade_id: trade.id || tradeId || null,
+                    entry: entryPx,
+                    sl: Number(trade.sl) || Number(tickerData?.sl) || null,
+                    tp: Number(trade.tp) || Number(tickerData?.tp) || null,
+                    shares: Number(trade.shares) || null,
+                    notional: Number.isFinite(Number(entryPx)) && Number.isFinite(Number(trade.shares))
+                      ? Number(entryPx) * Number(trade.shares) : null,
+                    risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
+                    setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
+                    setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
+                    action_ts: tsMs,
+                    chart_url: getTradeAutopsyChartUrl(env, tradeId) || null,
+                    momentum_elite: !!(tickerData?.flags?.momentum_elite),
+                    vwap_pct: Number(tickerData?.tf_tech?.["1H"]?.vwap?.pct ?? tickerData?.vwap_pct) || null,
+                    cio: (_cioDecision && !_cioDecision.fallback) ? {
+                      decision: _cioDecision.decision,
+                      confidence: Number(_cioDecision.confidence) || 0,
+                      edge_score: Number(_cioDecision.edge_score) || 0,
+                      reasoning: String(_cioDecision.reasoning || "").slice(0, 4000),
+                      risk_flags: Array.isArray(_cioDecision.risk_flags) ? _cioDecision.risk_flags.slice(0, 8) : [],
+                      model: _cioDecision.model || null,
+                      shadow: !!_entryShadow,
+                    } : null,
                   }, requestCtx));
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
@@ -25384,7 +25505,9 @@ async function processTradeSimulation(
                       kind: "trade_merge",
                     })
                   ) {
-                    await notifyDiscord(env, embed).catch(() => {});
+                    // 2026-05-28 — trade-merge is internal lifecycle bookkeeping,
+                    // not a trader-facing action. Route to system-alerts lane.
+                    await notifyDiscord(env, embed, "system").catch(() => {});
                   }
                 }
               }
@@ -28907,6 +29030,9 @@ async function drainQueuedActions(env) {
 
     if ((executed > 0 || expired > 0) && shouldSendDiscordAlert(env, "SYSTEM")) {
       const details = pending.map(r => `${r.ticker} ${r.action} → ${r.ticker === r.ticker ? "" : ""}`).slice(0, 10);
+      // 2026-05-28 — Queue-drain summary is ops bookkeeping. Trader
+      // already sees the executed entries/trims via their own alerts;
+      // this is the operator's "what did the cron do?" recap. system lane.
       notifyDiscord(env, {
         embeds: [{
           title: "📋 Queue Drain Summary",
@@ -28914,7 +29040,7 @@ async function drainQueuedActions(env) {
           color: executed > 0 ? 0x00e676 : 0xffa726,
           timestamp: new Date().toISOString(),
         }],
-      }).catch(() => {});
+      }, "system").catch(() => {});
     }
 
     return { executed, expired };
@@ -38294,8 +38420,29 @@ function createTradeTrimmedEmbed(
     PRE_FOMC_RISK_REDUCTION: "Reduced exposure ahead of FOMC because policy headlines can sharply reprice open positions",
     PRE_PCE_RISK_REDUCTION: "Reduced exposure ahead of PCE because the release can sharply reprice open positions",
     PRE_NFP_RISK_REDUCTION: "Reduced exposure ahead of NFP because payroll data can sharply reprice open positions",
+    // 2026-05-28 — Jargon-free entries for ripster_5_12 family (10-min
+    // 5/12 EMA cloud cross). Previously these fell through to the
+    // fallback formatter and surfaced as "Trim triggered: ripster 5 12
+    // lost confirmed" which leaked the indicator-author name into the
+    // user's Discord feed. User-facing copy now describes the SIGNAL,
+    // not the author.
+    ripster_5_12_defend_trim: "10-min 5/12 EMA cloud lost on the position side — defensive partial trim while the larger trend still holds",
+    ripster_5_12_lost_confirmed: "10-min 5/12 EMA cloud cross confirmed against the position over multiple bars — momentum has flipped",
+    ripster_5_12_lost: "10-min 5/12 EMA cloud crossed against the position — momentum starting to flip",
+    ripster_5_12_pending: "10-min 5/12 EMA cloud cross is forming but not yet confirmed — waiting one more bar before acting",
+    ripster_5_12_trend_trigger: "10-min 5/12 EMA cloud crossed in the trade direction — momentum trigger fired",
   };
-  const humanTrimReason = trimReason ? (trimReasonMap[trimReason] || `Trim triggered: ${trimReason.replace(/_/g, " ")}`) : null;
+  // Fallback formatter — strip indicator-author jargon from any reason
+  // string that didn't get a dedicated entry. "ripster_5_12_*" and
+  // "saty_*" tokens get replaced with neutral language so the operator
+  // never sees raw indicator-author names in Discord.
+  const _scrubJargon = (s) => String(s || "")
+    .replace(/ripster[_\s-]*/gi, "")
+    .replace(/saty[_\s-]*/gi, "");
+  const humanTrimReason = trimReason
+    ? (trimReasonMap[trimReason]
+       || `Trim triggered: ${_scrubJargon(trimReason).replace(/_/g, " ").trim()}`)
+    : null;
   if (humanTrimReason) {
     fields.push({ name: "Why We Trimmed", value: humanTrimReason, inline: false });
   }
@@ -38371,11 +38518,23 @@ function createTradeClosedEmbed(
   exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support level broke down — exiting to avoid further downside";
   exitReasonMap.SMART_RUNNER_SQUEEZE_RELEASE_AGAINST = "Volatility squeeze fired against our direction — exiting before the move accelerates";
   exitReasonMap.PHASE_LEAVE_100 = "Momentum peaked and is starting to fade — securing gains before reversal";
+  // 2026-05-28 — Jargon-free ripster_5_12 family for exit embeds too
+  // (same as the trim embed above). Without these, the fallback below
+  // surfaced raw author names.
+  exitReasonMap.ripster_5_12_lost_confirmed = "10-min 5/12 EMA cloud cross confirmed against the position — exited because momentum has flipped";
+  exitReasonMap.ripster_5_12_lost = "10-min 5/12 EMA cloud crossed against the position — exited as momentum starts to flip";
+  exitReasonMap.ripster_5_12_pending = "10-min 5/12 EMA cloud cross was forming — exit triggered as the bar closed against us";
+  exitReasonMap.ripster_5_12_defend_trim = "10-min 5/12 EMA cloud lost on the position side — full exit after defensive trim path";
   const rawReason = exitReason || "";
+  // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
+  // (was previously rewritten as 'TT ' which still looked odd).
+  const _scrubExitJargon = (s) => String(s || "")
+    .replace(/ripster[_\s-]*/gi, "")
+    .replace(/saty[_\s-]*/gi, "");
   const humanExitReason = exitReasonMap[rawReason]
     || (rawReason.includes("sl") || rawReason.includes("SL") ? "Hit the stop loss" : null)
     || (rawReason.includes("tp") || rawReason.includes("TP") ? "Profit target reached" : null)
-    || (rawReason ? rawReason.replace(/ripster[_ ]?/gi, "TT ").replace(/_/g, " ").replace(/,/g, ", ") : null);
+    || (rawReason ? _scrubExitJargon(rawReason).replace(/_/g, " ").replace(/,/g, ", ").trim() : null);
 
   // Build human-readable description
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
@@ -40664,7 +40823,8 @@ export default {
                   if (
                     shouldSendDiscordAlert(env, "SYSTEM", { kind: "migration" })
                   ) {
-                    notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
+                    // 2026-05-28 — DB migration completion is ops, not trade. system lane.
+                    notifyDiscord(env, migrationEmbed, "system").catch(() => {});
                   }
                 }
               })
@@ -44624,6 +44784,33 @@ export default {
           ? await d1GetActiveUserTickersForEmail(env, _reqUserEmail)
           : [];
 
+        // 2026-05-28 — Pull open-position tickers FIRST so they always
+        // make it into the response, even when they were never added to
+        // SECTOR_MAP or the user's tracked set.
+        //
+        // Bug: a Pro user with an open HIMX trade saw the HIMX kanban
+        // card with no price / no progress bar — because HIMX is not in
+        // SECTOR_MAP and is not user-added, so /timed/all filtered it
+        // out, and the client fell back to stub-injection from the
+        // trade row (which has no live price). Result: card existed but
+        // was blank where the price + position bar should be.
+        //
+        // An open position is a stronger signal of "this user cares
+        // about this ticker" than the static universe gate. Force-add
+        // those tickers to activeSet so the live snapshot data flows
+        // through to the card unconditionally.
+        let _openPosTickers = [];
+        try {
+          if (env?.DB) {
+            const _opRes = await env.DB.prepare(
+              `SELECT DISTINCT ticker FROM positions WHERE status IN ('OPEN','TP_HIT_TRIM')`
+            ).all().catch(() => ({ results: [] }));
+            _openPosTickers = (Array.isArray(_opRes?.results) ? _opRes.results : [])
+              .map((r) => String(r?.ticker || "").toUpperCase())
+              .filter(Boolean);
+          }
+        } catch (_) { /* best-effort */ }
+
         // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
         // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
         // Falls through to D1 if snapshot is missing or stale
@@ -44635,7 +44822,12 @@ export default {
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
-            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
+            const activeSet = new Set([
+              ...Object.keys(SECTOR_MAP),
+              ...userAddedForReq,
+              ...MARKET_PULSE_SYMS,
+              ..._openPosTickers,  // 2026-05-28 — always include open positions
+            ]);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -45204,7 +45396,16 @@ export default {
           ).all();
 
           // Filter: must be in SECTOR_MAP or THIS user's added tickers
-          const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
+          // 2026-05-28 — also force-include any ticker with an open
+          // position (same fix as the snapshot fast-path above). Without
+          // this, a Pro user with an open HIMX trade sees the card go
+          // blank when the D1 fallback path runs.
+          const activeSet = new Set([
+            ...Object.keys(SECTOR_MAP),
+            ...userAddedForReq,
+            ...MARKET_PULSE_SYMS,
+            ..._openPosTickers,
+          ]);
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
@@ -48889,43 +49090,99 @@ export default {
       }
 
       // GET /timed/activity
+      //
+      // 2026-05-28 — Switched data source from KV `timed:activity:feed`
+      // (which mostly carried `ingest_missing` ops noise) to the same
+      // D1 query the admin endpoint uses (execution_actions JOIN
+      // positions JOIN trades). The KV path returned 30 ingest_missing
+      // events and zero trade events; the D1 source has the canonical
+      // ENTER/TRIM/EXIT for the user's portfolio.
+      //
+      // Admin and Pro now both see the same trade events; the only
+      // difference is that admin keeps the option to view the full
+      // ops firehose at /timed/admin/activity-feed (and currently
+      // returns the SAME D1 rows since the KV firehose was empty —
+      // but the admin endpoint stays as the future home for ops-level
+      // telemetry like ingest gaps, cron failures, integrity warnings).
       if (routeKey === "GET /timed/activity") {
-        const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
-
-        const now = Date.now();
-        const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-        const currentEvents = [];
-
-        // Merge feed events with current events, deduplicate by ticker+type
-        const allEvents = [...feed, ...currentEvents];
-        const seen = new Set();
-        const uniqueEvents = allEvents.filter((e) => {
-          const key = `${e.ticker}-${e.type}-${Math.floor(
-            e.ts / (60 * 60 * 1000),
-          )}`; // Group by hour
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return e.ts > oneWeekAgo; // Only keep events from last week
-        });
-
-        // Sort by timestamp descending
-        uniqueEvents.sort((a, b) => b.ts - a.ts);
-
         const limit = Math.min(
           100,
           Number(url.searchParams.get("limit") || "100"),
         );
-        const filtered = uniqueEvents.slice(0, limit);
-
-        return sendJSON(
-          {
-            ok: true,
-            count: filtered.length,
-            events: filtered,
-          },
-          200,
-          corsHeaders(env, req),
-        );
+        const db = env?.DB;
+        // If D1 is unavailable, fall back to the old KV firehose (still
+        // filtered to user-facing types) so the strip never crashes.
+        if (!db) {
+          const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+          const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          const seen = new Set();
+          const FALLBACK_TYPES = new Set([
+            "TRADE_ENTRY","TRADE_TRIM","TRADE_EXIT","ENTRY","TRIM","EXIT",
+            "TP_HIT_TRIM","TP_HIT_EXIT","ADD","ADD_ENTRY","SL_HIT",
+          ]);
+          const out = (feed || [])
+            .filter((e) => {
+              const t = String(e?.type || "").toUpperCase();
+              const key = `${e.ticker}-${t}-${Math.floor((Number(e.ts) || 0) / 3600000)}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return Number(e.ts) > oneWeekAgo && FALLBACK_TYPES.has(t);
+            })
+            .sort((a, b) => Number(b.ts) - Number(a.ts))
+            .slice(0, limit);
+          return sendJSON({ ok: true, count: out.length, events: out, source: "kv_fallback" }, 200, corsHeaders(env, req));
+        }
+        try {
+          // Same query the admin endpoint uses (execution_actions JOIN
+          // positions JOIN trades) — trade events are not private; both
+          // Pro and admin users get the same view of "what the system
+          // executed". Admin endpoint stays separate so future ops-
+          // level telemetry (e.g. cron failures, freshness alerts)
+          // can land there without leaking to Pro.
+          let where = "WHERE 1=1";
+          where += " AND (t.status IS NULL OR t.status != 'CANCELED')";
+          where += " AND (ea.reason IS NULL OR ea.reason NOT IN ('admin_reversed_wallclock_force_close', 'v13_hard_age_cap', 'v13_hard_pnl_floor'))";
+          where += " AND NOT (ea.action_type = 'EXIT' AND p.created_at IS NOT NULL AND (ea.ts - p.created_at) > 2592000000)";
+          const rows = (await db.prepare(
+            `SELECT ea.action_id, ea.ts, ea.action_type, ea.qty, ea.price, ea.value,
+                    ea.pnl_realized, ea.reason, ea.position_id,
+                    p.ticker, p.direction, p.script_version, p.created_at,
+                    t.setup_name, t.setup_grade, t.status as trade_status
+             FROM execution_actions ea
+             LEFT JOIN positions p ON ea.position_id = p.position_id
+             LEFT JOIN trades t ON t.trade_id = ea.position_id
+             ${where}
+             ORDER BY ea.ts DESC
+             LIMIT ?`
+          ).bind(limit).all())?.results || [];
+          const events = rows.map((r) => ({
+            ts: Number(r.ts),
+            type: String(r.action_type || "").toUpperCase(),
+            ticker: String(r.ticker || "").toUpperCase(),
+            direction: String(r.direction || "").toUpperCase() || null,
+            qty: Number(r.qty) || 0,
+            price: Number(r.price) || 0,
+            value: Number(r.value) || 0,
+            pnl: Number(r.pnl_realized) || 0,
+            // 2026-05-28 — also expose pnl_pct for the strip's pill rendering.
+            // tt-activity-strip.js reads `ev.pnl_pct ?? ev.pnlPct`; provide
+            // a derived percent when entry price is known so EXIT/TRIM pills
+            // can color-code +/− without the operator clicking through.
+            pnl_pct: (() => {
+              const v = Number(r.value);
+              const p = Number(r.pnl_realized);
+              if (!Number.isFinite(v) || !Number.isFinite(p) || v <= 0) return null;
+              return (p / v) * 100;
+            })(),
+            reason: r.reason || null,
+            trade_id: r.position_id || null,
+            setup_name: r.setup_name || null,
+            setup_grade: r.setup_grade || null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events, source: "d1" }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
       }
 
       // GET /timed/check-ticker?ticker=AAPL
@@ -51048,33 +51305,48 @@ export default {
           );
         }
 
-        const sqlFull = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts, trim_price,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
+        // 2026-05-28 — LEFT JOIN positions to surface stop_loss / take_profit.
+        // The `trades` table does not carry SL/TP (only entry/exit/pnl), but
+        // `positions` does (via the execution adapter — see d1-schema.sql:166
+        // and migrations/add-position-sl.sql). The Right Rail and the trade
+        // alert email both need the SL/TP that match the actual open trade
+        // (e.g. TSLA $436.40), not the freshly-proposed prediction-contract
+        // SL ($423.85). Aliased as `sl` and `tp` so all existing frontend
+        // reads (`trade.sl` / `trade.tp`) pick them up with no changes.
+        //
+        // Rebuild the WHERE clause with table-qualified column names so
+        // the JOIN doesn't introduce ambiguity (ticker/status/entry_ts/
+        // exit_ts/trade_id all exist on the `trades` table; we want those,
+        // not the position counterparts).
+        // Qualify trades-table column references with `t.` so the JOIN
+        // does not introduce ambiguity (positions also has status, ticker,
+        // direction columns). Negative-lookbehind avoids re-prefixing
+        // already-qualified names; word-boundary lookahead is permissive
+        // because the where clause uses many operators (=, IN, NOT IN,
+        // IS NULL, <, >, ?).
+        const _qualifyTrades = (s) => s
+          .replace(/(?<![.\w])ticker\b/g, "t.ticker")
+          .replace(/(?<![.\w])status\b/g, "t.status")
+          .replace(/(?<![.\w])entry_ts\b/g, "t.entry_ts")
+          .replace(/(?<![.\w])exit_ts\b/g, "t.exit_ts")
+          .replace(/(?<![.\w])trade_id\b/g, "t.trade_id");
+        const whereJoin = _qualifyTrades(where);
+        const _selectCols = (incTrimPrice, incTrimTs) => `
+            t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+            t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
+            t.script_version, t.created_at, t.updated_at${incTrimTs ? ", t.trim_ts" : ""}${incTrimPrice ? ", t.trim_price" : ""},
+            t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
+            p.stop_loss AS sl, p.take_profit AS tp`;
+        const _buildSql = (incTrimPrice, incTrimTs) => `SELECT
+            ${_selectCols(incTrimPrice, incTrimTs)}
+          FROM trades t
+          LEFT JOIN positions p ON p.position_id = t.trade_id
+          ${whereJoin}
+          ORDER BY t.entry_ts DESC, t.trade_id DESC
           LIMIT ?`;
-        const sqlWithoutTrimPrice = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at, trim_ts,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
-          LIMIT ?`;
-        const sqlWithoutTrimTs = `SELECT
-            trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-            exit_ts, exit_price, exit_reason, trimmed_pct, pnl, pnl_pct,
-            script_version, created_at, updated_at,
-            setup_name, setup_grade, risk_budget, shares, notional
-          FROM trades
-          ${where}
-          ORDER BY entry_ts DESC, trade_id DESC
-          LIMIT ?`;
+        const sqlFull = _buildSql(true, true);
+        const sqlWithoutTrimPrice = _buildSql(false, true);
+        const sqlWithoutTrimTs = _buildSql(false, false);
 
         let rows;
         try {
@@ -51457,6 +51729,71 @@ export default {
         );
       }
 
+      // 2026-05-28 — GET /timed/ledger/trades/:id/cio
+      // Returns the LATEST AI CIO decision row for a given trade_id so
+      // the Right Rail Setup tab can render the same verdict + full
+      // reasoning the operator sees in the Discord entry embed. Public
+      // read: CIO decisions are part of the trade record.
+      if (routeKey === "GET /timed/ledger/trades/:id/cio") {
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        const _raw = url.pathname.split("/timed/ledger/trades/")[1] || "";
+        const _tradeId = decodeURIComponent(_raw.replace(/\/cio$/, "")).trim();
+        if (!_tradeId) return sendJSON({ ok: false, error: "missing_trade_id" }, 400, corsHeaders(env, req));
+        try {
+          const row = await db
+            .prepare(
+              `SELECT trade_id, ticker, direction, decision, confidence, reasoning,
+                      risk_flags, edge_score, latency_ms, fallback, model,
+                      adjustments_json, created_at, shadow, trade_outcome, trade_pnl_pct
+               FROM ai_cio_decisions
+               WHERE trade_id = ?1
+               ORDER BY created_at DESC
+               LIMIT 1`
+            )
+            .bind(_tradeId)
+            .first();
+          if (!row) {
+            return sendJSON({ ok: true, trade_id: _tradeId, cio: null, reason: "no_decision_for_trade" }, 200, corsHeaders(env, req));
+          }
+          // Parse adjustments_json so the client can read structured
+          // model-applied changes without re-parsing.
+          let _adj = null;
+          try { if (row.adjustments_json) _adj = JSON.parse(row.adjustments_json); } catch (_) {}
+          // 2026-05-28 — risk_flags is stored as JSON.stringify(array)
+          // upstream (see worker/index.js:19986 etc), so parse as JSON
+          // first; only fall back to CSV split if the JSON parse fails
+          // (legacy rows where the writer used join(",") at some point).
+          const _parseFlags = (raw) => {
+            if (Array.isArray(raw)) return raw;
+            if (typeof raw !== "string" || !raw) return [];
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+            } catch (_) { /* fall through to legacy CSV path */ }
+            return raw.split(",").map((s) => s.trim()).filter(Boolean);
+          };
+          const cio = {
+            decision: row.decision,
+            confidence: Number(row.confidence) || 0,
+            edge_score: Number(row.edge_score) || 0,
+            reasoning: row.reasoning || "",
+            risk_flags: _parseFlags(row.risk_flags),
+            model: row.model || null,
+            latency_ms: Number(row.latency_ms) || null,
+            fallback: row.fallback === 1 || row.fallback === true,
+            shadow: row.shadow === 1 || row.shadow === true,
+            adjustments: _adj,
+            created_at: Number(row.created_at) || null,
+            trade_outcome: row.trade_outcome || null,
+            trade_pnl_pct: row.trade_pnl_pct != null ? Number(row.trade_pnl_pct) : null,
+          };
+          return sendJSON({ ok: true, trade_id: _tradeId, cio }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-05-27 (PR #324) — GET /timed/ledger/trades/:id/events
       // Returns the chronological event log for a trade:
       //   - ENTRY: synthesized from trades.entry_ts / .shares / .entry_price
@@ -51676,17 +52013,19 @@ export default {
         const tradeRow = await db
           .prepare(
             // 2026-05-27 (PR #324) — added trim_price + trim_ts to the SELECT.
-            // Trade Autopsy receipt-log fallback (PR #323) needs these to
-            // synthesize a TRIM row for trades that pre-date the
-            // trade.history array. Without them the receipt only shows
-            // ENTRY for legacy trades.
+            // 2026-05-28 — LEFT JOIN positions to surface stop_loss / take_profit
+            //   as sl/tp aliases. Same rationale as the /timed/ledger/trades
+            //   batch endpoint — see comment there.
             `SELECT
-              trade_id, ticker, direction, entry_ts, entry_price, rank, rr, status,
-              exit_ts, exit_price, exit_reason, trim_ts, trim_price,
-              trimmed_pct, pnl, pnl_pct,
-              script_version, created_at, updated_at,
-              setup_name, setup_grade, risk_budget, shares, notional
-             FROM trades WHERE trade_id = ?1 LIMIT 1`,
+              t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
+              t.exit_ts, t.exit_price, t.exit_reason, t.trim_ts, t.trim_price,
+              t.trimmed_pct, t.pnl, t.pnl_pct,
+              t.script_version, t.created_at, t.updated_at,
+              t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
+              p.stop_loss AS sl, p.take_profit AS tp
+             FROM trades t
+             LEFT JOIN positions p ON p.position_id = t.trade_id
+             WHERE t.trade_id = ?1 LIMIT 1`,
           )
           .bind(tradeId)
           .first();
@@ -64089,9 +64428,42 @@ export default {
             ["subscription_paid", () => sendSubscriptionEmail(env, to, false)],
             ["daily_brief_morning", () => sendDailyBriefEmail(env, to, { type: "morning", date: today, content: "## Sample Morning Brief\n\nThis is **sample content** for the morning brief. In production you get the full AI-generated analysis, ES prediction, and market recap.\n\n- Bullet one\n- Bullet two", esPrediction: "Sample ES prediction for verification." })],
             ["daily_brief_evening", () => sendDailyBriefEmail(env, to, { type: "evening", date: today, content: "## Sample Evening Brief\n\nThis is **sample content** for the evening brief.\n\n- Recap item\n- Another point", esPrediction: null })],
-            ["trade_entry", () => sendTradeAlertEmail(env, to, { type: "TRADE_ENTRY", ticker: "AAPL", direction: "long", price: 175.50, rank: 78, rr: 2.1 })],
-            ["trade_trim", () => sendTradeAlertEmail(env, to, { type: "TRADE_TRIM", ticker: "AAPL", direction: "long", price: 178.20, trimmedPct: 50 })],
-            ["trade_exit", () => sendTradeAlertEmail(env, to, { type: "TRADE_EXIT", ticker: "AAPL", direction: "long", price: 180.10, pnlPct: 2.6, exitReason: "TP hit" })],
+            // 2026-05-28 — Test samples now exercise the Discord-parity
+            // payload (SL/TP, setup grade, risk %, AI CIO verdict) so the
+            // operator can preview the rich email format with one curl.
+            ["trade_entry", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_ENTRY", ticker: "AAPL", direction: "LONG",
+              price: 175.50, rank: 78, rr: 2.1,
+              trade_id: "AAPL-test-sample", entry: 175.50, sl: 172.40, tp: 182.00,
+              shares: 50, notional: 8775,
+              risk_budget: 0.02, setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
+              action_ts: Date.now(),
+              momentum_elite: true, vwap_pct: 1.8,
+              cio: {
+                decision: "APPROVE",
+                confidence: 0.84, edge_score: 0.71,
+                reasoning: "Prime-ranked AAPL long aligns with the active bull regime. Pullback to 1H VWAP +1.8% offers a controlled entry above the daily 5/12 EMA cloud, with TD Sequential at bar 3 (well clear of exhaustion). News sentiment is bullish (5/5 recent headlines positive on AI integration). Macro tilt favors large-cap tech this rotation, and theme rotation shows 6/8 ai_infra peers up >2% today.",
+                risk_flags: [], model: "gpt-5.4", shadow: false,
+              },
+            })],
+            ["trade_trim", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_TRIM", ticker: "AAPL", direction: "LONG",
+              price: 178.20, trimmedPct: 50, newTrimmedPct: 50, trimDeltaPct: 0.50,
+              trade_id: "AAPL-test-sample", entry: 175.50, fillPrice: 178.20,
+              pnl: 67.50, pnlPct: 1.54,
+              shares_trimmed: 25, shares_remaining: 25,
+              setup_name: "tt_gap_reversal_long", setup_grade: "Prime", risk_budget: 0.02,
+              trim_reason: "atr_tp_ladder_tier1_fib0_382",
+              action_ts: Date.now(),
+            })],
+            ["trade_exit", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_EXIT", ticker: "AAPL", direction: "LONG",
+              price: 180.10, pnlPct: 2.6, exitReason: "TP_FULL", status: "WIN",
+              trade_id: "AAPL-test-sample", entry: 175.50, exit: 180.10,
+              pnl: 230, rank: 78, rr: 2.1,
+              setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
+              action_ts: Date.now(),
+            })],
             ["re_engagement", () => sendReEngagementEmail(env, to, { daysSince: 18, signalCount: 12, tradeCount: 4, briefCount: 10 })],
           ];
           const results = await Promise.all(tasks.map(async ([name, fn]) => {
@@ -77623,6 +77995,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (evalRes.trip) {
                 console.warn(`[phase-c] LOOP 2 BREAKER TRIPPED — reason: ${evalRes.reason}`);
                 try {
+                  // 2026-05-28 — Engine paused is system-side safety
+                  // brake (not a trade action). system lane.
                   await notifyDiscord(env, {
                     title: "Phase C — Engine Paused",
                     description: `Loop 2 circuit breaker tripped: \`${evalRes.reason}\`.\nNew entries blocked until next session open. Open trades are unaffected.`,
@@ -77632,7 +78006,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       { name: "Today P&L", value: `${pulse.today_pnl_pct.toFixed(2)}%`, inline: true },
                       { name: "Consec Losses", value: String(pulse.consec_losses), inline: true },
                     ],
-                  }).catch(() => {});
+                  }, "system").catch(() => {});
                 } catch (_) {}
               } else {
                 console.log(`[phase-c] loop 2 pulse — wr=${pulse.last10_wr != null ? (pulse.last10_wr*100).toFixed(0)+"%" : "n/a"} todayPnl=${pulse.today_pnl_pct.toFixed(2)}% consec=${pulse.consec_losses}`);
@@ -81674,6 +82048,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const stalePct = totalWithData > 0 ? (veryStaleCount / totalWithData) * 100 : 0;
         if (veryStaleCount >= 30 || stalePct >= 25) {
           try {
+            // 2026-05-28 — Data staleness monitor is ops-side. system lane.
             await notifyDiscord(env, {
               content: null,
               embeds: [{
@@ -81684,7 +82059,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 footer: { text: "Timed Trading • Staleness Monitor" },
                 timestamp: new Date().toISOString(),
               }],
-            });
+            }, "system");
             console.warn(`[STALENESS] Alert sent: ${veryStaleCount} very stale, ${staleCount} stale, ${stalePct.toFixed(0)}%`);
           } catch (e) {
             console.warn("[STALENESS] Discord notify failed:", String(e).slice(0, 100));

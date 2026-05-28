@@ -2690,7 +2690,7 @@ CRITICAL: Do NOT wrap levels in long explanatory prose. Levels must be scannable
 - **RSI**: Overbought >70, oversold <30 on each TF. Use to calibrate entries: RSI oversold on LTF during a bullish HTF = buy-the-dip setup.
 - **EMA Structure**: Positive = bullish alignment (price above stacked EMAs), negative = bearish. Depth = how many EMA layers are aligned.
 - **Squeeze**: Bollinger inside Keltner channel = coiling energy. RELEASE with direction tells you where the breakout is headed.
-- **Ripster Cloud**: Above = bullish momentum, Below = bearish, InCloud = transitional.
+- **EMA Cloud**: Above = bullish momentum, Below = bearish, InCloud = transitional. Refer to it as "EMA Cloud" or "the cloud" in your output — never name a specific indicator author.
 - **Swing Consensus**: Aggregated directional agreement across timeframes. "Bullish, Strong, 4/5 aligned" = high conviction.
 
 ### How to synthesize:
@@ -2781,9 +2781,9 @@ function formatMultiTFContext(sym, mkt) {
       const sq = d.squeeze;
       if (sq?.active) parts.push("SQUEEZE");
       if (sq?.release) parts.push(`RELEASE-${sq.releaseDir || "?"}`);
-      if (d.ripster?.c72_89?.above) parts.push("Ripster-Above");
-      else if (d.ripster?.c72_89?.below) parts.push("Ripster-Below");
-      else if (d.ripster?.c72_89?.inCloud) parts.push("Ripster-InCloud");
+      if (d.ripster?.c72_89?.above) parts.push("EMA-Cloud-Above");
+      else if (d.ripster?.c72_89?.below) parts.push("EMA-Cloud-Below");
+      else if (d.ripster?.c72_89?.inCloud) parts.push("EMA-Cloud-InCloud");
       if (parts.length > 0) tfLines.push(`    ${t}: ${parts.join(" | ")}`);
     }
     if (tfLines.length > 0) {

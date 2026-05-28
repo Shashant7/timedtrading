@@ -2195,6 +2195,22 @@
       const [ledgerTrades, setLedgerTrades] = useState([]);
       const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
       const [ledgerTradesError, setLedgerTradesError] = useState(null);
+      const effectiveTrade = useMemo(() => {
+        if (trade) return trade;
+        if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+        const symUp = tickerSymbol.toUpperCase();
+        if (!symUp) return null;
+        let candidate = null;
+        for (const t of ledgerTrades) {
+          if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+          const st = String(t?.status || "").toUpperCase();
+          if (st === "WIN" || st === "LOSS") continue;
+          if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+            candidate = t;
+          }
+        }
+        return candidate;
+      }, [trade, ledgerTrades, tickerSymbol]);
       const [bubbleJourney, setBubbleJourney] = useState([]);
       const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
       const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
@@ -2207,8 +2223,13 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
+      const [cioVerdict, setCioVerdict] = useState(null);
+      const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
+      const [cioVerdictError, setCioVerdictError] = useState(null);
+      const cioVerdictCacheRef = useRef({});
       const tradeplanPriceLines = useMemo(() => {
         const out = [];
+        const trade = effectiveTrade;
         const pcDir = String(predictionContract?.direction || "").toUpperCase();
         const tradeStatus = String(trade?.status || "").toUpperCase();
         const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
@@ -2217,25 +2238,17 @@
         const isLong = dir === "LONG";
         const pcSL = Number(predictionContract?.risk?.stop_loss);
         const sl = (() => {
+          if (tradeIsOpen) {
+            const tSl = Number(trade?.sl);
+            if (Number.isFinite(tSl) && tSl > 0) return tSl;
+          }
           if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
-          if (tradeIsOpen) return Number(trade?.sl) || 0;
           return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
         })();
         const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
         const tpLevels = (() => {
           const list = [];
-          if (pcTargets.length > 0) {
-            pcTargets.forEach((tp, i) => {
-              const px = Number(tp?.price);
-              if (!Number.isFinite(px) || px <= 0) return;
-              const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
-              list.push({
-                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
-                desc: tier,
-                px
-              });
-            });
-          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+          if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
             trade.tpArray.forEach((tp, i) => {
               const px = Number(tp?.price ?? tp);
               if (!Number.isFinite(px) || px <= 0) return;
@@ -2246,9 +2259,9 @@
               });
             });
           } else if (tradeIsOpen) {
-            const tp1 = Number(ticker?.tp_trim) || 0;
-            const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
-            const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+            const tp1 = Number(trade?.tp_trim ?? trade?.tp ?? ticker?.tp_trim ?? ticker?.tp) || 0;
+            const tp2 = Number(trade?.tp_exit ?? ticker?.tp_exit ?? ticker?.tp_target_price) || 0;
+            const tpMax = Number(trade?.tp_runner ?? trade?.tp_max ?? ticker?.tp_max ?? ticker?.tp_runner) || 0;
             if (tp1 > 0) list.push({
               label: "TP1",
               desc: "Trim",
@@ -2263,6 +2276,17 @@
               label: "TP3",
               desc: "Runner",
               px: tpMax
+            });
+          } else if (pcTargets.length > 0) {
+            pcTargets.forEach((tp, i) => {
+              const px = Number(tp?.price);
+              if (!Number.isFinite(px) || px <= 0) return;
+              const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+              list.push({
+                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                desc: tier,
+                px
+              });
             });
           }
           return list;
@@ -2300,7 +2324,7 @@
           });
         }
         return out.length > 0 ? out : EMPTY_PRICE_LINES;
-      }, [predictionContract, trade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+      }, [predictionContract, trade, effectiveTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
       const subtleKeyLevelLines = tradeplanPriceLines;
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
@@ -3333,6 +3357,54 @@
         };
       }, [_predictionMode, tickerSymbol]);
       useEffect(() => {
+        if (railTab !== "SETUP") return;
+        const _t = effectiveTrade;
+        if (!_t) {
+          setCioVerdict(null);
+          setCioVerdictError(null);
+          setCioVerdictLoading(false);
+          return;
+        }
+        const _tid = _t?.trade_id || _t?.id || null;
+        if (!_tid) return;
+        const _cached = cioVerdictCacheRef.current[_tid];
+        if (_cached && Date.now() - _cached.ts < 5 * 60 * 1000) {
+          setCioVerdict(_cached.data);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            setCioVerdictLoading(true);
+            setCioVerdictError(null);
+            const res = await fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/cio`, {
+              cache: "no-store"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!json.ok) throw new Error(json.error || "cio_fetch_failed");
+            if (!cancelled) {
+              const payload = json.cio || null;
+              cioVerdictCacheRef.current[_tid] = {
+                data: payload,
+                ts: Date.now()
+              };
+              setCioVerdict(payload);
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setCioVerdict(null);
+              setCioVerdictError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setCioVerdictLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
+      useEffect(() => {
         setChartVisibleCount(80);
         setChartEndOffset(0);
       }, [chartTf]);
@@ -3656,6 +3728,7 @@
         }
         const posDirStr = String(ticker?.position_direction || "").toUpperCase();
         if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+        const trade = effectiveTrade;
         const tradeDirStr = String(trade?.direction || "").toUpperCase();
         const tradeStatus = String(trade?.status || "").toUpperCase();
         const tradeIsOpen = trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS");
@@ -5525,33 +5598,27 @@
         })(), (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
+          const trade = effectiveTrade;
           const pcSL = Number(predictionContract?.risk?.stop_loss);
           const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
-          const dir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null;
+          const dir = tradeIsOpen ? String(trade?.direction || "").toUpperCase() || pcDirRaw : pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
           if (!dir) return null;
           const isLong = dir === "LONG";
           const sl = (() => {
+            if (tradeIsOpen) {
+              const tSl = Number(trade?.sl);
+              if (Number.isFinite(tSl) && tSl > 0) return tSl;
+            }
             if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
-            if (tradeIsOpen) return Number(trade?.sl) || 0;
             return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
           })();
           const entry = tradeIsOpen ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
           const tps = (() => {
             const list = [];
-            if (pcTargets.length > 0) {
-              pcTargets.forEach((tp, i) => {
-                const tpPx = Number(tp?.price);
-                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
-                list.push({
-                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
-                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
-                  px: tpPx
-                });
-              });
-            } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+            if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
               trade.tpArray.forEach((tp, i) => {
                 const tpPx = Number(tp?.price ?? tp);
                 if (!Number.isFinite(tpPx) || tpPx <= 0) return;
@@ -5562,9 +5629,9 @@
                 });
               });
             } else if (tradeIsOpen) {
-              const tp1 = Number(ticker?.tp_trim) || 0;
-              const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
-              const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+              const tp1 = Number(trade?.tp_trim ?? trade?.tp ?? ticker?.tp_trim ?? ticker?.tp) || 0;
+              const tp2 = Number(trade?.tp_exit ?? ticker?.tp_exit ?? ticker?.tp_target_price) || 0;
+              const tpMax = Number(trade?.tp_runner ?? trade?.tp_max ?? ticker?.tp_max ?? ticker?.tp_runner) || 0;
               if (tp1 > 0) list.push({
                 label: "TP1",
                 desc: "Trim",
@@ -5579,6 +5646,16 @@
                 label: "TP3",
                 desc: "Runner",
                 px: tpMax
+              });
+            } else if (pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const tpPx = Number(tp?.price);
+                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px: tpPx
+                });
               });
             }
             return list;
@@ -5829,6 +5906,243 @@
               fontStyle: "italic"
             }
           }, tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
+        })(), (() => {
+          const _t = effectiveTrade;
+          if (!_t) return null;
+          const _status = String(_t?.status || "").toUpperCase();
+          const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" || !(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS";
+          if (!_isOpen) return null;
+          const _entryPx = Number(_t?.entry_price ?? _t?.entryPrice);
+          const _entryTs = Number(_t?.entry_ts);
+          const _setupName = _t?.setupName || _t?.setup_name || null;
+          const _setupGrade = _t?.setupGrade || _t?.setup_grade || null;
+          const _risk = Number(_t?.riskBudget || _t?.risk_budget) || null;
+          const _rr = Number(_t?.rr) || null;
+          const _rank = Number(_t?.rank) || null;
+          const _dir = String(_t?.direction || "").toUpperCase();
+          const _entryEt = (() => {
+            if (!Number.isFinite(_entryTs)) return null;
+            try {
+              return new Date(_entryTs).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+                timeZone: "America/New_York"
+              }) + " ET";
+            } catch (_) {
+              return null;
+            }
+          })();
+          const _decisionIcon = cioVerdict ? cioVerdict.decision === "APPROVE" ? "✅" : cioVerdict.decision === "ADJUST" ? "⚙️" : "🛑" : null;
+          const _decisionColor = cioVerdict ? cioVerdict.decision === "APPROVE" ? "#22c55e" : cioVerdict.decision === "ADJUST" ? "#f59e0b" : "#ef4444" : "var(--ds-text-muted)";
+          return React.createElement(Panel, {
+            title: "Entry Decision",
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 9,
+                letterSpacing: "0.12em",
+                color: "var(--ds-accent)",
+                background: "var(--ds-accent-dim)",
+                borderColor: "var(--ds-accent)"
+              }
+            }, "ACTIVE")
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)",
+              marginBottom: "var(--ds-space-3)"
+            }
+          }, _dir && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-caption)",
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              color: _dir === "LONG" ? "var(--ds-up)" : "var(--ds-dn)"
+            }
+          }, _dir), Number.isFinite(_entryPx) && _entryPx > 0 && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body-lg, 14px)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, "Entry $", _entryPx.toFixed(2)), _entryEt && React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "\xB7 filled ", _entryEt)), (_setupName || _setupGrade || _risk || _rr || _rank) && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-2)",
+              marginBottom: "var(--ds-space-3)"
+            }
+          }, _setupName && React.createElement("div", {
+            style: {
+              flex: "1 1 auto",
+              minWidth: 140
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Setup"), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " "), _setupGrade && React.createElement("span", {
+            style: {
+              marginLeft: 6,
+              color: "var(--ds-text-muted)",
+              fontSize: "var(--ds-fs-caption)"
+            }
+          }, "(", _setupGrade, ")"))), _risk != null && _risk > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Risk"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, _risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`)), Number.isFinite(_rr) && _rr > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "R:R"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, _rr.toFixed(2), ":1")), Number.isFinite(_rank) && _rank > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Rank"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, Math.round(_rank)))), cioVerdictLoading && !cioVerdict && React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              fontStyle: "italic"
+            }
+          }, "Loading AI CIO verdict\u2026"), cioVerdictError && React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)"
+            }
+          }, "AI CIO unavailable (", cioVerdictError, ")"), cioVerdict && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              paddingTop: "var(--ds-space-3)",
+              borderTop: "1px solid var(--ds-stroke)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--ds-space-2)",
+              marginBottom: "var(--ds-space-2)",
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "AI CIO"), React.createElement("span", {
+            style: {
+              color: _decisionColor,
+              fontWeight: 700,
+              fontSize: "var(--ds-fs-body)"
+            }
+          }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.confidence > 0 && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)"
+            }
+          }, (cioVerdict.confidence * 100).toFixed(0), "% conf"), cioVerdict.edge_score > 0 && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "edge ", (cioVerdict.edge_score * 100).toFixed(0), "%"), cioVerdict.shadow && React.createElement("span", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.12em",
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: "rgba(168,162,158,0.15)",
+              color: "var(--ds-text-muted)",
+              border: "1px solid var(--ds-stroke)"
+            }
+          }, "SHADOW"), cioVerdict.model && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              marginLeft: "auto"
+            }
+          }, cioVerdict.model)), cioVerdict.reasoning && React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text)",
+              lineHeight: 1.55,
+              whiteSpace: "pre-wrap"
+            }
+          }, cioVerdict.reasoning), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 4,
+              marginTop: "var(--ds-space-2)"
+            }
+          }, cioVerdict.risk_flags.map((flag, i) => React.createElement("span", {
+            key: `cio-flag-${i}`,
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.04em",
+              background: "rgba(239,68,68,0.10)",
+              color: "var(--ds-dn)",
+              borderColor: "rgba(239,68,68,0.30)"
+            }
+          }, flag)))));
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
@@ -13223,4 +13537,4 @@
   };
 })();
 
-// cache-bust:1779990569677:855455396
+// cache-bust:1779992573947:328560078

@@ -355,10 +355,11 @@ ${preheader ? `<span style="display:none;font-size:1px;color:${BRAND.dark};max-h
 <tr><td align="center" style="padding:24px 16px">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
   <!-- Header -->
+  <!-- 2026-05-28 — Swapped the CSS-painted green "TT" square for the
+       real TT watch-face brand mark (logo-discord.png, 256x256, 50 KB).
+       Now matches the favicon, Discord webhook avatar, and PWA icon. -->
   <tr><td style="padding:20px 24px;text-align:center">
-    <div style="display:inline-block;width:32px;height:32px;background:${BRAND.green};border-radius:8px;vertical-align:middle;text-align:center;line-height:32px">
-      <span style="color:white;font-size:14px;font-weight:bold;letter-spacing:-0.5px">TT</span>
-    </div>
+    <img src="https://timed-trading.com/logo-discord.png" alt="TT" width="32" height="32" style="display:inline-block;width:32px;height:32px;border-radius:8px;vertical-align:middle;border:0">
     <span style="margin-left:8px;font-size:16px;font-weight:700;color:white;vertical-align:middle;letter-spacing:-0.03em">Timed Trading</span>
   </td></tr>
   <!-- Body -->
@@ -727,8 +728,98 @@ function humanizeEmailExitReason(raw) {
   return EMAIL_EXIT_MAP[s] || s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Trade Alert email — 2026-05-28 expanded to mirror the Discord embed.
+//
+// User report: "the Email should also mirror the Discord Alert, with the
+// detail and AI CIO, esp if people are on the go." Old email was 3 rows
+// (Direction / Price / Trimmed To). Replaced with a Discord-parity layout
+// so the operator can act on alerts from mobile without bouncing to the
+// dashboard.
+//
+// Layout (all sections optional — degrade gracefully if data missing):
+//   - Headline (icon + type + ticker + direction + price)
+//   - Position & P&L (entry, fill, exit, $ + % P&L, qty, value)
+//   - Trim Status (trimmed % + shares remaining/trimmed) — TRIMs only
+//   - Setup (setup name + grade + risk %)
+//   - Why (exit/trim reason — same humanizer Discord uses)
+//   - AI CIO (decision pill + confidence + edge + FULL reasoning)
+//   - Chart link
+//   - View in Dashboard CTA
+// ──────────────────────────────────────────────────────────────────────────
+
+// 2026-05-28 — Jargon scrub for email reasons (same logic as worker/index.js
+// for Discord). Strips "ripster_" / "saty_" indicator-author tokens so the
+// operator never sees raw author names in their inbox.
+const _scrubEmailJargon = (s) => String(s || "")
+  .replace(/ripster[_\s-]*/gi, "")
+  .replace(/saty[_\s-]*/gi, "");
+
+// Trim reason → plain English (subset of the Discord trimReasonMap so the
+// most common trims read naturally in email too).
+const EMAIL_TRIM_MAP = {
+  PHASE_LEAVE_100: "Momentum peaked and faded — securing gains before reversal",
+  RUNNER_PEAK_TRAIL: "Trailed up and trimmed after pullback from peak",
+  BIG_MFE_PROGRESSIVE_TRIM: "Trade ran far in our favor — taking another chunk off",
+  SOFT_FUSE_TRIM: "Momentum signals weakened — trimming defensively",
+  SOFT_FUSE_CLOUD_TRIM: "Momentum weakened but EMA cloud still holds — partial trim",
+  ATR_RANGE_EXHAUST: "Price stretched past normal daily range — trimming",
+  PROFIT_PROTECT_TRIM: "Locking in unrealized gains while structure favorable",
+  REFERENCE_TRIM: "Reference setup hit scheduled trim level",
+  MFE_SAFETY_TRIM: "Locking in profits while trade is ahead",
+  ripster_5_12_lost_confirmed: "10-min 5/12 EMA cloud cross confirmed against us — momentum flipped",
+  ripster_5_12_lost: "10-min 5/12 EMA cloud crossed against us — momentum starting to flip",
+  ripster_5_12_defend_trim: "10-min 5/12 EMA cloud lost — defensive partial trim",
+  ripster_5_12_pending: "10-min 5/12 EMA cloud cross forming — pre-emptive trim",
+};
+function humanizeEmailTrimReason(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (EMAIL_TRIM_MAP[s]) return EMAIL_TRIM_MAP[s];
+  return _scrubEmailJargon(s).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
+}
+
+function _fmtCurrency(v) {
+  if (!Number.isFinite(Number(v))) return null;
+  return `$${Number(v).toFixed(2)}`;
+}
+function _fmtPnl(pnl, pnlPct) {
+  const p = Number(pnl); const pp = Number(pnlPct);
+  if (!Number.isFinite(p) && !Number.isFinite(pp)) return null;
+  const dollar = Number.isFinite(p) ? `${p >= 0 ? "+" : "-"}$${Math.abs(p).toFixed(2)}` : null;
+  const pct = Number.isFinite(pp) ? `${pp >= 0 ? "+" : ""}${pp.toFixed(2)}%` : null;
+  return dollar && pct ? `${dollar} (${pct})` : dollar || pct;
+}
+function _fmtEtClock(ts) {
+  if (!Number.isFinite(Number(ts))) return null;
+  try {
+    return new Date(Number(ts)).toLocaleString("en-US", {
+      timeZone: "America/New_York",
+      month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
+    }) + " ET";
+  } catch (_) { return null; }
+}
+
+// Render a labelled section (DiscordEmbed-style: bold label, value beneath)
+function _section(label, valueHtml) {
+  if (!valueHtml) return "";
+  return `
+    <div style="margin:18px 0 0">
+      <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted};font-weight:600;margin:0 0 6px">${label}</div>
+      <div style="font-size:13px;color:${BRAND.textSecondary};line-height:1.55">${valueHtml}</div>
+    </div>`;
+}
+
 export async function sendTradeAlertEmail(env, userEmail, alert) {
-  const { type, ticker, direction, price, rank, rr, pnlPct, exitReason, status, mode } = alert;
+  const {
+    type, ticker, direction, price, rank, rr, pnlPct, exitReason, status, mode,
+    // 2026-05-28 expanded payload:
+    trade_id, entry, sl, tp, fillPrice, exit: exitPx, pnl,
+    shares, notional, risk_budget, setup_name, setup_grade,
+    trimmedPct, newTrimmedPct, trimDeltaPct, shares_trimmed, shares_remaining,
+    trim_reason, action_ts, chart_url,
+    momentum_elite, vwap_pct, cio,
+  } = alert;
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
     ? await buildUnsubscribeUrl(baseUrl, userEmail, "trade_alerts", env.EMAIL_HMAC_SECRET)
@@ -741,49 +832,162 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const dir = String(direction || "").toUpperCase();
   const dirColor = dir === "LONG" ? "#10b981" : dir === "SHORT" ? "#f43f5e" : BRAND.textSecondary;
   const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "";
+  const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : "✂️";
   const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
+  const _etTime = _fmtEtClock(action_ts);
 
-  let detailRows = "";
+  // ── Sections ──────────────────────────────────────────────────────────
+
+  // POSITION & P&L (entry, fill, exit, P&L, qty, value)
+  const posLines = [];
   if (isEntry) {
-    detailRows = `
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Direction</td><td style="padding:6px 0;font-size:13px;font-weight:600;color:${dirColor};text-align:right">${dir}</td></tr>
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Entry Price</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${priceFmt}</td></tr>
-      ${rank ? `<tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Rank</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${rank}</td></tr>` : ""}
-      ${rr ? `<tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Risk:Reward</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${Number(rr).toFixed(1)}</td></tr>` : ""}
-    `;
+    if (Number.isFinite(Number(entry))) posLines.push(`Entry: <strong style="color:white">$${Number(entry).toFixed(2)}</strong>`);
+    if (Number.isFinite(Number(sl))) posLines.push(`Stop Loss: <strong style="color:#f43f5e">$${Number(sl).toFixed(2)}</strong>`);
+    if (Number.isFinite(Number(tp))) posLines.push(`Take Profit: <strong style="color:#10b981">$${Number(tp).toFixed(2)}</strong>`);
+    if (Number.isFinite(Number(shares))) {
+      const qtyLine = `Shares: <strong style="color:white">${Number(shares).toFixed(4).replace(/\.?0+$/, "")}</strong>`;
+      const valLine = Number.isFinite(Number(notional)) ? ` &nbsp;|&nbsp; Notional: <strong style="color:white">$${Number(notional).toFixed(2)}</strong>` : "";
+      posLines.push(qtyLine + valLine);
+    }
+    if (Number.isFinite(Number(rr)) && Number(rr) > 0) posLines.push(`R:R: <strong style="color:${Number(rr) >= 2 ? '#10b981' : 'white'}">${Number(rr).toFixed(2)}:1</strong>`);
+    if (Number.isFinite(Number(rank)) && Number(rank) > 0) posLines.push(`Rank: <strong style="color:white">${Math.round(Number(rank))}/100</strong>`);
   } else if (isExit) {
-    const pnlColor = Number(pnlPct) >= 0 ? "#10b981" : "#f43f5e";
-    detailRows = `
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Direction</td><td style="padding:6px 0;font-size:13px;font-weight:600;color:${dirColor};text-align:right">${dir}</td></tr>
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Exit Price</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${priceFmt}</td></tr>
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">P&amp;L</td><td style="padding:6px 0;font-size:13px;font-weight:600;color:${pnlColor};text-align:right">${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct || 0).toFixed(1)}%</td></tr>
-      ${exitReason ? `<tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Reason</td><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary};text-align:right">${humanizeEmailExitReason(exitReason)}</td></tr>` : ""}
-    `;
+    if (Number.isFinite(Number(entry))) posLines.push(`Entry: <strong style="color:white">$${Number(entry).toFixed(2)}</strong> &nbsp;|&nbsp; Exit: <strong style="color:white">$${Number(exitPx ?? price).toFixed(2)}</strong>`);
+    const _pnl = _fmtPnl(pnl, pnlPct);
+    if (_pnl) {
+      const _color = (Number(pnl ?? pnlPct) >= 0) ? "#10b981" : "#f43f5e";
+      posLines.push(`P&amp;L: <strong style="color:${_color}">${_pnl}</strong>`);
+    }
   } else if (isTrim) {
-    detailRows = `
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Direction</td><td style="padding:6px 0;font-size:13px;font-weight:600;color:${dirColor};text-align:right">${dir}</td></tr>
-      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Price</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${priceFmt}</td></tr>
-      ${alert.trimmedPct != null ? `<tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textMuted}">Trimmed To</td><td style="padding:6px 0;font-size:13px;color:white;text-align:right">${alert.trimmedPct}%</td></tr>` : ""}
-    `;
+    if (Number.isFinite(Number(entry))) posLines.push(`Entry: <strong style="color:white">$${Number(entry).toFixed(2)}</strong>${Number.isFinite(Number(fillPrice)) ? ` &nbsp;|&nbsp; Filled: <strong style="color:white">$${Number(fillPrice).toFixed(2)}</strong>` : ""}`);
+    const _pnl = _fmtPnl(pnl, pnlPct);
+    if (_pnl) {
+      const _color = (Number(pnl ?? pnlPct) >= 0) ? "#10b981" : "#f43f5e";
+      posLines.push(`Realized P&amp;L: <strong style="color:${_color}">${_pnl}</strong>`);
+    }
+  }
+  const posSection = posLines.length > 0
+    ? _section(isExit ? "Trade Summary" : "Position", posLines.join("<br>"))
+    : "";
+
+  // TRIM STATUS (trimmed % + shares) — TRIMs only
+  let trimSection = "";
+  if (isTrim) {
+    const lines = [];
+    if (newTrimmedPct != null || trimmedPct != null) {
+      const totalP = Number.isFinite(Number(newTrimmedPct)) ? Number(newTrimmedPct) : Number(trimmedPct);
+      const remaining = Number.isFinite(totalP) ? Math.max(0, 100 - totalP) : null;
+      lines.push(`Trimmed: <strong style="color:white">${Math.round(Number(totalP))}%</strong>${remaining != null ? ` &nbsp;|&nbsp; Remaining: <strong style="color:white">${Math.round(remaining)}%</strong>` : ""}`);
+    }
+    if (shares_trimmed != null && shares_remaining != null) {
+      lines.push(`Shares trimmed: <strong style="color:white">${Number(shares_trimmed).toFixed(2).replace(/\.?0+$/, "")}</strong> &nbsp;|&nbsp; Remaining: <strong style="color:white">${Number(shares_remaining).toFixed(2).replace(/\.?0+$/, "")}</strong>`);
+    }
+    if (lines.length > 0) trimSection = _section("Trim Status", lines.join("<br>"));
   }
 
+  // SETUP (name + grade + risk %)
+  const setupLines = [];
+  if (setup_name) {
+    const _grade = setup_grade ? ` <span style="color:${BRAND.textMuted}">(${setup_grade})</span>` : "";
+    const _name = String(setup_name).replace(/^TT[\s_]+/i, "").replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    setupLines.push(`<strong style="color:white">${_name}</strong>${_grade}`);
+  }
+  if (risk_budget != null && Number(risk_budget) > 0) {
+    const _r = Number(risk_budget);
+    const _label = _r < 1 ? `${(_r * 100).toFixed(2)}%` : `$${_r.toFixed(0)}`;
+    setupLines.push(`Risk: <strong style="color:white">${_label}</strong>`);
+  }
+  const setupSection = setupLines.length > 0 ? _section("Setup", setupLines.join("<br>")) : "";
+
+  // SIGNALS row (compact)
+  const signalsParts = [];
+  if (momentum_elite) signalsParts.push("🚀 Momentum Elite");
+  if (Number.isFinite(Number(vwap_pct))) {
+    const v = Number(vwap_pct);
+    signalsParts.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
+  }
+  const signalsSection = signalsParts.length > 0 ? _section("Signals", signalsParts.join(" &nbsp;·&nbsp; ")) : "";
+
+  // WHY (trim reason or exit reason)
+  let whySection = "";
+  if (isExit && exitReason) {
+    whySection = _section("Why We Exited", humanizeEmailExitReason(exitReason));
+  } else if (isTrim && trim_reason) {
+    whySection = _section("Why We Trimmed", humanizeEmailTrimReason(trim_reason));
+  }
+
+  // AI CIO (full reasoning, no truncation)
+  let cioSection = "";
+  if (cio && cio.decision) {
+    const _icon = cio.decision === "APPROVE" ? "✅" : cio.decision === "ADJUST" ? "⚙️" : "🛑";
+    const _color = cio.decision === "APPROVE" ? "#10b981" : cio.decision === "ADJUST" ? "#f59e0b" : "#f43f5e";
+    const _confEdge = [
+      Number.isFinite(Number(cio.confidence)) ? `${(Number(cio.confidence) * 100).toFixed(0)}% conf` : null,
+      Number.isFinite(Number(cio.edge_score)) ? `edge ${(Number(cio.edge_score) * 100).toFixed(0)}%` : null,
+    ].filter(Boolean).join(" &nbsp;·&nbsp; ");
+    const _flags = Array.isArray(cio.risk_flags) && cio.risk_flags.length > 0
+      ? `<div style="margin:8px 0 0">${cio.risk_flags.map(f => `<span style="display:inline-block;padding:2px 8px;margin:2px 4px 2px 0;border:1px solid rgba(244,63,94,0.30);background:rgba(244,63,94,0.10);color:#f43f5e;font-size:10px;letter-spacing:0.02em;border-radius:4px">${f}</span>`).join("")}</div>`
+      : "";
+    const _shadow = cio.shadow ? ` <span style="display:inline-block;padding:1px 6px;margin-left:6px;border:1px solid ${BRAND.border};background:rgba(168,162,158,0.15);color:${BRAND.textMuted};font-size:9px;letter-spacing:0.12em;border-radius:4px">SHADOW</span>` : "";
+    const _model = cio.model ? ` <span style="color:${BRAND.textMuted};font-size:10px;margin-left:4px">${cio.model}</span>` : "";
+    cioSection = _section("AI CIO Verdict", `
+      <div style="margin:0 0 8px">
+        <strong style="color:${_color};font-size:14px">${_icon} ${cio.decision}</strong>${_shadow}
+        ${_confEdge ? ` <span style="color:${BRAND.textMuted};font-size:11px;margin-left:6px">(${_confEdge})</span>` : ""}
+        ${_model}
+      </div>
+      <div style="color:${BRAND.textSecondary};white-space:pre-wrap">${(cio.reasoning || "—").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+      ${_flags}
+    `);
+  }
+
+  // ── Compose ───────────────────────────────────────────────────────────
+
+  const headlineColor = isEntry ? "#10b981" : isExit ? (Number(pnlPct) >= 0 ? "#10b981" : "#f43f5e") : "#f59e0b";
+  const ctaUrl = `https://timed-trading.com/today.html?ticker=${ticker}`;
+  const chartLinkHtml = chart_url
+    ? `<div style="margin:18px 0 0"><a href="${chart_url}" style="color:${BRAND.green};text-decoration:none;font-size:12px;font-weight:600">📊 View entry/trim/exit chart</a></div>`
+    : "";
+
   const html = emailLayout(`
-    <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:white">${typeLabel}: ${ticker}</h1>
-    <p style="margin:0 0 20px;font-size:13px;color:${BRAND.textMuted}">${new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" })}</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid ${BRAND.border}">
-      ${detailRows}
-    </table>
+    <div style="border-left:3px solid ${headlineColor};padding:0 0 0 14px;margin:0 0 8px">
+      <h1 style="margin:0 0 4px;font-size:18px;font-weight:700;color:white">
+        ${typeIcon} ${typeLabel}: ${ticker} <span style="color:${dirColor}">${dir}</span> @ ${priceFmt}
+      </h1>
+      <p style="margin:0;font-size:12px;color:${BRAND.textMuted}">
+        ${_etTime || new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" })}
+        ${trade_id ? ` &nbsp;·&nbsp; <span style="font-family:Menlo,Monaco,monospace;font-size:10px">${String(trade_id).slice(0, 24)}</span>` : ""}
+      </p>
+    </div>
+    ${posSection}
+    ${trimSection}
+    ${setupSection}
+    ${signalsSection}
+    ${whySection}
+    ${cioSection}
+    ${chartLinkHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
-        <a href="https://timed-trading.com/today.html?ticker=${ticker}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View in Dashboard</a>
+        <a href="${ctaUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View in Dashboard</a>
       </td></tr>
     </table>
-  `, { unsubscribeUrl, preheader: `${typeLabel}: ${ticker} ${dir} @ ${priceFmt}` });
+  `, { unsubscribeUrl, preheader: `${typeLabel}: ${ticker} ${dir} @ ${priceFmt}${cio ? ` — AI CIO ${cio.decision}` : ""}` });
 
-  const text = `${typeLabel}: ${ticker}\n${dir} @ ${priceFmt}${isExit && pnlPct != null ? ` (P&L: ${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct).toFixed(1)}%)` : ""}\n\nView: https://timed-trading.com/today.html?ticker=${ticker}`;
+  // Plain-text fallback (mirrors the html sections in order)
+  const _txtParts = [`${typeLabel}: ${ticker} ${dir} @ ${priceFmt}`];
+  if (_etTime) _txtParts.push(_etTime);
+  if (posLines.length > 0) _txtParts.push("", "Position:", ...posLines.map(l => "  " + l.replace(/<[^>]+>/g, "")));
+  if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
+  if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
+  if (cio && cio.decision) {
+    _txtParts.push("", `AI CIO: ${cio.decision} (${cio.confidence ? Math.round(cio.confidence * 100) + "% conf" : ""}${cio.edge_score ? ", edge " + Math.round(cio.edge_score * 100) + "%" : ""})`);
+    if (cio.reasoning) _txtParts.push(cio.reasoning);
+  }
+  _txtParts.push("", "View: " + ctaUrl);
+  const text = _txtParts.join("\n");
 
-  return sendEmail(env, { to: userEmail, subject: `${typeLabel}: ${ticker} ${dir}`, html, text, category: "trade_alert" });
+  return sendEmail(env, { to: userEmail, subject: `${typeIcon} ${typeLabel}: ${ticker} ${dir}${cio ? ` — CIO ${cio.decision}` : ""}`, html, text, category: "trade_alert" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
