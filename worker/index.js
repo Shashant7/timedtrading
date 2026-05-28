@@ -60398,11 +60398,24 @@ export default {
                 const _curr = _parsed;
                 const _drifted = [];
                 const _RANK = { reject: 3, quarantine: 2, none: 1 };
-                if ((_RANK[_curr.p] || 0) < (_RANK[prev.p] || 0)) _drifted.push(`policy_relaxed_${prev.p}_to_${_curr.p}`);
+                const _prevRank = _RANK[prev.p] || 0;
+                const _currRank = _RANK[_curr.p] || 0;
+                // Policy drift: relaxation only flagged when rank decreased
+                if (_currRank < _prevRank) _drifted.push(`policy_relaxed_${prev.p}_to_${_curr.p}`);
                 if ((_RANK[_curr.sp] || 0) < (_RANK[prev.sp] || 0)) _drifted.push(`subpolicy_relaxed_${prev.sp}_to_${_curr.sp}`);
-                if (Number(prev.pct || 100) < Number(_curr.pct || 100) === false &&
-                    Number(prev.pct || 100) > Number(_curr.pct || 100)) {
-                  _drifted.push(`pct_reduced_${prev.pct || 100}_to_${_curr.pct || 100}`);
+                // 2026-05-28 — pct drift only matters WITHIN the same policy.
+                // Going p=none -> p=quarantine; pct=25 was firing a false-positive
+                // "pct_reduced_100_to_25" because the old record implicitly used
+                // pct=100 (the default when policy is none, where it's moot).
+                // The policy escalation dominates — we don't ALSO want to flag
+                // the pct change as a regression. Only check pct when the policy
+                // is unchanged AND the new pct is strictly lower.
+                if (_currRank === _prevRank && _currRank > 0) {
+                  const _prevPct = Number(prev.pct || 100);
+                  const _currPct = Number(_curr.pct || 100);
+                  if (_currPct < _prevPct) {
+                    _drifted.push(`pct_reduced_${_prevPct}_to_${_currPct}`);
+                  }
                 }
                 if (prev.rua && !_curr.rua) _drifted.push("rua_removed");
                 drift = _drifted.length > 0 ? _drifted : null;
