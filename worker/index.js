@@ -44784,6 +44784,33 @@ export default {
           ? await d1GetActiveUserTickersForEmail(env, _reqUserEmail)
           : [];
 
+        // 2026-05-28 — Pull open-position tickers FIRST so they always
+        // make it into the response, even when they were never added to
+        // SECTOR_MAP or the user's tracked set.
+        //
+        // Bug: a Pro user with an open HIMX trade saw the HIMX kanban
+        // card with no price / no progress bar — because HIMX is not in
+        // SECTOR_MAP and is not user-added, so /timed/all filtered it
+        // out, and the client fell back to stub-injection from the
+        // trade row (which has no live price). Result: card existed but
+        // was blank where the price + position bar should be.
+        //
+        // An open position is a stronger signal of "this user cares
+        // about this ticker" than the static universe gate. Force-add
+        // those tickers to activeSet so the live snapshot data flows
+        // through to the card unconditionally.
+        let _openPosTickers = [];
+        try {
+          if (env?.DB) {
+            const _opRes = await env.DB.prepare(
+              `SELECT DISTINCT ticker FROM positions WHERE status IN ('OPEN','TP_HIT_TRIM')`
+            ).all().catch(() => ({ results: [] }));
+            _openPosTickers = (Array.isArray(_opRes?.results) ? _opRes.results : [])
+              .map((r) => String(r?.ticker || "").toUpperCase())
+              .filter(Boolean);
+          }
+        } catch (_) { /* best-effort */ }
+
         // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
         // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
         // Falls through to D1 if snapshot is missing or stale
@@ -44795,7 +44822,12 @@ export default {
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
-            const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
+            const activeSet = new Set([
+              ...Object.keys(SECTOR_MAP),
+              ...userAddedForReq,
+              ...MARKET_PULSE_SYMS,
+              ..._openPosTickers,  // 2026-05-28 — always include open positions
+            ]);
             const data = {};
             for (const [sym, payload] of Object.entries(snapshot.data)) {
               if (activeSet.has(sym)) data[sym] = payload;
@@ -45364,7 +45396,16 @@ export default {
           ).all();
 
           // Filter: must be in SECTOR_MAP or THIS user's added tickers
-          const activeSet = new Set([...Object.keys(SECTOR_MAP), ...userAddedForReq, ...MARKET_PULSE_SYMS]);
+          // 2026-05-28 — also force-include any ticker with an open
+          // position (same fix as the snapshot fast-path above). Without
+          // this, a Pro user with an open HIMX trade sees the card go
+          // blank when the D1 fallback path runs.
+          const activeSet = new Set([
+            ...Object.keys(SECTOR_MAP),
+            ...userAddedForReq,
+            ...MARKET_PULSE_SYMS,
+            ..._openPosTickers,
+          ]);
           const results = (rows?.results || []).filter(r => {
             const sym = String(r?.ticker || "").toUpperCase();
             return sym && activeSet.has(sym);
@@ -49071,11 +49112,35 @@ export default {
         // Sort by timestamp descending
         uniqueEvents.sort((a, b) => b.ts - a.ts);
 
+        // 2026-05-28 — Filter to USER-FACING types only for the public
+        // endpoint. The activity feed KV is a single firehose that mixes
+        // user-actionable events (TRADE_ENTRY/TRIM/EXIT, KANBAN_*) with
+        // ops telemetry (ingest_missing, freshness alerts, etc.). Pro
+        // users were seeing INGEST_MISSING pills polluting the
+        // Activity Strip on /today and /active-trader. The admin feed
+        // (/timed/admin/activity-feed) keeps the full firehose.
+        //
+        // Whitelist by case-insensitive prefix match so callers can use
+        // either "TRADE_ENTRY" or "trade_entry" — both write paths exist.
+        const USER_FACING_TYPES = new Set([
+          "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "TRADE_DEFEND",
+          "KANBAN_ENTER", "KANBAN_ENTER_NOW", "KANBAN_DEFEND",
+          "KANBAN_TRIM", "KANBAN_EXIT", "KANBAN_HOLD",
+          "ENTRY", "TRIM", "EXIT", "TP_HIT_TRIM", "TP_HIT_EXIT",
+          "ADD", "ADD_ENTRY", "SL_HIT",
+          // Investor-side parity
+          "INVESTOR_ENTRY", "INVESTOR_TRIM", "INVESTOR_EXIT",
+        ]);
+        const userFacing = uniqueEvents.filter((e) => {
+          const t = String(e?.type || e?.event || "").toUpperCase();
+          return USER_FACING_TYPES.has(t);
+        });
+
         const limit = Math.min(
           100,
           Number(url.searchParams.get("limit") || "100"),
         );
-        const filtered = uniqueEvents.slice(0, limit);
+        const filtered = userFacing.slice(0, limit);
 
         return sendJSON(
           {

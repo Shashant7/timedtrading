@@ -76,8 +76,14 @@
     </div>
     <h1>You've been signed out</h1>
     <p>Your session has been cleared.</p>
+    <!-- 2026-05-28 — "Sign In Again" previously routed to /index-react
+         (legacy Analysis page) which then ran the welcome coach-marks
+         every time. New product canonical entry is /today.html, which
+         matches the auth-gate redirect target (auth-gate.js:381) and
+         the splash CTA. Pro users were getting dumped onto the wrong
+         page after every logout. -->
     <div class="links">
-      <a href="/index-react.html" class="primary">Sign In Again</a>
+      <a href="/today.html" class="primary">Sign In Again</a>
       <a href="/splash.html" class="secondary">Back to Home</a>
     </div>
   </div>
