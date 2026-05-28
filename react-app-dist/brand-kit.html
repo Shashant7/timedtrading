@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
+  <script src="tt-nav-extras.js?v=20260528b" defer></script>
   <script>
     // Admin-only gate: check authentication and admin tier
     (async function() {
@@ -18,7 +19,7 @@
         const data = await resp.json();
         const user = data?.user;
         if (!user || !data?.authenticated) {
-          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Please <a href="/index-react.html" style="color:#00c853;margin:0 4px;">sign in</a> to view this page.</div>';
+          document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Please <a href="/today.html" style="color:#00c853;margin:0 4px;">sign in</a> to view this page.</div>';
           return;
         }
         if (user.tier !== "admin" && user.role !== "admin") {
@@ -29,7 +30,7 @@
         document.body.dataset.userRole = "admin";
         document.body.style.visibility = "visible";
       } catch (e) {
-        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/index-react.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0b0e11;color:#6b7280;font-family:Inter,sans-serif;font-size:14px;">Authentication required. <a href="/today.html" style="color:#00c853;margin-left:4px;">Sign in</a></div>';
       }
     })();
   </script>
@@ -695,16 +696,23 @@
 </head>
 <body>
 
-  <!-- ═══ Unified App Nav (matches Dashboard, Screener, etc.) ── -->
-  <nav class="unified-nav">
-    <div class="unified-nav-inner">
-      <a href="/today.html" style="font-size:15px;font-weight:600;color:var(--text-primary);text-decoration:none;letter-spacing:-0.02em;">Timed Trading</a>
-      <div class="unified-nav-links">
-        <a href="index-react.html">Analysis</a>
-        <a href="simulation-dashboard.html">Trades</a>
-        <a href="system-intelligence.html" data-admin-only="true">System Intelligence</a>
-        <a href="screener.html" data-admin-only="true">Screener</a>
-        <a href="ticker-management.html" data-admin-only="true">Tickers</a>
+  <!-- ═══ Unified App Nav (matches Dashboard, Screener, etc.) ──
+       2026-05-28: switched to the `.nav-row > .nav-links` shape used by
+       the journey pages so `tt-nav-extras.js` can inject the Admin
+       dropdown into it. Old hardcoded admin links (System Intelligence,
+       Screener, Tickers) removed — those now live in the Admin
+       dropdown. Old Analysis/Trades hrefs replaced with current
+       targets. -->
+  <nav class="topnav">
+    <div class="nav-row">
+      <a href="/today.html" class="nav-brand" style="font-size:15px;font-weight:600;color:var(--text-primary);text-decoration:none;letter-spacing:-0.02em;">Timed Trading</a>
+      <div class="nav-links">
+        <a href="/today.html" class="nav-link">Today</a>
+        <a href="/active-trader.html" class="nav-link">Active Trader</a>
+        <a href="/investor.html" class="nav-link">Investor</a>
+        <a href="/portfolio.html" class="nav-link">Portfolio</a>
+        <a href="/insights.html" class="nav-link">Insights</a>
+        <a href="/daily-brief.html" class="nav-link" style="color:#f59e0b">Daily Brief</a>
       </div>
     </div>
   </nav>
@@ -1825,4 +1833,4 @@ transform: translateY(<span class="hl">-4px</span>);  <span class="key">/* cards
 </body>
 </html>
 
-<!-- cache-bust:1779979550093:599110996 -->
+<!-- cache-bust:1779990569677:855455396 -->

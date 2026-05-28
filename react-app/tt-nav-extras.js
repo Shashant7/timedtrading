@@ -258,22 +258,18 @@
   }
 
   // ── Admin dropdown ────────────────────────────────────────────
+  // 2026-05-28 — Curated to 7 user-specified items. Dropped (relegated
+  // to operator-only direct URL access): Model Dashboard, Calibration,
+  // Simulation Dashboard, Debug Dashboard, Legacy Dashboard. Group
+  // headers also dropped — small list reads cleaner as a flat menu.
   const ADMIN_LINKS = [
-    { group: "Operations" },
     { href: "/screener.html",              label: "Screener" },
-    { href: "/ticker-management.html",     label: "Ticker Management" },
-    { href: "/admin-clients.html",         label: "Admin Clients" },
-    { group: "Engine" },
-    { href: "/system-intelligence.html",   label: "System Intelligence" },
-    { href: "/model-dashboard.html",       label: "Model Dashboard" },
-    { href: "/calibration.html",           label: "Calibration" },
-    { group: "Analysis" },
+    { href: "/ticker-management.html",     label: "Tickers" },
     { href: "/trade-autopsy.html",         label: "Trade Autopsy" },
-    { href: "/simulation-dashboard.html",  label: "Simulation Dashboard" },
-    { href: "/debug-dashboard.html",       label: "Debug Dashboard" },
-    { group: "Misc" },
+    { href: "/admin-clients.html",         label: "Admin Clients" },
+    { href: "/system-intelligence.html",   label: "System Intelligence" },
+    { href: "/mission-control.html",       label: "Mission Control" },
     { href: "/brand-kit.html",             label: "Brand Kit" },
-    { href: "/index-react.html",           label: "Legacy Dashboard" },
   ];
 
   function injectAdminMenu() {
