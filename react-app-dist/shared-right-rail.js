@@ -1733,6 +1733,46 @@
         const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
         const [ledgerTradesError, setLedgerTradesError] = useState(null);
 
+        // ─────────────────────────────────────────────────────────────
+        // 2026-05-28 — Resolve `trade` from ledgerTrades when the caller
+        // did not pass one explicitly.
+        //
+        // Before: today.html / portfolio.html / active-trader.html mount
+        // the rail via the Overlay bootstrap WITHOUT passing a `trade`
+        // prop. So `trade` was always null on those pages, and every
+        // panel that branched on `trade?.status` (Trade Plan, Risk &
+        // Targets, header eyebrow, tradeplanPriceLines, etc.) fell
+        // through to PROPOSED-PLAN logic and re-derived levels from the
+        // current prediction contract. That's why the user saw the
+        // rail's TSLA SL = $423.85 (model proposal) while the open
+        // position's actual SL was $436.40 (entry-time risk plan).
+        //
+        // Fix: pick the open trade for this ticker out of ledgerTrades
+        // (which the rail already fetches), and use that as a fallback
+        // for the prop. The prop still wins when explicitly passed
+        // (e.g. simulation-dashboard's trade-detail entrypoint).
+        // ─────────────────────────────────────────────────────────────
+        const effectiveTrade = useMemo(() => {
+          if (trade) return trade;
+          if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+          const symUp = tickerSymbol.toUpperCase();
+          if (!symUp) return null;
+          // Prefer an explicitly OPEN row; otherwise any non-WIN/non-LOSS
+          // row (TP_HIT_TRIM intermediate state, or rows where status
+          // hasn't been written yet but exit_ts is unset).
+          let candidate = null;
+          for (const t of ledgerTrades) {
+            if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+            const st = String(t?.status || "").toUpperCase();
+            if (st === "WIN" || st === "LOSS") continue;
+            // Newest entry wins
+            if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+              candidate = t;
+            }
+          }
+          return candidate;
+        }, [trade, ledgerTrades, tickerSymbol]);
+
         const [bubbleJourney, setBubbleJourney] = useState([]);
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
@@ -1750,6 +1790,15 @@
         const [predictionContract, setPredictionContract] = useState(null);
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
+
+        // 2026-05-28 — AI CIO verdict for the active trade (Setup tab).
+        // Lazy-fetched when (a) Setup tab is active AND (b) effectiveTrade
+        // is an open position with a trade_id. Cached per trade_id so
+        // switching tabs doesn't re-fetch.
+        const [cioVerdict, setCioVerdict] = useState(null);
+        const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
+        const [cioVerdictError, setCioVerdictError] = useState(null);
+        const cioVerdictCacheRef = useRef({});
 
         // V15 P0.7.99-r2 — Subtle Key Levels for the rail chart.
         // Maps the SAME predictionContract.levels rendered in the Setup
@@ -1772,6 +1821,9 @@
         // chart shows the universally-understood trade plan instead.
         const tradeplanPriceLines = useMemo(() => {
           const out = [];
+          // 2026-05-28 — Use the resolved trade (prop OR ledger lookup).
+          // See the effectiveTrade comment near line 1735.
+          const trade = effectiveTrade;
           // Resolve direction (prediction contract first, then active trade)
           const pcDir = String(predictionContract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
@@ -1785,30 +1837,30 @@
           if (!dir) return EMPTY_PRICE_LINES;
           const isLong = dir === "LONG";
 
-          // Stop loss (priority: prediction contract → active trade → ticker fallback)
+          // 2026-05-28 — Stop loss priority REVERSED when a trade is open.
+          // Before: prediction contract SL always won. That caused the rail
+          // to show the model's freshly-derived "proposed" SL ($423.85)
+          // instead of the actual open trade's risk-budget SL ($436.40)
+          // for TSLA. The active trade's SL is the universally-correct
+          // line for an open position; the prediction contract is a
+          // forward-looking model output, not the live risk plan.
           const pcSL = Number(predictionContract?.risk?.stop_loss);
           const sl = (() => {
+            if (tradeIsOpen) {
+              const tSl = Number(trade?.sl);
+              if (Number.isFinite(tSl) && tSl > 0) return tSl;
+            }
             if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
-            if (tradeIsOpen) return Number(trade?.sl) || 0;
             return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
           })();
 
-          // TP targets (priority: prediction contract → active trade tpArray → legacy fields)
+          // 2026-05-28 — TP priority also REVERSED when a trade is open.
+          // Same rationale as SL: an open position's tpArray IS the live
+          // trade plan; the prediction contract is a model proposal.
           const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
           const tpLevels = (() => {
             const list = [];
-            if (pcTargets.length > 0) {
-              pcTargets.forEach((tp, i) => {
-                const px = Number(tp?.price);
-                if (!Number.isFinite(px) || px <= 0) return;
-                const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
-                list.push({
-                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
-                  desc: tier,
-                  px,
-                });
-              });
-            } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+            if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
               trade.tpArray.forEach((tp, i) => {
                 const px = Number(tp?.price ?? tp);
                 if (!Number.isFinite(px) || px <= 0) return;
@@ -1819,12 +1871,26 @@
                 });
               });
             } else if (tradeIsOpen) {
-              const tp1 = Number(ticker?.tp_trim) || 0;
-              const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
-              const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+              // Open trade without tpArray — pull TP from the trade row
+              // first (trade.tp / trade.tp_trim / trade.tp_runner), then
+              // ticker fields as last-resort.
+              const tp1 = Number(trade?.tp_trim ?? trade?.tp ?? ticker?.tp_trim ?? ticker?.tp) || 0;
+              const tp2 = Number(trade?.tp_exit ?? ticker?.tp_exit ?? ticker?.tp_target_price) || 0;
+              const tpMax = Number(trade?.tp_runner ?? trade?.tp_max ?? ticker?.tp_max ?? ticker?.tp_runner) || 0;
               if (tp1 > 0) list.push({ label: "TP1", desc: "Trim", px: tp1 });
               if (tp2 > 0 && tp2 !== tp1) list.push({ label: "TP2", desc: "Exit", px: tp2 });
               if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({ label: "TP3", desc: "Runner", px: tpMax });
+            } else if (pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const px = Number(tp?.price);
+                if (!Number.isFinite(px) || px <= 0) return;
+                const tier = tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tier,
+                  px,
+                });
+              });
             }
             return list;
           })();
@@ -1870,7 +1936,7 @@
             });
           }
           return out.length > 0 ? out : EMPTY_PRICE_LINES;
-        }, [predictionContract, trade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+        }, [predictionContract, trade, effectiveTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
 
         // Legacy: previous level overlay kept available behind a flag
         // for users who want the prediction-contract S/R on the chart.
@@ -3013,6 +3079,54 @@
           return () => { cancelled = true; };
         }, [_predictionMode, tickerSymbol]);
 
+        // 2026-05-28 — Lazy-fetch the AI CIO verdict for the active trade
+        // when the Setup tab is open. Mirrors the Catalysts-tab pattern:
+        // only fires when needed, cached per trade_id, never re-fetched
+        // unless the trade_id changes.
+        useEffect(() => {
+          if (railTab !== "SETUP") return;
+          const _t = effectiveTrade;
+          if (!_t) {
+            setCioVerdict(null);
+            setCioVerdictError(null);
+            setCioVerdictLoading(false);
+            return;
+          }
+          const _tid = _t?.trade_id || _t?.id || null;
+          if (!_tid) return;
+          const _cached = cioVerdictCacheRef.current[_tid];
+          // Cache TTL 5min — long enough to flip tabs, short enough to
+          // pick up CIO re-evaluation (lifecycle decisions during trim).
+          if (_cached && Date.now() - _cached.ts < 5 * 60 * 1000) {
+            setCioVerdict(_cached.data);
+            return;
+          }
+          let cancelled = false;
+          (async () => {
+            try {
+              setCioVerdictLoading(true);
+              setCioVerdictError(null);
+              const res = await fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/cio`, { cache: "no-store" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!json.ok) throw new Error(json.error || "cio_fetch_failed");
+              if (!cancelled) {
+                const payload = json.cio || null;
+                cioVerdictCacheRef.current[_tid] = { data: payload, ts: Date.now() };
+                setCioVerdict(payload);
+              }
+            } catch (e) {
+              if (!cancelled) {
+                setCioVerdict(null);
+                setCioVerdictError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setCioVerdictLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
+
         // Reset zoom/pan on timeframe change
         useEffect(() => {
           setChartVisibleCount(80);
@@ -3415,6 +3529,9 @@
           const posDirStr = String(ticker?.position_direction || "").toUpperCase();
           if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
           // 3. Open trade direction (fallback when no prediction available)
+          // 2026-05-28 — use effectiveTrade so pages that don't pass `trade`
+          // explicitly (today / portfolio / active-trader) still benefit.
+          const trade = effectiveTrade;
           const tradeDirStr = String(trade?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = trade && (
@@ -5185,6 +5302,12 @@
                         const px = Number(v2Price) || Number(ticker?.price) || 0;
                         if (!(px > 0)) return null;
 
+                        // 2026-05-28 — Resolve trade from prop OR ledger.
+                        // Without this, today/portfolio/active-trader pages
+                        // (which don't pass `trade` to the rail) always show
+                        // PROPOSED levels even when a position is live.
+                        const trade = effectiveTrade;
+
                         const pcSL = Number(predictionContract?.risk?.stop_loss);
                         const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
                         const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
@@ -5193,39 +5316,59 @@
                           tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
                           (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
                         ));
-                        const dir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT")
-                          ? pcDirRaw
-                          : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null);
+                        // 2026-05-28 — Direction priority REVERSED when a
+                        // trade is open. An open position's direction is
+                        // the committed reality; the prediction contract
+                        // may flip BIAS as the model re-scores and that
+                        // shouldn't visually invert the live trade plan.
+                        const dir = tradeIsOpen
+                          ? (String(trade?.direction || "").toUpperCase() || pcDirRaw)
+                          : ((pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null);
                         if (!dir) return null;
                         const isLong = dir === "LONG";
 
+                        // 2026-05-28 — SL priority REVERSED when a trade is
+                        // open. The trade row's SL is the committed risk
+                        // line at entry time (e.g. TSLA $436.40); the
+                        // prediction contract's SL is a freshly-derived
+                        // model output (e.g. $423.85) that does NOT match
+                        // the position's actual risk budget. Showing the
+                        // proposed SL on an active trade card was the bug
+                        // the user caught (Discord said $436.40, rail said
+                        // $423.85). Active trade wins. Prediction contract
+                        // wins only when there's no active trade.
                         const sl = (() => {
+                          if (tradeIsOpen) {
+                            const tSl = Number(trade?.sl);
+                            if (Number.isFinite(tSl) && tSl > 0) return tSl;
+                          }
                           if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
-                          if (tradeIsOpen) return Number(trade?.sl) || 0;
                           return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
                         })();
                         const entry = tradeIsOpen ? (Number(trade?.entry_price ?? trade?.entryPrice) || 0) : 0;
+                        // 2026-05-28 — TP priority REVERSED when trade is
+                        // open (same rationale as SL above).
                         const tps = (() => {
                           const list = [];
-                          if (pcTargets.length > 0) {
-                            pcTargets.forEach((tp, i) => {
-                              const tpPx = Number(tp?.price);
-                              if (!Number.isFinite(tpPx) || tpPx <= 0) return;
-                              list.push({ label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`, desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
-                            });
-                          } else if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
+                          if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
                             trade.tpArray.forEach((tp, i) => {
                               const tpPx = Number(tp?.price ?? tp);
                               if (!Number.isFinite(tpPx) || tpPx <= 0) return;
                               list.push({ label: tp?.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`), desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
                             });
                           } else if (tradeIsOpen) {
-                            const tp1 = Number(ticker?.tp_trim) || 0;
-                            const tp2 = Number(ticker?.tp_exit) || Number(ticker?.tp_target_price) || Number(ticker?.tp) || 0;
-                            const tpMax = Number(ticker?.tp_max) || Number(ticker?.tp_runner) || 0;
+                            const tp1 = Number(trade?.tp_trim ?? trade?.tp ?? ticker?.tp_trim ?? ticker?.tp) || 0;
+                            const tp2 = Number(trade?.tp_exit ?? ticker?.tp_exit ?? ticker?.tp_target_price) || 0;
+                            const tpMax = Number(trade?.tp_runner ?? trade?.tp_max ?? ticker?.tp_max ?? ticker?.tp_runner) || 0;
                             if (tp1 > 0) list.push({ label: "TP1", desc: "Trim", px: tp1 });
                             if (tp2 > 0 && tp2 !== tp1) list.push({ label: "TP2", desc: "Exit", px: tp2 });
                             if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({ label: "TP3", desc: "Runner", px: tpMax });
+                          } else if (pcTargets.length > 0) {
+                            pcTargets.forEach((tp, i) => {
+                              const tpPx = Number(tp?.price);
+                              if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                              list.push({ label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`, desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
+                            });
                           }
                           return list;
                         })();
@@ -5357,6 +5500,197 @@
                                 {" "}Reference Levels below add S/R context (52W high, prior session, pivots).
                               </div>
                             </div>
+                          </Panel>
+                        );
+                      })()}
+
+                      {/* 2026-05-28 — ENTRY DECISION card (active trade).
+                          Surfaces the same info as the Discord entry embed
+                          — setup name + grade, risk %, R:R, conviction
+                          signals, full AI CIO reasoning (no truncation) —
+                          so the operator can review the entry thesis from
+                          the rail without bouncing to Discord. Only renders
+                          when an active trade exists for this ticker. */}
+                      {(() => {
+                        const _t = effectiveTrade;
+                        if (!_t) return null;
+                        const _status = String(_t?.status || "").toUpperCase();
+                        const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" ||
+                          (!(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS");
+                        if (!_isOpen) return null;
+                        const _entryPx = Number(_t?.entry_price ?? _t?.entryPrice);
+                        const _entryTs = Number(_t?.entry_ts);
+                        const _setupName = _t?.setupName || _t?.setup_name || null;
+                        const _setupGrade = _t?.setupGrade || _t?.setup_grade || null;
+                        const _risk = Number(_t?.riskBudget || _t?.risk_budget) || null;
+                        const _rr = Number(_t?.rr) || null;
+                        const _rank = Number(_t?.rank) || null;
+                        const _dir = String(_t?.direction || "").toUpperCase();
+                        const _entryEt = (() => {
+                          if (!Number.isFinite(_entryTs)) return null;
+                          try {
+                            return new Date(_entryTs).toLocaleString("en-US", {
+                              month: "short", day: "numeric",
+                              hour: "numeric", minute: "2-digit",
+                              hour12: true, timeZone: "America/New_York",
+                            }) + " ET";
+                          } catch (_) { return null; }
+                        })();
+                        const _decisionIcon = cioVerdict
+                          ? (cioVerdict.decision === "APPROVE" ? "✅"
+                             : cioVerdict.decision === "ADJUST" ? "⚙️"
+                             : "🛑")
+                          : null;
+                        const _decisionColor = cioVerdict
+                          ? (cioVerdict.decision === "APPROVE" ? "#22c55e"
+                             : cioVerdict.decision === "ADJUST" ? "#f59e0b"
+                             : "#ef4444")
+                          : "var(--ds-text-muted)";
+                        return (
+                          <Panel
+                            title="Entry Decision"
+                            action={
+                              <span className="ds-chip ds-chip--sm" style={{
+                                fontFamily: "var(--tt-font-mono)",
+                                fontSize: 9,
+                                letterSpacing: "0.12em",
+                                color: "var(--ds-accent)",
+                                background: "var(--ds-accent-dim)",
+                                borderColor: "var(--ds-accent)",
+                              }}>ACTIVE</span>
+                            }
+                          >
+                            {/* Headline: direction · entry price · ET time */}
+                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
+                              {_dir && (
+                                <span style={{
+                                  fontFamily: "var(--tt-font-mono)",
+                                  fontSize: "var(--ds-fs-caption)",
+                                  fontWeight: 700,
+                                  letterSpacing: "0.12em",
+                                  color: _dir === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
+                                }}>{_dir}</span>
+                              )}
+                              {Number.isFinite(_entryPx) && _entryPx > 0 && (
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body-lg, 14px)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                  Entry ${_entryPx.toFixed(2)}
+                                </span>
+                              )}
+                              {_entryEt && (
+                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                                  · filled {_entryEt}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Setup, Grade, Risk, R:R, Rank — same row as the Discord embed's "Signal Quality" */}
+                            {(_setupName || _setupGrade || _risk || _rr || _rank) && (
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
+                                {_setupName && (
+                                  <div style={{ flex: "1 1 auto", minWidth: 140 }}>
+                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Setup</div>
+                                    <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                      {typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " ")}
+                                      {_setupGrade && <span style={{ marginLeft: 6, color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>({_setupGrade})</span>}
+                                    </div>
+                                  </div>
+                                )}
+                                {_risk != null && _risk > 0 && (
+                                  <div>
+                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Risk</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                      {_risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`}
+                                    </div>
+                                  </div>
+                                )}
+                                {Number.isFinite(_rr) && _rr > 0 && (
+                                  <div>
+                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>R:R</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)", fontWeight: 600 }}>
+                                      {_rr.toFixed(2)}:1
+                                    </div>
+                                  </div>
+                                )}
+                                {Number.isFinite(_rank) && _rank > 0 && (
+                                  <div>
+                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Rank</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>{Math.round(_rank)}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* AI CIO verdict + FULL reasoning (no Discord 1024-char truncation) */}
+                            {cioVerdictLoading && !cioVerdict && (
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic" }}>
+                                Loading AI CIO verdict…
+                              </div>
+                            )}
+                            {cioVerdictError && (
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-dn)" }}>
+                                AI CIO unavailable ({cioVerdictError})
+                              </div>
+                            )}
+                            {cioVerdict && (
+                              <div style={{
+                                marginTop: "var(--ds-space-2)",
+                                paddingTop: "var(--ds-space-3)",
+                                borderTop: "1px solid var(--ds-stroke)",
+                              }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>AI CIO</span>
+                                  <span style={{ color: _decisionColor, fontWeight: 700, fontSize: "var(--ds-fs-body)" }}>
+                                    {_decisionIcon} {cioVerdict.decision}
+                                  </span>
+                                  {cioVerdict.confidence > 0 && (
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                                      {(cioVerdict.confidence * 100).toFixed(0)}% conf
+                                    </span>
+                                  )}
+                                  {cioVerdict.edge_score > 0 && (
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                                      edge {(cioVerdict.edge_score * 100).toFixed(0)}%
+                                    </span>
+                                  )}
+                                  {cioVerdict.shadow && (
+                                    <span style={{
+                                      fontSize: 9, letterSpacing: "0.12em",
+                                      padding: "1px 6px", borderRadius: 4,
+                                      background: "rgba(168,162,158,0.15)",
+                                      color: "var(--ds-text-muted)",
+                                      border: "1px solid var(--ds-stroke)",
+                                    }}>SHADOW</span>
+                                  )}
+                                  {cioVerdict.model && (
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)", marginLeft: "auto" }}>
+                                      {cioVerdict.model}
+                                    </span>
+                                  )}
+                                </div>
+                                {cioVerdict.reasoning && (
+                                  <div style={{
+                                    fontSize: "var(--ds-fs-caption)",
+                                    color: "var(--ds-text)",
+                                    lineHeight: 1.55,
+                                    whiteSpace: "pre-wrap",
+                                  }}>
+                                    {cioVerdict.reasoning}
+                                  </div>
+                                )}
+                                {Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && (
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: "var(--ds-space-2)" }}>
+                                    {cioVerdict.risk_flags.map((flag, i) => (
+                                      <span key={`cio-flag-${i}`} className="ds-chip ds-chip--sm" style={{
+                                        fontSize: 9, letterSpacing: "0.04em",
+                                        background: "rgba(239,68,68,0.10)",
+                                        color: "var(--ds-dn)",
+                                        borderColor: "rgba(239,68,68,0.30)",
+                                      }}>{flag}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </Panel>
                         );
                       })()}
@@ -11787,4 +12121,4 @@
   };
 })();
 
-// cache-bust:1779985931398:561302861
+// cache-bust:1779988786536:633942704
