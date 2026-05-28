@@ -2219,6 +2219,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1779929691029:838921916
+// cache-bust:1779937783681:193256033
 
-// cache-bust:1779929691029:838921916
+// cache-bust:1779937783681:193256033

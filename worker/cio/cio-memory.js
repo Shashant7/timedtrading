@@ -1,7 +1,7 @@
 // worker/cio/cio-memory.js
 // 7-layer CIO memory builder + helper functions for episodic context.
 
-import { TICKER_PROXY_MAP } from "../sector-mapping.js";
+import { TICKER_PROXY_MAP, getThemesForTicker, THEMES } from "../sector-mapping.js";
 import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
@@ -377,6 +377,175 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
       phase_pct: Number.isFinite(Number(tickerData.phase_pct)) ? Math.round(Number(tickerData.phase_pct) * 10) / 10 : null,
       completion_pct: Number.isFinite(Number(tickerData.completion)) ? Math.round(Number(tickerData.completion) * 10) / 10 : null,
     };
+  }
+
+  // ── Layer 10: Theme rotation (2026-05-28 — Phase 3) ──────────────────────
+  // Surface theme(s) the ticker is in + how many peers are moving today in
+  // the same direction. Lets CIO weight "this LONG is in ai_infra_memory
+  // and 5/6 memory peers are up >2% today" as confirmation.
+  try {
+    const themes = getThemesForTicker(sym);
+    const livePrices = memoryCache?.livePrices;
+    if (themes.length > 0 && livePrices) {
+      const themeRows = [];
+      const map = livePrices.prices && typeof livePrices.prices === "object" ? livePrices.prices : livePrices;
+      for (const theme of themes) {
+        const members = THEMES[theme] || [];
+        let up = 0, down = 0, hasData = 0;
+        const upDetail = [], downDetail = [];
+        for (const m of members) {
+          if (m === sym) continue;
+          const row = map[m];
+          if (!row) continue;
+          const dp = Number(row.dp ?? row.day_change_pct ?? row.change_pct);
+          if (!Number.isFinite(dp)) continue;
+          hasData++;
+          if (dp >= 2.0) { up++; upDetail.push({ t: m, dp: +dp.toFixed(1) }); }
+          else if (dp <= -2.0) { down++; downDetail.push({ t: m, dp: +dp.toFixed(1) }); }
+        }
+        if (hasData === 0) continue;
+        upDetail.sort((a, b) => b.dp - a.dp);
+        downDetail.sort((a, b) => a.dp - b.dp);
+        const themeActive = (up >= members.length * 0.30) ? "up"
+                          : (down >= members.length * 0.30) ? "down" : null;
+        themeRows.push({
+          theme, members: members.length, has_data: hasData,
+          up, down,
+          top_up_peers: upDetail.slice(0, 3),
+          top_down_peers: downDetail.slice(0, 3),
+          active_direction: themeActive,
+        });
+      }
+      if (themeRows.length > 0) {
+        mem.theme_rotation = themeRows;
+      }
+    }
+  } catch (_) { /* best-effort */ }
+
+  // ── Layer 12: Insider transactions (2026-05-28 — Phase 4a) ──────────────
+  // Pre-loaded into memoryCache.insiderSummaries by the live scoring cron.
+  try {
+    const ins = memoryCache?.insiderSummaries?.[sym];
+    if (ins) {
+      mem.insider_activity = {
+        high_signal_buys_count: ins.hi_buys_count || 0,
+        high_signal_buys_value_usd: ins.hi_buys_value || 0,
+        total_buys_count: ins.buys_count || 0,
+        total_buys_value_usd: ins.buys_value || 0,
+        total_sells_count: ins.sells_count || 0,
+        total_sells_value_usd: ins.sells_value || 0,
+        net_insider_value_usd: ins.net_value || 0,
+      };
+    }
+  } catch (_) {}
+
+  // ── Layer 13: Macro tilt (2026-05-28 — Phase 5) ─────────────────────────
+  // Pre-loaded into memoryCache.macroSnapshot by the live scoring cron.
+  try {
+    const macro = memoryCache?.macroSnapshot;
+    if (macro) {
+      mem.macro_tilt = {
+        narrative: macro.macro_narrative || null,
+        country_top_outperformers: (macro.country_rotation?.top_outperformers || []).slice(0, 3),
+        country_top_underperformers: (macro.country_rotation?.top_underperformers || []).slice(0, 3),
+        cross_asset_regime: macro.cross_asset_regime ? {
+          dollar_20d: macro.cross_asset_regime.dollar_20d,
+          gold_20d: macro.cross_asset_regime.gold_20d,
+          oil_20d: macro.cross_asset_regime.oil_20d,
+          rates_20d: macro.cross_asset_regime.rates_20d,
+          credit_20d: macro.cross_asset_regime.credit_20d,
+        } : null,
+      };
+    }
+  } catch (_) {}
+
+  // ── Layer 14: News sentiment + catalysts (2026-05-28 — Phase 2) ─────────
+  // Pre-loaded into memoryCache.newsSummaries by the live scoring cron.
+  try {
+    const news = memoryCache?.newsSummaries?.[sym];
+    if (news && news.has_data !== false) {
+      mem.news_sentiment = {
+        count_5d: news.count,
+        dominant: news.dominant_sentiment,
+        bullish_catalyst_count: news.bullish_catalyst_count,
+        bearish_catalyst_count: news.bearish_catalyst_count,
+        top_catalyst: news.top_catalyst ? {
+          headline: (news.top_catalyst.headline || "").slice(0, 200),
+          source: news.top_catalyst.source,
+          datetime: news.top_catalyst.datetime,
+          sentiment: news.top_catalyst.sentiment,
+          catalyst_strength: news.top_catalyst.catalyst_strength,
+        } : null,
+        latest_3_headlines: (news.latest_3 || []).map((h) => ({
+          headline: (h.headline || "").slice(0, 160),
+          sentiment: h.sentiment,
+          catalyst_strength: h.catalyst_strength,
+        })),
+      };
+    }
+  } catch (_) {}
+
+  // ── Layer 9: Discovery context (2026-05-28) ──────────────────────────────
+  // Surface what the daily TradingView screener saw, plus the universe
+  // coverage-gap diagnostic for this specific ticker. Tells CIO things like:
+  //   - "Same ticker appeared in screener top_gainers 4× in last 7 days"
+  //     (sustained-momentum signal)
+  //   - "This ticker missed 5/12 valid moves in last 14d; dominant reason
+  //     was cohort_fail" (known-weak detection — bias toward APPROVE since
+  //     the cohort gate may have been over-tight on legitimate setups)
+  //   - "Universe capture rate is 62% over last 14d" (broader system health
+  //     context)
+  // Both data sources are pre-loaded into memoryCache by the live scoring
+  // path + replay path; gracefully absent if not provided.
+  try {
+    const discovery = {};
+    // Screener candidate appearances for this symbol.
+    const screenerCands = memoryCache?.screenerCandidates;
+    if (Array.isArray(screenerCands)) {
+      const mine = screenerCands.filter((c) =>
+        String(c?.ticker || "").toUpperCase() === sym,
+      );
+      if (mine.length > 0) {
+        const scanTypes = {};
+        for (const c of mine) {
+          const st = c.scan_type || "unknown";
+          scanTypes[st] = (scanTypes[st] || 0) + 1;
+        }
+        const latest = mine.reduce((acc, c) => (
+          (!acc || (c.discovered_at || "") > (acc.discovered_at || "")) ? c : acc
+        ), null);
+        discovery.screener_appearances = {
+          count_last_7d: mine.length,
+          scan_types: scanTypes,
+          latest_seen: latest?.discovered_at?.slice(0, 10) || null,
+          latest_change_pct: Number.isFinite(Number(latest?.change_pct)) ? +Number(latest.change_pct).toFixed(1) : null,
+        };
+      }
+    }
+    // Universe coverage-gap summary for this symbol.
+    const gapsSummary = memoryCache?.coverageGapsSummary;
+    if (gapsSummary && typeof gapsSummary === "object") {
+      const mine = gapsSummary?.by_ticker?.[sym];
+      if (mine && (mine.big_moves || 0) > 0) {
+        discovery.coverage_gap_history = {
+          big_moves: mine.big_moves,
+          captured: mine.captured,
+          gaps: mine.gaps,
+          capture_rate_pct: mine.capture_rate_pct,
+          dominant_miss_reason: mine.dominant_miss_reason,
+          last_gap_day: mine.last_gap_day,
+          window_lookback_days: gapsSummary?.window?.lookback_days || null,
+        };
+      }
+      if (Number.isFinite(Number(gapsSummary.universe_capture_rate_pct))) {
+        discovery.universe_capture_rate_pct = gapsSummary.universe_capture_rate_pct;
+      }
+    }
+    if (Object.keys(discovery).length > 0) {
+      mem.discovery_context = discovery;
+    }
+  } catch (_) {
+    // Best-effort — discovery enrichment must never break CIO.
   }
 
   return mem;
