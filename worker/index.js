@@ -25409,7 +25409,9 @@ async function processTradeSimulation(
                       kind: "trade_merge",
                     })
                   ) {
-                    await notifyDiscord(env, embed).catch(() => {});
+                    // 2026-05-28 — trade-merge is internal lifecycle bookkeeping,
+                    // not a trader-facing action. Route to system-alerts lane.
+                    await notifyDiscord(env, embed, "system").catch(() => {});
                   }
                 }
               }
@@ -28932,6 +28934,9 @@ async function drainQueuedActions(env) {
 
     if ((executed > 0 || expired > 0) && shouldSendDiscordAlert(env, "SYSTEM")) {
       const details = pending.map(r => `${r.ticker} ${r.action} → ${r.ticker === r.ticker ? "" : ""}`).slice(0, 10);
+      // 2026-05-28 — Queue-drain summary is ops bookkeeping. Trader
+      // already sees the executed entries/trims via their own alerts;
+      // this is the operator's "what did the cron do?" recap. system lane.
       notifyDiscord(env, {
         embeds: [{
           title: "📋 Queue Drain Summary",
@@ -28939,7 +28944,7 @@ async function drainQueuedActions(env) {
           color: executed > 0 ? 0x00e676 : 0xffa726,
           timestamp: new Date().toISOString(),
         }],
-      }).catch(() => {});
+      }, "system").catch(() => {});
     }
 
     return { executed, expired };
@@ -38319,8 +38324,29 @@ function createTradeTrimmedEmbed(
     PRE_FOMC_RISK_REDUCTION: "Reduced exposure ahead of FOMC because policy headlines can sharply reprice open positions",
     PRE_PCE_RISK_REDUCTION: "Reduced exposure ahead of PCE because the release can sharply reprice open positions",
     PRE_NFP_RISK_REDUCTION: "Reduced exposure ahead of NFP because payroll data can sharply reprice open positions",
+    // 2026-05-28 — Jargon-free entries for ripster_5_12 family (10-min
+    // 5/12 EMA cloud cross). Previously these fell through to the
+    // fallback formatter and surfaced as "Trim triggered: ripster 5 12
+    // lost confirmed" which leaked the indicator-author name into the
+    // user's Discord feed. User-facing copy now describes the SIGNAL,
+    // not the author.
+    ripster_5_12_defend_trim: "10-min 5/12 EMA cloud lost on the position side — defensive partial trim while the larger trend still holds",
+    ripster_5_12_lost_confirmed: "10-min 5/12 EMA cloud cross confirmed against the position over multiple bars — momentum has flipped",
+    ripster_5_12_lost: "10-min 5/12 EMA cloud crossed against the position — momentum starting to flip",
+    ripster_5_12_pending: "10-min 5/12 EMA cloud cross is forming but not yet confirmed — waiting one more bar before acting",
+    ripster_5_12_trend_trigger: "10-min 5/12 EMA cloud crossed in the trade direction — momentum trigger fired",
   };
-  const humanTrimReason = trimReason ? (trimReasonMap[trimReason] || `Trim triggered: ${trimReason.replace(/_/g, " ")}`) : null;
+  // Fallback formatter — strip indicator-author jargon from any reason
+  // string that didn't get a dedicated entry. "ripster_5_12_*" and
+  // "saty_*" tokens get replaced with neutral language so the operator
+  // never sees raw indicator-author names in Discord.
+  const _scrubJargon = (s) => String(s || "")
+    .replace(/ripster[_\s-]*/gi, "")
+    .replace(/saty[_\s-]*/gi, "");
+  const humanTrimReason = trimReason
+    ? (trimReasonMap[trimReason]
+       || `Trim triggered: ${_scrubJargon(trimReason).replace(/_/g, " ").trim()}`)
+    : null;
   if (humanTrimReason) {
     fields.push({ name: "Why We Trimmed", value: humanTrimReason, inline: false });
   }
@@ -38396,11 +38422,23 @@ function createTradeClosedEmbed(
   exitReasonMap.SMART_RUNNER_SUPPORT_BREAK_CLOUD = "Key support level broke down — exiting to avoid further downside";
   exitReasonMap.SMART_RUNNER_SQUEEZE_RELEASE_AGAINST = "Volatility squeeze fired against our direction — exiting before the move accelerates";
   exitReasonMap.PHASE_LEAVE_100 = "Momentum peaked and is starting to fade — securing gains before reversal";
+  // 2026-05-28 — Jargon-free ripster_5_12 family for exit embeds too
+  // (same as the trim embed above). Without these, the fallback below
+  // surfaced raw author names.
+  exitReasonMap.ripster_5_12_lost_confirmed = "10-min 5/12 EMA cloud cross confirmed against the position — exited because momentum has flipped";
+  exitReasonMap.ripster_5_12_lost = "10-min 5/12 EMA cloud crossed against the position — exited as momentum starts to flip";
+  exitReasonMap.ripster_5_12_pending = "10-min 5/12 EMA cloud cross was forming — exit triggered as the bar closed against us";
+  exitReasonMap.ripster_5_12_defend_trim = "10-min 5/12 EMA cloud lost on the position side — full exit after defensive trim path";
   const rawReason = exitReason || "";
+  // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
+  // (was previously rewritten as 'TT ' which still looked odd).
+  const _scrubExitJargon = (s) => String(s || "")
+    .replace(/ripster[_\s-]*/gi, "")
+    .replace(/saty[_\s-]*/gi, "");
   const humanExitReason = exitReasonMap[rawReason]
     || (rawReason.includes("sl") || rawReason.includes("SL") ? "Hit the stop loss" : null)
     || (rawReason.includes("tp") || rawReason.includes("TP") ? "Profit target reached" : null)
-    || (rawReason ? rawReason.replace(/ripster[_ ]?/gi, "TT ").replace(/_/g, " ").replace(/,/g, ", ") : null);
+    || (rawReason ? _scrubExitJargon(rawReason).replace(/_/g, " ").replace(/,/g, ", ").trim() : null);
 
   // Build human-readable description
   const pnlLabel = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
@@ -40689,7 +40727,8 @@ export default {
                   if (
                     shouldSendDiscordAlert(env, "SYSTEM", { kind: "migration" })
                   ) {
-                    notifyDiscord(env, migrationEmbed).catch(() => {}); // Don't let Discord notification errors break anything
+                    // 2026-05-28 — DB migration completion is ops, not trade. system lane.
+                    notifyDiscord(env, migrationEmbed, "system").catch(() => {});
                   }
                 }
               })
@@ -77648,6 +77687,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (evalRes.trip) {
                 console.warn(`[phase-c] LOOP 2 BREAKER TRIPPED — reason: ${evalRes.reason}`);
                 try {
+                  // 2026-05-28 — Engine paused is system-side safety
+                  // brake (not a trade action). system lane.
                   await notifyDiscord(env, {
                     title: "Phase C — Engine Paused",
                     description: `Loop 2 circuit breaker tripped: \`${evalRes.reason}\`.\nNew entries blocked until next session open. Open trades are unaffected.`,
@@ -77657,7 +77698,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       { name: "Today P&L", value: `${pulse.today_pnl_pct.toFixed(2)}%`, inline: true },
                       { name: "Consec Losses", value: String(pulse.consec_losses), inline: true },
                     ],
-                  }).catch(() => {});
+                  }, "system").catch(() => {});
                 } catch (_) {}
               } else {
                 console.log(`[phase-c] loop 2 pulse — wr=${pulse.last10_wr != null ? (pulse.last10_wr*100).toFixed(0)+"%" : "n/a"} todayPnl=${pulse.today_pnl_pct.toFixed(2)}% consec=${pulse.consec_losses}`);
@@ -81699,6 +81740,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const stalePct = totalWithData > 0 ? (veryStaleCount / totalWithData) * 100 : 0;
         if (veryStaleCount >= 30 || stalePct >= 25) {
           try {
+            // 2026-05-28 — Data staleness monitor is ops-side. system lane.
             await notifyDiscord(env, {
               content: null,
               embeds: [{
@@ -81709,7 +81751,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 footer: { text: "Timed Trading • Staleness Monitor" },
                 timestamp: new Date().toISOString(),
               }],
-            });
+            }, "system");
             console.warn(`[STALENESS] Alert sent: ${veryStaleCount} very stale, ${staleCount} stale, ${stalePct.toFixed(0)}%`);
           } catch (e) {
             console.warn("[STALENESS] Discord notify failed:", String(e).slice(0, 100));

@@ -1,7 +1,32 @@
 // Alerts module — Discord notifications and proactive alert generation
 
+// ─────────────────────────────────────────────────────────────────────────────
+// notifyDiscord LANE ROUTING — 2026-05-28
+// ─────────────────────────────────────────────────────────────────────────────
+// Two lanes, two Discord channels:
+//
+//   lane="trade"  (default)  → DISCORD_WEBHOOK_URL          (trade channel)
+//   lane="system"            → DISCORD_SYSTEM_WEBHOOK_URL   (ops / noise)
+//
+// Trade lane = anything a trader cares about within a session:
+//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*
+//   daily brief embeds / weekly investor digest / investor alerts.
+//
+// System lane = ops noise an operator (not a trader) cares about:
+//   cron failures / candle staleness / migration completions /
+//   ingest health / reconciliation diffs / config integrity warnings /
+//   AI CIO health probes / vision-mismatch warnings.
+//
+// If DISCORD_SYSTEM_WEBHOOK_URL is unset, system messages fall back to
+// the trade webhook (so nothing is dropped). If neither is set, the
+// notification is skipped with reason="missing_webhook".
+//
+// Callers tag their lane explicitly: `notifyDiscord(env, embed, "system")`.
+// Default is "trade" so existing untagged callers are unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+
 /** Send Discord notification with embed card styling. */
-export async function notifyDiscord(env, embed) {
+export async function notifyDiscord(env, embed, lane = "trade") {
   const discordEnable = env.DISCORD_ENABLE || "false";
   if (discordEnable !== "true") {
     console.log(
@@ -9,22 +34,36 @@ export async function notifyDiscord(env, embed) {
     );
     return { ok: false, skipped: true, reason: "disabled" };
   }
-  const url = env.DISCORD_WEBHOOK_URL;
+
+  // Lane → webhook URL resolution
+  const _laneNorm = String(lane || "trade").toLowerCase() === "system" ? "system" : "trade";
+  const _systemUrl = env.DISCORD_SYSTEM_WEBHOOK_URL || null;
+  const _tradeUrl = env.DISCORD_WEBHOOK_URL || null;
+  // System messages prefer the system webhook; if unset, fall back to
+  // the trade webhook (better noisy than dropped). Trade messages never
+  // route to the system channel.
+  const url = _laneNorm === "system"
+    ? (_systemUrl || _tradeUrl)
+    : _tradeUrl;
   if (!url) {
     console.log(
-      `[DISCORD] Webhook URL not configured (DISCORD_WEBHOOK_URL is missing)`,
+      `[DISCORD] No webhook URL for lane="${_laneNorm}" (DISCORD_WEBHOOK_URL=${_tradeUrl ? "set" : "missing"}, DISCORD_SYSTEM_WEBHOOK_URL=${_systemUrl ? "set" : "missing"})`,
     );
-    return { ok: false, skipped: true, reason: "missing_webhook" };
+    return { ok: false, skipped: true, reason: "missing_webhook", lane: _laneNorm };
   }
 
-  console.log(`[DISCORD] Sending notification: ${embed.title || "Untitled"}`);
-  // V15 P0.7.31 (2026-04-30) — Discord webhook avatar + username
-  // Use the official Timed Trading watch-face logo (PNG hosted at our
-  // public domain) so all Discord alerts share visual identity with
-  // the web app + favicon. Falls back gracefully if either is unset.
-  const _webhookUsername = env.DISCORD_WEBHOOK_USERNAME || "Timed Trading";
+  console.log(`[DISCORD lane=${_laneNorm}] Sending: ${embed.title || "Untitled"}`);
+  // V15 P0.7.31 (2026-04-30) — Discord webhook avatar + username.
+  // 2026-05-28 — Default avatar URL was pointing at /logo-512.png which
+  // returns the SPA HTML fallback (Discord then renders its generic
+  // default avatar). Switched to the actually-served /logo-discord.png
+  // (256x256 PNG, 50 KB, generated from logo.png at build time).
+  // System lane gets a different username so it's visually distinct
+  // from trade messages even before reading the title.
+  const _baseName = env.DISCORD_WEBHOOK_USERNAME || "Timed Trading";
+  const _webhookUsername = _laneNorm === "system" ? `${_baseName} • Ops` : _baseName;
   const _webhookAvatarUrl = env.DISCORD_WEBHOOK_AVATAR_URL
-    || "https://timed-trading.com/logo-512.png";
+    || "https://timed-trading.com/logo-discord.png";
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -48,19 +87,20 @@ export async function notifyDiscord(env, embed) {
         status: response.status,
         statusText: response.statusText,
         responseText: responseText.substring(0, 200),
+        lane: _laneNorm,
       };
     }
     console.log(
-      `[DISCORD] ✅ Notification sent successfully: ${embed.title || "Untitled"}`,
+      `[DISCORD lane=${_laneNorm}] ✅ Notification sent: ${embed.title || "Untitled"}`,
     );
-    return { ok: true, status: response.status };
+    return { ok: true, status: response.status, lane: _laneNorm };
   } catch (error) {
-    console.error(`[DISCORD] Error sending notification:`, {
+    console.error(`[DISCORD lane=${_laneNorm}] Error sending notification:`, {
       error: String(error),
       message: error.message,
       stack: error.stack,
     });
-    return { ok: false, error: String(error), message: error.message };
+    return { ok: false, error: String(error), message: error.message, lane: _laneNorm };
   }
 }
 
@@ -100,7 +140,9 @@ export async function recordCronFailure(env, opts) {
     }
   } catch {}
 
-  // 2. Discord alert (best-effort)
+  // 2. Discord alert (best-effort) — system lane
+  // Cron failures are ops noise, not trader-actionable. Route to the
+  // system-alerts channel so the trade channel stays clean.
   try {
     if (!opts?.skipDiscord) {
       await notifyDiscord(env, {
@@ -109,7 +151,7 @@ export async function recordCronFailure(env, opts) {
         color: 0xef4444,
         timestamp: new Date(ts).toISOString(),
         footer: { text: caller ? `caller=${caller}` : "no caller" },
-      });
+      }, "system");
     }
   } catch {}
 
