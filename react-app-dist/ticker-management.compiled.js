@@ -1754,10 +1754,10 @@ function App() {
   }, "Timed Trading")), React.createElement("div", {
     className: "hidden md:flex items-center gap-0.5"
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Analysis"), React.createElement("a", {
-    href: "simulation-dashboard.html",
+    href: "/portfolio.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Trades"), React.createElement("a", {
     href: "system-intelligence.html",
@@ -1795,7 +1795,7 @@ function App() {
     href: "/faq.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Guide"), React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
     title: "Restart tour"
   }, "Tour"), React.createElement("a", {
@@ -1865,11 +1865,11 @@ function App() {
       background: "rgba(10,10,15,0.98)"
     }
   }, React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Analysis"), React.createElement("a", {
-    href: "simulation-dashboard.html",
+    href: "/portfolio.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Trades"), React.createElement("a", {
@@ -1907,7 +1907,7 @@ function App() {
     href: "/faq.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Guide"), React.createElement("a", {
-    href: "index-react.html",
+    href: "/today.html",
     className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
     title: "Restart tour"
   }, "Tour"), React.createElement("a", {
@@ -2219,6 +2219,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1779991212146:516306162
+// cache-bust:1779992573947:328560078
 
-// cache-bust:1779991212146:516306162
+// cache-bust:1779992573947:328560078

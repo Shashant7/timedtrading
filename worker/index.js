@@ -49090,67 +49090,99 @@ export default {
       }
 
       // GET /timed/activity
+      //
+      // 2026-05-28 — Switched data source from KV `timed:activity:feed`
+      // (which mostly carried `ingest_missing` ops noise) to the same
+      // D1 query the admin endpoint uses (execution_actions JOIN
+      // positions JOIN trades). The KV path returned 30 ingest_missing
+      // events and zero trade events; the D1 source has the canonical
+      // ENTER/TRIM/EXIT for the user's portfolio.
+      //
+      // Admin and Pro now both see the same trade events; the only
+      // difference is that admin keeps the option to view the full
+      // ops firehose at /timed/admin/activity-feed (and currently
+      // returns the SAME D1 rows since the KV firehose was empty —
+      // but the admin endpoint stays as the future home for ops-level
+      // telemetry like ingest gaps, cron failures, integrity warnings).
       if (routeKey === "GET /timed/activity") {
-        const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
-
-        const now = Date.now();
-        const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-        const currentEvents = [];
-
-        // Merge feed events with current events, deduplicate by ticker+type
-        const allEvents = [...feed, ...currentEvents];
-        const seen = new Set();
-        const uniqueEvents = allEvents.filter((e) => {
-          const key = `${e.ticker}-${e.type}-${Math.floor(
-            e.ts / (60 * 60 * 1000),
-          )}`; // Group by hour
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return e.ts > oneWeekAgo; // Only keep events from last week
-        });
-
-        // Sort by timestamp descending
-        uniqueEvents.sort((a, b) => b.ts - a.ts);
-
-        // 2026-05-28 — Filter to USER-FACING types only for the public
-        // endpoint. The activity feed KV is a single firehose that mixes
-        // user-actionable events (TRADE_ENTRY/TRIM/EXIT, KANBAN_*) with
-        // ops telemetry (ingest_missing, freshness alerts, etc.). Pro
-        // users were seeing INGEST_MISSING pills polluting the
-        // Activity Strip on /today and /active-trader. The admin feed
-        // (/timed/admin/activity-feed) keeps the full firehose.
-        //
-        // Whitelist by case-insensitive prefix match so callers can use
-        // either "TRADE_ENTRY" or "trade_entry" — both write paths exist.
-        const USER_FACING_TYPES = new Set([
-          "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "TRADE_DEFEND",
-          "KANBAN_ENTER", "KANBAN_ENTER_NOW", "KANBAN_DEFEND",
-          "KANBAN_TRIM", "KANBAN_EXIT", "KANBAN_HOLD",
-          "ENTRY", "TRIM", "EXIT", "TP_HIT_TRIM", "TP_HIT_EXIT",
-          "ADD", "ADD_ENTRY", "SL_HIT",
-          // Investor-side parity
-          "INVESTOR_ENTRY", "INVESTOR_TRIM", "INVESTOR_EXIT",
-        ]);
-        const userFacing = uniqueEvents.filter((e) => {
-          const t = String(e?.type || e?.event || "").toUpperCase();
-          return USER_FACING_TYPES.has(t);
-        });
-
         const limit = Math.min(
           100,
           Number(url.searchParams.get("limit") || "100"),
         );
-        const filtered = userFacing.slice(0, limit);
-
-        return sendJSON(
-          {
-            ok: true,
-            count: filtered.length,
-            events: filtered,
-          },
-          200,
-          corsHeaders(env, req),
-        );
+        const db = env?.DB;
+        // If D1 is unavailable, fall back to the old KV firehose (still
+        // filtered to user-facing types) so the strip never crashes.
+        if (!db) {
+          const feed = (await kvGetJSON(KV, "timed:activity:feed")) || [];
+          const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+          const seen = new Set();
+          const FALLBACK_TYPES = new Set([
+            "TRADE_ENTRY","TRADE_TRIM","TRADE_EXIT","ENTRY","TRIM","EXIT",
+            "TP_HIT_TRIM","TP_HIT_EXIT","ADD","ADD_ENTRY","SL_HIT",
+          ]);
+          const out = (feed || [])
+            .filter((e) => {
+              const t = String(e?.type || "").toUpperCase();
+              const key = `${e.ticker}-${t}-${Math.floor((Number(e.ts) || 0) / 3600000)}`;
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return Number(e.ts) > oneWeekAgo && FALLBACK_TYPES.has(t);
+            })
+            .sort((a, b) => Number(b.ts) - Number(a.ts))
+            .slice(0, limit);
+          return sendJSON({ ok: true, count: out.length, events: out, source: "kv_fallback" }, 200, corsHeaders(env, req));
+        }
+        try {
+          // Same query the admin endpoint uses (execution_actions JOIN
+          // positions JOIN trades) — trade events are not private; both
+          // Pro and admin users get the same view of "what the system
+          // executed". Admin endpoint stays separate so future ops-
+          // level telemetry (e.g. cron failures, freshness alerts)
+          // can land there without leaking to Pro.
+          let where = "WHERE 1=1";
+          where += " AND (t.status IS NULL OR t.status != 'CANCELED')";
+          where += " AND (ea.reason IS NULL OR ea.reason NOT IN ('admin_reversed_wallclock_force_close', 'v13_hard_age_cap', 'v13_hard_pnl_floor'))";
+          where += " AND NOT (ea.action_type = 'EXIT' AND p.created_at IS NOT NULL AND (ea.ts - p.created_at) > 2592000000)";
+          const rows = (await db.prepare(
+            `SELECT ea.action_id, ea.ts, ea.action_type, ea.qty, ea.price, ea.value,
+                    ea.pnl_realized, ea.reason, ea.position_id,
+                    p.ticker, p.direction, p.script_version, p.created_at,
+                    t.setup_name, t.setup_grade, t.status as trade_status
+             FROM execution_actions ea
+             LEFT JOIN positions p ON ea.position_id = p.position_id
+             LEFT JOIN trades t ON t.trade_id = ea.position_id
+             ${where}
+             ORDER BY ea.ts DESC
+             LIMIT ?`
+          ).bind(limit).all())?.results || [];
+          const events = rows.map((r) => ({
+            ts: Number(r.ts),
+            type: String(r.action_type || "").toUpperCase(),
+            ticker: String(r.ticker || "").toUpperCase(),
+            direction: String(r.direction || "").toUpperCase() || null,
+            qty: Number(r.qty) || 0,
+            price: Number(r.price) || 0,
+            value: Number(r.value) || 0,
+            pnl: Number(r.pnl_realized) || 0,
+            // 2026-05-28 — also expose pnl_pct for the strip's pill rendering.
+            // tt-activity-strip.js reads `ev.pnl_pct ?? ev.pnlPct`; provide
+            // a derived percent when entry price is known so EXIT/TRIM pills
+            // can color-code +/− without the operator clicking through.
+            pnl_pct: (() => {
+              const v = Number(r.value);
+              const p = Number(r.pnl_realized);
+              if (!Number.isFinite(v) || !Number.isFinite(p) || v <= 0) return null;
+              return (p / v) * 100;
+            })(),
+            reason: r.reason || null,
+            trade_id: r.position_id || null,
+            setup_name: r.setup_name || null,
+            setup_grade: r.setup_grade || null,
+          }));
+          return sendJSON({ ok: true, count: events.length, events, source: "d1" }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
       }
 
       // GET /timed/check-ticker?ticker=AAPL
