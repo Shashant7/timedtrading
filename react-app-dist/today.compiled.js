@@ -498,6 +498,278 @@ function MarketPulseTile({
     }
   }));
 }
+const _PRED_CACHE = window._ttIndexPredCache = window._ttIndexPredCache || {};
+function IndexPredictionCard({
+  sym,
+  t,
+  onSelectTicker
+}) {
+  const SYM = String(sym || "").toUpperCase();
+  const tx = t && typeof t === "object" ? t.ticker ? t : {
+    ticker: SYM,
+    ...t
+  } : {
+    ticker: SYM
+  };
+  const dc = getDailyChange(tx);
+  const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const price = Number(tx.price);
+  const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+  const [pred, setPred] = useState(() => _PRED_CACHE[SYM]?.data || null);
+  const [pLoading, setPLoading] = useState(false);
+  useEffect(() => {
+    const cached = _PRED_CACHE[SYM];
+    if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+      setPred(cached.data);
+      return;
+    }
+    let cancelled = false;
+    setPLoading(true);
+    fetch(`/timed/prediction-contract?ticker=${SYM}&mode=trader`, {
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))).then(j => {
+      if (cancelled) return;
+      const c = j?.ok ? j.contract : null;
+      _PRED_CACHE[SYM] = {
+        data: c,
+        ts: Date.now()
+      };
+      setPred(c);
+    }).catch(() => {}).finally(() => {
+      if (!cancelled) setPLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [SYM]);
+  const bias = String(pred?.direction || "").toUpperCase();
+  const biasMeta = bias === "LONG" ? {
+    label: "LONG",
+    color: "var(--tt-up, #34d399)",
+    bg: "rgba(52,211,153,0.10)"
+  } : bias === "SHORT" ? {
+    label: "SHORT",
+    color: "var(--tt-dn, #f87171)",
+    bg: "rgba(248,113,113,0.10)"
+  } : {
+    label: "NEUTRAL",
+    color: "var(--tt-text-muted, #9ca3af)",
+    bg: "rgba(156,163,175,0.08)"
+  };
+  const rr = Number(pred?.risk?.rr);
+  const conf = String(pred?.confidence || "").toLowerCase();
+  const confColor = conf === "high" ? "var(--tt-up, #34d399)" : conf === "medium" ? "var(--tt-accent, #f5c25c)" : conf === "low" ? "var(--tt-dn, #f87171)" : "var(--tt-text-muted, #9ca3af)";
+  const targets = Array.isArray(pred?.targets) ? pred.targets : [];
+  const tp1 = Number(targets[0]?.price);
+  const sl = Number(pred?.risk?.stop_loss);
+  const horizon = pred?.horizon ? String(pred.horizon).replace(/_/g, " ") : null;
+  const onClick = e => {
+    e.preventDefault();
+    if (typeof onSelectTicker === "function") onSelectTicker(SYM);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
+  };
+  return h("button", {
+    onClick,
+    className: "tt-card",
+    style: {
+      textAlign: "left",
+      padding: "12px 14px",
+      width: "100%",
+      background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
+      border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
+      borderRadius: 10,
+      cursor: "pointer",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      transition: "border-color 0.15s, transform 0.05s"
+    },
+    onMouseEnter: e => {
+      e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))";
+    },
+    onMouseLeave: e => {
+      e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
+    },
+    title: `Open ${SYM} in detail`
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 8,
+      justifyContent: "space-between"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 6
+    }
+  }, h("span", {
+    style: {
+      fontWeight: 700,
+      fontSize: 13,
+      color: "var(--tt-text, #e5e7eb)",
+      letterSpacing: "0.02em"
+    }
+  }, SYM), h("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)"
+    }
+  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—")), dayPct != null && h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      fontWeight: 600,
+      color: dir === "up" ? "var(--tt-up)" : dir === "dn" ? "var(--tt-dn)" : "var(--tt-text-muted)"
+    }
+  }, `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`)), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 6
+    }
+  }, h("span", {
+    style: {
+      padding: "2px 8px",
+      borderRadius: 999,
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      fontFamily: "var(--tt-font-mono)",
+      background: biasMeta.bg,
+      color: biasMeta.color,
+      border: `1px solid ${biasMeta.color}55`
+    }
+  }, biasMeta.label), Number.isFinite(rr) && rr > 0 && h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10,
+      color: rr >= 2 ? "var(--tt-up)" : "var(--tt-text-muted)"
+    }
+  }, `R:R ${rr.toFixed(2)}`), conf && h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 9,
+      color: confColor,
+      textTransform: "uppercase",
+      letterSpacing: "0.08em"
+    }
+  }, conf), horizon && h("span", {
+    style: {
+      fontSize: 9,
+      color: "var(--tt-text-faint)",
+      marginLeft: "auto",
+      fontFamily: "var(--tt-font-mono)",
+      textTransform: "uppercase"
+    }
+  }, horizon)), (Number.isFinite(tp1) || Number.isFinite(sl)) && h("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10,
+      color: "var(--tt-text-muted)",
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap"
+    }
+  }, Number.isFinite(tp1) && tp1 > 0 && h("span", null, h("span", {
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "TP "), h("span", {
+    style: {
+      color: "var(--tt-up)"
+    }
+  }, `$${tp1.toFixed(2)}`)), Number.isFinite(sl) && sl > 0 && h("span", null, h("span", {
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "SL "), h("span", {
+    style: {
+      color: "var(--tt-dn)"
+    }
+  }, `$${sl.toFixed(2)}`))), !pred && pLoading && h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      fontStyle: "italic"
+    }
+  }, "Loading model bias…"), !pred && !pLoading && h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)"
+    }
+  }, "No active model bias right now."));
+}
+function IndexPredictionsStrip({
+  data,
+  onSelectTicker
+}) {
+  const SYMS = ["SPY", "QQQ", "IWM"];
+  const available = SYMS.filter(s => data?.[s]);
+  if (available.length === 0) return null;
+  return h("aside", {
+    className: "tt-card tt-card-pad",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      height: "100%"
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "INDEX PREDICTIONS"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 16
+    }
+  }, "Today's model bias on the broad market"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      marginTop: 4
+    }
+  }, available.map(sym => h(IndexPredictionCard, {
+    key: sym,
+    sym,
+    t: data[sym],
+    onSelectTicker
+  }))));
+}
+function TodayHero({
+  brief,
+  data,
+  earnings,
+  onSelectTicker
+}) {
+  return h("div", {
+    className: "today-hero",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1fr)",
+      gap: 14,
+      marginBottom: 14
+    }
+  }, h("div", {
+    style: {
+      minWidth: 0
+    }
+  }, brief ? h(BriefPreview, {
+    brief
+  }) : h(BriefPlaceholder, {
+    data,
+    earnings,
+    onSelectTicker
+  })), h("div", {
+    style: {
+      minWidth: 0
+    }
+  }, data && h(IndexPredictionsStrip, {
+    data,
+    onSelectTicker
+  })));
+}
 function MarketState({
   data,
   onSelectTicker
@@ -2774,9 +3046,8 @@ function TodayApp() {
   }), h("main", null, h(StatusHeader, {
     cal,
     briefDate: brief?.date
-  }), brief ? h(BriefPreview, {
-    brief
-  }) : h(BriefPlaceholder, {
+  }), h(TodayHero, {
+    brief,
     data,
     earnings,
     onSelectTicker
@@ -3203,6 +3474,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1779992573947:328560078
+// cache-bust:1779997053058:945418523
 
-// cache-bust:1779992573947:328560078
+// cache-bust:1779997053058:945418523
