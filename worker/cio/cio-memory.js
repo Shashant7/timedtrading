@@ -379,5 +379,68 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     };
   }
 
+  // ── Layer 9: Discovery context (2026-05-28) ──────────────────────────────
+  // Surface what the daily TradingView screener saw, plus the universe
+  // coverage-gap diagnostic for this specific ticker. Tells CIO things like:
+  //   - "Same ticker appeared in screener top_gainers 4× in last 7 days"
+  //     (sustained-momentum signal)
+  //   - "This ticker missed 5/12 valid moves in last 14d; dominant reason
+  //     was cohort_fail" (known-weak detection — bias toward APPROVE since
+  //     the cohort gate may have been over-tight on legitimate setups)
+  //   - "Universe capture rate is 62% over last 14d" (broader system health
+  //     context)
+  // Both data sources are pre-loaded into memoryCache by the live scoring
+  // path + replay path; gracefully absent if not provided.
+  try {
+    const discovery = {};
+    // Screener candidate appearances for this symbol.
+    const screenerCands = memoryCache?.screenerCandidates;
+    if (Array.isArray(screenerCands)) {
+      const mine = screenerCands.filter((c) =>
+        String(c?.ticker || "").toUpperCase() === sym,
+      );
+      if (mine.length > 0) {
+        const scanTypes = {};
+        for (const c of mine) {
+          const st = c.scan_type || "unknown";
+          scanTypes[st] = (scanTypes[st] || 0) + 1;
+        }
+        const latest = mine.reduce((acc, c) => (
+          (!acc || (c.discovered_at || "") > (acc.discovered_at || "")) ? c : acc
+        ), null);
+        discovery.screener_appearances = {
+          count_last_7d: mine.length,
+          scan_types: scanTypes,
+          latest_seen: latest?.discovered_at?.slice(0, 10) || null,
+          latest_change_pct: Number.isFinite(Number(latest?.change_pct)) ? +Number(latest.change_pct).toFixed(1) : null,
+        };
+      }
+    }
+    // Universe coverage-gap summary for this symbol.
+    const gapsSummary = memoryCache?.coverageGapsSummary;
+    if (gapsSummary && typeof gapsSummary === "object") {
+      const mine = gapsSummary?.by_ticker?.[sym];
+      if (mine && (mine.big_moves || 0) > 0) {
+        discovery.coverage_gap_history = {
+          big_moves: mine.big_moves,
+          captured: mine.captured,
+          gaps: mine.gaps,
+          capture_rate_pct: mine.capture_rate_pct,
+          dominant_miss_reason: mine.dominant_miss_reason,
+          last_gap_day: mine.last_gap_day,
+          window_lookback_days: gapsSummary?.window?.lookback_days || null,
+        };
+      }
+      if (Number.isFinite(Number(gapsSummary.universe_capture_rate_pct))) {
+        discovery.universe_capture_rate_pct = gapsSummary.universe_capture_rate_pct;
+      }
+    }
+    if (Object.keys(discovery).length > 0) {
+      mem.discovery_context = discovery;
+    }
+  } catch (_) {
+    // Best-effort — discovery enrichment must never break CIO.
+  }
+
   return mem;
 }
