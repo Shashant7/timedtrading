@@ -1265,6 +1265,17 @@ const ROUTES = [
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
   ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
+  // 2026-05-28 — Operator-facing go-live readiness dashboard.
+  // Returns the current values for each shadow→live gate so the
+  // operator can poll at any time without re-running ad-hoc SQL.
+  // See tasks/2026-05-28-cio-shadow-to-live-audit.md for the full gate
+  // definitions + recommended phased rollout.
+  ["GET", "/timed/admin/ai-cio/go-live-readiness", "GET /timed/admin/ai-cio/go-live-readiness"],
+  // 2026-05-28 — Backfill trade_outcome on existing CIO decisions by
+  // joining against the trades table on trade_id. Without this,
+  // post-fix decisions never get outcomes attributed (the live writer
+  // backfills on trade close, but historical decisions need a sweep).
+  ["POST", "/timed/admin/ai-cio/backfill-outcomes", "POST /timed/admin/ai-cio/backfill-outcomes"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
   // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
   ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
@@ -54083,6 +54094,220 @@ export default {
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/ai-cio/go-live-readiness
+      //
+      // Operator-facing dashboard returning the current values for each
+      // shadow→live gate so the operator can poll status without ad-hoc
+      // SQL. See tasks/2026-05-28-cio-shadow-to-live-audit.md for the
+      // full gate definitions + rationale.
+      //
+      // Gates are grouped:
+      //   A. Sample size  — do we have enough signal to evaluate?
+      //   B. Quality      — is the model behaving (latency, fallback, balance)?
+      //   C. Edge         — does CIO improve outcomes vs no-CIO baseline?
+      //   D. Operator     — has the human signed off?
+      //
+      // Response shape: { ok, ready_for_live: bool, config: {...},
+      //   gates: { A: [...], B: [...], C: [...], D: [...] }, summary: {...} }
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/ai-cio/go-live-readiness") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          // Window: last 10 trading days ~= 14 calendar days
+          const _now = Date.now();
+          const _windowMs = 14 * 24 * 60 * 60 * 1000;
+          const _since = _now - _windowMs;
+
+          // Load current CIO config
+          const _cfgRows = (await db.prepare(
+            `SELECT config_key, config_value FROM model_config`
+          ).all())?.results || [];
+          const _cfg = {};
+          for (const r of _cfgRows) {
+            if (!r?.config_key) continue;
+            if (String(r.config_key).startsWith("ai_cio")) {
+              _cfg[r.config_key] = r.config_value;
+            }
+          }
+
+          // Pull window decisions
+          const _windowDecisions = (await db.prepare(
+            `SELECT decision, COALESCE(shadow,0) AS shadow, confidence, edge_score,
+                    latency_ms, fallback, trade_outcome, trade_pnl_pct, created_at, reasoning
+             FROM ai_cio_decisions
+             WHERE created_at >= ?1
+             ORDER BY created_at DESC`
+          ).bind(_since).all())?.results || [];
+
+          // Buckets
+          const _entrySet = new Set(["APPROVE", "ADJUST", "REJECT"]);
+          const _entries = _windowDecisions.filter((r) => _entrySet.has(String(r.decision || "").toUpperCase()));
+          const _lifecycle = _windowDecisions.filter((r) => !_entrySet.has(String(r.decision || "").toUpperCase()));
+          const _attributed = _entries.filter((r) => r.trade_outcome === "WIN" || r.trade_outcome === "LOSS");
+          const _fallbacks = _windowDecisions.filter((r) => r.fallback === 1 || r.fallback === true);
+
+          // Latency & balance
+          const _avgLatency = (arr) => arr.length === 0 ? null
+            : arr.reduce((s, r) => s + (Number(r.latency_ms) || 0), 0) / arr.length;
+          const _entryLat = _avgLatency(_entries);
+          const _lifeLat = _avgLatency(_lifecycle);
+
+          const _entryCount = _entries.length;
+          const _approveCount = _entries.filter((r) => String(r.decision).toUpperCase() === "APPROVE").length;
+          const _rejectCount = _entries.filter((r) => String(r.decision).toUpperCase() === "REJECT").length;
+          const _approvePct = _entryCount > 0 ? (_approveCount / _entryCount) * 100 : null;
+          const _rejectPct = _entryCount > 0 ? (_rejectCount / _entryCount) * 100 : null;
+
+          // Reasoning-truncation heuristic: ends without sentence-final punctuation
+          const _looksTruncated = (text) => {
+            const s = String(text || "").trim();
+            if (!s) return false;
+            const last = s.slice(-1);
+            return last !== "." && last !== "!" && last !== "?" && last !== '"' && last !== ")";
+          };
+          const _truncatedCount = _windowDecisions.filter((r) => _looksTruncated(r.reasoning)).length;
+          const _truncationPct = _windowDecisions.length > 0
+            ? (_truncatedCount / _windowDecisions.length) * 100
+            : null;
+          const _fallbackPct = _windowDecisions.length > 0
+            ? (_fallbacks.length / _windowDecisions.length) * 100
+            : null;
+
+          // ADJUST edge: avg pnl on attributed ADJUST decisions
+          const _adjAttributed = _attributed.filter((r) => String(r.decision).toUpperCase() === "ADJUST");
+          const _avgAdjPnl = _adjAttributed.length > 0
+            ? _adjAttributed.reduce((s, r) => s + (Number(r.trade_pnl_pct) || 0), 0) / _adjAttributed.length
+            : null;
+          const _adjWins = _adjAttributed.filter((r) => r.trade_outcome === "WIN").length;
+          const _adjWr = _adjAttributed.length > 0 ? (_adjWins / _adjAttributed.length) * 100 : null;
+
+          const _mk = (id, label, threshold, value, met) => ({
+            id, label, threshold, value, met,
+          });
+
+          const gates = {
+            A_sample: [
+              _mk("entry_count_10d", "Entry-side decisions (last ~10 trading days)", ">= 50", _entryCount, _entryCount >= 50),
+              _mk("lifecycle_count_10d", "Lifecycle decisions (TRIM/EXIT, last ~10 days)", ">= 100", _lifecycle.length, _lifecycle.length >= 100),
+              _mk("outcomes_attributed", "Entry decisions with outcomes attributed", ">= 30", _attributed.length, _attributed.length >= 30),
+            ],
+            B_quality: [
+              _mk("fallback_rate", "Fallback rate (% APPROVE-by-default due to API error)", "< 5%", _fallbackPct, _fallbackPct != null && _fallbackPct < 5),
+              _mk("entry_latency", "Avg entry latency (ms)", "< 6000", _entryLat, _entryLat != null && _entryLat < 6000),
+              _mk("lifecycle_latency", "Avg lifecycle latency (ms)", "< 8000", _lifeLat, _lifeLat != null && _lifeLat < 8000),
+              _mk("truncation_rate", "Reasoning truncation rate (heuristic)", "< 5%", _truncationPct, _truncationPct != null && _truncationPct < 5),
+              _mk("reject_rate_band", "Entry REJECT rate (sanity band, not all-or-nothing)", "30-80%", _rejectPct, _rejectPct != null && _rejectPct >= 30 && _rejectPct <= 80),
+              _mk("approve_rate_min", "Entry APPROVE rate", "> 5%", _approvePct, _approvePct != null && _approvePct > 5),
+            ],
+            C_edge: [
+              _mk("adjust_avg_pnl", "Avg P&L on attributed ADJUST decisions", "> +0.30%", _avgAdjPnl, _avgAdjPnl != null && _avgAdjPnl > 0.30),
+              _mk("adjust_win_rate", "ADJUST win rate", "> 55%", _adjWr, _adjWr != null && _adjWr > 55),
+            ],
+            D_operator: [
+              _mk("manual_review", "Manual review of last 20 entry decisions (reasoning quality)", "yes", "not_done", false),
+              _mk("lifecycle_live_first", "Lifecycle-only live mode tested before entry-side", "yes", "not_done", false),
+              _mk("autosnap_safeguard", "Auto-snapback to shadow on pathology detection", "implemented", "not_done", false),
+            ],
+          };
+
+          const _allMet = (arr) => arr.every((g) => g.met === true);
+          const _readyForLive = _allMet(gates.A_sample) && _allMet(gates.B_quality)
+            && _allMet(gates.C_edge) && _allMet(gates.D_operator);
+
+          return sendJSON({
+            ok: true,
+            ready_for_live: _readyForLive,
+            recommendation: _readyForLive
+              ? "All gates green. Safe to flip ai_cio_shadow_mode to false."
+              : "STAY IN SHADOW. See failing gates below.",
+            config: _cfg,
+            window: { since_ms: _since, now_ms: _now, days: 14 },
+            summary: {
+              total_decisions: _windowDecisions.length,
+              entry_decisions: _entryCount,
+              lifecycle_decisions: _lifecycle.length,
+              outcomes_attributed: _attributed.length,
+              approve_count: _approveCount,
+              reject_count: _rejectCount,
+              fallback_count: _fallbacks.length,
+              avg_entry_latency_ms: _entryLat,
+              avg_lifecycle_latency_ms: _lifeLat,
+              adjust_avg_pnl_pct: _avgAdjPnl,
+              adjust_win_rate_pct: _adjWr,
+            },
+            gates,
+            note: "See tasks/2026-05-28-cio-shadow-to-live-audit.md for full gate definitions + rationale.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/ai-cio/backfill-outcomes
+      //
+      // Sweep ai_cio_decisions where trade_outcome is null, look up the
+      // trade by trade_id in the trades table, and fill trade_outcome +
+      // trade_pnl_pct if the trade is closed. The live writer backfills
+      // on trade-close (worker/index.js:17469), but historical decisions
+      // need a one-shot sweep — especially after the 65-day silent gap
+      // when many CIO decisions were never attributed.
+      //
+      // Idempotent: only updates rows where trade_outcome IS NULL AND
+      // the matching trades row is in (WIN, LOSS, FLAT).
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/ai-cio/backfill-outcomes") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          // Pull unattributed decisions that have a trade_id
+          const _orphans = (await db.prepare(
+            `SELECT d.rowid AS _rid, d.trade_id, d.decision, d.shadow,
+                    t.status AS trade_status, t.pnl_pct AS trade_pnl_pct
+             FROM ai_cio_decisions d
+             JOIN trades t ON t.trade_id = d.trade_id
+             WHERE d.trade_outcome IS NULL
+               AND t.status IN ('WIN', 'LOSS', 'FLAT')
+             LIMIT 1000`
+          ).all())?.results || [];
+
+          let _updated = 0;
+          let _failed = 0;
+          for (const row of _orphans) {
+            try {
+              await db.prepare(
+                `UPDATE ai_cio_decisions
+                 SET trade_outcome = ?1, trade_pnl_pct = ?2
+                 WHERE rowid = ?3 AND trade_outcome IS NULL`
+              ).bind(
+                String(row.trade_status),
+                Number(row.trade_pnl_pct) || 0,
+                Number(row._rid),
+              ).run();
+              _updated++;
+            } catch (e) {
+              _failed++;
+              console.warn(`[CIO_BACKFILL] rowid=${row._rid} failed:`, String(e?.message || e).slice(0, 100));
+            }
+          }
+          return sendJSON({
+            ok: true,
+            scanned: _orphans.length,
+            updated: _updated,
+            failed: _failed,
+            note: "Backfilled trade_outcome and trade_pnl_pct on ai_cio_decisions rows where the matching trade is closed. Run again after each batch of trades closes to keep accuracy report fresh.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
