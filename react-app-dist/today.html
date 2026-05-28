@@ -1074,7 +1074,158 @@
         color: var(--tt-text);
       }
       .macro-chip .ts { color: var(--tt-text-dim); font-size: 11px; font-family: var(--tt-font-mono); }
-      /* Earnings list */
+      /* ── Unified ticker row (.tt-trow) ─────────────────────────────
+         2026-05-28 — shared row component for Earnings, Movers, and
+         the Focus rail. Every row has the same info-lockup:
+
+           [logo 22] [SYM]  [meta: small chip]            [right primary] [right secondary]
+
+         Slots are optional; the grid columns auto-collapse for rows
+         that don't use them. The wrapper element is button-or-anchor
+         (rendered as <button> for click-handlers) so every row is
+         keyboard-focusable and selectable to open the right rail.
+
+         Variants:
+           .tt-trow--earnings   — used by EarningsStrip
+           .tt-trow--mover      — used by MoverRow (adds a rank slot)
+           .tt-trow--focus      — used by FocusRail (adds a bias slot)
+
+         Accent on universe-membership applies to the parent
+         .tt-trow.is-universe. */
+      .tt-trow {
+        display: grid;
+        grid-template-columns: 24px auto 1fr auto;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        background: rgba(255,255,255,0.015);
+        border: 1px solid var(--tt-border);
+        border-radius: 8px;
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        font-family: var(--tt-font);
+        text-align: left;
+        width: 100%;
+        transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+      }
+      .tt-trow:hover {
+        background: var(--tt-bg-elev);
+        border-color: var(--tt-border-hi);
+      }
+      .tt-trow:focus-visible {
+        outline: 2px solid var(--tt-accent, #4cb9dc);
+        outline-offset: 1px;
+      }
+      .tt-trow:active { transform: translateY(0.5px); }
+      .tt-trow__logo {
+        width: 22px; height: 22px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.04);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+        color: var(--tt-text-dim);
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .tt-trow__sym {
+        font-family: var(--tt-font);
+        font-size: 13px; font-weight: 700;
+        color: var(--tt-text);
+        letter-spacing: 0.01em;
+        line-height: 1.1;
+      }
+      .tt-trow__meta {
+        font-size: 10.5px;
+        color: var(--tt-text-dim);
+        font-family: var(--tt-font-mono);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .tt-trow__right {
+        display: flex; flex-direction: column;
+        align-items: flex-end;
+        gap: 1px;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.15;
+      }
+      .tt-trow__px {
+        font-family: var(--tt-font-mono);
+        font-size: 12.5px; font-weight: 600;
+        color: var(--tt-text);
+      }
+      .tt-trow__chg {
+        font-family: var(--tt-font-mono);
+        font-size: 11.5px; font-weight: 700;
+      }
+      .tt-trow__chg.up  { color: var(--tt-up, #34d399); }
+      .tt-trow__chg.dn  { color: var(--tt-dn, #fb7185); }
+      .tt-trow__chg.mut { color: var(--tt-text-dim); font-weight: 600; }
+      .tt-trow__sub {
+        font-size: 9.5px; color: var(--tt-text-dim);
+        font-weight: 500;
+        font-family: var(--tt-font-mono);
+      }
+      /* Universe-priority accent — applies to any .tt-trow.is-universe */
+      .tt-trow.is-universe {
+        background: rgba(76, 175, 220, 0.06);
+        border-color: rgba(76, 175, 220, 0.22);
+      }
+      .tt-trow.is-universe .tt-trow__sym {
+        color: var(--tt-accent, #4cb9dc);
+      }
+      /* Rank slot for Movers — sits before the logo */
+      .tt-trow__rank {
+        font-family: var(--tt-font-mono);
+        font-size: 10px;
+        color: var(--tt-text-faint);
+        font-weight: 700;
+        text-align: center;
+        min-width: 16px;
+      }
+      /* Variant grids */
+      .tt-trow--mover { grid-template-columns: 18px 24px auto 1fr auto; gap: 8px; }
+      .tt-trow--focus { grid-template-columns: 24px auto 1fr auto; gap: 8px; }
+      .tt-trow--earnings { grid-template-columns: 24px auto 1fr auto; gap: 8px; }
+
+      /* Hour chip (BMO/DMH/AMC) used by Earnings rows */
+      .tt-hour-chip {
+        display: inline-flex; align-items: center; justify-content: center;
+        font-family: var(--tt-font-mono);
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--tt-text-dim);
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--tt-border);
+        white-space: nowrap;
+      }
+      .tt-hour-chip.bmo { color: #f5c25c; background: rgba(245, 194, 92, 0.10); border-color: rgba(245, 194, 92, 0.20); }
+      .tt-hour-chip.amc { color: #818cf8; background: rgba(129, 140, 248, 0.10); border-color: rgba(129, 140, 248, 0.20); }
+      .tt-hour-chip.dmh { color: #34d399; background: rgba(52, 211, 153, 0.10); border-color: rgba(52, 211, 153, 0.20); }
+      .tt-hour-chip.unk { opacity: 0.55; }
+
+      /* Section card header used by Earnings/Movers/Focus cards */
+      .tt-day-head {
+        display: flex; justify-content: space-between; align-items: center;
+        font-size: 11px;
+        color: var(--tt-text-dim);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+      .tt-day-head__count {
+        font-weight: 600;
+        color: var(--tt-text-muted);
+        font-family: var(--tt-font-mono);
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      /* ── Legacy earnings/mover classes kept for components that still
+            reference them. New code should prefer .tt-trow above. ─── */
       .earn-row {
         display: grid;
         grid-template-columns: 80px 1fr auto;
@@ -1088,9 +1239,6 @@
       .earn-row .date { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); }
       .earn-row .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); }
       .earn-row .hour { font-size: 10.5px; color: var(--tt-text-dim); }
-      /* Earnings universe-priority — bold symbol + accent dot
-         distinguishes tickers in our SECTOR_MAP universe from the
-         long-tail Finnhub events (2026-05-28). */
       .earn-row.is-universe { background: rgba(76, 175, 220, 0.06); border-color: rgba(76, 175, 220, 0.22); }
       .earn-row.is-universe .sym { color: var(--tt-accent, #4cb9dc); }
       .earn-row .sym .uni-dot {
@@ -1160,7 +1308,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.js?v=1780010779241"></script>
+    <script src="today.compiled.js?v=1780011247637"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -1169,4 +1317,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1780010779241:720205514 -->
+<!-- cache-bust:1780011247637:996709241 -->
