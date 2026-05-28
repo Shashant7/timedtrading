@@ -1701,24 +1701,36 @@ async function checkPriceFeedStale(env, sym, pxNow) {
 // `tickerData.__candle_data_stale` on still-stale tickers so
 // processTradeSimulation can refuse to act on them.
 //
-// Thresholds — 2026-05-28 retuned. Daily candles are dated by their START
-// (e.g., Wednesday's D bar carries ts = Wed 00:00 UTC). By Thursday 9 AM UTC
-// the freshest D bar is already 33h "old" by absolute clock — that's still
-// the correct freshest state, not staleness. Likewise, a Tuesday morning
-// after a Monday holiday has a Friday D bar that's ~70h old. The threshold
-// must accommodate normal weekends + holidays + the TD daily-settlement
-// window without false-positiving every morning.
+// Thresholds — 2026-05-28 retuned (twice). The MARKET DOES NOT EMIT NEW
+// BARS between RTH close (4 PM ET) and the next RTH open (9:30 AM ET).
+// That's a natural 17.5-hour gap on every weekday morning. Add weekends
+// and Monday holidays and the gap stretches to ~90 hours. The freshest
+// possible candle during these gaps IS the last RTH bar; that's not
+// staleness, it's the correct current state going into the next session.
 //
-//   D    ≤ 72h (covers weekend gap Fri close → Tue morning + holiday Mondays)
-//   60m  ≤ 2h during RTH, ≤ 14h overnight/weekend
-//   5m   ≤ 15min during RTH only (5m feed pauses outside RTH; skip OOH)
+// First fix attempt (24h → 72h on D) handled the overnight case but left
+// the 60m_OOH at 14h, which kept firing every morning because Wed 4 PM ET
+// → Thu 8:35 AM ET = 16.5h on the 60m bar. Likewise D at 72h was right
+// for normal weekdays + weekends but would fire on Tuesday-after-Monday-
+// holiday. Lifting both to 96h covers:
 //
-// At >72h on D we genuinely have an ingestion gap worth alerting on (the
-// May 2026 fleet-wide 13d stale incident was always >>72h).
+//   gap source            actual age   old (72h/14h)  new (96h/96h)
+//   normal overnight      17.5h        ❌ fires (60m) ✅
+//   normal weekend        65.5h        ❌ fires (60m) ✅
+//   Mon-holiday weekend   89.5h        ❌ fires both  ✅
+//   Thanksgiving weekend  94h          ❌ fires both  ✅
+//   real ingest failure   >>96h        ❌ fires       ❌ fires (correct)
+//
+// 5m thresholds untouched — 5m only checked during RTH where the natural
+// cadence is 5 minutes and 15-min staleness is a real problem.
+//
+//   D    ≤ 96h (covers weekend + Mon-holiday)
+//   60m  ≤ 2h during RTH, ≤ 96h overnight/weekend
+//   5m   ≤ 15min during RTH only
 // ─────────────────────────────────────────────────────────────────────────────
-const OPEN_POS_STALE_D_MS = 72 * 60 * 60 * 1000;
+const OPEN_POS_STALE_D_MS = 96 * 60 * 60 * 1000;
 const OPEN_POS_STALE_60M_RTH_MS = 2 * 60 * 60 * 1000;
-const OPEN_POS_STALE_60M_OOH_MS = 14 * 60 * 60 * 1000;
+const OPEN_POS_STALE_60M_OOH_MS = 96 * 60 * 60 * 1000;
 const OPEN_POS_STALE_5M_RTH_MS = 15 * 60 * 1000;
 
 async function checkOpenPositionCandlesFresh(env, openTickers) {
@@ -1819,20 +1831,33 @@ async function ensureOpenPositionCandlesFresh(env, openTickers) {
     try {
       const _KV = env?.KV_TIMED || env?.KV;
       if (_KV) {
-        const _alertKey = `timed:freshness:open_pos_alert:${still_stale.map((s) => s.ticker).sort().join(",")}`;
+        // 2026-05-28 — Dedup TTL 1h -> 24h keyed on SORTED ticker list +
+        // dominant reason. Was firing every hour while the underlying
+        // issue persisted; same set+reason within 24h is now suppressed.
+        const _reasonSig = still_stale.map((s) => (s.reasons || []).join("|")).sort().join(";").slice(0, 80);
+        const _alertKey = `timed:freshness:open_pos_alert:${still_stale.map((s) => s.ticker).sort().join(",")}::${_reasonSig}`;
         const _seen = await _KV.get(_alertKey);
         if (!_seen) {
-          await kvPutText(_KV, _alertKey, "1", 3600);
+          await kvPutText(_KV, _alertKey, "1", 86400);
+          const _maxAgeH = Math.max(
+            ...still_stale.flatMap((s) => Object.values(s.ages || {}).map((ms) => Number(ms) / 3600000)),
+            0,
+          );
           notifyDiscord(env, {
-            title: `⚠️ Open-position candle data stale`,
-            description: `${still_stale.length} ticker(s) have stale candles after auto-heal. Trading paused for affected tickers until data refreshes.`,
+            title: `⚠️ Open-position candle data stale (worst ${_maxAgeH.toFixed(1)}h)`,
+            description:
+              `${still_stale.length} open-position ticker(s) have candles older than the ` +
+              `D/60m/5m thresholds AFTER an auto-heal backfill attempt failed. Management ` +
+              `(trim / SL move / exit) is paused for these tickers until data refreshes. ` +
+              `Verify ingest: \`POST /timed/admin/alpaca-backfill?include_user=1&sinceDays=5\`. ` +
+              `Deduped 24h on (tickers × reasons).`,
             color: 0xff8800,
             fields: still_stale.slice(0, 10).map((s) => ({
               name: s.ticker,
               value: s.reasons.join(", "),
               inline: true,
             })),
-          }).catch(() => {});
+          }, "system").catch(() => {});
         }
       }
     } catch (_) {}
