@@ -36,7 +36,10 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 
 [[kv_namespaces]]
 binding = "BRIDGE_KV"
-id = "29906c1b41bf41099c1be3d4d0bf2898"
+# 2026-05-29 — real namespace ID created in the operator's CF account
+# via `wrangler kv namespace create BRIDGE_KV`. Replaced the
+# placeholder ID that was in place during initial PR #356 scaffold.
+id = "951f03a0c0464ecfa0d8dad25ebb3361"
 
 # Secrets (must be set via `wrangler secret put` — not in wrangler.toml):
 #   BRIDGE_ENCRYPTION_KEY      AES-256 key (32 bytes b64) for token wrap
