@@ -508,11 +508,24 @@ function BriefIndexCard({
   const SYM = String(idx?.sym || "").toUpperCase();
   const briefPx = Number(idx?.price);
   const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-  const gp = idx?.levels?.gamePlan || {};
+  const lev = idx?.levels || {};
+  const gp = lev.gamePlan || {};
   const bullT = Number(gp.bullTrigger);
   const bullTgt = Number(gp.bullTarget);
   const bearT = Number(gp.bearTrigger);
   const bearTgt = Number(gp.bearTarget);
+  const dayAtr = Number(lev.dayAtr ?? idx?.atr);
+  const _rng = (() => {
+    const note = String(lev.goldenGateNote || "");
+    const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const lo = Number(m[1]);
+    const hi = Number(m[2]);
+    return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? {
+      lo,
+      hi
+    } : null;
+  })();
   const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
   const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
   const biasMeta = bullActive ? {
@@ -524,7 +537,7 @@ function BriefIndexCard({
     color: "var(--tt-dn, #f87171)",
     bg: "rgba(248,113,113,0.10)"
   } : {
-    label: "WATCH TRIGGERS",
+    label: "WATCHING TRIGGERS",
     color: "var(--tt-text-muted, #9ca3af)",
     bg: "rgba(156,163,175,0.08)"
   };
@@ -569,10 +582,10 @@ function BriefIndexCard({
   const _dirColor = dayPct == null ? "var(--tt-text-muted)" : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
   return h("button", {
     onClick,
-    className: "tt-card",
+    className: "tt-card ds-tickercard",
     style: {
       textAlign: "left",
-      padding: "12px 14px",
+      padding: "var(--ds-space-3, 12px)",
       width: "100%",
       background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
       border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
@@ -591,36 +604,49 @@ function BriefIndexCard({
     },
     title: `${SYM} — open in detail`
   }, h("div", {
+    className: "ds-tickercard__head",
     style: {
       display: "flex",
-      alignItems: "baseline",
-      gap: 8,
-      justifyContent: "space-between"
+      alignItems: "center",
+      gap: 8
     }
   }, h("div", {
+    className: "ds-tickercard__logo",
+    ref: el => {
+      if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
+        el.dataset.dsInit = "1";
+        try {
+          el.replaceWith(window.DS.tickerLogo(SYM, {
+            size: 22
+          }));
+        } catch (_) {}
+      }
+    },
     style: {
-      display: "flex",
-      alignItems: "baseline",
-      gap: 6
+      width: 22,
+      height: 22,
+      flexShrink: 0
     }
-  }, h("span", {
+  }, SYM.slice(0, 2)), h("span", {
+    className: "ds-tickercard__symbol",
     style: {
-      fontWeight: 700,
       fontSize: 13,
-      color: "var(--tt-text)",
-      letterSpacing: "0.02em"
+      fontWeight: 700,
+      letterSpacing: "0.02em",
+      color: "var(--tt-text)"
     }
   }, SYM), h("span", {
     style: {
-      fontSize: 11,
+      fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, _fmt(price) || "—")), dayPct != null && h("span", {
+  }, _fmt(price) || "—"), dayPct != null && h("span", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 11,
       fontWeight: 600,
-      color: _dirColor
+      color: _dirColor,
+      marginLeft: "auto"
     }
   }, `${_dirGlyph} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`)), h("div", {
     style: {
@@ -649,10 +675,29 @@ function BriefIndexCard({
       fontFamily: "var(--tt-font-mono)",
       color: scorecard.color
     }
-  }, "· " + scorecard.label)), (_fmt(bullT) || _fmt(bearT)) && h("div", {
+  }, "· " + scorecard.label)), _rng && h("div", {
     style: {
       fontFamily: "var(--tt-font-mono)",
-      fontSize: 10,
+      fontSize: 10.5,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, h("span", {
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "Today's range: "), h("span", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`), Number.isFinite(dayAtr) && dayAtr > 0 && h("span", {
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, ` · typical move ±$${dayAtr.toFixed(2)}`)), (_fmt(bullT) || _fmt(bearT)) && h("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10.5,
       color: "var(--tt-text-muted)",
       display: "flex",
       flexDirection: "column",
@@ -662,11 +707,11 @@ function BriefIndexCard({
     style: {
       color: "var(--tt-up)"
     }
-  }, `↑ `), h("span", {
+  }, `▲ `), h("span", {
     style: {
       color: "var(--tt-text-faint)"
     }
-  }, "above "), h("span", {
+  }, "Bull above "), h("span", {
     style: {
       color: "var(--tt-up)"
     }
@@ -674,7 +719,7 @@ function BriefIndexCard({
     style: {
       color: "var(--tt-text-faint)"
     }
-  }, " → target "), h("span", {
+  }, " → "), h("span", {
     style: {
       color: "var(--tt-up)"
     }
@@ -686,11 +731,11 @@ function BriefIndexCard({
     style: {
       color: "var(--tt-dn)"
     }
-  }, `↓ `), h("span", {
+  }, `▼ `), h("span", {
     style: {
       color: "var(--tt-text-faint)"
     }
-  }, "below "), h("span", {
+  }, "Bear below "), h("span", {
     style: {
       color: "var(--tt-dn)"
     }
@@ -698,7 +743,7 @@ function BriefIndexCard({
     style: {
       color: "var(--tt-text-faint)"
     }
-  }, " → target "), h("span", {
+  }, " → "), h("span", {
     style: {
       color: "var(--tt-dn)"
     }
@@ -721,7 +766,7 @@ function IndexPredictionsStrip({
   const indices = (active?.infographic?.indices || []).filter(i => ["SPY", "QQQ", "IWM"].includes(String(i?.sym || "").toUpperCase()));
   if (indices.length === 0) return null;
   const briefDate = active?.date || morning?.date || null;
-  const _label = briefType === "evening" ? "Evening Scorecard" : "Morning Game Plan";
+  const _label = briefType === "evening" ? "Today's Day-Trade Scorecard" : "Today's Day-Trade Plan";
   return h("aside", {
     className: "tt-card tt-card-pad",
     style: {
@@ -732,7 +777,7 @@ function IndexPredictionsStrip({
     }
   }, h("div", {
     className: "tt-sec-title"
-  }, "DAILY BRIEF · PREDICTIONS"), h("div", {
+  }, "DAILY BRIEF · DAY-TRADE PREDICTIONS"), h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -752,7 +797,15 @@ function IndexPredictionsStrip({
       fontSize: 10,
       color: "var(--tt-text-faint)"
     }
-  }, briefDate)), h("div", {
+  }, briefDate)), h("p", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      fontStyle: "italic",
+      margin: "0",
+      lineHeight: 1.5
+    }
+  }, "Intraday triggers + targets — same Golden-Gate game plan the brief publishes for ES."), h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -3747,6 +3800,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780011761292:492001491
+// cache-bust:1780013696433:706454279
 
-// cache-bust:1780011761292:492001491
+// cache-bust:1780013696433:706454279
