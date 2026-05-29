@@ -684,7 +684,40 @@ function BriefIndexCard({
       fontFamily: "var(--tt-font-mono)",
       color: scorecard.color
     }
-  }, "· " + scorecard.label)), prose && h("p", {
+  }, "· " + scorecard.label)), Number.isFinite(price) && _rng && (() => {
+    const above = price > _rng.hi;
+    const below = price < _rng.lo;
+    const inside = !above && !below;
+    const banner = inside ? {
+      text: `Inside early range — ${biasMeta.label.toLowerCase()}`,
+      color: "var(--tt-text-muted)",
+      bg: "rgba(255,255,255,0.04)",
+      border: "rgba(255,255,255,0.10)"
+    } : above ? {
+      text: bullActive ? `⚡ Above early range — bull trigger $${bullT?.toFixed(2)} ${price >= bullTgt ? "TARGET HIT" : "armed"}` : `⚡ Above early range ($${_rng.hi.toFixed(2)}) — extension watch`,
+      color: "var(--tt-up, #34d399)",
+      bg: "rgba(52,211,153,0.08)",
+      border: "rgba(52,211,153,0.30)"
+    } : {
+      text: bearActive ? `⚠ Below early range — bear trigger $${bearT?.toFixed(2)} ${price <= bearTgt ? "TARGET HIT" : "armed"}` : `⚠ Below early range ($${_rng.lo.toFixed(2)}) — breakdown watch`,
+      color: "var(--tt-dn, #f87171)",
+      bg: "rgba(248,113,113,0.08)",
+      border: "rgba(248,113,113,0.30)"
+    };
+    return h("div", {
+      style: {
+        fontSize: 11,
+        fontWeight: 600,
+        lineHeight: 1.4,
+        padding: "6px 10px",
+        borderRadius: 6,
+        color: banner.color,
+        background: banner.bg,
+        border: `1px solid ${banner.border}`,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, banner.text);
+  })(), prose && h("p", {
     style: {
       fontSize: 12,
       color: "var(--tt-text)",
@@ -3909,6 +3942,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780058285278:864033584
+// cache-bust:1780062691058:93476477
 
-// cache-bust:1780058285278:864033584
+// cache-bust:1780062691058:93476477

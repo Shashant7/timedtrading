@@ -884,6 +884,41 @@ export async function decideOnCandidate(env, opts = {}) {
             { expirationTtl: 90 * 86400 },
           );
         } catch (_) { /* best-effort */ }
+        // 2026-05-29 — Fast-onboard hook. The user reported that
+        // newly approved tickers had thin technicals data for a
+        // while because the next scoring cron tick (every 5 min)
+        // hadn't run yet, especially when approval happens during
+        // extended-hours sessions when the data feed is slower.
+        //
+        // We set a "needs_fast_onboard" flag in KV that the
+        // freshness monitor / scoring cron can read to prioritise
+        // this ticker on its very next pass. We also kick off a
+        // best-effort backfill request so candle data exists when
+        // scoring runs. Both are fire-and-forget — never block
+        // the operator's approve action.
+        try {
+          await KV.put(
+            `timed:fast_onboard:${ticker}`,
+            JSON.stringify({ added_at: now, decided_by: decidedBy }),
+            { expirationTtl: 24 * 60 * 60 }, // 24h flag; expires after one full session cycle
+          );
+        } catch (_) { /* best-effort */ }
+        // Trigger candle backfill (last 30 days, all timeframes).
+        // Uses the same /timed/admin/alpaca-backfill endpoint the
+        // operator hits manually after a bulk add.
+        try {
+          const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
+          const _apiKey = env?.TIMED_API_KEY;
+          if (_apiKey) {
+            // Don't await — let it run in the background. The bridge
+            // endpoint handles up-to-30-day windows in ~10-15s per
+            // ticker.
+            fetch(
+              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(ticker)}&tf=all&sinceDays=30&key=${encodeURIComponent(_apiKey)}`,
+              { method: "POST" },
+            ).catch(() => {});
+          }
+        } catch (_) { /* best-effort */ }
       } catch (e) {
         console.warn(`[PROMOTION] universe add failed for ${ticker}:`, String(e?.message || e).slice(0, 200));
       }

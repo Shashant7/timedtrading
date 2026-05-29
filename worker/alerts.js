@@ -62,8 +62,15 @@ export async function notifyDiscord(env, embed, lane = "trade") {
   // from trade messages even before reading the title.
   const _baseName = env.DISCORD_WEBHOOK_USERNAME || "Timed Trading";
   const _webhookUsername = _laneNorm === "system" ? `${_baseName} • Ops` : _baseName;
-  const _webhookAvatarUrl = env.DISCORD_WEBHOOK_AVATAR_URL
+  // 2026-05-29 — Discord caches webhook avatars by URL. The system-lane
+  // bot kept showing an older avatar even after the source PNG was
+  // updated, so we bump a version query param to force a re-fetch.
+  // Lane gets its own URL too so trade vs system avatars can diverge
+  // if the user ever wants distinct icons.
+  const _avatarBase = env.DISCORD_WEBHOOK_AVATAR_URL
     || "https://timed-trading.com/logo-discord.png";
+  const _avatarVer = _laneNorm === "system" ? "v3-ops" : "v3-trade";
+  const _webhookAvatarUrl = `${_avatarBase}${_avatarBase.includes("?") ? "&" : "?"}v=${_avatarVer}`;
   try {
     const response = await fetch(url, {
       method: "POST",

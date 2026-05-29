@@ -938,13 +938,51 @@
           textTransform: "uppercase"
         }
       }, title), action || null), children);
+      const dailyPct = Number(ticker?.day_change_pct ?? ticker?.dailyChgPct ?? 0);
+      const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? 0);
+      const catalystAbsPct = Math.max(Math.abs(dailyPct), Math.abs(ahPct));
+      const catalystDir = (Math.abs(dailyPct) >= Math.abs(ahPct) ? dailyPct : ahPct) >= 0 ? "up" : "down";
+      const catalystEvent = catalystAbsPct >= 10 ? {
+        pct: catalystAbsPct,
+        direction: catalystDir,
+        source: Math.abs(ahPct) > Math.abs(dailyPct) ? "extended hours" : "regular session",
+        warning: "Investor classification uses weekly/monthly trends and is slow to digest catalysts of this size. The next score refresh (hourly) will reflect today's move."
+      } : null;
       return h("div", {
         style: {
           display: "flex",
           flexDirection: "column",
           gap: "var(--ds-space-3)"
         }
-      }, h(Panel, {
+      }, catalystEvent && h("div", {
+        style: {
+          padding: "var(--ds-space-2)",
+          background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+          border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: catalystEvent.direction === "up" ? "#34d399" : "#f87171",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "⚡ CATALYST EVENT DETECTED"), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          fontWeight: 600,
+          marginBottom: 4
+        }
+      }, `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.4
+        }
+      }, catalystEvent.warning)), h(Panel, {
         title: "📍 Investor Lane Guidance",
         action: h("span", {
           style: {
@@ -3793,8 +3831,13 @@
       const resolveDisplayPrice = src => {
         if (!src) return 0;
         const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
-        const live = Number(src._live_price);
-        if (rthOpen && Number.isFinite(live) && live > 0) return live;
+        if (rthOpen) {
+          const live = Number(src._live_price);
+          if (Number.isFinite(live) && live > 0) return live;
+          return Number(src.price ?? src.close) || 0;
+        }
+        const prev = Number(src.prevClose ?? src.prev_close ?? src.pc);
+        if (Number.isFinite(prev) && prev > 0) return prev;
         return Number(src.price ?? src.close) || 0;
       };
       useEffect(() => {
@@ -4480,7 +4523,7 @@
             const d = String(trade.direction).toUpperCase();
             if (d === "LONG" || d === "SHORT") return d;
           }
-          if (predictionContract?.direction) {
+          if (predictionContract?.direction && railTab !== "INVESTOR") {
             const d = String(predictionContract.direction).toUpperCase();
             if (d === "LONG" || d === "SHORT") return d;
           }
@@ -4664,8 +4707,94 @@
             }
           }, tickerSymbol), v2Dir && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${v2DirChip}`,
-            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position` : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`
-          }, _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`), isTTSel && React.createElement("span", {
+            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir), (() => {
+            const invStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+            if (!invStage || invStage === "—") return null;
+            const INV_LANE_META = {
+              accumulate: {
+                label: "ACCUMULATE",
+                chip: "ds-chip--up",
+                title: "Investor: Strong setup + favorable entry. Build a starter position."
+              },
+              core_hold: {
+                label: "CORE HOLD",
+                chip: "ds-chip--solid",
+                title: "Investor: Hold the core; add on meaningful pullbacks.",
+                style: {
+                  color: "#60a5fa",
+                  borderColor: "rgba(96,165,250,0.30)",
+                  background: "rgba(96,165,250,0.10)"
+                }
+              },
+              watch: {
+                label: "WATCH",
+                chip: "ds-chip--solid",
+                title: "Investor: Mixed signals — hold; don't add.",
+                style: {
+                  color: "#f5c25c",
+                  borderColor: "rgba(245,194,92,0.30)",
+                  background: "rgba(245,194,92,0.10)"
+                }
+              },
+              reduce: {
+                label: "REDUCE",
+                chip: "ds-chip--dn",
+                title: "Investor: Thesis weakening — trim into strength."
+              },
+              research_on_watch: {
+                label: "ON WATCH",
+                chip: "ds-chip--solid",
+                title: "Investor: On the radar — not actionable yet.",
+                style: {
+                  color: "#a78bfa",
+                  borderColor: "rgba(167,139,250,0.30)",
+                  background: "rgba(167,139,250,0.10)"
+                }
+              },
+              research_low: {
+                label: "LOW CONV.",
+                chip: "ds-chip--solid",
+                title: "Investor: Low conviction — pass for now.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.30)",
+                  background: "rgba(156,163,175,0.10)"
+                }
+              },
+              research_avoid: {
+                label: "AVOID",
+                chip: "ds-chip--dn",
+                title: "Investor: Multiple red flags — skip."
+              },
+              research: {
+                label: "RESEARCH",
+                chip: "ds-chip--solid",
+                title: "Investor: Under evaluation.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.30)",
+                  background: "rgba(156,163,175,0.10)"
+                }
+              },
+              exited: {
+                label: "EXITED",
+                chip: "ds-chip--solid",
+                title: "Investor: Position closed; monitor for re-entry.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.20)",
+                  background: "rgba(156,163,175,0.08)"
+                }
+              }
+            };
+            const meta = INV_LANE_META[invStage] || INV_LANE_META.watch;
+            return React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${meta.chip}`,
+              style: meta.style,
+              title: meta.title
+            }, "INVESTOR \xB7 ", meta.label);
+          })(), isTTSel && React.createElement("span", {
             title: "TT Selected",
             style: {
               width: 6,
@@ -4746,79 +4875,89 @@
             className: "ds-chip ds-chip--sm",
             onClick: onClose,
             title: "Close"
-          }, "\u2715"))), v2Price > 0 && React.createElement("div", {
-            className: "flex items-baseline gap-3",
-            style: {
-              marginBottom: "var(--ds-space-2)",
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-hero)",
-              fontWeight: 600,
-              color: "var(--ds-text-display)",
-              letterSpacing: "-0.01em"
-            }
-          }, "$", v2Price.toFixed(2)), Number.isFinite(v2DayPct) && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`,
-            style: {
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%", Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && React.createElement("span", {
-            style: {
-              marginLeft: 4,
-              opacity: 0.75,
-              fontSize: "0.85em"
-            }
-          }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")")), (() => {
-            const SYM = String(tickerSymbol || "").toUpperCase();
-            if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
-            const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-            if (rthOpen) return null;
-            const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
-            const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
-            const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
-            if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
-            if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
-            const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
+          }, "\u2715"))), v2Price > 0 && (() => {
+            const _rthForChip = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
             return React.createElement("div", {
-              title: "Extended-hours quote (pre-market / after-hours)",
+              className: "flex items-baseline gap-3",
               style: {
-                display: "inline-flex",
-                alignItems: "baseline",
-                gap: 6,
-                padding: "2px 8px",
-                borderRadius: 999,
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: "var(--ds-fs-meta)",
-                background: dir === "up" ? "rgba(52,211,153,0.08)" : dir === "dn" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)",
-                border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : dir === "dn" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.08)"}`
+                marginBottom: "var(--ds-space-2)",
+                flexWrap: "wrap"
               }
             }, React.createElement("span", {
               style: {
-                fontSize: 9,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                color: "var(--ds-text-faint)"
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: "var(--ds-fs-hero)",
+                fontWeight: 600,
+                color: "var(--ds-text-display)",
+                letterSpacing: "-0.01em"
               }
-            }, "EXT"), React.createElement("span", {
+            }, "$", v2Price.toFixed(2)), _rthForChip && Number.isFinite(v2DayPct) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`,
               style: {
-                color: "var(--ds-text-body)",
-                fontWeight: 600
+                fontFamily: "var(--tt-font-mono)"
               }
-            }, "$", ahPrice.toFixed(2)), Number.isFinite(ahPct) && React.createElement("span", {
+            }, v2DayPct >= 0 ? "▲ +" : "▼ ", v2DayPct.toFixed(2), "%", Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && React.createElement("span", {
               style: {
-                color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)",
-                fontWeight: 700
-              }
-            }, ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%"), Number.isFinite(ahChg) && Math.abs(ahChg) > 0.001 && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
+                marginLeft: 4,
+                opacity: 0.75,
                 fontSize: "0.85em"
               }
-            }, "(", ahChg >= 0 ? "+" : "−", "$", Math.abs(ahChg).toFixed(2), ")"));
-          })()), (() => {
+            }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")")), !_rthForChip && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                color: "var(--ds-text-faint)"
+              }
+            }, "RTH CLOSE"), (() => {
+              const SYM = String(tickerSymbol || "").toUpperCase();
+              if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
+              const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+              if (rthOpen) return null;
+              const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
+              const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
+              const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
+              if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
+              if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
+              const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
+              return React.createElement("div", {
+                title: "Extended-hours quote (pre-market / after-hours)",
+                style: {
+                  display: "inline-flex",
+                  alignItems: "baseline",
+                  gap: 6,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: "var(--ds-fs-meta)",
+                  background: dir === "up" ? "rgba(52,211,153,0.08)" : dir === "dn" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : dir === "dn" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.08)"}`
+                }
+              }, React.createElement("span", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.05em",
+                  color: "var(--ds-text-faint)"
+                }
+              }, "EXT"), React.createElement("span", {
+                style: {
+                  color: "var(--ds-text-body)",
+                  fontWeight: 600
+                }
+              }, "$", ahPrice.toFixed(2)), Number.isFinite(ahPct) && React.createElement("span", {
+                style: {
+                  color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)",
+                  fontWeight: 700
+                }
+              }, ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%"), Number.isFinite(ahChg) && Math.abs(ahChg) > 0.001 && React.createElement("span", {
+                style: {
+                  color: "var(--ds-text-muted)",
+                  fontSize: "0.85em"
+                }
+              }, "(", ahChg >= 0 ? "+" : "−", "$", Math.abs(ahChg).toFixed(2), ")"));
+            })());
+          })(), (() => {
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
             const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
             const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
@@ -14563,4 +14702,4 @@
   };
 })();
 
-// cache-bust:1780058285278:864033584
+// cache-bust:1780062691058:93476477

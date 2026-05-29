@@ -673,7 +673,48 @@
         children,
       );
 
+      // 2026-05-29 — Catalyst-event detector. Investor classification is
+      // weekly/monthly-horizon and slow to update. When the underlying
+      // has just had a massive move (e.g. DELL +33% in EXT on earnings),
+      // the model says "Pass for now / Score 35" because the weekly
+      // structure is still digesting. That's correct from a model-
+      // theory standpoint but reads as wildly stale to the user. Surface
+      // a top-of-panel warning so the operator knows the verdict is
+      // pending the next weekly/monthly reclassification.
+      const dailyPct = Number(ticker?.day_change_pct ?? ticker?.dailyChgPct ?? 0);
+      const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? 0);
+      const catalystAbsPct = Math.max(Math.abs(dailyPct), Math.abs(ahPct));
+      const catalystDir = (Math.abs(dailyPct) >= Math.abs(ahPct) ? dailyPct : ahPct) >= 0 ? "up" : "down";
+      const catalystEvent = catalystAbsPct >= 10
+        ? {
+            pct: catalystAbsPct,
+            direction: catalystDir,
+            source: Math.abs(ahPct) > Math.abs(dailyPct) ? "extended hours" : "regular session",
+            warning: "Investor classification uses weekly/monthly trends and is slow to digest catalysts of this size. The next score refresh (hourly) will reflect today's move.",
+          }
+        : null;
+
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" } },
+
+        // 0. Catalyst banner — when ticker just had a major move
+        catalystEvent && h("div", {
+          style: {
+            padding: "var(--ds-space-2)",
+            background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+            border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+            borderRadius: "var(--ds-radius-md)",
+          },
+        },
+          h("div", { style: { fontSize: 10, fontWeight: 700, color: catalystEvent.direction === "up" ? "#34d399" : "#f87171", letterSpacing: "0.05em", marginBottom: 4 } },
+            "⚡ CATALYST EVENT DETECTED",
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 } },
+            `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`,
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.4 } },
+            catalystEvent.warning,
+          ),
+        ),
 
         // 1. Lane Guidance
         h(Panel, {
@@ -3135,23 +3176,37 @@
         // for price/change display. latestTicker is only for context/scoring data.
         // This guarantees the right rail shows identical values to the card.
         const priceSrc = ticker || {};
-        // 2026-05-29 — Stable RTH display price. _live_price is a
-        // WebSocket-pushed value that during extended hours fills in
-        // with the pre/post-market quote. Before this guard, the rail
-        // header's main price flickered every minute between the RTH
-        // close (when no WebSocket update was active) and the AH price
-        // (when one fired). User reported a 3-state oscillation:
-        //   $427.00 (premarket via _live_price)
-        //   $427.00 + no EXT chip (chip hides when v2Price == ahPrice)
-        //   $317.05 (RTH close via .price) + EXT chip ← the right view
-        // We now ignore _live_price OUTSIDE RTH so the main number
-        // stays anchored on the RTH close and the EXT chip carries
-        // the live AH movement.
+        // 2026-05-29 — Stable RTH display price.
+        //
+        // Two layers of flicker the user saw outside RTH:
+        //   1. _live_price (WebSocket push) sometimes carries the
+        //      pre/post-market quote — we now ignore it outside RTH.
+        //   2. src.price (the persisted KV value) ALSO oscillates
+        //      outside RTH because our cron writer updates `p` to
+        //      whatever TwelveData returns at each tick, which during
+        //      pre/post-market is the extended-hours quote. So the
+        //      `price` field itself flips between the RTH close and
+        //      the pre-market price as updates land. We now prefer
+        //      `prevClose` / `pc` OUTSIDE RTH — those don't move
+        //      until the next session-roll, so the main number is
+        //      rock-steady and the EXT chip carries the live move.
+        //
+        // Logic:
+        //   RTH open      → _live_price (sub-second live) > price > close
+        //   RTH closed    → prevClose > pc > price > close
         const resolveDisplayPrice = (src) => {
           if (!src) return 0;
           const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
-          const live = Number(src._live_price);
-          if (rthOpen && Number.isFinite(live) && live > 0) return live;
+          if (rthOpen) {
+            const live = Number(src._live_price);
+            if (Number.isFinite(live) && live > 0) return live;
+            return Number(src.price ?? src.close) || 0;
+          }
+          // Outside RTH: lock to the last RTH close so the number stops moving.
+          const prev = Number(src.prevClose ?? src.prev_close ?? src.pc);
+          if (Number.isFinite(prev) && prev > 0) return prev;
+          // Fallback to price/close if prev close isn't available yet
+          // (e.g. brand-new tickers added today).
           return Number(src.price ?? src.close) || 0;
         };
 
@@ -3993,7 +4048,17 @@
               const d = String(trade.direction).toUpperCase();
               if (d === "LONG" || d === "SHORT") return d;
             }
-            if (predictionContract?.direction) {
+            // 2026-05-29 — Skip predictionContract when on the Investor tab.
+            // The contract is mode-dependent (trader vs investor) and
+            // switching tabs refetches with the new mode, so reading
+            // its direction here would flip the HEADER bias chip every
+            // time the user changes tabs (SOFI showed SHORT on every
+            // tab EXCEPT Investor, which flipped to LONG). The header
+            // bias should always reflect the trader-mode call; the
+            // Investor tab body has its own stage chip
+            // (ACCUMULATE/WATCH/AVOID/REDUCE) that conveys the
+            // investor-mode call separately.
+            if (predictionContract?.direction && railTab !== "INVESTOR") {
               const d = String(predictionContract.direction).toUpperCase();
               if (d === "LONG" || d === "SHORT") return d;
             }
@@ -4148,12 +4213,47 @@
                         <span
                           className={`ds-chip ds-chip--sm ${v2DirChip}`}
                           title={_hdrTradeIsOpen
-                            ? `Active ${v2Dir} trade — currently in position`
-                            : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`}
+                            ? `Active ${v2Dir} trade — currently in position (Active Trader mode)`
+                            : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`}
                         >
-                          {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`}
+                          TRADER · {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir}
                         </span>
                       )}
+                      {/* 2026-05-29 — Investor mode bias chip alongside
+                          the Trader chip. Different horizon (weekly /
+                          monthly), different language (lanes: ACCUMULATE,
+                          CORE HOLD, WATCH, REDUCE, RESEARCH, AVOID).
+                          Always rendered when ticker has an
+                          investor_stage so the operator can see at a
+                          glance when the two horizons disagree (e.g.
+                          SOFI TRADER:SHORT, INV:AVOID is aligned;
+                          SOFI TRADER:SHORT, INV:LONG is the divergence
+                          we want to surface). */}
+                      {(() => {
+                        const invStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+                        if (!invStage || invStage === "—") return null;
+                        const INV_LANE_META = {
+                          accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor: Strong setup + favorable entry. Build a starter position." },
+                          core_hold:         { label: "CORE HOLD",  chip: "ds-chip--solid", title: "Investor: Hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
+                          watch:             { label: "WATCH",      chip: "ds-chip--solid", title: "Investor: Mixed signals — hold; don't add.", style: { color: "#f5c25c", borderColor: "rgba(245,194,92,0.30)", background: "rgba(245,194,92,0.10)" } },
+                          reduce:            { label: "REDUCE",     chip: "ds-chip--dn",    title: "Investor: Thesis weakening — trim into strength." },
+                          research_on_watch: { label: "ON WATCH",   chip: "ds-chip--solid", title: "Investor: On the radar — not actionable yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
+                          research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor: Low conviction — pass for now.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+                          research_avoid:    { label: "AVOID",      chip: "ds-chip--dn",    title: "Investor: Multiple red flags — skip." },
+                          research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor: Under evaluation.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+                          exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor: Position closed; monitor for re-entry.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
+                        };
+                        const meta = INV_LANE_META[invStage] || INV_LANE_META.watch;
+                        return (
+                          <span
+                            className={`ds-chip ds-chip--sm ${meta.chip}`}
+                            style={meta.style}
+                            title={meta.title}
+                          >
+                            INVESTOR · {meta.label}
+                          </span>
+                        );
+                      })()}
                       {isTTSel && (
                         <span title="TT Selected" style={{
                           width: 6, height: 6, borderRadius: "50%",
@@ -4227,10 +4327,21 @@
                     </div>
                   </div>
                   {/* Live price strip */}
-                  {v2Price > 0 && (
+                  {v2Price > 0 && (() => {
+                    // 2026-05-29 — During RTH show the live daily %.
+                    // Outside RTH, the persisted day-change field
+                    // also flickers (it's recomputed from the
+                    // ever-changing live price vs prevClose every
+                    // tick). The EXT chip below already carries the
+                    // current pre/post-market % action, so we
+                    // suppress the daily % chip here to keep the
+                    // header rock-steady at "$RTH_close [EXT ...]".
+                    const _rthForChip = typeof isNyRegularMarketOpen === "function"
+                      ? isNyRegularMarketOpen() : true;
+                    return (
                     <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
-                      {Number.isFinite(v2DayPct) && (
+                      {_rthForChip && Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                           {v2DayPct >= 0 ? "▲ +" : "▼ "}{v2DayPct.toFixed(2)}%
                           {/* P0.7.105 — also show $ amount of daily change */}
@@ -4239,6 +4350,11 @@
                               ({v2DayChange.dayChg >= 0 ? "+" : "−"}${Math.abs(v2DayChange.dayChg).toFixed(2)})
                             </span>
                           )}
+                        </span>
+                      )}
+                      {!_rthForChip && (
+                        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "var(--ds-text-faint)" }}>
+                          RTH CLOSE
                         </span>
                       )}
                       {/* 2026-05-29 — Extended-hours price + % chip.
@@ -4294,7 +4410,8 @@
                         );
                       })()}
                     </div>
-                  )}
+                    );
+                  })()}
                   {/* V2.1 round 5 (2026-05-01) — Ticker context line.
                       Per user: header should include full name, mkt cap,
                       sector, personality. Renders only when at least one

@@ -2037,6 +2037,51 @@
               },
             }, "· " + scorecard.label),
           ),
+          // 2026-05-29 — Current-vs-range banner. The brief's prose is
+          // generated at 9:01 AM ET with the snapshot price; if the
+          // market has moved beyond the early range (SPY printing
+          // $755.97 while the prose says "expected day range 747-753"),
+          // the user shouldn't have to mentally reconcile that. This
+          // banner sits above the (still useful) static prose and
+          // surfaces:
+          //   - Inside range  → "Inside early range — watching triggers"
+          //   - Above range   → "⚡ Above early range — breakout in progress (bull trigger $X)"
+          //   - Below range   → "⚠ Below early range — breakdown in progress (bear trigger $X)"
+          // Only renders when we have a price AND a range to compare.
+          Number.isFinite(price) && _rng && (() => {
+            const above = price > _rng.hi;
+            const below = price < _rng.lo;
+            const inside = !above && !below;
+            const banner = inside ? {
+              text: `Inside early range — ${biasMeta.label.toLowerCase()}`,
+              color: "var(--tt-text-muted)",
+              bg: "rgba(255,255,255,0.04)",
+              border: "rgba(255,255,255,0.10)",
+            } : above ? {
+              text: bullActive
+                ? `⚡ Above early range — bull trigger $${bullT?.toFixed(2)} ${price >= bullTgt ? "TARGET HIT" : "armed"}`
+                : `⚡ Above early range ($${_rng.hi.toFixed(2)}) — extension watch`,
+              color: "var(--tt-up, #34d399)",
+              bg: "rgba(52,211,153,0.08)",
+              border: "rgba(52,211,153,0.30)",
+            } : {
+              text: bearActive
+                ? `⚠ Below early range — bear trigger $${bearT?.toFixed(2)} ${price <= bearTgt ? "TARGET HIT" : "armed"}`
+                : `⚠ Below early range ($${_rng.lo.toFixed(2)}) — breakdown watch`,
+              color: "var(--tt-dn, #f87171)",
+              bg: "rgba(248,113,113,0.08)",
+              border: "rgba(248,113,113,0.30)",
+            };
+            return h("div", {
+              style: {
+                fontSize: 11, fontWeight: 600, lineHeight: 1.4,
+                padding: "6px 10px", borderRadius: 6,
+                color: banner.color, background: banner.bg,
+                border: `1px solid ${banner.border}`,
+                fontFamily: "var(--tt-font-mono)",
+              },
+            }, banner.text);
+          })(),
           // ── ES-style narrative prose (when brief provides it) ───────
           // The per-index prediction sentence the LLM generates, mirroring
           // the ES Prediction style. Stripped of the trailing 4-line
