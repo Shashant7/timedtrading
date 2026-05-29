@@ -219,44 +219,69 @@ function scoreNews(newsSummary) {
 }
 
 // ── SOCIAL_BUZZ component ────────────────────────────────────────────────
-// 2026-05-29 — Phase 1 social signal. Pulls StockTwits message-tagged
-// sentiment + watchlist-count proxy. The signal is loud but noisy, so
-// we require BOTH a bullish ratio AND a meaningful message volume
-// before awarding points. Watchlist count alone (which only grows) is
-// used as a secondary tie-break weight.
+// 2026-05-29 — Phase 1+2 social signal. Combines:
+//   StockTwits (phase 1): user-tagged Bullish/Bearish + watchlist proxy
+//   Reddit/Apewisdom (phase 2): mention count + 24h spike + upvotes
 //
-// Scoring (max 10):
-//   100% bullish + ≥20 msgs + watchlist ≥10k    → 10
-//   80%+ bullish + ≥15 msgs + watchlist ≥5k     → 8
-//   70%+ bullish + ≥10 msgs                     → 5
-//   60%+ bullish + ≥10 msgs                     → 3
-//   anything else                               → 0
+// Scoring is additive but capped at W_SOCIAL. Each source can earn up
+// to 7 pts. Sources that complement each other (StockTwits bullish ratio
+// AND Reddit spike) get the full 10. Either one alone caps at 7.
 //
-// A strongly bearish-tilted ticker (bull_ratio < 30%) returns 0 even
-// if the ticker is a screener candidate — disagreement between price-
-// action (in our universe of MOVERS) and social tone is a yellow flag.
+// Sub-scoring bands:
+//
+//   StockTwits (max 7):
+//     100% bullish + ≥20 msgs + watchlist ≥10k    →  7
+//     80%+ bullish + ≥15 msgs + watchlist ≥5k     →  5
+//     70%+ bullish + ≥10 msgs                     →  3
+//     60%+ bullish + ≥10 msgs                     →  2
+//
+//   Reddit/Apewisdom (max 7):
+//     top10 rank OR 5x+ spike + ≥50 mentions      →  7
+//     top25 rank OR 3x+ spike + ≥30 mentions      →  5
+//     ≥100 mentions OR 2x+ spike + ≥25 mentions   →  3
+//     ≥30 mentions in last 24h                    →  1
 function scoreSocial(socialSummary) {
-  if (!socialSummary || !socialSummary.has_data || (socialSummary.message_count_24h || 0) === 0) {
-    return { pts: 0, has_data: false };
+  if (!socialSummary || !socialSummary.has_data) {
+    return { pts: 0, has_data: false, stocktwits_pts: 0, reddit_pts: 0 };
   }
-  const bullRatio = socialSummary.bull_ratio_pct;          // null if no tagged messages
+
+  // StockTwits subscore (max 7)
+  const bullRatio = socialSummary.bull_ratio_pct;
   const msgs = Number(socialSummary.message_count_24h) || 0;
   const watch = Number(socialSummary.watchlist_count) || 0;
-  let pts = 0;
+  let stPts = 0;
   if (bullRatio == null) {
-    pts = 0;
+    stPts = 0;
   } else if (bullRatio >= 100 && msgs >= 20 && watch >= 10_000) {
-    pts = W_SOCIAL;
+    stPts = 7;
   } else if (bullRatio >= 80 && msgs >= 15 && watch >= 5_000) {
-    pts = Math.round(W_SOCIAL * 0.8);
+    stPts = 5;
   } else if (bullRatio >= 70 && msgs >= 10) {
-    pts = Math.round(W_SOCIAL * 0.5);
+    stPts = 3;
   } else if (bullRatio >= 60 && msgs >= 10) {
-    pts = Math.round(W_SOCIAL * 0.3);
+    stPts = 2;
   }
+
+  // Reddit subscore (max 7)
+  const reddit = socialSummary.reddit || null;
+  const rank = reddit?.rank;
+  const rMentions = Number(reddit?.mentions_24h) || 0;
+  const spike = Number(reddit?.spike_ratio) || 0;
+  let rdPts = 0;
+  if (reddit && rMentions > 0) {
+    if ((rank != null && rank <= 10) || (spike >= 5 && rMentions >= 50)) rdPts = 7;
+    else if ((rank != null && rank <= 25) || (spike >= 3 && rMentions >= 30)) rdPts = 5;
+    else if (rMentions >= 100 || (spike >= 2 && rMentions >= 25)) rdPts = 3;
+    else if (rMentions >= 30) rdPts = 1;
+  }
+
+  const pts = Math.min(W_SOCIAL, stPts + rdPts);
+
   return {
     pts,
     has_data: true,
+    stocktwits_pts: stPts,
+    reddit_pts: rdPts,
     bull_ratio_pct: bullRatio,
     message_count_24h: msgs,
     watchlist_count: watch || null,
@@ -265,6 +290,13 @@ function scoreSocial(socialSummary) {
     top_post_body: socialSummary.top_post_body || null,
     top_post_user: socialSummary.top_post_user || null,
     top_post_url: socialSummary.top_post_url || null,
+    reddit: reddit ? {
+      rank,
+      mentions_24h: rMentions,
+      mentions_prev: Number(reddit.mentions_prev) || 0,
+      spike_ratio: spike || null,
+      upvotes_24h: Number(reddit.upvotes_24h) || 0,
+    } : null,
   };
 }
 
@@ -458,15 +490,25 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
     parts.push(`Insider activity: ${components.insider.hi_buys_count} high-signal buy(s) totaling $${valK}k last 14d.`);
   }
 
-  // Social buzz (StockTwits Phase 1).
+  // Social buzz (StockTwits + Reddit).
   if (components.social?.pts > 0) {
-    const watchK = components.social.watchlist_count
-      ? `${Math.round(components.social.watchlist_count / 1000)}k watching` : null;
-    const msgs = `${components.social.message_count_24h || 0} posts`;
-    const ratio = components.social.bull_ratio_pct != null
-      ? `${components.social.bull_ratio_pct}% bullish` : "untagged";
-    const meta = [msgs, ratio, watchK].filter(Boolean).join(" · ");
-    parts.push(`Social buzz: ${meta} (StockTwits).`);
+    const lines = [];
+    if (components.social.stocktwits_pts > 0) {
+      const watchK = components.social.watchlist_count
+        ? `${Math.round(components.social.watchlist_count / 1000)}k watching` : null;
+      const msgs = `${components.social.message_count_24h || 0} posts`;
+      const ratio = components.social.bull_ratio_pct != null
+        ? `${components.social.bull_ratio_pct}% bullish` : "untagged";
+      lines.push(`StockTwits: ${[msgs, ratio, watchK].filter(Boolean).join(" · ")}`);
+    }
+    if (components.social.reddit_pts > 0 && components.social.reddit) {
+      const r = components.social.reddit;
+      const spikeStr = r.spike_ratio && r.spike_ratio < 100
+        ? ` (${r.spike_ratio >= 1 ? r.spike_ratio.toFixed(1) + "x" : (r.spike_ratio * 100).toFixed(0) + "%"} vs 24h ago)` : "";
+      const rankStr = r.rank ? ` · rank #${r.rank}` : "";
+      lines.push(`Reddit: ${r.mentions_24h} mentions${spikeStr}${rankStr}`);
+    }
+    if (lines.length > 0) parts.push(`Social buzz: ${lines.join(" | ")}.`);
   }
 
   // Macro.

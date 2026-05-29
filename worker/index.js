@@ -1438,6 +1438,7 @@ const ROUTES = [
   // single-ticker preview that returns the full snapshot (used by the
   // Promotion Queue UI for "view buzz" / right-rail Catalysts tab).
   ["POST", "/timed/admin/discovery/social/fetch",         "POST /timed/admin/discovery/social/fetch"],
+  ["POST", "/timed/admin/discovery/social/reddit-fetch",  "POST /timed/admin/discovery/social/reddit-fetch"],
   ["GET",  "/timed/admin/discovery/social",               "GET /timed/admin/discovery/social"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
@@ -67544,6 +67545,34 @@ export default {
         }
       }
 
+      // 2026-05-29 — POST /timed/admin/discovery/social/reddit-fetch
+      // Pulls Apewisdom (Reddit Phase 2) for the default ticker set
+      // (open positions + screener) PLUS auto-includes any spike-2x
+      // or top-25 names that aren't already in our list. Body optional:
+      // { "tickers": ["SNOW","LUNR"] } to force-include.
+      if (routeKey === "POST /timed/admin/discovery/social/reddit-fetch") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const SocialTracker = await import("./discovery/social-tracker.js");
+          let extraTickers = [];
+          try {
+            const body = await req.json();
+            if (Array.isArray(body?.tickers)) extraTickers = body.tickers;
+          } catch (_) { /* no body */ }
+          const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+          const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          const screenerRaw = await KV.get("timed:screener:candidates");
+          const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+          const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 60);
+          const tickers = [...new Set([...openTickers, ...screenerTickers, ...extraTickers.map((t) => String(t).toUpperCase())])];
+          const result = await SocialTracker.fetchRedditDataForTickers(env, tickers, { pageDelayMs: 200 });
+          return sendJSON({ ok: true, ...result }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-05-29 — GET /timed/admin/discovery/social?ticker=SYM
       // Returns the latest social snapshot for one ticker (or a batch
       // if comma-separated). Composes the UI for the right-rail
@@ -79710,6 +79739,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (e) {
           console.error("[DISCOVERY BATCH 4.5/5] Social failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, { op: "social_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 4.6. Reddit mentions (Apewisdom Phase 2).
+        //
+        // 2026-05-29 — Phase 2 of the social-signal stack. Apewisdom
+        // aggregates r/wallstreetbets + r/stocks + r/options + r/investing
+        // + r/StockMarket + r/pennystocks and returns mention count,
+        // 24h-spike ratio, rank, and upvote totals in a single batched
+        // crawl (~14 pages, <2 sec total). We persist snapshots for:
+        //   - Our open positions
+        //   - Our top screener candidates
+        //   - ANY ticker with 2x+ spike + ≥25 mentions (early discovery —
+        //     surfaces names BEFORE they hit our other screeners)
+        //   - ANY ticker in apewisdom top-25 rank
+        try {
+          const SocialTracker = await import("./discovery/social-tracker.js");
+          const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+          const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          const screenerRaw = await KV.get("timed:screener:candidates");
+          const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+          const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 60);
+          const tickers = [...new Set([...openTickers, ...screenerTickers])];
+          const result = await SocialTracker.fetchRedditDataForTickers(env, tickers, { pageDelayMs: 200 });
+          console.log(`[DISCOVERY BATCH 4.6/5] Social (Reddit/Apewisdom): ${result.persisted} persisted from ${result.tickers_seen} seen, ${result.pages_fetched} pages`);
+          if (result.spikes_top10?.length > 0) {
+            console.log(`[DISCOVERY BATCH 4.6/5] Top spikes:`, result.spikes_top10.slice(0, 5).map(s => `${s.ticker}=${s.spike}x(${s.mentions})`).join(", "));
+          }
+          recordCronSuccess(env, "social_reddit_refresh").catch(() => {});
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 4.6/5] Reddit failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "social_reddit_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
 
         // 5. Promotion queue rebuild — reads 1-4.5 above.
