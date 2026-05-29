@@ -4594,7 +4594,12 @@
                       // right after Setup so the trader → investor mental
                       // model flows naturally (Setup = trade today,
                       // Investor = position over weeks/months).
-                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["INVESTOR","Investor"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
+                      // 2026-05-29 — "Setup" renamed to "Trader" per
+                      // user request. The tab key stays SETUP so all
+                      // downstream conditionals + railTab dispatch
+                      // keep working untouched; only the visible
+                      // label changes.
+                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Trader"],["INVESTOR","Investor"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
                       const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
                       return tabs.map(([key, label]) => (
                       <button
@@ -5547,9 +5552,101 @@
                     </>
                   )}
 
-                  {/* SETUP TAB */}
+                  {/* SETUP TAB (renamed to "Trader" in the tab strip
+                      label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
+                      {/* 2026-05-29 — B8: surface "Current Open Position"
+                          card at the TOP of the Trader tab when an
+                          active trade is open on this ticker. Mirrors
+                          the Your Position card in the Investor tab so
+                          both modes have consistent open-position UX.
+                          Uses effectiveTrade (resolved active trade
+                          from ledgerTrades when prop is null). */}
+                      {(() => {
+                        const t = effectiveTrade || trade;
+                        if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+                        const dirRaw = String(t.direction || "").toUpperCase();
+                        const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
+                        const entry = Number(t.entryPrice ?? t.entry_price);
+                        const shares = Number(t.shares || t.qty || t.size);
+                        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const unrealizedPct = (entry > 0 && livePx > 0)
+                          ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
+                          : null;
+                        const sl = Number(t.sl ?? ticker?.sl);
+                        const tp = Number(t.tp ?? ticker?.tp);
+                        const fmtUsdLocal = (n) => Number.isFinite(n)
+                          ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
+                          : "—";
+                        return (
+                          <Panel
+                            title="📍 Current Open Position"
+                            action={
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                                padding: "2px 8px", borderRadius: 999,
+                                color: dirColor,
+                                background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
+                                border: `1px solid ${dirColor}50`,
+                              }}>{dirRaw} · OPEN</span>
+                            }
+                          >
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {Number.isFinite(shares) ? shares.toFixed(2) : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>ENTRY</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {fmtUsdLocal(entry)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>STOP LOSS</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#f87171", marginTop: 2 }}>
+                                  {fmtUsdLocal(sl)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TAKE PROFIT</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#34d399", marginTop: 2 }}>
+                                  {fmtUsdLocal(tp)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>NOTIONAL</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {(Number.isFinite(entry) && Number.isFinite(shares))
+                                    ? fmtUsdLocal(entry * shares) : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>UNREALIZED</div>
+                                <div style={{
+                                  fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2,
+                                  color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171",
+                                }}>
+                                  {unrealizedPct != null
+                                    ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%`
+                                    : "—"}
+                                </div>
+                              </div>
+                            </div>
+                            {t.entry_ts && (
+                              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>
+                                Entered {new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                                {t.rank != null && <> · Rank <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rank)}</strong></>}
+                                {t.rr != null && <> · R:R <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rr).toFixed(2)}</strong></>}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
+
                       {(ticker?.entry_path || ticker?.setup_name) && (
                         <Panel title="Setup">
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>

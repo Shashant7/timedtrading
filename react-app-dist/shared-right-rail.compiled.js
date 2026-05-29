@@ -5061,7 +5061,7 @@
               scrollbarWidth: "none"
             }
           }, (() => {
-            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["INVESTOR", "Investor"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
+            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Trader"], ["INVESTOR", "Investor"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
             const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
             return tabs.map(([key, label]) => React.createElement("button", {
               key: key,
@@ -6209,7 +6209,149 @@
             size: 240,
             showLegend: true
           }));
-        })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
+        })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
+          const t = effectiveTrade || trade;
+          if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+          const dirRaw = String(t.direction || "").toUpperCase();
+          const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
+          const entry = Number(t.entryPrice ?? t.entry_price);
+          const shares = Number(t.shares || t.qty || t.size);
+          const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+          const unrealizedPct = entry > 0 && livePx > 0 ? (dirRaw === "SHORT" ? entry - livePx : livePx - entry) / entry * 100 : null;
+          const sl = Number(t.sl ?? ticker?.sl);
+          const tp = Number(t.tp ?? ticker?.tp);
+          const fmtUsdLocal = n => Number.isFinite(n) ? new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+            maximumFractionDigits: 2
+          }).format(n) : "—";
+          return React.createElement(Panel, {
+            title: "\uD83D\uDCCD Current Open Position",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: dirColor,
+                background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
+                border: `1px solid ${dirColor}50`
+              }
+            }, dirRaw, " \xB7 OPEN")
+          }, React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8
+            }
+          }, React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "SHARES"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, Number.isFinite(shares) ? shares.toFixed(2) : "—")), React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "ENTRY"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, fmtUsdLocal(entry))), React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "STOP LOSS"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "#f87171",
+              marginTop: 2
+            }
+          }, fmtUsdLocal(sl))), React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "TAKE PROFIT"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "#34d399",
+              marginTop: 2
+            }
+          }, fmtUsdLocal(tp))), React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "NOTIONAL"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, Number.isFinite(entry) && Number.isFinite(shares) ? fmtUsdLocal(entry * shares) : "—")), React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "UNREALIZED"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              marginTop: 2,
+              color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171"
+            }
+          }, unrealizedPct != null ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%` : "—"))), t.entry_ts && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "Entered ", new Date(Number(t.entry_ts)).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit"
+          }), t.rank != null && React.createElement(React.Fragment, null, " \xB7 Rank ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, Number(t.rank))), t.rr != null && React.createElement(React.Fragment, null, " \xB7 R:R ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, Number(t.rr).toFixed(2)))));
+        })(), (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
           style: {
@@ -14702,4 +14844,4 @@
   };
 })();
 
-// cache-bust:1780072401750:180383653
+// cache-bust:1780097268165:161774433
