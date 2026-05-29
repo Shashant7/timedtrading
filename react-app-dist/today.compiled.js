@@ -1654,21 +1654,25 @@ function EarningsStrip({
       return h("button", {
         type: "button",
         key: `${sym}-${i}`,
-        className: "tt-trow tt-trow--earnings" + (isUni ? " is-universe" : ""),
+        className: "tt-earn-row" + (isUni ? " is-universe" : ""),
         onClick,
         title: isUni ? `Open ${sym} in the right rail \u00b7 in our universe` : `Open ${sym} in the right rail`
       }, h(TickerLogo, {
         sym
       }), h("span", {
-        className: "tt-trow__sym"
+        className: "tt-earn-row__sym"
       }, sym || "?"), h("span", {
         className: `tt-hour-chip ${hcls}`
       }, hourLabel), h("span", {
-        className: "tt-trow__right"
-      }, h("span", {
-        className: "tt-trow__chg " + (hasEps ? "mut" : "mut"),
+        className: "tt-earn-row__eps",
         title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available"
-      }, hasEps ? "$" + eps.toFixed(2) + " est" : "—")));
+      }, hasEps ? h(window.React.Fragment, null, h("span", {
+        className: "tt-earn-row__eps-val"
+      }, "$" + eps.toFixed(2)), h("span", {
+        className: "tt-earn-row__eps-tag"
+      }, "est")) : h("span", {
+        className: "tt-earn-row__eps-empty"
+      }, "—")));
     })));
   })));
 }
@@ -3168,7 +3172,8 @@ function UniverseHeatmap({
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const score = Number(t?.htf_score) || 0;
     const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
-    const pdir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
+    const pdir = !Number.isFinite(pct) ? "flat" : Math.abs(pct) < 0.05 ? "flat" : pct > 0 ? "up" : "dn";
+    const side = pdir === "flat" ? "flat" : pdir;
     const isMatch = q.length > 0 && sym.startsWith(q);
     const isDim = q.length > 0 && !isMatch;
     return h("a", {
@@ -3181,18 +3186,34 @@ function UniverseHeatmap({
           onSelectTicker(sym);
         }
       },
-      title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      title: `${sym} · ${pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "no change"} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      "data-side": side,
       style: {
-        opacity: isDim ? 0.30 : 1,
+        opacity: isDim ? 0.28 : 1,
         transition: "opacity 0.15s",
+        "--heat-pct": pct != null ? pct : 0,
         ...(isMatch ? {
           outline: "1px solid #fff",
           outlineOffset: "-1px"
         } : {})
       }
+    }, h("div", {
+      className: "heat-cell__head"
     }, h("span", {
+      className: "heat-cell__logo",
+      ref: el => {
+        if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
+          el.dataset.dsInit = "1";
+          try {
+            el.replaceWith(window.DS.tickerLogo(sym, {
+              size: 16
+            }));
+          } catch (_) {}
+        }
+      }
+    }, sym.slice(0, 2)), h("span", {
       className: "sym"
-    }, sym), h("span", {
+    }, sym)), h("span", {
       className: `pct ${pdir}`
     }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"));
   })), items.length > cap && h("div", {
@@ -3857,6 +3878,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780023375299:134456009
+// cache-bust:1780023691556:653387959
 
-// cache-bust:1780023375299:134456009
+// cache-bust:1780023691556:653387959
