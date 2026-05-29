@@ -40,6 +40,179 @@ function fmtDate(ts) {
     day: "numeric"
   });
 }
+function BridgeSection({
+  apiBase
+}) {
+  const [status, setStatus] = useState(null);
+  const [audit, setAudit] = useState([]);
+  const [recent, setRecent] = useState([]);
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [s, a, r] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
+        credentials: "include"
+      }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, {
+        credentials: "include"
+      }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/recent`, {
+        credentials: "include"
+      }).then(x => x.json()).catch(() => null)]);
+      setStatus(s);
+      setAudit(a?.rows || []);
+      setRecent(r?.rows || []);
+      setErr(s?.error || null);
+    } catch (e) {
+      setErr(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  const bridgeConfigured = status && status.ok !== false && !status?.error?.includes("not_configured");
+  const mockMode = status?.mock_mode !== false;
+  const killOn = status?.kill_switch === "on";
+  const users = status?.users || [];
+  return React.createElement("div", {
+    className: "mc-card mb-5"
+  }, React.createElement("div", {
+    className: "mc-section-title"
+  }, React.createElement("span", {
+    className: "mc-dot"
+  }), "8. Broker Bridge \u2014 Robinhood Agentic (Phase 1 Option C)", !bridgeConfigured && React.createElement("span", {
+    className: "mc-pill mc-pill-warn ml-2"
+  }, "NOT DEPLOYED"), bridgeConfigured && mockMode && React.createElement("span", {
+    className: "mc-pill mc-pill-warn ml-2"
+  }, "MOCK MODE"), bridgeConfigured && !mockMode && killOn && React.createElement("span", {
+    className: "mc-pill mc-pill-warn ml-2"
+  }, "KILL SWITCH ON"), bridgeConfigured && !mockMode && !killOn && React.createElement("span", {
+    className: "mc-pill mc-pill-ok ml-2"
+  }, "LIVE"), loading && React.createElement("span", {
+    className: "text-[10px] mc-mute ml-2 mc-loading"
+  }, "refreshing\u2026")), err && !bridgeConfigured && React.createElement("div", {
+    className: "text-[12px] text-amber-300 mb-3"
+  }, "Bridge worker not yet deployed or env vars missing.", React.createElement("br", null), "Set ", React.createElement("code", null, "BROKER_BRIDGE_URL"), " + ", React.createElement("code", null, "BROKER_BRIDGE_OPERATOR_KEY"), " on main worker, deploy ", React.createElement("code", null, "worker-bridge/"), " as a separate Cloudflare Worker, and refresh.", React.createElement("br", null), "See ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " for the full setup runbook."), bridgeConfigured && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
+  }, React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Mode"), React.createElement("div", {
+    className: `mc-kpi-value text-[15px] ${mockMode ? "mc-warn" : "mc-pos"}`
+  }, mockMode ? "MOCK" : "LIVE"), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, mockMode ? "Orders logged, NOT sent to RH" : "Real RH MCP calls")), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Kill Switch"), React.createElement("div", {
+    className: `mc-kpi-value text-[15px] ${killOn ? "mc-warn" : "mc-pos"}`
+  }, killOn ? "ON · all orders blocked" : "OFF"), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, "Flip via ", React.createElement("code", null, "POST /bridge/killswitch"))), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Connected Users"), React.createElement("div", {
+    className: "mc-kpi-value"
+  }, users.length), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, users.filter(u => u.broker_integration_enabled).length, " with live trading enabled")), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Recent Dispatches"), React.createElement("div", {
+    className: "mc-kpi-value"
+  }, recent.length), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, "From main worker \u2192 bridge"))), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+  }, "Per-User Status"), React.createElement("table", {
+    className: "mc-table mb-4"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "User"), React.createElement("th", null, "Status"), React.createElement("th", null, "RH Account"), React.createElement("th", null, "Enabled"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Today"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Total"), React.createElement("th", null, "Last Order"))), React.createElement("tbody", null, users.map(u => React.createElement("tr", {
+    key: u.user_id
+  }, React.createElement("td", {
+    className: "font-mono text-[11px]"
+  }, u.user_id), React.createElement("td", null, React.createElement("span", {
+    className: `mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`
+  }, u.status, u.mock_mode ? " (mock)" : "")), React.createElement("td", {
+    className: "font-mono text-[11px] mc-mute"
+  }, u.rh_account_number || "—"), React.createElement("td", null, React.createElement("span", {
+    className: `mc-pill ${u.broker_integration_enabled ? "mc-pill-ok" : "mc-pill-warn"}`
+  }, u.broker_integration_enabled ? "LIVE" : "OFF")), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    }
+  }, u.daily_order_count), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    }
+  }, u.total_orders_lifetime), React.createElement("td", {
+    className: "text-[11px] mc-mute"
+  }, u.last_order_at ? new Date(u.last_order_at).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }) : "—")))))), audit.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold"
+  }, "Recent Audit Log (", audit.length, ")"), React.createElement("table", {
+    className: "mc-table mb-2"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "When"), React.createElement("th", null, "Ticker"), React.createElement("th", null, "Action"), React.createElement("th", null, "Side"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Qty"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Est $"), React.createElement("th", null, "Status"), React.createElement("th", null, "Reason / RH Order"))), React.createElement("tbody", null, audit.slice(0, 25).map(row => React.createElement("tr", {
+    key: row.id
+  }, React.createElement("td", {
+    className: "text-[11px] mc-mute"
+  }, new Date(row.ts).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  })), React.createElement("td", {
+    className: "font-mono"
+  }, row.ticker), React.createElement("td", null, React.createElement("span", {
+    className: `mc-pill ${row.action === "place" ? "mc-pill-ok" : row.action === "reject" ? "mc-pill-warn" : ""}`
+  }, row.action)), React.createElement("td", {
+    className: "font-mono text-[11px]"
+  }, row.side || "—"), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    },
+    className: "font-mono"
+  }, Number(row.qty) || "—"), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    },
+    className: "font-mono"
+  }, row.estimated_value ? `$${Math.round(row.estimated_value)}` : "—"), React.createElement("td", null, React.createElement("span", {
+    className: `mc-pill ${row.status === "ok" ? "mc-pill-ok" : "mc-pill-warn"}`
+  }, row.status)), React.createElement("td", {
+    className: "text-[11px] mc-mute",
+    style: {
+      maxWidth: 280
+    }
+  }, row.reject_reason || row.rh_order_id || "—"))))))), React.createElement("div", {
+    className: "text-[10px] mc-mute mt-4"
+  }, "Plan: ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " \xB7 Research: ", React.createElement("code", null, "tasks/2026-05-28-robinhood-agentic-trading-research.md"), " (PR #340).", React.createElement("br", null), "Phase 1 safety: kill switch \xB7 mock-mode default \xB7 HMAC-signed webhooks \xB7 per-user OAuth tokens AES-256-GCM encrypted \xB7 hard caps ($5k/order, 3/day) \xB7 mandatory ", React.createElement("code", null, "review_equity_order"), " before ", React.createElement("code", null, "place_equity_order"), "."));
+}
 function MissionControl({
   user
 }) {
@@ -1045,7 +1218,9 @@ function MissionControl({
     }
   }, String(r.reasoning || "").slice(0, 240), String(r.reasoning || "").length > 240 && "…")))))), React.createElement("div", {
     className: "text-[10px] mc-mute mt-4"
-  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/ai-cio/go-live-readiness"), " and", " ", React.createElement("code", null, "GET /timed/admin/ai-cio/accuracy"), ". Full audit doc:", " ", React.createElement("code", null, "tasks/2026-05-28-cio-shadow-to-live-audit.md"), ".")), React.createElement("div", {
+  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/ai-cio/go-live-readiness"), " and", " ", React.createElement("code", null, "GET /timed/admin/ai-cio/accuracy"), ". Full audit doc:", " ", React.createElement("code", null, "tasks/2026-05-28-cio-shadow-to-live-audit.md"), ".")), React.createElement(BridgeSection, {
+    apiBase: API_BASE
+  }), React.createElement("div", {
     className: "text-center text-[10px] mc-mute mt-6 mb-4"
   }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective fires Sunday 6 PM ET \xB7 brief accuracy evaluator runs at 4:30 PM ET", React.createElement("br", null), "Daily candle auto-refresh runs at 6 AM ET \xB7 Public reads rate-limited to 120/hr per IP"));
 }
@@ -1056,6 +1231,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780023691556:653387959
+// cache-bust:1780028020518:347621986
 
-// cache-bust:1780023691556:653387959
+// cache-bust:1780028020518:347621986
