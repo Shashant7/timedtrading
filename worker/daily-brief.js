@@ -3132,9 +3132,19 @@ End with FIVE clear sections (in this exact order):
 
 - **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
 
-- **SPY Prediction**: ONE compact 3-line block (≤ 35 words total).
-  PLAIN ENGLISH. Use ONLY the SPY numbers from "Game Plan Triggers + Day Gate" above.
-  Required shape (replace bracketed placeholders verbatim — do NOT rephrase the labels):
+- **SPY Prediction**: TWO blocks — first a one-sentence day-trade narrative
+  (mirroring the ES Prediction style above), then the 4-line structured block.
+
+  Block A — prose sentence (≤ 45 words, MUST start with the literal label
+  "**SPY Prediction**:" so the extractor finds it). Describe the expected
+  intraday price action: ranges, trigger reclaims, fade/extension scenarios.
+  Use the same falsifiable specificity as the ES Prediction. Example shape:
+
+  "**SPY Prediction**: SPY stays inside the expected day range of \\$[dayLow]-\\$[dayHigh]
+   early, then resolves higher only if it reclaims \\$[bullTrigger]; otherwise
+   expect rotation around \\$[pivot] and a late fade toward \\$[bearTarget]."
+
+  Block B — the 4-line structured trigger block (kept for visual scanning):
 
   "**SPY @ \\$[currentPrice]** · Range today \\$[dayLow]–\\$[dayHigh]
    ▲ **Bull above \\$[bullTrigger] → \\$[bullTarget]**
@@ -3149,14 +3159,17 @@ End with FIVE clear sections (in this exact order):
   yesterday's stale data in pre-market.
 
   Rules:
-  - Keep the 4-line structure exactly. No extra prose.
+  - Block A FIRST, then Block B (blank line between).
+  - Keep the 4-line structure exactly. No extra prose AFTER the Lean line.
   - The "Lean" line is a one-call directional read: BULL, BEAR, or NEUTRAL.
   - The "why" must be ≤ 10 words and concrete (e.g. "VIX cooling + breadth firm",
     "GG above, no overnight catalyst").
 
-- **QQQ Prediction**: Same 4-line shape, QQQ numbers from the Game Plan block.
+- **QQQ Prediction**: Same two-block shape (prose sentence + 4-line structured),
+  QQQ numbers from the Game Plan block.
 
-- **IWM Prediction**: Same 4-line shape, IWM numbers from the Game Plan block.
+- **IWM Prediction**: Same two-block shape (prose sentence + 4-line structured),
+  IWM numbers from the Game Plan block.
 
 - **Risk Factors**: 1–2 key risks, each ≤ 20 words. Plain English. No hedge words.
 

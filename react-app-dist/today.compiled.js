@@ -503,7 +503,8 @@ function BriefIndexCard({
   briefType,
   livePx,
   dayPct,
-  onSelectTicker
+  onSelectTicker,
+  prose
 }) {
   const SYM = String(idx?.sym || "").toUpperCase();
   const briefPx = Number(idx?.price);
@@ -675,7 +676,18 @@ function BriefIndexCard({
       fontFamily: "var(--tt-font-mono)",
       color: scorecard.color
     }
-  }, "· " + scorecard.label)), _rng && h("div", {
+  }, "· " + scorecard.label)), prose && h("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text)",
+      lineHeight: 1.55,
+      margin: 0,
+      padding: "6px 10px",
+      background: "rgba(245,194,92,0.05)",
+      borderLeft: "2px solid var(--tt-accent, #f5c25c)",
+      borderRadius: "0 4px 4px 0"
+    }
+  }, prose), _rng && h("div", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10.5,
@@ -819,13 +831,32 @@ function IndexPredictionsStrip({
       ticker: sym,
       ...live
     }) : null;
+    const proseRaw = sym === "SPY" ? active?.spyPrediction : sym === "QQQ" ? active?.qqqPrediction : sym === "IWM" ? active?.iwmPrediction : null;
+    const proseFallback = (() => {
+      if (proseRaw) return null;
+      const content = active?.content || "";
+      if (!content) return null;
+      const re = new RegExp(`\\*\\*${sym}\\s*@\\s*\\$([\\d.,]+)\\*\\*\\s*·\\s*Range today\\s+\\$([\\d.,]+)[–-]\\$([\\d.,]+)[\\s\\S]*?Bull above\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Bear below\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Lean:\\s*([A-Z]+)\\s*[—\\-]\\s*([^\\n.]+)`, "i");
+      const m = content.match(re);
+      if (!m) return null;
+      const [, px, lo, hi, bullT, bullTgt, bearT, bearTgt, lean, why] = m;
+      const leanLc = String(lean).toLowerCase();
+      if (leanLc === "bull") {
+        return `${sym} stays inside the expected day range of $${lo}–$${hi} early; resolves higher only if it reclaims $${bullT} (target $${bullTgt}). ${why.trim()}.`;
+      } else if (leanLc === "bear") {
+        return `${sym} stays inside the expected day range of $${lo}–$${hi} early; risk skews lower on a break of $${bearT} (target $${bearTgt}). ${why.trim()}.`;
+      }
+      return `${sym} stays inside the expected day range of $${lo}–$${hi} early; only resolves higher above $${bullT} (target $${bullTgt}) or lower below $${bearT} (target $${bearTgt}). ${why.trim()}.`;
+    })();
+    const prose = proseRaw ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim() : proseFallback;
     return h(BriefIndexCard, {
       key: sym,
       idx,
       briefType,
       livePx: Number(live?.price),
       dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-      onSelectTicker
+      onSelectTicker,
+      prose
     });
   })), h("a", {
     href: "/daily-brief.html",
@@ -3826,6 +3857,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780020497505:133473514
+// cache-bust:1780021164271:183823713
 
-// cache-bust:1780020497505:133473514
+// cache-bust:1780021164271:183823713
