@@ -1440,6 +1440,13 @@ const ROUTES = [
   ["POST", "/timed/admin/discovery/social/fetch",         "POST /timed/admin/discovery/social/fetch"],
   ["POST", "/timed/admin/discovery/social/reddit-fetch",  "POST /timed/admin/discovery/social/reddit-fetch"],
   ["GET",  "/timed/admin/discovery/social",               "GET /timed/admin/discovery/social"],
+  // 2026-05-29 — Broker bridge (Phase 1, Option C from PR #340).
+  // Read-only routes here on the main worker; all stateful actions
+  // (connect / disconnect / killswitch / enable) happen on the
+  // tt-broker-bridge worker directly.
+  ["GET",  "/timed/admin/broker-bridge/status",           "GET /timed/admin/broker-bridge/status"],
+  ["GET",  "/timed/admin/broker-bridge/audit",            "GET /timed/admin/broker-bridge/audit"],
+  ["GET",  "/timed/admin/broker-bridge/recent",           "GET /timed/admin/broker-bridge/recent"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -17721,6 +17728,29 @@ async function processTradeSimulation(
                 action_ts: tsMs,
                 chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
               }, requestCtx));
+
+              // 2026-05-29 — Broker bridge (Phase 1 Option C). Fire-and-
+              // forget webhook to tt-broker-bridge for EXIT side. The
+              // bridge enforces all hard caps + user enablement + RH
+              // dry-run BEFORE touching the live broker. Guarded by env
+              // var presence — no-op until operator deploys the bridge.
+              if (env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY) {
+                try {
+                  const { forwardOrderToBridge } = await import("./broker-bridge-client.js");
+                  queueBackground(forwardOrderToBridge(env, {
+                    user_id: env?.ADMIN_EMAIL || "operator",
+                    trade_id: trade.id || null,
+                    ticker: sym,
+                    side: "exit",
+                    qty: Number(trade.size || trade.qty || 0),
+                    entry: Number(trade.exitPrice) || null,
+                    sl: null,
+                    tp: null,
+                    decision_reason: closeReason || trade.status || null,
+                    action_ts: tsMs,
+                  }));
+                } catch (_) { /* never block trade flow on bridge issues */ }
+              }
               await upsertAlertSafe({
                 alert_id: buildAlertId(sym, tsMs, "TRADE_EXIT"),
                 ticker: sym,
@@ -23626,6 +23656,31 @@ async function processTradeSimulation(
                       shadow: !!_entryShadow,
                     } : null,
                   }, requestCtx));
+
+                  // 2026-05-29 — Broker bridge (Phase 1 Option C). Same
+                  // fire-and-forget pattern as EXIT side above. Bridge
+                  // enforces all caps + RH review_equity_order dry-run
+                  // BEFORE place_equity_order. Default OFF; no-op until
+                  // operator sets env.BROKER_BRIDGE_URL.
+                  if (env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY) {
+                    try {
+                      const { forwardOrderToBridge } = await import("./broker-bridge-client.js");
+                      queueBackground(forwardOrderToBridge(env, {
+                        user_id: env?.ADMIN_EMAIL || "operator",
+                        trade_id: trade.id || tradeId || null,
+                        ticker: sym,
+                        side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
+                        qty: Number(trade.shares) || 0,
+                        entry: Number(entryPx) || null,
+                        sl: Number(trade.sl) || Number(tickerData?.sl) || null,
+                        tp: Number(trade.tp) || Number(tickerData?.tp) || null,
+                        decision_reason: reason || "TRADE_ENTRY",
+                        action_ts: tsMs,
+                        setup_name: trade.setupName || trade.setup_name || null,
+                        rank: Number(trade.rank) || null,
+                      }));
+                    } catch (_) { /* never block on bridge issues */ }
+                  }
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
                     ticker: sym,
@@ -67542,6 +67597,73 @@ export default {
           return sendJSON({ ok: true, ...result }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // 2026-05-29 — Broker bridge read-through (Phase 1).
+      //
+      // These three GET endpoints proxy to the tt-broker-bridge worker
+      // so Mission Control can show bridge status + audit log without
+      // a separate cross-domain fetch from the browser. All writes
+      // (connect, killswitch, enable) happen on the bridge worker
+      // directly so we keep the credentials surface OFF the main
+      // worker.
+      //
+      // Auth: standard admin/CF-Access JWT — same as other admin pages.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/broker-bridge/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const bridgeUrl = env?.BROKER_BRIDGE_URL;
+        if (!bridgeUrl) return sendJSON({ ok: false, error: "BROKER_BRIDGE_URL_not_configured" }, 503, corsHeaders(env, req));
+        const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
+        if (!opKey) return sendJSON({ ok: false, error: "BROKER_BRIDGE_OPERATOR_KEY_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/status`, {
+            headers: { "Authorization": `Bearer ${opKey}` },
+          });
+          const text = await r.text();
+          const ctype = r.headers.get("content-type") || "application/json";
+          return new Response(text, { status: r.status, headers: { "Content-Type": ctype, ...corsHeaders(env, req) } });
+        } catch (e) {
+          return sendJSON({ ok: false, error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}` }, 502, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/broker-bridge/audit") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const bridgeUrl = env?.BROKER_BRIDGE_URL;
+        const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
+        if (!bridgeUrl || !opKey) {
+          return sendJSON({ ok: false, error: "bridge_not_configured" }, 503, corsHeaders(env, req));
+        }
+        const limit = Number(url.searchParams.get("limit")) || 50;
+        const userId = url.searchParams.get("user_id") || "";
+        const qs = new URLSearchParams({ limit: String(limit) });
+        if (userId) qs.set("user_id", userId);
+        try {
+          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/audit?${qs.toString()}`, {
+            headers: { "Authorization": `Bearer ${opKey}` },
+          });
+          const text = await r.text();
+          return new Response(text, { status: r.status, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });
+        } catch (e) {
+          return sendJSON({ ok: false, error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}` }, 502, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/broker-bridge/recent") {
+        // Reads the local ring buffer in KV (no cross-worker fetch) — shows
+        // the last N orders the main worker has sent to the bridge. Useful
+        // when the bridge worker is down and we still want visibility.
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { readClientRing } = await import("./broker-bridge-client.js");
+          const ring = await readClientRing(env);
+          return sendJSON({ ok: true, count: ring.length, rows: ring }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 

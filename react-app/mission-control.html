@@ -147,6 +147,170 @@
         return new Date(Number(ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
       }
 
+      // ── Section 8 — Broker Bridge (Phase 1 Option C, 2026-05-29) ──
+      function BridgeSection({ apiBase }) {
+        const [status, setStatus] = useState(null);
+        const [audit, setAudit] = useState([]);
+        const [recent, setRecent] = useState([]);
+        const [err, setErr] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [busy, setBusy] = useState(false);
+
+        const refresh = useCallback(async () => {
+          setLoading(true);
+          try {
+            const [s, a, r] = await Promise.all([
+              fetch(`${apiBase}/timed/admin/broker-bridge/status`, { credentials: "include" }).then(x => x.json()).catch(() => null),
+              fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, { credentials: "include" }).then(x => x.json()).catch(() => null),
+              fetch(`${apiBase}/timed/admin/broker-bridge/recent`, { credentials: "include" }).then(x => x.json()).catch(() => null),
+            ]);
+            setStatus(s);
+            setAudit((a?.rows || []));
+            setRecent((r?.rows || []));
+            setErr(s?.error || null);
+          } catch (e) {
+            setErr(String(e.message || e));
+          } finally {
+            setLoading(false);
+          }
+        }, [apiBase]);
+
+        useEffect(() => { refresh(); }, [refresh]);
+
+        const bridgeConfigured = status && status.ok !== false && !status?.error?.includes("not_configured");
+        const mockMode = status?.mock_mode !== false;
+        const killOn = status?.kill_switch === "on";
+        const users = status?.users || [];
+
+        return (
+          <div className="mc-card mb-5">
+            <div className="mc-section-title">
+              <span className="mc-dot"></span>
+              8. Broker Bridge — Robinhood Agentic (Phase 1 Option C)
+              {!bridgeConfigured && <span className="mc-pill mc-pill-warn ml-2">NOT DEPLOYED</span>}
+              {bridgeConfigured && mockMode && <span className="mc-pill mc-pill-warn ml-2">MOCK MODE</span>}
+              {bridgeConfigured && !mockMode && killOn && <span className="mc-pill mc-pill-warn ml-2">KILL SWITCH ON</span>}
+              {bridgeConfigured && !mockMode && !killOn && <span className="mc-pill mc-pill-ok ml-2">LIVE</span>}
+              {loading && <span className="text-[10px] mc-mute ml-2 mc-loading">refreshing…</span>}
+            </div>
+
+            {err && !bridgeConfigured && (
+              <div className="text-[12px] text-amber-300 mb-3">
+                Bridge worker not yet deployed or env vars missing.<br />
+                Set <code>BROKER_BRIDGE_URL</code> + <code>BROKER_BRIDGE_OPERATOR_KEY</code> on main worker,
+                deploy <code>worker-bridge/</code> as a separate Cloudflare Worker, and refresh.<br />
+                See <code>tasks/2026-05-29-broker-bridge-phase1-plan.md</code> for the full setup runbook.
+              </div>
+            )}
+
+            {bridgeConfigured && (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Mode</div>
+                    <div className={`mc-kpi-value text-[15px] ${mockMode ? "mc-warn" : "mc-pos"}`}>
+                      {mockMode ? "MOCK" : "LIVE"}
+                    </div>
+                    <div className="mc-kpi-sub">{mockMode ? "Orders logged, NOT sent to RH" : "Real RH MCP calls"}</div>
+                  </div>
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Kill Switch</div>
+                    <div className={`mc-kpi-value text-[15px] ${killOn ? "mc-warn" : "mc-pos"}`}>
+                      {killOn ? "ON · all orders blocked" : "OFF"}
+                    </div>
+                    <div className="mc-kpi-sub">
+                      Flip via <code>POST /bridge/killswitch</code>
+                    </div>
+                  </div>
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Connected Users</div>
+                    <div className="mc-kpi-value">{users.length}</div>
+                    <div className="mc-kpi-sub">
+                      {users.filter(u => u.broker_integration_enabled).length} with live trading enabled
+                    </div>
+                  </div>
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Recent Dispatches</div>
+                    <div className="mc-kpi-value">{recent.length}</div>
+                    <div className="mc-kpi-sub">From main worker → bridge</div>
+                  </div>
+                </div>
+
+                {users.length > 0 && (
+                  <>
+                    <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">Per-User Status</div>
+                    <table className="mc-table mb-4">
+                      <thead><tr><th>User</th><th>Status</th><th>RH Account</th><th>Enabled</th><th style={{textAlign:"right"}}>Today</th><th style={{textAlign:"right"}}>Total</th><th>Last Order</th></tr></thead>
+                      <tbody>
+                        {users.map((u) => (
+                          <tr key={u.user_id}>
+                            <td className="font-mono text-[11px]">{u.user_id}</td>
+                            <td>
+                              <span className={`mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`}>
+                                {u.status}{u.mock_mode ? " (mock)" : ""}
+                              </span>
+                            </td>
+                            <td className="font-mono text-[11px] mc-mute">{u.rh_account_number || "—"}</td>
+                            <td>
+                              <span className={`mc-pill ${u.broker_integration_enabled ? "mc-pill-ok" : "mc-pill-warn"}`}>
+                                {u.broker_integration_enabled ? "LIVE" : "OFF"}
+                              </span>
+                            </td>
+                            <td style={{textAlign:"right"}}>{u.daily_order_count}</td>
+                            <td style={{textAlign:"right"}}>{u.total_orders_lifetime}</td>
+                            <td className="text-[11px] mc-mute">{u.last_order_at ? new Date(u.last_order_at).toLocaleString("en-US", {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+
+                {audit.length > 0 && (
+                  <>
+                    <div className="text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold">Recent Audit Log ({audit.length})</div>
+                    <table className="mc-table mb-2">
+                      <thead><tr><th>When</th><th>Ticker</th><th>Action</th><th>Side</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Est $</th><th>Status</th><th>Reason / RH Order</th></tr></thead>
+                      <tbody>
+                        {audit.slice(0, 25).map((row) => (
+                          <tr key={row.id}>
+                            <td className="text-[11px] mc-mute">{new Date(row.ts).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</td>
+                            <td className="font-mono">{row.ticker}</td>
+                            <td>
+                              <span className={`mc-pill ${row.action === "place" ? "mc-pill-ok" : row.action === "reject" ? "mc-pill-warn" : ""}`}>
+                                {row.action}
+                              </span>
+                            </td>
+                            <td className="font-mono text-[11px]">{row.side || "—"}</td>
+                            <td style={{textAlign:"right"}} className="font-mono">{Number(row.qty) || "—"}</td>
+                            <td style={{textAlign:"right"}} className="font-mono">{row.estimated_value ? `$${Math.round(row.estimated_value)}` : "—"}</td>
+                            <td>
+                              <span className={`mc-pill ${row.status === "ok" ? "mc-pill-ok" : "mc-pill-warn"}`}>
+                                {row.status}
+                              </span>
+                            </td>
+                            <td className="text-[11px] mc-mute" style={{maxWidth:280}}>
+                              {row.reject_reason || row.rh_order_id || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </>
+            )}
+
+            <div className="text-[10px] mc-mute mt-4">
+              Plan: <code>tasks/2026-05-29-broker-bridge-phase1-plan.md</code> ·
+              Research: <code>tasks/2026-05-28-robinhood-agentic-trading-research.md</code> (PR #340).<br />
+              Phase 1 safety: kill switch · mock-mode default · HMAC-signed webhooks · per-user OAuth tokens AES-256-GCM encrypted ·
+              hard caps ($5k/order, 3/day) · mandatory <code>review_equity_order</code> before <code>place_equity_order</code>.
+            </div>
+          </div>
+        );
+      }
+
       function MissionControl({ user }) {
         const [data, setData] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -1235,6 +1399,9 @@
                 <code>tasks/2026-05-28-cio-shadow-to-live-audit.md</code>.
               </div>
             </div>
+
+            {/* ── Section 8: Broker Bridge ── 2026-05-29 ── */}
+            <BridgeSection apiBase={API_BASE} />
 
             {/* ── Footer ── */}
             <div className="text-center text-[10px] mc-mute mt-6 mb-4">

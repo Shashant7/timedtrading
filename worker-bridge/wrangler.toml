@@ -1,0 +1,45 @@
+name = "tt-broker-bridge"
+main = "bridge-index.js"
+compatibility_date = "2026-05-29"
+compatibility_flags = ["nodejs_compat"]
+
+# 2026-05-29 — Phase 1 sidecar bridge for live broker integration.
+# Separate worker from timed-trading-ingest by design: keeps RH OAuth
+# tokens + the entire credentials surface OUT of the main worker, and
+# isolates rate-limit / outage risk. See PR #340 + tasks/2026-05-29-
+# broker-bridge-phase1-plan.md for the design rationale.
+
+[vars]
+# Mock mode — when "true", the bridge logs orders to D1 audit but
+# DOES NOT call the actual Robinhood MCP. Flip to "false" once the
+# operator has wired the real RH OAuth client + tested the MCP shape.
+BROKER_BRIDGE_MOCK = "true"
+
+# Bridge environment label — surfaces in audit log + responses.
+BRIDGE_ENV = "phase1-mvp"
+
+# Hard caps — defaults; per-user values in KV override these.
+DEFAULT_MAX_ORDER_USD = "5000"
+DEFAULT_MAX_ORDERS_PER_DAY = "3"
+
+# Long-only enforcement — RH Agentic doesn't support shorts at launch.
+# When "true" the bridge rejects any side='short' / side='sell_short'.
+REJECT_SHORT_SIDES = "true"
+
+# Operator email for audit-log notifications when limits trip.
+OPERATOR_EMAIL = "shashant@gmail.com"
+
+[[d1_databases]]
+binding = "BRIDGE_DB"
+database_name = "timed-trading-ledger"
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
+
+[[kv_namespaces]]
+binding = "BRIDGE_KV"
+id = "29906c1b41bf41099c1be3d4d0bf2898"
+
+# Secrets (must be set via `wrangler secret put` — not in wrangler.toml):
+#   BRIDGE_ENCRYPTION_KEY      AES-256 key (32 bytes b64) for token wrap
+#   BRIDGE_INTERNAL_HMAC_KEY   HMAC for verifying inbound webhooks from TT
+#   ROBINHOOD_OAUTH_CLIENT_ID  RH OAuth client id (once issued by RH)
+#   ROBINHOOD_OAUTH_CLIENT_SECRET
