@@ -1293,6 +1293,12 @@ const ROUTES = [
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
   // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
   ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
+  // 2026-05-29 — Ticker metadata hydration (Name/Sector/Industry/MCap)
+  // via TwelveData /profile + /statistics with Finnhub fallback.
+  ["GET",  "/timed/admin/ticker-metadata/all",     "GET /timed/admin/ticker-metadata/all"],
+  ["GET",  "/timed/admin/ticker-metadata",         "GET /timed/admin/ticker-metadata"],
+  ["POST", "/timed/admin/ticker-metadata/hydrate", "POST /timed/admin/ticker-metadata/hydrate"],
+  ["POST", "/timed/admin/ticker-metadata/refresh-mcap", "POST /timed/admin/ticker-metadata/refresh-mcap"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
@@ -47295,6 +47301,67 @@ export default {
       // Pass &refresh=1 to bypass cache (admin-only). Pass &nocache=1 for the
       // same effect.
       // ─────────────────────────────────────────────────────────────────────
+      // ──────────────────────────────────────────────────────────────────
+      // 2026-05-29 — Ticker metadata hydration. Backs Tickers admin page
+      // (B2). TwelveData /profile + /statistics with Finnhub fallback.
+      // See worker/ticker-metadata.js for the full module.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/ticker-metadata/all") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Meta = await import("./ticker-metadata.js");
+          const out = await Meta.loadAllMetadata(env);
+          return sendJSON(out, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/ticker-metadata") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const sym = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
+          if (!sym) return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+          const Meta = await import("./ticker-metadata.js");
+          const all = await Meta.loadAllMetadata(env);
+          const row = all.by_ticker[sym] || null;
+          if (!row) {
+            // Auto-hydrate on first read for an unseen ticker.
+            const fresh = await Meta.hydrateTicker(env, sym);
+            return sendJSON({ ok: !!fresh, ticker: sym, row: fresh || null, auto_hydrated: !!fresh }, 200, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, ticker: sym, row }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/ticker-metadata/hydrate") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Meta = await import("./ticker-metadata.js");
+          const max = Number(url.searchParams.get("max")) || 100;
+          const onlyMissing = url.searchParams.get("all") !== "1";
+          const result = await Meta.hydrateMissing(env, { max, onlyMissing });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/ticker-metadata/refresh-mcap") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Meta = await import("./ticker-metadata.js");
+          const max = Number(url.searchParams.get("max")) || 500;
+          const result = await Meta.refreshMarketCaps(env, { max });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/fundamentals") {
         try {
           // V15 P0.7.150 (2026-05-13) — Right Rail Fundamentals tab

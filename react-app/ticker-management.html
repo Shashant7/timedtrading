@@ -819,6 +819,32 @@
                   ctx[normalizeTicker(row.ticker)] = row.context;
                 }
               });
+              // 2026-05-29 — B2: layer the hydrated ticker_metadata
+              // (TwelveData /profile + /statistics, Finnhub fallback)
+              // ON TOP of the inline context so the Tickers admin page
+              // shows Name/Sector/Industry/MCap that was previously
+              // blank for many tickers. The hydrate cron persists to
+              // D1 ticker_metadata; we read it via the dedicated
+              // admin endpoint here.
+              try {
+                const metaRes = await fetch(`${API_BASE}/timed/admin/ticker-metadata/all?_t=${requestTs}`, {
+                  credentials: "include", cache: "no-store",
+                });
+                if (metaRes.ok) {
+                  const metaJson = await metaRes.json();
+                  if (metaJson?.ok && metaJson?.by_ticker) {
+                    for (const [sym, meta] of Object.entries(metaJson.by_ticker)) {
+                      const t = normalizeTicker(sym);
+                      const merged = { ...(ctx[t] || {}) };
+                      if (!merged.name && meta.name) merged.name = meta.name;
+                      if (!merged.sector && meta.sector) merged.sector = meta.sector;
+                      if (!merged.industry && meta.industry) merged.industry = meta.industry;
+                      if (!merged.market_cap && meta.market_cap) merged.market_cap = meta.market_cap;
+                      ctx[t] = merged;
+                    }
+                  }
+                }
+              } catch (_) { /* best-effort — fall back to context-only */ }
               setContextData(ctx);
             }
             if (clearPendingFromResponse && json.tickers && json.tickers.length) {
