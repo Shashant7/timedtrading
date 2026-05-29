@@ -57,6 +57,14 @@ tag = "v5"
 new_classes = ["TradovateStream"]
 
 [vars]
+# 2026-05-29 — Cron self-fetch goes through the custom domain to avoid
+# Cloudflare's "error code: 1042" block on workers fetching their own
+# .workers.dev URL. Investigation: the investor hourly cron was silently
+# failing for 15+ days because env.WORKER_URL fell back to the
+# .workers.dev fallback, which CF rejects as a self-fetch (verified via
+# /timed/admin/investor-cron-debug). Custom domain is treated as a
+# separate origin and CF lets the subrequest through.
+WORKER_URL = "https://timed-trading.com"
 DISCORD_ENABLE = "true"
 ALERT_MIN_RR = "1.5"
 ALERT_MAX_COMPLETION = "0.4"
@@ -233,6 +241,8 @@ class_name = "BacktestRunner"
 # ADMIN_EMAIL: Email address of the admin user (auto-promoted to admin role)
 
 [env.production.vars]
+# 2026-05-29 — see top-level [vars] WORKER_URL comment.
+WORKER_URL = "https://timed-trading.com"
 DISCORD_ENABLE = "true"
 ALERT_MIN_RR = "1.5"
 ALERT_MAX_COMPLETION = "0.4"
