@@ -1776,20 +1776,35 @@
         const SYM = String(idx?.sym || "").toUpperCase();
         const briefPx = Number(idx?.price);
         const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-        const gp = idx?.levels?.gamePlan || {};
+        const lev = idx?.levels || {};
+        const gp = lev.gamePlan || {};
         const bullT = Number(gp.bullTrigger);
         const bullTgt = Number(gp.bullTarget);
         const bearT = Number(gp.bearTrigger);
         const bearTgt = Number(gp.bearTarget);
+        const dayAtr = Number(lev.dayAtr ?? idx?.atr);
 
-        // Direction inference vs current price
+        // 2026-05-29 — Extract today's expected range from goldenGateNote:
+        // "Price 750.46 inside the daily Golden Gate (±38.2% gates 747.91 – 753.27).
+        //  Saty Triggers ±23.6% at 748.93 – 752.25."
+        // We pull the gates pair as the day's expected range, used in the
+        // day-trade prose ("Range today: $X – $Y").
+        const _rng = (() => {
+          const note = String(lev.goldenGateNote || "");
+          const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
+          if (!m) return null;
+          const lo = Number(m[1]); const hi = Number(m[2]);
+          return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? { lo, hi } : null;
+        })();
+
+        // Direction inference vs current price (intraday position vs triggers)
         const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
         const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
         const biasMeta = bullActive
           ? { label: "BULL ACTIVE", color: "var(--tt-up, #34d399)", bg: "rgba(52,211,153,0.10)" }
           : bearActive
             ? { label: "BEAR ACTIVE", color: "var(--tt-dn, #f87171)", bg: "rgba(248,113,113,0.10)" }
-            : { label: "WATCH TRIGGERS", color: "var(--tt-text-muted, #9ca3af)", bg: "rgba(156,163,175,0.08)" };
+            : { label: "WATCHING TRIGGERS", color: "var(--tt-text-muted, #9ca3af)", bg: "rgba(156,163,175,0.08)" };
 
         const _fmt = (n) => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
         const _pctMove = (from, to) =>
@@ -1829,9 +1844,9 @@
 
         return h("button", {
           onClick,
-          className: "tt-card",
+          className: "tt-card ds-tickercard",
           style: {
-            textAlign: "left", padding: "12px 14px", width: "100%",
+            textAlign: "left", padding: "var(--ds-space-3, 12px)", width: "100%",
             background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
             border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
             borderRadius: 10, cursor: "pointer",
@@ -1842,16 +1857,28 @@
           onMouseLeave: (e) => { e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))"; },
           title: `${SYM} — open in detail`,
         },
-          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "space-between" } },
-            h("div", { style: { display: "flex", alignItems: "baseline", gap: 6 } },
-              h("span", { style: { fontWeight: 700, fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, SYM),
-              h("span", { style: { fontSize: 11, color: "var(--tt-text-muted)" } }, _fmt(price) || "—"),
-            ),
+          // ── Header: LOGO · SYM · price · day change ─────────────────
+          // Mirrors the Market Pulse tile layout (ds-tickercard__head)
+          // so this card reads as part of the same brand system, just
+          // with the day-trade plan attached below.
+          h("div", { className: "ds-tickercard__head", style: { display: "flex", alignItems: "center", gap: 8 } },
+            h("div", {
+              className: "ds-tickercard__logo",
+              ref: (el) => {
+                if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
+                  el.dataset.dsInit = "1";
+                  try { el.replaceWith(window.DS.tickerLogo(SYM, { size: 22 })); } catch (_) {}
+                }
+              },
+              style: { width: 22, height: 22, flexShrink: 0 },
+            }, SYM.slice(0, 2)),
+            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13, fontWeight: 700, letterSpacing: "0.02em", color: "var(--tt-text)" } }, SYM),
+            h("span", { style: { fontSize: 12, color: "var(--tt-text-muted)" } }, _fmt(price) || "—"),
             dayPct != null && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 600, color: _dirColor },
+              style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 600, color: _dirColor, marginLeft: "auto" },
             }, `${_dirGlyph} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
           ),
-          // Bias chip — what the brief is calling for
+          // ── Bias chip + scorecard (when evening) ────────────────────
           h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 } },
             h("span", {
               style: {
@@ -1868,26 +1895,40 @@
               },
             }, "· " + scorecard.label),
           ),
-          // Game plan — bull above / bear below with target hint
+          // ── Today's expected range (from goldenGate gates) ──────────
+          // Same range the Daily Brief prints in its index sections.
+          _rng && h("div", {
+            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", lineHeight: 1.5 },
+          },
+            h("span", { style: { color: "var(--tt-text-faint)" } }, "Today's range: "),
+            h("span", { style: { color: "var(--tt-text)" } }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`),
+            Number.isFinite(dayAtr) && dayAtr > 0 && h("span", { style: { color: "var(--tt-text-faint)" } },
+              ` · typical move ±$${dayAtr.toFixed(2)}`,
+            ),
+          ),
+          // ── Day-trade game plan (bull above / bear below) ───────────
+          // The brief's published trigger + target levels, framed as
+          // intraday rotation around the pivot. Mirrors the Brief's
+          // own per-index section so language is consistent.
           (_fmt(bullT) || _fmt(bearT)) && h("div", {
-            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-muted)", display: "flex", flexDirection: "column", gap: 3 },
+            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", display: "flex", flexDirection: "column", gap: 3 },
           },
             _fmt(bullT) && h("div", null,
-              h("span", { style: { color: "var(--tt-up)" } }, `↑ `),
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "above "),
+              h("span", { style: { color: "var(--tt-up)" } }, `▲ `),
+              h("span", { style: { color: "var(--tt-text-faint)" } }, "Bull above "),
               h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullT)),
               _fmt(bullTgt) && h(React.Fragment, null,
-                h("span", { style: { color: "var(--tt-text-faint)" } }, " → target "),
+                h("span", { style: { color: "var(--tt-text-faint)" } }, " → "),
                 h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullTgt)),
                 Number.isFinite(bullR) && bullR > 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (+${bullR.toFixed(1)}%)`),
               ),
             ),
             _fmt(bearT) && h("div", null,
-              h("span", { style: { color: "var(--tt-dn)" } }, `↓ `),
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "below "),
+              h("span", { style: { color: "var(--tt-dn)" } }, `▼ `),
+              h("span", { style: { color: "var(--tt-text-faint)" } }, "Bear below "),
               h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearT)),
               _fmt(bearTgt) && h(React.Fragment, null,
-                h("span", { style: { color: "var(--tt-text-faint)" } }, " → target "),
+                h("span", { style: { color: "var(--tt-text-faint)" } }, " → "),
                 h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearTgt)),
                 Number.isFinite(bearR) && bearR < 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (${bearR.toFixed(1)}%)`),
               ),
@@ -1913,18 +1954,37 @@
         if (indices.length === 0) return null;
 
         const briefDate = active?.date || morning?.date || null;
-        const _label = briefType === "evening" ? "Evening Scorecard" : "Morning Game Plan";
+        // 2026-05-29 — Explicit day-trade framing per user request.
+        // "The Prediction for SPY, QQQ, IWM should be similar to what we have
+        //  for ES, guiding users how to day trade it. Right now it does not seem
+        //  like it is a day trade but a swing trade prediction. We should make
+        //  sure the language and levels are aligned across and mention that
+        //  it is a day trade prediction."
+        // The pre-rewrite version pulled from /timed/prediction-contract which
+        // had "DAYS TO WEEKS" horizon — swing scale. The brief gamePlan IS
+        // day-trade scale (intraday triggers + targets, computed from the
+        // day's Golden Gate / Saty trigger levels) so calling it out explicitly
+        // resolves the confusion.
+        const _label = briefType === "evening"
+          ? "Today's Day-Trade Scorecard"
+          : "Today's Day-Trade Plan";
 
         return h("aside", {
           className: "tt-card tt-card-pad",
           style: { display: "flex", flexDirection: "column", gap: 10, height: "100%" },
         },
-          h("div", { className: "tt-sec-title" }, "DAILY BRIEF · PREDICTIONS"),
+          h("div", { className: "tt-sec-title" }, "DAILY BRIEF · DAY-TRADE PREDICTIONS"),
           h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "space-between", flexWrap: "wrap" } },
             h("div", { className: "tt-sec-h", style: { fontSize: 16, margin: 0 } }, _label),
             briefDate && h("span", {
               style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-faint)" },
             }, briefDate),
+          ),
+          // Subtitle reinforcing intraday framing (mirrors ES Prediction prose)
+          h("p", {
+            style: { fontSize: 11, color: "var(--tt-text-muted)", fontStyle: "italic", margin: "0", lineHeight: 1.5 },
+          },
+            "Intraday triggers + targets — same Golden-Gate game plan the brief publishes for ES.",
           ),
           h("div", {
             style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 4 },
