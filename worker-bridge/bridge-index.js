@@ -28,7 +28,32 @@ import {
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
-import { reviewOrder, placeOrder, callMcpTool, getPortfolio } from "./bridge-robinhood.js";
+import * as RobinhoodAdapter from "./bridge-robinhood.js";
+import * as IbkrAdapter from "./bridge-ibkr.js";
+
+// 2026-05-29 — broker-router. Each user record carries a `broker`
+// field (`"robinhood"` | `"ibkr"`); the router picks the right
+// adapter at order-time. Mock mode + hard caps + audit log work
+// identically for both — the only thing that changes is the actual
+// HTTPS call into the broker's API.
+function brokerAdapterFor(user) {
+  const b = String(user?.broker || "robinhood").toLowerCase();
+  if (b === "ibkr") return IbkrAdapter;
+  return RobinhoodAdapter; // default
+}
+// Re-exported tool-call shim for legacy /bridge/test/rh-call path —
+// dispatches based on the user's `broker` field.
+async function callMcpTool(env, user, toolName, args) {
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.callMcpTool === "function") return adapter.callMcpTool(env, user, toolName, args);
+  // IBKR doesn't have an MCP tool concept; map a few obvious cases.
+  if (toolName === "get_portfolio")        return adapter.getPortfolio(env, user);
+  if (toolName === "get_equity_positions") return adapter.getEquityPositions(env, user);
+  return { ok: false, error: `tool_${toolName}_not_supported_for_${user?.broker || "broker"}` };
+}
+const reviewOrder = (env, user, order) => brokerAdapterFor(user).reviewOrder(env, user, order);
+const placeOrder  = (env, user, order) => brokerAdapterFor(user).placeOrder(env, user, order);
+const getPortfolio = (env, user) => brokerAdapterFor(user).getPortfolio(env, user);
 import {
   handleOauthStart, handleOauthCallback, handleOauthDisconnect,
 } from "./bridge-auth.js";
@@ -116,6 +141,76 @@ export default {
         if (operatorFail) return operatorFail;
         const result = await handleOauthDisconnect(env, req);
         return json(result, result.status || 200);
+      }
+
+      // 2026-05-29 — IBKR-specific connect endpoint.
+      //
+      // IBKR auth is fundamentally different from Robinhood OAuth.
+      // Per IBKR's Self-Service OAuth model, the operator generates
+      // their own consumer-key + access-token + access-token-secret
+      // triplet in IBKR Account Management:
+      //
+      //   Account Management → Settings → API → OAuth →
+      //     Generate New Pair
+      //
+      // The triplet is then POSTed here ONCE to encrypt + persist.
+      // Subsequent orders use this stored credential — no per-order
+      // login round-trip needed.
+      //
+      // Body: {
+      //   user_id:                 "operator@email",
+      //   ibkr_account_id:         "U1234567",
+      //   ibkr_consumer_key:       "TIMEDTRADING",
+      //   ibkr_oauth_token:        "<public access token>",
+      //   ibkr_oauth_token_secret: "<secret — encrypted at rest>",
+      // }
+      if (method === "POST" && path === "/bridge/ibkr/connect") {
+        if (operatorFail) return operatorFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const userId = String(body?.user_id || "").trim().toLowerCase();
+          const acctId = String(body?.ibkr_account_id || "").trim();
+          const consumerKey = String(body?.ibkr_consumer_key || "").trim();
+          const token = String(body?.ibkr_oauth_token || "").trim();
+          const tokenSecret = String(body?.ibkr_oauth_token_secret || "").trim();
+          if (!userId || !acctId || !consumerKey || !token || !tokenSecret) {
+            return json({ ok: false, error: "missing_required_fields", required: ["user_id", "ibkr_account_id", "ibkr_consumer_key", "ibkr_oauth_token", "ibkr_oauth_token_secret"] }, 400);
+          }
+          // Encrypt the token + secret.
+          const { wrapSecret } = await import("./bridge-crypto.js");
+          const tokenWrap = await wrapSecret(env, token);
+          const tokenSecretWrap = await wrapSecret(env, tokenSecret);
+          const existing = (await readUser(env, userId)) || { user_id: userId };
+          const user = {
+            ...existing,
+            broker: "ibkr",
+            status: "connected",
+            connected_at: Date.now(),
+            ibkr_account_id: acctId,
+            ibkr_consumer_key: consumerKey,
+            ibkr_oauth_token_wrap: tokenWrap,
+            ibkr_oauth_token_secret_wrap: tokenSecretWrap,
+            broker_integration_enabled: existing.broker_integration_enabled ?? false,
+            daily_order_count: existing.daily_order_count || 0,
+            daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
+            total_orders_lifetime: existing.total_orders_lifetime || 0,
+            user_caps: existing.user_caps || {
+              max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
+              max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
+            },
+          };
+          await writeUser(env, userId, user);
+          return json({
+            ok: true,
+            user_id: userId,
+            broker: "ibkr",
+            ibkr_account_id: acctId,
+            broker_integration_enabled: user.broker_integration_enabled,
+            note: "IBKR connected. Operator must explicitly flip broker_integration_enabled to true before any live orders flow.",
+          });
+        } catch (e) {
+          return json({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500);
+        }
       }
 
       if (method === "GET" && path === "/bridge/status") {
