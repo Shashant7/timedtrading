@@ -50,13 +50,33 @@ const SUB_THRESHOLD_PRICE = 5;
 const VOLUME_SPIKE_MULTIPLE = 5;
 
 // ── Status thresholds ────────────────────────────────────────────────────
+// 2026-05-29 — lowered NEEDS_REVIEW from 40 → 25 (with hasMaterialThesis
+// gate). The original 40 was unachievable for genuinely strong single-day
+// candidates whose THEME / INSIDER / MACRO / PEER signals are 0. E.g. LUNR
+// post-Micron-rally scored only 28 (news=15 + quality=13) but represented
+// a real, thesis-quality opportunity that operator review would catch. We
+// now surface anything ≥25 that has at least one substantive component
+// (news cat 7+, insider buy, sustain across 3+ days, or active theme).
 const SCORE_READY_TO_ADD = 60;
-const SCORE_NEEDS_REVIEW = 40;
+const SCORE_NEEDS_REVIEW = 25;
 const CRITICAL_RED_FLAGS = new Set([
   "low_liquidity",
   "sub_$5_price",
   "no_news_no_theme_no_insider",
 ]);
+
+// 2026-05-29 — Material thesis gate. Prevents NEEDS_REVIEW spam from
+// candidates whose 25+ score is built purely on Quality (mcap + volume)
+// with no actual reason to be on the watchlist. A ticker must have at
+// least one substantive thesis signal to qualify for operator review.
+function hasMaterialThesis(components) {
+  if ((components.news?.pts || 0) >= 9) return true;           // news catalyst ≥ 7/10
+  if ((components.insider?.hi_buys_count || 0) >= 1) return true; // any high-signal insider buy
+  if ((components.sustain || 0) >= 10) return true;            // 3+ distinct days in screener
+  if ((components.theme?.pts || 0) > 0) return true;           // active theme rotation
+  if ((components.macro?.pts || 0) > 0) return true;           // macro alignment present
+  return false;
+}
 
 export async function ensurePromotionQueueSchema(env) {
   const db = env?.DB;
@@ -410,9 +430,10 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const totalScore = Math.max(-100, Math.min(SCORE_MAX, totalRaw - deductions));
 
   const hasCritical = redFlags.some((f) => CRITICAL_RED_FLAGS.has(f.flag));
+  const material = hasMaterialThesis(components);
   let status;
-  if (totalScore >= SCORE_READY_TO_ADD && !hasCritical) status = "ready_to_add";
-  else if (totalScore >= SCORE_NEEDS_REVIEW && !hasCritical) status = "needs_review";
+  if (totalScore >= SCORE_READY_TO_ADD && !hasCritical && material) status = "ready_to_add";
+  else if (totalScore >= SCORE_NEEDS_REVIEW && !hasCritical && material) status = "needs_review";
   else status = "rejected";
 
   const statusLabel = status === "ready_to_add" ? "READY_TO_ADD"
@@ -469,27 +490,35 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   const candidates = Array.isArray(candidatesData?.candidates) ? candidatesData.candidates : [];
   if (candidates.length === 0) return { ok: true, scored: 0, message: "no_candidates" };
 
-  // 2. Filter to out-of-universe tickers (we don't want to "promote" tickers
-  //    we already trade) — uses SECTOR_MAP membership as the universe proxy.
+  // 2. Build the in-universe ticker set.
+  //
+  // SECTOR_MAP is keyed by TICKER → SECTOR_NAME (e.g. AAPL → "Information
+  // Technology"). So Object.keys() correctly returns the in-universe
+  // ticker symbols.
+  //
+  // 2026-05-29 — we no longer skip in-universe candidates. Tag them with
+  // `in_universe: true` so the UI can either filter them out or surface
+  // them as "strong screener signal on a ticker we already track". The
+  // user explicitly wants to see in-universe names like SNOW/LUNR when
+  // they ARE valid candidates, not have them silently dropped.
   const SectorMap = await import("../sector-mapping.js");
-  const universe = new Set(Object.keys(SectorMap.SECTOR_MAP).map((s) => s.toUpperCase()));
-  const outOfUniverse = candidates.filter((c) => {
-    const sym = String(c.ticker || "").toUpperCase();
-    return sym && !universe.has(sym);
-  });
-  if (outOfUniverse.length === 0) {
-    return { ok: true, scored: 0, message: "no_out_of_universe_candidates" };
-  }
+  const inUniverseSet = new Set(Object.keys(SectorMap.SECTOR_MAP).map((s) => s.toUpperCase()));
 
   // 3. Build "latest" snapshot per unique ticker (most recent appearance).
+  //    Score ALL candidates, regardless of universe membership.
   const latestBySym = {};
-  for (const c of outOfUniverse) {
+  for (const c of candidates) {
     const sym = String(c.ticker || "").toUpperCase();
+    if (!sym) continue;
     if (!latestBySym[sym] || (c.discovered_at || "") > (latestBySym[sym].discovered_at || "")) {
       latestBySym[sym] = c;
     }
   }
   const uniqueTickers = Object.keys(latestBySym);
+  const outOfUniverse = candidates.filter((c) => {
+    const sym = String(c.ticker || "").toUpperCase();
+    return sym && !inUniverseSet.has(sym);
+  });
 
   // 4. Load auxiliary data for scoring.
   const livePricesRaw = await KV.get("timed:prices");
@@ -521,9 +550,13 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   for (const sym of uniqueTickers) {
     try {
       const result = scoreCandidate(
-        sym, latestBySym[sym], outOfUniverse, themeActivityByName,
+        sym, latestBySym[sym], candidates, themeActivityByName,
         newsSummaries[sym], insiderSummaries[sym], macroSnapshot, coverageGapsSummary,
       );
+      result.in_universe = inUniverseSet.has(sym);
+      // Annotate signals payload so the UI can render the badge without
+      // re-checking SECTOR_MAP.
+      if (result.signals) result.signals.in_universe = result.in_universe;
       scoredResults.push(result);
     } catch (e) {
       console.warn(`[PROMOTION] score failed for ${sym}:`, String(e?.message || e).slice(0, 150));
@@ -576,7 +609,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   return {
     ok: true,
     computed_at: now,
-    universe_size: universe.size,
+    universe_size: inUniverseSet.size,
     screener_candidates: candidates.length,
     out_of_universe: outOfUniverse.length,
     unique_tickers_scored: uniqueTickers.length,
@@ -586,12 +619,12 @@ export async function rebuildPromotionQueue(env, opts = {}) {
       .filter((r) => r.status === "ready_to_add")
       .sort((a, b) => b.total_score - a.total_score)
       .slice(0, 5)
-      .map((r) => ({ ticker: r.ticker, score: r.total_score, thesis: r.thesis_text })),
+      .map((r) => ({ ticker: r.ticker, score: r.total_score, in_universe: r.in_universe, thesis: r.thesis_text })),
     top_5_review: scoredResults
       .filter((r) => r.status === "needs_review")
       .sort((a, b) => b.total_score - a.total_score)
       .slice(0, 5)
-      .map((r) => ({ ticker: r.ticker, score: r.total_score, thesis: r.thesis_text })),
+      .map((r) => ({ ticker: r.ticker, score: r.total_score, in_universe: r.in_universe, thesis: r.thesis_text })),
   };
 }
 
@@ -599,7 +632,12 @@ export async function rebuildPromotionQueue(env, opts = {}) {
 export async function loadPromotionQueueRows(env, opts = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
-  const status = String(opts.status || "").trim();
+  // 2026-05-29 — accept "any" / "all" / "*" / empty as "no filter".
+  // Previously a literal WHERE status='any' matched zero rows when the
+  // admin UI's "Show all" tab requested the unfiltered view.
+  const rawStatus = String(opts.status || "").trim().toLowerCase();
+  const wildcards = new Set(["", "any", "all", "*"]);
+  const status = wildcards.has(rawStatus) ? null : rawStatus;
   const limit = Math.max(1, Math.min(500, Number(opts.limit) || 100));
   const where = [];
   const params = [];
