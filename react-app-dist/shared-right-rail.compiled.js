@@ -4229,7 +4229,7 @@
               scrollbarWidth: "none"
             }
           }, (() => {
-            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
+            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Setup"], ["INVESTOR", "Investor"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
             const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
             return tabs.map(([key, label]) => React.createElement("button", {
               key: key,
@@ -13858,4 +13858,4 @@
   };
 })();
 
-// cache-bust:1780030167675:114229655
+// cache-bust:1780031597876:693157312
