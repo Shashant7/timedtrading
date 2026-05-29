@@ -1298,6 +1298,28 @@
                 <div class="anno-text"><strong>Direction chip</strong> &mdash; <em>LONG</em> = buying shares, <em>SHORT</em> = selling short. When no trade is open this shows the bias (<em>BULL</em>/<em>BEAR</em>).</div>
               </div>
               <div class="anno-row">
+                <div class="anno-visual">
+                  <span class="v-chip up">TRADER &middot; LONG</span>
+                  <span class="v-chip" style="background:rgba(96,165,250,0.12);color:#60a5fa;border-color:rgba(96,165,250,0.30);margin-left:4px">INVESTOR &middot; CORE HOLD</span>
+                </div>
+                <div class="anno-text">
+                  <strong>Dual bias chip (Right Rail header) &mdash; 2026-05-29</strong> &mdash;
+                  Active Trader and Investor mode classify a ticker on different horizons and
+                  occasionally disagree. The rail header now shows BOTH:
+                  <ul style="margin:6px 0 0 1.2em;padding:0;font-size:0.95em">
+                    <li><strong>TRADER &middot; LONG / SHORT</strong> &mdash; intraday-to-multi-day call.
+                      Drives the model's entry/exit decisions in Active Trader mode.</li>
+                    <li><strong>INVESTOR &middot; ACCUMULATE / CORE HOLD / WATCH / REDUCE / RESEARCH / AVOID</strong>
+                      &mdash; multi-week-to-multi-month classification. Maps directly to the Investor
+                      Kanban lanes.</li>
+                  </ul>
+                  When the two agree, conviction is highest. When they disagree (e.g. TRADER:SHORT
+                  +  INVESTOR:ACCUMULATE on a counter-trend setup against a long-term uptrend),
+                  the divergence itself is the signal &mdash; treat the trader call as a tactical
+                  trade, not an investor thesis change.
+                </div>
+              </div>
+              <div class="anno-row">
                 <div class="anno-visual"><span class="v-dot"></span></div>
                 <div class="anno-text"><strong>TT Selected dot</strong> &mdash; this ticker is in the curated TT Universe (not a user-added name).</div>
               </div>

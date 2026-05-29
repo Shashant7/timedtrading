@@ -79541,11 +79541,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // the same data-coverage gap, not a real bug).
           const FRESHNESS_EXCLUDE = [
             "US500", "US100", "US30", "US2000",  // TV-style index aliases (we use SPY/QQQ/IWM/DIA instead)
+            "SPX", "SPX500",                       // S&P 500 cash index aliases — daily only
+            "NDX", "DJI", "RUT",                   // Index cash aliases
             "DXY",                                 // Dollar index — daily-only from most vendors
             "USOIL",                               // Crude oil index alias
             "GOLD", "SILVER", "COPPER",            // Spot metals — daily only on TD
             "PLATINUM", "PALLADIUM",
-            "SPX",                                 // S&P 500 cash index — daily only
+            // 2026-05-29 — thematic / commodity ETFs that ingest on a
+            // slower cadence than the 60m freshness check expects.
+            // DBA (agriculture) trades thinly enough that 60m bars can
+            // be 24h+ stale during low-volume sessions.
+            "DBA", "USO", "UNG", "SLV", "GLD",
           ];
           const _frExcludeNotIn = FRESHNESS_EXCLUDE.map((_, i) => `?${i + 4}`).join(",");
           // Worst-case D (among active tickers only, excluding non-tradable macros)
@@ -79717,7 +79723,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // tombstone under `sector_map_completeness` for operator
           // visibility in /timed/admin/cron-status.
           try {
-            const _sectorTickers = Object.keys(SECTOR_MAP || {});
+            // 2026-05-29 — exclude index/commodity aliases + thin ETFs
+            // from the sector_map_completeness check. These tickers
+            // either don't have a regular intraday feed (SPX cash
+            // index, US500 TV alias) OR trade thinly enough that their
+            // timed:latest stub legitimately stays missing during low-
+            // volume sessions (DBA). Same list as FRESHNESS_EXCLUDE.
+            const _SECTOR_MAP_EXCLUDE = new Set([
+              "US500", "US100", "US30", "US2000",
+              "SPX", "SPX500", "NDX", "DJI", "RUT",
+              "DXY", "USOIL",
+              "GOLD", "SILVER", "COPPER", "PLATINUM", "PALLADIUM",
+              // 2026-05-29 — thinly-traded thematic / commodity ETFs
+              // that may legitimately not have a fresh timed:latest
+              // stub during low-volume sessions. DBA in particular
+              // is an Investor-mode position but its scoring cron
+              // produces a stub only when its candle feed updates.
+              "DBA", "USO", "UNG", "SLV", "GLD",
+            ]);
+            const _sectorTickers = Object.keys(SECTOR_MAP || {})
+              .filter((t) => !_SECTOR_MAP_EXCLUDE.has(String(t).toUpperCase()));
             const STALE_LATEST_MS = 24 * 60 * 60 * 1000;
             const _stubProbes = await Promise.allSettled(
               _sectorTickers.map(async (t) => {

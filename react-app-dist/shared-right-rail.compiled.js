@@ -4707,8 +4707,94 @@
             }
           }, tickerSymbol), v2Dir && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${v2DirChip}`,
-            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position` : `Model bias: ${v2Dir}. No active trade — use level levels as planning anchors.`
-          }, _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : `${v2Dir} BIAS`), isTTSel && React.createElement("span", {
+            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir), (() => {
+            const invStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+            if (!invStage || invStage === "—") return null;
+            const INV_LANE_META = {
+              accumulate: {
+                label: "ACCUMULATE",
+                chip: "ds-chip--up",
+                title: "Investor: Strong setup + favorable entry. Build a starter position."
+              },
+              core_hold: {
+                label: "CORE HOLD",
+                chip: "ds-chip--solid",
+                title: "Investor: Hold the core; add on meaningful pullbacks.",
+                style: {
+                  color: "#60a5fa",
+                  borderColor: "rgba(96,165,250,0.30)",
+                  background: "rgba(96,165,250,0.10)"
+                }
+              },
+              watch: {
+                label: "WATCH",
+                chip: "ds-chip--solid",
+                title: "Investor: Mixed signals — hold; don't add.",
+                style: {
+                  color: "#f5c25c",
+                  borderColor: "rgba(245,194,92,0.30)",
+                  background: "rgba(245,194,92,0.10)"
+                }
+              },
+              reduce: {
+                label: "REDUCE",
+                chip: "ds-chip--dn",
+                title: "Investor: Thesis weakening — trim into strength."
+              },
+              research_on_watch: {
+                label: "ON WATCH",
+                chip: "ds-chip--solid",
+                title: "Investor: On the radar — not actionable yet.",
+                style: {
+                  color: "#a78bfa",
+                  borderColor: "rgba(167,139,250,0.30)",
+                  background: "rgba(167,139,250,0.10)"
+                }
+              },
+              research_low: {
+                label: "LOW CONV.",
+                chip: "ds-chip--solid",
+                title: "Investor: Low conviction — pass for now.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.30)",
+                  background: "rgba(156,163,175,0.10)"
+                }
+              },
+              research_avoid: {
+                label: "AVOID",
+                chip: "ds-chip--dn",
+                title: "Investor: Multiple red flags — skip."
+              },
+              research: {
+                label: "RESEARCH",
+                chip: "ds-chip--solid",
+                title: "Investor: Under evaluation.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.30)",
+                  background: "rgba(156,163,175,0.10)"
+                }
+              },
+              exited: {
+                label: "EXITED",
+                chip: "ds-chip--solid",
+                title: "Investor: Position closed; monitor for re-entry.",
+                style: {
+                  color: "#9ca3af",
+                  borderColor: "rgba(156,163,175,0.20)",
+                  background: "rgba(156,163,175,0.08)"
+                }
+              }
+            };
+            const meta = INV_LANE_META[invStage] || INV_LANE_META.watch;
+            return React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${meta.chip}`,
+              style: meta.style,
+              title: meta.title
+            }, "INVESTOR \xB7 ", meta.label);
+          })(), isTTSel && React.createElement("span", {
             title: "TT Selected",
             style: {
               width: 6,
@@ -14616,4 +14702,4 @@
   };
 })();
 
-// cache-bust:1780060553921:659832359
+// cache-bust:1780062691058:93476477
