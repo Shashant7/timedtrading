@@ -8188,22 +8188,70 @@
                         ) : (
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                             {ledgerTrades.slice(0, 10).map((t, i) => {
-                              const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
-                              const pnlAbs = Number(t.pnl) || 0;
+                              const pnlPct = Number(t.pnl_pct ?? t.pnlPct);
+                              const pnlAbs = Number(t.pnl);
                               const isWin = String(t.status || "").toUpperCase() === "WIN";
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
                               const isInvestor = t._source_mode === "investor";
-                              // For investor lots, the row is a single BUY/SELL/DCA, not a closed trade.
                               const action = String(t.action || "").toUpperCase();
-                              const investorLabel = isInvestor
-                                ? (action === "SELL" ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY")
-                                : null;
-                              const showPnl = !isInvestor || action === "SELL";
+                              const isSell = isInvestor && action === "SELL";
+                              const isBuy = isInvestor && (action === "BUY" || action === "DCA_BUY");
+                              const investorLabel = isSell ? "SELL"
+                                : action === "DCA_BUY" ? "DCA"
+                                : "BUY";
+                              const lotShares = Number(t.shares);
+                              // 2026-05-29 — B7 fix. Lot-specific render:
+                              //   BUY/DCA → "X.XX sh @ $price"  (no P&L; it's an
+                              //              entry, P&L is unrealized until sold)
+                              //   SELL    → "X.XX sh · +/-X.XX% realized"
+                              //              (the lot's own pnl_pct + abs $)
+                              //   trader  → "+/-X.XX%" closing pct
+                              // Previously: BUY rows showed nothing useful;
+                              // SELL rows showed only the pct which could be
+                              // confused with the position aggregate.
+                              const entryPx = Number(t.entry_price ?? t.price);
+                              let rightSlot;
+                              if (isBuy) {
+                                rightSlot = (
+                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
+                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                    {Number.isFinite(entryPx) && entryPx > 0 && (
+                                      <span style={{ color: "var(--ds-text-faint)", marginLeft: 4 }}>@ ${entryPx.toFixed(2)}</span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (isSell) {
+                                const validPct = Number.isFinite(pnlPct);
+                                rightSlot = (
+                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
+                                      {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                    </span>
+                                    {validPct && (
+                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}% realized
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (Number.isFinite(pnlPct)) {
+                                rightSlot = (
+                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                  </span>
+                                );
+                              } else {
+                                rightSlot = (
+                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
+                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                  </span>
+                                );
+                              }
                               return (
                                 <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
                                   title={isInvestor
-                                    ? `Investor lot: ${action} ${t.shares ? Number(t.shares).toFixed(2) + " sh" : ""}${t.reason ? " — " + t.reason : ""}`
+                                    ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(entryPx) ? entryPx.toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${t.reason ? " — " + t.reason : ""}`
                                     : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
@@ -8223,7 +8271,12 @@
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
                                     {isInvestor ? (
-                                      <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", background: "rgba(139,92,246,0.14)", color: "#c4b5fd", borderColor: "rgba(139,92,246,0.30)" }}>
+                                      <span className="ds-chip ds-chip--sm" style={{
+                                        fontFamily: "var(--tt-font-mono)",
+                                        background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
+                                        color: isSell ? "#fda4af" : "#86efac",
+                                        borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
+                                      }}>
                                         INV {investorLabel}
                                       </span>
                                     ) : (
@@ -8231,15 +8284,7 @@
                                     )}
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
                                   </div>
-                                  {showPnl ? (
-                                    <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                    </span>
-                                  ) : (
-                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: "11px" }}>
-                                      {Number(t.shares) > 0 ? Number(t.shares).toFixed(1) + " sh" : "—"}
-                                    </span>
-                                  )}
+                                  {rightSlot}
                                 </div>
                               );
                             })}
