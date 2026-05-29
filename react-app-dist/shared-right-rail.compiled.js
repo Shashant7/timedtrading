@@ -8822,7 +8822,155 @@
                 color: "var(--ds-color-up, #34d399)"
               }
             }, fmtMoney(t.value))))));
-          })()), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
+          })()), C.social?.has_data && (() => {
+            const S = C.social;
+            const hasST = (S.message_count_24h || 0) > 0;
+            const hasRD = S.reddit && (S.reddit.mentions_24h || 0) > 0;
+            if (!hasST && !hasRD) return null;
+            const spike = S.reddit?.spike_ratio;
+            const spikeStr = spike != null && Number.isFinite(spike) && spike < 100 ? spike >= 1 ? `${spike.toFixed(1)}x` : `${(spike * 100).toFixed(0)}%` : null;
+            const bullPct = S.bull_ratio_pct;
+            const bullColor = bullPct == null ? "var(--ds-text-muted)" : bullPct >= 70 ? "var(--ds-color-up, #34d399)" : bullPct <= 30 ? "var(--ds-color-down, #f87171)" : "var(--ds-text-body)";
+            return React.createElement(Panel, {
+              title: "\uD83D\uDCE3 Social Buzz",
+              action: React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, hasST ? "StockTwits" : "", hasST && hasRD ? " · " : "", hasRD ? "Reddit" : "")
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: "var(--ds-space-2)",
+                marginBottom: hasST && S.top_post_body ? "var(--ds-space-3)" : 0
+              }
+            }, hasST && React.createElement("div", {
+              style: {
+                flex: 1,
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "STOCKTWITS \xB7 24h"), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                marginTop: 2,
+                fontSize: "var(--ds-fs-h4, 16px)",
+                color: bullColor
+              }
+            }, bullPct != null ? `${bullPct}%` : "—", React.createElement("span", {
+              style: {
+                fontSize: 11,
+                fontWeight: 600,
+                marginLeft: 3,
+                color: "var(--ds-text-muted)"
+              }
+            }, "bull")), React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                marginTop: 2
+              }
+            }, S.message_count_24h || 0, " posts", S.bullish_count > 0 || S.bearish_count > 0 ? ` · ${S.bullish_count || 0}↑ / ${S.bearish_count || 0}↓` : "", S.watchlist_count > 0 && ` · ${Math.round(S.watchlist_count / 1000)}k watching`)), hasRD && React.createElement("div", {
+              style: {
+                flex: 1,
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "REDDIT \xB7 24h"), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontWeight: 700,
+                marginTop: 2,
+                fontSize: "var(--ds-fs-h4, 16px)",
+                color: spike != null && spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
+              }
+            }, S.reddit.mentions_24h || 0, React.createElement("span", {
+              style: {
+                fontSize: 11,
+                fontWeight: 600,
+                marginLeft: 3,
+                color: "var(--ds-text-muted)"
+              }
+            }, "posts")), React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                marginTop: 2
+              }
+            }, S.reddit.rank ? `rank #${S.reddit.rank}` : "unranked", spikeStr && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("span", {
+              style: {
+                color: spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)",
+                fontWeight: 700
+              }
+            }, spikeStr, " vs prev")), S.reddit.upvotes_24h > 0 && ` · ${S.reddit.upvotes_24h.toLocaleString()} upvotes`))), hasST && S.top_post_body && React.createElement("div", {
+              style: {
+                padding: "var(--ds-space-2)",
+                background: "rgba(52,211,153,0.04)",
+                border: "1px solid rgba(52,211,153,0.15)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em",
+                marginBottom: 4
+              }
+            }, "TOP POST \xB7 STOCKTWITS"), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                lineHeight: 1.4
+              }
+            }, S.top_post_body.length > 220 ? S.top_post_body.slice(0, 220) + "…" : S.top_post_body), S.top_post_user && React.createElement("div", {
+              style: {
+                fontSize: 9,
+                color: "var(--ds-text-muted)",
+                marginTop: 4
+              }
+            }, "@", S.top_post_user, S.top_post_url && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("a", {
+              href: S.top_post_url,
+              target: "_blank",
+              rel: "noopener",
+              style: {
+                color: "var(--ds-text-muted)",
+                textDecoration: "underline"
+              }
+            }, "view on StockTwits \u2197")))), hasRD && spike >= 2 && React.createElement("div", {
+              style: {
+                marginTop: "var(--ds-space-2)",
+                padding: "var(--ds-space-2)",
+                background: "rgba(245, 194, 92, 0.06)",
+                border: "1px solid rgba(245, 194, 92, 0.25)",
+                borderRadius: "var(--ds-radius-md)",
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)"
+              }
+            }, React.createElement("span", {
+              style: {
+                fontWeight: 700,
+                color: "var(--ds-color-accent, #f5c25c)"
+              }
+            }, "\u26A1 Reddit mention spike:"), " ", S.reddit.mentions_24h, " posts today vs ", S.reddit.mentions_prev || "~0", " yesterday (", spikeStr, ") \u2014 early trader-interest signal."));
+          })(), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
             title: "\uD83C\uDFAD Theme Rotation",
             action: React.createElement("span", {
               className: "ds-chip ds-chip--sm"
@@ -13710,4 +13858,4 @@
   };
 })();
 
-// cache-bust:1780029502306:387013298
+// cache-bust:1780030167675:114229655
