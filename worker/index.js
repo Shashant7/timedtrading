@@ -1279,6 +1279,12 @@ const ROUTES = [
   // See tasks/2026-05-28-cio-shadow-to-live-audit.md for the full gate
   // definitions + recommended phased rollout.
   ["GET", "/timed/admin/ai-cio/go-live-readiness", "GET /timed/admin/ai-cio/go-live-readiness"],
+  // 2026-05-29 — Manual investor cron debug. Runs the same internal
+  // self-fetch chain (compute / rebalance / catchup) the hourly cron
+  // does and returns the captured status + body so the operator can
+  // diagnose why the cron has been silently failing for 15+ days
+  // without waiting for the next 9-AM-ET hourly tick.
+  ["POST", "/timed/admin/investor-cron-debug", "POST /timed/admin/investor-cron-debug"],
   // 2026-05-28 — Backfill trade_outcome on existing CIO decisions by
   // joining against the trades table on trade_id. Without this,
   // post-fix decisions never get outcomes attributed (the live writer
@@ -54482,6 +54488,102 @@ export default {
             failed: _failed,
             note: "Backfilled trade_outcome and trade_pnl_pct on ai_cio_decisions rows where the matching trade is closed. Run again after each batch of trades closes to keep accuracy report fresh.",
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/investor-cron-debug
+      //
+      // Runs the same internal self-fetch chain that the hourly
+      // investor cron does (compute + auto-rebalance + catchup) and
+      // returns the captured HTTP status / body / timing of each step.
+      // Lets the operator diagnose why the cron has been silently
+      // failing for 15+ days without waiting for the next hourly tick.
+      //
+      // 2026-05-29 — added when the user reported no investor entries/
+      // trims/exits in 14 days. Earlier diagnosis showed:
+      //   - timed:investor:computed-at was 15d old
+      //   - cron handler tombstone NULL (handler entering successfully)
+      //   - manual external curl to /timed/investor/compute works fine
+      //   - hypothesis: worker-self-fetch via env.WORKER_URL fallback
+      //     is hitting auth / loop-detection issues internally
+      //
+      // This endpoint runs the same fetch chain so we can see the
+      // actual status code / response body the cron would see.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/investor-cron-debug") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const _key = env?.TIMED_API_KEY ? `?key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          const out = {
+            ok: true,
+            self_url: selfUrl,
+            timed_api_key_set: !!env?.TIMED_API_KEY,
+            timed_api_key_len: env?.TIMED_API_KEY ? env.TIMED_API_KEY.length : 0,
+            steps: [],
+          };
+          const _runStep = async (name, path, init = {}) => {
+            const t0 = Date.now();
+            // 2026-05-29 — append key with the correct separator. _key
+            // starts with `?` but if `path` already contains a `?` we
+            // need `&` instead (e.g. /auto-rebalance?trims=skip).
+            const _hasQuery = path.includes("?");
+            const _keyJoined = env?.TIMED_API_KEY
+              ? `${_hasQuery ? "&" : "?"}key=${encodeURIComponent(env.TIMED_API_KEY)}`
+              : "";
+            const url = `${selfUrl}${path}${_keyJoined}`;
+            const step = { name, path, url_redacted: url.replace(/key=[^&]+/, "key=***"), status: null, ok: null, elapsed_ms: null, body_preview: null, error: null };
+            try {
+              const r = await fetch(url, init);
+              step.status = r.status;
+              step.ok = r.ok;
+              const text = await r.text().catch(() => "");
+              step.body_preview = text.slice(0, 500);
+              try {
+                const j = JSON.parse(text);
+                step.body_ok_field = j?.ok;
+                step.body_error_field = j?.error || null;
+                step.body_summary = {
+                  tickers: j?.tickers,
+                  regime: j?.marketHealth?.regime,
+                  newPositions: j?.newPositions,
+                  addedTo: j?.addedTo,
+                  reducedCount: j?.reducedCount,
+                };
+              } catch (_) {}
+            } catch (e) {
+              step.error = String(e?.message || e).slice(0, 200);
+            }
+            step.elapsed_ms = Date.now() - t0;
+            out.steps.push(step);
+            return step;
+          };
+
+          // Step 1: compute
+          await _runStep("compute", "/timed/investor/compute", { method: "POST" });
+          // Step 2: auto-rebalance (full cycle — adds + trims)
+          await _runStep("auto-rebalance", "/timed/investor/auto-rebalance", { method: "POST" });
+          // Step 3: catch-up (adds only)
+          await _runStep("auto-rebalance-catchup", "/timed/investor/auto-rebalance?trims=skip", { method: "POST" });
+
+          // Also probe the underlying KV freshness to confirm whether
+          // the cron's compute call actually updated the cache.
+          try {
+            const KV = env?.KV_TIMED;
+            if (KV) {
+              const computedAt = await kvGetJSON(KV, "timed:investor:computed-at");
+              out.kv_computed_at = computedAt;
+              out.kv_computed_at_age_ms = (typeof computedAt === "number" || typeof computedAt === "string")
+                ? (Date.now() - Number(computedAt))
+                : null;
+            }
+          } catch (_) {}
+
+          return sendJSON(out, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
