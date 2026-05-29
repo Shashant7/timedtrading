@@ -7973,8 +7973,70 @@
                       const INVESTOR_STAGE_LABELS = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conviction", research_avoid: "Avoid", research: "Research", exited: "Exited" };
                       const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30", research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", research_avoid: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", research: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
 
+                      // 2026-05-29 — LANE GUIDANCE card per user ask:
+                      // "make sure it maps to the Kanban lanes for Investor
+                      // Mode so the language and guidance are aligned."
+                      // Translates the investor_stage into an explicit
+                      // action with position context. Renders at the top
+                      // of the Investor tab as the headline takeaway.
+                      const LANE_ACTION = {
+                        accumulate: {
+                          label: "ACCUMULATE",
+                          color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "#00c853",
+                          action: "Buy in 2-3 tranches",
+                          guidance: "Strong setup with a favorable entry zone. Build a starter position now, scale in over the next 2-4 weeks. Target full allocation if signals hold.",
+                        },
+                        core_hold: {
+                          label: "CORE HOLD",
+                          color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "#3b82f6",
+                          action: "Hold and DCA on dips",
+                          guidance: "Thesis intact. No action needed — let the position compound. Add on meaningful pullbacks if the buy-zone signal triggers.",
+                        },
+                        watch: {
+                          label: "WATCH",
+                          color: "#fbbf24", bg: "rgba(251,191,36,0.10)", border: "#f59e0b",
+                          action: "Hold; monitor signals",
+                          guidance: "Mixed signals. Don't add. If you don't own it yet, wait for the Accumulate stage. If you do, hold but tighten your invalidation trigger.",
+                        },
+                        reduce: {
+                          label: "REDUCE",
+                          color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "#ef4444",
+                          action: "Trim into strength",
+                          guidance: "Thesis weakening. Trim 25-50% into strength now, hold the remainder until invalidation. Free up capital for Accumulate-stage names.",
+                        },
+                        research_on_watch: {
+                          label: "RESEARCH · ON WATCH",
+                          color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "#8b5cf6",
+                          action: "Research only",
+                          guidance: "On the radar but not actionable. Track for a few weeks to see if it earns an Accumulate stage.",
+                        },
+                        research_low: {
+                          label: "RESEARCH · LOW CONVICTION",
+                          color: "#a78bfa", bg: "rgba(167,139,250,0.08)", border: "#7c3aed",
+                          action: "Pass",
+                          guidance: "Low score, no clear setup. Not actionable today.",
+                        },
+                        research_avoid: {
+                          label: "AVOID",
+                          color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "#6b7280",
+                          action: "Skip",
+                          guidance: "Weak across the board. The system advises caution — better risk/reward elsewhere.",
+                        },
+                        exited: {
+                          label: "EXITED",
+                          color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "#6b7280",
+                          action: "Closed",
+                          guidance: "Position closed. Monitor for re-entry conditions if the thesis improves.",
+                        },
+                      };
+                      const lane = LANE_ACTION[d.stage] || LANE_ACTION.research_avoid;
+                      const pos = d.position || null;
+                      const owned = pos?.owned;
+                      const unrlPct = Number(pos?.unrealized_pct);
+
                       return (
                         <div className="space-y-5">
+                          {/* Header — score on right, ticker on left */}
                           <div>
                             <div className="flex items-center justify-between mb-1">
                               <div>
@@ -7988,6 +8050,72 @@
                               </div>
                             </div>
                             <div className="text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed">{summary}</div>
+                          </div>
+
+                          {/* LANE GUIDANCE — explicit kanban-lane mapping with action + position context */}
+                          <div className="rounded-xl p-3.5 border" style={{ background: lane.bg, borderColor: lane.border + "55" }}>
+                            <div className="flex items-center justify-between mb-1.5 gap-3">
+                              <span
+                                className="text-[10px] font-bold tracking-[0.14em] px-2 py-0.5 rounded"
+                                style={{ color: lane.color, background: lane.bg, border: `1px solid ${lane.color}55` }}
+                              >
+                                {lane.label}
+                              </span>
+                              <span className="text-[12px] font-semibold" style={{ color: lane.color }}>{lane.action}</span>
+                            </div>
+                            <div className="text-[12px] text-[#d1d5db] leading-relaxed">
+                              {lane.guidance}
+                            </div>
+                            {d.stageReason && (
+                              <div className="text-[10px] text-[#6b7280] mt-1.5 italic">
+                                Why this stage: {String(d.stageReason).replace(/_/g, " ")}
+                              </div>
+                            )}
+                            {/* Position-aware section — visible when the user owns this name */}
+                            {owned && Number(pos?.shares) > 0 && (
+                              <div className="mt-3 pt-3 border-t" style={{ borderColor: lane.color + "30" }}>
+                                <div className="text-[10px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1">Your Position</div>
+                                <div className="text-[12px] text-[#d1d5db] flex items-baseline gap-3 flex-wrap">
+                                  <span><span className="text-[#6b7280]">Shares:</span> <span className="font-mono">{Number(pos.shares).toFixed(2)}</span></span>
+                                  <span><span className="text-[#6b7280]">Avg entry:</span> <span className="font-mono">${Number(pos.avg_entry).toFixed(2)}</span></span>
+                                  <span><span className="text-[#6b7280]">Cost basis:</span> <span className="font-mono">${Number(pos.cost_basis).toFixed(0)}</span></span>
+                                  {Number.isFinite(unrlPct) && (
+                                    <span>
+                                      <span className="text-[#6b7280]">Unrealized:</span>{" "}
+                                      <span className="font-mono font-semibold" style={{ color: unrlPct >= 0 ? "#34d399" : "#f87171" }}>
+                                        {unrlPct >= 0 ? "+" : ""}{unrlPct.toFixed(2)}%
+                                      </span>
+                                    </span>
+                                  )}
+                                </div>
+                                {pos.last_action_ts && pos.last_action_type && (
+                                  <div className="text-[10px] text-[#6b7280] mt-1">
+                                    Last action: <span className="text-[#9ca3af]">{pos.last_action_type}</span> {Number(pos.last_action_shares).toFixed(2)} shares
+                                    {" "}{new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* Buy-zone hint — visible when accumZone.inZone */}
+                            {d.accumZone?.inZone && (
+                              <div className="mt-3 pt-3 border-t" style={{ borderColor: lane.color + "30" }}>
+                                <div className="text-[10px] tracking-wider font-semibold uppercase text-[#34d399] mb-1">
+                                  🎯 Buy Zone Active ({d.accumZone.confidence}% confidence)
+                                </div>
+                                <div className="text-[11px] text-[#d1d5db] leading-relaxed">
+                                  The stock pulled back to a favorable price without breaking its uptrend. Good entry window for the next tranche.
+                                </div>
+                                {Array.isArray(d.accumZone.signals) && d.accumZone.signals.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                    {d.accumZone.signals.map((s, i) => (
+                                      <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[#00c853]/10 text-[#34d399]/90 border border-[#00c853]/20">
+                                        {SIGNAL_LABELS[s] || String(s).replace(/_/g, " ")}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
 
                           <SignalRadar
