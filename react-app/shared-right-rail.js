@@ -7358,6 +7358,96 @@
                           })()}
                         </Panel>
 
+                        {/* ── 2.5. Social Buzz — StockTwits + Reddit ──── 2026-05-29 ── */}
+                        {/*
+                          Renders the social block added to /timed/discovery/
+                          ticker-catalysts in PR #354 (StockTwits) and PR #355
+                          (Reddit/Apewisdom). The payload shape is:
+                            social: {
+                              has_data: bool,
+                              message_count_24h, bullish_count, bearish_count,
+                              bull_ratio_pct, watchlist_count,
+                              top_post_body, top_post_user, top_post_url,
+                              reddit: { rank, mentions_24h, mentions_prev,
+                                        spike_ratio, upvotes_24h } | null
+                            }
+                          We show both sources side-by-side as small KPI tiles
+                          plus the top post and the Reddit spike alert when
+                          present. Hidden entirely if neither source has data.
+                        */}
+                        {C.social?.has_data && (() => {
+                          const S = C.social;
+                          const hasST = (S.message_count_24h || 0) > 0;
+                          const hasRD = S.reddit && (S.reddit.mentions_24h || 0) > 0;
+                          if (!hasST && !hasRD) return null;
+                          const spike = S.reddit?.spike_ratio;
+                          const spikeStr = spike != null && Number.isFinite(spike) && spike < 100
+                            ? (spike >= 1 ? `${spike.toFixed(1)}x` : `${(spike * 100).toFixed(0)}%`)
+                            : null;
+                          const bullPct = S.bull_ratio_pct;
+                          const bullColor = bullPct == null ? "var(--ds-text-muted)"
+                            : bullPct >= 70 ? "var(--ds-color-up, #34d399)"
+                            : bullPct <= 30 ? "var(--ds-color-down, #f87171)"
+                            : "var(--ds-text-body)";
+                          return (
+                            <Panel title="📣 Social Buzz" action={
+                              <span className="ds-chip ds-chip--sm">{hasST ? "StockTwits" : ""}{hasST && hasRD ? " · " : ""}{hasRD ? "Reddit" : ""}</span>
+                            }>
+                              <div style={{ display: "flex", gap: "var(--ds-space-2)", marginBottom: hasST && S.top_post_body ? "var(--ds-space-3)" : 0 }}>
+                                {hasST && (
+                                  <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>STOCKTWITS · 24h</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 16px)", color: bullColor }}>
+                                      {bullPct != null ? `${bullPct}%` : "—"}<span style={{ fontSize: 11, fontWeight: 600, marginLeft: 3, color: "var(--ds-text-muted)" }}>bull</span>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                      {S.message_count_24h || 0} posts
+                                      {S.bullish_count > 0 || S.bearish_count > 0
+                                        ? ` · ${S.bullish_count || 0}↑ / ${S.bearish_count || 0}↓` : ""}
+                                      {S.watchlist_count > 0 && ` · ${Math.round(S.watchlist_count / 1000)}k watching`}
+                                    </div>
+                                  </div>
+                                )}
+                                {hasRD && (
+                                  <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>REDDIT · 24h</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 16px)", color: spike != null && spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)" }}>
+                                      {S.reddit.mentions_24h || 0}<span style={{ fontSize: 11, fontWeight: 600, marginLeft: 3, color: "var(--ds-text-muted)" }}>posts</span>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                      {S.reddit.rank ? `rank #${S.reddit.rank}` : "unranked"}
+                                      {spikeStr && <> · <span style={{ color: spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)", fontWeight: 700 }}>{spikeStr} vs prev</span></>}
+                                      {S.reddit.upvotes_24h > 0 && ` · ${S.reddit.upvotes_24h.toLocaleString()} upvotes`}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              {hasST && S.top_post_body && (
+                                <div style={{ padding: "var(--ds-space-2)", background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)", borderRadius: "var(--ds-radius-md)" }}>
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>TOP POST · STOCKTWITS</div>
+                                  <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", lineHeight: 1.4 }}>
+                                    {S.top_post_body.length > 220 ? S.top_post_body.slice(0, 220) + "…" : S.top_post_body}
+                                  </div>
+                                  {S.top_post_user && (
+                                    <div style={{ fontSize: 9, color: "var(--ds-text-muted)", marginTop: 4 }}>
+                                      @{S.top_post_user}
+                                      {S.top_post_url && (
+                                        <> · <a href={S.top_post_url} target="_blank" rel="noopener" style={{ color: "var(--ds-text-muted)", textDecoration: "underline" }}>view on StockTwits ↗</a></>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {hasRD && spike >= 2 && (
+                                <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245, 194, 92, 0.06)", border: "1px solid rgba(245, 194, 92, 0.25)", borderRadius: "var(--ds-radius-md)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)" }}>
+                                  <span style={{ fontWeight: 700, color: "var(--ds-color-accent, #f5c25c)" }}>⚡ Reddit mention spike:</span>{" "}
+                                  {S.reddit.mentions_24h} posts today vs {S.reddit.mentions_prev || "~0"} yesterday ({spikeStr}) — early trader-interest signal.
+                                </div>
+                              )}
+                            </Panel>
+                          );
+                        })()}
+
                         {/* ── 3. Theme Rotation ─────────────────────────── */}
                         {Array.isArray(C.themes) && C.themes.length > 0 && (
                           <Panel title="🎭 Theme Rotation" action={
