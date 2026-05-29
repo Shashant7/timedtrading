@@ -1434,6 +1434,11 @@ const ROUTES = [
   ["GET",  "/timed/admin/discovery/promotion-queue",      "GET /timed/admin/discovery/promotion-queue"],
   ["POST", "/timed/admin/discovery/promotion-queue/rebuild","POST /timed/admin/discovery/promotion-queue/rebuild"],
   ["POST", "/timed/admin/discovery/promotion-queue/decide","POST /timed/admin/discovery/promotion-queue/decide"],
+  // 2026-05-29 — Manual StockTwits social fetch for the operator + a
+  // single-ticker preview that returns the full snapshot (used by the
+  // Promotion Queue UI for "view buzz" / right-rail Catalysts tab).
+  ["POST", "/timed/admin/discovery/social/fetch",         "POST /timed/admin/discovery/social/fetch"],
+  ["GET",  "/timed/admin/discovery/social",               "GET /timed/admin/discovery/social"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -67509,6 +67514,57 @@ export default {
         }
       }
 
+      // 2026-05-29 — POST /timed/admin/discovery/social/fetch
+      // Manually trigger a StockTwits fetch for explicit tickers OR
+      // the current open-position + screener-candidate set. Useful when
+      // the operator wants to refresh buzz signal between daily crons.
+      // Body: { "tickers": ["SNOW", "LUNR"] }  OR  no body = default set.
+      if (routeKey === "POST /timed/admin/discovery/social/fetch") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const SocialTracker = await import("./discovery/social-tracker.js");
+          let tickers = [];
+          try {
+            const body = await req.json();
+            if (Array.isArray(body?.tickers)) tickers = body.tickers;
+          } catch (_) { /* no body, use default set */ }
+          if (tickers.length === 0) {
+            const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+            const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+            const screenerRaw = await KV.get("timed:screener:candidates");
+            const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+            const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 50);
+            tickers = [...new Set([...openTickers, ...screenerTickers])].slice(0, 60);
+          }
+          const result = await SocialTracker.fetchSocialDataForTickers(env, tickers, { delayMs: 200 });
+          return sendJSON({ ok: true, ...result }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-05-29 — GET /timed/admin/discovery/social?ticker=SYM
+      // Returns the latest social snapshot for one ticker (or a batch
+      // if comma-separated). Composes the UI for the right-rail
+      // Catalysts tab and the Promotion Queue "view buzz" action.
+      if (routeKey === "GET /timed/admin/discovery/social") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const SocialTracker = await import("./discovery/social-tracker.js");
+          const tickersParam = String(url.searchParams.get("ticker") || "").trim();
+          if (!tickersParam) {
+            return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+          }
+          const tickers = tickersParam.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean).slice(0, 50);
+          const map = await SocialTracker.loadSocialSummariesBatch(env, tickers, { lookbackDays: 3 });
+          return sendJSON({ ok: true, by_ticker: map }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/discovery/promotion-queue?status=needs_review&limit=100
       if (routeKey === "GET /timed/admin/discovery/promotion-queue") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -67557,9 +67613,10 @@ export default {
         }
         // 2. Compose from the four modules in parallel.
         try {
-          const [NewsTracker, InsiderTracker, SectorMap, Macro] = await Promise.all([
+          const [NewsTracker, InsiderTracker, SocialTracker, SectorMap, Macro] = await Promise.all([
             import("./discovery/news-tracker.js"),
             import("./discovery/insider-tracker.js"),
+            import("./discovery/social-tracker.js"),
             import("./sector-mapping.js"),
             import("./macro/cross-asset-tracker.js"),
           ]);
@@ -67590,9 +67647,10 @@ export default {
           } catch (_) {}
 
           // Run the rest in parallel.
-          const [news, insider, macroSnapshot, themesActivity] = await Promise.all([
+          const [news, insider, social, macroSnapshot, themesActivity] = await Promise.all([
             NewsTracker.loadRecentNewsSummary(env, sym, { lookbackDays: 5 }).catch(() => null),
             InsiderTracker.loadRecentInsiderSummary(env, sym, { lookbackDays: 30 }).catch(() => null),
+            SocialTracker.loadSocialSummary(env, sym, { lookbackDays: 3 }).catch(() => null),
             Macro.loadMacroSnapshot(env).catch(() => null),
             (async () => {
               const themes = SectorMap.getThemesForTicker(sym);
@@ -67633,6 +67691,7 @@ export default {
             fetched_at: Date.now(),
             news,
             insider,
+            social,
             themes: themesActivity,
             macro: macroForTicker,
             coverage: coverageGap,
@@ -79627,7 +79686,33 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronFailure(env, { op: "news_refresh_and_score", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
 
-        // 5. Promotion queue rebuild — reads 1-4 above.
+        // 4.5. Social buzz (StockTwits Phase 1).
+        //
+        // 2026-05-29 — added after user feedback "SNOW has been getting a
+        // lot of mention on X and by other traders. Not sure how we
+        // factor in a broader reach of news." StockTwits is free, no
+        // API key, ticker-native, captures bullish/bearish user tags
+        // and watchlist count. We fetch up to 60 tickers/day (same
+        // budget as news) — open positions plus top screener candidates.
+        try {
+          const SocialTracker = await import("./discovery/social-tracker.js");
+          const openResult = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all().catch(() => ({ results: [] }));
+          const openTickers = (openResult?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+          const screenerRaw = await KV.get("timed:screener:candidates");
+          const candidates = screenerRaw ? (JSON.parse(screenerRaw)?.candidates || []) : [];
+          const screenerTickers = [...new Set(candidates.map((c) => String(c.ticker || "").toUpperCase()))].slice(0, 50);
+          const tickers = [...new Set([...openTickers, ...screenerTickers])].slice(0, 60);
+          if (tickers.length > 0) {
+            const result = await SocialTracker.fetchSocialDataForTickers(env, tickers, { delayMs: 200 });
+            console.log(`[DISCOVERY BATCH 4.5/5] Social (StockTwits): ${result.persisted}/${result.attempted} persisted, ${result.errors} errors`);
+            recordCronSuccess(env, "social_refresh").catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 4.5/5] Social failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "social_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 5. Promotion queue rebuild — reads 1-4.5 above.
         try {
           const PromotionQueue = await import("./discovery/promotion-queue.js");
           const result = await PromotionQueue.rebuildPromotionQueue(env);
