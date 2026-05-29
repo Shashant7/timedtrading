@@ -2737,40 +2737,60 @@
 
       // ── TickerLogo ─────────────────────────────────────────────
       //
-      // 2026-05-28 — React-friendly wrapper around window.DS.tickerLogo
-      // (defined in ds-components.js). The DS helper returns a vanilla
-      // DOM node that loads the logo image from a CDN and falls back to
-      // a coloured monogram on error. We mount it via a ref so it works
-      // even when DS is loaded asynchronously after the React tree first
-      // paints. The wrapper element is what carries the .tt-trow__logo
-      // class (sized to slot into the unified row); the DS swap
-      // replaces the inner monogram when the image finishes loading.
+      // 2026-05-28 — React-friendly ticker logo. Renders monogram +
+      // deterministic color background immediately, then async-loads the
+      // real logo and swaps in on success.
+      //
+      // 2026-05-29 BUGFIX — was previously a thin wrapper around
+      // window.DS.tickerLogo that snapshot the DS helper's DOM
+      // synchronously. The DS helper kicks off an async img load and
+      // appends to ITS node on img.onload — by then we'd already
+      // discarded the node, so the img never made it to our React
+      // wrapper. Net result on mobile / Today page Movers: every
+      // ticker showed only the monogram fallback. We now load the
+      // img directly onto our wrapper element with its own onload
+      // handler, so the swap happens against the live DOM node.
       function TickerLogo({ sym, size = 22 }) {
         const SYM = String(sym || "").toUpperCase();
         const mono = SYM.slice(0, 2) || "?";
+        const bg = (() => {
+          let hash = 0;
+          for (let i = 0; i < SYM.length; i++) hash = ((hash << 5) - hash) + SYM.charCodeAt(i);
+          return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+        })();
+        const url = SYM ? `https://eodhd.com/img/logos/US/${SYM}.png` : null;
         return h("span", {
           className: "tt-trow__logo",
-          style: { width: size, height: size },
+          style: {
+            width: size, height: size,
+            background: bg,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            borderRadius: "50%", overflow: "hidden",
+            color: "#fff", fontSize: Math.max(8, Math.round(size * 0.38)),
+            fontWeight: 700, letterSpacing: "0.02em",
+            flexShrink: 0,
+          },
           ref: (el) => {
             if (!el || el.dataset.dsInit) return;
-            if (!window.DS || typeof window.DS.tickerLogo !== "function") return;
             el.dataset.dsInit = "1";
-            try {
-              const node = window.DS.tickerLogo(SYM, { size });
-              // DS returns its own div with the logo class — copy its
-              // children/styles into our wrapper rather than replacing
-              // the wrapper itself (preserves our React reconciliation
-              // and keeps the .tt-trow__logo class intact for theming).
+            if (!url) return;
+            const img = new Image();
+            img.src = url;
+            img.alt = SYM;
+            img.style.width = "100%";
+            img.style.height = "100%";
+            img.style.borderRadius = "50%";
+            img.style.objectFit = "cover";
+            img.onload = () => {
+              // Swap monogram for the real logo. White plate so
+              // transparent-PNG ETFs (SPY/QQQ/IWM) remain visible
+              // on dark backgrounds.
               while (el.firstChild) el.removeChild(el.firstChild);
-              el.textContent = node.textContent || "";
-              if (node.style.background) el.style.background = node.style.background;
-              const img = node.querySelector("img");
-              if (img) {
-                el.appendChild(img.cloneNode(true));
-                el.style.background = "#ffffff";
-                el.textContent = "";
-              }
-            } catch (_) { /* keep monogram fallback */ }
+              el.style.background = "#ffffff";
+              el.style.color = "transparent";
+              el.appendChild(img);
+            };
+            img.onerror = () => { /* keep monogram + colored background */ };
           },
         }, mono);
       }

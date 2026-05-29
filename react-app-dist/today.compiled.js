@@ -1405,30 +1405,47 @@ function TickerLogo({
 }) {
   const SYM = String(sym || "").toUpperCase();
   const mono = SYM.slice(0, 2) || "?";
+  const bg = (() => {
+    let hash = 0;
+    for (let i = 0; i < SYM.length; i++) hash = (hash << 5) - hash + SYM.charCodeAt(i);
+    return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+  })();
+  const url = SYM ? `https://eodhd.com/img/logos/US/${SYM}.png` : null;
   return h("span", {
     className: "tt-trow__logo",
     style: {
       width: size,
-      height: size
+      height: size,
+      background: bg,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "50%",
+      overflow: "hidden",
+      color: "#fff",
+      fontSize: Math.max(8, Math.round(size * 0.38)),
+      fontWeight: 700,
+      letterSpacing: "0.02em",
+      flexShrink: 0
     },
     ref: el => {
       if (!el || el.dataset.dsInit) return;
-      if (!window.DS || typeof window.DS.tickerLogo !== "function") return;
       el.dataset.dsInit = "1";
-      try {
-        const node = window.DS.tickerLogo(SYM, {
-          size
-        });
+      if (!url) return;
+      const img = new Image();
+      img.src = url;
+      img.alt = SYM;
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.borderRadius = "50%";
+      img.style.objectFit = "cover";
+      img.onload = () => {
         while (el.firstChild) el.removeChild(el.firstChild);
-        el.textContent = node.textContent || "";
-        if (node.style.background) el.style.background = node.style.background;
-        const img = node.querySelector("img");
-        if (img) {
-          el.appendChild(img.cloneNode(true));
-          el.style.background = "#ffffff";
-          el.textContent = "";
-        }
-      } catch (_) {}
+        el.style.background = "#ffffff";
+        el.style.color = "transparent";
+        el.appendChild(img);
+      };
+      img.onerror = () => {};
     }
   }, mono);
 }
@@ -3892,6 +3909,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780031597876:693157312
+// cache-bust:1780051404488:73931858
 
-// cache-bust:1780031597876:693157312
+// cache-bust:1780051404488:73931858
