@@ -331,16 +331,65 @@ function InvestorApp() {
     let alive = true;
     (async () => {
       try {
-        const [allRes, scoresRes] = await Promise.all([fetch(`${API_BASE}/timed/all`, {
+        const [allRes, scoresRes, positionsRes] = await Promise.all([fetch(`${API_BASE}/timed/all`, {
           cache: "no-store",
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/scores`, {
           cache: "no-store",
           credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/positions`, {
+          cache: "no-store",
+          credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null)]);
         if (!alive) return;
         if (allRes?.ok) setData(allRes.data || {});
-        if (scoresRes?.ok) setInvestorScores(scoresRes);
+        if (scoresRes?.ok) {
+          const tickers = Array.isArray(scoresRes.tickers) ? [...scoresRes.tickers] : [];
+          const seenOwned = new Set(tickers.filter(t => (t?.position || {}).owned).map(t => String(t?.ticker || "").toUpperCase()));
+          const positions = positionsRes?.ok && Array.isArray(positionsRes.positions) ? positionsRes.positions : [];
+          for (const p of positions) {
+            const sym = String(p?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+            if (!(Number(p?.total_shares) > 0)) continue;
+            if (seenOwned.has(sym)) continue;
+            const existingIdx = tickers.findIndex(t => String(t?.ticker || "").toUpperCase() === sym);
+            const mark = Number(p?.currentPrice) || Number(p?.price) || 0;
+            const avgEntry = Number(p?.avg_entry) || 0;
+            const unrealizedPct = mark > 0 && avgEntry > 0 ? (mark - avgEntry) / avgEntry * 100 : null;
+            const defaultStage = unrealizedPct == null || unrealizedPct >= -10 ? "core_hold" : "watch";
+            const posBlock = {
+              owned: true,
+              shares: Number(p?.total_shares) || 0,
+              avg_entry: avgEntry,
+              cost_basis: Number(p?.cost_basis) || 0,
+              first_entry_ts: Number(p?.first_entry_ts) || null,
+              unrealized_pct: unrealizedPct
+            };
+            if (existingIdx >= 0) {
+              tickers[existingIdx] = {
+                ...tickers[existingIdx],
+                position: posBlock,
+                stage: tickers[existingIdx].stage === "research_on_watch" ? defaultStage : tickers[existingIdx].stage,
+                _reconciled: true
+              };
+            } else {
+              tickers.push({
+                ticker: sym,
+                stage: defaultStage,
+                stageReason: "Open position not in scored universe — reconciled from /timed/investor/positions",
+                score: null,
+                position: posBlock,
+                sector: p?.sector || null,
+                _reconciled_synthetic: true
+              });
+            }
+          }
+          setInvestorScores({
+            ...scoresRes,
+            tickers
+          });
+        }
       } catch (_) {}
     })();
     return () => {
@@ -528,6 +577,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780028020518:347621986
+// cache-bust:1780029502306:387013298
 
-// cache-bust:1780028020518:347621986
+// cache-bust:1780029502306:387013298

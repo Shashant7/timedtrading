@@ -263,6 +263,12 @@ function StatusHeader({
 function BriefPreview({
   brief
 }) {
+  const [_liveTick, _setLiveTick] = useState(0);
+  useEffect(() => {
+    const onUpdate = () => _setLiveTick(t => t + 1);
+    window.addEventListener("tt:live-counts-updated", onUpdate);
+    return () => window.removeEventListener("tt:live-counts-updated", onUpdate);
+  }, []);
   const info = brief?.infographic || {};
   const top3 = Array.isArray(info.topThree) ? info.topThree : [];
   const headlineRaw = info.headline;
@@ -278,7 +284,9 @@ function BriefPreview({
       const t = Number(headlineRaw.breadth.total);
       if (Number.isFinite(g) && Number.isFinite(t) && t > 0) parts.push(`Breadth ${g}/${t} sectors green`);
     }
-    const openN = Number(headlineRaw.openTrades);
+    const liveOpenN = Number(window.__liveTraderOpenCount);
+    const briefOpenN = Number(headlineRaw.openTrades);
+    const openN = Number.isFinite(liveOpenN) && liveOpenN > 0 ? liveOpenN : briefOpenN;
     if (Number.isFinite(openN) && openN > 0) parts.push(`${openN} open trades`);
     return parts.join(" \u00b7 ");
   })();
@@ -888,6 +896,7 @@ function OpenPositionsPreview({
         if (cancelled) return;
         const all = [];
         const seen = new Set();
+        let _liveTraderCount = 0;
         if (traderRes?.ok) {
           const j = await traderRes.json();
           if (j?.ok && Array.isArray(j.trades)) {
@@ -899,9 +908,14 @@ function OpenPositionsPreview({
                 ...t,
                 _mode: "trader"
               });
+              _liveTraderCount++;
             }
           }
         }
+        try {
+          window.__liveTraderOpenCount = _liveTraderCount;
+          window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
+        } catch (_) {}
         if (investorRes?.ok) {
           const j = await investorRes.json();
           const positions = Array.isArray(j?.positions) ? j.positions : [];
@@ -3878,6 +3892,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780028020518:347621986
+// cache-bust:1780029502306:387013298
 
-// cache-bust:1780028020518:347621986
+// cache-bust:1780029502306:387013298

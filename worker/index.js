@@ -73032,6 +73032,48 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
 
+          // 2026-05-29 — Reconcile owned positions that fell out of
+          // allTickerData (e.g. DBA — agricultural ETF, not in
+          // SECTOR_MAP). Without this, the Investor Kanban undercounts
+          // because /scores doesn't surface them and the page-level
+          // reconciliation has to do the same work on every request.
+          // Synthesize a minimal entry per missing position so the
+          // cached payload is the single source of truth.
+          for (const [sym, posRow] of Object.entries(_invOpenPosByTicker)) {
+            if (investorResults[sym]) continue; // already scored
+            const shares = Number(posRow.total_shares) || 0;
+            const avgEntry = Number(posRow.avg_entry) || 0;
+            if (shares <= 0 || avgEntry <= 0) continue;
+            investorResults[sym] = {
+              score: null,
+              components: null,
+              accumZone: null,
+              sector: SECTOR_MAP[sym] || "Unknown",
+              companyName: null,
+              rsRank: null,
+              rs: undefined,
+              stage: "core_hold",
+              stageReason: "Open position outside scored universe — reconciled from investor_positions table",
+              thesis: "Held position; not in current scoring universe. Position-aware management still active via /timed/ledger and lots.",
+              thesisInvalidation: null,
+              signals: undefined,
+              position: {
+                owned: true,
+                shares,
+                avg_entry: avgEntry,
+                cost_basis: Number(posRow.cost_basis) || 0,
+                first_entry_ts: Number(posRow.first_entry_ts) || null,
+                unrealized_pct: null, // requires live price; client will derive
+                last_action_type: posRow.last_action_type || null,
+                last_action_ts: posRow.last_action_ts || null,
+                last_action_shares: posRow.last_action_shares || null,
+                last_action_reason: posRow.last_action_reason || null,
+              },
+              _reconciled_outside_universe: true,
+            };
+            allStages[sym] = { stage: "core_hold", reason: "outside_scored_universe" };
+          }
+
           // Store in KV
           await kvPutJSON(env.KV_TIMED, "timed:investor:scores", investorResults);
           await kvPutJSON(env.KV_TIMED, "timed:investor:market-health", marketHealth);
