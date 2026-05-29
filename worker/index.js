@@ -283,6 +283,9 @@ import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
 import {
   getTickerType as getTickerTypeForFocus,
   SECTOR_MAP as SECTOR_MAP_FILE,
+  // 2026-05-29 — used to attach themes per ticker in /timed/all so the
+  // Right Rail header can render theme chips client-side.
+  getThemesForTicker as _getThemesForTicker,
 } from "./sector-mapping.js";
 export { PriceHub } from "./price-hub.js";
 export { AlpacaStream } from "./alpaca-stream.js";
@@ -44949,6 +44952,22 @@ export default {
               if (activeSet.has(sym)) data[sym] = payload;
             }
 
+            // 2026-05-29 — Attach themes per ticker so the Right Rail
+            // header can render theme chips. Cheap static map lookup;
+            // adds 4-8 bytes per ticker. Only added when missing so
+            // upstream snapshot writers that already include themes are
+            // unaffected.
+            try {
+              for (const sym of Object.keys(data)) {
+                if (data[sym] && (!data[sym].themes || !Array.isArray(data[sym].themes))) {
+                  const themes = _getThemesForTicker ? _getThemesForTicker(sym) : [];
+                  if (Array.isArray(themes) && themes.length > 0) {
+                    data[sym].themes = themes.slice(0, 4);
+                  }
+                }
+              }
+            } catch (_) { /* best-effort */ }
+
             // P0.7.166 (2026-05-15) — Position overlay for the snapshot fast-path.
             //
             // Bug: the snapshot fast-path served the pre-built KV blob as-is and
@@ -78815,17 +78834,39 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }), 10);
 
           // 1. Always recompute scores during RTH (informational + alerts).
+          // 2026-05-29 — Added explicit status + ok check + tombstone record
+          // on failure. The prior code did `await fetch(...)` then
+          // `await fetch.json()` without inspecting HTTP status — so a 401
+          // (missing/wrong key), a 5xx, or any non-ok response was swallowed
+          // and the cron treated it as success. timed:investor:computed-at
+          // sat untouched for 15 days because the self-fetch was failing
+          // silently. Now: any non-2xx OR ok:false records a cron failure
+          // (operator sees it in Mission Control + Discord system lane).
           console.log(`[INVESTOR HOURLY] ET=${_etH}h — Triggering scoring refresh...`);
           const compResp = await fetch(`${selfUrl}/timed/investor/compute${_invKey}`, { method: "POST" });
           const compData = await compResp.json().catch(() => ({}));
-          console.log(`[INVESTOR HOURLY] Compute done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
+          if (!compResp.ok || compData?.ok === false) {
+            const err = `compute_failed_status_${compResp.status}_${String(compData?.error || "no_body").slice(0, 100)}`;
+            console.warn(`[INVESTOR HOURLY] COMPUTE FAILED: ${err}`);
+            recordCronFailure(env, { op: "investor_hourly_compute", error: err, caller: "scheduled_event" }).catch(() => {});
+          } else {
+            console.log(`[INVESTOR HOURLY] Compute done: ${compData.tickers || 0} tickers, regime=${compData.marketHealth?.regime || "?"}`);
+            recordCronSuccess(env, "investor_hourly_compute").catch(() => {});
+          }
 
           // 2. Auto-rebalance at 11 AM ET (full cycle: adds + trims).
           if (_etH === 11) {
             console.log(`[INVESTOR HOURLY] ET=11h — Running PRIMARY auto-rebalance (full cycle)`);
             const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance${_invKey}`, { method: "POST" });
             const rebalData = await rebalResp.json().catch(() => ({}));
-            console.log(`[INVESTOR HOURLY] Primary rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed (reduce), ${rebalData.eventReducedCount || 0} trimmed (event-risk)`);
+            if (!rebalResp.ok || rebalData?.ok === false) {
+              const err = `rebalance_failed_status_${rebalResp.status}_${String(rebalData?.error || "no_body").slice(0, 100)}`;
+              console.warn(`[INVESTOR HOURLY] PRIMARY REBALANCE FAILED: ${err}`);
+              recordCronFailure(env, { op: "investor_hourly_rebalance", error: err, caller: "scheduled_event" }).catch(() => {});
+            } else {
+              console.log(`[INVESTOR HOURLY] Primary rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added, ${rebalData.reducedCount || 0} trimmed (reduce), ${rebalData.eventReducedCount || 0} trimmed (event-risk)`);
+              recordCronSuccess(env, "investor_hourly_rebalance").catch(() => {});
+            }
           }
 
           // 3. Auto-rebalance at 2 PM ET (catch-up — adds only, no trims).
@@ -78833,7 +78874,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[INVESTOR HOURLY] ET=14h — Running CATCH-UP auto-rebalance (adds only, ?trims=skip)`);
             const rebalResp = await fetch(`${selfUrl}/timed/investor/auto-rebalance?trims=skip${_invKeyAmp}`, { method: "POST" });
             const rebalData = await rebalResp.json().catch(() => ({}));
-            console.log(`[INVESTOR HOURLY] Catch-up rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added`);
+            if (!rebalResp.ok || rebalData?.ok === false) {
+              const err = `catchup_failed_status_${rebalResp.status}_${String(rebalData?.error || "no_body").slice(0, 100)}`;
+              console.warn(`[INVESTOR HOURLY] CATCH-UP REBALANCE FAILED: ${err}`);
+              recordCronFailure(env, { op: "investor_hourly_catchup", error: err, caller: "scheduled_event" }).catch(() => {});
+            } else {
+              console.log(`[INVESTOR HOURLY] Catch-up rebalance: ${rebalData.newPositions || 0} new, ${rebalData.addedTo || 0} added`);
+              recordCronSuccess(env, "investor_hourly_catchup").catch(() => {});
+            }
           }
 
           // 4. Daily evaluator at 4 PM ET (post-close).

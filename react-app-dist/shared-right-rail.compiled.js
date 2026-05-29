@@ -4129,6 +4129,12 @@
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
             const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
             const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
+            const industry = ticker?.industry || ticker?.context?.industry || latestTicker?.context?.industry || null;
+            const themes = (() => {
+              const raw = ticker?.themes || latestTicker?.themes;
+              if (Array.isArray(raw)) return raw.slice(0, 3);
+              return [];
+            })();
             const personality = ticker?._ticker_profile?.learning?.personality || ticker?._ticker_profile?.behavior_type || ticker?.execution_profile?.personality || ticker?.ticker_personality || null;
             const fmtMcap = n => {
               if (!Number.isFinite(n) || n <= 0) return null;
@@ -4138,7 +4144,7 @@
               return `$${n.toFixed(0)}`;
             };
             const mcapStr = fmtMcap(mktCap);
-            if (!fullName && !mcapStr && !sector && !personality) return null;
+            if (!fullName && !mcapStr && !sector && !industry && themes.length === 0 && !personality) return null;
             return React.createElement("div", {
               style: {
                 display: "flex",
@@ -4174,7 +4180,30 @@
               }
             }, "\xB7"), React.createElement("span", {
               title: "Sector"
-            }, String(sector).replace(/_/g, " "))), personality && React.createElement(React.Fragment, null, React.createElement("span", {
+            }, String(sector).replace(/_/g, " "))), industry && industry !== sector && React.createElement(React.Fragment, null, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, "\xB7"), React.createElement("span", {
+              title: "Industry",
+              style: {
+                color: "var(--ds-text-faint)"
+              }
+            }, String(industry).replace(/_/g, " "))), themes.length > 0 && themes.map((t, i) => React.createElement("span", {
+              key: `theme-${i}`,
+              title: `Theme — ${String(t).replace(/_/g, " ")}`,
+              style: {
+                padding: "1px 7px",
+                borderRadius: 999,
+                fontSize: 9,
+                fontFamily: "var(--tt-font-mono)",
+                letterSpacing: "0.04em",
+                color: "var(--ds-accent, #f5c25c)",
+                background: "rgba(245,194,92,0.08)",
+                border: "1px solid rgba(245,194,92,0.20)",
+                marginLeft: 2
+              }
+            }, String(t).replace(/_/g, " "))), personality && React.createElement(React.Fragment, null, React.createElement("span", {
               style: {
                 color: "var(--ds-text-faint)"
               }
@@ -13537,4 +13566,4 @@
   };
 })();
 
-// cache-bust:1780019212421:331281754
+// cache-bust:1780020497505:133473514

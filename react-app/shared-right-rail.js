@@ -3956,6 +3956,26 @@
                                 || ticker?.context?.sector
                                 || ticker?._sector
                                 || null;
+                    // 2026-05-29 — Added industry + themes to the rail
+                    // context line per user request: "How do we show a
+                    // bit more context about a ticker on the right rail
+                    // next to the name. For Dell, we just show Dell
+                    // technologies much like other tickers, just the
+                    // name. Can't we show the sector, industry, theme,
+                    // and ticker profile short names?"
+                    const industry = ticker?.industry
+                                  || ticker?.context?.industry
+                                  || latestTicker?.context?.industry
+                                  || null;
+                    // Themes come from the shared THEMES map. Worker
+                    // attaches them per ticker in /timed/all (snapshot
+                    // fast-path) so they're available client-side
+                    // without a separate fetch.
+                    const themes = (() => {
+                      const raw = ticker?.themes || latestTicker?.themes;
+                      if (Array.isArray(raw)) return raw.slice(0, 3);
+                      return [];
+                    })();
                     // V2.2 (2026-05-12) — prefer the freshly-rebuilt learning_json
                     // personality (VOLATILE_RUNNER / PULLBACK_PLAYER / SLOW_GRINDER /
                     // TREND_FOLLOWER / MODERATE) over the legacy column-based
@@ -3976,7 +3996,7 @@
                       return `$${n.toFixed(0)}`;
                     };
                     const mcapStr = fmtMcap(mktCap);
-                    if (!fullName && !mcapStr && !sector && !personality) return null;
+                    if (!fullName && !mcapStr && !sector && !industry && themes.length === 0 && !personality) return null;
                     return (
                       <div style={{
                         display: "flex",
@@ -4009,6 +4029,31 @@
                             <span title="Sector">{String(sector).replace(/_/g, " ")}</span>
                           </>
                         )}
+                        {industry && industry !== sector && (
+                          <>
+                            <span style={{ color: "var(--ds-text-faint)" }}>·</span>
+                            <span title="Industry" style={{ color: "var(--ds-text-faint)" }}>{String(industry).replace(/_/g, " ")}</span>
+                          </>
+                        )}
+                        {themes.length > 0 && themes.map((t, i) => (
+                          <span
+                            key={`theme-${i}`}
+                            title={`Theme — ${String(t).replace(/_/g, " ")}`}
+                            style={{
+                              padding: "1px 7px",
+                              borderRadius: 999,
+                              fontSize: 9,
+                              fontFamily: "var(--tt-font-mono)",
+                              letterSpacing: "0.04em",
+                              color: "var(--ds-accent, #f5c25c)",
+                              background: "rgba(245,194,92,0.08)",
+                              border: "1px solid rgba(245,194,92,0.20)",
+                              marginLeft: 2,
+                            }}
+                          >
+                            {String(t).replace(/_/g, " ")}
+                          </span>
+                        ))}
                         {personality && (
                           <>
                             <span style={{ color: "var(--ds-text-faint)" }}>·</span>

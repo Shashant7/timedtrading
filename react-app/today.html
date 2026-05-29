@@ -2034,22 +2034,54 @@
           let cancelled = false;
           (async () => {
             try {
+              // 2026-05-29 — Investor mode source changed from
+              // /timed/ledger/trades?mode=investor (which returns LOTS
+              // — multiple per position — without status filter) to
+              // /timed/investor/positions (canonical, returns one row
+              // per open position). The prior path was showing "29 open
+              // positions" when there were 8 actual ones because each
+              // position had 3-4 lots returned.
               const [traderRes, investorRes] = await Promise.all([
-                fetch(`/timed/ledger/trades?status=open&limit=20`, { cache: "no-store" }),
-                fetch(`/timed/ledger/trades?status=open&limit=20&mode=investor`, { cache: "no-store" }).catch(() => null),
+                fetch(`/timed/ledger/trades?status=open&limit=30`, { cache: "no-store" }),
+                fetch(`/timed/investor/positions`, { cache: "no-store" }).catch(() => null),
               ]);
               if (cancelled) return;
               const all = [];
+              const seen = new Set(); // dedupe by ticker+mode
               if (traderRes?.ok) {
                 const j = await traderRes.json();
                 if (j?.ok && Array.isArray(j.trades)) {
-                  for (const t of j.trades) all.push({ ...t, _mode: "trader" });
+                  for (const t of j.trades) {
+                    const key = `T:${String(t?.ticker || "").toUpperCase()}`;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    all.push({ ...t, _mode: "trader" });
+                  }
                 }
               }
               if (investorRes?.ok) {
                 const j = await investorRes.json();
-                if (j?.ok && Array.isArray(j.trades)) {
-                  for (const t of j.trades) all.push({ ...t, _mode: "investor" });
+                const positions = Array.isArray(j?.positions) ? j.positions : [];
+                for (const p of positions) {
+                  // Position must be open
+                  if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+                  if (!(Number(p?.total_shares) > 0)) continue;
+                  const key = `I:${String(p?.ticker || "").toUpperCase()}`;
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  // Normalize to trade-like shape; pnl_pct will come
+                  // from the worker scoring path or be derived below.
+                  const avgEntry = Number(p?.avg_entry) || (Number(p?.cost_basis) / Number(p?.total_shares));
+                  all.push({
+                    ticker: p.ticker,
+                    direction: "LONG",
+                    status: p.status,
+                    kanban_stage: p.investor_stage,
+                    entry_price: avgEntry,
+                    shares: p.total_shares,
+                    trade_id: p.id,
+                    _mode: "investor",
+                  });
                 }
               }
               if (!cancelled) setTrades(all);
@@ -2083,9 +2115,20 @@
               const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)"
                             : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
               const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
-              const stageMeta = stage === "DEFEND" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
-                              : stage === "TRIM" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
-                              : stage === "EXIT" ? { color: "var(--tt-dn)", bg: "rgba(248,113,113,0.10)" }
+              // 2026-05-29 — Investor stage labels (accumulate / core_hold / reduce
+              // / watch / research_*) map to the same visual treatment as the
+              // Active Trader Kanban (defend/trim/exit) so the strip reads
+              // consistently across modes.
+              const stageDisplay = stage === "CORE_HOLD" ? "HOLD"
+                                  : stage === "ACCUMULATE" ? "ACCUMULATE"
+                                  : stage === "REDUCE" ? "REDUCE"
+                                  : stage === "WATCH" ? "WATCH"
+                                  : stage.replace(/_/g, " ");
+              const stageMeta = stage === "DEFEND" || stage === "REDUCE" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                              : stage === "TRIM"   ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                              : stage === "EXIT"   ? { color: "var(--tt-dn)", bg: "rgba(248,113,113,0.10)" }
+                              : stage === "WATCH"  ? { color: "var(--tt-text-muted)", bg: "rgba(156,163,175,0.10)" }
+                              : stage === "ACCUMULATE" ? { color: "var(--tt-up)", bg: "rgba(52,211,153,0.15)" }
                               : { color: "var(--tt-up)", bg: "rgba(52,211,153,0.10)" };
               const dirColor = dir === "LONG" ? "var(--tt-up)" : dir === "SHORT" ? "var(--tt-dn)" : "var(--tt-text-muted)";
               const onClick = (e) => {
@@ -2119,7 +2162,7 @@
                     letterSpacing: "0.06em", color: stageMeta.color, background: stageMeta.bg,
                     border: `1px solid ${stageMeta.color}40`,
                   },
-                }, stage),
+                }, stageDisplay),
                 t?._mode === "investor" && h("span", {
                   style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.08em" },
                 }, "INV"),
