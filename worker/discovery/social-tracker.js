@@ -17,8 +17,17 @@
 //   ticker-native, user-tagged Bullish/Bearish flags, message count proxy,
 //   watchlist count proxy. Polled per-ticker daily by the discovery cron.
 //
-// PHASE 2 (deferred): Reddit (r/wallstreetbets, r/stocks, r/investing)
-//   mention counter via pullpush.io / Pushshift mirror.
+// PHASE 2 (this update): Reddit mention counter via apewisdom.io. Reddit
+//   killed unauthenticated JSON API access in 2024 and pullpush.io is
+//   degraded as of 2026-05. Apewisdom is free, no key, ticker-native,
+//   aggregates r/wallstreetbets + r/stocks + r/options + r/investing
+//   + r/StockMarket + r/pennystocks, and returns mention count, 24h
+//   comparison, rank, and upvote totals in a single batched call
+//   (one HTTP per page, ~14 pages = ALL ranked tickers in <2 sec).
+//
+//   Strongest signal: ratio of current mentions vs 24h-ago mentions.
+//   A 3x+ spike on a name like SMCI (today: 118 vs 39) or DELL (411
+//   vs 29) is a high-conviction early indicator of trader interest.
 //
 // PHASE 3 (deferred): X/Twitter via paid TwitterAPI.io or grok-search
 //   (~$50-100/mo) once we have evidence Phase 1+2 isn't enough.
@@ -32,10 +41,13 @@
 // 24h cache prevents StockTwits rate-limit issues.
 
 const STOCKTWITS_BASE = "https://api.stocktwits.com/api/2/streams/symbol";
+const APEWISDOM_BASE = "https://apewisdom.io/api/v1.0/filter/all-stocks/page";
+const APEWISDOM_MAX_PAGES = 20;    // covers ~1000 tickers (50/page)
 const FETCH_TIMEOUT_MS = 6_000;
 const PER_TICKER_LIMIT = 30; // most recent N messages — ample for sentiment ratio
 
-// Ensure schema. Cheap idempotent CREATE.
+// Ensure schema. Cheap idempotent CREATE. Adds reddit-specific columns
+// via ALTER TABLE for backward compat with pre-Phase-2 rows.
 export async function ensureSocialSchema(env) {
   const db = env?.DB;
   if (!db) return;
@@ -61,6 +73,18 @@ export async function ensureSocialSchema(env) {
     await db.prepare(
       `CREATE INDEX IF NOT EXISTS idx_social_ticker_date ON ticker_social (ticker, snapshot_date DESC)`,
     ).run();
+    // 2026-05-29 — Reddit-specific columns added in Phase 2. ALTER TABLE
+    // ADD COLUMN is idempotent-safe via try/catch since SQLite throws on
+    // duplicate. Safe to run on every cron tick.
+    for (const col of [
+      "reddit_rank          INTEGER",
+      "reddit_mentions_24h  INTEGER",
+      "reddit_mentions_prev INTEGER",
+      "reddit_upvotes_24h   INTEGER",
+      "reddit_spike_ratio   REAL",
+    ]) {
+      try { await db.prepare(`ALTER TABLE ticker_social ADD COLUMN ${col}`).run(); } catch (_) { /* exists */ }
+    }
   } catch (e) {
     console.warn("[SOCIAL] schema ensure failed:", String(e?.message || e).slice(0, 200));
   }
@@ -154,6 +178,136 @@ async function persistSnapshot(env, snap) {
   }
 }
 
+// ── Reddit (Apewisdom Phase 2) ────────────────────────────────────────────
+// Fetches ALL ranked Reddit tickers via Apewisdom in a single bulk
+// crawl (~14-20 pages, ~50 tickers each). Returns a map keyed by ticker
+// symbol. Designed to be called once per cron tick — no per-ticker
+// fetches needed, much friendlier on rate limits than per-symbol APIs.
+async function fetchAllRedditMentions(opts = {}) {
+  const maxPages = Math.max(1, Math.min(40, Number(opts.maxPages) || APEWISDOM_MAX_PAGES));
+  const interPageDelayMs = Math.max(0, Number(opts.pageDelayMs) || 200);
+  const byTicker = {};
+  let totalPagesFetched = 0;
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `${APEWISDOM_BASE}/${page}`;
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let data = null;
+    try {
+      const r = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "application/json",
+        },
+      });
+      if (r.ok) data = await r.json().catch(() => null);
+    } catch (_) {
+      // best-effort; continue with the pages we got
+    } finally {
+      clearTimeout(tid);
+    }
+    if (!data || !Array.isArray(data.results)) break;
+    totalPagesFetched++;
+    for (const row of data.results) {
+      const sym = String(row.ticker || "").toUpperCase();
+      if (!sym) continue;
+      const m24 = Number(row.mentions) || 0;
+      const mPrev = Number(row.mentions_24h_ago) || 0;
+      const spike = mPrev > 0 ? m24 / mPrev : (m24 > 0 ? 999 : null);
+      byTicker[sym] = {
+        ticker: sym,
+        rank: Number(row.rank) || null,
+        rank_24h_ago: Number(row.rank_24h_ago) || null,
+        mentions_24h: m24,
+        mentions_prev: mPrev,
+        upvotes_24h: Number(row.upvotes) || 0,
+        spike_ratio: spike,
+        name: row.name || null,
+      };
+    }
+    const totalPages = Number(data.pages) || 1;
+    if (page >= totalPages) break;
+    if (interPageDelayMs > 0 && page < maxPages) {
+      await new Promise((res) => setTimeout(res, interPageDelayMs));
+    }
+  }
+  return { byTicker, totalPagesFetched };
+}
+
+// Persist one Reddit snapshot row for a ticker. Same source='reddit'
+// in the unified ticker_social table — keeps the schema source-agnostic
+// so the right rail / promotion-queue scorer can read either.
+async function persistRedditSnapshot(env, sym, row) {
+  const db = env?.DB;
+  if (!db || !row) return false;
+  const snap = {
+    ticker: sym,
+    source: "reddit",
+    snapshot_date: new Date().toISOString().slice(0, 10),
+    message_count: row.mentions_24h,
+    raw_summary_json: JSON.stringify({
+      apewisdom_rank: row.rank,
+      rank_24h_ago: row.rank_24h_ago,
+      mentions_prev: row.mentions_prev,
+      name: row.name,
+    }),
+    fetched_at: Date.now(),
+  };
+  try {
+    await db.prepare(`
+      INSERT OR REPLACE INTO ticker_social
+        (ticker, source, snapshot_date, message_count, raw_summary_json, fetched_at,
+         reddit_rank, reddit_mentions_24h, reddit_mentions_prev, reddit_upvotes_24h, reddit_spike_ratio)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+    `).bind(
+      snap.ticker, snap.source, snap.snapshot_date,
+      snap.message_count, snap.raw_summary_json, snap.fetched_at,
+      row.rank,
+      row.mentions_24h,
+      row.mentions_prev,
+      row.upvotes_24h,
+      row.spike_ratio,
+    ).run();
+    return true;
+  } catch (e) {
+    console.warn(`[SOCIAL/REDDIT] persist failed for ${sym}:`, String(e?.message || e).slice(0, 200));
+    return false;
+  }
+}
+
+// Main entry point for Reddit. Pulls Apewisdom bulk + writes snapshots
+// for the tickers we care about (open positions + screener) AND for
+// any ticker whose 24h spike ratio is >= 2x (early-discovery signal,
+// even if the ticker isn't in our screener yet).
+export async function fetchRedditDataForTickers(env, tickers, opts = {}) {
+  await ensureSocialSchema(env);
+  const symSet = new Set((tickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean));
+  const { byTicker, totalPagesFetched } = await fetchAllRedditMentions(opts);
+  let persisted = 0;
+  const spikes = [];
+  for (const [sym, row] of Object.entries(byTicker)) {
+    const isInteresting = symSet.has(sym)
+      || (row.spike_ratio != null && row.spike_ratio >= 2 && row.mentions_24h >= 25)
+      || (row.rank != null && row.rank <= 25);
+    if (!isInteresting) continue;
+    if (await persistRedditSnapshot(env, sym, row)) persisted++;
+    if (row.spike_ratio != null && row.spike_ratio >= 2 && row.mentions_24h >= 25) {
+      spikes.push({ ticker: sym, mentions: row.mentions_24h, spike: Math.round(row.spike_ratio * 10) / 10 });
+    }
+  }
+  spikes.sort((a, b) => b.spike - a.spike);
+  return {
+    ok: true,
+    source: "reddit",
+    pages_fetched: totalPagesFetched,
+    tickers_seen: Object.keys(byTicker).length,
+    persisted,
+    spikes_top10: spikes.slice(0, 10),
+    fetched_at: Date.now(),
+  };
+}
+
 // Main entry point. Pulls StockTwits for each ticker with a polite delay
 // to avoid 429s. Designed to run from a cron job.
 export async function fetchSocialDataForTickers(env, tickers, opts = {}) {
@@ -187,8 +341,12 @@ export async function fetchSocialDataForTickers(env, tickers, opts = {}) {
   };
 }
 
-// Batch load social summaries for the promotion-queue scorer. Mirrors
-// loadNewsSummariesBatch in news-tracker.js. Returns object keyed by ticker.
+// Batch load social summaries for the promotion-queue scorer.
+//
+// 2026-05-29 Phase 2 — merges StockTwits + Reddit (Apewisdom) into one
+// summary per ticker. Reddit fields nest under `reddit` so the scorer
+// can weight them independently. has_data is true if EITHER source has
+// a fresh snapshot.
 export async function loadSocialSummariesBatch(env, tickers, opts = {}) {
   const db = env?.DB;
   if (!db || !Array.isArray(tickers) || tickers.length === 0) return {};
@@ -208,37 +366,64 @@ export async function loadSocialSummariesBatch(env, tickers, opts = {}) {
       top_post_body: null,
       top_post_user: null,
       top_post_url: null,
+      reddit: null,
     };
   }
   try {
     const rows = (await db.prepare(`
-      SELECT ticker, snapshot_date, watchlist_count, message_count,
+      SELECT ticker, source, snapshot_date, watchlist_count, message_count,
              bullish_count, bearish_count, bull_ratio_pct,
-             top_post_body, top_post_user, top_post_url, fetched_at
+             top_post_body, top_post_user, top_post_url,
+             reddit_rank, reddit_mentions_24h, reddit_mentions_prev,
+             reddit_upvotes_24h, reddit_spike_ratio, fetched_at
         FROM ticker_social
-       WHERE source = 'stocktwits' AND snapshot_date >= ?1
+       WHERE source IN ('stocktwits','reddit') AND snapshot_date >= ?1
        ORDER BY snapshot_date DESC, fetched_at DESC
-       LIMIT 5000
+       LIMIT 8000
     `).bind(cutoffDate).all().catch(() => ({ results: [] })))?.results || [];
-    // Keep only the most recent snapshot per ticker (rows are pre-sorted).
-    const seen = new Set();
+    // Keep most-recent snapshot per (ticker, source).
+    const seen = new Set(); // key: `${ticker}:${source}`
     for (const r of rows) {
       const t = String(r.ticker || "").toUpperCase();
-      if (!symSet.has(t) || seen.has(t)) continue;
-      seen.add(t);
-      out[t] = {
-        ticker: t,
-        has_data: true,
-        snapshot_date: r.snapshot_date,
-        message_count_24h: Number(r.message_count) || 0,
-        bullish_count: Number(r.bullish_count) || 0,
-        bearish_count: Number(r.bearish_count) || 0,
-        bull_ratio_pct: r.bull_ratio_pct == null ? null : Number(r.bull_ratio_pct),
-        watchlist_count: r.watchlist_count == null ? null : Number(r.watchlist_count),
-        top_post_body: r.top_post_body,
-        top_post_user: r.top_post_user,
-        top_post_url: r.top_post_url,
-      };
+      if (!symSet.has(t)) continue;
+      const key = `${t}:${r.source}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (r.source === "stocktwits") {
+        out[t] = {
+          ...out[t],
+          ticker: t,
+          has_data: true,
+          stocktwits_snapshot_date: r.snapshot_date,
+          message_count_24h: Number(r.message_count) || 0,
+          bullish_count: Number(r.bullish_count) || 0,
+          bearish_count: Number(r.bearish_count) || 0,
+          bull_ratio_pct: r.bull_ratio_pct == null ? null : Number(r.bull_ratio_pct),
+          watchlist_count: r.watchlist_count == null ? null : Number(r.watchlist_count),
+          top_post_body: r.top_post_body,
+          top_post_user: r.top_post_user,
+          top_post_url: r.top_post_url,
+        };
+      } else if (r.source === "reddit") {
+        const m24 = Number(r.reddit_mentions_24h) || 0;
+        const mPrev = Number(r.reddit_mentions_prev) || 0;
+        const spike = r.reddit_spike_ratio != null
+          ? Number(r.reddit_spike_ratio)
+          : (mPrev > 0 ? m24 / mPrev : (m24 > 0 ? 999 : null));
+        out[t] = {
+          ...out[t],
+          ticker: t,
+          has_data: true,
+          reddit: {
+            snapshot_date: r.snapshot_date,
+            rank: r.reddit_rank == null ? null : Number(r.reddit_rank),
+            mentions_24h: m24,
+            mentions_prev: mPrev,
+            upvotes_24h: Number(r.reddit_upvotes_24h) || 0,
+            spike_ratio: spike,
+          },
+        };
+      }
     }
   } catch (e) {
     console.warn("[SOCIAL] loadSocialSummariesBatch failed:", String(e?.message || e).slice(0, 200));
