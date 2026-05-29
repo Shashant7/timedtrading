@@ -234,13 +234,23 @@
       .mvr .chg.up { color: var(--tt-up-soft); }
       .mvr .chg.dn { color: var(--tt-dn-soft); }
       /* Heatmap chip */
+      /* 2026-05-29 — Heatmap visual lift. Per user "looks dull, how do we
+         make this more engaging?" Changes:
+         - Tighter grid (96px min) so more tickers fit per row
+         - Gradient background per cell driven by --heat-pct (set inline)
+           so positive moves get a green wash that scales with magnitude,
+           negative gets red, neutral stays subtle. Pre-existing lvl-*
+           classes (which color by HTF score) compose on top via mix-blend.
+         - Hover lifts the cell + brightens the gradient
+         - Subtle inner ring on hover for tactile feedback
+         - Larger pct text + tabular nums for column alignment */
       .heat-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
-        gap: 8px;
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 7px;
       }
       @media (max-width: 720px) {
-        .heat-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 6px; }
+        .heat-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 5px; }
       }
       .heat-cell {
         position: relative;
@@ -248,23 +258,62 @@
         flex-direction: column;
         align-items: stretch;
         justify-content: space-between;
-        padding: 9px 11px;
+        gap: 4px;
+        padding: 8px 10px;
         border-radius: 8px;
-        background: rgba(255,255,255,0.02);
+        background: rgba(255,255,255,0.025);
         border: 1px solid var(--tt-border);
         text-decoration: none;
         color: inherit;
-        min-height: 62px;
-        transition: all 0.12s;
+        min-height: 58px;
+        transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+        overflow: hidden;
+        isolation: isolate;
       }
-      .heat-cell:hover { border-color: var(--tt-border-hi); transform: translateY(-1px); }
-      .heat-cell .sym { font-size: 13px; font-weight: 700; color: var(--tt-text); letter-spacing: 0.01em; }
-      .heat-cell .pct { font-family: var(--tt-font-mono); font-size: 11.5px; font-weight: 700; }
-      .heat-cell .pct.up { color: var(--tt-up-soft); }
-      .heat-cell .pct.dn { color: var(--tt-dn-soft); }
-      .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
-      .heat-cell.lvl-mid     { border-color: rgba(245,194,92,0.22); background: rgba(245,194,92,0.04); }
-      .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.30); background: rgba(244,63,94,0.05); }
+      /* Magnitude-driven background wash. The percentage cell sets
+         --heat-pct (clamped -8..8) and --heat-side (up|dn|flat) inline;
+         this rule draws a radial-gradient tint that scales with |pct|. */
+      .heat-cell::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: radial-gradient(
+          circle at 50% 100%,
+          var(--heat-tint, transparent) 0%,
+          transparent 80%
+        );
+        opacity: calc(min(abs(var(--heat-pct, 0)), 8) / 12);
+        pointer-events: none;
+        transition: opacity 0.18s ease;
+      }
+      .heat-cell[data-side="up"] { --heat-tint: rgba(34, 197, 94, 0.55); }
+      .heat-cell[data-side="dn"] { --heat-tint: rgba(244, 63, 94, 0.55); }
+      .heat-cell[data-side="flat"] { --heat-tint: transparent; }
+      .heat-cell:hover {
+        border-color: var(--tt-border-hi);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px -10px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.06);
+      }
+      .heat-cell:hover::before { opacity: calc(min(abs(var(--heat-pct, 0)), 8) / 8); }
+      .heat-cell__head {
+        display: flex; align-items: center; gap: 5px; min-width: 0;
+      }
+      .heat-cell__logo {
+        width: 16px; height: 16px; flex-shrink: 0;
+        border-radius: 4px; overflow: hidden;
+      }
+      .heat-cell .sym { font-size: 12.5px; font-weight: 700; color: var(--tt-text); letter-spacing: 0.01em; overflow: hidden; text-overflow: ellipsis; }
+      .heat-cell .pct { font-family: var(--tt-font-mono); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .heat-cell .pct.up { color: #34d399; }
+      .heat-cell .pct.dn { color: #f87171; }
+      .heat-cell .pct.flat { color: var(--tt-text-muted); }
+      /* HTF-score outline tint still composes for the strong/mid/weak
+         signal — but subtler now that the % gradient does the heavy
+         lifting. */
+      .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.40); }
+      .heat-cell.lvl-mid     { border-color: rgba(245,194,92,0.30); }
+      .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.40); }
       /* ── Analysis header (unified controls for Bubble Map + Heat Map) ── */
       .analysis-controls {
         margin-bottom: 22px;
@@ -1206,6 +1255,81 @@
       .tt-hour-chip.amc { color: #818cf8; background: rgba(129, 140, 248, 0.10); border-color: rgba(129, 140, 248, 0.20); }
       .tt-hour-chip.dmh { color: #34d399; background: rgba(52, 211, 153, 0.10); border-color: rgba(52, 211, 153, 0.20); }
       .tt-hour-chip.unk { opacity: 0.55; }
+
+      /* 2026-05-29 — Earnings row redesign. User feedback: rows looked
+         weird, like a half-filled progress bar. Old code reused
+         .tt-trow--earnings which has a wide flex layout with the chg slot
+         pinned right, producing a big empty gap with a faint background
+         that read as a progress bar. New .tt-earn-row uses a tighter
+         grid (logo · sym · chip · est) with explicit column widths and
+         no full-row background. Visually consistent with mover/focus
+         rows but tuned for the earnings-specific payload. */
+      .tt-earn-row {
+        display: grid;
+        grid-template-columns: 20px minmax(48px, auto) auto 1fr;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        border-radius: 7px;
+        background: transparent;
+        border: 1px solid transparent;
+        text-decoration: none;
+        color: var(--tt-text);
+        text-align: left;
+        cursor: pointer;
+        font-family: inherit;
+        transition: background 0.12s, border-color 0.12s;
+        width: 100%;
+      }
+      .tt-earn-row:hover {
+        background: rgba(255,255,255,0.035);
+        border-color: rgba(255,255,255,0.08);
+      }
+      .tt-earn-row:focus-visible {
+        outline: 2px solid var(--tt-accent);
+        outline-offset: 1px;
+      }
+      .tt-earn-row.is-universe {
+        background: linear-gradient(90deg, rgba(245, 194, 92, 0.07) 0%, transparent 70%);
+        border-color: rgba(245, 194, 92, 0.18);
+      }
+      .tt-earn-row.is-universe:hover {
+        background: linear-gradient(90deg, rgba(245, 194, 92, 0.11) 0%, transparent 70%);
+        border-color: rgba(245, 194, 92, 0.30);
+      }
+      .tt-earn-row__sym {
+        font-size: 12.5px;
+        font-weight: 700;
+        font-family: var(--tt-font-mono);
+        color: var(--tt-text);
+        letter-spacing: 0.01em;
+      }
+      .tt-earn-row.is-universe .tt-earn-row__sym { color: #f5c25c; }
+      .tt-earn-row__eps {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 3px;
+        justify-self: end;
+        font-family: var(--tt-font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .tt-earn-row__eps-val {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--tt-text);
+      }
+      .tt-earn-row__eps-tag {
+        font-size: 9.5px;
+        font-weight: 600;
+        color: var(--tt-text-dim);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .tt-earn-row__eps-empty {
+        font-size: 12px;
+        color: var(--tt-text-dim);
+        opacity: 0.55;
+      }
 
       /* Section card header used by Earnings/Movers/Focus cards */
       .tt-day-head {
@@ -2848,20 +2972,25 @@
                     return h("button", {
                       type: "button",
                       key: `${sym}-${i}`,
-                      className: "tt-trow tt-trow--earnings" + (isUni ? " is-universe" : ""),
+                      className: "tt-earn-row" + (isUni ? " is-universe" : ""),
                       onClick,
                       title: isUni
                         ? `Open ${sym} in the right rail \u00b7 in our universe`
                         : `Open ${sym} in the right rail`,
                     },
                       h(TickerLogo, { sym }),
-                      h("span", { className: "tt-trow__sym" }, sym || "?"),
+                      h("span", { className: "tt-earn-row__sym" }, sym || "?"),
                       h("span", { className: `tt-hour-chip ${hcls}` }, hourLabel),
-                      h("span", { className: "tt-trow__right" },
-                        h("span", {
-                          className: "tt-trow__chg " + (hasEps ? "mut" : "mut"),
-                          title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available",
-                        }, hasEps ? "$" + eps.toFixed(2) + " est" : "—"),
+                      h("span", {
+                        className: "tt-earn-row__eps",
+                        title: hasEps ? `Consensus EPS estimate: $${eps.toFixed(2)}` : "No EPS estimate available",
+                      },
+                        hasEps
+                          ? h(window.React.Fragment, null,
+                              h("span", { className: "tt-earn-row__eps-val" }, "$" + eps.toFixed(2)),
+                              h("span", { className: "tt-earn-row__eps-tag" }, "est"),
+                            )
+                          : h("span", { className: "tt-earn-row__eps-empty" }, "—"),
                       ),
                     );
                   }),
@@ -4190,7 +4319,12 @@
                 const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
                 const score = Number(t?.htf_score) || 0;
                 const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
-                const pdir = !Number.isFinite(pct) ? "" : pct >= 0 ? "up" : "dn";
+                // 2026-05-29 — pdir: flat for near-zero (within ±0.05%) so
+                // micro-moves don't get false-positive green/red flashes.
+                const pdir = !Number.isFinite(pct) ? "flat"
+                          : Math.abs(pct) < 0.05 ? "flat"
+                          : pct > 0 ? "up" : "dn";
+                const side = pdir === "flat" ? "flat" : pdir;
                 const isMatch = q.length > 0 && sym.startsWith(q);
                 const isDim = q.length > 0 && !isMatch;
                 return h("a", {
@@ -4203,11 +4337,30 @@
                       onSelectTicker(sym);
                     }
                   },
-                  title: `${sym} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
-                  style: { opacity: isDim ? 0.30 : 1, transition: "opacity 0.15s", ...(isMatch ? { outline: "1px solid #fff", outlineOffset: "-1px" } : {}) },
+                  title: `${sym} · ${pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "no change"} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+                  "data-side": side,
+                  style: {
+                    opacity: isDim ? 0.28 : 1,
+                    transition: "opacity 0.15s",
+                    "--heat-pct": pct != null ? pct : 0,
+                    ...(isMatch ? { outline: "1px solid #fff", outlineOffset: "-1px" } : {}),
+                  },
                 },
-                  h("span", { className: "sym" }, sym),
-                  h("span", { className: `pct ${pdir}` }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"),
+                  h("div", { className: "heat-cell__head" },
+                    h("span", {
+                      className: "heat-cell__logo",
+                      ref: (el) => {
+                        if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
+                          el.dataset.dsInit = "1";
+                          try { el.replaceWith(window.DS.tickerLogo(sym, { size: 16 })); } catch (_) {}
+                        }
+                      },
+                    }, sym.slice(0, 2)),
+                    h("span", { className: "sym" }, sym),
+                  ),
+                  h("span", { className: `pct ${pdir}` },
+                    pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—",
+                  ),
                 );
               }),
             ),
