@@ -541,21 +541,26 @@
     const EMPTY_PRICE_LINES = Object.freeze([]);
 
     // ── InvestorTabPanel — 2026-05-29 ─────────────────────────────────────
-    // Mobile-friendly Investor panel that surfaces the FULL reasoning for
-    // why the model classifies a ticker as accumulate / core_hold / watch /
-    // reduce. Fetches /timed/investor/ticker on mount (the snapshot-level
-    // ticker payload only carries investor_stage + investor_score scalars).
-    //
-    // Sections:
-    //   1. Lane Guidance        action + desc per stage (already in PR #350)
-    //   2. Stage Reason         human-translated reason code + 1-line context
-    //   3. Score Breakdown      every scoring component with bar, max, why
-    //   4. Buy Zone Signals     when in accumulation zone, list of triggers
-    //   5. Your Position        owned shares, cost basis, P&L, last action
-    //   6. Thesis + Invalidation
-    //   7. Sector + RS context
-    // ─────────────────────────────────────────────────────────────────────
+    // Mobile Investor panel that fetches /timed/investor/ticker for the
+    // ticker (the /timed/all snapshot only carries investor_stage +
+    // investor_score scalars; rich stageReason, components, accumZone,
+    // position, thesis, RS history all live on this dedicated endpoint).
+    // Renders 7 sections answering "WHY this classification?":
+    //   1. Lane Guidance        action + plain English per stage
+    //   2. Why classification   stageReason code -> human prose
+    //   3. Score breakdown      per-component score/MAX + bar + reason
+    //   4. Buy Zone signals     triggers when in accumulation zone
+    //   5. Your position        when owned
+    //   6. RS + Sector context  RS rank vs SPY + periods
+    //   7. Thesis + invalidation
+    // Module-scoped so we have to inline Panel (the rail's local helper
+    // isn't visible here). React + useState/useEffect are loaded by the
+    // host page before this script runs.
     function InvestorTabPanel({ ticker, latestTicker, effectiveTrade, tickerSymbol, API_BASE }) {
+      // The rail file uses JSX everywhere; we need a local h() for the
+      // pure-function React.createElement style used in this component.
+      const h = React.createElement;
+
       const [detail, setDetail] = useState(null);
       const [loading, setLoading] = useState(true);
       const [err, setErr] = useState(null);
@@ -568,7 +573,8 @@
         setErr(null);
         (async () => {
           try {
-            const r = await fetch(`${API_BASE || ""}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
+            const base = API_BASE || (typeof window !== "undefined" && window.API_BASE) || "";
+            const r = await fetch(`${base}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
               credentials: "include",
               cache: "no-store",
             });
@@ -576,7 +582,7 @@
             const j = await r.json();
             if (cancelled) return;
             if (!j?.ok) {
-              setErr(j?.error || "No investor data for this ticker.");
+              setErr(j?.error || "no_investor_data");
               setDetail(null);
             } else {
               setDetail(j);
@@ -590,7 +596,6 @@
         return () => { cancelled = true; };
       }, [sym, API_BASE]);
 
-      // Fallback to snapshot-level scalars while fetching/erroring
       const fallbackStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "—").toLowerCase();
       const fallbackScore = Number(ticker?.investor_score ?? latestTicker?.investor_score);
 
@@ -618,7 +623,6 @@
       };
       const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
 
-      // Translate raw stageReason codes into human prose.
       const REASON_TRANSLATIONS = {
         score_declining:           "Score has trended down over recent weeks — the underlying setup is weakening.",
         score_strong:              "Score is high across components — setup is firing on multiple dimensions.",
@@ -639,7 +643,6 @@
         ? (REASON_TRANSLATIONS[stageReason] || String(stageReason).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()))
         : null;
 
-      // Component labels + maxes (from worker's computeInvestorScore)
       const COMPONENT_DEFS = {
         weeklyTrend:        { label: "Weekly Trend",        max: 25, why: "Direction + slope of the weekly price action over recent weeks." },
         monthlyTrend:       { label: "Monthly Trend",       max: 20, why: "Bigger-picture direction over months." },
@@ -654,28 +657,30 @@
         ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
         : "—";
 
-      // ── Render ────────────────────────────────────────────────────────
+      // Inline Panel (the rail's local helper isn't accessible at module scope).
+      const Panel = ({ title, action, children }) => h("div", {
+        style: {
+          background: "var(--ds-surface-1, rgba(255,255,255,0.02))",
+          border: "1px solid var(--ds-border-faint, rgba(255,255,255,0.06))",
+          borderRadius: "var(--ds-radius-lg, 12px)",
+          padding: "var(--ds-space-3, 12px)",
+        },
+      },
+        h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--ds-space-2, 8px)" } },
+          h("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--ds-text-faint, #6b7280)", letterSpacing: "0.06em", textTransform: "uppercase" } }, title),
+          action || null,
+        ),
+        children,
+      );
+
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" } },
 
-        // 1. Lane Guidance card
+        // 1. Lane Guidance
         h(Panel, {
           title: "📍 Investor Lane Guidance",
-          action: h("span", {
-            style: {
-              fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
-              padding: "2px 8px", borderRadius: 999,
-              color: stageInfo.color, background: stageInfo.bg,
-              border: `1px solid ${stageInfo.border}`,
-            },
-          }, stageInfo.label),
+          action: h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, stageInfo.label),
         },
-          h("div", {
-            style: {
-              padding: "var(--ds-space-2)", background: stageInfo.bg,
-              border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)",
-              marginBottom: "var(--ds-space-2)",
-            },
-          },
+          h("div", { style: { padding: "var(--ds-space-2)", background: stageInfo.bg, border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" } },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
             h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, stageInfo.action),
             h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, stageInfo.desc),
@@ -696,18 +701,16 @@
           ),
         ),
 
-        // 2. WHY (stage reason translated to prose)
+        // 2. WHY (stage reason translated)
         reasonProse && h(Panel, { title: "🧠 Why this classification" },
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } },
-            reasonProse,
-          ),
+          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, reasonProse),
           stageReason && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" } }, "code: ", stageReason),
         ),
 
-        // 3. Score breakdown — every component contributing to the score
+        // 3. Score breakdown
         components && Object.keys(components).length > 0 && h(Panel, {
           title: "📊 Score Breakdown",
-          action: h("span", { className: "ds-chip ds-chip--sm" }, "0-100 scale"),
+          action: h("span", { style: { fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: "var(--ds-text-muted)" } }, "0-100 scale"),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
             Object.entries(COMPONENT_DEFS).map(([key, def]) => {
@@ -730,22 +733,15 @@
           ),
         ),
 
-        // 4. Buy Zone signals (when in zone)
+        // 4. Buy Zone signals
         accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
           title: "🎯 Buy Zone Signals",
-          action: h("span", { className: "ds-chip ds-chip--sm ds-chip--up" }, `${accumZone.confidence || 0}% confidence`),
+          action: h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(52,211,153,0.10)", color: "#34d399", border: "1px solid rgba(52,211,153,0.30)" } }, `${accumZone.confidence || 0}% confidence`),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
             accumZone.signals.map((s, i) => h("div", {
               key: `signal-${i}`,
-              style: {
-                fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-body)",
-                padding: "6px 10px",
-                background: "rgba(52,211,153,0.06)",
-                border: "1px solid rgba(52,211,153,0.20)",
-                borderRadius: 6,
-              },
+              style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", padding: "6px 10px", background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.20)", borderRadius: 6 },
             },
               h("span", { style: { color: "#34d399", marginRight: 6 } }, "✓"),
               typeof s === "string" ? s.replace(/_/g, " ") : (s?.name || s?.label || String(s)),
@@ -753,7 +749,7 @@
           ),
         ),
 
-        // 5. Position context (when owned)
+        // 5. Position
         pos && h(Panel, { title: "💼 Your Position" },
           h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
             h("div", null,
@@ -775,16 +771,14 @@
               ),
             ),
           ),
-          pos.last_action_type && pos.last_action_ts && h("div", {
-            style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" },
-          },
+          pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
             "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
             pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
             " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
           ),
         ),
 
-        // 6. RS + Sector context
+        // 6. RS + Sector
         (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "📈 Strength + Sector Context" },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
             Number.isFinite(rsRank) && h("div", null,
@@ -815,14 +809,12 @@
           ),
         ),
 
-        // Loading / error states
         loading && !detail && h(Panel, { title: "Loading…" },
           h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" } }, "Fetching investor detail for ", sym, "…"),
         ),
-        err && !detail && h(Panel, { title: "Investor View" },
+        err && !detail && !loading && h(Panel, { title: "Investor View" },
           h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: 1.5 } },
-            "No investor-mode detail available for ", sym, " yet.",
-            err && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)" } }, err),
+            "No investor-mode detail available for ", sym, " yet. Scores compute hourly during market hours.",
           ),
         ),
       );
@@ -7942,20 +7934,150 @@
                   })()}
 
                   {/* INVESTOR TAB — 2026-05-29 v2-native render
-                      Mobile-friendly investor panel. Fetches the full
-                      detail payload from /timed/investor/ticker on tab
-                      open (the /timed/all snapshot ticker only carries
-                      investor_stage + investor_score scalars; rich
-                      stageReason, components, accumZone signals, thesis,
-                      invalidation criteria, and position context live
-                      on the dedicated investor-ticker endpoint).
-                      Designed to answer "WHY is this stock classified
-                      as [stage]?" at a glance. */}
+                      A compact investor-centric panel for the mobile rail.
+                      Pulls from existing ticker payload + investor data;
+                      no extra fetches. Shows: stage chip, score with
+                      breakdown bar, lane guidance (action + plain English),
+                      accumulation zone status, and position context if
+                      owned. Desktop pro-tabs continues to render the
+                      fuller view at line 8010+. */}
                   {v2RailTab === "INVESTOR" && (() => {
-                    return h(InvestorTabPanel, {
-                      ticker, latestTicker, effectiveTrade,
-                      tickerSymbol, API_BASE,
-                    });
+                    const inv = effectiveTrade?.investor || ticker?.investor || latestTicker?.investor || null;
+                    const stage = String(ticker?.investor_stage || inv?.stage || "—").toLowerCase();
+                    const score = Number(ticker?.investor_score ?? inv?.score);
+                    const pos = inv?.position || null;
+                    const accumZone = inv?.accumZone || null;
+                    const thesis = inv?.thesis || null;
+
+                    const STAGE_LABEL = {
+                      accumulate: { label: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
+                      core_hold:  { label: "CORE HOLD",  color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", action: "Hold and DCA on dips", desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks." },
+                      watch:      { label: "WATCH",      color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
+                      reduce:     { label: "REDUCE",     color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Trim into strength", desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms." },
+                      research_on_watch: { label: "RESEARCH · ON WATCH", color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", action: "Research only", desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire." },
+                      research_low: { label: "RESEARCH · LOW", color: "#9ca3af", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
+                      research_avoid: { label: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
+                      exited: { label: "EXITED", color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
+                    };
+                    const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
+
+                    const fmtUsd = (n) => Number.isFinite(n)
+                      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
+                      : "—";
+
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+                        {/* Lane guidance card — top of panel */}
+                        <Panel title="📍 Investor Lane Guidance" action={
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                            padding: "2px 8px", borderRadius: 999,
+                            color: stageInfo.color, background: stageInfo.bg,
+                            border: `1px solid ${stageInfo.border}`,
+                          }}>{stageInfo.label}</span>
+                        }>
+                          <div style={{
+                            padding: "var(--ds-space-2)",
+                            background: stageInfo.bg,
+                            border: `1px solid ${stageInfo.border}`,
+                            borderRadius: "var(--ds-radius-md)",
+                            marginBottom: "var(--ds-space-2)",
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>ACTION</div>
+                            <div style={{ fontSize: "var(--ds-fs-h4, 15px)", fontWeight: 700, color: stageInfo.color }}>
+                              {stageInfo.action}
+                            </div>
+                            <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>
+                              {stageInfo.desc}
+                            </div>
+                          </div>
+
+                          {/* Score row */}
+                          {Number.isFinite(score) && (
+                            <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
+                              <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR SCORE</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 18px)", color: score >= 70 ? "var(--ds-color-up, #34d399)" : score >= 50 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)" }}>
+                                  {score.toFixed(0)}<span style={{ fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>/100</span>
+                                </div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                  {score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak"}
+                                </div>
+                              </div>
+                              {accumZone && (
+                                <div style={{ flex: 1, padding: "var(--ds-space-2)", background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>BUY ZONE</div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 18px)", color: accumZone.inZone ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)" }}>
+                                    {accumZone.inZone ? "ACTIVE" : "—"}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                    {accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </Panel>
+
+                        {/* Position context — only when owned */}
+                        {pos?.owned && (
+                          <Panel title="💼 Your Position">
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-2)" }}>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {Number(pos.shares || 0).toFixed(2)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>AVG ENTRY</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {fmtUsd(Number(pos.avg_entry) || 0)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>COST BASIS</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {fmtUsd(Number(pos.cost_basis) || 0)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>UNREALIZED</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)" }}>
+                                  {pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"}
+                                </div>
+                              </div>
+                            </div>
+                            {pos.last_action_type && pos.last_action_ts && (
+                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>
+                                Last action: <strong style={{ color: "var(--ds-text-body)" }}>{pos.last_action_type}</strong>{pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : ""} on {new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                              </div>
+                            )}
+                          </Panel>
+                        )}
+
+                        {/* Thesis snippet */}
+                        {thesis && (
+                          <Panel title="💡 Thesis">
+                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 }}>
+                              {String(thesis).slice(0, 480)}
+                            </div>
+                          </Panel>
+                        )}
+
+                        {/* Empty-state hint when no investor data */}
+                        {!inv && !Number.isFinite(score) && (
+                          <Panel title="Investor View">
+                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                              No investor-mode score yet for this ticker. Scores compute hourly during market hours.
+                              {!Object.keys(STAGE_LABEL).includes(stage) && stage !== "—" && (
+                                <> Current stage: <strong style={{ color: "var(--ds-text-body)" }}>{stage}</strong>.</>
+                              )}
+                            </div>
+                          </Panel>
+                        )}
+                      </div>
+                    );
                   })()}
 
                   {/* HISTORY TAB */}
@@ -12753,4 +12875,4 @@
   };
 })();
 
-// cache-bust:1780052966246:384607850
+// cache-bust:1780054027336:866984433
