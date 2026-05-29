@@ -11,9 +11,13 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Mock mode — when "true", the bridge logs orders to D1 audit but
-# DOES NOT call the actual Robinhood MCP. Flip to "false" once the
-# operator has wired the real RH OAuth client + tested the MCP shape.
-BROKER_BRIDGE_MOCK = "true"
+# DOES NOT call the actual broker (RH MCP or IBKR REST). Flipped to
+# "false" 2026-05-29 after operator wired IBKR OAuth 1.0a creds as
+# env-level secrets. Read-only verification calls (get_portfolio,
+# get_equity_positions) now hit IBKR for real; place_equity_order
+# is still gated by broker_integration_enabled on the user record
+# (default false), so no live order can fire by accident.
+BROKER_BRIDGE_MOCK = "false"
 
 # Bridge environment label — surfaces in audit log + responses.
 BRIDGE_ENV = "phase1-mvp"
