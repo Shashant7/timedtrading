@@ -1772,7 +1772,7 @@
       //   computed from the live day change relative to the morning
       //   trigger (was bull setup triggered? did it hit target?).
       // ─────────────────────────────────────────────────────────────
-      function BriefIndexCard({ idx, briefType, livePx, dayPct, onSelectTicker }) {
+      function BriefIndexCard({ idx, briefType, livePx, dayPct, onSelectTicker, prose }) {
         const SYM = String(idx?.sym || "").toUpperCase();
         const briefPx = Number(idx?.price);
         const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
@@ -1895,6 +1895,19 @@
               },
             }, "· " + scorecard.label),
           ),
+          // ── ES-style narrative prose (when brief provides it) ───────
+          // The per-index prediction sentence the LLM generates, mirroring
+          // the ES Prediction style. Stripped of the trailing 4-line
+          // structured block (which we render below via gamePlan fields).
+          prose && h("p", {
+            style: {
+              fontSize: 12, color: "var(--tt-text)", lineHeight: 1.55,
+              margin: 0, padding: "6px 10px",
+              background: "rgba(245,194,92,0.05)",
+              borderLeft: "2px solid var(--tt-accent, #f5c25c)",
+              borderRadius: "0 4px 4px 0",
+            },
+          }, prose),
           // ── Today's expected range (from goldenGate gates) ──────────
           // Same range the Daily Brief prints in its index sections.
           _rng && h("div", {
@@ -1993,6 +2006,43 @@
               const sym = String(idx?.sym || "").toUpperCase();
               const live = data?.[sym] || null;
               const liveDc = live ? getDailyChange({ ticker: sym, ...live }) : null;
+              // 2026-05-29 — Per-index ES-style narrative sentence.
+              // Primary source: the brief's scalar field (spyPrediction
+              // etc) populated by extractPredictionLine in
+              // worker/daily-brief.js after the LLM produces the prose.
+              //
+              // Fallback: parse from brief.content markdown directly.
+              // This handles legacy briefs generated before the prose
+              // prompt change landed, so the card works on day-one
+              // without waiting for the next morning brief.
+              const proseRaw = sym === "SPY" ? active?.spyPrediction
+                            : sym === "QQQ" ? active?.qqqPrediction
+                            : sym === "IWM" ? active?.iwmPrediction
+                            : null;
+              const proseFallback = (() => {
+                if (proseRaw) return null;
+                const content = active?.content || "";
+                if (!content) return null;
+                // Match `**SYM @ $X** · Range today $A-$B  \n▲ ... \n▼ ... \nLean: X — Y`
+                // and synthesize a one-sentence narrative from the parts.
+                const re = new RegExp(
+                  `\\*\\*${sym}\\s*@\\s*\\$([\\d.,]+)\\*\\*\\s*·\\s*Range today\\s+\\$([\\d.,]+)[–-]\\$([\\d.,]+)[\\s\\S]*?Bull above\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Bear below\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Lean:\\s*([A-Z]+)\\s*[—\\-]\\s*([^\\n.]+)`,
+                  "i",
+                );
+                const m = content.match(re);
+                if (!m) return null;
+                const [, px, lo, hi, bullT, bullTgt, bearT, bearTgt, lean, why] = m;
+                const leanLc = String(lean).toLowerCase();
+                if (leanLc === "bull") {
+                  return `${sym} stays inside the expected day range of $${lo}–$${hi} early; resolves higher only if it reclaims $${bullT} (target $${bullTgt}). ${why.trim()}.`;
+                } else if (leanLc === "bear") {
+                  return `${sym} stays inside the expected day range of $${lo}–$${hi} early; risk skews lower on a break of $${bearT} (target $${bearTgt}). ${why.trim()}.`;
+                }
+                return `${sym} stays inside the expected day range of $${lo}–$${hi} early; only resolves higher above $${bullT} (target $${bullTgt}) or lower below $${bearT} (target $${bearTgt}). ${why.trim()}.`;
+              })();
+              const prose = proseRaw
+                ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim()
+                : proseFallback;
               return h(BriefIndexCard, {
                 key: sym,
                 idx,
@@ -2000,6 +2050,7 @@
                 livePx: Number(live?.price),
                 dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
                 onSelectTicker,
+                prose,
               });
             }),
           ),
