@@ -99,6 +99,96 @@ function App({
   const [addedTickers, setAddedTickers] = useState(new Set());
   const [existingTickers, setExistingTickers] = useState(new Set());
   const [selectedTickers, setSelectedTickers] = useState(new Set());
+  const [viewMode, setViewMode] = useState("discovery");
+  const [pqRows, setPqRows] = useState([]);
+  const [pqStatusFilter, setPqStatusFilter] = useState("needs_review");
+  const [pqLoading, setPqLoading] = useState(false);
+  const [pqErr, setPqErr] = useState(null);
+  const [pqMeta, setPqMeta] = useState(null);
+  const [pqDeciding, setPqDeciding] = useState(new Set());
+  const [pqRebuilding, setPqRebuilding] = useState(false);
+  const fetchPromotionQueue = useCallback(async () => {
+    setPqLoading(true);
+    setPqErr(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/discovery/promotion-queue?status=${pqStatusFilter}&limit=100`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      if (!j.ok) throw new Error(j.error || "fetch failed");
+      setPqRows(j.rows || []);
+      setPqMeta(j.meta || null);
+    } catch (e) {
+      setPqErr(String(e.message || e));
+    } finally {
+      setPqLoading(false);
+    }
+  }, [pqStatusFilter]);
+  const triggerPqRebuild = useCallback(async () => {
+    if (pqRebuilding) return;
+    if (!confirm("Rebuild promotion queue now? Re-scores all 500 screener candidates with the 7-component thesis-quality framework. Takes ~30 seconds.")) return;
+    setPqRebuilding(true);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/discovery/promotion-queue/rebuild`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      });
+      const j = await res.json();
+      if (j.ok) {
+        alert(`Rebuilt ${j.written} candidates · ${j.by_status?.ready_to_add || 0} ready · ${j.by_status?.needs_review || 0} needs review · ${j.by_status?.rejected || 0} rejected`);
+        fetchPromotionQueue();
+      } else {
+        alert(`Rebuild failed: ${j.error || "unknown"}`);
+      }
+    } catch (e) {
+      alert(`Rebuild failed: ${String(e.message || e)}`);
+    } finally {
+      setPqRebuilding(false);
+    }
+  }, [pqRebuilding, fetchPromotionQueue]);
+  const decideOnCandidate = useCallback(async (candidateId, decision) => {
+    if (pqDeciding.has(candidateId)) return;
+    const action = decision === "approve" ? "APPROVE and add to universe" : "DECLINE";
+    if (!confirm(`${action} ${candidateId}?`)) return;
+    setPqDeciding(prev => new Set(prev).add(candidateId));
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/discovery/promotion-queue/decide`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          candidate_id: candidateId,
+          decision,
+          decided_by: user?.email || "operator"
+        })
+      });
+      const j = await res.json();
+      if (j.ok) {
+        fetchPromotionQueue();
+      } else {
+        alert(`Decision failed: ${j.error || "unknown"}`);
+      }
+    } catch (e) {
+      alert(`Decision failed: ${String(e.message || e)}`);
+    } finally {
+      setPqDeciding(prev => {
+        const s = new Set(prev);
+        s.delete(candidateId);
+        return s;
+      });
+    }
+  }, [pqDeciding, fetchPromotionQueue, user]);
+  useEffect(() => {
+    if (viewMode === "promote") fetchPromotionQueue();
+  }, [viewMode, pqStatusFilter, fetchPromotionQueue]);
   const fetchCandidates = useCallback(async (cacheBust = false) => {
     setLoading(true);
     setError(null);
@@ -487,17 +577,274 @@ function App({
     className: "text-lg font-semibold tracking-tight text-white"
   }, "Screener"), React.createElement("p", {
     className: "text-[13px] text-[#6b7280] mt-0.5"
-  }, "Discover new tickers not yet in our universe")), React.createElement("div", {
+  }, viewMode === "promote" ? "Promotion Queue — thesis-quality scoring + operator review" : "Discover new tickers not yet in our universe")), React.createElement("div", {
     className: "flex items-center gap-2"
-  }, isAdmin && selectedTickers.size > 0 && React.createElement("button", {
+  }, viewMode === "discovery" && isAdmin && selectedTickers.size > 0 && React.createElement("button", {
     onClick: () => addToUniverse(Array.from(selectedTickers)),
     className: "px-4 py-1.5 rounded-lg text-[13px] font-medium bg-[#00c853]/15 text-[#00c853] border border-[#00c853]/30 hover:bg-[#00c853]/25 transition-all"
-  }, "Add ", selectedTickers.size, " to Universe"), React.createElement("button", {
+  }, "Add ", selectedTickers.size, " to Universe"), viewMode === "discovery" && React.createElement("button", {
     onClick: () => fetchCandidates(true),
     disabled: loading,
     className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
     title: "Fetch latest screener results"
-  }, loading ? "Loading..." : "↻ Rescan"))), scanTs && React.createElement("div", {
+  }, loading ? "Loading..." : "↻ Rescan"), viewMode === "promote" && isAdmin && React.createElement("button", {
+    onClick: triggerPqRebuild,
+    disabled: pqRebuilding,
+    className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#f5c25c] border border-[#f5c25c]/30 hover:bg-[#f5c25c]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+    title: "Re-score all candidates with the 7-component thesis-quality framework"
+  }, pqRebuilding ? "Rebuilding…" : "↻ Rebuild Queue"))), React.createElement("div", {
+    className: "flex items-center gap-1 mb-4 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04] w-fit"
+  }, [{
+    id: "discovery",
+    label: "Discovery",
+    icon: "🔍",
+    desc: "Raw screener candidates"
+  }, {
+    id: "promote",
+    label: "Promotion Queue",
+    icon: "🎯",
+    desc: "Scored + ready for review"
+  }].map(v => {
+    const active = viewMode === v.id;
+    return React.createElement("button", {
+      key: v.id,
+      onClick: () => setViewMode(v.id),
+      className: `px-3 py-1.5 rounded-md text-[12px] transition-all flex items-center gap-1.5 ${active ? "bg-white/[0.08] text-white font-medium" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+      title: v.desc
+    }, React.createElement("span", null, v.icon), React.createElement("span", null, v.label));
+  })), viewMode === "promote" && React.createElement("div", null, React.createElement("div", {
+    className: "flex items-center gap-1 mb-4 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04] w-fit flex-wrap"
+  }, [{
+    id: "ready_to_add",
+    label: "Ready",
+    color: "#22c55e",
+    desc: "Score ≥ 60, no critical red flags"
+  }, {
+    id: "needs_review",
+    label: "Needs Review",
+    color: "#f5c25c",
+    desc: "Score 40-60 or worth a look"
+  }, {
+    id: "rejected",
+    label: "Rejected",
+    color: "#9ca3af",
+    desc: "Score < 40 or auto-rejected"
+  }, {
+    id: "approved",
+    label: "Approved",
+    color: "#34d399",
+    desc: "Operator decision: approve"
+  }, {
+    id: "declined",
+    label: "Declined",
+    color: "#f87171",
+    desc: "Operator decision: decline"
+  }, {
+    id: "all",
+    label: "All",
+    color: "#9ca3af"
+  }].map(s => {
+    const active = pqStatusFilter === s.id;
+    return React.createElement("button", {
+      key: s.id,
+      onClick: () => setPqStatusFilter(s.id),
+      className: `px-3 py-1.5 rounded-md text-[11px] transition-all ${active ? "bg-white/[0.08] font-medium" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+      style: active ? {
+        color: s.color
+      } : {},
+      title: s.desc || s.label
+    }, s.label);
+  })), pqErr && React.createElement("div", {
+    className: "text-red-400 text-xs mb-3 px-3 py-2 rounded border border-red-500/30 bg-red-500/[0.06]"
+  }, pqErr), pqLoading && pqRows.length === 0 && React.createElement("div", {
+    className: "text-xs text-[#6b7280] py-8 text-center"
+  }, "Loading promotion queue\u2026"), !pqLoading && pqRows.length === 0 && !pqErr && React.createElement("div", {
+    className: "text-xs text-[#6b7280] py-8 text-center"
+  }, "No candidates with status ", React.createElement("strong", null, pqStatusFilter), ".", isAdmin && React.createElement(React.Fragment, null, " Try ", React.createElement("button", {
+    className: "underline text-[#f5c25c] ml-1",
+    onClick: triggerPqRebuild
+  }, "rebuilding the queue"), ".")), React.createElement("div", {
+    className: "flex flex-col gap-3"
+  }, pqRows.map(row => {
+    const score = Number(row.total_score) || 0;
+    const status = String(row.status || "").toLowerCase();
+    const statusMeta = status === "ready_to_add" ? {
+      label: "READY TO ADD",
+      color: "#22c55e",
+      bg: "rgba(34,197,94,0.10)"
+    } : status === "needs_review" ? {
+      label: "NEEDS REVIEW",
+      color: "#f5c25c",
+      bg: "rgba(245,194,92,0.10)"
+    } : status === "approved" ? {
+      label: "APPROVED",
+      color: "#34d399",
+      bg: "rgba(52,211,153,0.12)"
+    } : status === "declined" ? {
+      label: "DECLINED",
+      color: "#f87171",
+      bg: "rgba(248,113,113,0.10)"
+    } : status === "rejected" ? {
+      label: "REJECTED",
+      color: "#9ca3af",
+      bg: "rgba(156,163,175,0.06)"
+    } : {
+      label: status.toUpperCase(),
+      color: "#9ca3af",
+      bg: "rgba(156,163,175,0.06)"
+    };
+    const cmps = row.components || {};
+    const sig = row.signals || {};
+    const flags = Array.isArray(row.red_flags) ? row.red_flags : [];
+    const deciding = pqDeciding.has(row.candidate_id);
+    const mcap = Number(sig?.market_cap) || 0;
+    const mcapDisplay = mcap >= 1e9 ? `$${(mcap / 1e9).toFixed(1)}B` : mcap >= 1e6 ? `$${(mcap / 1e6).toFixed(0)}M` : mcap > 0 ? `$${mcap.toLocaleString()}` : "—";
+    const COMPS = [{
+      key: "sustain",
+      label: "Sustain",
+      max: 20,
+      val: Number(cmps.sustain) || 0,
+      hint: "Distinct-day appearances (single-day spike = 0)"
+    }, {
+      key: "quality",
+      label: "Quality",
+      max: 20,
+      val: Number(cmps.quality) || 0,
+      hint: "Hard floor: mcap > $2B + avg vol > 1M + price > $5"
+    }, {
+      key: "theme",
+      label: "Theme",
+      max: 15,
+      val: Number(cmps.theme?.pts) || 0,
+      hint: `Theme alignment ${cmps.theme?.theme ? "· " + cmps.theme.theme : ""}`
+    }, {
+      key: "news",
+      label: "News",
+      max: 15,
+      val: Number(cmps.news?.pts) || 0,
+      hint: `Catalyst strength · ${cmps.news?.bullish_catalyst_count || 0} bullish`
+    }, {
+      key: "insider",
+      label: "Insider",
+      max: 10,
+      val: Number(cmps.insider?.pts) || 0,
+      hint: `${cmps.insider?.hi_buys_count || 0} high-signal Form-4 buys`
+    }, {
+      key: "macro",
+      label: "Macro",
+      max: 10,
+      val: Number(cmps.macro?.pts) || 0,
+      hint: cmps.macro?.signal || "Country / cross-asset alignment"
+    }, {
+      key: "peer",
+      label: "Peer",
+      max: 10,
+      val: Number(cmps.peer?.pts) || 0,
+      hint: "Theme peers' historical capture rate"
+    }];
+    return React.createElement("div", {
+      key: row.candidate_id,
+      className: "rounded-lg border bg-white/[0.02] hover:bg-white/[0.03] transition-all",
+      style: {
+        borderColor: statusMeta.color + "30"
+      }
+    }, React.createElement("div", {
+      className: "flex items-start justify-between gap-4 px-4 py-3 border-b border-white/[0.04]"
+    }, React.createElement("div", {
+      className: "flex-1 min-w-0"
+    }, React.createElement("div", {
+      className: "flex items-baseline gap-3 flex-wrap mb-1"
+    }, React.createElement("span", {
+      className: "text-[15px] font-bold text-white tracking-tight"
+    }, row.ticker), React.createElement("span", {
+      className: "text-[11px] text-[#9ca3af]"
+    }, sig?.sector || "—"), React.createElement("span", {
+      className: "text-[11px] text-[#6b7280]"
+    }, mcapDisplay), Number.isFinite(sig?.latest_price) && React.createElement("span", {
+      className: "text-[11px] text-[#d1d5db]"
+    }, "$", Number(sig.latest_price).toFixed(2)), Number.isFinite(sig?.latest_change_pct) && React.createElement("span", {
+      className: `text-[11px] font-semibold ${Number(sig.latest_change_pct) >= 0 ? "text-[#22c55e]" : "text-[#f87171]"}`
+    }, Number(sig.latest_change_pct) >= 0 ? "+" : "", Number(sig.latest_change_pct).toFixed(2), "%"), React.createElement("span", {
+      className: "text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border",
+      style: {
+        color: statusMeta.color,
+        background: statusMeta.bg,
+        borderColor: statusMeta.color + "55"
+      }
+    }, statusMeta.label)), React.createElement("div", {
+      className: "text-[10px] text-[#6b7280]"
+    }, Array.isArray(sig?.themes) && sig.themes.length > 0 && React.createElement(React.Fragment, null, "Themes: ", sig.themes.join(", "), " \xB7 "), Array.isArray(sig?.scan_types) && sig.scan_types.length > 0 && React.createElement(React.Fragment, null, "Scans: ", sig.scan_types.join(", "), " \xB7 "), "Appearances 7d: ", row.appearances_7d || 0, row.decided_by && React.createElement(React.Fragment, null, " \xB7 Decided by ", row.decided_by, " ", row.decided_at ? new Date(Number(row.decided_at)).toLocaleString() : ""))), React.createElement("div", {
+      className: "flex items-baseline gap-2 shrink-0"
+    }, React.createElement("span", {
+      className: `text-[28px] font-bold tabular-nums leading-none ${score >= 60 ? "text-[#22c55e]" : score >= 40 ? "text-[#f5c25c]" : "text-[#6b7280]"}`
+    }, score), React.createElement("span", {
+      className: "text-[12px] text-[#6b7280]"
+    }, "/100"))), React.createElement("div", {
+      className: "px-4 py-3 grid grid-cols-2 md:grid-cols-7 gap-2"
+    }, COMPS.map(c => {
+      const pct = c.max > 0 ? Math.min(100, c.val / c.max * 100) : 0;
+      const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f5c25c" : "#6b7280";
+      return React.createElement("div", {
+        key: c.key,
+        title: c.hint,
+        className: "cursor-help"
+      }, React.createElement("div", {
+        className: "text-[9px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1"
+      }, c.label), React.createElement("div", {
+        className: "text-[12px] font-bold tabular-nums",
+        style: {
+          color
+        }
+      }, c.val, React.createElement("span", {
+        className: "text-[#4b5563] font-normal"
+      }, "/", c.max)), React.createElement("div", {
+        className: "h-1 mt-1 rounded-full bg-white/[0.05] overflow-hidden"
+      }, React.createElement("div", {
+        className: "h-full rounded-full transition-all",
+        style: {
+          width: `${pct}%`,
+          background: color
+        }
+      })));
+    })), flags.length > 0 && React.createElement("div", {
+      className: "px-4 py-2 border-t border-[#f87171]/20 bg-[#f87171]/[0.04]"
+    }, React.createElement("div", {
+      className: "text-[9px] tracking-wider font-semibold uppercase text-[#f87171] mb-1"
+    }, "Red Flags \xB7 pump-and-dump signature deductions"), React.createElement("div", {
+      className: "flex flex-wrap gap-1.5"
+    }, flags.map((f, i) => React.createElement("span", {
+      key: i,
+      className: "text-[10px] px-2 py-0.5 rounded border",
+      style: {
+        color: "#fca5a5",
+        background: "rgba(248,113,113,0.08)",
+        borderColor: "rgba(248,113,113,0.25)"
+      }
+    }, String(f).replace(/_/g, " "))))), row.thesis_text && React.createElement("div", {
+      className: "px-4 py-3 border-t border-white/[0.04]"
+    }, React.createElement("div", {
+      className: "text-[9px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1"
+    }, "Thesis"), React.createElement("div", {
+      className: "text-[12px] text-[#d1d5db] leading-relaxed",
+      dangerouslySetInnerHTML: {
+        __html: String(row.thesis_text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white">$1</strong>')
+      }
+    })), isAdmin && (status === "ready_to_add" || status === "needs_review") && React.createElement("div", {
+      className: "px-4 py-3 border-t border-white/[0.04] flex items-center gap-2"
+    }, React.createElement("button", {
+      onClick: () => decideOnCandidate(row.candidate_id, "approve"),
+      disabled: deciding,
+      className: "px-3 py-1.5 rounded text-[12px] font-semibold text-[#22c55e] border border-[#22c55e]/40 hover:bg-[#22c55e]/10 transition-all disabled:opacity-50"
+    }, deciding ? "Working…" : "✓ Approve · add to universe"), React.createElement("button", {
+      onClick: () => decideOnCandidate(row.candidate_id, "decline"),
+      disabled: deciding,
+      className: "px-3 py-1.5 rounded text-[12px] font-semibold text-[#f87171] border border-[#f87171]/40 hover:bg-[#f87171]/10 transition-all disabled:opacity-50"
+    }, deciding ? "Working…" : "✗ Decline"), React.createElement("span", {
+      className: "text-[10px] text-[#4b5563] ml-auto"
+    }, "First seen ", row.first_seen_at ? new Date(Number(row.first_seen_at)).toLocaleDateString() : "—")));
+  })), pqRows.length > 0 && React.createElement("div", {
+    className: "text-[10px] text-[#4b5563] mt-4 italic"
+  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226540 + no critical \u2192 needs review \xB7 otherwise \u2192 rejected. Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, scanTs && React.createElement("div", {
     className: "text-[11px] text-[#4b5563] mb-3 -mt-4"
   }, "Last scan: ", new Date(scanTs).toLocaleString(), " (", (() => {
     const mins = Math.round((Date.now() - new Date(scanTs).getTime()) / 60000);
@@ -682,7 +1029,7 @@ function App({
     className: "text-[11px] text-[#4b5563]"
   }, "New discoveries: ", React.createElement("span", {
     className: "text-[#00c853]"
-  }, candidates.filter(c => !existingTickers.has((c.ticker || "").toUpperCase())).length)))));
+  }, candidates.filter(c => !existingTickers.has((c.ticker || "").toUpperCase())).length))))));
 }
 const AuthGate = window.TimedAuthGate;
 const screenerApp = AuthGate ? React.createElement(AuthGate, {
@@ -692,6 +1039,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780013696433:706454279
+// cache-bust:1780019212421:331281754
 
-// cache-bust:1780013696433:706454279
+// cache-bust:1780019212421:331281754
