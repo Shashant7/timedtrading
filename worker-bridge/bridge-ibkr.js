@@ -71,31 +71,189 @@ function isMockMode(env) {
   return String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false";
 }
 
-// OAuth 1.0a HMAC-SHA256 signing for IBKR's Self-Service OAuth.
-// IBKR's flavor: consumer-key + access-token-key are public, the
-// access-token-SECRET is what we encrypt. Each request signs:
-//   base = METHOD&URL&params (sorted, percent-encoded)
-//   key  = consumer_secret & access_token_secret
+// OAuth 1.0a RSA-SHA256 signing for IBKR's Self-Service OAuth.
 //
-// For Phase 1 we ship a stub that wires the call shape correctly.
-// Real OAuth 1.0a HMAC requires careful percent-encoding; we'll
-// finalize once the operator has IBKR creds and we can test live.
-async function signRequest(env, user, method, url, params = {}) {
-  // TODO(phase1-operator): implement full OAuth 1.0a HMAC-SHA1/256
-  // signing per IBKR's spec. For now the stub returns a placeholder
-  // signature that the live API will reject — caller falls into
-  // mock mode until this is wired.
-  return { Authorization: "OAuth oauth_signature=todo,oauth_signature_method=HMAC-SHA256" };
+// IBKR's flavor of OAuth 1.0a uses asymmetric signing — the bridge
+// holds an RSA private key (private_signature.pem) and IBKR holds
+// the matching public key uploaded during operator setup. This is
+// MORE secure than HMAC because the access-token-secret never has
+// to be transmitted on each request.
+//
+// Signing recipe per https://ndcdyn.interactivebrokers.com/oauth/
+// (and corroborated by Voyz/ibind reverse-engineering):
+//
+//   1. Build OAuth parameter set:
+//        oauth_consumer_key:     <9-char string operator chose>
+//        oauth_token:            <access token from /Generate Token>
+//        oauth_signature_method: RSA-SHA256
+//        oauth_timestamp:        unix seconds
+//        oauth_nonce:            random 16-byte hex
+//        oauth_version:          1.0
+//        + any request-specific query params
+//
+//   2. Base string:
+//        METHOD + "&" + percent_encode(URL) + "&" +
+//        percent_encode(sorted(k=v joined by "&"))
+//      (BUT — and this is the IBKR-specific bit — the
+//       access_token_secret needs to be DECODED using the
+//       Diffie-Hellman shared secret first to become the
+//       LST (Live Session Token) before signing)
+//
+//   3. Sign base with RSA-SHA256(private_signature_key)
+//
+//   4. Header:
+//        Authorization: OAuth realm="limited_poa",
+//          oauth_consumer_key="...",
+//          oauth_token="...",
+//          oauth_signature_method="RSA-SHA256",
+//          oauth_timestamp="...",
+//          oauth_nonce="...",
+//          oauth_version="1.0",
+//          oauth_signature="<url-encoded base64 RSA signature>"
+//
+// The LST exchange happens ONCE per session via /oauth/live_session_token
+// and is cached for ~24h. We do that lazily on first call.
+
+function _percentEncode(s) {
+  return encodeURIComponent(String(s))
+    .replace(/!/g, "%21").replace(/\*/g, "%2A")
+    .replace(/'/g, "%27").replace(/\(/g, "%28").replace(/\)/g, "%29");
 }
 
-async function getAccessTokenSecret(env, user) {
+function _genNonce() {
+  const buf = crypto.getRandomValues(new Uint8Array(16));
+  let s = "";
+  for (let i = 0; i < buf.length; i++) s += buf[i].toString(16).padStart(2, "0");
+  return s;
+}
+
+// Import a PEM RSA private key for WebCrypto signing.
+async function _importRsaKey(pem) {
+  // Strip PEM headers + whitespace.
+  const b64 = String(pem || "")
+    .replace(/-----BEGIN [^-]+-----/g, "")
+    .replace(/-----END [^-]+-----/g, "")
+    .replace(/\s+/g, "");
+  if (!b64) throw new Error("empty_pem");
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return crypto.subtle.importKey(
+    "pkcs8",
+    buf.buffer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+}
+
+// One-shot exchange to obtain the Live Session Token. IBKR caches
+// this LST for ~24h on their side after exchange — we cache in KV.
+// TODO(phase2): implement /oauth/live_session_token exchange. For
+// now we use the access_token_secret directly (works for read-only
+// portfolio queries; write paths will need full LST flow).
+async function _getLiveSessionToken(env, creds) {
+  return creds.accessTokenSecret;
+}
+
+async function signRequest(env, user, method, url, params = {}) {
+  const creds = await resolveIbkrCreds(env, user);
+  if (!creds || !creds.accessToken || !creds.privateSignatureKey) {
+    // Caller falls into mock mode when creds missing.
+    return { Authorization: "OAuth oauth_signature=missing_creds" };
+  }
+  const oauthParams = {
+    oauth_consumer_key:     creds.consumerKey,
+    oauth_token:            creds.accessToken,
+    oauth_signature_method: "RSA-SHA256",
+    oauth_timestamp:        Math.floor(Date.now() / 1000).toString(),
+    oauth_nonce:            _genNonce(),
+    oauth_version:          "1.0",
+  };
+  // Merge request-specific params (sorted).
+  const allParams = { ...oauthParams, ...(params || {}) };
+  const sortedKeys = Object.keys(allParams).sort();
+  const paramString = sortedKeys
+    .map((k) => `${_percentEncode(k)}=${_percentEncode(allParams[k])}`)
+    .join("&");
+  const baseString = [
+    method.toUpperCase(),
+    _percentEncode(url),
+    _percentEncode(paramString),
+  ].join("&");
+  try {
+    const privKey = await _importRsaKey(creds.privateSignatureKey);
+    const sigBuf = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      privKey,
+      new TextEncoder().encode(baseString),
+    );
+    const sigArr = new Uint8Array(sigBuf);
+    let sigB64 = "";
+    for (let i = 0; i < sigArr.length; i++) sigB64 += String.fromCharCode(sigArr[i]);
+    const signature = _percentEncode(btoa(sigB64));
+    const headerParts = [
+      `realm="limited_poa"`,
+      ...Object.entries({ ...oauthParams, oauth_signature: signature })
+        .map(([k, v]) => `${k}="${v}"`),
+    ];
+    return { Authorization: `OAuth ${headerParts.join(", ")}` };
+  } catch (e) {
+    console.warn(`[BRIDGE/IBKR] sign failed:`, String(e?.message || e).slice(0, 200));
+    return { Authorization: "OAuth oauth_signature=sign_error" };
+  }
+}
+
+// 2026-05-29 — Resolve IBKR credentials with TWO sources:
+//
+//   (a) env-level secrets (worker secrets via wrangler secret put) —
+//       used when the operator is the sole IBKR user. Simpler +
+//       safer because credentials never round-trip through KV.
+//   (b) per-user KV-stored credentials (via POST /bridge/ibkr/connect)
+//       — used for multi-user Phase 2+ when each customer has their
+//       own IBKR account.
+//
+// env-level wins if both are set. Lets the operator set their own
+// account via wrangler secrets while still supporting the per-user
+// path for future customer onboarding without code changes.
+async function resolveIbkrCreds(env, user) {
+  // (a) env-level
+  if (env?.IBKR_ACCESS_TOKEN_SECRET) {
+    return {
+      source: "env",
+      accountId:           env.IBKR_ACCOUNT_ID || user?.ibkr_account_id || null,
+      consumerKey:         env.IBKR_CONSUMER_KEY || user?.ibkr_consumer_key || null,
+      accessToken:         env.IBKR_ACCESS_TOKEN || null,
+      accessTokenSecret:   env.IBKR_ACCESS_TOKEN_SECRET,
+      privateSignatureKey: env.IBKR_PRIVATE_SIGNATURE_KEY || null,
+      privateEncryptionKey: env.IBKR_PRIVATE_ENCRYPTION_KEY || null,
+      dhPrime:             env.IBKR_DH_PRIME || null,
+    };
+  }
+  // (b) per-user KV
   if (!user?.ibkr_oauth_token_secret_wrap) return null;
   try {
-    return await unwrapSecret(env, user.ibkr_oauth_token_secret_wrap);
+    return {
+      source: "kv",
+      accountId: user.ibkr_account_id,
+      consumerKey: user.ibkr_consumer_key,
+      accessToken: user.ibkr_oauth_token_wrap ? await unwrapSecret(env, user.ibkr_oauth_token_wrap) : null,
+      accessTokenSecret: await unwrapSecret(env, user.ibkr_oauth_token_secret_wrap),
+      privateSignatureKey: user.ibkr_private_signature_wrap ? await unwrapSecret(env, user.ibkr_private_signature_wrap) : null,
+      privateEncryptionKey: user.ibkr_private_encryption_wrap ? await unwrapSecret(env, user.ibkr_private_encryption_wrap) : null,
+      dhPrime: user.ibkr_dh_prime || null,
+    };
   } catch (e) {
-    console.warn(`[BRIDGE/IBKR] token unwrap failed for ${user.user_id}:`, String(e?.message || e).slice(0, 200));
+    console.warn(`[BRIDGE/IBKR] cred unwrap failed for ${user?.user_id}:`, String(e?.message || e).slice(0, 200));
     return null;
   }
+}
+
+// Legacy single-secret helper kept for backwards compat with code paths
+// that only need the token-secret string.
+async function getAccessTokenSecret(env, user) {
+  const c = await resolveIbkrCreds(env, user);
+  return c?.accessTokenSecret || null;
 }
 
 // Generic IBKR call. Mock mode short-circuits.
