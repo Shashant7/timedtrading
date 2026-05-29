@@ -728,26 +728,52 @@ function BriefIndexCard({
       borderLeft: "2px solid var(--tt-accent, #f5c25c)",
       borderRadius: "0 4px 4px 0"
     }
-  }, prose), _rng && h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 10.5,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.5
-    }
-  }, h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, "Today's range: "), h("span", {
-    style: {
-      color: "var(--tt-text)"
-    }
-  }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`), Number.isFinite(dayAtr) && dayAtr > 0 && h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, ` · typical move ±$${dayAtr.toFixed(2)}`)), (_fmt(bullT) || _fmt(bearT)) && h("div", {
+  }, prose), _rng && (() => {
+    const morningOutOfBand = Number.isFinite(price) && Number.isFinite(dayAtr) && dayAtr > 0 && (price > _rng.hi + dayAtr * 0.05 || price < _rng.lo - dayAtr * 0.05);
+    const liveRange = morningOutOfBand && Number.isFinite(price) && dayAtr > 0 ? {
+      lo: price - dayAtr * 0.5,
+      hi: price + dayAtr * 0.5
+    } : null;
+    return h(React.Fragment, null, h("div", {
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 10.5,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5
+      }
+    }, h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, morningOutOfBand ? "Morning estimate: " : "Today's range: "), h("span", {
+      style: {
+        color: "var(--tt-text)",
+        textDecoration: morningOutOfBand ? "line-through" : "none",
+        opacity: morningOutOfBand ? 0.6 : 1
+      }
+    }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`), Number.isFinite(dayAtr) && dayAtr > 0 && h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, ` · typical move ±$${dayAtr.toFixed(2)}`)), liveRange && h("div", {
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 11,
+        color: "var(--tt-up)",
+        lineHeight: 1.5,
+        fontWeight: 600
+      }
+    }, h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, "Live range now: "), h("span", null, `$${liveRange.lo.toFixed(2)} – $${liveRange.hi.toFixed(2)}`), h("span", {
+      style: {
+        color: "var(--tt-text-faint)",
+        fontWeight: 500
+      }
+    }, ` · re-anchored to $${price.toFixed(2)}`)));
+  })(), (_fmt(bullT) || _fmt(bearT)) && h("div", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10.5,
@@ -3942,6 +3968,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780062691058:93476477
+// cache-bust:1780072401750:180383653
 
-// cache-bust:1780062691058:93476477
+// cache-bust:1780072401750:180383653
