@@ -26,8 +26,14 @@
 import { THEMES, getThemesForTicker, computeThemeActivity } from "../sector-mapping.js";
 import { loadInsiderSummariesBatch } from "./insider-tracker.js";
 import { loadNewsSummariesBatch } from "./news-tracker.js";
+import { loadSocialSummariesBatch } from "./social-tracker.js";
 
 // ── Scoring weights ──────────────────────────────────────────────────────
+// 2026-05-29 — added W_SOCIAL (10). Note this lifts the theoretical max
+// past 100; total_score is clamped to SCORE_MAX. The social weight is
+// intentionally smaller than W_NEWS (15) because StockTwits buzz can be
+// rumour-driven, but large enough that a 100% bullish high-volume name
+// (like SNOW today: 14:0 bull/bear, 57k watchlist) cannot be ignored.
 const SCORE_MAX = 100;
 const W_SUSTAIN = 20;
 const W_QUALITY = 20;
@@ -36,6 +42,7 @@ const W_NEWS = 15;
 const W_INSIDER = 10;
 const W_MACRO = 10;
 const W_PEER = 10;
+const W_SOCIAL = 10;
 
 // ── Quality floors ───────────────────────────────────────────────────────
 const HARD_FLOOR_MARKET_CAP = 2_000_000_000; // $2B
@@ -70,11 +77,12 @@ const CRITICAL_RED_FLAGS = new Set([
 // with no actual reason to be on the watchlist. A ticker must have at
 // least one substantive thesis signal to qualify for operator review.
 function hasMaterialThesis(components) {
-  if ((components.news?.pts || 0) >= 9) return true;           // news catalyst ≥ 7/10
-  if ((components.insider?.hi_buys_count || 0) >= 1) return true; // any high-signal insider buy
-  if ((components.sustain || 0) >= 10) return true;            // 3+ distinct days in screener
-  if ((components.theme?.pts || 0) > 0) return true;           // active theme rotation
-  if ((components.macro?.pts || 0) > 0) return true;           // macro alignment present
+  if ((components.news?.pts || 0) >= 9) return true;            // news catalyst ≥ 7/10
+  if ((components.insider?.hi_buys_count || 0) >= 1) return true;  // any high-signal insider buy
+  if ((components.sustain || 0) >= 10) return true;             // 3+ distinct days in screener
+  if ((components.theme?.pts || 0) > 0) return true;            // active theme rotation
+  if ((components.macro?.pts || 0) > 0) return true;            // macro alignment present
+  if ((components.social?.pts || 0) >= 6) return true;          // strong social buzz (≥60% of W_SOCIAL)
   return false;
 }
 
@@ -210,6 +218,56 @@ function scoreNews(newsSummary) {
   };
 }
 
+// ── SOCIAL_BUZZ component ────────────────────────────────────────────────
+// 2026-05-29 — Phase 1 social signal. Pulls StockTwits message-tagged
+// sentiment + watchlist-count proxy. The signal is loud but noisy, so
+// we require BOTH a bullish ratio AND a meaningful message volume
+// before awarding points. Watchlist count alone (which only grows) is
+// used as a secondary tie-break weight.
+//
+// Scoring (max 10):
+//   100% bullish + ≥20 msgs + watchlist ≥10k    → 10
+//   80%+ bullish + ≥15 msgs + watchlist ≥5k     → 8
+//   70%+ bullish + ≥10 msgs                     → 5
+//   60%+ bullish + ≥10 msgs                     → 3
+//   anything else                               → 0
+//
+// A strongly bearish-tilted ticker (bull_ratio < 30%) returns 0 even
+// if the ticker is a screener candidate — disagreement between price-
+// action (in our universe of MOVERS) and social tone is a yellow flag.
+function scoreSocial(socialSummary) {
+  if (!socialSummary || !socialSummary.has_data || (socialSummary.message_count_24h || 0) === 0) {
+    return { pts: 0, has_data: false };
+  }
+  const bullRatio = socialSummary.bull_ratio_pct;          // null if no tagged messages
+  const msgs = Number(socialSummary.message_count_24h) || 0;
+  const watch = Number(socialSummary.watchlist_count) || 0;
+  let pts = 0;
+  if (bullRatio == null) {
+    pts = 0;
+  } else if (bullRatio >= 100 && msgs >= 20 && watch >= 10_000) {
+    pts = W_SOCIAL;
+  } else if (bullRatio >= 80 && msgs >= 15 && watch >= 5_000) {
+    pts = Math.round(W_SOCIAL * 0.8);
+  } else if (bullRatio >= 70 && msgs >= 10) {
+    pts = Math.round(W_SOCIAL * 0.5);
+  } else if (bullRatio >= 60 && msgs >= 10) {
+    pts = Math.round(W_SOCIAL * 0.3);
+  }
+  return {
+    pts,
+    has_data: true,
+    bull_ratio_pct: bullRatio,
+    message_count_24h: msgs,
+    watchlist_count: watch || null,
+    bullish_count: socialSummary.bullish_count || 0,
+    bearish_count: socialSummary.bearish_count || 0,
+    top_post_body: socialSummary.top_post_body || null,
+    top_post_user: socialSummary.top_post_user || null,
+    top_post_url: socialSummary.top_post_url || null,
+  };
+}
+
 // ── INSIDER_BUY component ────────────────────────────────────────────────
 function scoreInsider(insiderSummary) {
   if (!insiderSummary || (insiderSummary.buys_count || 0) === 0) {
@@ -311,10 +369,34 @@ function detectRedFlags(latest, appearances, components, dailyChangePct) {
     (appearances || []).map((a) => String(a.discovered_at || "").slice(0, 10)).filter(Boolean),
   ).size;
   if (Math.abs(Number(dailyChangePct) || 0) >= SINGLE_DAY_EXTREME_MOVE_PCT && distinctDays <= 1) {
+    // 2026-05-29 — scale the deduction by market cap and social validation.
+    // Original flat −30 was correct for $1B small-caps where 30% daily moves
+    // signal pump-and-dump. But a $50B+ large-cap rallying 30%+ on
+    // consensus-bullish social (e.g. SNOW today at +36% / 100% bullish /
+    // 57k watchlist) is far more likely to be a real fundamental move
+    // (earnings beat, M&A, etc.). Scale:
+    //   mcap >= $50B  AND social bull_ratio >= 70%        → −10
+    //   mcap >= $50B                                       → −15
+    //   mcap >= $10B  AND social bull_ratio >= 70%        → −15
+    //   mcap >= $10B                                       → −20
+    //   else (default — small-cap or no social validation) → −30
+    let deduction = 30;
+    const bullRatio = components?.social?.bull_ratio_pct;
+    const socialConfirms = bullRatio != null && bullRatio >= 70 && (components?.social?.message_count_24h || 0) >= 10;
+    if (marketCap >= 50_000_000_000 && socialConfirms) deduction = 10;
+    else if (marketCap >= 50_000_000_000) deduction = 15;
+    else if (marketCap >= 10_000_000_000 && socialConfirms) deduction = 15;
+    else if (marketCap >= 10_000_000_000) deduction = 20;
     flags.push({
       flag: "extreme_single_day_move",
-      deduction: 30,
-      detail: { change_pct: dailyChangePct, distinct_days: distinctDays },
+      deduction,
+      detail: {
+        change_pct: dailyChangePct,
+        distinct_days: distinctDays,
+        market_cap: marketCap,
+        social_confirms: socialConfirms,
+        bull_ratio_pct: bullRatio,
+      },
     });
   }
   const hasNothing =
@@ -376,6 +458,17 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
     parts.push(`Insider activity: ${components.insider.hi_buys_count} high-signal buy(s) totaling $${valK}k last 14d.`);
   }
 
+  // Social buzz (StockTwits Phase 1).
+  if (components.social?.pts > 0) {
+    const watchK = components.social.watchlist_count
+      ? `${Math.round(components.social.watchlist_count / 1000)}k watching` : null;
+    const msgs = `${components.social.message_count_24h || 0} posts`;
+    const ratio = components.social.bull_ratio_pct != null
+      ? `${components.social.bull_ratio_pct}% bullish` : "untagged";
+    const meta = [msgs, ratio, watchK].filter(Boolean).join(" · ");
+    parts.push(`Social buzz: ${meta} (StockTwits).`);
+  }
+
   // Macro.
   if (components.macro?.pts > 0 && components.macro.signal) {
     parts.push(`Macro: ${String(components.macro.signal).replace(/_/g, " ")}.`);
@@ -397,7 +490,7 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
 }
 
 // ── Main scorer ──────────────────────────────────────────────────────────
-function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary) {
+function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary, socialSummary) {
   const sym = String(ticker || "").toUpperCase();
   const appearances = (allAppearances || []).filter((a) => String(a.ticker || "").toUpperCase() === sym);
   const themes = getThemesForTicker(sym);
@@ -410,6 +503,7 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const insiderResult = scoreInsider(insiderSummary);
   const macroResult = scoreMacro(themes, macroSnapshot, latest?.sector);
   const peerResult = scorePeer(themes, coverageGapsSummary);
+  const socialResult = scoreSocial(socialSummary);
 
   const components = {
     sustain: sustainPts,
@@ -419,13 +513,14 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
     insider: insiderResult,
     macro: macroResult,
     peer: peerResult,
+    social: socialResult,
     _raw_appearances: appearances,
   };
 
   const redFlags = detectRedFlags(latest, appearances, components, dayChangePct);
   const totalRaw =
     sustainPts + qualityPts + themeResult.pts + newsResult.pts +
-    insiderResult.pts + macroResult.pts + peerResult.pts;
+    insiderResult.pts + macroResult.pts + peerResult.pts + socialResult.pts;
   const deductions = redFlags.reduce((s, f) => s + f.deduction, 0);
   const totalScore = Math.max(-100, Math.min(SCORE_MAX, totalRaw - deductions));
 
@@ -534,9 +629,10 @@ export async function rebuildPromotionQueue(env, opts = {}) {
     themeActivityByName[t] = computeThemeActivity(t, livePrices);
   }
 
-  // News + insider summaries — batched single D1 read each.
+  // News + insider + social summaries — batched single D1 read each.
   const newsSummaries = await loadNewsSummariesBatch(env, uniqueTickers, { lookbackDays: 5 });
   const insiderSummaries = await loadInsiderSummariesBatch(env, uniqueTickers, { lookbackDays: 14 });
+  const socialSummaries = await loadSocialSummariesBatch(env, uniqueTickers, { lookbackDays: 3 });
 
   // Macro snapshot + coverage-gaps summary from KV.
   const macroRaw = await KV.get("timed:macro:cross-asset-summary");
@@ -552,6 +648,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
       const result = scoreCandidate(
         sym, latestBySym[sym], candidates, themeActivityByName,
         newsSummaries[sym], insiderSummaries[sym], macroSnapshot, coverageGapsSummary,
+        socialSummaries[sym],
       );
       result.in_universe = inUniverseSet.has(sym);
       // Annotate signals payload so the UI can render the badge without
