@@ -3792,8 +3792,9 @@
       const priceSrc = ticker || {};
       const resolveDisplayPrice = src => {
         if (!src) return 0;
+        const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
         const live = Number(src._live_price);
-        if (Number.isFinite(live) && live > 0) return live;
+        if (rthOpen && Number.isFinite(live) && live > 0) return live;
         return Number(src.price ?? src.close) || 0;
       };
       useEffect(() => {
@@ -4773,12 +4774,13 @@
           }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")")), (() => {
             const SYM = String(tickerSymbol || "").toUpperCase();
             if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
+            const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+            if (rthOpen) return null;
             const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
             const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
             const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
             if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
-            const delta = Math.abs(ahPrice - v2Price) / v2Price;
-            if (delta < 0.0005) return null;
+            if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
             const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
             return React.createElement("div", {
               title: "Extended-hours quote (pre-market / after-hours)",
@@ -9862,304 +9864,13 @@
               color: "var(--ds-text-body)"
             }
           }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " "))));
-        })(), v2RailTab === "INVESTOR" && (() => {
-          const inv = effectiveTrade?.investor || ticker?.investor || latestTicker?.investor || null;
-          const stage = String(ticker?.investor_stage || inv?.stage || "—").toLowerCase();
-          const score = Number(ticker?.investor_score ?? inv?.score);
-          const pos = inv?.position || null;
-          const accumZone = inv?.accumZone || null;
-          const thesis = inv?.thesis || null;
-          const STAGE_LABEL = {
-            accumulate: {
-              label: "ACCUMULATE",
-              color: "#34d399",
-              bg: "rgba(52,211,153,0.10)",
-              border: "rgba(52,211,153,0.30)",
-              action: "Buy in 2-3 tranches",
-              desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks."
-            },
-            core_hold: {
-              label: "CORE HOLD",
-              color: "#60a5fa",
-              bg: "rgba(96,165,250,0.10)",
-              border: "rgba(96,165,250,0.30)",
-              action: "Hold and DCA on dips",
-              desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks."
-            },
-            watch: {
-              label: "WATCH",
-              color: "#f5c25c",
-              bg: "rgba(245,194,92,0.10)",
-              border: "rgba(245,194,92,0.30)",
-              action: "Hold; monitor signals",
-              desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly."
-            },
-            reduce: {
-              label: "REDUCE",
-              color: "#f87171",
-              bg: "rgba(248,113,113,0.10)",
-              border: "rgba(248,113,113,0.30)",
-              action: "Trim into strength",
-              desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms."
-            },
-            research_on_watch: {
-              label: "RESEARCH · ON WATCH",
-              color: "#a78bfa",
-              bg: "rgba(167,139,250,0.10)",
-              border: "rgba(167,139,250,0.30)",
-              action: "Research only",
-              desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire."
-            },
-            research_low: {
-              label: "RESEARCH · LOW",
-              color: "#9ca3af",
-              bg: "rgba(156,163,175,0.10)",
-              border: "rgba(156,163,175,0.30)",
-              action: "Pass for now",
-              desc: "Weak across most components. Better risk/reward elsewhere right now."
-            },
-            research_avoid: {
-              label: "AVOID",
-              color: "#f87171",
-              bg: "rgba(248,113,113,0.10)",
-              border: "rgba(248,113,113,0.30)",
-              action: "Skip",
-              desc: "Multiple red flags. Avoid until the picture changes materially."
-            },
-            exited: {
-              label: "EXITED",
-              color: "#9ca3af",
-              bg: "rgba(156,163,175,0.08)",
-              border: "rgba(156,163,175,0.20)",
-              action: "Closed",
-              desc: "Position closed. Monitor for re-entry signals if thesis returns."
-            }
-          };
-          const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
-          const fmtUsd = n => Number.isFinite(n) ? new Intl.NumberFormat("en-US", {
-            style: "currency",
-            currency: "USD",
-            maximumFractionDigits: 2
-          }).format(n) : "—";
-          return React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--ds-space-3)"
-            }
-          }, React.createElement(Panel, {
-            title: "\uD83D\uDCCD Investor Lane Guidance",
-            action: React.createElement("span", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                padding: "2px 8px",
-                borderRadius: 999,
-                color: stageInfo.color,
-                background: stageInfo.bg,
-                border: `1px solid ${stageInfo.border}`
-              }
-            }, stageInfo.label)
-          }, React.createElement("div", {
-            style: {
-              padding: "var(--ds-space-2)",
-              background: stageInfo.bg,
-              border: `1px solid ${stageInfo.border}`,
-              borderRadius: "var(--ds-radius-md)",
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em",
-              marginBottom: 4
-            }
-          }, "ACTION"), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-h4, 15px)",
-              fontWeight: 700,
-              color: stageInfo.color
-            }
-          }, stageInfo.action), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-body)",
-              marginTop: 4,
-              lineHeight: 1.4
-            }
-          }, stageInfo.desc)), Number.isFinite(score) && React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "INVESTOR SCORE"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 18px)",
-              color: score >= 70 ? "var(--ds-color-up, #34d399)" : score >= 50 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)"
-            }
-          }, score.toFixed(0), React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--ds-text-muted)"
-            }
-          }, "/100")), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak")), accumZone && React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`,
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "BUY ZONE"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 18px)",
-              color: accumZone.inZone ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)"
-            }
-          }, accumZone.inZone ? "ACTIVE" : "—"), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), pos?.owned && React.createElement(Panel, {
-            title: "\uD83D\uDCBC Your Position"
-          }, React.createElement("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "SHARES"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, Number(pos.shares || 0).toFixed(2))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "AVG ENTRY"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, fmtUsd(Number(pos.avg_entry) || 0))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "COST BASIS"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, fmtUsd(Number(pos.cost_basis) || 0))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "UNREALIZED"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              marginTop: 2,
-              color: Number(pos.unrealized_pct) >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
-            }
-          }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              paddingTop: "var(--ds-space-2)",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "Last action: ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric"
-          }))), thesis && React.createElement(Panel, {
-            title: "\uD83D\uDCA1 Thesis"
-          }, React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              lineHeight: 1.5
-            }
-          }, String(thesis).slice(0, 480))), !inv && !Number.isFinite(score) && React.createElement(Panel, {
-            title: "Investor View"
-          }, React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.5
-            }
-          }, "No investor-mode score yet for this ticker. Scores compute hourly during market hours.", !Object.keys(STAGE_LABEL).includes(stage) && stage !== "—" && React.createElement(React.Fragment, null, " Current stage: ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, stage), "."))));
-        })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
+        })(), v2RailTab === "INVESTOR" && React.createElement(InvestorTabPanel, {
+          ticker: ticker,
+          latestTicker: latestTicker,
+          effectiveTrade: effectiveTrade,
+          tickerSymbol: tickerSymbol,
+          API_BASE: API_BASE
+        }), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
             className: "ds-chip ds-chip--sm"
@@ -10623,7 +10334,13 @@
       }, railTab === "TECHNICALS" && "Deep multi-timeframe technical analysis with scoring breakdowns across all indicators.", railTab === "MODEL" && "AI model confidence, signal strength, and entry/exit decision rationale.", railTab === "JOURNEY" && "Full ticker journey tracking with historical stage transitions and time-in-stage analytics.", railTab === "TRADE_HISTORY" && "Complete trade ledger with P&L, win rate, and performance analytics.")), React.createElement("button", {
         className: "px-5 py-2 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[12px] font-bold hover:from-amber-400 hover:to-amber-500 transition-all shadow-lg shadow-amber-500/20",
         onClick: () => window.dispatchEvent(new CustomEvent("tt-go-pro"))
-      }, "Upgrade to Pro")) : railTab === "INVESTOR" ? ((() => {
+      }, "Upgrade to Pro")) : railTab === "INVESTOR" ? React.createElement(InvestorTabPanel, {
+        ticker: ticker,
+        latestTicker: latestTicker,
+        effectiveTrade: effectiveTrade,
+        tickerSymbol: tickerSymbol,
+        API_BASE: API_BASE
+      }) : railTab === "_LEGACY_INVESTOR_DESKTOP" ? (() => {
         const COMPONENT_LABELS = {
           weeklyTrend: {
             label: "Weekly Trend",
@@ -11088,7 +10805,7 @@
           key: i,
           className: "text-[11px] text-red-400/80 pl-2"
         }, "\u2022 ", inv)))));
-      })()) : railTab === "ANALYSIS" ? React.createElement(React.Fragment, null, (() => {
+      })() : railTab === "ANALYSIS" ? React.createElement(React.Fragment, null, (() => {
         const baseCtx = ticker?.context && typeof ticker.context === "object" ? ticker.context : null;
         const mergedCtx = latestTicker?.context && typeof latestTicker.context === "object" ? latestTicker.context : null;
         const ctx = mergedCtx || baseCtx;
@@ -14846,4 +14563,4 @@
   };
 })();
 
-// cache-bust:1780054027336:866984433
+// cache-bust:1780058285278:864033584
