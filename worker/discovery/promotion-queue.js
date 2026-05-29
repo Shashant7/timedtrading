@@ -806,8 +806,17 @@ export async function loadPromotionQueueRows(env, opts = {}) {
 function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }
 
 // Operator decision on a queue row. Returns updated row.
+//
+// 2026-05-29 — When status === "approve", ALSO add the ticker to
+// the global universe (timed:tickers KV) and remove it from the
+// timed:removed blocklist if present. The user reported approving
+// SMCI in the queue but not seeing it added to "My Tickers" — root
+// cause was that this function only flipped a D1 status column and
+// never actually mutated the universe. Now it's a real one-tap
+// "promote into universe" action.
 export async function decideOnCandidate(env, opts = {}) {
   const db = env?.DB;
+  const KV = env?.KV_TIMED || env?.KV;
   if (!db) return { ok: false, error: "no_db" };
   const candidateId = String(opts.candidate_id || "").trim();
   const decision = String(opts.decision || "").toLowerCase();
@@ -817,14 +826,79 @@ export async function decideOnCandidate(env, opts = {}) {
   const finalStatus = decision === "approve" ? "approved" : "declined";
   const now = Date.now();
   try {
-    const r = await db.prepare(`
+    // 1. Look up the candidate's ticker (needed for the universe add).
+    const existing = await db.prepare(
+      `SELECT ticker FROM discovery_promotion_queue WHERE candidate_id = ?1`,
+    ).bind(candidateId).first();
+    if (!existing) return { ok: false, error: "candidate_not_found" };
+    const ticker = String(existing.ticker || "").toUpperCase();
+
+    // 2. Persist the decision.
+    await db.prepare(`
       UPDATE discovery_promotion_queue
          SET status = ?2, decided_by = ?3, decided_at = ?4, updated_at = ?4
        WHERE candidate_id = ?1
     `).bind(candidateId, finalStatus, decidedBy, now).run();
-    const changes = r?.meta?.changes ?? 0;
-    if (changes === 0) return { ok: false, error: "candidate_not_found" };
-    return { ok: true, candidate_id: candidateId, status: finalStatus, decided_by: decidedBy, decided_at: now };
+
+    // 3. On approve, actually add to universe.
+    let universeAdded = false;
+    let removedFromBlocklist = false;
+    if (decision === "approve" && KV && ticker) {
+      try {
+        // Clear from blocklist first so the next ensureTickerIndex
+        // call (or this one) can succeed.
+        const blocklist = (await KV.get("timed:removed", "json")) || [];
+        if (Array.isArray(blocklist) && blocklist.includes(ticker)) {
+          const next = blocklist.filter((t) => t !== ticker);
+          await KV.put("timed:removed", JSON.stringify(next));
+          removedFromBlocklist = true;
+        }
+        // Add to the universe set with retry-on-race.
+        let retries = 3;
+        while (retries-- > 0) {
+          const cur = (await KV.get("timed:tickers", "json")) || [];
+          if (!Array.isArray(cur)) break;
+          if (cur.includes(ticker)) { universeAdded = true; break; }
+          cur.push(ticker);
+          cur.sort();
+          await KV.put("timed:tickers", JSON.stringify(cur));
+          // Verify with a tiny KV-consistency wait.
+          await new Promise((res) => setTimeout(res, 50));
+          const verify = (await KV.get("timed:tickers", "json")) || [];
+          if (Array.isArray(verify) && verify.includes(ticker)) {
+            universeAdded = true;
+            break;
+          }
+        }
+        // Best-effort: also write an attribution breadcrumb so the
+        // operator can later see "SMCI was promoted via queue by X".
+        try {
+          await KV.put(
+            `timed:promotion:approved:${ticker}`,
+            JSON.stringify({
+              candidate_id: candidateId,
+              decided_by: decidedBy,
+              decided_at: now,
+              removed_from_blocklist: removedFromBlocklist,
+            }),
+            { expirationTtl: 90 * 86400 },
+          );
+        } catch (_) { /* best-effort */ }
+      } catch (e) {
+        console.warn(`[PROMOTION] universe add failed for ${ticker}:`, String(e?.message || e).slice(0, 200));
+      }
+    }
+
+    return {
+      ok: true,
+      candidate_id: candidateId,
+      ticker,
+      status: finalStatus,
+      decided_by: decidedBy,
+      decided_at: now,
+      universe_added: universeAdded,
+      removed_from_blocklist: removedFromBlocklist,
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 300) };
   }

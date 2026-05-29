@@ -4116,7 +4116,17 @@
                       // history. Placed before History so the time-axis flow
                       // is preserved (Snapshot/Setup = now, Technicals/
                       // Fundamentals = state, Catalysts = why, History = past).
-                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
+                      // 2026-05-29 — added INVESTOR to baseTabs so the
+                      // Investor view (Lane Guidance, accumulation zone,
+                      // RS history, position-aware actions) is visible on
+                      // mobile / ticker-detail / public rail surfaces.
+                      // Previously the INVESTOR tab only existed in the
+                      // pro-tabs array further down the file, so non-pro
+                      // users + mobile viewers had no path to it. Placed
+                      // right after Setup so the trader → investor mental
+                      // model flows naturally (Setup = trade today,
+                      // Investor = position over weeks/months).
+                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["INVESTOR","Investor"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
                       const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
                       return tabs.map(([key, label]) => (
                       <button
