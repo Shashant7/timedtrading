@@ -3135,10 +3135,23 @@
         // for price/change display. latestTicker is only for context/scoring data.
         // This guarantees the right rail shows identical values to the card.
         const priceSrc = ticker || {};
+        // 2026-05-29 — Stable RTH display price. _live_price is a
+        // WebSocket-pushed value that during extended hours fills in
+        // with the pre/post-market quote. Before this guard, the rail
+        // header's main price flickered every minute between the RTH
+        // close (when no WebSocket update was active) and the AH price
+        // (when one fired). User reported a 3-state oscillation:
+        //   $427.00 (premarket via _live_price)
+        //   $427.00 + no EXT chip (chip hides when v2Price == ahPrice)
+        //   $317.05 (RTH close via .price) + EXT chip ← the right view
+        // We now ignore _live_price OUTSIDE RTH so the main number
+        // stays anchored on the RTH close and the EXT chip carries
+        // the live AH movement.
         const resolveDisplayPrice = (src) => {
           if (!src) return 0;
+          const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
           const live = Number(src._live_price);
-          if (Number.isFinite(live) && live > 0) return live;
+          if (rthOpen && Number.isFinite(live) && live > 0) return live;
           return Number(src.price ?? src.close) || 0;
         };
 
@@ -4229,22 +4242,26 @@
                         </span>
                       )}
                       {/* 2026-05-29 — Extended-hours price + % chip.
-                          Shows next to the RTH price when extended-hours
-                          quote is materially different from the regular
-                          close (>= 0.05% delta) and we're either pre/post
-                          market or after-hours data is fresh. Crypto
-                          tickers excluded — they don't have RTH/EXT
+                          Shown OUTSIDE RTH whenever an AH quote exists
+                          and has a non-zero % change. During RTH the
+                          extended-hours fields go stale, so the chip is
+                          suppressed entirely (the RTH live price is the
+                          main number). Crypto excluded — no RTH/EXT
                           distinction. */}
                       {(() => {
                         const SYM = String(tickerSymbol || "").toUpperCase();
                         if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
+                        const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+                        if (rthOpen) return null; // Hide chip during RTH
                         const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
                         const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
                         const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
                         if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
-                        // Hide when ext price == RTH (no meaningful movement)
-                        const delta = Math.abs(ahPrice - v2Price) / v2Price;
-                        if (delta < 0.0005) return null;
+                        // Only require a non-trivial % change (not a
+                        // price-vs-v2Price delta — that one was the
+                        // root of the flicker since v2Price could
+                        // momentarily equal ahPrice).
+                        if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
                         const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
                         return (
                           <div
@@ -7933,152 +7950,19 @@
                     );
                   })()}
 
-                  {/* INVESTOR TAB — 2026-05-29 v2-native render
-                      A compact investor-centric panel for the mobile rail.
-                      Pulls from existing ticker payload + investor data;
-                      no extra fetches. Shows: stage chip, score with
-                      breakdown bar, lane guidance (action + plain English),
-                      accumulation zone status, and position context if
-                      owned. Desktop pro-tabs continues to render the
-                      fuller view at line 8010+. */}
-                  {v2RailTab === "INVESTOR" && (() => {
-                    const inv = effectiveTrade?.investor || ticker?.investor || latestTicker?.investor || null;
-                    const stage = String(ticker?.investor_stage || inv?.stage || "—").toLowerCase();
-                    const score = Number(ticker?.investor_score ?? inv?.score);
-                    const pos = inv?.position || null;
-                    const accumZone = inv?.accumZone || null;
-                    const thesis = inv?.thesis || null;
-
-                    const STAGE_LABEL = {
-                      accumulate: { label: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
-                      core_hold:  { label: "CORE HOLD",  color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", action: "Hold and DCA on dips", desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks." },
-                      watch:      { label: "WATCH",      color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
-                      reduce:     { label: "REDUCE",     color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Trim into strength", desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms." },
-                      research_on_watch: { label: "RESEARCH · ON WATCH", color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", action: "Research only", desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire." },
-                      research_low: { label: "RESEARCH · LOW", color: "#9ca3af", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
-                      research_avoid: { label: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
-                      exited: { label: "EXITED", color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
-                    };
-                    const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
-
-                    const fmtUsd = (n) => Number.isFinite(n)
-                      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
-                      : "—";
-
-                    return (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
-                        {/* Lane guidance card — top of panel */}
-                        <Panel title="📍 Investor Lane Guidance" action={
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
-                            padding: "2px 8px", borderRadius: 999,
-                            color: stageInfo.color, background: stageInfo.bg,
-                            border: `1px solid ${stageInfo.border}`,
-                          }}>{stageInfo.label}</span>
-                        }>
-                          <div style={{
-                            padding: "var(--ds-space-2)",
-                            background: stageInfo.bg,
-                            border: `1px solid ${stageInfo.border}`,
-                            borderRadius: "var(--ds-radius-md)",
-                            marginBottom: "var(--ds-space-2)",
-                          }}>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>ACTION</div>
-                            <div style={{ fontSize: "var(--ds-fs-h4, 15px)", fontWeight: 700, color: stageInfo.color }}>
-                              {stageInfo.action}
-                            </div>
-                            <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>
-                              {stageInfo.desc}
-                            </div>
-                          </div>
-
-                          {/* Score row */}
-                          {Number.isFinite(score) && (
-                            <div style={{ display: "flex", gap: "var(--ds-space-2)" }}>
-                              <div style={{ flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR SCORE</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 18px)", color: score >= 70 ? "var(--ds-color-up, #34d399)" : score >= 50 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)" }}>
-                                  {score.toFixed(0)}<span style={{ fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>/100</span>
-                                </div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
-                                  {score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak"}
-                                </div>
-                              </div>
-                              {accumZone && (
-                                <div style={{ flex: 1, padding: "var(--ds-space-2)", background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
-                                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>BUY ZONE</div>
-                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: "var(--ds-fs-h4, 18px)", color: accumZone.inZone ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)" }}>
-                                    {accumZone.inZone ? "ACTIVE" : "—"}
-                                  </div>
-                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
-                                    {accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </Panel>
-
-                        {/* Position context — only when owned */}
-                        {pos?.owned && (
-                          <Panel title="💼 Your Position">
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--ds-space-2)" }}>
-                              <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
-                                  {Number(pos.shares || 0).toFixed(2)}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>AVG ENTRY</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
-                                  {fmtUsd(Number(pos.avg_entry) || 0)}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>COST BASIS</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
-                                  {fmtUsd(Number(pos.cost_basis) || 0)}
-                                </div>
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>UNREALIZED</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)" }}>
-                                  {pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"}
-                                </div>
-                              </div>
-                            </div>
-                            {pos.last_action_type && pos.last_action_ts && (
-                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>
-                                Last action: <strong style={{ color: "var(--ds-text-body)" }}>{pos.last_action_type}</strong>{pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : ""} on {new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                              </div>
-                            )}
-                          </Panel>
-                        )}
-
-                        {/* Thesis snippet */}
-                        {thesis && (
-                          <Panel title="💡 Thesis">
-                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 }}>
-                              {String(thesis).slice(0, 480)}
-                            </div>
-                          </Panel>
-                        )}
-
-                        {/* Empty-state hint when no investor data */}
-                        {!inv && !Number.isFinite(score) && (
-                          <Panel title="Investor View">
-                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
-                              No investor-mode score yet for this ticker. Scores compute hourly during market hours.
-                              {!Object.keys(STAGE_LABEL).includes(stage) && stage !== "—" && (
-                                <> Current stage: <strong style={{ color: "var(--ds-text-body)" }}>{stage}</strong>.</>
-                              )}
-                            </div>
-                          </Panel>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  {/* INVESTOR TAB — uses shared InvestorTabPanel
+                      (defined at module scope so desktop pro-tabs +
+                      mobile baseTabs render the same rich 7-section
+                      view). 2026-05-29. */}
+                  {v2RailTab === "INVESTOR" && (
+                    <InvestorTabPanel
+                      ticker={ticker}
+                      latestTicker={latestTicker}
+                      effectiveTrade={effectiveTrade}
+                      tickerSymbol={tickerSymbol}
+                      API_BASE={API_BASE}
+                    />
+                  )}
 
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
@@ -8490,8 +8374,19 @@
                     </div>
                   ) : railTab === "INVESTOR" ? (
                     /* ═══════════════════════════════════════════════════════════ */
-                    /* INVESTOR TAB — Long-term portfolio view (score, stage, Buy Zone, etc.) */
+                    /* INVESTOR TAB — 2026-05-29 — replaced with shared
+                       InvestorTabPanel (v2) so desktop + mobile render
+                       the same rich 7-section view. The old inline
+                       render below is no longer reached. */
                     /* ═══════════════════════════════════════════════════════════ */
+                    <InvestorTabPanel
+                      ticker={ticker}
+                      latestTicker={latestTicker}
+                      effectiveTrade={effectiveTrade}
+                      tickerSymbol={tickerSymbol}
+                      API_BASE={API_BASE}
+                    />
+                  ) : railTab === "_LEGACY_INVESTOR_DESKTOP" ? (
                     (() => {
                       const COMPONENT_LABELS = {
                         weeklyTrend: { label: "Weekly Trend", tip: "Is the stock trending up or down on a weekly basis?", max: 25 },
@@ -12875,4 +12770,4 @@
   };
 })();
 
-// cache-bust:1780054027336:866984433
+// cache-bust:1780058285278:864033584
