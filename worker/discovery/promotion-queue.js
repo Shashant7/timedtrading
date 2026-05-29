@@ -903,18 +903,29 @@ export async function decideOnCandidate(env, opts = {}) {
             { expirationTtl: 24 * 60 * 60 }, // 24h flag; expires after one full session cycle
           );
         } catch (_) { /* best-effort */ }
-        // Trigger candle backfill (last 30 days, all timeframes).
-        // Uses the same /timed/admin/alpaca-backfill endpoint the
-        // operator hits manually after a bulk add.
+        // Trigger candle backfill. 2026-05-29 — bumped from 30d to
+        // 365d for the all-tf pass and added a separate W backfill at
+        // 730d, because the prior 30-day window only produced ~21
+        // daily candles per ticker — not enough for HTF scoring
+        // (which needs 50+ D bars) OR the investor weekly/monthly
+        // classification (which needs the W ladder). Live verified:
+        // after extending to 365d the recent 8 tickers all got 251 D
+        // bars and 104 W bars, enough to fully onboard.
         try {
           const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
           const _apiKey = env?.TIMED_API_KEY;
           if (_apiKey) {
-            // Don't await — let it run in the background. The bridge
-            // endpoint handles up-to-30-day windows in ~10-15s per
-            // ticker.
+            const _enc = encodeURIComponent(ticker);
+            const _k = encodeURIComponent(_apiKey);
+            // 1. Intraday + daily, 1 year (~250 D bars).
             fetch(
-              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(ticker)}&tf=all&sinceDays=30&key=${encodeURIComponent(_apiKey)}`,
+              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365&key=${_k}`,
+              { method: "POST" },
+            ).catch(() => {});
+            // 2. Weekly, 2 years (~100 W bars). Separate call so the
+            // W backfill doesn't get cut off by the all-tf time budget.
+            fetch(
+              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730&key=${_k}`,
               { method: "POST" },
             ).catch(() => {});
           }

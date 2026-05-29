@@ -2095,17 +2095,45 @@
               borderRadius: "0 4px 4px 0",
             },
           }, prose),
-          // ── Today's expected range (from goldenGate gates) ──────────
-          // Same range the Daily Brief prints in its index sections.
-          _rng && h("div", {
-            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", lineHeight: 1.5 },
-          },
-            h("span", { style: { color: "var(--tt-text-faint)" } }, "Today's range: "),
-            h("span", { style: { color: "var(--tt-text)" } }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`),
-            Number.isFinite(dayAtr) && dayAtr > 0 && h("span", { style: { color: "var(--tt-text-faint)" } },
-              ` · typical move ±$${dayAtr.toFixed(2)}`,
-            ),
-          ),
+          // ── Today's expected range — static morning + live recompute ─
+          // 2026-05-29 — When live price has moved meaningfully outside
+          // the morning range (e.g. SPY published 747-753, currently
+          // 757), show BOTH the morning range (labeled as such) and a
+          // live recomputed range = livePx ± (dayAtr × 0.5). The live
+          // range gives the operator a useful intraday reference once
+          // the morning estimate is no longer relevant.
+          _rng && (() => {
+            const morningOutOfBand = Number.isFinite(price)
+              && Number.isFinite(dayAtr) && dayAtr > 0
+              && (price > _rng.hi + dayAtr * 0.05 || price < _rng.lo - dayAtr * 0.05);
+            const liveRange = (morningOutOfBand && Number.isFinite(price) && dayAtr > 0)
+              ? { lo: price - dayAtr * 0.5, hi: price + dayAtr * 0.5 }
+              : null;
+            return h(React.Fragment, null,
+              h("div", {
+                style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", lineHeight: 1.5 },
+              },
+                h("span", { style: { color: "var(--tt-text-faint)" } },
+                  morningOutOfBand ? "Morning estimate: " : "Today's range: ",
+                ),
+                h("span", { style: { color: "var(--tt-text)", textDecoration: morningOutOfBand ? "line-through" : "none", opacity: morningOutOfBand ? 0.6 : 1 } },
+                  `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`,
+                ),
+                Number.isFinite(dayAtr) && dayAtr > 0 && h("span", { style: { color: "var(--tt-text-faint)" } },
+                  ` · typical move ±$${dayAtr.toFixed(2)}`,
+                ),
+              ),
+              liveRange && h("div", {
+                style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--tt-up)", lineHeight: 1.5, fontWeight: 600 },
+              },
+                h("span", { style: { color: "var(--tt-text-faint)" } }, "Live range now: "),
+                h("span", null, `$${liveRange.lo.toFixed(2)} – $${liveRange.hi.toFixed(2)}`),
+                h("span", { style: { color: "var(--tt-text-faint)", fontWeight: 500 } },
+                  ` · re-anchored to $${price.toFixed(2)}`,
+                ),
+              ),
+            );
+          })(),
           // ── Day-trade game plan (bull above / bear below) ───────────
           // The brief's published trigger + target levels, framed as
           // intraday rotation around the pivot. Mirrors the Brief's
