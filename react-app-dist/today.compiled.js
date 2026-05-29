@@ -849,27 +849,46 @@ function OpenPositionsPreview({
     let cancelled = false;
     (async () => {
       try {
-        const [traderRes, investorRes] = await Promise.all([fetch(`/timed/ledger/trades?status=open&limit=20`, {
+        const [traderRes, investorRes] = await Promise.all([fetch(`/timed/ledger/trades?status=open&limit=30`, {
           cache: "no-store"
-        }), fetch(`/timed/ledger/trades?status=open&limit=20&mode=investor`, {
+        }), fetch(`/timed/investor/positions`, {
           cache: "no-store"
         }).catch(() => null)]);
         if (cancelled) return;
         const all = [];
+        const seen = new Set();
         if (traderRes?.ok) {
           const j = await traderRes.json();
           if (j?.ok && Array.isArray(j.trades)) {
-            for (const t of j.trades) all.push({
-              ...t,
-              _mode: "trader"
-            });
+            for (const t of j.trades) {
+              const key = `T:${String(t?.ticker || "").toUpperCase()}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              all.push({
+                ...t,
+                _mode: "trader"
+              });
+            }
           }
         }
         if (investorRes?.ok) {
           const j = await investorRes.json();
-          if (j?.ok && Array.isArray(j.trades)) {
-            for (const t of j.trades) all.push({
-              ...t,
+          const positions = Array.isArray(j?.positions) ? j.positions : [];
+          for (const p of positions) {
+            if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+            if (!(Number(p?.total_shares) > 0)) continue;
+            const key = `I:${String(p?.ticker || "").toUpperCase()}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
+            all.push({
+              ticker: p.ticker,
+              direction: "LONG",
+              status: p.status,
+              kanban_stage: p.investor_stage,
+              entry_price: avgEntry,
+              shares: p.total_shares,
+              trade_id: p.id,
               _mode: "investor"
             });
           }
@@ -911,7 +930,8 @@ function OpenPositionsPreview({
     const pnlPct = Number(t?.pnl_pct);
     const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)" : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
     const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
-    const stageMeta = stage === "DEFEND" ? {
+    const stageDisplay = stage === "CORE_HOLD" ? "HOLD" : stage === "ACCUMULATE" ? "ACCUMULATE" : stage === "REDUCE" ? "REDUCE" : stage === "WATCH" ? "WATCH" : stage.replace(/_/g, " ");
+    const stageMeta = stage === "DEFEND" || stage === "REDUCE" ? {
       color: "var(--tt-accent, #f5c25c)",
       bg: "rgba(245,194,92,0.10)"
     } : stage === "TRIM" ? {
@@ -920,6 +940,12 @@ function OpenPositionsPreview({
     } : stage === "EXIT" ? {
       color: "var(--tt-dn)",
       bg: "rgba(248,113,113,0.10)"
+    } : stage === "WATCH" ? {
+      color: "var(--tt-text-muted)",
+      bg: "rgba(156,163,175,0.10)"
+    } : stage === "ACCUMULATE" ? {
+      color: "var(--tt-up)",
+      bg: "rgba(52,211,153,0.15)"
     } : {
       color: "var(--tt-up)",
       bg: "rgba(52,211,153,0.10)"
@@ -980,7 +1006,7 @@ function OpenPositionsPreview({
         background: stageMeta.bg,
         border: `1px solid ${stageMeta.color}40`
       }
-    }, stage), t?._mode === "investor" && h("span", {
+    }, stageDisplay), t?._mode === "investor" && h("span", {
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
@@ -3800,6 +3826,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780019212421:331281754
+// cache-bust:1780020497505:133473514
 
-// cache-bust:1780019212421:331281754
+// cache-bust:1780020497505:133473514
