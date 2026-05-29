@@ -729,6 +729,613 @@
       })));
     }
     const EMPTY_PRICE_LINES = Object.freeze([]);
+    function InvestorTabPanel({
+      ticker,
+      latestTicker,
+      effectiveTrade,
+      tickerSymbol,
+      API_BASE
+    }) {
+      const [detail, setDetail] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [err, setErr] = useState(null);
+      const sym = String(tickerSymbol || ticker?.ticker || latestTicker?.ticker || "").toUpperCase();
+      useEffect(() => {
+        if (!sym) return;
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        (async () => {
+          try {
+            const r = await fetch(`${API_BASE || ""}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
+              credentials: "include",
+              cache: "no-store"
+            });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const j = await r.json();
+            if (cancelled) return;
+            if (!j?.ok) {
+              setErr(j?.error || "No investor data for this ticker.");
+              setDetail(null);
+            } else {
+              setDetail(j);
+            }
+          } catch (e) {
+            if (!cancelled) setErr(String(e?.message || e));
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [sym, API_BASE]);
+      const fallbackStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "—").toLowerCase();
+      const fallbackScore = Number(ticker?.investor_score ?? latestTicker?.investor_score);
+      const stage = String(detail?.stage || fallbackStage || "—").toLowerCase();
+      const score = Number(detail?.score ?? fallbackScore);
+      const stageReason = detail?.stageReason || null;
+      const components = detail?.components || null;
+      const accumZone = detail?.accumZone || null;
+      const pos = detail?.position?.owned ? detail.position : null;
+      const rs = detail?.rs || null;
+      const rsRank = Number(detail?.rsRank);
+      const sector = detail?.sector || ticker?._sector || null;
+      const thesis = detail?.thesis || null;
+      const invalidation = detail?.thesisInvalidation || null;
+      const STAGE_LABEL = {
+        accumulate: {
+          label: "ACCUMULATE",
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.10)",
+          border: "rgba(52,211,153,0.30)",
+          action: "Buy in 2-3 tranches",
+          desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks."
+        },
+        core_hold: {
+          label: "CORE HOLD",
+          color: "#60a5fa",
+          bg: "rgba(96,165,250,0.10)",
+          border: "rgba(96,165,250,0.30)",
+          action: "Hold and DCA on dips",
+          desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks."
+        },
+        watch: {
+          label: "WATCH",
+          color: "#f5c25c",
+          bg: "rgba(245,194,92,0.10)",
+          border: "rgba(245,194,92,0.30)",
+          action: "Hold; monitor signals",
+          desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly."
+        },
+        reduce: {
+          label: "REDUCE",
+          color: "#f87171",
+          bg: "rgba(248,113,113,0.10)",
+          border: "rgba(248,113,113,0.30)",
+          action: "Trim into strength",
+          desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms."
+        },
+        research_on_watch: {
+          label: "RESEARCH · ON WATCH",
+          color: "#a78bfa",
+          bg: "rgba(167,139,250,0.10)",
+          border: "rgba(167,139,250,0.30)",
+          action: "Research only",
+          desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire."
+        },
+        research_low: {
+          label: "RESEARCH · LOW",
+          color: "#9ca3af",
+          bg: "rgba(156,163,175,0.10)",
+          border: "rgba(156,163,175,0.30)",
+          action: "Pass for now",
+          desc: "Weak across most components. Better risk/reward elsewhere right now."
+        },
+        research_avoid: {
+          label: "AVOID",
+          color: "#f87171",
+          bg: "rgba(248,113,113,0.10)",
+          border: "rgba(248,113,113,0.30)",
+          action: "Skip",
+          desc: "Multiple red flags. Avoid until the picture changes materially."
+        },
+        exited: {
+          label: "EXITED",
+          color: "#9ca3af",
+          bg: "rgba(156,163,175,0.08)",
+          border: "rgba(156,163,175,0.20)",
+          action: "Closed",
+          desc: "Position closed. Monitor for re-entry signals if thesis returns."
+        }
+      };
+      const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
+      const REASON_TRANSLATIONS = {
+        score_declining: "Score has trended down over recent weeks — the underlying setup is weakening.",
+        score_strong: "Score is high across components — setup is firing on multiple dimensions.",
+        accumulation_zone_active: "Price has pulled back to a favorable entry zone with confirmation signals.",
+        rs_breakout: "Relative strength just made a multi-week high vs. the market.",
+        rs_breakdown: "Relative strength is breaking down vs. the market — risk-off for this name.",
+        trend_intact: "Weekly and monthly trends remain pointing up; no breakdown signals.",
+        trend_failing: "Weekly/monthly trend structure is weakening — momentum is fading.",
+        position_aware_hold: "You hold this name; the model recommends maintaining the core position.",
+        position_aware_reduce: "You hold this; thesis weakening — trim into strength while it lasts.",
+        sector_tailwind: "Sector is in favor and supporting the move.",
+        sector_headwind: "Sector is out of favor — extra caution warranted.",
+        market_health_low: "Broader market environment is unfavorable; bias toward caution.",
+        market_health_high: "Broader market is supportive of long exposure.",
+        outside_scored_universe: "Position held but ticker is outside the active scoring universe; managed by position rules only."
+      };
+      const reasonProse = stageReason ? REASON_TRANSLATIONS[stageReason] || String(stageReason).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null;
+      const COMPONENT_DEFS = {
+        weeklyTrend: {
+          label: "Weekly Trend",
+          max: 25,
+          why: "Direction + slope of the weekly price action over recent weeks."
+        },
+        monthlyTrend: {
+          label: "Monthly Trend",
+          max: 20,
+          why: "Bigger-picture direction over months."
+        },
+        relativeStrength: {
+          label: "Strength vs Market",
+          max: 20,
+          why: "How this stock performs vs SPY."
+        },
+        accumulationSignal: {
+          label: "Buy Zone Signal",
+          max: 15,
+          why: "Has the stock pulled back to a favorable entry?"
+        },
+        marketHealth: {
+          label: "Market Conditions",
+          max: 10,
+          why: "Is the overall market environment supportive?"
+        },
+        trendDurability: {
+          label: "Trend Durability",
+          max: 10,
+          why: "How long has the current trend held without breaking?"
+        },
+        sectorContext: {
+          label: "Sector Context",
+          max: 10,
+          why: "Is this stock's sector in favor right now?"
+        }
+      };
+      const fmtUsd = n => Number.isFinite(n) ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2
+      }).format(n) : "—";
+      return h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--ds-space-3)"
+        }
+      }, h(Panel, {
+        title: "📍 Investor Lane Guidance",
+        action: h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: stageInfo.color,
+            background: stageInfo.bg,
+            border: `1px solid ${stageInfo.border}`
+          }
+        }, stageInfo.label)
+      }, h("div", {
+        style: {
+          padding: "var(--ds-space-2)",
+          background: stageInfo.bg,
+          border: `1px solid ${stageInfo.border}`,
+          borderRadius: "var(--ds-radius-md)",
+          marginBottom: "var(--ds-space-2)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "WHAT TO DO"), h("div", {
+        style: {
+          fontSize: 15,
+          fontWeight: 700,
+          color: stageInfo.color
+        }
+      }, stageInfo.action), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-body)",
+          marginTop: 4,
+          lineHeight: 1.4
+        }
+      }, stageInfo.desc)), Number.isFinite(score) && h("div", {
+        style: {
+          display: "flex",
+          gap: "var(--ds-space-2)"
+        }
+      }, h("div", {
+        style: {
+          flex: 1,
+          padding: "var(--ds-space-2)",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "INVESTOR SCORE"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 700,
+          marginTop: 2,
+          fontSize: 18,
+          color: score >= 70 ? "#34d399" : score >= 50 ? "var(--ds-text-body)" : "#f87171"
+        }
+      }, score.toFixed(0), h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 600,
+          color: "var(--ds-text-muted)"
+        }
+      }, "/100")), h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-muted)",
+          marginTop: 2
+        }
+      }, score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak")), accumZone && h("div", {
+        style: {
+          flex: 1,
+          padding: "var(--ds-space-2)",
+          background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
+          border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`,
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "BUY ZONE"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 700,
+          marginTop: 2,
+          fontSize: 18,
+          color: accumZone.inZone ? "#34d399" : "var(--ds-text-muted)"
+        }
+      }, accumZone.inZone ? "ACTIVE" : "—"), h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-muted)",
+          marginTop: 2
+        }
+      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), reasonProse && h(Panel, {
+        title: "🧠 Why this classification"
+      }, h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5
+        }
+      }, reasonProse), stageReason && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "code: ", stageReason)), components && Object.keys(components).length > 0 && h(Panel, {
+        title: "📊 Score Breakdown",
+        action: h("span", {
+          className: "ds-chip ds-chip--sm"
+        }, "0-100 scale")
+      }, h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 10
+        }
+      }, Object.entries(COMPONENT_DEFS).map(([key, def]) => {
+        const val = Number(components[key]) || 0;
+        const pct = Math.max(0, Math.min(100, val / def.max * 100));
+        const tone = pct >= 70 ? "#34d399" : pct >= 40 ? "#f5c25c" : "#f87171";
+        return h("div", {
+          key
+        }, h("div", {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: 3
+          }
+        }, h("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-body)"
+          }
+        }, def.label), h("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-meta)",
+            color: tone,
+            fontWeight: 700
+          }
+        }, val.toFixed(0), h("span", {
+          style: {
+            color: "var(--ds-text-muted)",
+            fontWeight: 500
+          }
+        }, `/${def.max}`))), h("div", {
+          style: {
+            height: 4,
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 2,
+            overflow: "hidden"
+          }
+        }, h("div", {
+          style: {
+            width: `${pct}%`,
+            height: "100%",
+            background: tone,
+            transition: "width 0.3s ease"
+          }
+        })), h("div", {
+          style: {
+            marginTop: 3,
+            fontSize: 10,
+            color: "var(--ds-text-muted)"
+          }
+        }, def.why));
+      }))), accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
+        title: "🎯 Buy Zone Signals",
+        action: h("span", {
+          className: "ds-chip ds-chip--sm ds-chip--up"
+        }, `${accumZone.confidence || 0}% confidence`)
+      }, h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 6
+        }
+      }, accumZone.signals.map((s, i) => h("div", {
+        key: `signal-${i}`,
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-body)",
+          padding: "6px 10px",
+          background: "rgba(52,211,153,0.06)",
+          border: "1px solid rgba(52,211,153,0.20)",
+          borderRadius: 6
+        }
+      }, h("span", {
+        style: {
+          color: "#34d399",
+          marginRight: 6
+        }
+      }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), pos && h(Panel, {
+        title: "💼 Your Position"
+      }, h("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 8
+        }
+      }, h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "SHARES"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, Number(pos.shares || 0).toFixed(2))), h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "AVG ENTRY"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, fmtUsd(Number(pos.avg_entry) || 0))), h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "COST BASIS"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, fmtUsd(Number(pos.cost_basis) || 0))), h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "UNREALIZED"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: "var(--ds-fs-body)",
+          marginTop: 2,
+          color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171"
+        }
+      }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && h("div", {
+        style: {
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)"
+        }
+      }, "Last: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)"
+        }
+      }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric"
+      }))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
+        title: "📈 Strength + Sector Context"
+      }, h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 8
+        }
+      }, Number.isFinite(rsRank) && h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "RS RANK (vs SPY)"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          marginTop: 2,
+          color: rsRank >= 70 ? "#34d399" : rsRank >= 50 ? "var(--ds-text-body)" : "#f87171"
+        }
+      }, rsRank.toFixed(0), h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 500,
+          color: "var(--ds-text-muted)"
+        }
+      }, "/100"), rsRank >= 80 && h("span", {
+        style: {
+          marginLeft: 8,
+          fontSize: 10,
+          padding: "2px 6px",
+          borderRadius: 999,
+          background: "rgba(52,211,153,0.10)",
+          color: "#34d399",
+          fontWeight: 700,
+          letterSpacing: "0.05em"
+        }
+      }, "TOP 20%"))), rs && h("div", {
+        style: {
+          display: "flex",
+          gap: 12,
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)",
+          flexWrap: "wrap"
+        }
+      }, Number.isFinite(Number(rs.rs1m)) && h("span", null, "1M: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)"
+        }
+      }, Number(rs.rs1m).toFixed(0))), Number.isFinite(Number(rs.rs3m)) && h("span", null, "3M: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)"
+        }
+      }, Number(rs.rs3m).toFixed(0))), Number.isFinite(Number(rs.rs6m)) && h("span", null, "6M: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)"
+        }
+      }, Number(rs.rs6m).toFixed(0))), (rs.rsNewHigh3m || rs.rsNewHigh6m) && h("span", {
+        style: {
+          color: "#34d399",
+          fontWeight: 700
+        }
+      }, "🚀 New RS High")), sector && h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)"
+        }
+      }, "Sector: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)"
+        }
+      }, sector)))), thesis && h(Panel, {
+        title: "💡 Thesis"
+      }, h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5
+        }
+      }, String(thesis).slice(0, 600)), invalidation && h("div", {
+        style: {
+          marginTop: 10,
+          padding: 10,
+          background: "rgba(248,113,113,0.05)",
+          border: "1px solid rgba(248,113,113,0.20)",
+          borderRadius: 6,
+          fontSize: "var(--ds-fs-meta)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "#f87171",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "INVALIDATION"), h("div", {
+        style: {
+          color: "var(--ds-text-body)",
+          lineHeight: 1.4
+        }
+      }, String(invalidation)))), loading && !detail && h(Panel, {
+        title: "Loading…"
+      }, h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-muted)"
+        }
+      }, "Fetching investor detail for ", sym, "…")), err && !detail && h(Panel, {
+        title: "Investor View"
+      }, h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.5
+        }
+      }, "No investor-mode detail available for ", sym, " yet.", err && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-faint)"
+        }
+      }, err))));
+    }
     function _LWChartImpl({
       candles: rawCandles,
       chartTf,
@@ -9219,302 +9826,13 @@
             }
           }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " "))));
         })(), v2RailTab === "INVESTOR" && (() => {
-          const inv = effectiveTrade?.investor || ticker?.investor || latestTicker?.investor || null;
-          const stage = String(ticker?.investor_stage || inv?.stage || "—").toLowerCase();
-          const score = Number(ticker?.investor_score ?? inv?.score);
-          const pos = inv?.position || null;
-          const accumZone = inv?.accumZone || null;
-          const thesis = inv?.thesis || null;
-          const STAGE_LABEL = {
-            accumulate: {
-              label: "ACCUMULATE",
-              color: "#34d399",
-              bg: "rgba(52,211,153,0.10)",
-              border: "rgba(52,211,153,0.30)",
-              action: "Buy in 2-3 tranches",
-              desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks."
-            },
-            core_hold: {
-              label: "CORE HOLD",
-              color: "#60a5fa",
-              bg: "rgba(96,165,250,0.10)",
-              border: "rgba(96,165,250,0.30)",
-              action: "Hold and DCA on dips",
-              desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks."
-            },
-            watch: {
-              label: "WATCH",
-              color: "#f5c25c",
-              bg: "rgba(245,194,92,0.10)",
-              border: "rgba(245,194,92,0.30)",
-              action: "Hold; monitor signals",
-              desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly."
-            },
-            reduce: {
-              label: "REDUCE",
-              color: "#f87171",
-              bg: "rgba(248,113,113,0.10)",
-              border: "rgba(248,113,113,0.30)",
-              action: "Trim into strength",
-              desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms."
-            },
-            research_on_watch: {
-              label: "RESEARCH · ON WATCH",
-              color: "#a78bfa",
-              bg: "rgba(167,139,250,0.10)",
-              border: "rgba(167,139,250,0.30)",
-              action: "Research only",
-              desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire."
-            },
-            research_low: {
-              label: "RESEARCH · LOW",
-              color: "#9ca3af",
-              bg: "rgba(156,163,175,0.10)",
-              border: "rgba(156,163,175,0.30)",
-              action: "Pass for now",
-              desc: "Weak across most components. Better risk/reward elsewhere right now."
-            },
-            research_avoid: {
-              label: "AVOID",
-              color: "#f87171",
-              bg: "rgba(248,113,113,0.10)",
-              border: "rgba(248,113,113,0.30)",
-              action: "Skip",
-              desc: "Multiple red flags. Avoid until the picture changes materially."
-            },
-            exited: {
-              label: "EXITED",
-              color: "#9ca3af",
-              bg: "rgba(156,163,175,0.08)",
-              border: "rgba(156,163,175,0.20)",
-              action: "Closed",
-              desc: "Position closed. Monitor for re-entry signals if thesis returns."
-            }
-          };
-          const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
-          const fmtUsd = n => Number.isFinite(n) ? new Intl.NumberFormat("en-US", {
-            style: "currency",
-            currency: "USD",
-            maximumFractionDigits: 2
-          }).format(n) : "—";
-          return React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--ds-space-3)"
-            }
-          }, React.createElement(Panel, {
-            title: "\uD83D\uDCCD Investor Lane Guidance",
-            action: React.createElement("span", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.05em",
-                padding: "2px 8px",
-                borderRadius: 999,
-                color: stageInfo.color,
-                background: stageInfo.bg,
-                border: `1px solid ${stageInfo.border}`
-              }
-            }, stageInfo.label)
-          }, React.createElement("div", {
-            style: {
-              padding: "var(--ds-space-2)",
-              background: stageInfo.bg,
-              border: `1px solid ${stageInfo.border}`,
-              borderRadius: "var(--ds-radius-md)",
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em",
-              marginBottom: 4
-            }
-          }, "ACTION"), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-h4, 15px)",
-              fontWeight: 700,
-              color: stageInfo.color
-            }
-          }, stageInfo.action), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-body)",
-              marginTop: 4,
-              lineHeight: 1.4
-            }
-          }, stageInfo.desc)), Number.isFinite(score) && React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "INVESTOR SCORE"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 18px)",
-              color: score >= 70 ? "var(--ds-color-up, #34d399)" : score >= 50 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)"
-            }
-          }, score.toFixed(0), React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--ds-text-muted)"
-            }
-          }, "/100")), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak")), accumZone && React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`,
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "BUY ZONE"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 18px)",
-              color: accumZone.inZone ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)"
-            }
-          }, accumZone.inZone ? "ACTIVE" : "—"), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), pos?.owned && React.createElement(Panel, {
-            title: "\uD83D\uDCBC Your Position"
-          }, React.createElement("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "SHARES"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, Number(pos.shares || 0).toFixed(2))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "AVG ENTRY"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, fmtUsd(Number(pos.avg_entry) || 0))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "COST BASIS"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              marginTop: 2
-            }
-          }, fmtUsd(Number(pos.cost_basis) || 0))), React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "UNREALIZED"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              marginTop: 2,
-              color: Number(pos.unrealized_pct) >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
-            }
-          }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              paddingTop: "var(--ds-space-2)",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "Last action: ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric"
-          }))), thesis && React.createElement(Panel, {
-            title: "\uD83D\uDCA1 Thesis"
-          }, React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              lineHeight: 1.5
-            }
-          }, String(thesis).slice(0, 480))), !inv && !Number.isFinite(score) && React.createElement(Panel, {
-            title: "Investor View"
-          }, React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.5
-            }
-          }, "No investor-mode score yet for this ticker. Scores compute hourly during market hours.", !Object.keys(STAGE_LABEL).includes(stage) && stage !== "—" && React.createElement(React.Fragment, null, " Current stage: ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, stage), "."))));
+          return h(InvestorTabPanel, {
+            ticker,
+            latestTicker,
+            effectiveTrade,
+            tickerSymbol,
+            API_BASE
+          });
         })(), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, React.createElement(Panel, {
           title: "Trade Ledger",
           action: ledgerTrades.length > 0 && React.createElement("span", {
@@ -14202,4 +14520,4 @@
   };
 })();
 
-// cache-bust:1780051404488:73931858
+// cache-bust:1780052966246:384607850
