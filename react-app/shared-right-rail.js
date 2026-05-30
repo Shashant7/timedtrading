@@ -4888,23 +4888,25 @@
                   </div>
                   {/* Live price strip */}
                   {v2Price > 0 && (() => {
-                    // 2026-05-29 — During RTH show the live daily %.
-                    // Outside RTH, the persisted day-change field
-                    // also flickers (it's recomputed from the
-                    // ever-changing live price vs prevClose every
-                    // tick). The EXT chip below already carries the
-                    // current pre/post-market % action, so we
-                    // suppress the daily % chip here to keep the
-                    // header rock-steady at "$RTH_close [EXT ...]".
+                    // 2026-05-30 (P2) — User: "We should the Daily Price
+                    // Change % next to price on the Right Rail Header."
+                    // Previously the chip was hidden outside RTH because
+                    // an early implementation recomputed % off the live
+                    // tick → flicker. Now `v2Price` is locked to TODAY's
+                    // RTH close outside RTH (see resolveDisplayPrice fix
+                    // from PR #377), and `getDailyChange(priceSrc)`
+                    // returns the persisted `dc/dp` per the price-data
+                    // pipeline rule. So the chip is stable both inside
+                    // and outside RTH. EXT chip still shows separately
+                    // for pre/post-market motion.
                     const _rthForChip = typeof isNyRegularMarketOpen === "function"
                       ? isNyRegularMarketOpen() : true;
                     return (
                     <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
-                      {_rthForChip && Number.isFinite(v2DayPct) && (
+                      {Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                           {v2DayPct >= 0 ? "▲ +" : "▼ "}{v2DayPct.toFixed(2)}%
-                          {/* P0.7.105 — also show $ amount of daily change */}
                           {Number.isFinite(v2DayChange?.dayChg) && Math.abs(v2DayChange.dayChg) > 0.001 && (
                             <span style={{ marginLeft: 4, opacity: 0.75, fontSize: "0.85em" }}>
                               ({v2DayChange.dayChg >= 0 ? "+" : "−"}${Math.abs(v2DayChange.dayChg).toFixed(2)})
@@ -8062,6 +8064,19 @@
 
                     return (
                       <div className="ds-fundamentals-tab" style={{
+                        // 2026-05-30 (P4) — Lock the default font on this
+                        // wrapper to Inter. Without it, the dense grid of
+                        // small mono numerals + occasional sans labels looked
+                        // visually mixed compared to the rest of the rail
+                        // (which uses Inter for labels and JetBrains Mono
+                        // only for the comparable numbers). Per design rule
+                        // in DESIGN.md: "Never mix Instrument Serif and
+                        // Inter on the same element" + "All numbers a user
+                        // compares use num-* tokens (JetBrains Mono, tabular)".
+                        // Sub-elements still set fontFamily: var(--tt-font-mono)
+                        // where appropriate; this just sets the baseline so
+                        // panel titles, chips, descriptions read as Inter.
+                        fontFamily: "var(--ds-font-sans, 'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif)",
                         // Compact-density wrapper. Shrinks all metric values
                         // and chips inside this tab specifically without
                         // affecting Snapshot / Setup / Technicals where the
@@ -9042,7 +9057,13 @@
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
                                     {t.setup_name && !isInvestor && (
                                       <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
-                                        · {String(t.setup_name).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).slice(0, 24)}
+                                        {/* 2026-05-30 (P5) — Use shared _formatPath helper which strips
+                                            the "TT Tt" / "tt_" / "ripster_" / "saty_" engine prefixes
+                                            and falls back to the friendly label map. The raw
+                                            replace(/_/g," ") path emitted "Tt Pullback" / "TT Tt Gap
+                                            Reversal Long" verbatim because some backend rows store the
+                                            namespace prefix as part of setup_name. */}
+                                        · {(_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)}
                                       </span>
                                     )}
                                   </div>
@@ -9707,18 +9728,40 @@
                             <div>
                               <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Score Breakdown</h3>
                               <div className="text-[10px] text-[#4b5563] mb-2.5">How the system arrived at this stock's overall score.</div>
+                              {/* 2026-05-30 (P3) — When a component is 0 the
+                                  upstream signal genuinely returned zero OR
+                                  the underlying TF data hasn't been computed
+                                  for this ticker yet (e.g. weekly/monthly
+                                  trend depends on W/M candles, ichimokuConfirm
+                                  needs Ichimoku weekly). The flat "0" was
+                                  misleading. Surface a "needs data" tag so
+                                  the operator knows when to backfill vs when
+                                  the signal is real-zero. */}
+                              {(() => {
+                                const zeroCount = Object.values(d.components).filter((v) => Number(v) === 0).length;
+                                const totalCount = Object.keys(d.components).length;
+                                if (zeroCount >= Math.ceil(totalCount * 0.6)) {
+                                  return (
+                                    <div className="text-[10px] text-amber-300 bg-amber-500/[0.08] border border-amber-500/[0.20] rounded px-2 py-1 mb-2">
+                                      ⚠ {zeroCount}/{totalCount} components scored 0 — usually means weekly / monthly candles or Ichimoku-W aren't yet backfilled for this ticker. Try the Mission Control candle-coverage panel.
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
                               <div className="space-y-2">
                                 {Object.entries(d.components).map(([k, v]) => {
                                   const meta = COMPONENT_LABELS[k] || { label: k.replace(/([A-Z])/g, " $1").trim(), tip: "", max: 10 };
                                   const maxVal = meta.max || 10;
                                   const pct = v / maxVal;
                                   const dotColor = pct >= 0.6 ? "bg-[#00e676]" : pct >= 0.3 ? "bg-amber-400" : "bg-red-400";
+                                  const isZero = Number(v) === 0;
                                   return (
-                                    <div key={k} className="flex items-center gap-2" title={meta.tip}>
+                                    <div key={k} className="flex items-center gap-2" title={`${meta.tip}${isZero ? "\n(0 — may indicate missing TF data; check Mission Control candle coverage)" : ""}`}>
                                       <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
                                       <span className="text-[11px] text-[#9ca3af] w-28 shrink-0">{meta.label}</span>
                                       <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, (v / maxVal) * 100)}%` }} /></div>
-                                      <span className="text-xs text-white w-6 text-right tabular-nums shrink-0">{v}</span>
+                                      <span className={`text-xs ${isZero ? "text-amber-300/70" : "text-white"} w-6 text-right tabular-nums shrink-0`}>{v}</span>
                                     </div>
                                   );
                                 })}
