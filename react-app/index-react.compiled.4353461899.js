@@ -6437,9 +6437,9 @@ function DashboardWelcomeModal({
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
       className: "text-amber-300 font-semibold text-sm mb-1.5"
-    }, "Setup"), React.createElement("p", {
+    }, "Trader"), React.createElement("p", {
       className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
-    }, "Risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.")), React.createElement("div", {
+    }, "Current open position (when held), risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.")), React.createElement("div", {
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
       className: "text-amber-300 font-semibold text-sm mb-1.5"
@@ -16027,9 +16027,16 @@ function App() {
     className: "hidden md:flex items-center gap-0.5",
     "data-coachmark": "nav-modes"
   }, React.createElement("a", {
+    href: "today.html",
+    className: "px-3 py-1 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium",
+    title: "Daily Ingest \u2014 market state, brief, movers, and the universe at a glance"
+  }, "Today"), React.createElement("a", {
     href: "index-react.html",
     className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium"
-  }, "Analysis"), React.createElement("a", {
+  }, "Active Trader"), React.createElement("a", {
+    href: "investor-dashboard.html",
+    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
+  }, "Investor"), React.createElement("a", {
     href: "simulation-dashboard.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Trades"), React.createElement("a", {
@@ -16069,7 +16076,11 @@ function App() {
     }
   })))), React.createElement("div", {
     className: "flex items-center gap-1.5 md:gap-2 shrink-0"
-  }, React.createElement("button", {
+  }, React.createElement("a", {
+    href: "/learn.html",
+    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium",
+    title: "How Timed Trading works"
+  }, "Learn"), React.createElement("button", {
     onClick: () => setShowWelcomeDashboard(true),
     className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
   }, "Guide"), React.createElement("button", {
@@ -16147,10 +16158,18 @@ function App() {
       background: "rgba(10,10,15,0.98)"
     }
   }, React.createElement("a", {
+    href: "today.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#f5c25c]/90 hover:text-[#f5c25c] hover:bg-[#f5c25c]/[0.08] transition-all font-medium",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Today \xB7 Daily Ingest"), React.createElement("a", {
     href: "index-react.html",
     className: "px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Analysis"), React.createElement("a", {
+  }, "Active Trader"), React.createElement("a", {
+    href: "investor-dashboard.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Investor"), React.createElement("a", {
     href: "simulation-dashboard.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
@@ -16188,7 +16207,11 @@ function App() {
     href: "daily-brief.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium",
     onClick: () => setMobileMenuOpen(false)
-  }, "Daily Brief"), React.createElement("div", {
+  }, "Daily Brief"), React.createElement("a", {
+    href: "/learn.html",
+    className: "px-3 py-2 rounded-md text-[13px] text-emerald-300/80 hover:text-emerald-300 hover:bg-emerald-500/[0.06] transition-all font-medium",
+    onClick: () => setMobileMenuOpen(false)
+  }, "Learn how it works"), React.createElement("div", {
     className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2"
   }, React.createElement("button", {
     onClick: () => {
