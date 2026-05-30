@@ -2,6 +2,11 @@
 
 Single reference for agents. Read this first to avoid context overload.
 
+> **New agent? Start at [AGENTS.md](AGENTS.md).** Then return here for the
+> condensed-lesson reference.
+> **Need to DO a common operation?** Skim [`skills/README.md`](skills/README.md)
+> first — most "how do I X?" questions are already answered there.
+
 ## Workflow
 
 - **Plan first**: Non-trivial (3+ steps) → write to `tasks/todo.md` before coding
@@ -9,6 +14,7 @@ Single reference for agents. Read this first to avoid context overload.
 - **Verify before done**: Prove it works; "Would a staff engineer approve?"
 - **Lessons**: After user corrections → add to "Lessons" below; review at session start
 - **Simplicity**: Minimal impact, no temporary fixes
+- **Skills first**: Before inventing a new method, check [`skills/`](skills/) for an existing playbook. If you do something new that's reusable, write a skill for it before exiting.
 
 ## Design System — canonical source
 
@@ -115,6 +121,11 @@ Only the user can update this — it lives in the Cloudflare Dashboard.
 - `tasks/todo.md` — current tasks
 
 ## Lessons (Critical)
+
+**Mission Control polish (2026-05-30 evening)**
+- **Endpoints polled on every page load MUST return HTTP 200 with a structured `{ok:false,error_kind,hint}` payload**, not 4xx/5xx. Chrome logs 4xx as red even with `.catch()`. Reserve real non-2xx for auth failures or genuinely missing routes. Pattern: `sendJSON({ok:false, error_kind:"url_missing", hint:"..."}, 200, corsHeaders(env,req))`.
+- **Interactive write buttons need INLINE feedback**, not `alert()`. Operators dismiss alerts. Pattern: optimistic flash on click → inline error chip + `console.warn` on failure. See `react-app/mission-control.html → CioDecisionReview.submitReview`.
+- **CF error `1042` = worker-to-worker loopback rejected.** Body `error code: 1042` on a 404 from a Workers subrequest means Cloudflare's loop detector blocked the call. Migrate to **Service Bindings** (`services = [...]` in wrangler.toml), call `env.BRIDGE.fetch()` instead of HTTP fetch.
 
 **Options Engine + Fused-POV (PR #371-#377, May 2026)**
 - **Confluence enrichments ordered FIRST**: in `/timed/options/ticker`, inject `_vp`, `_index_quartet`, `_strategy_stance` onto the ticker snapshot BEFORE `scoreRootConfluence()`. Layer evidence strings are the smoke test — L4 must say `VP: Above/Inside/Below VAH/VAL`, L5 must mention `SMT` or `ORB` when active. (PR #375)

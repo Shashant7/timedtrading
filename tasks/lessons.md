@@ -1,7 +1,85 @@
 # Lessons Learned (Full Archive)
 
 > **Quick refresh:** See [CONTEXT.md](../CONTEXT.md) for condensed critical lessons.
+> **Quick skills:** See [`skills/README.md`](../skills/README.md) for reusable playbooks.
 > Update after ANY correction from the user. Review at session start.
+
+---
+
+## Mission Control polish + docs library [2026-05-30 evening]
+
+### Frontend "click did nothing" needs INLINE feedback, not `alert()`
+
+The AI CIO Decision Review buttons fired their click handler, hit the
+POST endpoint, and got either a 401 (silent) or a JSON error (surfaced
+only via `alert()`). Operators dismiss alerts without reading them and
+report "nothing happened."
+
+**Rule:** Any interactive button that does an async write must:
+
+1. Set an optimistic flash IMMEDIATELY on click (no perceived lag).
+2. Back the flash out + show an inline error chip on failure (not alert).
+3. `console.warn(...)` the full failure context so DevTools surfaces it.
+
+Implemented in `react-app/mission-control.html` → `CioDecisionReview.submitReview`.
+
+### Worker endpoints polled on every page load must return 200, not 4xx/5xx
+
+Even a clean `.catch(() => null)` on the frontend can't prevent Chrome
+from logging a 4xx as a red error in the console. Operators interpret
+red errors as "the system is broken" even when the code handles them.
+
+**Rule:** Endpoints that Mission Control / Today / Right Rail poll on
+every page load (`/timed/admin/broker-bridge/status`, `/audit`, etc.)
+MUST return HTTP 200 with a structured `{ ok: false, error_kind, hint }`
+payload when the underlying state is "not configured yet" or "upstream
+down." The UI gates on `payload.ok !== false` to display. Reserve real
+non-2xx for actual route-not-found or auth failures.
+
+Pattern:
+
+```js
+if (!bridgeUrl) {
+  return sendJSON({
+    ok: false,
+    error: "BROKER_BRIDGE_URL_not_configured",
+    error_kind: "url_missing",
+    hint: "Set BROKER_BRIDGE_URL in worker/wrangler.toml and redeploy.",
+  }, 200, corsHeaders(env, req));   // ← 200, not 503
+}
+```
+
+### Cloudflare error code `1042` = worker-to-worker loopback rejected
+
+The body `error code: 1042` on a 404 from a Workers subrequest is NOT a
+404 from your worker — it's Cloudflare's infrastructure rejecting a
+fetch that it considers an internal loop. Happens when the main worker
+HTTPs to a sibling workers.dev worker (e.g. `tt-broker-bridge`).
+
+**Fix:** Migrate to **Service Bindings** (`services = [{ binding =
+"BROKER_BRIDGE", service = "tt-broker-bridge" }]` in `wrangler.toml`)
+and call `env.BROKER_BRIDGE.fetch(req)` instead of HTTP fetch. Service
+Bindings bypass zone routing and never trip the loop detector.
+
+(See [`skills/broker-bridge.md`](../skills/broker-bridge.md) for the
+full migration note.)
+
+### Docs cleanup + skills library
+
+Archived 113 pre-May-2026 task plans (V11-V16 strategy iterations, July
+recovery, phase A-G calibrations, etc.) into `tasks/archive/2026-pre-may/`.
+The current `tasks/` folder now has only **17 active items** instead of
+130. New agents can scan the live state in seconds.
+
+Created a `skills/` library with 11 copy-paste-ready playbooks (deploy,
+backfill, rescore, cache-bust, sanity-check-investor, mission-control
+tour, debug-http-codes, d1, kv, discord-alerts, broker-bridge,
+frontend-build) and a top-level `AGENTS.md` onboarding doc.
+
+**Rule:** When you do something that took >3 tool calls to figure out
+the first time AND another agent will plausibly need to do it again,
+**write a skill in the same session**. The cost of forgetting is high;
+5 minutes of writeup saves the next agent an hour of rediscovery.
 
 ---
 

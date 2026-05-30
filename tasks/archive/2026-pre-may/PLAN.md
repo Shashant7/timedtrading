@@ -9,7 +9,7 @@ Single reference for current status and next steps. Read this first each session
 ## Session Context (Quick Refresh)
 
 - **API**: `https://timed-trading-ingest.shashant.workers.dev`
-- **API Key**: `AwesomeSauce` (for scripts)
+- **API Key**: `[REDACTED — see Cursor Cloud Agent Secrets dashboard]` (for scripts)
 - **Deploy**: `npm run deploy:worker` (both envs); Pages auto-deploy on `git push main`
 - **Key paths**: `worker/index.js`, `worker/indicators.js`, `react-app/shared-price-utils.js`, `tasks/todo.md`
 
@@ -269,10 +269,10 @@ The sections below remain as historical planning context. They are no longer the
 
 ```bash
 # List runs
-curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/runs?key=AwesomeSauce" | jq .
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/runs?key=$TIMED_TRADING_API_KEY" | jq .
 
 # Reconcile status (batch fix)
-TIMED_API_KEY=AwesomeSauce node scripts/reconcile-status.js
+TIMED_API_KEY=$TIMED_TRADING_API_KEY node scripts/reconcile-status.js
 
 # Full backtest (July baseline)
 ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2025-07-31 15 --label=phase3-july-validation
@@ -284,5 +284,5 @@ TIMED_API_KEY=AwesomeSauce node scripts/reconcile-status.js
 ./scripts/full-backtest.sh --trader-only --low-write --keep-open-at-end 2025-07-01 2026-03-04 15 --label=15m-best-foot-forward-jul1-mar4 --desc="Best-foot-forward Jul-Mar 15m candidate with March 7 calibrated stack and explicit env override capture" --env-override LEADING_LTF=15
 
 # Run archive-backed ledger lookup
-curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ledger/trades?run_id=<RUN_ID>&key=AwesomeSauce" | jq .
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/ledger/trades?run_id=<RUN_ID>&key=$TIMED_TRADING_API_KEY" | jq .
 ```
