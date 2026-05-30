@@ -2905,6 +2905,28 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
+      const [strategyAlignment, setStrategyAlignment] = useState(null);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) {
+          setStrategyAlignment(null);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, {
+              cache: "no-store"
+            });
+            if (!r.ok) return;
+            const j = await r.json();
+            if (!cancelled && j?.ok) setStrategyAlignment(j);
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, API_BASE]);
       const [cioVerdict, setCioVerdict] = useState(null);
       const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
       const [cioVerdictError, setCioVerdictError] = useState(null);
@@ -4812,7 +4834,13 @@
             }
           }, "EPS ", earnLabel), stageChip && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${stageChip.cls}`
-          }, stageChip.label)), React.createElement("div", {
+          }, stageChip.label), strategyAlignment && strategyAlignment.stance && strategyAlignment.stance !== "neutral" && React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`,
+            title: [`Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`, strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "", strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "", "See Insights → Active Strategy for full detail."].filter(Boolean).join(" · "),
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS")), React.createElement("div", {
             className: "flex items-center gap-1"
           }, toggleSavedTicker && (() => {
             const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
@@ -14886,4 +14914,4 @@
   };
 })();
 
-// cache-bust:1780099581485:473288440
+// cache-bust:1780104030336:674149995

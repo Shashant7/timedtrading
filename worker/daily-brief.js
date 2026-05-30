@@ -5,6 +5,7 @@ import { kvGetJSON, kvPutJSON } from "./storage.js";
 import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
+import { getStrategyBrief, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -2900,6 +2901,10 @@ function buildMorningPrompt(data) {
   return `Generate the MORNING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 9:00 AM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
+${getStrategyBrief()}
+
+REQUIRED: At least once per Brief (typically in the Big Picture or Sector Spotlight section), explicitly tie observed action back to the active playbook above — e.g. "Tech leadership today fits our overweight stance on AI compute and the Phase-1 back-ended rally thesis," or "Healthcare weakness aligns with our neutral stance — earnings growth is the lone outright negative this quarter." This anchors the Brief in our written strategy so users learn the playbook as they read.
+
 ## Market Data (as of pre-market):
 ${(() => {
   const keys = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
@@ -3263,6 +3268,10 @@ function buildEveningPrompt(data) {
         : "";
   return `Generate the EVENING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 5:00 PM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
+
+${getStrategyBrief()}
+
+REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read.
 
 ## Market Close Data:
 ${(() => {

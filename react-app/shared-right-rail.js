@@ -2112,6 +2112,25 @@
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
 
+        // 2026-05-30 — Strategy alignment chip (FSD playbook). Lazy-fetched
+        // from /timed/strategy/ticker on ticker change. Lightweight; renders
+        // only when the ticker is on/off-thesis (stance !== "neutral").
+        const [strategyAlignment, setStrategyAlignment] = useState(null);
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) { setStrategyAlignment(null); return; }
+          let cancelled = false;
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              if (!r.ok) return;
+              const j = await r.json();
+              if (!cancelled && j?.ok) setStrategyAlignment(j);
+            } catch (_) { /* best-effort */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, API_BASE]);
+
         // 2026-05-28 — AI CIO verdict for the active trade (Setup tab).
         // Lazy-fetched when (a) Setup tab is active AND (b) effectiveTrade
         // is an open position with a trade_id. Cached per trade_id so
@@ -4269,6 +4288,23 @@
                       )}
                       {stageChip && (
                         <span className={`ds-chip ds-chip--sm ${stageChip.cls}`}>{stageChip.label}</span>
+                      )}
+                      {/* 2026-05-30 — Strategy alignment chip (FSD playbook).
+                          Surfaces whether this ticker is on/off the active
+                          editorial playbook. Hides when neutral. */}
+                      {strategyAlignment && strategyAlignment.stance && strategyAlignment.stance !== "neutral" && (
+                        <span
+                          className={`ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`}
+                          title={[
+                            `Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`,
+                            strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "",
+                            strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "",
+                            "See Insights → Active Strategy for full detail.",
+                          ].filter(Boolean).join(" · ")}
+                          style={{ fontFamily: "var(--tt-font-mono)" }}
+                        >
+                          {strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"}
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1">
