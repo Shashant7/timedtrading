@@ -4876,9 +4876,13 @@
           if (Number.isFinite(live) && live > 0) return live;
           return Number(src.price ?? src.close) || 0;
         }
+        const close = Number(src.close);
+        if (Number.isFinite(close) && close > 0) return close;
+        const price = Number(src.price);
+        if (Number.isFinite(price) && price > 0) return price;
         const prev = Number(src.prevClose ?? src.prev_close ?? src.pc);
         if (Number.isFinite(prev) && prev > 0) return prev;
-        return Number(src.price ?? src.close) || 0;
+        return 0;
       };
       useEffect(() => {
         setCrosshair(null);
@@ -16280,4 +16284,4 @@
   };
 })();
 
-// cache-bust:1780126907070:627167359
+// cache-bust:1780128785422:189303447
