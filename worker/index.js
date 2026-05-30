@@ -564,6 +564,7 @@ import {
   sendDiscordWelcomeEmail,
   getUserEmailPrefs,
   getEmailOptedInUsers,
+  sendInvestorAlertEmails,
   hmacVerify,
   unsubscribeConfirmationHtml,
 } from "./email.js";
@@ -1350,6 +1351,8 @@ const ROUTES = [
   ["POST", "/timed/admin/ai-cio/operator-task", "POST /timed/admin/ai-cio/operator-task"],
   ["POST", "/timed/admin/wm-bootstrap", "POST /timed/admin/wm-bootstrap"],
   ["GET",  "/timed/admin/wm-bootstrap/status", "GET /timed/admin/wm-bootstrap/status"],
+  ["POST", "/timed/admin/rescore-ticker", "POST /timed/admin/rescore-ticker"],
+  ["GET",  "/timed/admin/investor/sanity-check", "GET /timed/admin/investor/sanity-check"],
   ["GET",  "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["POST", "/timed/admin/ai-cio/review", "POST /timed/admin/ai-cio/review"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
@@ -55149,6 +55152,198 @@ export default {
         }
       }
 
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/rescore-ticker?ticker=SYM
+      //
+      // Force a single-ticker rescore using the same assembleTickerData
+      // path the scoring cron runs every 5 min. Useful after a candle
+      // backfill (W/M) when you don't want to wait for the next cron tick
+      // to see Investor Score Breakdown components populate. Writes the
+      // refreshed snapshot to KV `timed:latest:<ticker>` then triggers
+      // the investor compute so the new components flow to the UI.
+      // ──────────────────────────────────────────────────────────────────
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/investor/sanity-check?min_anomaly=2
+      //
+      // External-validation pass for Investor scores. Pulls Finnhub
+      // analyst recommendation trends + price-target consensus for
+      // every ticker in the universe, then flags ANOMALIES where our
+      // Investor Score is materially out of line with consensus:
+      //
+      //   • analyst_loved_we_low   — analyst rating ≥ 4.0 (Buy/Strong-Buy
+      //                              dominant) BUT our score < 40
+      //   • analyst_skeptical_we_high — analyst rating ≤ 2.5 (Sell-heavy)
+      //                                 BUT our score > 65
+      //   • target_far_above_we_low — analyst mean target > 15% above
+      //                               current price BUT our score < 40
+      //
+      // Returns the flagged tickers + their analyst data so the operator
+      // can compare and re-check. Designed for Mission Control's
+      // "AMZN was top 2 weeks ago but is in the dumps now" case.
+      //
+      // Note: Finnhub free tier rate-limits to 60 req/min, so this
+      // endpoint caps at 100 tickers per call and processes serially.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/investor/sanity-check") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const apiKey = env?.FINNHUB_API_KEY;
+        if (!apiKey) return sendJSON({ ok: false, error: "FINNHUB_API_KEY_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const KV = env.KV_TIMED;
+          const scores = await kvGetJSON(KV, "timed:investor:scores") || {};
+          const livePrices = (await kvGetJSON(KV, "timed:prices") || {}).prices || {};
+          // Optional ticker filter so the operator can spot-check one symbol.
+          const tickerFilter = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
+          // Default: rank by lowest score so we hit "the dumps" tickers first.
+          const allEntries = Object.entries(scores).map(([t, d]) => ({
+            ticker: t, score: Number(d?.score) || 0, stage: d?.stage, rsRank: Number(d?.rsRank) || null,
+          }));
+          let candidates = allEntries.filter((x) => x.score > 0);
+          if (tickerFilter) candidates = candidates.filter((x) => x.ticker === tickerFilter);
+          // Cap to top-100 lowest score (or top-100 by name if filter set).
+          candidates.sort((a, b) => a.score - b.score);
+          candidates = candidates.slice(0, 100);
+
+          const flags = [];
+          const checked = [];
+          // Cache Finnhub responses in KV for 6h to avoid burning the rate limit on every call.
+          const FH_CACHE_TTL = 6 * 3600;
+          const fhFetch = async (path) => {
+            const cacheKey = `timed:fh:${path}`;
+            const cached = await KV.get(cacheKey, "json").catch(() => null);
+            if (cached) return cached;
+            const r = await fetch(`https://finnhub.io/api/v1/${path}&token=${encodeURIComponent(apiKey)}`).catch(() => null);
+            if (!r?.ok) return null;
+            const json = await r.json().catch(() => null);
+            if (json) await KV.put(cacheKey, JSON.stringify(json), { expirationTtl: FH_CACHE_TTL }).catch(() => {});
+            return json;
+          };
+          for (const c of candidates) {
+            try {
+              const [recRows, target] = await Promise.all([
+                fhFetch(`stock/recommendation?symbol=${encodeURIComponent(c.ticker)}&_=1`),
+                fhFetch(`stock/price-target?symbol=${encodeURIComponent(c.ticker)}&_=1`),
+              ]);
+              const latest = Array.isArray(recRows) && recRows.length > 0 ? recRows[0] : null;
+              const totalAnalysts = latest ? (Number(latest.strongBuy) + Number(latest.buy) + Number(latest.hold) + Number(latest.sell) + Number(latest.strongSell)) : 0;
+              const consensusScore = latest && totalAnalysts > 0
+                ? (5 * Number(latest.strongBuy) + 4 * Number(latest.buy) + 3 * Number(latest.hold) + 2 * Number(latest.sell) + 1 * Number(latest.strongSell)) / totalAnalysts
+                : null;
+              const px = Number(livePrices[c.ticker]?.p) || null;
+              const targetMean = Number(target?.targetMean) || null;
+              const targetUpsidePct = px && targetMean ? ((targetMean - px) / px * 100) : null;
+
+              const tickerFlags = [];
+              if (consensusScore != null && consensusScore >= 4.0 && c.score < 40) {
+                tickerFlags.push({
+                  kind: "analyst_loved_we_low",
+                  detail: `Analyst consensus ${consensusScore.toFixed(2)}/5 (Buy/Strong-Buy heavy across ${totalAnalysts} analysts), our Investor Score only ${c.score}/100.`,
+                });
+              }
+              if (consensusScore != null && consensusScore <= 2.5 && c.score > 65) {
+                tickerFlags.push({
+                  kind: "analyst_skeptical_we_high",
+                  detail: `Analyst consensus ${consensusScore.toFixed(2)}/5 (Sell-heavy across ${totalAnalysts} analysts), our Investor Score ${c.score}/100 — re-check.`,
+                });
+              }
+              if (targetUpsidePct != null && targetUpsidePct > 15 && c.score < 40) {
+                tickerFlags.push({
+                  kind: "target_far_above_we_low",
+                  detail: `Analyst mean price target ${targetUpsidePct >= 0 ? "+" : ""}${targetUpsidePct.toFixed(1)}% above current price ($${px?.toFixed(2)} → $${targetMean?.toFixed(2)}), our Investor Score only ${c.score}/100.`,
+                });
+              }
+              const entry = {
+                ticker: c.ticker,
+                our_score: c.score,
+                our_stage: c.stage,
+                analyst_consensus: consensusScore != null ? Number(consensusScore.toFixed(2)) : null,
+                analyst_count: totalAnalysts || null,
+                rating_breakdown: latest ? {
+                  strongBuy: Number(latest.strongBuy), buy: Number(latest.buy),
+                  hold: Number(latest.hold), sell: Number(latest.sell), strongSell: Number(latest.strongSell),
+                  period: latest.period,
+                } : null,
+                price: px,
+                target_mean: targetMean,
+                target_upside_pct: targetUpsidePct != null ? Number(targetUpsidePct.toFixed(1)) : null,
+                flags: tickerFlags,
+              };
+              checked.push(entry);
+              if (tickerFlags.length > 0) flags.push(entry);
+            } catch (e) {
+              checked.push({ ticker: c.ticker, error: String(e?.message || e).slice(0, 150) });
+            }
+          }
+          return sendJSON({
+            ok: true,
+            window: { tickers_checked: checked.length, anomalies: flags.length },
+            anomalies: flags,
+            checked,
+            note: "Anomalies surface tickers where our Investor Score disagrees with analyst consensus / price targets. Spot-check these manually; consider whether our scoring missed a fundamental input (e.g. AMZN being 'in the dumps' while analysts love it suggests the technical-trend components are too restrictive for that ticker class).",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/rescore-ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const ticker = normTicker(String(url.searchParams.get("ticker") || "").trim());
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          // Load all the TFs the scoring cron uses, but with W/M limits
+          // raised above the 50-bar minimum that computeServerSideScores
+          // enforces for bundle compute (worker/indicators.js:6530).
+          // Production cron previously used limit=24 for M (NEVER built
+          // monthly bundle). Even at limit=60, Alpaca's M ingestion stores
+          // duplicate bars per month with 4-hour-apart timestamps (see
+          // AMZN: 242 rows in D1 but only ~30 unique months after dedup),
+          // so 60 → post-dedup ≈ 30 → still < 50 bundle min. Forcing 250
+          // for M leaves comfortable headroom for dedup (250 → ~125 unique
+          // months → 10 years).
+          const tfConfigs = [
+            { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
+            { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
+            { tf: "30", limit: 100 }, { tf: "15", limit: 60 },
+            { tf: "10", limit: 100 }, { tf: "M", limit: 250 },
+          ];
+          const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+          const getCandlesCached = async (_env, _ticker, tf, _limit) => {
+            const tfKey = normalizeTfKey(tf);
+            return candleCache[tfKey] || { ok: false, candles: [] };
+          };
+          // Pull existing snapshot to preserve sticky fields (kanban stage etc.).
+          const existing = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`) || null;
+          // Same call signature the scoring cron uses (line ~83774).
+          const Indicators = await import("./indicators.js");
+          const tickerData = await Indicators.computeServerSideScores(ticker, getCandlesCached, env, existing);
+          if (!tickerData) {
+            return sendJSON({ ok: false, error: "rescore_returned_null", ticker, hint: "Check that D/W/M candles exist in D1 for this ticker." }, 500, corsHeaders(env, req));
+          }
+          await kvPutJSON(env.KV_TIMED, `timed:latest:${ticker}`, tickerData);
+          // Summarize what now exists on the snapshot
+          const tfTechKeys = tickerData.tf_tech ? Object.keys(tickerData.tf_tech) : [];
+          const summary = {
+            tf_tech_keys: tfTechKeys,
+            has_W: tfTechKeys.includes("W"),
+            has_M: tfTechKeys.includes("M") || !!tickerData.monthly_bundle,
+            has_monthly_bundle: !!tickerData.monthly_bundle,
+            has_ichimoku_d: !!tickerData.ichimoku_d,
+            has_ichimoku_w: !!tickerData.ichimoku_w,
+            price: tickerData.price,
+            rank: tickerData.rank,
+          };
+          return sendJSON({
+            ok: true, ticker, summary,
+            note: "Snapshot refreshed in KV. Trigger POST /timed/investor/compute (or wait for the next 5-min cron) for the Investor Score Breakdown components to reflect the new W/M / monthly_bundle data.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/ai-cio/operator-task") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -73736,44 +73931,85 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const prevScores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
           const investorAlerts = [];
 
+          // 2026-05-30 — Per-ticker alert cooldown so a full universe
+          // rescore (e.g. after a backfill or limit bump) doesn't blast
+          // 100+ alerts for tickers whose zone status flipped because of
+          // newly-built bundles. KV-stored TTL of 24h. The first hit
+          // after the cooldown clears fires the alert; subsequent ticks
+          // within the window are suppressed.
+          const _alertCooldownMs = 24 * 60 * 60 * 1000;
+          const _alertSeen = await kvGetJSON(env.KV_TIMED, "timed:investor:alert-cooldown") || {};
+          const _now = Date.now();
+          const _shouldFire = (ticker, alertKey) => {
+            const k = `${ticker}:${alertKey}`;
+            const last = Number(_alertSeen[k]) || 0;
+            return (_now - last) >= _alertCooldownMs;
+          };
+          const _markFired = (ticker, alertKey) => { _alertSeen[`${ticker}:${alertKey}`] = _now; };
+
           for (const [ticker, curr] of Object.entries(investorResults)) {
             const prev = prevScores[ticker];
 
-            // Accumulation zone entry (wasn't in zone before, now is)
+            // Accumulation zone entry (wasn't in zone before, now is).
+            // 2026-05-30 — Pass zoneType through so the alert template
+            // can distinguish momentum_runner from oversold-bounce.
             if (curr.accumZone?.inZone && (!prev?.accumZone?.inZone)) {
-              investorAlerts.push({ type: "accumulation_zone", data: {
-                ticker, score: curr.score, rsRank: curr.rsRank,
-                confidence: curr.accumZone.confidence, signals: curr.accumZone.signals,
-              }});
+              const _zone = curr.accumZone.zoneType || "accumulation_zone";
+              const _alertKey = `accum:${_zone}`;
+              if (_shouldFire(ticker, _alertKey)) {
+                investorAlerts.push({ type: "accumulation_zone", data: {
+                  ticker, score: curr.score, rsRank: curr.rsRank,
+                  confidence: curr.accumZone.confidence,
+                  signals: curr.accumZone.signals,
+                  zoneType: _zone,
+                }});
+                _markFired(ticker, _alertKey);
+              }
             }
 
             // RS breakout (new 3m or 6m high)
-            if (curr.rs?.rsNewHigh6m && !prev?.rs?.rsNewHigh6m) {
+            if (curr.rs?.rsNewHigh6m && !prev?.rs?.rsNewHigh6m && _shouldFire(ticker, "rs6m")) {
               investorAlerts.push({ type: "rs_breakout", data: {
                 ticker, period: "6-month", rsRank: curr.rsRank,
                 rs3m: curr.rs.rs3m, score: curr.score,
               }});
-            } else if (curr.rs?.rsNewHigh3m && !prev?.rs?.rsNewHigh3m) {
+              _markFired(ticker, "rs6m");
+            } else if (curr.rs?.rsNewHigh3m && !prev?.rs?.rsNewHigh3m && _shouldFire(ticker, "rs3m")) {
               investorAlerts.push({ type: "rs_breakout", data: {
                 ticker, period: "3-month", rsRank: curr.rsRank,
                 rs3m: curr.rs.rs3m, score: curr.score,
               }});
+              _markFired(ticker, "rs3m");
             }
 
             // Thesis invalidation (stage changed to "reduce" from something better)
-            if (curr.stage === "reduce" && prev?.stage && prev.stage !== "reduce" && prev.stage !== "exited") {
+            if (curr.stage === "reduce" && prev?.stage && prev.stage !== "reduce" && prev.stage !== "exited" && _shouldFire(ticker, "thesis_inv")) {
               investorAlerts.push({ type: "thesis_invalidation", data: {
                 ticker, reasons: [curr.stageReason],
               }});
+              _markFired(ticker, "thesis_inv");
             }
           }
+          // Persist the cooldown map so the next cron tick can see it.
+          try {
+            await kvPutJSON(env.KV_TIMED, "timed:investor:alert-cooldown", _alertSeen);
+          } catch (_) {}
 
-          // Send top 5 alerts to Discord (avoid spam)
+          // Send top 5 alerts to Discord AND email opted-in users.
+          // 2026-05-30 — Per user request: 'We should also send out emails
+          // for Investor related actions since those users rely more on
+          // email as a notification signal.' Wires the same alert payload
+          // to the existing email infra (getEmailOptedInUsers + new
+          // 'investor_alerts' pref). Discord alert + email send happen
+          // in parallel via ctx.waitUntil so the cron stays responsive.
           const alertsSent = [];
           for (const alert of investorAlerts.slice(0, 5)) {
             const embed = createInvestorAlertEmbed(alert.type, alert.data);
             if (embed) {
               ctx.waitUntil(notifyDiscord(env, embed));
+              ctx.waitUntil(sendInvestorAlertEmails(env, alert).catch((e) => {
+                console.warn("[INVESTOR ALERT EMAIL] send failed:", String(e?.message || e).slice(0, 200));
+              }));
               alertsSent.push({ type: alert.type, ticker: alert.data.ticker });
             }
           }
@@ -78294,10 +78530,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn(`[REPLAY-TICKER] profile load failed for ${tickerParam}:`, String(e?.message || e));
         }
         const replayTfConfigs = [
-          { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+          // 2026-05-30 — Mirror of the live cron's W/M bump so replays
+          // also build the monthly_bundle + weekly tf_tech entries.
+          { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
           { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
           { tf: "30", limit: 100 }, { tf: "15", limit: 100 },
-          { tf: "10", limit: 100 }, { tf: "M", limit: 24 },
+          { tf: "10", limit: 100 }, { tf: "M", limit: 250 },
         ];
         const replayCandleCache = await d1GetCandlesAllTfs(env, tickerParam, replayTfConfigs, { beforeTs: tsEnd });
         const getReplayCandlesCached = async (_env, _ticker, tf, _limit) => {
@@ -83679,11 +83917,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // EMA-233 meaningful on D/4H only. Sub-hourly TFs need ~100 candles max.
             // 1m candles REMOVED — only used for optional TD Sequential chart overlay,
             // not core scoring. Saves ~1.9M D1 queries/month.
+            //
+            // 2026-05-30 — Raised W from 100 → 300 and M from 24 → 250 so the
+            // 50-bar bundle minimum (worker/indicators.js:6530) is always
+            // satisfied AFTER dedup. With limit=24 for M the monthly_bundle
+            // was NEVER built — every ticker's monthlyTrend / Investor Score
+            // Breakdown monthly component scored 0. Alpaca's M ingestion
+            // stores duplicate bars per month (verified AMZN: 242 rows in D1,
+            // ~30 unique months post-dedup), so limit=60 wasn't enough either.
+            // limit=250 leaves comfortable headroom (≈125 unique months / 10 years).
+            // Cost: ~150 extra D1 reads/ticker/tick × 260 tickers ≈ 11M reads/day,
+            // well within the D1 plan.
             const tfConfigs = [
-              { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+              { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
               { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
               { tf: "30", limit: 100 }, { tf: "10", limit: 100 },
-              { tf: "M", limit: 24 },
+              { tf: "M", limit: 250 },
             ];
             const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
             // Wrap cache in a getCandles-compatible function (no additional D1 calls)

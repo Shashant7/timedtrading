@@ -542,13 +542,34 @@ export function createInvestorAlertEmbed(type, data) {
     accumulation_zone: {
       color: 0x10b981,
       emoji: "🎯",
-      title: (d) => `${d.ticker}: Entered Accumulation Zone`,
-      description: (d) => `**${d.ticker}** has entered an accumulation zone — a potentially attractive entry point for long-term investors.`,
+      // 2026-05-30 — Differentiate title + description by zoneType.
+      // The "Accumulation Zone" label was being applied to BOTH true
+      // pullback setups (oversold-bounce branch) AND momentum-runner
+      // continuation conditions (line 752 of worker/investor.js), which
+      // are very different signals. CDNS / ITT / AMZN all fired the
+      // momentum_runner branch while at all-time highs — labeling those
+      // as "accumulation" misleads users into thinking a pullback has
+      // occurred. zoneType is now surfaced explicitly: 'Momentum-Runner
+      // Zone' for trend-continuation; 'Accumulation Zone' for the
+      // oversold-bounce / near-support cases.
+      title: (d) => {
+        if (d.zoneType === "momentum_runner") return `${d.ticker}: Momentum-Runner Zone Confirmed`;
+        return `${d.ticker}: Entered Accumulation Zone`;
+      },
+      description: (d) => {
+        if (d.zoneType === "momentum_runner") {
+          return `**${d.ticker}** is in a confirmed *momentum-runner* zone — trend is healthy and intact, signals support adding on minor pullbacks. ⚠ Not a fresh-entry "buy the dip" signal; price may already be extended from a low.`;
+        }
+        return `**${d.ticker}** has entered an accumulation zone — a potentially attractive pullback-entry point for long-term investors. Weekly oversold while monthly trend intact, or price near major support.`;
+      },
       fields: (d) => [
         { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
         { name: "Confidence", value: `${d.confidence || "—"}%`, inline: true },
         { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
+        { name: "Zone Type", value: String(d.zoneType || "—").replace(/_/g, " "), inline: true },
         { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
+        // Make it clear this is informational, not an auto-executed order.
+        { name: "Note", value: "Informational signal. The trade simulator tracks it; live execution requires the Phase 1 share-mirror config (see Mission Control → Broker Bridge).", inline: false },
       ],
     },
     rs_breakout: {

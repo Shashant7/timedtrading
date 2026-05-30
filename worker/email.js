@@ -1087,6 +1087,7 @@ export function unsubscribeConfirmationHtml(email, pref) {
     trade_alerts: "Trade Alert emails",
     re_engagement: "Re-engagement emails",
     weekly_digest: "Weekly Digest emails",
+    investor_alerts: "Investor Signal emails",
     all: "all emails",
   }[pref] || pref;
 
@@ -1113,6 +1114,10 @@ const DEFAULT_PREFS_PAID = {
   trade_alerts: true,
   weekly_digest: true,
   re_engagement: true,
+  // 2026-05-30 — Investor signal emails (accumulation zone entry,
+  // RS breakout, thesis invalidation). Investor-mode users tend to
+  // rely on email more than Discord for slower-cadence signals.
+  investor_alerts: true,
 };
 
 const DEFAULT_PREFS_FREE = {
@@ -1121,6 +1126,7 @@ const DEFAULT_PREFS_FREE = {
   trade_alerts: false,
   weekly_digest: false,
   re_engagement: true,
+  investor_alerts: false,
 };
 
 export function getUserEmailPrefs(user) {
@@ -1135,6 +1141,99 @@ export function getUserEmailPrefs(user) {
     } catch { /* use defaults */ }
   }
   return { ...defaults, ...stored };
+}
+
+/**
+ * Send investor signal alert emails (accumulation zone, RS breakout,
+ * thesis invalidation) to opted-in users.
+ *
+ * 2026-05-30 — Operator: 'We should also send out emails for Investor
+ * related actions since those users rely more on email as a notification
+ * signal.' Mirrors the Discord alert payload into an email layout.
+ * Routed via SendGrid/Resend (whichever is configured); falls back to
+ * a no-op if neither set.
+ *
+ * @param {object} env
+ * @param {object} alert - { type: "accumulation_zone"|"rs_breakout"|"thesis_invalidation", data: {...} }
+ */
+export async function sendInvestorAlertEmails(env, alert) {
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  if (!opted.length) return { sent: 0, recipients: 0 };
+  const { type, data } = alert || {};
+  if (!type || !data?.ticker) return { sent: 0, recipients: 0 };
+
+  const TYPE_META = {
+    accumulation_zone: {
+      subject: data.zoneType === "momentum_runner"
+        ? `${data.ticker} — Momentum-Runner Zone Confirmed`
+        : `${data.ticker} — Entered Accumulation Zone`,
+      headline: data.zoneType === "momentum_runner" ? "Momentum-Runner Zone Confirmed" : "Entered Accumulation Zone",
+      tone: "#10b981",
+      lede: data.zoneType === "momentum_runner"
+        ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks. <em>Not a fresh-entry "buy the dip" signal; price may already be extended from a low.</em>`
+        : `<strong>${data.ticker}</strong> has entered an accumulation zone — a potentially attractive pullback-entry point for long-term investors.`,
+    },
+    rs_breakout: {
+      subject: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,
+      headline: `Relative Strength Breakout`,
+      tone: "#3b82f6",
+      lede: `<strong>${data.ticker}</strong> relative-strength line hit a new ${data.period || "3-month"} high vs SPY. Outperforming ${data.rsRank || "?"}% of the universe.`,
+    },
+    thesis_invalidation: {
+      subject: `${data.ticker} — Investment Thesis Invalidated`,
+      headline: `Investment Thesis Invalidated`,
+      tone: "#ef4444",
+      lede: `One or more conditions that supported your investment in <strong>${data.ticker}</strong> are no longer valid: ${(data.reasons || []).join("; ")}.`,
+    },
+  };
+  const meta = TYPE_META[type];
+  if (!meta) return { sent: 0, recipients: opted.length };
+
+  const factsHtml = (() => {
+    const rows = [];
+    if (data.score != null) rows.push(["Investor Score", `${data.score} / 100`]);
+    if (data.confidence != null) rows.push(["Confidence", `${data.confidence}%`]);
+    if (data.rsRank != null) rows.push(["RS Rank", `${data.rsRank}th percentile`]);
+    if (data.zoneType) rows.push(["Zone Type", String(data.zoneType).replace(/_/g, " ")]);
+    if (Array.isArray(data.signals) && data.signals.length) rows.push(["Signals", data.signals.map((s) => String(s).replace(/_/g, " ")).join(", ")]);
+    return rows.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#9ca3af;font-size:12px;vertical-align:top">${k}</td><td style="padding:6px 0;color:#e5e7eb;font-size:13px;font-weight:600">${v}</td></tr>`).join("");
+  })();
+
+  const tickerUrl = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}`;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${meta.subject}</title></head>
+<body style="margin:0;background:#0a0a0f;color:#e5e7eb;font-family:'Inter',Helvetica,Arial,sans-serif">
+<table width="100%" cellspacing="0" cellpadding="0" style="background:#0a0a0f;padding:24px 16px">
+<tr><td align="center">
+<table width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#141821;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px">
+<tr><td>
+<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${meta.tone};text-transform:uppercase;margin-bottom:8px">${meta.headline}</div>
+<h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f0f6fc">${data.ticker}</h1>
+<p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#cbd5e1">${meta.lede}</p>
+<table cellspacing="0" cellpadding="0" style="margin-bottom:18px">${factsHtml}</table>
+<a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${meta.tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
+<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
+Informational signal only. Not financial advice. The trade simulator tracks this; live execution requires the Phase 1 share-mirror config.<br>
+You're receiving this because Investor Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${meta.tone};text-decoration:none">Manage preferences</a>.
+</div>
+</td></tr></table></td></tr></table></body></html>`;
+  const subject = `${meta.subject} — Timed Trading`;
+  let sent = 0, failed = 0;
+  for (const u of opted) {
+    try {
+      const r = await sendEmail(env, {
+        to: u.email,
+        subject,
+        html,
+        text: `${meta.headline}: ${data.ticker}\n\n${meta.lede.replace(/<[^>]+>/g, "")}\n\nView: ${tickerUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
+      });
+      if (r?.ok) sent++; else failed++;
+    } catch (e) {
+      failed++;
+      console.warn(`[INVESTOR ALERT EMAIL] ${u.email} failed:`, String(e?.message || e).slice(0, 200));
+    }
+  }
+  console.log(`[INVESTOR ALERT EMAIL] type=${type} ticker=${data.ticker} sent=${sent} failed=${failed} recipients=${opted.length}`);
+  return { sent, failed, recipients: opted.length };
 }
 
 /**

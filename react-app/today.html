@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-r1"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-r3"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -2306,9 +2306,14 @@
       // ranks RIDE > DRIFT > READY > FADE > WAIT and within each by
       // confluence score. Renders nothing if no plays returned.
       // ─────────────────────────────────────────────────────────────
-      function OptionsPlaysOfTheDay({ onSelectTicker }) {
+      function OptionsPlaysOfTheDay({ onSelectTicker, layout = "grid" }) {
         const [plays, setPlays] = useState(null);
         const [loading, setLoading] = useState(true);
+        // 2026-05-30 — layout="sidebar" renders the section as a vertical
+        // list (one play per row, stacked) for the TodayHero right column.
+        // layout="grid" (default) renders the original 4-up card grid for
+        // standalone placement in the main body.
+        const isSidebar = layout === "sidebar";
         useEffect(() => {
           let alive = true;
           (async () => {
@@ -2334,39 +2339,35 @@
         // Skeleton reserves the layout slot so the user sees the section
         // exists immediately.
         if (loading) {
-          return h("section", { className: "tt-row", style: { marginBottom: 24 } },
+          const skSlotCount = isSidebar ? 4 : 4;
+          const skContainerStyle = isSidebar
+            ? { display: "flex", flexDirection: "column", gap: 8 }
+            : { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 };
+          return h("section", { className: isSidebar ? "" : "tt-row", style: { marginBottom: isSidebar ? 0 : 24 } },
             h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" } },
               h("div", null,
                 h("div", { className: "tt-sec-title" }, "OPTIONS PLAYS OF THE DAY"),
                 h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--tt-text)", letterSpacing: "-0.005em" } },
-                  "Confluence-Driven Strategies"),
+                  isSidebar ? "Today's setups" : "Confluence-Driven Strategies"),
               ),
               h("span", { style: { fontSize: 10, color: "var(--tt-text-faint)", fontStyle: "italic" } }, "Loading…"),
             ),
-            h("div", {
-              style: {
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                gap: 10,
-              },
-            },
-              [0, 1, 2, 3].map((i) => h("div", {
+            h("div", { style: skContainerStyle },
+              Array.from({ length: skSlotCount }, (_, i) => h("div", {
                 key: `sk-${i}`,
                 style: {
-                  padding: 12,
+                  padding: isSidebar ? 10 : 12,
                   background: "rgba(255,255,255,0.02)",
                   border: "1px solid rgba(255,255,255,0.04)",
                   borderRadius: 10,
-                  minHeight: 110,
+                  minHeight: isSidebar ? 76 : 110,
                   position: "relative",
                   overflow: "hidden",
                 },
               },
-                h("div", { style: { width: "60%", height: 14, background: "rgba(255,255,255,0.06)", borderRadius: 4, marginBottom: 8 } }),
-                h("div", { style: { width: "85%", height: 12, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 6 } }),
-                h("div", { style: { width: "40%", height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 4 } }),
-                h("div", { style: { width: "55%", height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 4 } }),
-                // Subtle shimmer overlay
+                h("div", { style: { width: "60%", height: 12, background: "rgba(255,255,255,0.06)", borderRadius: 4, marginBottom: 6 } }),
+                h("div", { style: { width: "85%", height: 11, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 5 } }),
+                h("div", { style: { width: "40%", height: 9, background: "rgba(255,255,255,0.04)", borderRadius: 4 } }),
                 h("div", {
                   style: {
                     position: "absolute", inset: 0,
@@ -2378,7 +2379,24 @@
             ),
           );
         }
-        if (!plays || plays.length === 0) return null;
+        // For sidebar — show empty-state message instead of returning null,
+        // because the sidebar slot otherwise leaves visible whitespace.
+        if (!plays || plays.length === 0) {
+          if (isSidebar) {
+            return h("section", null,
+              h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" } },
+                h("div", null,
+                  h("div", { className: "tt-sec-title" }, "OPTIONS PLAYS OF THE DAY"),
+                  h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--tt-text)", letterSpacing: "-0.005em" } }, "Today's setups"),
+                ),
+              ),
+              h("div", { className: "tt-card tt-card-pad", style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5 } },
+                "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually.",
+              ),
+            );
+          }
+          return null;
+        }
 
         const MODE_META = {
           RIDE:  { color: "#34d399", bg: "rgba(52,211,153,0.10)", icon: "🚀" },
@@ -2387,25 +2405,22 @@
           FADE:  { color: "#a78bfa", bg: "rgba(167,139,250,0.10)", icon: "↩️" },
         };
 
-        return h("section", { className: "tt-row", style: { marginBottom: 24 } },
+        const containerStyle = isSidebar
+          ? { display: "flex", flexDirection: "column", gap: 8 }
+          : { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 };
+        return h("section", { className: isSidebar ? "" : "tt-row", style: { marginBottom: isSidebar ? 0 : 24 } },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" } },
             h("div", null,
               h("div", { className: "tt-sec-title" }, "OPTIONS PLAYS OF THE DAY"),
               h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--tt-text)", letterSpacing: "-0.005em" } },
-                "Confluence-Driven Strategies"),
+                isSidebar ? `${plays.length} actionable` : "Confluence-Driven Strategies"),
             ),
             h("a", {
               href: "/learn.html#active-strategy",
               style: { fontSize: 11, color: "var(--tt-text-muted)", textDecoration: "none" },
-            }, "How this works →"),
+            }, isSidebar ? "How →" : "How this works →"),
           ),
-          h("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-              gap: 10,
-            },
-          },
+          h("div", { style: containerStyle },
             plays.map((p) => {
               const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
               const dirColor = p.direction === "SHORT" ? "#f87171" : "#34d399";
@@ -2420,7 +2435,7 @@
                 key: p.ticker,
                 onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
                 style: {
-                  padding: 12,
+                  padding: isSidebar ? 10 : 12,
                   background: cardBg,
                   border: cardBorder,
                   borderRadius: 10,
@@ -2435,23 +2450,23 @@
                 isMoonshot && h("div", {
                   style: { position: "absolute", top: -8, right: 8, fontSize: 9, fontWeight: 800, letterSpacing: "0.10em", color: "#0b0e11", padding: "2px 8px", borderRadius: 999, background: "linear-gradient(90deg, #f5c25c, #a78bfa)" },
                 }, "🌙 MOONSHOT"),
-                h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 } },
-                  h("div", { style: { display: "flex", alignItems: "baseline", gap: 8 } },
-                    h("strong", { style: { fontSize: 16, color: "var(--tt-text)" } }, p.ticker),
+                h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: isSidebar ? 4 : 6, gap: 4, flexWrap: "wrap" } },
+                  h("div", { style: { display: "flex", alignItems: "baseline", gap: 6 } },
+                    h("strong", { style: { fontSize: isSidebar ? 14 : 16, color: "var(--tt-text)" } }, p.ticker),
                     h("span", { style: { fontSize: 10, fontWeight: 700, color: dirColor, letterSpacing: "0.05em" } }, p.direction),
                   ),
                   h("span", {
                     style: { fontSize: 10, fontWeight: 700, color: meta.color, padding: "2px 8px", borderRadius: 999, background: meta.color + "20", letterSpacing: "0.05em" },
                   }, meta.icon, " ", p.confluence_mode),
                 ),
-                h("div", { style: { fontSize: 13, fontWeight: 700, color: "var(--tt-text)", marginBottom: 4 } },
+                h("div", { style: { fontSize: isSidebar ? 12 : 13, fontWeight: 700, color: "var(--tt-text)", marginBottom: isSidebar ? 3 : 4, lineHeight: 1.3 } },
                   p.primary?.label || "—"),
-                h("div", { style: { display: "flex", gap: 12, fontSize: 11, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" } },
+                h("div", { style: { display: "flex", gap: isSidebar ? 8 : 12, fontSize: isSidebar ? 10 : 11, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)", flexWrap: "wrap" } },
                   p.primary?.expiration?.label && h("span", null, p.primary.expiration.label),
                   p.primary?.max_loss_usd != null && h("span", null, "Risk ", h("strong", { style: { color: "#f87171" } }, "$", p.primary.max_loss_usd >= 1000 ? Math.round(p.primary.max_loss_usd).toLocaleString() : p.primary.max_loss_usd)),
                   p.primary?.max_gain_usd != null && h("span", null, "Gain ", h("strong", { style: { color: "#34d399" } }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd)),
                 ),
-                h("div", { style: { marginTop: 6, fontSize: 10, color: "var(--tt-text-faint)" } },
+                !isSidebar && h("div", { style: { marginTop: 6, fontSize: 10, color: "var(--tt-text-faint)" } },
                   "Conf ", h("strong", { style: { color: "var(--tt-text)", fontFamily: "var(--tt-font-mono)" } }, p.confluence_score || 0, "/100"),
                   " · ", p.setup_grade || "—",
                 ),
@@ -2625,6 +2640,14 @@
       // takes ~40%. Below 980px both stack vertically.
       // ─────────────────────────────────────────────────────────────
       function TodayHero({ brief, data, earnings, onSelectTicker }) {
+        // 2026-05-30 — Restructured per user request. Left column now
+        // stacks Daily Brief → Trade Predictions (Index Strip) →
+        // Quick Glance. Right column becomes a vertical Options Plays
+        // sidebar so the top-of-page eye-flow is:
+        //   brief read  →  index day-trade plan  →  glance pulse
+        //   (left column, top to bottom)
+        //   →  today's actionable options plays
+        //   (right column, scannable vertical list)
         return h("div", {
           className: "today-hero",
           style: {
@@ -2638,15 +2661,11 @@
             brief
               ? h(BriefPreview, { brief })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
-            // 2026-05-29 — B5: Quick Glance panel fills the empty
-            // column space below the brief preview. Shows market
-            // regime + breadth + top sector + biggest mover + active
-            // position summary — all derived from data already loaded
-            // for the page, no extra fetches.
+            brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker }),
             h(QuickGlance, { brief, data, onSelectTicker }),
           ),
           h("div", { style: { minWidth: 0 } },
-            brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker }),
+            h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "sidebar" }),
           ),
         );
       }
@@ -4958,9 +4977,17 @@
           return () => clearInterval(id);
         }, [RailOverlay]);
 
-        const onSelectTicker = useCallback((sym) => {
+        const onSelectTicker = useCallback((sym, initialTab = null) => {
           if (!sym) return;
           setRailTicker(String(sym).toUpperCase());
+          // 2026-05-30 — Pass through an optional initialTab so callers
+          // (Options Plays of the Day, Open Positions strip, etc.) can
+          // deep-link straight to a specific Right Rail tab. Previously
+          // OptionsPlaysOfTheDay called onSelectTicker(ticker, "OPTIONS")
+          // but the second arg was discarded → rail always opened on
+          // the default ANALYSIS / SNAPSHOT tab.
+          if (initialTab) setRailInitialTab(String(initialTab).toUpperCase());
+          else setRailInitialTab(null);
         }, []);
                 const applyRailOpen = useCallback((detail) => {
           const p = typeof window.ttConsumeRailOpenForReact === "function"
@@ -5018,16 +5045,9 @@
             // not raw prediction-contract) on the right. Stacks
             // vertically below 980px.
             h(TodayHero, { brief, data, earnings, onSelectTicker }),
-            // 2026-05-30 (user request) — Options Plays of the Day now
-            // sits directly below the Hero (which contains Quick Glance
-            // in its left column), so the actionable options row is the
-            // first thing in the eye-flow after the brief + glance. Was
-            // previously below Open Positions Preview, which buried it.
-            h(OptionsPlaysOfTheDay, { onSelectTicker }),
-            // Open Positions strip moved BELOW Options Plays — what the
-            // model is currently managing reads naturally as "...and
-            // here's what's already in flight" after the day's
-            // actionable plays.
+            // 2026-05-30 — Options Plays moved INTO TodayHero as the
+            // right-column vertical sidebar. Open Positions preview
+            // stays here as the "what we're currently managing" strip.
             h(OpenPositionsPreview, { onSelectTicker }),
             // 2026-05-20 (user request): Market Pulse moved ABOVE the
             // Focus rows. The session-level context (where SPY / QQQ /

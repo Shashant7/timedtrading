@@ -149,6 +149,11 @@
     <div id="root"></div>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef } = React;
+      // 2026-05-30 — h shortcut for the StatusGrid + DetailSectionsToggle
+      // + CioDecisionReview components which build React trees imperatively
+      // (no JSX). The existing sections all use JSX (compiled by babel),
+      // so this file is a mix of both styles.
+      const h = React.createElement;
       const API_BASE = "";
       const AuthGate = window.TimedAuthGate;
 
