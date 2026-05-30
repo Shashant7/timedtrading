@@ -83,7 +83,7 @@ root redirect lives in `react-app/_worker.js`.
 
 **Rule:** journey pages must **port** existing components from
 `index-react.source.html` verbatim, not redesign them. Full handoff doc at
-`tasks/2026-05-17-session-handoff.md`.
+`tasks/archive/2026-pre-may/2026-05-17-session-handoff.md`.
 
 **Login redirect target lives in 3 places — keep in sync:**
 1. `react-app/_worker.js` — Pages worker root redirect
@@ -99,18 +99,32 @@ root redirect lives in `react-app/_worker.js`.
 <script src="shared-rail-bootstrap.js?v=..."></script>
 ```
 
-**CF Access policy regex (User Pages) must list every new HTML page** or
-authenticated users hit a login loop. Current shape:
-```
-(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|learn)\.html
-```
-Only the user can update this — it lives in the Cloudflare Dashboard.
+**CF Access policy regex (User Pages) must list every authenticated HTML page**
+or users hit a login loop. **Public (do not require Access):** `splash.html`,
+`terms.html`, `logout.html`. **Admin HTML** is also gated server-side by
+`react-app/_worker.js` → `ADMIN_ONLY_PAGES` (defense in depth).
 
-## Plan
+Update the Cloudflare Dashboard regex when adding any new `react-app/*.html`
+(except public pages above). Suggested combined pattern (May 2026):
 
-- **`tasks/PLAN.md`** — Consolidated status, phases, and next steps. Read first each session.
-- **`tasks/2026-05-17-session-handoff.md`** — full UX redesign + May calibration session handoff.
-- **`tasks/may-2026-performance-analysis.md`** — full performance writeup + P0/P1 calibration plan.
+```
+(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|learn|faq|calibration|proof|mission-control|bridge-audit|screener|trade-autopsy|system-intelligence|ticker-management|admin-clients|brand-kit|debug-dashboard|model-dashboard|move-discovery)\.html
+```
+
+If `/trade-autopsy/` (directory index) is served separately, add that path to
+the same Access application. Only the operator can edit policies in Cloudflare.
+
+## Plan & docs map
+
+- **`tasks/todo.md`** — current live work (read every session).
+- **`AGENTS.md`** + **`skills/README.md`** — onboarding and copy-paste playbooks.
+- **`tasks/archive/2026-pre-may/`** — historical plans. **Jul→Apr recovery is
+  complete** (engine backtested and promoted to live); do not reopen unless
+  starting a deliberate new validation lane. Key archives:
+  `PLAN.md`, `jul-apr-recovery-and-promotion-plan-2026-04-08.md`,
+  `may-2026-performance-analysis.md`, `2026-05-17-session-handoff.md`.
+- **May 2026 shipped one-shots** — `tasks/2026-05-*.md` (status in
+  `tasks/todo.md` strategic table).
 
 ## Key Paths
 

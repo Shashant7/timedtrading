@@ -9,6 +9,15 @@
 
 ---
 
+## Completed programs (do not reopen)
+
+- **Jul→Apr recovery (2025-07 → 2026-04)** — Backtest validation and
+  promotion to live are **done**. Historical plans live in
+  [`archive/2026-pre-may/`](archive/2026-pre-may/README.md). Only start a
+  new replay lane if you intentionally define a fresh contract in this file.
+
+---
+
 ## Open work — Mission Control + Today + UX polish
 
 ### Active

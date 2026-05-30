@@ -18,9 +18,10 @@ Active work for the Timed Trading repo.
 ## Folders
 
 - **[archive/](archive/)** — older plans, post-mortems, and superseded
-  designs. The bulk is in `archive/2026-pre-may/` (V11-V16, July
-  recovery, phase A-G calibrations, etc.). Don't grep this folder when
-  triaging current work — it's purely a historical record.
+  designs. The bulk is in `archive/2026-pre-may/` (V11-V16, Jul→Apr
+  recovery, phase A-G calibrations, etc.). **Jul→Apr recovery is complete**
+  (engine promoted to live) — see `archive/2026-pre-may/README.md`. Don't
+  grep this folder when triaging current work.
 
 ## When to add what here
 

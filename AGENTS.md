@@ -71,7 +71,7 @@ WRITE A NEW SKILL before exiting. Future you will thank you.
 | `scripts/` | Build, deploy, replay, analysis helpers |
 | `skills/` | **Reusable playbooks for common operations** |
 | `tasks/` | Plans (`todo.md`), lessons (`lessons.md`), recent session-specific plans |
-| `tasks/archive/` | Old (pre-May 2026) plans and post-mortems |
+| `tasks/archive/` | Old (pre-May 2026) plans; Jul→Apr recovery **complete** (see `tasks/archive/2026-pre-may/README.md`) |
 | `docs/` | Long-form architectural documents + runbooks |
 | `CONTEXT.md` | Single onboarding page (load every session) |
 | `AGENTS.md` | This file |

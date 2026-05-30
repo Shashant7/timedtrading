@@ -5,9 +5,11 @@ alwaysApply: true
 
 # Workflow
 
-Follow **CONTEXT.md** (single source). Key principles:
+**New session:** read **[AGENTS.md](../../AGENTS.md)** first (~10 min), then
+**[CONTEXT.md](../../CONTEXT.md)**. Key principles:
 
 - Plan non-trivial (3+ steps) → `tasks/todo.md` first
+- Reusable how-to → **[skills/](../../skills/)** (not `tasks/`)
 - Stuck → STOP and re-plan
 - Verify before done; after corrections → update `tasks/lessons.md`
 - Simplicity first. Minimal impact.

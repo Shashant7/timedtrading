@@ -71,7 +71,7 @@ recovery, phase A-G calibrations, etc.) into `tasks/archive/2026-pre-may/`.
 The current `tasks/` folder now has only **17 active items** instead of
 130. New agents can scan the live state in seconds.
 
-Created a `skills/` library with 11 copy-paste-ready playbooks (deploy,
+Created a `skills/` library with 12 copy-paste-ready playbooks (deploy,
 backfill, rescore, cache-bust, sanity-check-investor, mission-control
 tour, debug-http-codes, d1, kv, discord-alerts, broker-bridge,
 frontend-build) and a top-level `AGENTS.md` onboarding doc.
@@ -453,7 +453,7 @@ jobs). Three of the 5 improvements above are pure math on existing data.
 Comprehensive session covering (a) UX redesign into journey pages, (b)
 tf_tech + login redirect fixes, (c) full May performance analysis, (d) P0+P1
 engine calibrations. Full handoff doc in
-`tasks/2026-05-17-session-handoff.md`. Lessons that future agents must know:
+`tasks/archive/2026-pre-may/2026-05-17-session-handoff.md`. Lessons that future agents must know:
 
 ### Mega-cap cohort caps are silently destructive in trending tape
 
