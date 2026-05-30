@@ -40,6 +40,294 @@ function fmtDate(ts) {
     day: "numeric"
   });
 }
+function CioDecisionReview({
+  apiBase,
+  onReviewSaved
+}) {
+  const [decisions, setDecisions] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [draftNotes, setDraftNotes] = useState({});
+  const [saving, setSaving] = useState({});
+  const [savedFlash, setSavedFlash] = useState({});
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = `${apiBase}/timed/admin/ai-cio/decisions?limit=30${showAll ? "" : "&unreviewed=1"}&_t=${Date.now()}`;
+      const r = await fetch(url, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      if (j.ok) {
+        setDecisions(j.decisions || []);
+        setStats(j.review_stats_14d || null);
+      }
+    } catch (_) {} finally {
+      setLoading(false);
+    }
+  }, [apiBase, showAll]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  const submitReview = async (tradeId, verdict) => {
+    if (saving[tradeId]) return;
+    setSaving(s => ({
+      ...s,
+      [tradeId]: true
+    }));
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/ai-cio/review`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          trade_id: tradeId,
+          verdict,
+          notes: draftNotes[tradeId] || ""
+        })
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setSavedFlash(f => ({
+          ...f,
+          [tradeId]: verdict
+        }));
+        setTimeout(() => setSavedFlash(f => {
+          const c = {
+            ...f
+          };
+          delete c[tradeId];
+          return c;
+        }), 1800);
+        if (j.manual_review_gate_auto_flipped) {
+          alert("Gate auto-flipped: manual_review is now DONE (20 reviews in 14d). Mission Control AI CIO panel will refresh.");
+        }
+        refresh();
+        if (typeof onReviewSaved === "function") onReviewSaved();
+      } else {
+        alert(`Review failed: ${j.error || "unknown"}`);
+      }
+    } catch (e) {
+      alert(`Review failed: ${String(e.message || e)}`);
+    } finally {
+      setSaving(s => {
+        const c = {
+          ...s
+        };
+        delete c[tradeId];
+        return c;
+      });
+    }
+  };
+  const reviewed14 = Number(stats?.reviewed_14d) || 0;
+  const threshold = 20;
+  const pctToGate = Math.min(100, reviewed14 / threshold * 100);
+  return React.createElement("div", {
+    className: "mc-card",
+    style: {
+      marginTop: 16,
+      marginBottom: 0
+    }
+  }, React.createElement("div", {
+    className: "mc-section-title",
+    style: {
+      marginBottom: 6
+    }
+  }, React.createElement("span", {
+    className: "mc-dot"
+  }), "Decision Review \xB7 provide feedback on individual CIO calls", loading && React.createElement("span", {
+    className: "text-[10px] mc-mute ml-2 mc-loading"
+  }, "refreshing\u2026")), React.createElement("div", {
+    className: "text-[11px] mc-mute mb-3"
+  }, "Rate decisions good / bad / meh + optional notes. Hitting ", React.createElement("b", {
+    className: "text-white"
+  }, threshold, " reviews in 14d"), " auto-flips the ", React.createElement("code", {
+    className: "text-[#34d399]"
+  }, "manual_review"), " D_operator gate to DONE."), React.createElement("div", {
+    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
+  }, React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Reviewed (14d)"), React.createElement("div", {
+    className: `mc-kpi-value text-[18px] ${reviewed14 >= threshold ? "mc-pos" : "text-white"}`
+  }, reviewed14, React.createElement("span", {
+    className: "text-[10px] mc-mute"
+  }, "/", threshold)), React.createElement("div", {
+    className: "h-1 rounded-full mt-1 bg-white/[0.06] overflow-hidden"
+  }, React.createElement("div", {
+    className: "h-full rounded-full",
+    style: {
+      width: `${pctToGate}%`,
+      background: reviewed14 >= threshold ? "#22c55e" : "#3b82f6"
+    }
+  }))), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Good"), React.createElement("div", {
+    className: "mc-kpi-value text-[18px] mc-pos"
+  }, Number(stats?.good_count) || 0)), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Bad"), React.createElement("div", {
+    className: "mc-kpi-value text-[18px] mc-neg"
+  }, Number(stats?.bad_count) || 0)), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Meh"), React.createElement("div", {
+    className: "mc-kpi-value text-[18px]"
+  }, Number(stats?.meh_count) || 0))), React.createElement("div", {
+    className: "flex items-center gap-2 mb-2"
+  }, React.createElement("button", {
+    onClick: () => setShowAll(!showAll),
+    className: "mc-btn",
+    style: {
+      padding: "3px 10px",
+      fontSize: 10
+    }
+  }, showAll ? "Show unreviewed only" : "Show all (incl. reviewed)"), React.createElement("button", {
+    onClick: refresh,
+    className: "mc-btn",
+    style: {
+      padding: "3px 10px",
+      fontSize: 10
+    }
+  }, "\u21BB Refresh queue")), decisions.length === 0 && !loading && React.createElement("div", {
+    className: "text-[11px] mc-mute py-3 italic"
+  }, showAll ? "No CIO decisions in the last 30 days." : "No unreviewed CIO decisions — you're caught up. Toggle to 'Show all' to re-review."), React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      maxHeight: 600,
+      overflowY: "auto"
+    }
+  }, decisions.map(d => {
+    const flash = savedFlash[d.trade_id];
+    const verdictMeta = {
+      good: {
+        color: "#22c55e",
+        bg: "rgba(34,197,94,0.12)"
+      },
+      bad: {
+        color: "#f87171",
+        bg: "rgba(248,113,113,0.12)"
+      },
+      meh: {
+        color: "#fbbf24",
+        bg: "rgba(251,191,36,0.12)"
+      }
+    };
+    const currentVerdict = d.review_verdict || flash || null;
+    return React.createElement("div", {
+      key: d.trade_id,
+      style: {
+        padding: 10,
+        background: currentVerdict ? verdictMeta[currentVerdict]?.bg || "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.02)",
+        border: currentVerdict ? `1px solid ${verdictMeta[currentVerdict]?.color || "rgba(255,255,255,0.06)"}40` : "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8
+      }
+    }, React.createElement("div", {
+      className: "flex items-baseline justify-between mb-1 flex-wrap gap-2"
+    }, React.createElement("div", {
+      className: "flex items-baseline gap-2 flex-wrap"
+    }, React.createElement("strong", {
+      className: "text-white text-[14px]"
+    }, d.ticker), React.createElement("span", {
+      className: String(d.direction).toUpperCase() === "LONG" ? "mc-pos text-[10px] font-semibold" : "mc-neg text-[10px] font-semibold"
+    }, d.direction), React.createElement("span", {
+      className: `mc-pill ${d.decision === "REJECT" ? "mc-pill-warn" : "mc-pill-ok"}`,
+      style: {
+        fontSize: 9
+      }
+    }, d.decision), Number(d.shadow) === 1 && React.createElement("span", {
+      className: "mc-pill mc-pill-warn",
+      style: {
+        fontSize: 9
+      }
+    }, "SHADOW"), React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono"
+    }, "conf ", Number(d.confidence || 0).toFixed(2), " \xB7 edge ", Number(d.edge_score || 0).toFixed(2)), React.createElement("span", {
+      className: "text-[10px] mc-mute"
+    }, fmtAgo(d.created_at))), d.trade_outcome && React.createElement("span", {
+      className: `text-[10px] font-semibold ${d.trade_outcome === "WIN" ? "mc-pos" : d.trade_outcome === "LOSS" ? "mc-neg" : "mc-mute"}`
+    }, "Outcome: ", d.trade_outcome, " ", Number.isFinite(Number(d.trade_pnl_pct)) ? `(${Number(d.trade_pnl_pct).toFixed(2)}%)` : "")), React.createElement("div", {
+      className: "text-[11px] text-[#d1d5db] mb-2",
+      style: {
+        lineHeight: 1.5,
+        whiteSpace: "pre-wrap"
+      }
+    }, String(d.reasoning || "(no reasoning)")), React.createElement("div", {
+      className: "flex items-center gap-2 mb-2 flex-wrap"
+    }, React.createElement("button", {
+      onClick: () => submitReview(d.trade_id, "good"),
+      disabled: !!saving[d.trade_id],
+      style: {
+        padding: "4px 10px",
+        fontSize: 11,
+        borderRadius: 6,
+        cursor: "pointer",
+        background: currentVerdict === "good" ? verdictMeta.good.color : verdictMeta.good.bg,
+        color: currentVerdict === "good" ? "white" : verdictMeta.good.color,
+        border: `1px solid ${verdictMeta.good.color}40`
+      }
+    }, "\u2713 Good call"), React.createElement("button", {
+      onClick: () => submitReview(d.trade_id, "bad"),
+      disabled: !!saving[d.trade_id],
+      style: {
+        padding: "4px 10px",
+        fontSize: 11,
+        borderRadius: 6,
+        cursor: "pointer",
+        background: currentVerdict === "bad" ? verdictMeta.bad.color : verdictMeta.bad.bg,
+        color: currentVerdict === "bad" ? "white" : verdictMeta.bad.color,
+        border: `1px solid ${verdictMeta.bad.color}40`
+      }
+    }, "\u2717 Bad call"), React.createElement("button", {
+      onClick: () => submitReview(d.trade_id, "meh"),
+      disabled: !!saving[d.trade_id],
+      style: {
+        padding: "4px 10px",
+        fontSize: 11,
+        borderRadius: 6,
+        cursor: "pointer",
+        background: currentVerdict === "meh" ? verdictMeta.meh.color : verdictMeta.meh.bg,
+        color: currentVerdict === "meh" ? "#111" : verdictMeta.meh.color,
+        border: `1px solid ${verdictMeta.meh.color}40`
+      }
+    }, "~ Meh / inconclusive"), d.review_verdict && React.createElement("span", {
+      className: "text-[10px] mc-mute italic"
+    }, "(reviewed ", fmtAgo(d.review_ts), " by ", d.review_by, ")")), React.createElement("textarea", {
+      value: draftNotes[d.trade_id] ?? d.review_notes ?? "",
+      onChange: e => setDraftNotes(n => ({
+        ...n,
+        [d.trade_id]: e.target.value
+      })),
+      placeholder: "Optional notes \u2014 what was right or wrong about this call? (saved when you click a verdict button)",
+      rows: 2,
+      style: {
+        width: "100%",
+        padding: 6,
+        fontSize: 11,
+        lineHeight: 1.4,
+        background: "rgba(0,0,0,0.30)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 4,
+        color: "#d1d5db",
+        fontFamily: "inherit",
+        resize: "vertical"
+      }
+    }));
+  })));
+}
 function BridgeSection({
   apiBase
 }) {
@@ -1348,7 +1636,10 @@ function MissionControl({
       },
       className: "mc-mute"
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
-  })))), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+  })))), React.createElement(CioDecisionReview, {
+    apiBase: API_BASE,
+    onReviewSaved: fetchCio
+  }), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold"
   }, "Recent CIO Rejections (latest 5)"), React.createElement("table", {
     className: "mc-table"
@@ -1382,6 +1673,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780158470699:409697599
+// cache-bust:1780160934793:663190748
 
-// cache-bust:1780158470699:409697599
+// cache-bust:1780160934793:663190748

@@ -590,7 +590,14 @@ function buildLongCall(ctx) {
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
-      { action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(prem.mid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(prem.mid * 100 * contracts),
+        side_label: "debit",
+      },
     ],
     strikes: { primary: strike },
     expiration,
@@ -645,7 +652,14 @@ function buildLongPut(ctx) {
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
-      { action: "BUY", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "BUY", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(prem.mid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(prem.mid * 100 * contracts),
+        side_label: "debit",
+      },
     ],
     strikes: { primary: strike },
     expiration,
@@ -686,9 +700,30 @@ function buildVerticalSpread(ctx, direction) {
     archetype: "vertical_spread",
     label: direction === "long" ? "Bull Call Spread" : "Bear Put Spread",
     rationale: `Defined-risk ${direction === "long" ? "bullish" : "bearish"} play to $${tp1?.toFixed(2) ?? "?"}. Pay ${netDebit.toFixed(2)} to win up to $${width.toFixed(2)} (${rrRatio.toFixed(1)}x R:R). Caps both downside AND upside.`,
+    // 2026-05-30 — Attach per-leg premium so the UI's "How This Works"
+    // panel can show the math: e.g. "BUY $510 CALL @ $X" + "SELL $540
+    // CALL @ $Y" → "Net debit X - Y = $7.45". Without per-leg prices
+    // the user can't see WHY the spread costs $7.45 (which was the
+    // direct user feedback on the original How This Works text).
     legs: [
-      { action: "BUY",  optionType: type === "C" ? "CALL" : "PUT", strike: longStrike,  expiration: expiration.iso, qty: contracts },
-      { action: "SELL", optionType: type === "C" ? "CALL" : "PUT", strike: shortStrike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "BUY", optionType: type === "C" ? "CALL" : "PUT",
+        strike: longStrike, expiration: expiration.iso, qty: contracts,
+        premium_mid:  Number(longPrem.mid?.toFixed(2))  || null,
+        premium_bid:  longPrem.bid  != null ? Number(Number(longPrem.bid).toFixed(2))  : null,
+        premium_ask:  longPrem.ask  != null ? Number(Number(longPrem.ask).toFixed(2))  : null,
+        leg_cost_usd: Math.round(longPrem.mid * 100 * contracts),
+        side_label: "debit",  // you PAY this much
+      },
+      {
+        action: "SELL", optionType: type === "C" ? "CALL" : "PUT",
+        strike: shortStrike, expiration: expiration.iso, qty: contracts,
+        premium_mid:  Number(shortPrem.mid?.toFixed(2)) || null,
+        premium_bid:  shortPrem.bid != null ? Number(Number(shortPrem.bid).toFixed(2)) : null,
+        premium_ask:  shortPrem.ask != null ? Number(Number(shortPrem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(shortPrem.mid * 100 * contracts),
+        side_label: "credit",  // you COLLECT this much
+      },
     ],
     strikes: { long: longStrike, short: shortStrike, width },
     expiration,
@@ -721,7 +756,14 @@ function buildCashSecuredPut(ctx) {
     label: "Cash-Secured Short Put",
     rationale: `Sell ${contracts} put(s) at $${strike} (our stop). If price stays above, keep $${Math.round(maxGain)} premium. If it falls below, get assigned at $${strike} — a level we'd buy anyway. Requires $${Math.round(collateral).toLocaleString()} cash collateral.`,
     legs: [
-      { action: "SELL", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "SELL", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(prem.mid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(prem.mid * 100 * contracts),
+        side_label: "credit", // you COLLECT premium for selling
+      },
     ],
     strikes: { primary: strike },
     expiration,
@@ -757,7 +799,14 @@ function buildCoveredCall(ctx) {
     label: "Covered Call",
     rationale: `Sell 1 call at TP1 strike $${strike}. If price closes above, shares get called away at $${strike} — capping gains but collecting premium + upside. Yield enhancement for existing long stock position.`,
     legs: [
-      { action: "SELL", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "SELL", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(prem.mid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(prem.mid * 100 * contracts),
+        side_label: "credit",
+      },
     ],
     strikes: { primary: strike },
     expiration,
@@ -840,7 +889,15 @@ function buildMoonshot(ctx, direction) {
     rationale: `🌙 The fused verdict says ${direction} with conviction AND the move is underway — gamma play.${motionWord} ${moonshotContracts}× $${strike} ${type === "P" ? "puts" : "calls"} expiring in ${expiration.dte} days. Risk $${Math.round(maxLoss)} for a shot at 2-5× if ${ctx.ticker || "underlying"} keeps moving ${dirWord} to $${px3x.toFixed(2)}+ by expiry. THIS IS A LOTTERY — small position, scale out aggressively on profits.`,
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
-    legs: [{ action: "BUY", optionType: type === "P" ? "PUT" : "CALL", strike, expiration: expiration.iso, qty: moonshotContracts }],
+    legs: [{
+      action: "BUY", optionType: type === "P" ? "PUT" : "CALL",
+      strike, expiration: expiration.iso, qty: moonshotContracts,
+      premium_mid: Number(prem.mid?.toFixed(2)) || null,
+      premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+      premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+      leg_cost_usd: Math.round(prem.mid * 100 * moonshotContracts),
+      side_label: "debit",
+    }],
     strikes: { primary: strike },
     expiration,
     premium: prem,
@@ -938,8 +995,22 @@ function buildLongStraddle(ctx) {
     label: "Long Straddle (ATM)",
     rationale: `Direction unclear but BIG move expected (squeeze release, earnings, catalyst pending). Buy ATM call AND put — profit from any move > $${totalPrem.toFixed(2)} in either direction. Max loss = premium if price expires at strike.`,
     legs: [
-      { action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts },
-      { action: "BUY", optionType: "PUT",  strike, expiration: expiration.iso, qty: contracts },
+      {
+        action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(callPrem.mid?.toFixed(2)) || null,
+        premium_bid: callPrem.bid != null ? Number(Number(callPrem.bid).toFixed(2)) : null,
+        premium_ask: callPrem.ask != null ? Number(Number(callPrem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(callPrem.mid * 100 * contracts),
+        side_label: "debit",
+      },
+      {
+        action: "BUY", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(putPrem.mid?.toFixed(2)) || null,
+        premium_bid: putPrem.bid != null ? Number(Number(putPrem.bid).toFixed(2)) : null,
+        premium_ask: putPrem.ask != null ? Number(Number(putPrem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(putPrem.mid * 100 * contracts),
+        side_label: "debit",
+      },
     ],
     strikes: { primary: strike },
     expiration,

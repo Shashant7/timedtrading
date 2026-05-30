@@ -1348,6 +1348,10 @@ const ROUTES = [
   // backfills on trade close, but historical decisions need a sweep).
   ["POST", "/timed/admin/ai-cio/backfill-outcomes", "POST /timed/admin/ai-cio/backfill-outcomes"],
   ["POST", "/timed/admin/ai-cio/operator-task", "POST /timed/admin/ai-cio/operator-task"],
+  ["POST", "/timed/admin/wm-bootstrap", "POST /timed/admin/wm-bootstrap"],
+  ["GET",  "/timed/admin/wm-bootstrap/status", "GET /timed/admin/wm-bootstrap/status"],
+  ["GET",  "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
+  ["POST", "/timed/admin/ai-cio/review", "POST /timed/admin/ai-cio/review"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
   // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
   ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
@@ -30785,6 +30789,24 @@ async function d1EnsureLearningSchema(env) {
     try {
       await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_cio_decisions_is_replay ON ai_cio_decisions(is_replay, created_at DESC)`).run();
     } catch { /* index may already exist */ }
+    // 2026-05-30 (Q2) — Operator review of CIO decisions. Each row is one
+    // human verdict on a single ai_cio_decisions row, feeds the
+    // manual_review D_operator gate. PRIMARY KEY (trade_id, reviewed_by)
+    // means each operator can review each decision once (and update the
+    // verdict / notes by re-POSTing).
+    try {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS ai_cio_decision_reviews (
+        trade_id    TEXT NOT NULL,
+        reviewed_by TEXT NOT NULL,
+        verdict     TEXT NOT NULL,         -- 'good' | 'bad' | 'meh'
+        notes       TEXT,
+        reviewed_at INTEGER NOT NULL,
+        PRIMARY KEY (trade_id, reviewed_by)
+      )`).run();
+    } catch { /* table may already exist */ }
+    try {
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_cio_review_reviewed_at ON ai_cio_decision_reviews(reviewed_at DESC)`).run();
+    } catch { /* index may already exist */ }
     // Three-tier awareness: ticker + sector profiles
     try {
       await db.batch([
@@ -54854,6 +54876,255 @@ export default {
       // physical review (audit reasoning quality, run lifecycle-only live
       // pass, ship the auto-snapback safeguard).
       // ──────────────────────────────────────────────────────────────────
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/wm-bootstrap
+      //
+      // One-shot deep W + M candle backfill for the full active universe
+      // (canonical + user-added). 1100d weekly (~3 years), 1825d monthly
+      // (~5 years). Idempotent — uses INSERT OR REPLACE under the hood.
+      //
+      // Background: until 2026-05-30 the daily candle-auto-refresh cron
+      // only refreshed D / 60m / 240m; W and M were assumed to be
+      // populated via the initial onboarding backfill. Any ticker added
+      // after onboarding (admin overlay, upticks, screener promotion)
+      // silently had no W / M coverage, which made Investor Score
+      // Breakdown components weeklyTrend / monthlyTrend / ichimokuW
+      // score 0 for those tickers (see AMZN). The auto-refresh now
+      // includes W + M plus a Sunday-evening deep refresh — this
+      // endpoint is the one-shot "fix me right now" path so the operator
+      // doesn't have to wait for the next Sunday cron.
+      //
+      // Body: optional { sinceDays: { W: 1100, M: 1825 } } to override
+      // the defaults. Returns per-TF upsert + error counts.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/wm-bootstrap") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const wDays = Math.max(30, Math.min(3650, Number(body?.sinceDays?.W) || 1100));
+          const mDays = Math.max(90, Math.min(3650, Number(body?.sinceDays?.M) || 1825));
+          // 2026-05-30 — Operator reported that the prior synchronous
+          // implementation hung curl (subrequest chain takes 5-10
+          // minutes for the full universe — well beyond CF Workers'
+          // 30s subrequest timeout). Now fire-and-forget via
+          // ctx.waitUntil(), return immediately with a job_id the
+          // operator can poll via GET /timed/admin/wm-bootstrap/status.
+          const KV = env.KV_TIMED;
+          const jobId = `wm-${Date.now().toString(36)}`;
+          const jobKey = `timed:wm-bootstrap:${jobId}`;
+          await KV.put(jobKey, JSON.stringify({
+            ok: true, status: "running", started_at: Date.now(),
+            sinceDays: { W: wDays, M: mDays },
+            results: {},
+          }), { expirationTtl: 86400 });
+          // Also write the "latest" pointer for /status without a job_id.
+          await KV.put("timed:wm-bootstrap:latest", jobId, { expirationTtl: 86400 });
+          ctx.waitUntil((async () => {
+            const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+            const _key = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+            const results = {};
+            for (const { tf, sinceDays } of [{ tf: "W", sinceDays: wDays }, { tf: "M", sinceDays: mDays }]) {
+              const t0 = Date.now();
+              try {
+                const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=${sinceDays}&include_user=1${_key}`, {
+                  method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+                });
+                const j = await r.json().catch(() => ({}));
+                results[tf] = {
+                  ok: !!j?.ok,
+                  sinceDays,
+                  upserted: j?.upserted || 0,
+                  tickers: j?.tickers || 0,
+                  errors: j?.errors || 0,
+                  elapsed_ms: Date.now() - t0,
+                };
+              } catch (e) {
+                results[tf] = { ok: false, error: String(e?.message || e).slice(0, 200), elapsed_ms: Date.now() - t0 };
+              }
+              // Persist incremental progress so the operator can see
+              // W finish before waiting on M.
+              try {
+                await KV.put(jobKey, JSON.stringify({
+                  ok: true, status: "running", started_at: Date.now(),
+                  sinceDays: { W: wDays, M: mDays },
+                  results,
+                }), { expirationTtl: 86400 });
+              } catch (_) {}
+            }
+            try {
+              await KV.put(jobKey, JSON.stringify({
+                ok: true, status: "done", started_at: Date.now(), finished_at: Date.now(),
+                sinceDays: { W: wDays, M: mDays },
+                results,
+              }), { expirationTtl: 86400 });
+            } catch (_) {}
+          })());
+          return sendJSON({
+            ok: true,
+            status: "kicked_off",
+            job_id: jobId,
+            estimate_minutes: 5,
+            sinceDays: { W: wDays, M: mDays },
+            poll_url: `${env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev"}/timed/admin/wm-bootstrap/status?job_id=${jobId}`,
+            note: "Backfill kicked off in background. Poll the URL above (or just /timed/admin/wm-bootstrap/status for the latest) to watch progress. Expect 3-6 minutes for the full universe.",
+          }, 202, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/wm-bootstrap/status?job_id=...
+      //
+      // Poll progress of a wm-bootstrap job. If job_id is omitted,
+      // returns the LATEST job (pointer kept at timed:wm-bootstrap:latest).
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/wm-bootstrap/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env.KV_TIMED;
+          let jobId = String(url.searchParams.get("job_id") || "").trim();
+          if (!jobId) {
+            jobId = (await KV.get("timed:wm-bootstrap:latest", "text")) || "";
+          }
+          if (!jobId) {
+            return sendJSON({ ok: false, error: "no_job", note: "No bootstrap has ever been kicked off." }, 404, corsHeaders(env, req));
+          }
+          const blob = await KV.get(`timed:wm-bootstrap:${jobId}`, "json");
+          if (!blob) {
+            return sendJSON({ ok: false, error: "job_not_found_or_expired", job_id: jobId }, 404, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, job_id: jobId, ...blob }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/ai-cio/decisions?limit=N&unreviewed=1
+      //
+      // Operator-facing list of recent CIO decisions with their review
+      // status. Drives the Mission Control "Decision Review" queue so
+      // the operator can rate each decision good / bad / meh and add
+      // notes. When 20+ reviews land in the last 14 days the
+      // manual_review D_operator gate auto-flips green.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/ai-cio/decisions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 30));
+          const unreviewed = String(url.searchParams.get("unreviewed") || "0") === "1";
+          const since = Date.now() - 30 * 86400000; // last 30 days
+          const baseSql = `
+            SELECT d.trade_id, d.ticker, d.direction, d.decision, d.confidence,
+                   d.edge_score, d.reasoning, d.risk_flags, d.created_at,
+                   d.trade_outcome, d.trade_pnl_pct, d.latency_ms,
+                   COALESCE(d.shadow, 0) AS shadow,
+                   COALESCE(d.is_replay, 0) AS is_replay,
+                   r.verdict AS review_verdict, r.notes AS review_notes,
+                   r.reviewed_at AS review_ts, r.reviewed_by AS review_by
+            FROM ai_cio_decisions d
+            LEFT JOIN ai_cio_decision_reviews r ON r.trade_id = d.trade_id
+            WHERE d.created_at >= ?1
+              AND COALESCE(d.is_replay, 0) = 0
+              AND COALESCE(d.fallback, 0) = 0
+              ${unreviewed ? "AND r.trade_id IS NULL" : ""}
+            ORDER BY d.created_at DESC
+            LIMIT ?2`;
+          const { results } = await db.prepare(baseSql).bind(since, limit).all();
+          // Quick review-stat summary for the manual_review gate.
+          const since14 = Date.now() - 14 * 86400000;
+          const stats = await db.prepare(`
+            SELECT
+              COUNT(*) AS reviewed_14d,
+              SUM(CASE WHEN verdict='good' THEN 1 ELSE 0 END) AS good_count,
+              SUM(CASE WHEN verdict='bad'  THEN 1 ELSE 0 END) AS bad_count,
+              SUM(CASE WHEN verdict='meh'  THEN 1 ELSE 0 END) AS meh_count,
+              MAX(reviewed_at) AS last_review_ts
+            FROM ai_cio_decision_reviews
+            WHERE reviewed_at >= ?1
+          `).bind(since14).first().catch(() => null);
+          return sendJSON({
+            ok: true,
+            decisions: results || [],
+            review_stats_14d: stats || { reviewed_14d: 0, good_count: 0, bad_count: 0, meh_count: 0, last_review_ts: null },
+            manual_review_gate_threshold: 20,
+            note: "Manual-review D_operator gate auto-flips when reviewed_14d >= 20. Operator can also toggle manually via POST /timed/admin/ai-cio/operator-task.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/ai-cio/review
+      //
+      // Body: { trade_id, verdict: 'good'|'bad'|'meh', notes?: string }
+      // Records a per-operator review of one CIO decision. Idempotent —
+      // PRIMARY KEY (trade_id, reviewed_by) so re-POSTing updates the
+      // verdict / notes. Auto-flips the manual_review D_operator gate
+      // green when the reviewer hits 20 reviews in the last 14d.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/ai-cio/review") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const tradeId = String(body?.trade_id || "").trim();
+          const verdict = String(body?.verdict || "").trim().toLowerCase();
+          const notes   = body?.notes != null ? String(body.notes).slice(0, 1000) : null;
+          if (!tradeId) return sendJSON({ ok: false, error: "missing_trade_id" }, 400, corsHeaders(env, req));
+          if (!["good", "bad", "meh"].includes(verdict)) {
+            return sendJSON({ ok: false, error: "invalid_verdict", allowed: ["good", "bad", "meh"] }, 400, corsHeaders(env, req));
+          }
+          // Reviewer identity from CF Access JWT (best effort).
+          let reviewedBy = "operator";
+          try { const u = await authenticateUser(req, env); if (u?.email) reviewedBy = u.email.toLowerCase(); } catch (_) {}
+          await db.prepare(`
+            INSERT INTO ai_cio_decision_reviews (trade_id, reviewed_by, verdict, notes, reviewed_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(trade_id, reviewed_by) DO UPDATE SET
+              verdict = excluded.verdict,
+              notes = excluded.notes,
+              reviewed_at = excluded.reviewed_at
+          `).bind(tradeId, reviewedBy, verdict, notes, Date.now()).run();
+          // Check whether the manual_review gate should auto-flip.
+          const since14 = Date.now() - 14 * 86400000;
+          const stats = await db.prepare(`
+            SELECT COUNT(*) AS n FROM ai_cio_decision_reviews WHERE reviewed_at >= ?1
+          `).bind(since14).first().catch(() => null);
+          const reviewed14 = Number(stats?.n) || 0;
+          let autoFlipped = false;
+          if (reviewed14 >= 20) {
+            await db.prepare(`
+              INSERT INTO model_config (config_key, config_value, updated_at)
+              VALUES ('ai_cio_d_manual_review_done', '1', ?1)
+              ON CONFLICT(config_key) DO UPDATE SET
+                config_value = '1',
+                updated_at = excluded.updated_at
+            `).bind(Date.now()).run();
+            autoFlipped = true;
+          }
+          return sendJSON({
+            ok: true, trade_id: tradeId, verdict, reviewed_by: reviewedBy,
+            review_stats_14d: { reviewed_14d: reviewed14 },
+            manual_review_gate_auto_flipped: autoFlipped,
+            note: autoFlipped
+              ? "Threshold (20) hit — manual_review D_operator gate auto-flipped to DONE."
+              : `${reviewed14}/20 reviews in last 14d toward auto-flipping the manual_review gate.`,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/ai-cio/operator-task") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -80809,19 +81080,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
           const _arKey = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
           console.log("[CANDLE AUTO-REFRESH] Pre-market sweep (6 AM ET)…");
-          // Backfill last 7 days for D + 60 + 240 across canonical + user-added tickers.
-          // sinceDays=7 keeps each call <30s; the cronFetchLatest at top-of-hour
-          // typically handles last-day deltas, this catches multi-day gaps.
-          const tfs = ["D", "60", "240"];
+          // Backfill last 7 days for D + 60 + 240, last 14 days for W,
+          // last 90 days for M across canonical + user-added tickers.
+          //
+          // 2026-05-30 — Added W + M after user feedback: "Amazon missing
+          // W,M TF candles. We should have Weekly and Monthly Candles
+          // backfilled for all tickers." Previously only intraday + daily
+          // were in the auto-refresh list, so any ticker without a
+          // historical W/M backfill (basically every ticker added via
+          // admin overlay after the initial bootstrap) silently scored
+          // 0 on weeklyTrend/monthlyTrend/ichimokuW in the Investor
+          // breakdown. sinceDays values picked to catch the latest
+          // close (W=14 → last 2 weekly bars, M=90 → last 3 monthly
+          // bars) without paying for a full backfill every day. The
+          // Sunday catch-up below handles the trailing-year + 3-year
+          // deep backfill.
+          const tfPlan = [
+            { tf: "D",   sinceDays: 7   },
+            { tf: "60",  sinceDays: 7   },
+            { tf: "240", sinceDays: 7   },
+            { tf: "W",   sinceDays: 14  },
+            { tf: "M",   sinceDays: 90  },
+          ];
           const results = {};
-          for (const tf of tfs) {
+          for (const { tf, sinceDays } of tfPlan) {
             try {
-              const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=7&include_user=1${_arKey}`, {
+              const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=${sinceDays}&include_user=1${_arKey}`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
               });
               const j = await r.json().catch(() => ({}));
               results[tf] = { upserted: j?.upserted || 0, errors: j?.errors || 0 };
-              console.log(`[CANDLE AUTO-REFRESH] ${tf}: ${j?.upserted || 0} upserted, ${j?.errors || 0} errors`);
+              console.log(`[CANDLE AUTO-REFRESH] ${tf} (since=${sinceDays}d): ${j?.upserted || 0} upserted, ${j?.errors || 0} errors`);
             } catch (e) {
               results[tf] = { error: String(e?.message || e).slice(0, 100) };
               console.warn(`[CANDLE AUTO-REFRESH] ${tf} failed:`, String(e?.message || e).slice(0, 200));
@@ -80837,6 +81126,59 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }).catch(() => {});
         }
       })());
+
+      // ── Sunday evening (5 PM ET) deep W/M backfill ──
+      //
+      // 2026-05-30 — Once-per-week deep refresh that guarantees every
+      // ticker in the active universe has W candles back at least 3
+      // years (155 bars) and M candles back at least 5 years (60 bars).
+      // Idempotent — the underlying alpaca-backfill endpoint uses
+      // INSERT OR REPLACE so re-running doesn't duplicate. Runs after
+      // Sunday market close so any newly-added tickers from the prior
+      // week (admin overlay, upticks, screener promotions) get caught.
+      //
+      // Sunday 5 PM ET ≈ 21:00 UTC EDT / 22:00 UTC EST. The cron only
+      // tick at the top of the hour, so check the ET hour explicitly.
+      if (_isHourly) {
+        const _wmNyParts = new Date().toLocaleString("en-US", {
+          timeZone: "America/New_York", weekday: "short", hour: "numeric", hour12: false,
+        }).split(", ");
+        const _wmDay  = _wmNyParts[0] || "";
+        const _wmHour = parseInt(_wmNyParts[1] || "0", 10);
+        if (_wmDay === "Sun" && _wmHour === 17) ctx.waitUntil((async () => {
+          try {
+            const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+            const _wmKey = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+            console.log("[WM DEEP BACKFILL] Sunday 5 PM ET deep refresh — W (3yr) + M (5yr)…");
+            const tfPlan = [
+              { tf: "W", sinceDays: 1100 },  // ≈ 3 years of weekly bars
+              { tf: "M", sinceDays: 1825 },  // ≈ 5 years of monthly bars
+            ];
+            const results = {};
+            for (const { tf, sinceDays } of tfPlan) {
+              try {
+                const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=${sinceDays}&include_user=1${_wmKey}`, {
+                  method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+                });
+                const j = await r.json().catch(() => ({}));
+                results[tf] = { upserted: j?.upserted || 0, errors: j?.errors || 0 };
+                console.log(`[WM DEEP BACKFILL] ${tf} (since=${sinceDays}d): ${j?.upserted || 0} upserted, ${j?.errors || 0} errors`);
+              } catch (e) {
+                results[tf] = { error: String(e?.message || e).slice(0, 100) };
+                console.warn(`[WM DEEP BACKFILL] ${tf} failed:`, String(e?.message || e).slice(0, 200));
+              }
+            }
+            recordCronSuccess(env, "wm_deep_backfill").catch(() => {});
+          } catch (e) {
+            console.warn("[WM DEEP BACKFILL] Sweep failed:", String(e?.message || e).slice(0, 200));
+            recordCronFailure(env, {
+              op: "wm_deep_backfill",
+              error: String(e?.message || e),
+              caller: "scheduled_event",
+            }).catch(() => {});
+          }
+        })());
+      }
 
       // ── 9 AM + 3 PM ET monitoring ──
       if (_frEtH === 9 || _frEtH === 15) ctx.waitUntil((async () => {
