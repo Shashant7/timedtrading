@@ -4118,6 +4118,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780099581485:473288440
+// cache-bust:1780104030336:674149995
 
-// cache-bust:1780099581485:473288440
+// cache-bust:1780104030336:674149995

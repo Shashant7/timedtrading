@@ -603,6 +603,11 @@ import {
   evaluateCIOLifecycle as _cioEvaluateLifecycle,
 } from "./cio/cio-service.js";
 import { buildCIOMemory as _cioBuildMemory } from "./cio/cio-memory.js";
+import {
+  getStrategyDigest as _getStrategyDigest,
+  getStrategyForTicker as _getStrategyForTicker,
+  STRATEGY_VINTAGE as _STRATEGY_VINTAGE,
+} from "./strategy-context.js";
 import { AI_CIO_MODEL as _CIO_MODEL } from "./cio/cio-prompts.js";
 
 // Register all entry engines with the dispatcher
@@ -1130,6 +1135,9 @@ const ROUTES = [
   ["GET", "/timed/daily-brief/intraday", "GET /timed/daily-brief/intraday"],
   ["POST", "/timed/daily-brief/predict", "POST /timed/daily-brief/predict"],
   ["POST", "/timed/daily-brief/generate", "POST /timed/daily-brief/generate"],
+  // ── Active Strategy (FSD playbook) ──
+  ["GET", "/timed/strategy", "GET /timed/strategy"],
+  ["GET", "/timed/strategy/ticker", "GET /timed/strategy/ticker"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -73826,6 +73834,55 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
           return sendJSON({ ok: true, period_label: periodLabel, inserted }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/strategy ─────────────────────────────────────────────
+      // Returns the active strategic playbook (currently the FSD 2026
+      // Year Ahead deck, vintaged via STRATEGY_VINTAGE). Pure data — no
+      // I/O, no auth. UI consumers: Insights "Active Strategy" panel,
+      // Learn page "Today's playbook" section, Right Rail strategy chip
+      // tooltip. To roll forward to a new editorial vintage, edit
+      // worker/strategy-context.js and redeploy.
+      if (routeKey === "GET /timed/strategy") {
+        try {
+          const digest = _getStrategyDigest();
+          return sendJSON({ ok: true, ...digest, generated_at: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      // ── GET /timed/strategy/ticker?ticker=AAPL ──────────────────────────
+      // Returns the strategy alignment for a single ticker, joining
+      // sector + theme tilts and the SMID bump where applicable. Used
+      // by the Right Rail to render the per-ticker playbook chip.
+      if (routeKey === "GET /timed/strategy/ticker") {
+        try {
+          const ticker = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          // Best-effort: enrich with sector + market cap from the score
+          // snapshot so SECTOR_TILTS + SIZE_TILTS can fire.
+          let tickerCtx = { ticker };
+          try {
+            const scoresRaw = await env.KV_TIMED.get("timed:investor:scores");
+            const scores = scoresRaw ? JSON.parse(scoresRaw) : null;
+            const row = scores?.[ticker];
+            if (row) {
+              tickerCtx.sector = row.sector || SECTOR_MAP[ticker] || null;
+              tickerCtx.market_cap = Number(row.market_cap) || null;
+            } else {
+              tickerCtx.sector = SECTOR_MAP[ticker] || null;
+            }
+          } catch (_) { /* best-effort */ }
+          const aligned = _getStrategyForTicker(ticker, tickerCtx, _getThemesForTicker);
+          return sendJSON({
+            ok: true,
+            ticker,
+            vintage: _STRATEGY_VINTAGE,
+            ...aligned,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }

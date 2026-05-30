@@ -1323,12 +1323,136 @@
       }
 
       // ── InsightsApp ────────────────────────────────────────────
+      // ── ActiveStrategyPanel ──────────────────────────────────────────
+      // Renders the active editorial playbook (currently FSD 2026 deck)
+      // so users learn how the system thinks about the next 6-12 months.
+      // Data source: GET /timed/strategy. Renders nothing if absent.
+      function ActiveStrategyPanel({ data }) {
+        if (!data) return null;
+        const phase = data.phase || {};
+        const headline = data.headline || "";
+        const owSectors = Object.entries(data.sector_tilts || {})
+          .filter(([, v]) => v.stance === "overweight")
+          .map(([k, v]) => ({ name: k, ...v }));
+        const uwSectors = Object.entries(data.sector_tilts || {})
+          .filter(([, v]) => v.stance === "underweight")
+          .map(([k, v]) => ({ name: k, ...v }));
+        const tier1 = Object.entries(data.theme_tilts || {})
+          .filter(([, v]) => v.tier === "tier_1" && v.stance === "overweight")
+          .map(([k, v]) => ({ name: k, ...v }));
+        const risks = data.active_risks || [];
+        const targets = phase.spx_targets || {};
+        const scenarios = phase.scenario_weights || {};
+
+        const sectionTitle = (s) =>
+          h("div", { className: "tt-sec-title", style: { marginBottom: 6 } }, s);
+
+        return h("section", { className: "tt-row", id: "active-strategy" },
+          h("div", { className: "tt-card tt-card-pad", style: { display: "flex", flexDirection: "column", gap: 16 } },
+            h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", gap: 8 } },
+              h("div", null,
+                h("div", { className: "tt-sec-title" }, "ACTIVE STRATEGY · PLAYBOOK"),
+                h("div", { className: "tt-sec-h" }, data.title || "Active Strategy"),
+              ),
+              h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" } },
+                "Vintage ", data.vintage || "—", " · ", data.source || "",
+              ),
+            ),
+            headline && h("p", { style: { fontSize: 14, color: "var(--tt-text)", lineHeight: 1.55, margin: 0 } }, headline),
+
+            // Phase + targets row
+            h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 } },
+              phase.label && h("div", { style: { padding: 12, background: "rgba(245,194,92,0.06)", border: "1px solid rgba(245,194,92,0.20)", borderRadius: 8 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--tt-accent)", letterSpacing: "0.06em", marginBottom: 4 } }, "PHASE"),
+                h("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--tt-text)" } }, phase.label),
+              ),
+              Number.isFinite(targets.base_case) && h("div", { style: { padding: 12, background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.20)", borderRadius: 8 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--tt-up-soft)", letterSpacing: "0.06em", marginBottom: 4 } }, "S&P 500 TARGETS"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--tt-text)" } },
+                  targets.base_case.toLocaleString(),
+                  " base · ",
+                  targets.aspirational?.toLocaleString() || "—",
+                  " stretch",
+                ),
+                Number.isFinite(targets.long_horizon_2030) && h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", marginTop: 4 } },
+                  "Long-horizon 2030: ", targets.long_horizon_2030.toLocaleString(),
+                ),
+              ),
+              Object.keys(scenarios).length > 0 && h("div", { style: { padding: 12, background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.20)", borderRadius: 8 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--tt-violet)", letterSpacing: "0.06em", marginBottom: 4 } }, "SCENARIO WEIGHTS"),
+                h("div", { style: { display: "flex", flexDirection: "column", gap: 2, fontSize: 12, color: "var(--tt-text)", fontFamily: "var(--tt-font-mono)" } },
+                  h("div", null, "Grind higher  ", h("strong", null, `${Math.round((scenarios.grind_higher_to_target || 0) * 100)}%`)),
+                  h("div", null, "Round-trip    ", h("strong", null, `${Math.round((scenarios.round_trip_then_rally || 0) * 100)}%`)),
+                  h("div", null, "Bear retest   ", h("strong", null, `${Math.round((scenarios.bear_case_retest_lows || 0) * 100)}%`)),
+                ),
+              ),
+            ),
+
+            // Sector tilts
+            (owSectors.length > 0 || uwSectors.length > 0) && h("div", null,
+              sectionTitle("SECTOR TILTS"),
+              h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 8 } },
+                owSectors.map(s => h("div", { key: `ow-${s.name}`, style: { padding: 10, borderRadius: 8, background: "rgba(52,211,153,0.05)", border: "1px solid rgba(52,211,153,0.20)" } },
+                  h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 } },
+                    h("strong", { style: { fontSize: 13, color: "var(--tt-text)" } }, s.name),
+                    h("span", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-up-soft)", letterSpacing: "0.05em" } }, `OW ×${s.multiplier.toFixed(2)}`),
+                  ),
+                  h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", lineHeight: 1.4 } }, s.rationale_short),
+                )),
+                uwSectors.map(s => h("div", { key: `uw-${s.name}`, style: { padding: 10, borderRadius: 8, background: "rgba(244,63,94,0.05)", border: "1px solid rgba(244,63,94,0.20)" } },
+                  h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 } },
+                    h("strong", { style: { fontSize: 13, color: "var(--tt-text)" } }, s.name),
+                    h("span", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-dn-soft)", letterSpacing: "0.05em" } }, `UW ×${s.multiplier.toFixed(2)}`),
+                  ),
+                  h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", lineHeight: 1.4 } }, s.rationale_short),
+                )),
+              ),
+            ),
+
+            // Tier-1 themes
+            tier1.length > 0 && h("div", null,
+              sectionTitle("TIER-1 BUY THEMES"),
+              h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                tier1.map(t => h("div", { key: t.name, title: t.playbook, style: { padding: "6px 10px", borderRadius: 999, background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)", fontSize: 11 } },
+                  h("strong", { style: { color: "var(--tt-up-soft)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.02em" } }, t.name),
+                  h("span", { style: { color: "var(--tt-text-muted)", marginLeft: 6 } }, t.playbook),
+                )),
+              ),
+            ),
+
+            // Risks
+            risks.length > 0 && h("div", null,
+              sectionTitle("ACTIVE RISKS"),
+              h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
+                risks.map(r => h("div", { key: r.name, style: { padding: 10, borderRadius: 8, background: "rgba(245,194,92,0.04)", border: "1px solid rgba(245,194,92,0.18)" } },
+                  h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 3 } },
+                    h("strong", { style: { fontSize: 12, color: "var(--tt-text)", fontFamily: "var(--tt-font-mono)" } }, r.name),
+                    h("span", {
+                      style: {
+                        fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+                        color: r.severity === "high" ? "var(--tt-dn-soft)" : r.severity === "medium" ? "var(--tt-accent)" : "var(--tt-text-muted)",
+                      },
+                    }, String(r.severity || "").toUpperCase()),
+                  ),
+                  h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", lineHeight: 1.4 } }, r.note),
+                )),
+              ),
+            ),
+
+            h("div", { style: { fontSize: 10, color: "var(--tt-text-faint)", lineHeight: 1.5, paddingTop: 8, borderTop: "1px solid var(--tt-border)" } },
+              "The playbook biases the AI CIO, Daily Brief, and Discovery scoring. It is editorial guidance — not a guarantee. Update when the underlying research deck changes.",
+            ),
+          ),
+        );
+      }
+
       function InsightsApp() {
         const [allMeta, setAllMeta] = useState(null);
         const [history, setHistory] = useState(null);
         const [summary, setSummary] = useState(null);
         const [brief, setBrief] = useState(null);
         const [universeChanges, setUniverseChanges] = useState(null);
+        const [strategy, setStrategy] = useState(null);
         const [error, setError] = useState(null);
         const [dim, setDim] = useState("setup_name");
 
@@ -1336,9 +1460,13 @@
           let alive = true;
           (async () => {
             try {
-              const [a, h_, b, u, s] = await Promise.all([
+              const [a, h_, b, u, s, sg] = await Promise.all([
                 fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(),
                 fetchLedgerSummary(),
+                // 2026-05-30 — Active Strategy panel data (FSD playbook).
+                fetch(`${API_BASE}/timed/strategy`, { credentials: "include" })
+                  .then(r => r.ok ? r.json() : null)
+                  .catch(() => null),
               ]);
               if (!alive) return;
               if (a) setAllMeta(a);
@@ -1347,6 +1475,7 @@
               if (b?.ok) setBrief(b);
               if (u?.ok) setUniverseChanges(u.events || []);
               if (s?.ok) setSummary(s);
+              if (sg?.ok) setStrategy(sg);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
@@ -1367,6 +1496,10 @@
                 ),
               ),
             ),
+            // 2026-05-30 — Active Strategy panel (FSD 2026 playbook).
+            // Renders first so users immediately understand the framing
+            // the AI CIO and Daily Brief are working from.
+            h(ActiveStrategyPanel, { data: strategy }),
             h(ModelStatus, { allMeta, history, summary }),
             // User feedback: AI CIO commentary should NOT duplicate
             // the Daily Brief. Render a CIO-specific watchlist
