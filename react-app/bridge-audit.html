@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Bridge Audit — Timed Trading</title>
+    <meta name="description" content="Operator-only: audit log of broker bridge orders (stocks + options mirrored from the model)." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' fill='none'%3E%3Crect width='48' height='48' rx='11' fill='%23000'/%3E%3Ccircle cx='24' cy='24' r='17' stroke='%2334d399' stroke-width='2.5' fill='none'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260516a"></script>
+    <script src="tt-bottom-nav.js?v=20260521b" defer></script>
+    <script src="tt-nav-extras.js?v=20260517e" defer></script>
+    <style>
+      :root {
+        --bg: #0b0e11; --surface: rgba(255,255,255,0.025); --border: rgba(255,255,255,0.06);
+        --text: #e5e7eb; --muted: #9ca3af; --faint: #6b7280;
+        --up: #34d399; --dn: #f87171; --accent: #f5c25c; --violet: #a78bfa;
+      }
+      body { background: var(--bg); color: var(--text); font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; min-height: 100vh; }
+      main { max-width: 1400px; margin: 0 auto; padding: 24px; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+      .chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; }
+      .chip-ok { background: rgba(52,211,153,0.10); color: var(--up); border: 1px solid rgba(52,211,153,0.30); }
+      .chip-rej { background: rgba(248,113,113,0.10); color: var(--dn); border: 1px solid rgba(248,113,113,0.30); }
+      .chip-mock { background: rgba(167,139,250,0.10); color: var(--violet); border: 1px solid rgba(167,139,250,0.30); }
+      .chip-opt { background: rgba(245,194,92,0.10); color: var(--accent); border: 1px solid rgba(245,194,92,0.30); }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th { text-align: left; padding: 10px 8px; color: var(--faint); font-weight: 700; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+      td { padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      .mono { font-family: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
+      .json { white-space: pre-wrap; word-break: break-all; max-width: 400px; max-height: 80px; overflow: auto; background: rgba(255,255,255,0.02); padding: 6px; border-radius: 4px; font-size: 10px; color: var(--muted); }
+      h1 { font-size: 28px; font-weight: 800; margin: 0 0 8px; }
+      .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+      const API_BASE = "";
+      const BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev";
+
+      function Audit() {
+        const [rows, setRows] = useState(null);
+        const [killSwitch, setKillSwitch] = useState(null);
+        const [autoMirror, setAutoMirror] = useState(null);
+        const [err, setErr] = useState(null);
+        const [filterUser, setFilterUser] = useState("");
+        const [limit, setLimit] = useState(50);
+
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              // Audit rows from bridge — operator-only endpoint, signed via the operator's API key cookie/session.
+              const url = `${BRIDGE_URL}/bridge/audit?limit=${limit}${filterUser ? `&user_id=${encodeURIComponent(filterUser)}` : ""}`;
+              const r = await fetch(url, { credentials: "include" });
+              if (alive && r.ok) {
+                const j = await r.json();
+                setRows(Array.isArray(j?.rows) ? j.rows : []);
+              } else if (alive) {
+                setErr(`Bridge returned ${r.status} — operator auth required (open from inside the main app session)`);
+              }
+            } catch (e) { if (alive) setErr(String(e?.message || e)); }
+            // Auto-mirror prefs (main worker).
+            try {
+              const r = await fetch(`${API_BASE}/timed/options/auto-mirror`, { credentials: "include" });
+              if (alive && r.ok) {
+                const j = await r.json();
+                if (j?.ok) setAutoMirror(j);
+              }
+            } catch (_) {}
+          })();
+          return () => { alive = false; };
+        }, [limit, filterUser]);
+
+        const fmtTs = (ts) => {
+          if (!ts) return "—";
+          const d = new Date(Number(ts));
+          return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", hour12: false });
+        };
+
+        const optionsRows = (rows || []).filter(r => r.action === "options_order");
+        const stockRows = (rows || []).filter(r => r.action !== "options_order");
+
+        return (
+          <main>
+            <h1>Bridge Audit</h1>
+            <div className="sub">Operator-only log of orders routed through the broker bridge. Includes the model's auto-mirrored options plays + any manual stock orders.</div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
+              <div className="card">
+                <div style={{ color: "var(--faint)", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", marginBottom: 6 }}>AUTO-MIRROR</div>
+                {autoMirror ? (
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: autoMirror.prefs?.enabled ? "var(--up)" : "var(--muted)" }}>
+                      {autoMirror.prefs?.enabled ? "✓ ENABLED" : "✗ DISABLED"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                      Today: <strong style={{ color: "var(--text)" }}>{autoMirror.today_count} / {autoMirror.prefs?.daily_cap || 0}</strong> orders fired ·
+                      {autoMirror.today_remaining} remaining
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 6 }}>
+                      Modes: {(autoMirror.prefs?.modes_allowed || []).join(", ") || "—"} · Archetypes: {(autoMirror.prefs?.archetypes_allowed || []).join(", ") || "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--faint)", marginTop: 2 }}>
+                      Max notional: ${autoMirror.prefs?.max_notional_per_order_usd || 0} · Max loss: ${autoMirror.prefs?.max_loss_per_order_usd || 0}
+                    </div>
+                  </div>
+                ) : <div style={{ color: "var(--muted)", fontSize: 13 }}>Loading…</div>}
+              </div>
+
+              <div className="card">
+                <div style={{ color: "var(--faint)", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", marginBottom: 6 }}>SESSION SUMMARY</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                  <div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{rows?.length ?? "—"}</div>
+                    <div style={{ fontSize: 10, color: "var(--faint)" }}>TOTAL ROWS</div>
+                  </div>
+                  <div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 700, color: "var(--accent)" }}>{optionsRows.length}</div>
+                    <div style={{ fontSize: 10, color: "var(--faint)" }}>OPTIONS ORDERS</div>
+                  </div>
+                  <div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 700 }}>{stockRows.length}</div>
+                    <div style={{ fontSize: 10, color: "var(--faint)" }}>STOCK ORDERS</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, gap: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Recent Audit Log</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input type="text" placeholder="filter by user_id" value={filterUser} onChange={(e) => setFilterUser(e.target.value)}
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "var(--text)" }} />
+                  <select value={limit} onChange={(e) => setLimit(Number(e.target.value))}
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", fontSize: 12, color: "var(--text)" }}>
+                    <option value="25">25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                  </select>
+                </div>
+              </div>
+              {err && <div style={{ color: "var(--dn)", padding: 12, background: "rgba(248,113,113,0.05)", borderRadius: 6, marginBottom: 12 }}>{err}</div>}
+              {rows == null ? (
+                <div style={{ color: "var(--muted)", padding: 20, textAlign: "center" }}>Loading…</div>
+              ) : rows.length === 0 ? (
+                <div style={{ color: "var(--muted)", padding: 20, textAlign: "center" }}>No audit rows yet. Orders will appear here once auto-mirror fires or a manual order is placed.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Ticker</th>
+                        <th>Action</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Est. Value</th>
+                        <th>Status</th>
+                        <th>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => {
+                        const isOptions = r.action === "options_order";
+                        const isMock = (r.response_json || "").includes('"mock":true');
+                        const statusChip = r.status === "ok"
+                          ? <span className="chip chip-ok">OK</span>
+                          : r.status === "rejected"
+                            ? <span className="chip chip-rej">REJECTED</span>
+                            : <span className="chip">{r.status || "?"}</span>;
+                        return (
+                          <tr key={i}>
+                            <td className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>{fmtTs(r.ts)}</td>
+                            <td style={{ fontSize: 11 }}>{r.user_id || "—"}</td>
+                            <td className="mono" style={{ fontWeight: 700 }}>{r.ticker || "—"}</td>
+                            <td>
+                              {isOptions && <span className="chip chip-opt" style={{ marginRight: 4 }}>🎯 OPT</span>}
+                              <span style={{ fontSize: 11 }}>{r.action || "—"}</span>
+                              {isMock && <span className="chip chip-mock" style={{ marginLeft: 4 }}>MOCK</span>}
+                            </td>
+                            <td className="mono" style={{ fontSize: 11 }}>{r.side || "—"}</td>
+                            <td className="mono">{r.qty || "—"}</td>
+                            <td className="mono">{r.estimated_value != null ? `$${Math.round(r.estimated_value).toLocaleString()}` : "—"}</td>
+                            <td>{statusChip}{r.reject_reason && <div style={{ fontSize: 10, color: "var(--dn)", marginTop: 2 }}>{r.reject_reason}</div>}</td>
+                            <td>
+                              {r.response_json && (
+                                <details>
+                                  <summary style={{ cursor: "pointer", color: "var(--muted)", fontSize: 11 }}>Response</summary>
+                                  <div className="json">{r.response_json}</div>
+                                </details>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div style={{ marginTop: 12, fontSize: 11, color: "var(--faint)", textAlign: "center" }}>
+                Bridge: {BRIDGE_URL.replace("https://", "")} · Audit rows are immutable; older rows roll off at 30 days.
+              </div>
+            </div>
+          </main>
+        );
+      }
+
+      const AuthGate = window.TimedAuthGate;
+      const app = AuthGate
+        ? <AuthGate apiBase={API_BASE} requiredTier="admin"><Audit /></AuthGate>
+        : <Audit />;
+      ReactDOM.createRoot(document.getElementById("root")).render(app);
+    </script>
+  </body>
+</html>

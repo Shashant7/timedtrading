@@ -930,6 +930,9 @@ function buildLongStraddle(ctx) {
   if (!callPrem || !putPrem) return null;
   const totalPrem = callPrem.mid + putPrem.mid;
   const maxLoss = totalPrem * 100 * contracts;
+  // Source = live_chain only if BOTH legs came from chain.
+  const source = (callPrem.source === "live_chain" && putPrem.source === "live_chain")
+    ? "live_chain" : "estimate_bs_atr_iv";
   return {
     archetype: "long_straddle",
     label: "Long Straddle (ATM)",
@@ -940,7 +943,15 @@ function buildLongStraddle(ctx) {
     ],
     strikes: { primary: strike },
     expiration,
-    premium: { mid: totalPrem, low: totalPrem * 0.9, high: totalPrem * 1.1, iv_used: callPrem.iv_used },
+    premium: {
+      mid: totalPrem,
+      low: totalPrem * 0.9,
+      high: totalPrem * 1.1,
+      iv_used: callPrem.iv_used,
+      source,
+      call_mid: callPrem.mid,
+      put_mid: putPrem.mid,
+    },
     contracts,
     max_loss_usd: Math.round(maxLoss),
     breakeven_up:   strike + totalPrem,

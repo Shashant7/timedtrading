@@ -618,6 +618,10 @@ import {
   tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
   tdFetchOptionsChain as _tdFetchOptionsChain,
 } from "./twelvedata.js";
+import {
+  alpacaFetchOptionsChain as _alpacaFetchOptionsChain,
+  alpacaFetchOptionsExpirations as _alpacaFetchOptionsExpirations,
+} from "./alpaca-options.js";
 import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
 import {
   computeFuturesPairsState as _computeFuturesPairsState,
@@ -74121,7 +74125,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
 
       // ── GET /timed/options/expirations?ticker=AAPL ──────────────────────
-      // Lists available expirations from TwelveData (KV-cached 1h).
+      // Lists available expirations. Tries Alpaca first (real-time, free
+      // indicative feed). Falls back to TwelveData if Alpaca fails.
+      // KV-cached 1h.
       if (routeKey === "GET /timed/options/expirations") {
         try {
           const ticker = normTicker(url.searchParams.get("ticker"));
@@ -74131,21 +74137,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (cached) {
             return sendJSON({ ok: true, ticker, ...JSON.parse(cached), cached: true }, 200, corsHeaders(env, req));
           }
-          const res = await _tdFetchOptionsExpirations(env, ticker);
-          if (!res.ok) {
-            return sendJSON({ ok: false, ticker, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+          let res = await _alpacaFetchOptionsExpirations(env, ticker);
+          let provider = "alpaca";
+          if (!res.ok || res.expirations.length === 0) {
+            const tdRes = await _tdFetchOptionsExpirations(env, ticker);
+            if (tdRes.ok && tdRes.expirations.length > 0) {
+              res = tdRes;
+              provider = "twelvedata";
+            }
           }
-          // Cache 1h (TD expirations move slowly).
-          await env.KV_TIMED.put(cacheKey, JSON.stringify({ expirations: res.expirations, fetched_at: Date.now() }), { expirationTtl: 3600 });
-          return sendJSON({ ok: true, ticker, expirations: res.expirations, fetched_at: Date.now() }, 200, corsHeaders(env, req));
+          if (!res.ok) {
+            return sendJSON({ ok: false, ticker, error: res.error || "no_provider_succeeded" }, 502, corsHeaders(env, req));
+          }
+          const payload = { expirations: res.expirations, provider, fetched_at: Date.now() };
+          await env.KV_TIMED.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 });
+          return sendJSON({ ok: true, ticker, ...payload }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
       // ── GET /timed/options/chain?ticker=AAPL&exp=2026-06-20 ─────────────
-      // Returns the live chain for one expiration. KV-cached 5min during
-      // RTH, 30min otherwise.
+      // Live chain. Alpaca primary (real Greeks + bid/ask + IV).
+      // TwelveData fallback. KV-cached 5min RTH / 30min off-hours.
       if (routeKey === "GET /timed/options/chain") {
         try {
           const ticker = normTicker(url.searchParams.get("ticker"));
@@ -74161,9 +74175,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return sendJSON({ ok: true, ...j, cached: true, age_ms: ageMs }, 200, corsHeaders(env, req));
             }
           }
-          const res = await _tdFetchOptionsChain(env, ticker, exp);
+          let res = await _alpacaFetchOptionsChain(env, ticker, exp);
+          if (!res.ok || ((res.calls?.length || 0) + (res.puts?.length || 0)) === 0) {
+            const tdRes = await _tdFetchOptionsChain(env, ticker, exp);
+            if (tdRes.ok) res = tdRes;
+          }
           if (!res.ok) {
-            return sendJSON({ ok: false, ticker, exp, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+            return sendJSON({ ok: false, ticker, exp, error: res.error || "no_provider_succeeded" }, 502, corsHeaders(env, req));
           }
           await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
           return sendJSON({ ok: true, ...res }, 200, corsHeaders(env, req));
@@ -74249,13 +74267,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (age < ttl) { chain = j; chainStatus = "from_cache"; }
             }
             if (!chain) {
-              const res = await _tdFetchOptionsChain(env, ticker, expISO);
+              // Alpaca primary — real Greeks, bid/ask, IV, free indicative feed.
+              let res = await _alpacaFetchOptionsChain(env, ticker, expISO);
+              let provider = "alpaca";
+              if (!res.ok || ((res.calls?.length || 0) + (res.puts?.length || 0)) === 0) {
+                // TwelveData fallback.
+                const tdRes = await _tdFetchOptionsChain(env, ticker, expISO);
+                if (tdRes.ok) { res = tdRes; provider = "twelvedata"; }
+              }
               if (res.ok) {
                 chain = res;
-                chainStatus = "fresh_fetch";
+                chainStatus = `fresh_fetch:${provider}`;
                 await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
               } else {
-                chainStatus = `td_error:${res.error || "unknown"}`;
+                chainStatus = `provider_error:${res.error || "unknown"}`;
               }
             }
           } catch (e) {
