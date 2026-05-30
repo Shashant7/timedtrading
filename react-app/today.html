@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-q2b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-r1"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -869,6 +869,11 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      /* 2026-05-30 — Skeleton shimmer for OptionsPlaysOfTheDay loading state */
+      @keyframes tt-skeleton-shimmer {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(100%);  }
+      }
 
       /* Loading bar — slim gold strip across the top of the page while
          /timed/all + /timed/tickers + brief + earnings + cal are in flight.
@@ -2322,7 +2327,57 @@
           })();
           return () => { alive = false; };
         }, []);
-        if (loading) return null;
+        // 2026-05-30 — Skeleton loader instead of returning null while
+        // loading. The fetch can take 2-4 seconds on a cold cache and
+        // the section silently popping in late ("right after page
+        // settles") meant users scrolled past before it appeared.
+        // Skeleton reserves the layout slot so the user sees the section
+        // exists immediately.
+        if (loading) {
+          return h("section", { className: "tt-row", style: { marginBottom: 24 } },
+            h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, gap: 8, flexWrap: "wrap" } },
+              h("div", null,
+                h("div", { className: "tt-sec-title" }, "OPTIONS PLAYS OF THE DAY"),
+                h("div", { style: { fontSize: 14, fontWeight: 600, color: "var(--tt-text)", letterSpacing: "-0.005em" } },
+                  "Confluence-Driven Strategies"),
+              ),
+              h("span", { style: { fontSize: 10, color: "var(--tt-text-faint)", fontStyle: "italic" } }, "Loading…"),
+            ),
+            h("div", {
+              style: {
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                gap: 10,
+              },
+            },
+              [0, 1, 2, 3].map((i) => h("div", {
+                key: `sk-${i}`,
+                style: {
+                  padding: 12,
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid rgba(255,255,255,0.04)",
+                  borderRadius: 10,
+                  minHeight: 110,
+                  position: "relative",
+                  overflow: "hidden",
+                },
+              },
+                h("div", { style: { width: "60%", height: 14, background: "rgba(255,255,255,0.06)", borderRadius: 4, marginBottom: 8 } }),
+                h("div", { style: { width: "85%", height: 12, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 6 } }),
+                h("div", { style: { width: "40%", height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 4, marginBottom: 4 } }),
+                h("div", { style: { width: "55%", height: 10, background: "rgba(255,255,255,0.04)", borderRadius: 4 } }),
+                // Subtle shimmer overlay
+                h("div", {
+                  style: {
+                    position: "absolute", inset: 0,
+                    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent)",
+                    animation: "tt-skeleton-shimmer 1.6s linear infinite",
+                  },
+                }),
+              )),
+            ),
+          );
+        }
         if (!plays || plays.length === 0) return null;
 
         const MODE_META = {

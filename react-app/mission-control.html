@@ -15,6 +15,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260317a"></script>
     <script src="tt-nav-extras.js?v=20260528b" defer></script>
+    <!-- 2026-05-30 — Activity strip + live-data + rail-bridge so Mission Control
+         shares the same top-of-page UX as today/active-trader/investor. -->
+    <script src="tt-live-data.js?v=20260526a"></script>
+    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
+    <script src="tt-activity-strip.js?v=20260528a" defer></script>
     <style>
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; min-height: 100vh; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -115,15 +120,13 @@
     </style>
   </head>
   <body>
-    <!-- 2026-05-28 v2 — Static nav scaffold so tt-nav-extras.js can attach
-         the Admin dropdown + (admin-only) journey-link strip. The
-         .nav-links container holds ADMIN tools only (mirroring the
-         React-rendered nav on admin-clients / system-intelligence /
-         screener). The journey row (Today / Active Trader / Investor /
-         Portfolio / Insights / Learn / FAQ) is injected ABOVE this
-         nav by tt-nav-extras.injectJourneyLinks at runtime. Previous
-         version had journey links INSIDE .nav-links which produced
-         a duplicate journey row on Mission Control. -->
+    <!-- 2026-05-30 — Updated to mirror the canonical journey nav from
+         today.html. Was running the legacy Analysis/Trades/System
+         Intelligence/Screener/Tickers/Trade Autopsy/Daily Brief list
+         which has been gone from every other page for weeks (see
+         today.html ~line 1404 for the canonical structure). Admin
+         dropdown + activity strip + UserBadge are still injected by
+         tt-nav-extras.js / tt-activity-strip.js at runtime. -->
     <nav class="topnav">
       <div class="nav-row">
         <a href="/today.html" class="nav-brand">
@@ -131,16 +134,17 @@
           Timed Trading
         </a>
         <div class="nav-links">
-          <a href="/today.html" class="nav-link">Analysis</a>
-          <a href="/portfolio.html" class="nav-link">Trades</a>
-          <a href="/system-intelligence.html" class="nav-link">System Intelligence</a>
-          <a href="/screener.html" class="nav-link">Screener</a>
-          <a href="/ticker-management.html" class="nav-link">Tickers</a>
-          <a href="/trade-autopsy.html" class="nav-link" style="color:#14b8a6">Trade Autopsy</a>
-          <a href="/daily-brief.html" class="nav-link" style="color:#f59e0b">Daily Brief</a>
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
+          <a href="/investor.html" class="nav-link">Investor</a>
+          <a href="/portfolio.html" class="nav-link">Portfolio</a>
+          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
     </nav>
+    <div data-tt-activity-strip></div>
 
     <div id="root"></div>
     <script type="text/babel">
@@ -176,6 +180,201 @@
       function fmtDate(ts) {
         if (!ts) return "—";
         return new Date(Number(ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+
+      // ── Detail Sections Toggle (collapsible "show all detail") ─────────
+      //
+      // Wraps the original 8 detail sections so they hide by default
+      // behind a toggle. Auto-opens when the user lands with a #anchor
+      // (e.g. from clicking a status tile that links to #cio) so the
+      // jump still works. State persists in localStorage so repeat
+      // visits remember the operator's preference.
+      function DetailSectionsToggle({ children }) {
+        const [open, setOpen] = useState(() => {
+          if (typeof window === "undefined") return false;
+          if (window.location.hash) return true;
+          try { return window.localStorage.getItem("mc-detail-open") === "1"; }
+          catch (_) { return false; }
+        });
+        useEffect(() => {
+          const onHash = () => { if (window.location.hash) setOpen(true); };
+          window.addEventListener("hashchange", onHash);
+          return () => window.removeEventListener("hashchange", onHash);
+        }, []);
+        useEffect(() => {
+          try { window.localStorage.setItem("mc-detail-open", open ? "1" : "0"); } catch (_) {}
+          // When opening, give the browser a tick to render the sections
+          // before scrolling to a #anchor (only if one is present).
+          if (open && window.location.hash) {
+            setTimeout(() => {
+              const target = document.querySelector(window.location.hash);
+              if (target?.scrollIntoView) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 50);
+          }
+        }, [open]);
+        return h(React.Fragment, null,
+          h("div", {
+            style: {
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              margin: "14px 4px 10px",
+              flexWrap: "wrap", gap: 8,
+            },
+          },
+            h("div", null,
+              h("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: "0.10em", textTransform: "uppercase", color: "#94a3b8" } }, "Detail Sections"),
+              h("span", { style: { fontSize: 11, marginLeft: 8, color: "#6b7280" } },
+                open ? "all 8 panels expanded below" : "tap a tile above to jump, or expand to scroll all"),
+            ),
+            h("button", {
+              className: "mc-btn",
+              style: { padding: "4px 12px", fontSize: 11 },
+              onClick: () => setOpen(!open),
+            }, open ? "▲ Collapse all" : "▼ Expand all"),
+          ),
+          open && children,
+        );
+      }
+
+      // ── STATUS DASHBOARD (2026-05-30 redesign) ─────────────────────────
+      //
+      // Top-of-page glance grid. User feedback: "RIght now there is too
+      // much detail and require too much scoring. This should be more
+      // of a Dashboard of metrics, gauges, checkmarks, statuses, etc
+      // and if needed the ability to go a 2nd layer deeper to view
+      // detail." Each tile is one subsystem with a colored status dot,
+      // 1-2 line metric, and a #anchor to the corresponding detail
+      // card lower on the page.
+      function StatusGrid({ mp, dc, sh, po, wr, ba, eg, cioReadiness, positions }) {
+        const tile = (opts) => {
+          const { title, value, sub, status, href } = opts;
+          const dotColor = status === "ok" ? "#22c55e" : status === "warn" ? "#fbbf24" : status === "fail" ? "#f87171" : "#6b7280";
+          const borderColor = status === "ok" ? "rgba(34,197,94,0.30)" : status === "warn" ? "rgba(251,191,36,0.30)" : status === "fail" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)";
+          return h("a", {
+            href: href || "#",
+            style: {
+              display: "block",
+              padding: "12px 14px",
+              background: "rgba(255,255,255,0.02)",
+              border: `1px solid ${borderColor}`,
+              borderRadius: 10,
+              textDecoration: "none",
+              color: "inherit",
+              transition: "background 100ms ease, border-color 100ms ease",
+            },
+            onMouseEnter: (e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; },
+            onMouseLeave: (e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; },
+          },
+            h("div", { style: { display: "flex", alignItems: "center", gap: 6, marginBottom: 5 } },
+              h("span", { style: { width: 7, height: 7, borderRadius: "50%", background: dotColor, boxShadow: `0 0 6px ${dotColor}90` } }),
+              h("span", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#6b7280" } }, title),
+            ),
+            h("div", { style: { fontSize: 18, fontWeight: 700, color: "#f0f6fc", lineHeight: 1.1, fontVariantNumeric: "tabular-nums", marginBottom: 3 } }, value),
+            sub && h("div", { style: { fontSize: 10, color: "#6b7280" } }, sub),
+          );
+        };
+
+        // Compute statuses
+        const realized7d = Number(mp?.trailing?.d7?.pnl_usd) || 0;
+        const unrealizedTotal = Number(positions?.unrealized_total_usd ?? mp?.unrealized_usd) || 0;
+        const totalPnl7d = realized7d + unrealizedTotal;
+        const openTradesAT = Number(mp?.open_count) || 0;
+        const allTimeWR = Number(mp?.all_time?.total) > 0 ? (Number(mp?.all_time?.wins) / Number(mp?.all_time?.total)) * 100 : null;
+        const cioTotal = Number(mp?.ai_cio_7d?.total) || 0;
+        const cioFallback = Number(mp?.ai_cio_7d?.fallback) || 0;
+        const briefSpyMean = Number(ba?.spy?.mean);
+        const briefHits = Number.isFinite(briefSpyMean) ? Math.round(briefSpyMean * 100) : null;
+        const worstStaleD = Number(dc?.by_tf?.D?.worst_stale?.days_stale);
+        const cronFailing = Number(sh?.failing_count) || 0;
+        const totalUsers = Number(eg?.total) || 0;
+        const powerUsers = Number(eg?.buckets?.power) || 0;
+        const wrDays = wr?.generated_at ? Math.floor((Date.now() - Number(wr.generated_at)) / 86400000) : null;
+        const cioReady = cioReadiness?.ready_for_live === true;
+        const cioReadyCount = (() => {
+          const g = cioReadiness?.gates || {};
+          const all = [...(g.A_sample || []), ...(g.B_quality || []), ...(g.C_edge || []), ...(g.D_operator || [])];
+          const met = all.filter((r) => r.met === true).length;
+          return all.length > 0 ? `${met}/${all.length}` : "—";
+        })();
+
+        return h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+            gap: 10,
+            marginBottom: 18,
+          },
+        },
+          tile({
+            title: "TOTAL P&L (7D)",
+            value: fmtUsd(totalPnl7d),
+            sub: `Realized ${fmtUsd(realized7d)} + Open ${fmtUsd(unrealizedTotal)}`,
+            status: totalPnl7d >= 0 ? "ok" : "warn",
+            href: "#perf",
+          }),
+          tile({
+            title: "WIN RATE (ALL-TIME)",
+            value: allTimeWR != null ? `${allTimeWR.toFixed(1)}%` : "—",
+            sub: `${Number(mp?.all_time?.total) || 0} closed trades`,
+            status: allTimeWR == null ? null : allTimeWR >= 55 ? "ok" : allTimeWR >= 45 ? "warn" : "fail",
+            href: "#perf",
+          }),
+          tile({
+            title: "OPEN TRADES",
+            value: String(openTradesAT),
+            sub: "Active Trader · live",
+            status: openTradesAT > 0 ? "ok" : null,
+            href: "#positions",
+          }),
+          tile({
+            title: "AI CIO (7D LIVE)",
+            value: String(cioTotal),
+            sub: cioFallback > 0 ? `${cioFallback} fallback (check)` : "decisions logged",
+            status: cioTotal === 0 ? "warn" : cioFallback > cioTotal * 0.5 ? "warn" : "ok",
+            href: "#cio",
+          }),
+          tile({
+            title: "AI CIO READINESS",
+            value: cioReady ? "Ready" : "Shadow",
+            sub: `${cioReadyCount} gates met`,
+            status: cioReady ? "ok" : "warn",
+            href: "#cio",
+          }),
+          tile({
+            title: "DAILY BRIEF (30D SPY)",
+            value: briefHits != null ? `${briefHits}%` : "—",
+            sub: `${Number(ba?.total_scored) || 0} predictions scored`,
+            status: briefHits == null ? null : briefHits >= 60 ? "ok" : briefHits >= 50 ? "warn" : "fail",
+            href: "#perf",
+          }),
+          tile({
+            title: "WORST-STALE (D)",
+            value: Number.isFinite(worstStaleD) ? `${worstStaleD}d` : "—",
+            sub: dc?.by_tf?.D?.worst_stale?.ticker || "—",
+            status: !Number.isFinite(worstStaleD) ? null : worstStaleD > 5 ? "fail" : worstStaleD > 2 ? "warn" : "ok",
+            href: "#data",
+          }),
+          tile({
+            title: "CRON HEALTH",
+            value: cronFailing === 0 ? "✓ All healthy" : `${cronFailing} failing`,
+            sub: `${(sh?.cron_ops || []).length} ops tracked`,
+            status: cronFailing === 0 ? "ok" : "fail",
+            href: "#health",
+          }),
+          tile({
+            title: "USERS · 30D",
+            value: `${powerUsers}/${totalUsers}`,
+            sub: `${powerUsers} power · ${Number(eg?.buckets?.engaged) || 0} engaged`,
+            status: totalUsers > 0 ? "ok" : null,
+            href: "#users",
+          }),
+          tile({
+            title: "WEEKLY RETRO",
+            value: wrDays == null ? "—" : `${wrDays}d ago`,
+            sub: wr?.window?.label || "Awaiting first run",
+            status: wrDays == null ? "warn" : wrDays > 8 ? "warn" : "ok",
+            href: "#retro",
+          }),
+        );
       }
 
       // ── CIO Decision Review queue (2026-05-30, Q2) ──
@@ -777,8 +976,21 @@
               </div>
             </div>
 
+            {/* 2026-05-30 — STATUS DASHBOARD (top-of-page glance grid).
+                Replaces the prior "scroll through 9 dense sections"
+                experience. Single-glance tiles for every major
+                subsystem with a colored status dot + headline metric +
+                tap-to-jump anchor to the detail section below. */}
+            <StatusGrid
+              mp={mp} dc={dc} sh={sh} po={po} wr={wr} ba={ba} eg={eg}
+              cioReadiness={cioReadiness}
+              positions={data?.positions}
+            />
+
+            {/* ── Detail sections below (collapsible) ── */}
+            <DetailSectionsToggle>
             {/* ── Section 1: Model Performance ── */}
-            <div className="mc-card mb-5">
+            <div id="perf" className="mc-card mb-5" style={{ scrollMarginTop: 80 }}>
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
                 1. Model Performance
@@ -953,6 +1165,7 @@
             </div>
 
             {/* ── Section 2: System Health ── */}
+            <div id="health" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot" style={{ background: sh.failing_count > 0 ? "#ef4444" : "#34d399" }}></span>
@@ -1061,6 +1274,7 @@
             </div>
 
             {/* ── Section 3: Data Coverage ── */}
+            <div id="data" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
@@ -1178,6 +1392,7 @@
             </div>
 
             {/* ── Section 4: Users ── */}
+            <div id="users" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
@@ -1264,6 +1479,7 @@
             </div>
 
             {/* ── Section 5: Open Positions ── */}
+            <div id="positions" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
@@ -1419,6 +1635,7 @@
             </div>
 
             {/* ── Section 6: Weekly Retrospective (P0.7.158) ── */}
+            <div id="retro" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
@@ -1504,6 +1721,7 @@
             </div>
 
             {/* ── Section 7: AI CIO Readiness ── 2026-05-28 ── */}
+            <div id="cio" style={{ scrollMarginTop: 80 }}></div>
             <div className="mc-card mb-5">
               <div className="mc-section-title">
                 <span className="mc-dot"></span>
@@ -1838,7 +2056,9 @@
             </div>
 
             {/* ── Section 8: Broker Bridge ── 2026-05-29 ── */}
+            <div id="bridge" style={{ scrollMarginTop: 80 }}></div>
             <BridgeSection apiBase={API_BASE} />
+            </DetailSectionsToggle>
 
             {/* ── Footer ── */}
             <div className="text-center text-[10px] mc-mute mt-6 mb-4">

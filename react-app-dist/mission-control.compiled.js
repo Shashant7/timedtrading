@@ -40,6 +40,239 @@ function fmtDate(ts) {
     day: "numeric"
   });
 }
+function DetailSectionsToggle({
+  children
+}) {
+  const [open, setOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    if (window.location.hash) return true;
+    try {
+      return window.localStorage.getItem("mc-detail-open") === "1";
+    } catch (_) {
+      return false;
+    }
+  });
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash) setOpen(true);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("mc-detail-open", open ? "1" : "0");
+    } catch (_) {}
+    if (open && window.location.hash) {
+      setTimeout(() => {
+        const target = document.querySelector(window.location.hash);
+        if (target?.scrollIntoView) target.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
+      }, 50);
+    }
+  }, [open]);
+  return h(React.Fragment, null, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      margin: "14px 4px 10px",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, h("div", null, h("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.10em",
+      textTransform: "uppercase",
+      color: "#94a3b8"
+    }
+  }, "Detail Sections"), h("span", {
+    style: {
+      fontSize: 11,
+      marginLeft: 8,
+      color: "#6b7280"
+    }
+  }, open ? "all 8 panels expanded below" : "tap a tile above to jump, or expand to scroll all")), h("button", {
+    className: "mc-btn",
+    style: {
+      padding: "4px 12px",
+      fontSize: 11
+    },
+    onClick: () => setOpen(!open)
+  }, open ? "▲ Collapse all" : "▼ Expand all")), open && children);
+}
+function StatusGrid({
+  mp,
+  dc,
+  sh,
+  po,
+  wr,
+  ba,
+  eg,
+  cioReadiness,
+  positions
+}) {
+  const tile = opts => {
+    const {
+      title,
+      value,
+      sub,
+      status,
+      href
+    } = opts;
+    const dotColor = status === "ok" ? "#22c55e" : status === "warn" ? "#fbbf24" : status === "fail" ? "#f87171" : "#6b7280";
+    const borderColor = status === "ok" ? "rgba(34,197,94,0.30)" : status === "warn" ? "rgba(251,191,36,0.30)" : status === "fail" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)";
+    return h("a", {
+      href: href || "#",
+      style: {
+        display: "block",
+        padding: "12px 14px",
+        background: "rgba(255,255,255,0.02)",
+        border: `1px solid ${borderColor}`,
+        borderRadius: 10,
+        textDecoration: "none",
+        color: "inherit",
+        transition: "background 100ms ease, border-color 100ms ease"
+      },
+      onMouseEnter: e => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+      },
+      onMouseLeave: e => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 5
+      }
+    }, h("span", {
+      style: {
+        width: 7,
+        height: 7,
+        borderRadius: "50%",
+        background: dotColor,
+        boxShadow: `0 0 6px ${dotColor}90`
+      }
+    }), h("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "#6b7280"
+      }
+    }, title)), h("div", {
+      style: {
+        fontSize: 18,
+        fontWeight: 700,
+        color: "#f0f6fc",
+        lineHeight: 1.1,
+        fontVariantNumeric: "tabular-nums",
+        marginBottom: 3
+      }
+    }, value), sub && h("div", {
+      style: {
+        fontSize: 10,
+        color: "#6b7280"
+      }
+    }, sub));
+  };
+  const realized7d = Number(mp?.trailing?.d7?.pnl_usd) || 0;
+  const unrealizedTotal = Number(positions?.unrealized_total_usd ?? mp?.unrealized_usd) || 0;
+  const totalPnl7d = realized7d + unrealizedTotal;
+  const openTradesAT = Number(mp?.open_count) || 0;
+  const allTimeWR = Number(mp?.all_time?.total) > 0 ? Number(mp?.all_time?.wins) / Number(mp?.all_time?.total) * 100 : null;
+  const cioTotal = Number(mp?.ai_cio_7d?.total) || 0;
+  const cioFallback = Number(mp?.ai_cio_7d?.fallback) || 0;
+  const briefSpyMean = Number(ba?.spy?.mean);
+  const briefHits = Number.isFinite(briefSpyMean) ? Math.round(briefSpyMean * 100) : null;
+  const worstStaleD = Number(dc?.by_tf?.D?.worst_stale?.days_stale);
+  const cronFailing = Number(sh?.failing_count) || 0;
+  const totalUsers = Number(eg?.total) || 0;
+  const powerUsers = Number(eg?.buckets?.power) || 0;
+  const wrDays = wr?.generated_at ? Math.floor((Date.now() - Number(wr.generated_at)) / 86400000) : null;
+  const cioReady = cioReadiness?.ready_for_live === true;
+  const cioReadyCount = (() => {
+    const g = cioReadiness?.gates || {};
+    const all = [...(g.A_sample || []), ...(g.B_quality || []), ...(g.C_edge || []), ...(g.D_operator || [])];
+    const met = all.filter(r => r.met === true).length;
+    return all.length > 0 ? `${met}/${all.length}` : "—";
+  })();
+  return h("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+      gap: 10,
+      marginBottom: 18
+    }
+  }, tile({
+    title: "TOTAL P&L (7D)",
+    value: fmtUsd(totalPnl7d),
+    sub: `Realized ${fmtUsd(realized7d)} + Open ${fmtUsd(unrealizedTotal)}`,
+    status: totalPnl7d >= 0 ? "ok" : "warn",
+    href: "#perf"
+  }), tile({
+    title: "WIN RATE (ALL-TIME)",
+    value: allTimeWR != null ? `${allTimeWR.toFixed(1)}%` : "—",
+    sub: `${Number(mp?.all_time?.total) || 0} closed trades`,
+    status: allTimeWR == null ? null : allTimeWR >= 55 ? "ok" : allTimeWR >= 45 ? "warn" : "fail",
+    href: "#perf"
+  }), tile({
+    title: "OPEN TRADES",
+    value: String(openTradesAT),
+    sub: "Active Trader · live",
+    status: openTradesAT > 0 ? "ok" : null,
+    href: "#positions"
+  }), tile({
+    title: "AI CIO (7D LIVE)",
+    value: String(cioTotal),
+    sub: cioFallback > 0 ? `${cioFallback} fallback (check)` : "decisions logged",
+    status: cioTotal === 0 ? "warn" : cioFallback > cioTotal * 0.5 ? "warn" : "ok",
+    href: "#cio"
+  }), tile({
+    title: "AI CIO READINESS",
+    value: cioReady ? "Ready" : "Shadow",
+    sub: `${cioReadyCount} gates met`,
+    status: cioReady ? "ok" : "warn",
+    href: "#cio"
+  }), tile({
+    title: "DAILY BRIEF (30D SPY)",
+    value: briefHits != null ? `${briefHits}%` : "—",
+    sub: `${Number(ba?.total_scored) || 0} predictions scored`,
+    status: briefHits == null ? null : briefHits >= 60 ? "ok" : briefHits >= 50 ? "warn" : "fail",
+    href: "#perf"
+  }), tile({
+    title: "WORST-STALE (D)",
+    value: Number.isFinite(worstStaleD) ? `${worstStaleD}d` : "—",
+    sub: dc?.by_tf?.D?.worst_stale?.ticker || "—",
+    status: !Number.isFinite(worstStaleD) ? null : worstStaleD > 5 ? "fail" : worstStaleD > 2 ? "warn" : "ok",
+    href: "#data"
+  }), tile({
+    title: "CRON HEALTH",
+    value: cronFailing === 0 ? "✓ All healthy" : `${cronFailing} failing`,
+    sub: `${(sh?.cron_ops || []).length} ops tracked`,
+    status: cronFailing === 0 ? "ok" : "fail",
+    href: "#health"
+  }), tile({
+    title: "USERS · 30D",
+    value: `${powerUsers}/${totalUsers}`,
+    sub: `${powerUsers} power · ${Number(eg?.buckets?.engaged) || 0} engaged`,
+    status: totalUsers > 0 ? "ok" : null,
+    href: "#users"
+  }), tile({
+    title: "WEEKLY RETRO",
+    value: wrDays == null ? "—" : `${wrDays}d ago`,
+    sub: wr?.window?.label || "Awaiting first run",
+    status: wrDays == null ? "warn" : wrDays > 8 ? "warn" : "ok",
+    href: "#retro"
+  }));
+}
 function CioDecisionReview({
   apiBase,
   onReviewSaved
@@ -698,8 +931,22 @@ function MissionControl({
     className: "mc-btn",
     onClick: fetchData,
     disabled: refreshing
-  }, "\u21BB Refresh"))), React.createElement("div", {
-    className: "mc-card mb-5"
+  }, "\u21BB Refresh"))), React.createElement(StatusGrid, {
+    mp: mp,
+    dc: dc,
+    sh: sh,
+    po: po,
+    wr: wr,
+    ba: ba,
+    eg: eg,
+    cioReadiness: cioReadiness,
+    positions: data?.positions
+  }), React.createElement(DetailSectionsToggle, null, React.createElement("div", {
+    id: "perf",
+    className: "mc-card mb-5",
+    style: {
+      scrollMarginTop: 80
+    }
   }, React.createElement("div", {
     className: "mc-section-title"
   }, React.createElement("span", {
@@ -882,6 +1129,11 @@ function MissionControl({
   })), ba.latest && React.createElement("div", {
     className: "mt-2 text-[10px] mc-mute"
   }, "Most-recent scored: ", ba.latest.date, " \xB7 SPY ", Number.isFinite(ba.latest.spy_score) ? `${Math.round(ba.latest.spy_score * 100)}%` : "—", " \xB7 QQQ ", Number.isFinite(ba.latest.qqq_score) ? `${Math.round(ba.latest.qqq_score * 100)}%` : "—", " \xB7 IWM ", Number.isFinite(ba.latest.iwm_score) ? `${Math.round(ba.latest.iwm_score * 100)}%` : "—")))), React.createElement("div", {
+    id: "health",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -973,6 +1225,11 @@ function MissionControl({
       whiteSpace: "nowrap"
     }
   }, o.error || "—")))))))), React.createElement("div", {
+    id: "data",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -1066,6 +1323,11 @@ function MissionControl({
   })))), backfillMsg && React.createElement("div", {
     className: "mt-3 text-xs mc-mute"
   }, backfillMsg))), React.createElement("div", {
+    id: "users",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -1159,6 +1421,11 @@ function MissionControl({
   }, fmtAgo(u.last_login_at)), React.createElement("td", {
     className: "text-xs mc-mute"
   }, fmtDate(u.created_at))))))))), React.createElement("div", {
+    id: "positions",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -1257,6 +1524,11 @@ function MissionControl({
   }, l.action)), React.createElement("td", null, l.shares != null ? Number(l.shares).toFixed(2) : "—"), React.createElement("td", null, fmtUsd(l.price, 2)), React.createElement("td", {
     className: "text-[11px] mc-mute"
   }, l.reason || "—"))))))))), React.createElement("div", {
+    id: "retro",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -1343,6 +1615,11 @@ function MissionControl({
       border: "1px solid rgba(255,255,255,0.04)"
     }
   }, wr.markdown))), React.createElement("div", {
+    id: "cio",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
@@ -1660,9 +1937,14 @@ function MissionControl({
     }
   }, String(r.reasoning || "").slice(0, 240), String(r.reasoning || "").length > 240 && "…")))))), React.createElement("div", {
     className: "text-[10px] mc-mute mt-4"
-  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/ai-cio/go-live-readiness"), " and", " ", React.createElement("code", null, "GET /timed/admin/ai-cio/accuracy"), ". Full audit doc:", " ", React.createElement("code", null, "tasks/2026-05-28-cio-shadow-to-live-audit.md"), ".")), React.createElement(BridgeSection, {
+  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/ai-cio/go-live-readiness"), " and", " ", React.createElement("code", null, "GET /timed/admin/ai-cio/accuracy"), ". Full audit doc:", " ", React.createElement("code", null, "tasks/2026-05-28-cio-shadow-to-live-audit.md"), ".")), React.createElement("div", {
+    id: "bridge",
+    style: {
+      scrollMarginTop: 80
+    }
+  }), React.createElement(BridgeSection, {
     apiBase: API_BASE
-  }), React.createElement("div", {
+  })), React.createElement("div", {
     className: "text-center text-[10px] mc-mute mt-6 mb-4"
   }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective fires Sunday 6 PM ET \xB7 brief accuracy evaluator runs at 4:30 PM ET", React.createElement("br", null), "Daily candle auto-refresh runs at 6 AM ET \xB7 Public reads rate-limited to 120/hr per IP"));
 }
@@ -1673,6 +1955,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780160934793:663190748
+// cache-bust:1780163390602:272420044
 
-// cache-bust:1780160934793:663190748
+// cache-bust:1780163390602:272420044

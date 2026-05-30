@@ -14,6 +14,11 @@
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="auth-gate.js?v=20260317a"></script>
     <script src="tt-nav-extras.js?v=20260528b" defer></script>
+    <!-- 2026-05-30 — Activity strip + live-data + rail-bridge so Mission Control
+         shares the same top-of-page UX as today/active-trader/investor. -->
+    <script src="tt-live-data.js?v=20260526a"></script>
+    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
+    <script src="tt-activity-strip.js?v=20260528a" defer></script>
     <style>
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; min-height: 100vh; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -114,15 +119,13 @@
     </style>
   </head>
   <body>
-    <!-- 2026-05-28 v2 — Static nav scaffold so tt-nav-extras.js can attach
-         the Admin dropdown + (admin-only) journey-link strip. The
-         .nav-links container holds ADMIN tools only (mirroring the
-         React-rendered nav on admin-clients / system-intelligence /
-         screener). The journey row (Today / Active Trader / Investor /
-         Portfolio / Insights / Learn / FAQ) is injected ABOVE this
-         nav by tt-nav-extras.injectJourneyLinks at runtime. Previous
-         version had journey links INSIDE .nav-links which produced
-         a duplicate journey row on Mission Control. -->
+    <!-- 2026-05-30 — Updated to mirror the canonical journey nav from
+         today.html. Was running the legacy Analysis/Trades/System
+         Intelligence/Screener/Tickers/Trade Autopsy/Daily Brief list
+         which has been gone from every other page for weeks (see
+         today.html ~line 1404 for the canonical structure). Admin
+         dropdown + activity strip + UserBadge are still injected by
+         tt-nav-extras.js / tt-activity-strip.js at runtime. -->
     <nav class="topnav">
       <div class="nav-row">
         <a href="/today.html" class="nav-brand">
@@ -130,20 +133,21 @@
           Timed Trading
         </a>
         <div class="nav-links">
-          <a href="/today.html" class="nav-link">Analysis</a>
-          <a href="/portfolio.html" class="nav-link">Trades</a>
-          <a href="/system-intelligence.html" class="nav-link">System Intelligence</a>
-          <a href="/screener.html" class="nav-link">Screener</a>
-          <a href="/ticker-management.html" class="nav-link">Tickers</a>
-          <a href="/trade-autopsy.html" class="nav-link" style="color:#14b8a6">Trade Autopsy</a>
-          <a href="/daily-brief.html" class="nav-link" style="color:#f59e0b">Daily Brief</a>
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
+          <a href="/investor.html" class="nav-link">Investor</a>
+          <a href="/portfolio.html" class="nav-link">Portfolio</a>
+          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
     </nav>
+    <div data-tt-activity-strip></div>
 
     <div id="root"></div>
-    <script src="mission-control.compiled.js?v=1780160934793"></script>
+    <script src="mission-control.compiled.js?v=1780163390602"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780160934793:663190748 -->
+<!-- cache-bust:1780163390602:272420044 -->
