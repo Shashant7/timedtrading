@@ -73291,7 +73291,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const briefType = new URL(req.url).searchParams.get("type") || "morning";
           const dataOnly = new URL(req.url).searchParams.get("data_only") === "1";
           if (briefType === "intraday") {
-            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles });
+            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles, notifyDiscord });
             return sendJSON(result, 200, corsHeaders(env, req));
           }
           if (briefType !== "morning" && briefType !== "evening") {
@@ -80386,7 +80386,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         ctx.waitUntil((async () => {
           try {
             console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
-            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles });
+            const result = await generateIntradayBrief(env, { SECTOR_MAP, d1GetCandles, notifyDiscord });
             console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
             if (result?.ok) {
               recordCronSuccess(env, "intraday_flash").catch(() => {});
