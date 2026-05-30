@@ -1192,21 +1192,54 @@
             const shortStrike = Number(primary.strikes?.short);
             const stockPrice = Number(data?.ticker?.price ?? data?.price);
 
-            // Build the per-leg lines (plain English: "BUY 1 $X CALL")
-            const legLines = legs.map((l) => {
+            // Build the per-leg line objects (kept structured so the UI
+            // can render strike + action + per-leg premium side-by-side
+            // and color-code each leg by debit/credit).
+            // 2026-05-30 — User feedback on Bull Call Spread: "We should
+            // show how we arrive to the $7.45 value, the cost of the
+            // 510 call minus the value of the 540 call." So each leg
+            // now carries its own premium_mid + leg_cost_usd from the
+            // worker, and we render BOTH the per-leg price AND the
+            // net math underneath.
+            const fmtLegCost = (n) => Number.isFinite(n) ? (Math.abs(n) >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(0)}`) : "—";
+            const legObjects = legs.map((l) => {
               const action = String(l.action || "").toUpperCase();
               const strike = Number(l.strike);
               const qty = Number(l.qty) || 1;
               const otype = String(l.optionType || l.option_type || "").toUpperCase();
               const inst = String(l.instrument || "").toUpperCase();
+              const premPerShare = Number(l.premium_mid);
+              const legCost = Number(l.leg_cost_usd);
+              const sideLabel = String(l.side_label || "").toLowerCase(); // "debit" or "credit"
               if (inst === "ETF") {
-                return `${action} ${qty.toLocaleString()} shares of ${l.ticker || sym}`;
+                return {
+                  text: `${action} ${qty.toLocaleString()} shares of ${l.ticker || sym}`,
+                  action, side: sideLabel,
+                };
               }
               if (!Number.isFinite(strike) || !otype) {
-                return `${action} ${qty} ${l.ticker || sym}`;
+                return { text: `${action} ${qty} ${l.ticker || sym}`, action, side: sideLabel };
               }
-              return `${action} ${qty} × $${strike} ${otype} (${exp})`;
+              return {
+                action, side: sideLabel, strike, qty, otype, exp,
+                premPerShare: Number.isFinite(premPerShare) ? premPerShare : null,
+                legCost: Number.isFinite(legCost) ? legCost : null,
+              };
             });
+            // Compute net debit/credit from the per-leg costs so we can
+            // surface the math line ("$X paid − $Y collected = $Z net").
+            const netMath = (() => {
+              const debits = legObjects.filter((l) => l.side === "debit" && Number.isFinite(l.premPerShare));
+              const credits = legObjects.filter((l) => l.side === "credit" && Number.isFinite(l.premPerShare));
+              if (debits.length === 0 && credits.length === 0) return null;
+              const debitSum = debits.reduce((s, l) => s + l.premPerShare * (l.qty || 1), 0);
+              const creditSum = credits.reduce((s, l) => s + l.premPerShare * (l.qty || 1), 0);
+              return {
+                debits, credits, debitSum, creditSum,
+                netPerSpread: debitSum - creditSum, // positive = net debit, negative = net credit
+                isCredit: creditSum > debitSum,
+              };
+            })();
 
             // Pick the archetype-specific scenarios paragraph
             const scenarios = (() => {
@@ -1276,7 +1309,7 @@
               return null;
             })();
 
-            if (legLines.length === 0 && !scenarios) return null;
+            if (legObjects.length === 0 && !scenarios) return null;
 
             return h("div", {
               style: {
@@ -1290,22 +1323,95 @@
               h("div", { style: { fontSize: 10, fontWeight: 700, color: "#60a5fa", letterSpacing: "0.06em", marginBottom: 6 } },
                 "📚 HOW THIS WORKS",
               ),
-              // Per-leg breakdown
-              legLines.length > 0 && h("div", { style: { marginBottom: 8 } },
+              // Per-leg breakdown with per-leg premiums
+              legObjects.length > 0 && h("div", { style: { marginBottom: 8 } },
                 h("div", { style: { fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 3 } }, "THE LEGS"),
-                legLines.map((line, i) => h("div", {
-                  key: i,
+                legObjects.map((leg, i) => {
+                  const isBuy  = leg.action === "BUY";
+                  const isSell = leg.action === "SELL";
+                  const borderColor = isBuy ? "#34d399" : isSell ? "#f87171" : "var(--ds-text-faint)";
+                  // Plain-English "BUY 1 × $510 CALL @ $X premium" / "SELL 1 × $540 CALL @ $Y credit"
+                  const main = leg.text
+                    || `${leg.action} ${leg.qty} × $${leg.strike} ${leg.otype} (${leg.exp})`;
+                  const sideHint = leg.side === "credit" ? "credit (collected)" : leg.side === "debit" ? "debit (paid)" : null;
+                  return h("div", {
+                    key: i,
+                    style: {
+                      fontFamily: "var(--tt-font-mono)",
+                      fontSize: 11,
+                      color: "var(--ds-text-body)",
+                      padding: "5px 8px",
+                      marginBottom: 3,
+                      background: "rgba(255,255,255,0.03)",
+                      borderRadius: 4,
+                      borderLeft: `2px solid ${borderColor}`,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                      flexWrap: "wrap",
+                      gap: 6,
+                    },
+                  },
+                    h("span", null, main),
+                    Number.isFinite(leg.premPerShare) && h("span", {
+                      style: { color: isBuy ? "#f87171" : "#34d399", fontWeight: 600 },
+                      title: sideHint || "",
+                    },
+                      isBuy ? "− " : "+ ",
+                      "$", leg.premPerShare.toFixed(2), " per share",
+                      Number.isFinite(leg.legCost) && Math.abs(leg.legCost) > 0 && h("span", {
+                        style: { color: "var(--ds-text-muted)", fontWeight: 400, marginLeft: 4 },
+                      }, " (", fmtLegCost(leg.legCost), ")"),
+                    ),
+                  );
+                }),
+                // Math line — only shown when we have per-leg premiums.
+                // For Bull Call Spread reads: "$X paid for the $510 CALL − $Y collected on the $540 CALL = $7.45 net debit per share × 100 × 1 contract = $745 max loss"
+                netMath && (netMath.debits.length > 0 || netMath.credits.length > 0) && h("div", {
                   style: {
+                    marginTop: 6,
+                    padding: "6px 8px",
+                    background: "rgba(59, 130, 246, 0.08)",
+                    border: "1px dashed rgba(59, 130, 246, 0.30)",
+                    borderRadius: 4,
                     fontFamily: "var(--tt-font-mono)",
                     fontSize: 11,
                     color: "var(--ds-text-body)",
-                    padding: "3px 6px",
-                    marginBottom: 2,
-                    background: "rgba(255,255,255,0.03)",
-                    borderRadius: 4,
-                    borderLeft: line.startsWith("BUY") ? "2px solid #34d399" : line.startsWith("SELL") ? "2px solid #f87171" : "2px solid var(--ds-text-faint)",
+                    lineHeight: 1.55,
                   },
-                }, line)),
+                },
+                  h("div", { style: { fontSize: 9, color: "#60a5fa", marginBottom: 2, fontFamily: "inherit", fontWeight: 700, letterSpacing: "0.05em" } }, "NET PREMIUM MATH"),
+                  // Per-leg math line
+                  (() => {
+                    const pieces = [];
+                    netMath.debits.forEach((d) => {
+                      pieces.push(`$${d.premPerShare.toFixed(2)} paid for the $${d.strike} ${d.otype}`);
+                    });
+                    netMath.credits.forEach((c) => {
+                      pieces.push(`$${c.premPerShare.toFixed(2)} collected from the $${c.strike} ${c.otype}`);
+                    });
+                    const op = netMath.credits.length > 0 ? " − " : " + ";
+                    const expr = netMath.debits.map((d) => `$${d.premPerShare.toFixed(2)}`).join(" + ")
+                      + (netMath.credits.length > 0 ? " − " + netMath.credits.map((c) => `$${c.premPerShare.toFixed(2)}`).join(" − ") : "");
+                    return h("div", null,
+                      pieces.join(", "),
+                    );
+                  })(),
+                  // The bottom line
+                  h("div", { style: { marginTop: 3, fontWeight: 700 } },
+                    "= $", Math.abs(netMath.netPerSpread).toFixed(2),
+                    " ", netMath.isCredit ? "net credit" : "net debit",
+                    " per share × 100 × ",
+                    (legObjects[0]?.qty || contracts || 1),
+                    " contract",
+                    ((legObjects[0]?.qty || contracts || 1) > 1 ? "s" : ""),
+                    " = ",
+                    h("strong", { style: { color: netMath.isCredit ? "#34d399" : "#f87171" } },
+                      fmtLegCost(Math.abs(netMath.netPerSpread) * 100 * (legObjects[0]?.qty || contracts || 1)),
+                    ),
+                    " ", netMath.isCredit ? "collected upfront" : "out of pocket",
+                  ),
+                ),
               ),
               // Scenarios in plain English
               scenarios && h("div", null,
@@ -13991,4 +14097,4 @@
   };
 })();
 
-// cache-bust:1780159765922:922889572
+// cache-bust:1780160934793:663190748
