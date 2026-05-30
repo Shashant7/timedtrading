@@ -268,6 +268,24 @@ function scoreL4_ICT(t) {
     }
   }
 
+  // Volume Profile — POC / VAH / VAL. When ticker carries a `_vp` field
+  // (injected by options endpoint or scoring cron), classify price zone.
+  // Reinforces the PD array signal with institutional volume context.
+  const vp = t?._vp || t?.volume_profile;
+  if (vp && Number.isFinite(vp.poc)) {
+    const zoneObj = (() => {
+      const tol = Math.max(0.005 * px, vp.bin_size * 0.5);
+      if (px > vp.vah + tol) return { z: "ABOVE_VAH", side: "BEAR", w: 0.4, ev: `Above VAH \$${vp.vah} (premium)` };
+      if (px < vp.val - tol) return { z: "BELOW_VAL", side: "BULL", w: 0.4, ev: `Below VAL \$${vp.val} (discount)` };
+      if (Math.abs(px - vp.poc) <= tol) return { z: "AT_POC", side: "NEUTRAL", w: 0.2, ev: `At POC \$${vp.poc} (magnet)` };
+      return null;
+    })();
+    if (zoneObj) {
+      if (zoneObj.side === "BULL") { bull += zoneObj.w; parts.push(`VP: ${zoneObj.ev}`); }
+      else if (zoneObj.side === "BEAR") { bear += zoneObj.w; parts.push(`VP: ${zoneObj.ev}`); }
+    }
+  }
+
   const net = bull - bear;
   const total = bull + bear;
   const strength = Math.min(1, total / 3);

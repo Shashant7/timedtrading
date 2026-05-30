@@ -622,10 +622,15 @@ import {
   alpacaFetchOptionsChain as _alpacaFetchOptionsChain,
   alpacaFetchOptionsExpirations as _alpacaFetchOptionsExpirations,
 } from "./alpaca-options.js";
+import {
+  computeDailyVolumeProfile as _computeDailyVolumeProfile,
+  classifyPriceVsVP as _classifyPriceVsVP,
+} from "./volume-profile.js";
 import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
 import {
   computeFuturesPairsState as _computeFuturesPairsState,
   summarizeFuturesPairs as _summarizeFuturesPairs,
+  computeKeyLevels as _computeKeyLevels,
 } from "./futures-pairs.js";
 import {
   loadAutoMirrorPrefs as _loadAutoMirrorPrefs,
@@ -1177,6 +1182,8 @@ const ROUTES = [
   ["POST", "/timed/options/mirror-now",    "POST /timed/options/mirror-now"],
   // Futures pairs (Carter ES/NQ analysis).
   ["GET",  "/timed/futures-pairs",         "GET /timed/futures-pairs"],
+  // Volume Profile (POC, VAH, VAL).
+  ["GET",  "/timed/volume-profile",        "GET /timed/volume-profile"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -74050,25 +74057,64 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (!marketData.NQ?.price  && marketData.QQQ?.price) marketData.NQ  = marketData.QQQ;
           if (!marketData.YM?.price  && marketData.DIA?.price) marketData.YM  = marketData.DIA;
           if (!marketData.RTY?.price && marketData.IWM?.price) marketData.RTY = marketData.IWM;
-          // Pull marked levels (PDH/PDL/WKH/WKL) for SMT detection.
-          const levelsFor = (sym) => {
-            const tk = all[sym] || {};
-            return {
-              pdh: Number(tk.prev_day_high || tk.pdh) || null,
-              pdl: Number(tk.prev_day_low  || tk.pdl) || null,
-              wkh: Number(tk.weekly_high   || tk.wkh) || null,
-              wkl: Number(tk.weekly_low    || tk.wkl) || null,
-            };
+          // Pull marked levels for SMT detection. Compute from D1 daily
+          // candles (cached 1h in KV). When the futures symbols aren't
+          // in our scoring set, use the ETF equivalents (SPY/QQQ/DIA/IWM).
+          const getLevels = async (sym, fallbackSym) => {
+            const key = `timed:keylevels:${sym}`;
+            try {
+              const cached = await env.KV_TIMED.get(key);
+              if (cached) {
+                const j = JSON.parse(cached);
+                if (Date.now() - (j._fetched_at || 0) < 3600_000) return j;
+              }
+            } catch (_) {}
+            let lv = await _computeKeyLevels(env, sym);
+            if (!lv && fallbackSym) lv = await _computeKeyLevels(env, fallbackSym);
+            if (lv) {
+              lv._fetched_at = Date.now();
+              try { await env.KV_TIMED.put(key, JSON.stringify(lv), { expirationTtl: 7200 }); } catch (_) {}
+            }
+            return lv;
           };
+          const [lvES, lvNQ, lvYM, lvRTY] = await Promise.all([
+            getLevels("ES1!", "SPY"),
+            getLevels("NQ1!", "QQQ"),
+            getLevels("YM1!", "DIA"),
+            getLevels("RTY1!", "IWM"),
+          ]);
           const levels = {
-            ES:  levelsFor("ES1!") || levelsFor("SPY"),
-            NQ:  levelsFor("NQ1!") || levelsFor("QQQ"),
-            YM:  levelsFor("YM1!") || levelsFor("DIA"),
-            RTY: levelsFor("RTY1!") || levelsFor("IWM"),
+            ES:  lvES  || {},
+            NQ:  lvNQ  || {},
+            YM:  lvYM  || {},
+            RTY: lvRTY || {},
           };
           const state = _computeFuturesPairsState(marketData, { levels });
           state.summary = _summarizeFuturesPairs(state);
           return sendJSON(state, state.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/volume-profile?ticker=AAPL&lookback=20 ───────────────
+      // Computes daily volume profile from D1 candles. KV-cached 1h.
+      if (routeKey === "GET /timed/volume-profile") {
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const lookbackDays = Math.max(5, Math.min(252, Number(url.searchParams.get("lookback")) || 20));
+          const vp = await _computeDailyVolumeProfile(env, ticker, { lookbackDays });
+          if (!vp) return sendJSON({ ok: false, ticker, error: "no_candles_or_compute_failed" }, 404, corsHeaders(env, req));
+          // Also classify the current price.
+          let pxClass = null;
+          try {
+            const pricesRaw = await env.KV_TIMED.get("timed:prices");
+            const prices = pricesRaw ? JSON.parse(pricesRaw) : null;
+            const px = Number(prices?.prices?.[ticker]?.p);
+            if (Number.isFinite(px)) pxClass = _classifyPriceVsVP(px, vp);
+          } catch (_) {}
+          return sendJSON({ ok: true, ticker, vp, current_price_zone: pxClass }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -74287,14 +74333,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             chainStatus = `exception:${String(e?.message || e).slice(0, 80)}`;
           }
           const accountValue = Number(url.searchParams.get("account_value")) || 100_000;
-          // 2026-05-30 — Root Strategy verdict drives ladder ordering.
-          let confluence = null;
-          try {
-            confluence = _scoreRootConfluence(data);
-          } catch (_) { /* best-effort */ }
           // Ticker themes for LETF lookup.
           let themes = [];
           try { themes = _getThemesForTicker(ticker); } catch (_) {}
+          // Confluence will be computed AFTER VP + quartet injection so
+          // L4 ICT can see VP zone and L5 Carter can see SMT bonus.
+          let confluence = null;
           // Enrich ticker data for moonshot momentum detection — pull
           // day/5d change from the live price feed + scoring snapshot.
           let tickerForMomentum = data || {};
@@ -74315,6 +74359,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               tickerForMomentum.fiveDayChangePct = Number(fiveDay);
             }
           } catch (_) { /* best-effort */ }
+          // 2026-05-30 — Volume Profile (POC/VAH/VAL) injection. KV-cached
+          // 1h. Powers L4 ICT scoring (premium/discount zone) so the
+          // engine reads institutional volume context instead of just
+          // day-range geometry.
+          try {
+            const vp = await _computeDailyVolumeProfile(env, ticker, { lookbackDays: 20 });
+            if (vp) {
+              tickerForMomentum._vp = vp;
+              if (data) data._vp = vp;
+            }
+          } catch (_) { /* best-effort */ }
+
           // 2026-05-30 — Index Quartet + SMT injection. Single fetch +
           // 5min KV cache so this is cheap. Powers both the moonshot
           // SMT-elevated activation path AND L5 Carter's SMT bonus
@@ -74365,6 +74421,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             tickerForMomentum._index_quartet = quartetState;
             if (data) data._index_quartet = quartetState;
           } catch (_) { /* best-effort */ }
+          // 2026-05-30 — Compute confluence NOW that VP + quartet are
+          // injected, so L4 ICT picks up VP zone and L5 Carter picks up
+          // SMT bonus.
+          try { confluence = _scoreRootConfluence(data); } catch (_) {}
           const ladder = _buildOptionsLadder(ladderInput, {
             profile, account_value: accountValue, chain, confluence, themes,
             tickerData: tickerForMomentum,

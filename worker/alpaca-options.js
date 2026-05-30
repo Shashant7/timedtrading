@@ -156,6 +156,27 @@ export async function alpacaFetchOptionsChain(env, symbol, expirationDate, opts 
     calls.sort((a, b) => a.strike - b.strike);
     puts.sort((a, b) => a.strike - b.strike);
 
+    // 2026-05-30 — Merge real Open Interest from the contracts endpoint.
+    // Snapshots don't include OI; we have to make a second call. This
+    // happens once per chain fetch and is KV-cached at the caller level
+    // for 5min RTH / 30min off-hours, so the cost is bounded.
+    let oi_enriched_count = 0;
+    if (opts.skipOI !== true && expirationDate) {
+      try {
+        const oiRes = await alpacaFetchContractOI(env, tdSym, expirationDate);
+        if (oiRes.ok) {
+          for (const leg of calls.concat(puts)) {
+            const oi = oiRes.oi_map[leg.symbol];
+            if (oi && Number.isFinite(oi.open_interest)) {
+              leg.open_interest = oi.open_interest;
+              leg.open_interest_date = oi.open_interest_date;
+              oi_enriched_count++;
+            }
+          }
+        }
+      } catch (_) { /* OI is bonus — never block chain fetch */ }
+    }
+
     return {
       ok: true,
       symbol: tdSym,
@@ -166,9 +187,72 @@ export async function alpacaFetchOptionsChain(env, symbol, expirationDate, opts 
       fetched_at: Date.now(),
       provider: "alpaca",
       feed: opts.feed || "default",
+      oi_enriched_count,
     };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+/**
+ * Fetch the per-contract Open Interest from Alpaca's contracts metadata
+ * endpoint. The snapshots endpoint doesn't include OI directly — we have
+ * to call /v2/options/contracts to get it. Returns a map of OCC symbol →
+ * { open_interest, open_interest_date, contract_symbol }.
+ *
+ * Caller batches the OCC symbol list (one call returns up to 10000
+ * contracts) keyed by underlying. We page through if needed.
+ *
+ * Note: this uses the BROKER API (https://paper-api.alpaca.markets OR
+ * https://api.alpaca.markets), not the market-data API, because contract
+ * metadata sits on the broker side.
+ *
+ * @param {string} symbol - underlying ticker
+ * @param {string} expiration - ISO YYYY-MM-DD (exact match filter)
+ * @returns {Promise<{ok, oi_map: Record<occ, {open_interest, ...}>}>}
+ */
+export async function alpacaFetchContractOI(env, symbol, expiration) {
+  const keyId = env?.ALPACA_API_KEY_ID;
+  const secret = env?.ALPACA_API_SECRET_KEY;
+  if (!keyId || !secret) return { ok: false, error: "missing_alpaca_creds", oi_map: {} };
+  const brokerBase = env?.ALPACA_BASE_URL || "https://paper-api.alpaca.markets";
+
+  const params = new URLSearchParams({
+    underlying_symbols: String(symbol).toUpperCase(),
+    status: "active",
+    limit: "1000",
+  });
+  if (expiration) {
+    params.set("expiration_date", expiration);
+  }
+  const url = `${brokerBase}/v2/options/contracts?${params.toString()}`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "APCA-API-KEY-ID": keyId,
+        "APCA-API-SECRET-KEY": secret,
+        "Accept": "application/json",
+      },
+      cf: { cacheTtl: 300 },
+    });
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      return { ok: false, error: `http_${r.status}`, body: body.slice(0, 200), oi_map: {} };
+    }
+    const j = await r.json();
+    const contracts = Array.isArray(j?.option_contracts) ? j.option_contracts : [];
+    const oi_map = {};
+    for (const c of contracts) {
+      const occ = c?.symbol;
+      if (!occ) continue;
+      oi_map[occ] = {
+        open_interest: Number(c.open_interest) || 0,
+        open_interest_date: c.open_interest_date || null,
+      };
+    }
+    return { ok: true, oi_map, count: contracts.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200), oi_map: {} };
   }
 }
 

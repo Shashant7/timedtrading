@@ -243,6 +243,62 @@ export function computeFuturesPairsState(marketData, opts = {}) {
   };
 }
 
+/**
+ * Compute PDH / PDL / WKH / WKL / ATH / ATL from D1 daily candles.
+ * Used to feed SMT level-sweep detection per index.
+ *
+ * @param {object} env - worker env with DB binding
+ * @param {string} ticker - underlying symbol
+ * @returns {Promise<{pdh, pdl, wkh, wkl, ath, atl, candles_used}>}
+ */
+export async function computeKeyLevels(env, ticker) {
+  if (!env?.DB || !ticker) return null;
+  try {
+    // Pull last 252 daily candles (1 trading year).
+    const r = await env.DB.prepare(
+      `SELECT ts, h, l, c FROM ticker_candles
+       WHERE ticker = ?1 AND tf = 'D'
+       ORDER BY ts DESC LIMIT 252`
+    ).bind(String(ticker).toUpperCase()).all();
+    const rows = r?.results || [];
+    if (rows.length === 0) return null;
+
+    // PDH/PDL — most recent CLOSED daily candle (not today's intraday bar).
+    // Use row[0] (DESC = newest first). If markets are open today, row[0]
+    // is the still-forming intraday bar so we use row[1] as the prior session.
+    const today = new Date().toISOString().slice(0, 10);
+    const newestTs = Number(rows[0].ts);
+    const newestDate = new Date(newestTs > 1e12 ? newestTs : newestTs * 1000).toISOString().slice(0, 10);
+    // If the newest candle is today, prior session = rows[1]; else prior = rows[0].
+    const priorIdx = newestDate === today ? 1 : 0;
+    const priorSession = rows[priorIdx];
+    if (!priorSession) return null;
+
+    // Weekly H/L — high/low across last 5 SESSIONS (proxy for current week,
+    // since week may not be fully closed). Walks from priorIdx forward 5 days.
+    const weekSlice = rows.slice(priorIdx, priorIdx + 5);
+    const wkh = Math.max(...weekSlice.map(c => Number(c.h)).filter(Number.isFinite));
+    const wkl = Math.min(...weekSlice.map(c => Number(c.l)).filter(Number.isFinite));
+
+    // ATH/ATL — across all 252 candles available.
+    const ath = Math.max(...rows.map(c => Number(c.h)).filter(Number.isFinite));
+    const atl = Math.min(...rows.map(c => Number(c.l)).filter(Number.isFinite));
+
+    return {
+      pdh: Number(priorSession.h) || null,
+      pdl: Number(priorSession.l) || null,
+      wkh: Number.isFinite(wkh) ? wkh : null,
+      wkl: Number.isFinite(wkl) ? wkl : null,
+      ath: Number.isFinite(ath) ? ath : null,
+      atl: Number.isFinite(atl) ? atl : null,
+      prior_session_ts: Number(priorSession.ts) || null,
+      candles_used: rows.length,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SMT (Smart Money Technique) — Cross-Asset Divergence Detection
 // ═══════════════════════════════════════════════════════════════════════════
