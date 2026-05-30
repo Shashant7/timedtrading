@@ -55017,6 +55017,12 @@ export default {
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
+          // 2026-05-30 — Ensure table exists (mirror of POST/review fix).
+          await db.prepare(`CREATE TABLE IF NOT EXISTS ai_cio_decision_reviews (
+            trade_id TEXT NOT NULL, reviewed_by TEXT NOT NULL,
+            verdict TEXT NOT NULL, notes TEXT, reviewed_at INTEGER NOT NULL,
+            PRIMARY KEY (trade_id, reviewed_by)
+          )`).run().catch(() => {});
           const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 30));
           const unreviewed = String(url.searchParams.get("unreviewed") || "0") === "1";
           const since = Date.now() - 30 * 86400000; // last 30 days
@@ -55084,6 +55090,24 @@ export default {
           if (!["good", "bad", "meh"].includes(verdict)) {
             return sendJSON({ ok: false, error: "invalid_verdict", allowed: ["good", "bad", "meh"] }, 400, corsHeaders(env, req));
           }
+          // 2026-05-30 — Ensure schema exists on first call. The
+          // ai_cio_decision_reviews CREATE TABLE lives inside
+          // d1EnsureLearningSchema (worker/index.js ~30776) which is
+          // only invoked from write paths that touch the learning /
+          // trade tables. The new review endpoint never hit one of
+          // those paths first, so an operator clicking ✓ Good call
+          // before any other learning-schema-touching activity got
+          // 'no such table: ai_cio_decision_reviews'. Inlining the
+          // exact CREATE here (idempotent) avoids that race.
+          await db.prepare(`CREATE TABLE IF NOT EXISTS ai_cio_decision_reviews (
+            trade_id    TEXT NOT NULL,
+            reviewed_by TEXT NOT NULL,
+            verdict     TEXT NOT NULL,
+            notes       TEXT,
+            reviewed_at INTEGER NOT NULL,
+            PRIMARY KEY (trade_id, reviewed_by)
+          )`).run().catch(() => {});
+          await db.prepare(`CREATE INDEX IF NOT EXISTS idx_cio_review_reviewed_at ON ai_cio_decision_reviews(reviewed_at DESC)`).run().catch(() => {});
           // Reviewer identity from CF Access JWT (best effort).
           let reviewedBy = "operator";
           try { const u = await authenticateUser(req, env); if (u?.email) reviewedBy = u.email.toLowerCase(); } catch (_) {}
@@ -58326,13 +58350,19 @@ export default {
           ]);
 
           // Mark-to-market unrealized P&L from live KV prices.
-          // KV `timed:prices` stores the latest price feed; per-symbol
-          // entries use short keys (`p` = price). When the market is
-          // closed, this is the 4 PM ET close; intraday it's the live tick.
+          // KV `timed:prices` stores { prices: { SYM: { p, pc, dc, dp, ... }},
+          // updated_at, ticker_count }. The actual ticker map lives at
+          // .prices — reading the blob directly returned the wrapper and
+          // every ticker lookup returned undefined → every position
+          // computed 0 unrealized P&L. Fixed 2026-05-30.
           let livePrices = {};
           try {
             const pricesBlob = KV ? await KV.get("timed:prices", "json").catch(() => null) : null;
-            if (pricesBlob && typeof pricesBlob === "object") livePrices = pricesBlob;
+            if (pricesBlob && typeof pricesBlob === "object") {
+              livePrices = pricesBlob.prices && typeof pricesBlob.prices === "object"
+                ? pricesBlob.prices
+                : pricesBlob;
+            }
           } catch {}
 
           const _markPx = (sym) => {
