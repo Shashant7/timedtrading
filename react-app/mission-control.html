@@ -181,13 +181,25 @@
         const mockMode = status?.mock_mode !== false;
         const killOn = status?.kill_switch === "on";
         const users = status?.users || [];
+        // 2026-05-30 — error_kind distinguishes "url_missing" vs "key_missing"
+        // vs "unreachable". Each has a different remediation path; the old
+        // generic "NOT DEPLOYED" pill conflated them all (and was wrong:
+        // the bridge worker IS deployed; the main worker just couldn't
+        // reach it). The pill text + hint now reflect the actual gap.
+        const errorKind = status?.error_kind || (status?.error?.includes("URL") ? "url_missing"
+                                                 : status?.error?.includes("OPERATOR_KEY") ? "key_missing"
+                                                 : status?.error ? "unreachable" : null);
+        const pillText = errorKind === "url_missing" ? "URL NOT SET"
+                       : errorKind === "key_missing" ? "OPERATOR KEY NOT SET"
+                       : errorKind === "unreachable" ? "BRIDGE UNREACHABLE"
+                       : "NOT LINKED";
 
         return (
           <div className="mc-card mb-5">
             <div className="mc-section-title">
               <span className="mc-dot"></span>
-              8. Broker Bridge — Robinhood Agentic (Phase 1 Option C)
-              {!bridgeConfigured && <span className="mc-pill mc-pill-warn ml-2">NOT DEPLOYED</span>}
+              8. Broker Bridge — Multi-Broker (IBKR · Robinhood)
+              {!bridgeConfigured && <span className="mc-pill mc-pill-warn ml-2">{pillText}</span>}
               {bridgeConfigured && mockMode && <span className="mc-pill mc-pill-warn ml-2">MOCK MODE</span>}
               {bridgeConfigured && !mockMode && killOn && <span className="mc-pill mc-pill-warn ml-2">KILL SWITCH ON</span>}
               {bridgeConfigured && !mockMode && !killOn && <span className="mc-pill mc-pill-ok ml-2">LIVE</span>}
@@ -196,10 +208,36 @@
 
             {err && !bridgeConfigured && (
               <div className="text-[12px] text-amber-300 mb-3">
-                Bridge worker not yet deployed or env vars missing.<br />
-                Set <code>BROKER_BRIDGE_URL</code> + <code>BROKER_BRIDGE_OPERATOR_KEY</code> on main worker,
-                deploy <code>worker-bridge/</code> as a separate Cloudflare Worker, and refresh.<br />
-                See <code>tasks/2026-05-29-broker-bridge-phase1-plan.md</code> for the full setup runbook.
+                {errorKind === "url_missing" && (
+                  <>
+                    <b>Main worker can't find the bridge URL.</b><br />
+                    Add to <code>worker/wrangler.toml [vars]</code>:<br />
+                    <code className="text-[#34d399]">BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"</code><br />
+                    Then redeploy: <code>cd worker &amp;&amp; wrangler deploy --env production</code>.
+                  </>
+                )}
+                {errorKind === "key_missing" && (
+                  <>
+                    <b>Bridge URL is set ({status?.bridge_url || "—"}) but the operator key is missing.</b><br />
+                    Run <code className="text-[#34d399]">wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production</code><br />
+                    and paste the bridge worker's operator key (same value used in <code>worker-bridge/wrangler.toml</code> OPERATOR_KEYS).
+                  </>
+                )}
+                {errorKind === "unreachable" && (
+                  <>
+                    <b>Main worker found bridge URL ({status?.bridge_url || "—"}) but the request failed.</b><br />
+                    Check the bridge worker is deployed and the URL is correct.<br />
+                    <code className="text-[#fcd34d]">{status?.error}</code>
+                  </>
+                )}
+                {!errorKind && (
+                  <>
+                    Bridge connection failed.<br />
+                    Set <code>BROKER_BRIDGE_URL</code> + <code>BROKER_BRIDGE_OPERATOR_KEY</code> on main worker,
+                    deploy <code>worker-bridge/</code> as a separate Cloudflare Worker, and refresh.<br />
+                    See <code>tasks/2026-05-29-broker-bridge-phase1-plan.md</code> for the full setup runbook.
+                  </>
+                )}
               </div>
             )}
 
@@ -541,6 +579,38 @@
                       </div>
                     </div>
                   </div>
+                  {/* 2026-05-30 — Realized vs Unrealized split.
+                       Before: trailing tiles only showed CLOSED-trade P&L,
+                       which was misleading when open positions were sitting
+                       on large unrealized gains. Now header tile shows
+                       Realized + Unrealized + Total, and trailing tiles
+                       are clearly labeled "(realized only)". */}
+                  {(() => {
+                    const unrealizedTotal = Number(data?.positions?.unrealized_total_usd ?? mp?.unrealized_usd) || 0;
+                    const realized7d = Number(trailing?.d7?.pnl_usd) || 0;
+                    const total7d = realized7d + unrealizedTotal;
+                    const atUnrl = Number(data?.positions?.active_trader?.unrealized_usd) || 0;
+                    const invUnrl = Number(data?.positions?.investor?.unrealized_usd) || 0;
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Realized P&amp;L (7d)</div>
+                          <div className={`mc-kpi-value text-[16px] ${realized7d >= 0 ? "mc-pos" : "mc-neg"}`}>{fmtUsd(realized7d)}</div>
+                          <div className="mc-kpi-sub">From closed trades only · {Number(trailing?.d7?.total) || 0} trades</div>
+                        </div>
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Unrealized P&amp;L (mark-to-market)</div>
+                          <div className={`mc-kpi-value text-[16px] ${unrealizedTotal >= 0 ? "mc-pos" : "mc-neg"}`}>{fmtUsd(unrealizedTotal)}</div>
+                          <div className="mc-kpi-sub">AT {fmtUsd(atUnrl)} · Investor {fmtUsd(invUnrl)}</div>
+                        </div>
+                        <div className="mc-kpi" style={{ borderColor: total7d >= 0 ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)" }}>
+                          <div className="mc-kpi-label">Total P&amp;L (7d realized + open)</div>
+                          <div className={`mc-kpi-value ${total7d >= 0 ? "mc-pos" : "mc-neg"}`}>{fmtUsd(total7d)}</div>
+                          <div className="mc-kpi-sub">Realized close + live unrealized</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                     {[7, 14, 30].map(d => {
                       const t = trailing[`d${d}`] || {};
@@ -550,7 +620,7 @@
                       const wr = total > 0 ? (wins / total * 100) : null;
                       return (
                         <div key={d} className="mc-kpi">
-                          <div className="mc-kpi-label">Trailing {d}d</div>
+                          <div className="mc-kpi-label">Trailing {d}d <span className="mc-mute" style={{fontWeight:400}}>(realized only)</span></div>
                           <div className="flex items-baseline gap-3 mt-1">
                             <span className={`text-lg font-bold ${pnlUsd >= 0 ? "mc-pos" : "mc-neg"}`}>{fmtUsd(pnlUsd)}</span>
                             <span className="text-xs mc-mute">·</span>
@@ -580,11 +650,12 @@
                     } else {
                       status = <span className="mc-pos">Healthy</span>;
                     }
+                    const replayCount = Number(mp.ai_cio_7d.replay_total) || 0;
                     return (
                       <div className="mc-kpi mb-3">
-                        <div className="mc-kpi-label">AI CIO Activity (7d)</div>
+                        <div className="mc-kpi-label">AI CIO Activity (7d) <span className="mc-mute" style={{fontWeight:400}}>· live production only</span></div>
                         <div className="flex items-baseline gap-4 mt-1 flex-wrap text-xs">
-                          <span><b className="text-white">{cioTotal}</b> decisions</span>
+                          <span><b className="text-white">{cioTotal}</b> live decisions</span>
                           <span className="mc-mute">|</span>
                           <span>{Number(mp.ai_cio_7d.shadow) || 0} shadow</span>
                           <span>{fallbacks} fallback</span>
@@ -593,6 +664,20 @@
                           <span className="mc-mute">·</span>
                           {status}
                         </div>
+                        {/* 2026-05-30 — Disclosure for replay decisions.
+                            Previously, backtest replays wrote to the same
+                            ai_cio_decisions table as live production, which
+                            made the 7d count balloon into the hundreds even
+                            though shadow mode was only weeks old. is_replay
+                            column now tags replay-origin rows; this counter
+                            (replay_total) shows how many were excluded so
+                            the operator knows the filter is working. */}
+                        {replayCount > 0 && (
+                          <div className="mt-1.5 text-[10px] mc-mute italic">
+                            +{replayCount} additional backtest-replay decisions excluded from this count
+                            <span title="ai_cio_decisions WHERE is_replay = 1"> · is_replay tag</span>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -768,7 +853,40 @@
                           ? `${dc.by_tf.D.worst_stale.days_stale}d`
                           : "—"}
                       </div>
-                      <div className="mc-kpi-sub">{dc.by_tf?.D?.worst_stale?.ticker || "—"}</div>
+                      <div className="mc-kpi-sub">
+                        {dc.by_tf?.D?.worst_stale?.ticker || "—"}
+                        {/* 2026-05-30 — One-click refresh for the worst-stale ticker.
+                            Calls /timed/admin/alpaca-backfill?ticker=XXX&tf=D&sinceDays=14
+                            which backfills D candles from Alpaca. After the backfill
+                            completes the next Mission Control refresh will pick a new
+                            worst-stale (or show ✓ if the universe is healthy). */}
+                        {dc.by_tf?.D?.worst_stale?.ticker && (
+                          <button
+                            className="ml-2 underline hover:text-[#22c55e]"
+                            onClick={async () => {
+                              const sym = dc.by_tf.D.worst_stale.ticker;
+                              if (!confirm(`Backfill D candles for ${sym} (last 14 days)?`)) return;
+                              try {
+                                const r = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=D&ticker=${encodeURIComponent(sym)}&sinceDays=14`, {
+                                  method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}",
+                                });
+                                const j = await r.json();
+                                if (j.ok) {
+                                  alert(`Backfilled ${sym}: ${j.upserted || 0} candles. Refresh to see updated staleness.`);
+                                  fetchData();
+                                } else {
+                                  alert(`Backfill failed: ${j.error || "unknown"}`);
+                                }
+                              } catch (e) {
+                                alert(`Backfill failed: ${String(e.message || e)}`);
+                              }
+                            }}
+                            title={`Backfill D candles for ${dc.by_tf.D.worst_stale.ticker} now`}
+                          >
+                            ↻ refresh
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div style={{ overflowX: "auto" }}>
@@ -1070,6 +1188,32 @@
                     Last: {fmtAgo(wr.generated_at)}
                   </span>
                 )}
+                {/* 2026-05-30 — Generate-now button. Sunday-6PM-ET cron
+                    only fires once a week; if the operator wants to see
+                    the latest snapshot mid-week (or verify the cron is
+                    working after a bug fix) they can trigger it manually
+                    here. Same code path, dry_run=false so KV is written. */}
+                <button
+                  className="ml-2 mc-btn"
+                  style={{ padding: "2px 8px", fontSize: 10 }}
+                  onClick={async () => {
+                    if (!confirm("Regenerate the weekly retrospective NOW? This runs the same code path as the Sunday cron and overwrites timed:retro:weekly:latest in KV.")) return;
+                    try {
+                      const r = await fetch(`${API_BASE}/timed/admin/weekly-retrospective?send_email=0`, {
+                        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: "{}",
+                      });
+                      const j = await r.json();
+                      if (j.ok) {
+                        alert(`Retro regenerated. ${Number(j?.stats?.trades?.total) || 0} closed trades in the window.`);
+                        fetchData();
+                      } else {
+                        alert(`Retro failed: ${j.error || "unknown"}`);
+                      }
+                    } catch (e) {
+                      alert(`Retro failed: ${String(e.message || e)}`);
+                    }
+                  }}
+                >↻ Generate now</button>
               </div>
               {wr?.error ? (
                 <div className="text-red-400 text-xs">{wr.error}</div>
@@ -1079,6 +1223,7 @@
                   Set <code className="text-[#34d399]">model_config.weekly_retro_enabled = '1'</code> to
                   enable email distribution; report is generated regardless and stored at
                   <code className="ml-1">timed:retro:weekly:latest</code>.
+                  Click <b>Generate now</b> above to trigger it mid-week.
                 </div>
               ) : (
                 <>
@@ -1196,9 +1341,16 @@
                         <div className="mc-kpi-sub">Lifecycle: {cfg.ai_cio_lifecycle_model || "—"}</div>
                       </div>
                       <div className="mc-kpi">
-                        <div className="mc-kpi-label">Decisions (14d)</div>
+                        <div className="mc-kpi-label">Decisions (14d) <span className="mc-mute" style={{fontWeight:400}}>· live only</span></div>
                         <div className="mc-kpi-value">{s.total_decisions || 0}</div>
-                        <div className="mc-kpi-sub">{s.entry_decisions || 0} entry · {s.lifecycle_decisions || 0} lifecycle</div>
+                        <div className="mc-kpi-sub">
+                          {s.entry_decisions || 0} entry · {s.lifecycle_decisions || 0} lifecycle
+                          {s.excluded_replay_count > 0 && (
+                            <div className="text-[10px] mt-0.5 italic" title="ai_cio_decisions WHERE is_replay = 1 — backfilled tag means historical rows still uncounted; new replay rows correctly tagged.">
+                              +{s.excluded_replay_count} replay decisions excluded
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="mc-kpi">
                         <div className="mc-kpi-label">Outcomes Attributed</div>
