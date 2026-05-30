@@ -1347,6 +1347,7 @@ const ROUTES = [
   // post-fix decisions never get outcomes attributed (the live writer
   // backfills on trade close, but historical decisions need a sweep).
   ["POST", "/timed/admin/ai-cio/backfill-outcomes", "POST /timed/admin/ai-cio/backfill-outcomes"],
+  ["POST", "/timed/admin/ai-cio/operator-task", "POST /timed/admin/ai-cio/operator-task"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
   // Phase C tooling 2026-05-03 — Tenet-style fundamentals snapshot per ticker.
   ["GET", "/timed/admin/fundamentals", "GET /timed/admin/fundamentals"],
@@ -40340,12 +40341,49 @@ async function buildTraderPredictionContract(env, ticker) {
       regimeEvidence?.squeeze?.release_30m || regimeEvidence?.squeeze?.release_1h ? "Squeeze fired" : regimeEvidence?.squeeze?.on_30m ? "Squeeze building" : null,
       data?.rr != null ? `Risk/reward ${Number(data.rr).toFixed(2)}x` : null,
     ]),
-    risk: {
-      stop_loss: Number.isFinite(Number(_slDirCorrect)) ? Number(_slDirCorrect) : null,
-      stop_loss_raw: Number.isFinite(Number(_rawSL)) ? Number(_rawSL) : null,
-      stop_loss_corrected: Number.isFinite(Number(_rawSL)) && Number.isFinite(Number(_slDirCorrect)) && Math.abs(_rawSL - _slDirCorrect) > 0.01,
-      rr: Number.isFinite(Number(data?.rr)) ? Number(data.rr) : null,
-    },
+    risk: (() => {
+      // 2026-05-30 (P3) — Recompute R:R against the DISPLAYED targets, not
+      // the upstream `data.rr` field. The model emits `data.rr` against
+      // the original wide targets; when we clamp those targets (CVNA SHORT
+      // had tp_runner = -$8.59 originally → R:R ≈ 13.27), the displayed
+      // targets become geometrically inconsistent with the displayed R:R.
+      // Use the median target (Exit) for the reward leg so a single number
+      // is comparable across LONG / SHORT.
+      const tps = _useLegacyTargets
+        ? [_rawTrim, _rawExit, _rawRunner].filter((t) => Number.isFinite(t) && t > 0)
+        : (_atrFibTargets || []).map((t) => t.price);
+      let recomputedRR = null;
+      if (Number.isFinite(_pxNow) && _pxNow > 0
+          && Number.isFinite(Number(_slDirCorrect)) && _slDirCorrect > 0
+          && tps.length >= 1) {
+        // Use the median (Exit) target for R:R. Even-length arrays already
+        // have Exit at index 1; if only 1 target, use it.
+        const exitTarget = tps[Math.min(1, tps.length - 1)];
+        const sign = direction === "SHORT" ? -1 : 1;
+        const reward = sign * (exitTarget - _pxNow);
+        const risk = Math.abs(_slDirCorrect - _pxNow);
+        if (reward > 0 && risk > 0) {
+          recomputedRR = Math.round((reward / risk) * 100) / 100;
+        }
+      }
+      // Cap at 5.0× — anything higher is almost certainly a target/stop
+      // geometry artifact (true 10×+ setups are extraordinarily rare and
+      // should be reviewed by hand, not displayed as a routine R:R).
+      const RR_DISPLAY_CAP = 5.0;
+      const upstreamRR = Number.isFinite(Number(data?.rr)) ? Number(data.rr) : null;
+      const finalRR = recomputedRR != null
+        ? Math.min(recomputedRR, RR_DISPLAY_CAP)
+        : (upstreamRR != null ? Math.min(upstreamRR, RR_DISPLAY_CAP) : null);
+      return {
+        stop_loss: Number.isFinite(Number(_slDirCorrect)) ? Number(_slDirCorrect) : null,
+        stop_loss_raw: Number.isFinite(Number(_rawSL)) ? Number(_rawSL) : null,
+        stop_loss_corrected: Number.isFinite(Number(_rawSL)) && Number.isFinite(Number(_slDirCorrect)) && Math.abs(_rawSL - _slDirCorrect) > 0.01,
+        rr: finalRR,
+        rr_upstream: upstreamRR,           // diagnostic: what the model said
+        rr_recomputed_from_targets: recomputedRR,  // diagnostic: post-clamp geometry
+        rr_capped: finalRR === RR_DISPLAY_CAP && (recomputedRR > RR_DISPLAY_CAP || (upstreamRR && upstreamRR > RR_DISPLAY_CAP)),
+      };
+    })(),
     targets: _useLegacyTargets
       ? [
           Number.isFinite(_rawTrim) ? { label: "Trim", price: Number(_rawTrim) } : null,
@@ -51630,26 +51668,68 @@ export default {
             const results = rows?.results || [];
             const page = results.slice(0, limitVal);
             const hasMore = results.length > limitVal;
-            // Normalize to trade-like shape for frontend consistency
-            const trades = page.map(r => ({
-              trade_id: r.lot_id,
-              position_id: r.position_id,
-              ticker: r.ticker,
-              direction: "LONG",
-              action: r.action,
-              entry_ts: r.ts,
-              entry_price: r.price,
-              shares: r.shares,
-              value: r.value || (r.shares * r.price),
-              reason: r.reason,
-              status: r.status,
-              investor_stage: r.investor_stage,
-              total_shares: r.total_shares,
-              cost_basis: r.cost_basis,
-              avg_entry: r.avg_entry,
-              pnl: r.action === "SELL" ? ((r.price - (r.avg_entry || 0)) * r.shares) : null,
-              pnl_pct: r.action === "SELL" && r.avg_entry > 0 ? (((r.price - r.avg_entry) / r.avg_entry) * 100) : null,
-            }));
+            // Normalize to trade-like shape for frontend consistency.
+            // 2026-05-30 (P5) — For SELL lots, Trade Autopsy was showing
+            // $0 / blank entry/exit because the modal expects both
+            // entry_price AND exit_price, but the prior shape only set
+            // entry_price=r.price (the sell price). Now:
+            //   • BUY lot → entry_price = lot price, exit_price = null
+            //     (still open from the lot's perspective)
+            //   • SELL lot → entry_price = avg_entry (cost basis of the
+            //     shares being sold), exit_price = lot price, entry_ts =
+            //     position's last_entry_ts when available, exit_ts = lot ts.
+            //     Status forced to WIN/LOSS based on the realized PnL so
+            //     the autopsy modal renders the closed-trade UI.
+            const trades = page.map(r => {
+              const isSell = String(r.action || "").toUpperCase() === "SELL";
+              const isBuy  = String(r.action || "").toUpperCase() === "BUY";
+              const avgEntry = Number(r.avg_entry) || 0;
+              const lotPrice = Number(r.price) || 0;
+              const lotShares = Number(r.shares) || 0;
+              const realizedPnl = isSell ? ((lotPrice - avgEntry) * lotShares) : null;
+              const realizedPnlPct = isSell && avgEntry > 0 ? ((lotPrice - avgEntry) / avgEntry) * 100 : null;
+              // For SELL lots, surface BOTH legs so Trade Autopsy can render
+              // the entry/exit markers and P&L correctly.
+              const sellShape = {
+                entry_price: avgEntry > 0 ? avgEntry : lotPrice,
+                exit_price:  lotPrice,
+                entry_ts:    r.ts, // best effort — we don't have the original buy ts at this scope
+                exit_ts:     r.ts,
+                status:      realizedPnl == null ? "FLAT" : (realizedPnl >= 0 ? "WIN" : "LOSS"),
+              };
+              const buyShape = {
+                entry_price: lotPrice,
+                exit_price:  null,
+                entry_ts:    r.ts,
+                exit_ts:     null,
+                status:      r.status || "OPEN",
+              };
+              const leg = isSell ? sellShape : (isBuy ? buyShape : {
+                entry_price: lotPrice, exit_price: null, entry_ts: r.ts, exit_ts: null, status: r.status || "OPEN",
+              });
+              return {
+                trade_id: r.lot_id,
+                position_id: r.position_id,
+                ticker: r.ticker,
+                direction: "LONG",
+                action: r.action,
+                ...leg,
+                shares: lotShares,
+                value: r.value || (lotShares * lotPrice),
+                reason: r.reason,
+                investor_stage: r.investor_stage,
+                total_shares: r.total_shares,
+                cost_basis: r.cost_basis,
+                avg_entry: r.avg_entry,
+                pnl: realizedPnl,
+                pnl_pct: realizedPnlPct,
+                // Setup name for the ledger row — investor lots don't have a
+                // pattern setup, so use the action + stage as a label.
+                setup_name: r.investor_stage
+                  ? `investor_${String(r.action || "lot").toLowerCase()}_${String(r.investor_stage).toLowerCase()}`
+                  : `investor_${String(r.action || "lot").toLowerCase()}`,
+              };
+            });
             return sendJSON({ ok: true, mode: "investor", count: trades.length, hasMore, trades }, 200, corsHeaders(env, req));
           } catch (e) {
             const msg = (e?.message || String(e));
@@ -54627,9 +54707,36 @@ export default {
               _mk("adjust_win_rate", "ADJUST win rate", "> 55%", _adjWr, _adjWr != null && _adjWr > 55),
             ],
             D_operator: [
-              _mk("manual_review", "Manual review of last 20 entry decisions (reasoning quality)", "yes", "not_done", false),
-              _mk("lifecycle_live_first", "Lifecycle-only live mode tested before entry-side", "yes", "not_done", false),
-              _mk("autosnap_safeguard", "Auto-snapback to shadow on pathology detection", "implemented", "not_done", false),
+              // 2026-05-30 (P9) — Read operator-task completions from
+              // model_config so the gates can actually go green when the
+              // operator marks them complete. Each gate maps to a config
+              // key: ai_cio_d_manual_review_done / ai_cio_d_lifecycle_live_first_done
+              // / ai_cio_d_autosnap_safeguard_done. UI toggle on the
+              // Mission Control AI CIO panel writes "1" to flip green.
+              // Without this, the gates were permanently false and the
+              // overall ready_for_live verdict could never flip without a
+              // code change.
+              _mk(
+                "manual_review",
+                "Manual review of last 20 entry decisions (reasoning quality)",
+                "yes",
+                String(_cfg.ai_cio_d_manual_review_done) === "1" ? "done" : "not_done",
+                String(_cfg.ai_cio_d_manual_review_done) === "1",
+              ),
+              _mk(
+                "lifecycle_live_first",
+                "Lifecycle-only live mode tested before entry-side",
+                "yes",
+                String(_cfg.ai_cio_d_lifecycle_live_first_done) === "1" ? "done" : "not_done",
+                String(_cfg.ai_cio_d_lifecycle_live_first_done) === "1",
+              ),
+              _mk(
+                "autosnap_safeguard",
+                "Auto-snapback to shadow on pathology detection",
+                "implemented",
+                String(_cfg.ai_cio_d_autosnap_safeguard_done) === "1" ? "done" : "not_done",
+                String(_cfg.ai_cio_d_autosnap_safeguard_done) === "1",
+              ),
             ],
           };
 
@@ -54724,6 +54831,63 @@ export default {
             updated: _updated,
             failed: _failed,
             note: "Backfilled trade_outcome and trade_pnl_pct on ai_cio_decisions rows where the matching trade is closed. Run again after each batch of trades closes to keep accuracy report fresh.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/ai-cio/operator-task
+      //
+      // Mark / unmark one of the D_operator gates on the AI CIO
+      // go-live-readiness checklist. The gate values are stored in
+      // model_config so they survive deploys.
+      //
+      // Body: { task: "manual_review" | "lifecycle_live_first" | "autosnap_safeguard",
+      //         done: true | false }
+      //
+      // 2026-05-30 (P9) — Until this endpoint existed, D_operator gates
+      // were hardcoded to "not_done" so the overall ready_for_live verdict
+      // could never flip green without a code change. Operator now toggles
+      // them from the Mission Control AI CIO panel after performing the
+      // physical review (audit reasoning quality, run lifecycle-only live
+      // pass, ship the auto-snapback safeguard).
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/ai-cio/operator-task") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const task = String(body?.task || "").trim();
+          const done = body?.done === true || body?.done === "1" || body?.done === 1;
+          const TASK_KEYS = {
+            manual_review:        "ai_cio_d_manual_review_done",
+            lifecycle_live_first: "ai_cio_d_lifecycle_live_first_done",
+            autosnap_safeguard:   "ai_cio_d_autosnap_safeguard_done",
+          };
+          const cfgKey = TASK_KEYS[task];
+          if (!cfgKey) {
+            return sendJSON({
+              ok: false, error: "invalid_task",
+              allowed: Object.keys(TASK_KEYS),
+            }, 400, corsHeaders(env, req));
+          }
+          const value = done ? "1" : "0";
+          await db.prepare(`
+            INSERT INTO model_config (config_key, config_value, updated_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(config_key) DO UPDATE SET
+              config_value = excluded.config_value,
+              updated_at   = excluded.updated_at
+          `).bind(cfgKey, value, Date.now()).run();
+          return sendJSON({
+            ok: true, task, config_key: cfgKey, value,
+            note: done
+              ? `Gate '${task}' marked DONE. Re-fetch /timed/admin/ai-cio/go-live-readiness to see updated verdict.`
+              : `Gate '${task}' marked NOT DONE (reset). Operator must re-verify before flipping live.`,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
@@ -73546,13 +73710,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const body = await req.json();
           const tickers = Array.isArray(body?.tickers) ? body.tickers.map(t => String(t).toUpperCase().trim()).filter(Boolean) : [];
           const unique = [...new Set(tickers)];
+          // 2026-05-30 (P6) — log the diff vs prior upticks list so the
+          // TT Universe Changes feed shows additions/removals.
+          const priorList = (await kvGetJSON(KV, "timed:admin:upticks")) || [];
+          const priorSet = new Set(Array.isArray(priorList) ? priorList : []);
+          const nextSet = new Set(unique);
+          const added   = unique.filter((t) => !priorSet.has(t));
+          const removed = (Array.isArray(priorList) ? priorList : []).filter((t) => !nextSet.has(t));
           await kvPutJSON(KV, "timed:admin:upticks", unique);
-          // Source-tag all uptick tickers
           await updateTickerSources(KV, unique, "UPTICKS");
-          // Also ensure TT_SELECTED tickers have the tt_selected tag
           const ttSel = unique.filter(t => TT_SELECTED.has(t));
           if (ttSel.length > 0) await updateTickerSources(KV, ttSel, "TT_SELECTED");
-          return sendJSON({ ok: true, count: unique.length, tickers: unique }, 200, corsHeaders(env, req));
+          if (added.length > 0 || removed.length > 0) {
+            try {
+              await env.DB.prepare(`
+                INSERT OR REPLACE INTO etf_rebalance_history
+                  (etf_symbol, snapshot_date, captured_at, source_label,
+                   ticker_count, diff_added_json, diff_removed_json,
+                   diff_reweighted_json, is_rebalance)
+                VALUES ('UPTICKS', ?1, ?2, 'admin_upticks_sync', ?3, ?4, ?5, NULL, 0)
+              `).bind(
+                new Date().toISOString().slice(0, 10),
+                Date.now(),
+                unique.length,
+                JSON.stringify(added.map((t) => ({ ticker: t }))),
+                JSON.stringify(removed.map((t) => ({ ticker: t }))),
+              ).run().catch(() => {});
+            } catch (_) { /* best-effort logging */ }
+          }
+          return sendJSON({
+            ok: true, count: unique.length, tickers: unique,
+            diff: { added, removed, added_count: added.length, removed_count: removed.length },
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -73683,6 +73872,44 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // a refresh check ("did the universe change?").
           await KV.put("timed:universe:version", String(Date.now()));
 
+          // 2026-05-30 (P6) — Surface manual admin adds in TT Universe
+          // Changes feed. Previously the feed only showed ETF rebalance
+          // events (`etf_rebalance_history`); admin adds/removes never
+          // appeared, so operators couldn't see their own changes. Log
+          // under `etf_symbol = 'ADMIN_OVERLAY'` with the snapshot_date
+          // as today.
+          try {
+            await env.DB.prepare(`
+              INSERT OR REPLACE INTO etf_rebalance_history
+                (etf_symbol, snapshot_date, captured_at, source_label,
+                 ticker_count, diff_added_json, diff_removed_json,
+                 diff_reweighted_json, is_rebalance)
+              SELECT
+                'ADMIN_OVERLAY',
+                ?1,
+                ?2,
+                'admin_universe_add',
+                COALESCE((SELECT ticker_count FROM etf_rebalance_history
+                          WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1), 0) + 1,
+                CASE
+                  WHEN EXISTS (SELECT 1 FROM etf_rebalance_history
+                               WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1)
+                  THEN COALESCE(
+                    (SELECT json_insert(diff_added_json, '$[#]', json(?3))
+                     FROM etf_rebalance_history
+                     WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1),
+                    json_array(json(?3))
+                  )
+                  ELSE json_array(json(?3))
+                END,
+                NULL, NULL, 0
+            `).bind(
+              new Date().toISOString().slice(0, 10),
+              Date.now(),
+              JSON.stringify({ ticker: rawTicker, sector }),
+            ).run().catch(() => {});
+          } catch (_) { /* best-effort logging */ }
+
           // Best-effort: seed an initial KV snapshot from the validated quote
           // so the ticker is immediately renderable before the first scoring
           // tick completes. Mirrors the seed-ticker admin route.
@@ -73769,6 +73996,41 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           // Bump the version key
           await KV.put("timed:universe:version", String(Date.now()));
+
+          // 2026-05-30 (P6) — mirror admin remove into the universe-changes feed.
+          try {
+            await env.DB.prepare(`
+              INSERT OR REPLACE INTO etf_rebalance_history
+                (etf_symbol, snapshot_date, captured_at, source_label,
+                 ticker_count, diff_added_json, diff_removed_json,
+                 diff_reweighted_json, is_rebalance)
+              SELECT
+                'ADMIN_OVERLAY',
+                ?1,
+                ?2,
+                'admin_universe_remove',
+                COALESCE((SELECT ticker_count FROM etf_rebalance_history
+                          WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1), 0) + 1,
+                COALESCE((SELECT diff_added_json FROM etf_rebalance_history
+                          WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1), '[]'),
+                CASE
+                  WHEN EXISTS (SELECT 1 FROM etf_rebalance_history
+                               WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1)
+                  THEN COALESCE(
+                    (SELECT json_insert(diff_removed_json, '$[#]', json(?3))
+                     FROM etf_rebalance_history
+                     WHERE etf_symbol='ADMIN_OVERLAY' AND snapshot_date=?1),
+                    json_array(json(?3))
+                  )
+                  ELSE json_array(json(?3))
+                END,
+                NULL, 0
+            `).bind(
+              new Date().toISOString().slice(0, 10),
+              Date.now(),
+              JSON.stringify({ ticker: rawTicker }),
+            ).run().catch(() => {});
+          } catch (_) { /* best-effort logging */ }
 
           return sendJSON({
             ok: true,
@@ -73876,7 +74138,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // re-query D1.
       if (routeKey === "GET /timed/universe/changes") {
         try {
-          const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+          // 2026-05-30 (P6) — cap raised from 50 to 200 so admin-overlay
+          // and uptick adjustments don't get pushed off the bottom on a
+          // busy week. Insights page default is 20; admin tooling can ask
+          // for more.
+          const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit")) || 20));
           const days  = Math.min(180, Math.max(1, Number(url.searchParams.get("days")) || 30));
           await d1EnsureEtfHistorySchema(env);
           const cutoffDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
