@@ -605,6 +605,19 @@
       const components = detail?.components || null;
       const accumZone = detail?.accumZone || null;
       const pos = detail?.position?.owned ? detail.position : null;
+      // 2026-05-30 — Trader-mode trade fallback. When an investor doesn't
+      // own this name in investor-mode but the user IS in a trader-mode
+      // open position (e.g. AA defended in Trader board), still surface
+      // the position at the top of the Investor tab so the open exposure
+      // is never invisible. Mirror the Trader tab's `effectiveTrade ||
+      // trade` resolution.
+      const traderOpenPos = (() => {
+        const t = effectiveTrade;
+        if (!t) return null;
+        const st = String(t.status || "").toUpperCase();
+        if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
+        return t;
+      })();
       const rs = detail?.rs || null;
       const rsRank = Number(detail?.rsRank);
       const sector = detail?.sector || ticker?._sector || null;
@@ -694,7 +707,115 @@
           }
         : null;
 
+      // 2026-05-30 — Renderable "Current Open Position" card. Used at the
+      // TOP of the Investor tab so any open exposure (whether investor-
+      // mode lot or trader-mode hard trade) is the first thing the user
+      // sees. The shape merges the two sources: prefer the investor-mode
+      // lot when present, otherwise fall back to the trader-mode trade.
+      const currentOpenPositionCard = (() => {
+        const fmtUsdLocal = (v) => Number.isFinite(v)
+          ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v)
+          : "—";
+        // Source A: investor-mode lot (owned/avg_entry/cost_basis/unrealized_pct)
+        if (pos) {
+          return h(Panel, {
+            title: "📍 Current Open Position",
+            action: h("span", {
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: "#34d399", background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.30)" },
+            }, "INVESTOR · OPEN"),
+          },
+            h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
+              h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
+              ),
+              h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(Number(pos.avg_entry) || 0)),
+              ),
+              h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(Number(pos.cost_basis) || 0)),
+              ),
+              h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
+                  pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
+                ),
+              ),
+            ),
+            pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
+              "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
+              pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
+              " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            ),
+          );
+        }
+        // Source B: trader-mode hard trade fallback (so investor tab still
+        // shows current exposure when held in trader mode only).
+        const t = traderOpenPos;
+        if (!t) return null;
+        const dirRaw = String(t.direction || "").toUpperCase();
+        const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
+        const entry = Number(t.entryPrice ?? t.entry_price);
+        const shares = Number(t.shares || t.qty || t.size);
+        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+        const unrealizedPct = (entry > 0 && livePx > 0)
+          ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
+          : null;
+        const sl = Number(t.sl ?? ticker?.sl);
+        const tp = Number(t.tp ?? ticker?.tp);
+        return h(Panel, {
+          title: "📍 Current Open Position",
+          action: h("span", {
+            style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: dirColor, background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)", border: `1px solid ${dirColor}50` },
+          }, `TRADER · ${dirRaw} · OPEN`),
+        },
+          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } },
+                Number.isFinite(shares) ? shares.toFixed(2) : "—"),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "ENTRY"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(entry)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "STOP LOSS"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#f87171", marginTop: 2 } }, fmtUsdLocal(sl)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "TAKE PROFIT"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#34d399", marginTop: 2 } }, fmtUsdLocal(tp)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "NOTIONAL"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } },
+                (Number.isFinite(entry) && Number.isFinite(shares)) ? fmtUsdLocal(entry * shares) : "—"),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171" } },
+                unrealizedPct != null ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%` : "—"),
+            ),
+          ),
+          t.entry_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
+            "Entered ", new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+            t.rank != null && h(React.Fragment, null, " · Rank ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(t.rank))),
+            t.rr != null && h(React.Fragment, null, " · R:R ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(t.rr).toFixed(2))),
+          ),
+        );
+      })();
+
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" } },
+
+        // 2026-05-30 — Current Open Position MOVED to top of Investor tab.
+        //   Was rendered as section 5; user feedback: "open positions
+        //   should be at the top and labeled Current Open Positions".
+        //   Title updated from "💼 Your Position" → "📍 Current Open
+        //   Position" for parity with the Trader tab.
+        currentOpenPositionCard,
 
         // 0. Catalyst banner — when ticker just had a major move
         catalystEvent && h("div", {
@@ -790,34 +911,9 @@
           ),
         ),
 
-        // 5. Position
-        pos && h(Panel, { title: "💼 Your Position" },
-          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.avg_entry) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.cost_basis) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
-                pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
-              ),
-            ),
-          ),
-          pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
-            "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
-            pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
-            " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          ),
-        ),
+        // 5. Position — moved to top as `currentOpenPositionCard` above
+        //    (2026-05-30). Slot intentionally empty to preserve section
+        //    numbering in the file for future readers.
 
         // 6. RS + Sector
         (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "📈 Strength + Sector Context" },
@@ -3683,17 +3779,26 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          // Fire for both legacy v1 ("TRADE_HISTORY") and v2 ("HISTORY") rail tab names.
-          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
-          if (!sym || !isHistoryTab) {
+          // 2026-05-30 — fetch ledgerTrades whenever a ticker is loaded, NOT
+          // only on the History tab. The Trader (SETUP) tab + Investor tab
+          // both render a "Current Open Position" card that derives the
+          // active trade via `effectiveTrade = trade || pickOpenFrom(ledgerTrades)`.
+          // Previously ledgerTrades was empty unless History was viewed, so
+          // the position card never showed up on Trader / Investor tabs
+          // when the page didn't pass an explicit `trade` prop (e.g. the
+          // active-trader board → rail flow). User-visible bug: AA in the
+          // DEFEND lane with an open position rendered the rail's Trader
+          // tab with NO position context, only the proposed plan.
+          if (!sym) {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
             setTradeChartSelection(null);
             return;
           }
-
-          setTradeChartSelection(null); // clear so default will be first of new list
+          // Reset only the trade-history-tab chart selection so it
+          // re-defaults to the newest trade on next History tab view.
+          setTradeChartSelection(null);
           let cancelled = false;
           // V15 P0.7.143 (2026-05-13) — fetch BOTH trader and investor
           // trade histories so the History tab shows the full picture
@@ -3745,7 +3850,10 @@
             cancelled = true;
             setLedgerTradesLoading(false);
           };
-        }, [tickerSymbol, railTab]);
+          // Dep array intentionally drops railTab — we want ledgerTrades
+          // populated regardless of which tab is active so the Trader /
+          // Investor "Current Open Position" cards have data to render.
+        }, [tickerSymbol]);
 
         // Default Trade History chart to first trade when tab has trades and no selection
         useEffect(() => {
@@ -5565,7 +5673,15 @@
                           from ledgerTrades when prop is null). */}
                       {(() => {
                         const t = effectiveTrade || trade;
-                        if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+                        // 2026-05-30 — was requiring status === "OPEN", but
+                        // intermediate states like TP_HIT_TRIM are still
+                        // open positions. effectiveTrade has already
+                        // filtered out closed (WIN/LOSS) trades, so trust
+                        // it: any non-null effectiveTrade IS the active
+                        // position for this ticker.
+                        if (!t) return null;
+                        const st = String(t.status || "").toUpperCase();
+                        if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
                         const entry = Number(t.entryPrice ?? t.entry_price);
@@ -13029,4 +13145,4 @@
   };
 })();
 
-// cache-bust:1780099581485:473288440
+// cache-bust:1780103261497:555696674

@@ -780,6 +780,13 @@
       const components = detail?.components || null;
       const accumZone = detail?.accumZone || null;
       const pos = detail?.position?.owned ? detail.position : null;
+      const traderOpenPos = (() => {
+        const t = effectiveTrade;
+        if (!t) return null;
+        const st = String(t.status || "").toUpperCase();
+        if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
+        return t;
+      })();
       const rs = detail?.rs || null;
       const rsRank = Number(detail?.rsRank);
       const sector = detail?.sector || ticker?._sector || null;
@@ -948,13 +955,250 @@
         source: Math.abs(ahPct) > Math.abs(dailyPct) ? "extended hours" : "regular session",
         warning: "Investor classification uses weekly/monthly trends and is slow to digest catalysts of this size. The next score refresh (hourly) will reflect today's move."
       } : null;
+      const currentOpenPositionCard = (() => {
+        const fmtUsdLocal = v => Number.isFinite(v) ? new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: 2
+        }).format(v) : "—";
+        if (pos) {
+          return h(Panel, {
+            title: "📍 Current Open Position",
+            action: h("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: "#34d399",
+                background: "rgba(52,211,153,0.10)",
+                border: "1px solid rgba(52,211,153,0.30)"
+              }
+            }, "INVESTOR · OPEN")
+          }, h("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8
+            }
+          }, h("div", null, h("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "SHARES"), h("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, Number(pos.shares || 0).toFixed(2))), h("div", null, h("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "AVG ENTRY"), h("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, fmtUsdLocal(Number(pos.avg_entry) || 0))), h("div", null, h("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "COST BASIS"), h("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, fmtUsdLocal(Number(pos.cost_basis) || 0))), h("div", null, h("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "UNREALIZED"), h("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              marginTop: 2,
+              color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171"
+            }
+          }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && h("div", {
+            style: {
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "Last: ", h("strong", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric"
+          })));
+        }
+        const t = traderOpenPos;
+        if (!t) return null;
+        const dirRaw = String(t.direction || "").toUpperCase();
+        const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
+        const entry = Number(t.entryPrice ?? t.entry_price);
+        const shares = Number(t.shares || t.qty || t.size);
+        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+        const unrealizedPct = entry > 0 && livePx > 0 ? (dirRaw === "SHORT" ? entry - livePx : livePx - entry) / entry * 100 : null;
+        const sl = Number(t.sl ?? ticker?.sl);
+        const tp = Number(t.tp ?? ticker?.tp);
+        return h(Panel, {
+          title: "📍 Current Open Position",
+          action: h("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.05em",
+              padding: "2px 8px",
+              borderRadius: 999,
+              color: dirColor,
+              background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
+              border: `1px solid ${dirColor}50`
+            }
+          }, `TRADER · ${dirRaw} · OPEN`)
+        }, h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8
+          }
+        }, h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "SHARES"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, Number.isFinite(shares) ? shares.toFixed(2) : "—")), h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "ENTRY"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtUsdLocal(entry))), h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "STOP LOSS"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            color: "#f87171",
+            marginTop: 2
+          }
+        }, fmtUsdLocal(sl))), h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "TAKE PROFIT"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            color: "#34d399",
+            marginTop: 2
+          }
+        }, fmtUsdLocal(tp))), h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "NOTIONAL"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, Number.isFinite(entry) && Number.isFinite(shares) ? fmtUsdLocal(entry * shares) : "—")), h("div", null, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "UNREALIZED"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-body)",
+            marginTop: 2,
+            color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171"
+          }
+        }, unrealizedPct != null ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%` : "—"))), t.entry_ts && h("div", {
+          style: {
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-muted)"
+          }
+        }, "Entered ", new Date(Number(t.entry_ts)).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit"
+        }), t.rank != null && h(React.Fragment, null, " · Rank ", h("strong", {
+          style: {
+            color: "var(--ds-text-body)"
+          }
+        }, Number(t.rank))), t.rr != null && h(React.Fragment, null, " · R:R ", h("strong", {
+          style: {
+            color: "var(--ds-text-body)"
+          }
+        }, Number(t.rr).toFixed(2)))));
+      })();
       return h("div", {
         style: {
           display: "flex",
           flexDirection: "column",
           gap: "var(--ds-space-3)"
         }
-      }, catalystEvent && h("div", {
+      }, currentOpenPositionCard, catalystEvent && h("div", {
         style: {
           padding: "var(--ds-space-2)",
           background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
@@ -1211,86 +1455,7 @@
           color: "#34d399",
           marginRight: 6
         }
-      }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), pos && h(Panel, {
-        title: "💼 Your Position"
-      }, h("div", {
-        style: {
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 8
-        }
-      }, h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "SHARES"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, Number(pos.shares || 0).toFixed(2))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "AVG ENTRY"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, fmtUsd(Number(pos.avg_entry) || 0))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "COST BASIS"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, fmtUsd(Number(pos.cost_basis) || 0))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "UNREALIZED"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          marginTop: 2,
-          color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171"
-        }
-      }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && h("div", {
-        style: {
-          marginTop: 8,
-          paddingTop: 8,
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-muted)"
-        }
-      }, "Last: ", h("strong", {
-        style: {
-          color: "var(--ds-text-body)"
-        }
-      }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric"
-      }))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
+      }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
         title: "📈 Strength + Sector Context"
       }, h("div", {
         style: {
@@ -4261,8 +4426,7 @@
       }, [tickerSymbol, latestTicker, ticker?.sector, ticker?.pattern_match]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
-        if (!sym || !isHistoryTab) {
+        if (!sym) {
           setLedgerTrades([]);
           setLedgerTradesError(null);
           setLedgerTradesLoading(false);
@@ -4321,7 +4485,7 @@
           cancelled = true;
           setLedgerTradesLoading(false);
         };
-      }, [tickerSymbol, railTab]);
+      }, [tickerSymbol]);
       useEffect(() => {
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
         if (isHistoryTab && ledgerTrades.length > 0 && tradeChartSelection == null) {
@@ -6211,7 +6375,9 @@
           }));
         })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
           const t = effectiveTrade || trade;
-          if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+          if (!t) return null;
+          const st = String(t.status || "").toUpperCase();
+          if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
           const dirRaw = String(t.direction || "").toUpperCase();
           const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
           const entry = Number(t.entryPrice ?? t.entry_price);
@@ -14886,4 +15052,4 @@
   };
 })();
 
-// cache-bust:1780099581485:473288440
+// cache-bust:1780103261497:555696674
