@@ -48,7 +48,8 @@
 //  Authored 2026-05-30 — fuses the work of Lee, Newton, Huddleston, Carter,
 //  DeMark, Ripster, Saty, and our own Markov/data-science layer.
 
-import { STRATEGY_VINTAGE } from "./strategy-context.js";
+import { STRATEGY_VINTAGE, getStrategyForTicker } from "./strategy-context.js";
+import { getThemesForTicker } from "./sector-mapping.js";
 
 // ── Mode thresholds ────────────────────────────────────────────────────────
 // 8 layers identify the opportunity; SuperTrend slope ignites the trigger.
@@ -65,14 +66,27 @@ const FADE_MIN_LAYERS = 4;
 // `strength` lets a partial signal contribute less than a full one.
 
 function scoreL1_Macro(t) {
-  // From strategy-context, baked into ticker via __strategy_stance (if set
-  // by the live scoring cron) OR we re-derive from sector tilt.
-  const ss = t?._strategy_stance || t?.strategy_stance || null;
-  if (ss && ss.stance) {
-    if (ss.stance === "overweight") return { side: "LONG", strength: Math.min(1, ((ss.multiplier || 1) - 1) * 4), evidence: `Macro OW (${ss.tier || ss.reason || "tier"})` };
-    if (ss.stance === "underweight") return { side: "SHORT", strength: Math.min(1, (1 - (ss.multiplier || 1)) * 5), evidence: `Macro UW (${ss.reason || "off-thesis"})` };
+  // Tom Lee / FSD playbook layer. Prefers a baked-in __strategy_stance on
+  // the ticker (from scoring cron) but falls back to inline computation
+  // via getStrategyForTicker — sector + theme tilts + SMID bump.
+  let ss = t?._strategy_stance || t?.strategy_stance || null;
+  if (!ss) {
+    try {
+      const sym = String(t?.ticker || "").toUpperCase();
+      ss = getStrategyForTicker(sym, {
+        sector: t?.sector || t?._sector || null,
+        market_cap: Number(t?.market_cap) || null,
+      }, getThemesForTicker);
+    } catch (_) { /* best-effort */ }
   }
-  // Fallback: not on the playbook radar.
+  if (ss && ss.stance) {
+    if (ss.stance === "overweight") {
+      return { side: "LONG", strength: Math.min(1, ((ss.multiplier || 1) - 1) * 4), evidence: `Macro OW (${ss.tier || ss.reason || "favored"})` };
+    }
+    if (ss.stance === "underweight") {
+      return { side: "SHORT", strength: Math.min(1, (1 - (ss.multiplier || 1)) * 5), evidence: `Macro UW (${ss.reason || "off-thesis"})` };
+    }
+  }
   return { side: "NEUTRAL", strength: 0, evidence: "Macro neutral" };
 }
 
@@ -80,15 +94,21 @@ function scoreL2_Newton(t) {
   // Three sub-signals: RS, Elliott Wave, Ichimoku.
   let bull = 0, bear = 0, parts = [];
 
-  // RS rank vs SPY
-  const rsRank = Number(t?.investor?.rsRank ?? t?.rs?.rsRank ?? t?._rs_rank);
+  // RS rank vs SPY — production paths.
+  const rsRank = Number(
+    t?.investor?.rsRank
+    ?? t?.investor_rsRank
+    ?? t?.rs?.rsRank
+    ?? t?._rs_rank
+    ?? t?.rs_rank
+  );
   if (Number.isFinite(rsRank)) {
     if (rsRank >= 70) { bull += 1; parts.push(`RS top-${100 - Math.round(rsRank)}%`); }
     else if (rsRank <= 30) { bear += 1; parts.push(`RS bottom-${Math.round(rsRank)}%`); }
   }
 
-  // Elliott Wave (detected on HTF)
-  const ewD = t?.tf_tech?.D?.ew || t?.ew_daily || t?._ew_daily || null;
+  // Elliott Wave per-TF, with production paths (tf_tech.D.ew + .W.ew).
+  const ewD = t?.tf_tech?.D?.ew || t?.ew_daily || null;
   const ewW = t?.tf_tech?.W?.ew || t?.ew_weekly || null;
   for (const [tfLbl, ew] of [["D", ewD], ["W", ewW]]) {
     if (!ew || ew.detected === false) continue;
@@ -96,22 +116,31 @@ function scoreL2_Newton(t) {
     else if (ew.dir === -1) { bear += 0.6; parts.push(`EW${tfLbl} W3-ready bear (fib ${ew.fiboMatch})`); }
   }
 
-  // Ichimoku — prefer daily
-  const ichi = t?.tf_tech?.D?.ichimoku || t?.ichimoku_daily || t?._ichimoku_daily || null;
+  // Ichimoku — production paths:
+  //   top-level: ichimoku_d (rich object with tkBull, cloudBullish, position)
+  //   per-TF:    tf_tech.D.ich
+  const ichi = t?.ichimoku_d || t?.tf_tech?.D?.ich || t?.tf_tech?.D?.ichimoku || null;
   if (ichi) {
-    const px = Number(t?.price || ichi.price);
-    const cloudTop = Math.max(Number(ichi.senkouA) || 0, Number(ichi.senkouB) || 0);
-    const cloudBot = Math.min(Number(ichi.senkouA) || Infinity, Number(ichi.senkouB) || Infinity);
-    const tkBull = Number(ichi.tenkan) > Number(ichi.kijun);
-    const cloudBull = ichi.senkouA > ichi.senkouB;
-    if (px > cloudTop && tkBull && cloudBull) { bull += 0.8; parts.push("Ichi: above bull cloud + TK bull"); }
-    else if (px < cloudBot && !tkBull && !cloudBull) { bear += 0.8; parts.push("Ichi: below bear cloud + TK bear"); }
-    else if (px > cloudTop) { bull += 0.4; parts.push("Ichi: above cloud"); }
-    else if (px < cloudBot) { bear += 0.4; parts.push("Ichi: below cloud"); }
+    // Prefer the pre-computed boolean flags.
+    const pos = String(ichi.position || "").toLowerCase();
+    const tkBull = ichi.tkBull === true || (ichi.tkCrossUp === true && ichi.tkCrossDn !== true);
+    const cloudBull = ichi.cloudBullish === true;
+    if (pos === "above" && tkBull && cloudBull) { bull += 0.9; parts.push("Ichi: above bull cloud + TK bull"); }
+    else if (pos === "below" && !tkBull && !cloudBull) { bear += 0.9; parts.push("Ichi: below bear cloud + TK bear"); }
+    else if (pos === "above") { bull += 0.4; parts.push("Ichi: above cloud"); }
+    else if (pos === "below") { bear += 0.4; parts.push("Ichi: below cloud"); }
+    // Geometry fallback if position string absent.
+    else {
+      const px = Number(t?.price || ichi.price);
+      const cloudTop = Math.max(Number(ichi.senkouA) || 0, Number(ichi.senkouB) || 0, Number(ichi.cloudTop) || 0);
+      const cloudBot = Math.min(Number(ichi.senkouA) || Infinity, Number(ichi.senkouB) || Infinity, Number(ichi.cloudBase) || Infinity);
+      if (px > cloudTop && tkBull) { bull += 0.6; parts.push("Ichi: above cloud (geom)"); }
+      else if (px < cloudBot && !tkBull) { bear += 0.6; parts.push("Ichi: below cloud (geom)"); }
+    }
   }
 
   const net = bull - bear;
-  const strength = Math.min(1, (bull + bear) / 2.4); // max possible ~2.4
+  const strength = Math.min(1, (bull + bear) / 2.5);
   if (net > 0.5) return { side: "LONG", strength, evidence: parts.join(", ") || "Newton bull mix" };
   if (net < -0.5) return { side: "SHORT", strength, evidence: parts.join(", ") || "Newton bear mix" };
   return { side: "NEUTRAL", strength: strength * 0.3, evidence: parts.join(", ") || "Newton mixed" };
@@ -134,48 +163,87 @@ function scoreL3_Statistical(t) {
 }
 
 function scoreL4_ICT(t) {
-  // Huddleston / Inner Circle Trader — structural levels say where price wants
-  // to go. We synthesize: FVG presence + direction, liquidity sweep + reclaim,
-  // PD array (premium vs discount of range).
+  // Huddleston / Inner Circle Trader — structural levels say where price
+  // wants to go. Reads production fields:
+  //   tf_tech.{tf}.fvg              — { activeBull, activeBear, inBullGap,
+  //                                     inBearGap, nearestBullDist, nearestBearDist }
+  //   top-level fvg_D / fvg_4h / fvg_imbalance_D
+  //   tf_tech.{tf}.liq              — liquidity zones
+  //   top-level liq_D               — daily liquidity snapshot
+  //   tf_tech.{tf}.pdz              — premium/discount zone object
+  let bull = 0, bear = 0, parts = [];
   const px = Number(t?.price || 0);
   if (!px) return { side: "NEUTRAL", strength: 0, evidence: "no_price" };
 
-  let bull = 0, bear = 0, parts = [];
-
-  // FVG (Fair Value Gap) — bullish FVG below price = support, supports longs.
-  // Look at multiple TFs (4H, D, W) — give more weight to HTF.
-  const tfFvgs = [
-    ["4H", t?.tf_tech?.["240"]?.fvgs || t?.smc?.fvgs_4h, 0.5],
-    ["D",  t?.tf_tech?.D?.fvgs       || t?.smc?.fvgs_d,  0.8],
-    ["W",  t?.tf_tech?.W?.fvgs       || t?.smc?.fvgs_w,  1.0],
+  // FVG — prefer per-TF tf_tech.{tf}.fvg, fall back to top-level fvg_D/fvg_4h.
+  const fvgSrcs = [
+    ["W",  t?.tf_tech?.W?.fvg],
+    ["D",  t?.tf_tech?.D?.fvg  || t?.fvg_D,  1.0],
+    ["4H", t?.tf_tech?.["4H"]?.fvg || t?.fvg_4h, 0.6],
+    ["1H", t?.tf_tech?.["1H"]?.fvg, 0.4],
   ];
-  for (const [tf, fvgList, w] of tfFvgs) {
-    if (!Array.isArray(fvgList) || fvgList.length === 0) continue;
-    const unfilled = fvgList.filter(f => f?.filled === false || f?.status === "unfilled");
-    const bullFvg = unfilled.find(f => (f?.type === "bullish" || f?.dir === 1) && f?.top != null && f.top < px);
-    const bearFvg = unfilled.find(f => (f?.type === "bearish" || f?.dir === -1) && f?.bottom != null && f.bottom > px);
-    if (bullFvg) { bull += w; parts.push(`${tf} bull FVG support`); }
-    if (bearFvg) { bear += w; parts.push(`${tf} bear FVG resist`); }
+  for (const entry of fvgSrcs) {
+    const [tf, fvgObj, weight = 0.8] = entry;
+    if (!fvgObj) continue;
+    // Production shape: aggregate booleans.
+    if (typeof fvgObj === "object" && (fvgObj.activeBull !== undefined || fvgObj.activeBear !== undefined)) {
+      const aBull = Number(fvgObj.activeBull) || 0;
+      const aBear = Number(fvgObj.activeBear) || 0;
+      const inBullGap = fvgObj.inBullGap === true;
+      const inBearGap = fvgObj.inBearGap === true;
+      // Bullish FVG below price + above price IS support; in-bull-gap is even stronger.
+      if (aBull > aBear) {
+        bull += weight * (inBullGap ? 1.2 : 0.6) * Math.min(1, aBull / 3);
+        parts.push(`${tf}: ${aBull} bull FVG${inBullGap ? " (in)" : ""}`);
+      } else if (aBear > aBull) {
+        bear += weight * (inBearGap ? 1.2 : 0.6) * Math.min(1, aBear / 3);
+        parts.push(`${tf}: ${aBear} bear FVG${inBearGap ? " (in)" : ""}`);
+      }
+    }
+    // Array shape (per-individual-gap detail).
+    else if (Array.isArray(fvgObj)) {
+      const unfilled = fvgObj.filter(f => f?.filled === false || f?.status === "unfilled");
+      const bullFvg = unfilled.find(f => (f?.type === "bullish" || f?.dir === 1) && f?.top != null && f.top < px);
+      const bearFvg = unfilled.find(f => (f?.type === "bearish" || f?.dir === -1) && f?.bottom != null && f.bottom > px);
+      if (bullFvg) { bull += weight; parts.push(`${tf} bull FVG support`); }
+      if (bearFvg) { bear += weight; parts.push(`${tf} bear FVG resist`); }
+    }
   }
 
-  // Liquidity sweep + reclaim. We already detect this elsewhere; surface it.
+  // Liquidity sweep + reclaim. Production: liq_D, tf_tech.{tf}.liq.
+  const liqD = t?.tf_tech?.D?.liq || t?.liq_D || null;
+  if (liqD && typeof liqD === "object") {
+    if (liqD.ssl_reclaim === true || liqD.ssl_swept_and_reclaimed === true) {
+      bull += 0.8; parts.push("SSL swept + reclaim");
+    } else if (liqD.bsl_reject === true || liqD.bsl_swept_and_rejected === true) {
+      bear += 0.8; parts.push("BSL swept + reject");
+    }
+  }
+  // Older flag path as fallback.
   const ls = t?._liqSweepFlag || t?.liq_sweep_flag || null;
-  if (ls === "ssl_swept_bull_reclaim" || ls === "liq_into_ssl_reclaim") {
-    bull += 0.8; parts.push("SSL swept + reclaim");
-  } else if (ls === "bsl_swept_bear_reject" || ls === "liq_into_bsl_reject") {
-    bear += 0.8; parts.push("BSL swept + reject");
+  if (ls && parts.length === 0) {
+    if (ls === "ssl_swept_bull_reclaim" || ls === "liq_into_ssl_reclaim") {
+      bull += 0.8; parts.push("SSL swept + reclaim");
+    } else if (ls === "bsl_swept_bear_reject" || ls === "liq_into_bsl_reject") {
+      bear += 0.8; parts.push("BSL swept + reject");
+    }
   }
 
-  // PD Array — where are we in the recent range?
-  const dayHi = Number(t?.day_high || t?.session_high);
-  const dayLo = Number(t?.day_low  || t?.session_low);
-  if (dayHi > 0 && dayLo > 0 && dayHi > dayLo) {
-    const mid = (dayHi + dayLo) / 2;
-    const inDiscount = px < mid;
-    const inPremium  = px > mid;
-    // ICT: in discount = look long; in premium = look short.
-    if (inDiscount) { bull += 0.3; parts.push("PD: discount"); }
-    if (inPremium)  { bear += 0.3; parts.push("PD: premium"); }
+  // PD Zone — production: tf_tech.{tf}.pdz with premium/discount classification.
+  const pdz = t?.tf_tech?.D?.pdz || t?.pdz || null;
+  if (pdz && typeof pdz === "object") {
+    const zone = String(pdz.zone || pdz.label || "").toLowerCase();
+    if (zone.includes("discount")) { bull += 0.3; parts.push("PD: discount"); }
+    else if (zone.includes("premium")) { bear += 0.3; parts.push("PD: premium"); }
+  } else {
+    // Geometric fallback from day range.
+    const dayHi = Number(t?.day_high || t?.session_high || t?.high_24h || t?._live_daily_high);
+    const dayLo = Number(t?.day_low  || t?.session_low  || t?.low_24h  || t?._live_daily_low);
+    if (dayHi > 0 && dayLo > 0 && dayHi > dayLo) {
+      const mid = (dayHi + dayLo) / 2;
+      if (px < mid) { bull += 0.3; parts.push("PD: discount"); }
+      else if (px > mid) { bear += 0.3; parts.push("PD: premium"); }
+    }
   }
 
   const net = bull - bear;
@@ -202,36 +270,42 @@ function scoreL5_Carter(t) {
 
   // 200-SMA gate (Carter's "hold the line" rule).
   const px = Number(t?.price || 0);
-  const sma200 = Number(t?.tf_tech?.D?.sma200 || t?.sma200_daily || t?._sma200);
+  const sma200 = Number(t?.tf_tech?.D?.sma200 || t?.tf_tech?.D?.ema?.sma200 || t?.sma200_daily || t?._sma200);
   if (Number.isFinite(sma200) && sma200 > 0 && px > 0) {
     if (px > sma200) { bull += 0.4; parts.push("Above 200SMA"); }
     else if (px < sma200) { bear += 0.4; parts.push("Below 200SMA"); }
   }
 
-  // TTM Squeeze release on D or 4H (highest-conviction Carter trigger).
-  // Sign the direction with the squeeze's momentum oscillator if present.
-  const tfList = ["D", "240", "60"];
-  let releasedTf = null, releaseMo = 0;
+  // TTM Squeeze release on D / 4H / 1H. Production shape:
+  //   tf_tech.{tf}.sq = { s: 1|0, r: 1|0, c: 1|0 } where r=1 means release.
+  // Direction (momentum) read from tf_tech.{tf}.rsi or ema_regime as proxy
+  // since momentum oscillator isn't stored directly.
+  const tfList = ["D", "4H", "1H"];
+  let releasedTf = null, releaseDir = 0;
   for (const tf of tfList) {
     const sq = t?.tf_tech?.[tf]?.sq;
     if (!sq) continue;
-    if (sq.r === true) {
+    if (sq.r === 1 || sq.r === true) {
       releasedTf = tf;
-      releaseMo = Number(sq.mo ?? sq.momentum ?? 0);
+      // Sign release direction from EMA regime if present (1=bull, -1=bear).
+      const regimeKey = tf === "D" ? "ema_regime_daily" : tf === "4H" ? "ema_regime_4h" : "ema_regime_1h";
+      const reg = Number(t?.[regimeKey]);
+      if (Number.isFinite(reg) && reg !== 0) releaseDir = reg > 0 ? 1 : -1;
       break;
     }
   }
   if (releasedTf) {
-    if (releaseMo > 0) { bull += 0.7; parts.push(`Squeeze RLS ${releasedTf} (mo+)`); }
-    else if (releaseMo < 0) { bear += 0.7; parts.push(`Squeeze RLS ${releasedTf} (mo−)`); }
+    if (releaseDir > 0) { bull += 0.7; parts.push(`Squeeze RLS ${releasedTf} (EMA+)`); }
+    else if (releaseDir < 0) { bear += 0.7; parts.push(`Squeeze RLS ${releasedTf} (EMA−)`); }
     else { parts.push(`Squeeze RLS ${releasedTf}`); }
   }
 
-  // First-pullback heuristic: did we close above the 5-day high in the last
-  // 3 bars AND now we're pulled back to the 8 or 21 EMA?
-  const ema8  = Number(t?.tf_tech?.D?.ema8  || t?._ema8);
-  const ema21 = Number(t?.tf_tech?.D?.ema21 || t?._ema21);
-  const recentHi5 = Number(t?.high_5d || t?._high_5d);
+  // First-pullback heuristic: did we close above the 5-day high recently
+  // AND now we're pulled back to the 8 or 21 EMA?
+  const emaMap = t?.tf_tech?.D?.ema || {};
+  const ema8  = Number(emaMap?.ema8  || t?.ema_map?.ema8  || t?._ema8);
+  const ema21 = Number(emaMap?.ema21 || t?.ema_map?.ema21 || t?._ema21);
+  const recentHi5 = Number(t?.high_5d || t?._high_5d || t?._live_daily_high);
   if (px > 0 && ema8 > 0 && ema21 > 0 && recentHi5 > 0 && px <= recentHi5 * 1.005 && px >= ema21 * 0.99 && px <= ema8 * 1.01) {
     bull += 0.5; parts.push("First-pullback to 8/21 EMA after breakout");
   }
@@ -267,25 +341,39 @@ function scoreL5_Carter(t) {
 }
 
 function scoreL6_DeMark(t) {
-  // TD Sequential — wave maturity. Mid-wave (count 3-7) = ride; perfected
-  // 9/13 = exhaustion (counter-trade or exit).
-  const tdSeq = t?.td_seq || t?._td_seq;
-  if (!tdSeq?.per_tf) return { side: "NEUTRAL", strength: 0, evidence: "no_td" };
+  // TD Sequential — wave maturity. Production shape:
+  //   t.td_sequential.per_tf.{tf} = {
+  //     td9_bullish, td9_bearish, td13_bullish, td13_bearish,
+  //     bullish_prep_count, bearish_prep_count,
+  //     tv_count, tv_count_side
+  //   }
+  // Mid-wave count (3-7) = continuation = ride. tv_count_side identifies
+  // dominant direction. Perfected 9 or 13 = exhaustion.
+  const tdSeq = t?.td_sequential || t?.td_seq || t?._td_seq;
+  const perTf = tdSeq?.per_tf || (tdSeq ? { D: tdSeq } : null);
+  if (!perTf) return { side: "NEUTRAL", strength: 0, evidence: "no_td" };
   let bull = 0, bear = 0, parts = [];
-  for (const tf of ["D", "240"]) {
-    const row = tdSeq.per_tf[tf];
+  for (const tf of ["D", "4H", "240"]) {
+    const row = perTf[tf];
     if (!row) continue;
-    const buyCount = Number(row.buy_setup || row.buyCount || 0);
-    const sellCount = Number(row.sell_setup || row.sellCount || 0);
-    // Active setup in mid-range = continuation. Perfected 9/13 = exhaustion.
-    if (buyCount >= 3 && buyCount <= 7) { bull += 0.4; parts.push(`TD${tf} buy ${buyCount}/9`); }
-    else if (buyCount === 9) { bear += 0.3; parts.push(`TD${tf} buy PERFECT 9 (exhaustion)`); }
-    if (sellCount >= 3 && sellCount <= 7) { bear += 0.4; parts.push(`TD${tf} sell ${sellCount}/9`); }
-    else if (sellCount === 9) { bull += 0.3; parts.push(`TD${tf} sell PERFECT 9 (exhaustion)`); }
+    const bullPrep = Number(row.bullish_prep_count || row.buy_setup || row.buyCount || 0);
+    const bearPrep = Number(row.bearish_prep_count || row.sell_setup || row.sellCount || 0);
+    if (row.td9_bullish === true) { bear += 0.3; parts.push(`TD${tf} 9 bull (exhaustion)`); }
+    if (row.td9_bearish === true) { bull += 0.3; parts.push(`TD${tf} 9 bear (exhaustion)`); }
+    if (row.td13_bullish === true) { bear += 0.5; parts.push(`TD${tf} 13 bull (deep exhaustion)`); }
+    if (row.td13_bearish === true) { bull += 0.5; parts.push(`TD${tf} 13 bear (deep exhaustion)`); }
+    if (bullPrep >= 3 && bullPrep <= 7) { bull += 0.4; parts.push(`TD${tf} bull prep ${bullPrep}/9`); }
+    if (bearPrep >= 3 && bearPrep <= 7) { bear += 0.4; parts.push(`TD${tf} bear prep ${bearPrep}/9`); }
+    // tv_count is the TradingView-style live count (set in the current direction).
+    if (row.tv_count_side === "bull" && row.tv_count >= 3 && row.tv_count <= 7) {
+      bull += 0.3; parts.push(`TD${tf} tv ${row.tv_count} bull`);
+    } else if (row.tv_count_side === "bear" && row.tv_count >= 3 && row.tv_count <= 7) {
+      bear += 0.3; parts.push(`TD${tf} tv ${row.tv_count} bear`);
+    }
   }
   const net = bull - bear;
   const total = bull + bear;
-  const strength = Math.min(1, total / 1.0);
+  const strength = Math.min(1, total / 1.5);
   if (net > 0.3) return { side: "LONG", strength, evidence: parts.join(", ") };
   if (net < -0.3) return { side: "SHORT", strength, evidence: parts.join(", ") };
   return { side: "NEUTRAL", strength: 0, evidence: parts.join(", ") || "TD neutral" };
@@ -293,29 +381,35 @@ function scoreL6_DeMark(t) {
 
 function scoreL7_Trend(t) {
   // Ripster cloud + SuperTrend structure health (sustainability of move).
+  // Production paths:
+  //   tf_tech.D.ripster.c72_89.above/below
+  //   tf_tech.D.stDir + .stSlope
   let bull = 0, bear = 0, parts = [];
 
   // Ripster c72/89 cloud — daily.
-  const rip = t?.ripster?.c72_89 || t?.tf_tech?.D?.ripster?.c72_89;
+  const rip = t?.tf_tech?.D?.ripster?.c72_89 || t?.ripster?.c72_89;
   if (rip) {
     if (rip.above) { bull += 0.5; parts.push("Ripster above"); }
     else if (rip.below) { bear += 0.5; parts.push("Ripster below"); }
   }
 
-  // SuperTrend daily + slope.
-  const stD = t?.tf_tech?.D?.supertrend || t?.supertrend_daily;
-  if (stD) {
-    const dir = String(stD.dir || stD.direction || "").toUpperCase();
-    const slope = Number(stD.slope || 0);
-    if (dir === "BULL" || dir === "LONG") { bull += 0.5 + Math.min(0.3, Math.max(0, slope)); parts.push(`ST bull (slope ${slope.toFixed(2)})`); }
-    else if (dir === "BEAR" || dir === "SHORT") { bear += 0.5 + Math.min(0.3, Math.max(0, -slope)); parts.push(`ST bear (slope ${slope.toFixed(2)})`); }
+  // SuperTrend daily + slope (production fields).
+  const stDir = t?.tf_tech?.D?.stDir;
+  const stSlope = Number(t?.tf_tech?.D?.stSlope || 0);
+  const stDirStr = String(stDir || "").toUpperCase();
+  if (stDirStr === "BULL" || stDirStr === "LONG" || stDir === 1) {
+    bull += 0.5 + Math.min(0.3, Math.max(0, stSlope * 10));
+    parts.push(`ST bull (slope ${stSlope.toFixed(3)})`);
+  } else if (stDirStr === "BEAR" || stDirStr === "SHORT" || stDir === -1) {
+    bear += 0.5 + Math.min(0.3, Math.max(0, -stSlope * 10));
+    parts.push(`ST bear (slope ${stSlope.toFixed(3)})`);
   }
 
-  // EMA spacing — widening = strong trend, tightening = exhaustion.
-  const emaSpread = Number(t?.tf_tech?.D?.ema_spread || t?._ema_spread);
-  if (Number.isFinite(emaSpread) && Math.abs(emaSpread) > 0.005) {
-    if (emaSpread > 0) { bull += 0.2; parts.push("EMA spacing widening up"); }
-    else { bear += 0.2; parts.push("EMA spacing widening down"); }
+  // EMA regime daily (proxy for spacing). +2 = strong bull, -2 = strong bear.
+  const emaReg = Number(t?.ema_regime_daily);
+  if (Number.isFinite(emaReg)) {
+    if (emaReg >= 1) { bull += 0.2 * Math.min(1, emaReg / 2); parts.push(`EMA regime +${emaReg}`); }
+    else if (emaReg <= -1) { bear += 0.2 * Math.min(1, -emaReg / 2); parts.push(`EMA regime ${emaReg}`); }
   }
 
   const net = bull - bear;
@@ -327,14 +421,15 @@ function scoreL7_Trend(t) {
 }
 
 function scoreL8_Saty(t) {
-  // ATR fib day-gate — execution-level signal. Above mid + room to +38.2 = bull
-  // execution lane open; below mid + room to -38.2 = bear lane open.
-  const af = t?.atr_levels || t?.atrFibLevels;
+  // ATR fib day-gate — Saty Mahajan's execution-level signal. Production
+  // path: tf_tech.D.saty OR top-level atr_levels.
+  const af = t?.tf_tech?.D?.saty || t?.atr_levels || t?.atrFibLevels;
   if (!af) return { side: "NEUTRAL", strength: 0, evidence: "no_atr_fib" };
   const px = Number(t?.price || 0);
-  const mid = Number(af.anchor);
-  const up = Number(af.levels?.["+38.2%"] || af["+38.2"]);
-  const dn = Number(af.levels?.["-38.2%"] || af["-38.2"]);
+  const mid = Number(af.anchor || af.mid || af.pivot);
+  const levels = af.levels || af;
+  const up = Number(levels["+38.2%"] || levels["+38.2"] || af["+38.2%"]);
+  const dn = Number(levels["-38.2%"] || levels["-38.2"] || af["-38.2%"]);
   if (!px || !mid) return { side: "NEUTRAL", strength: 0, evidence: "no_anchor" };
   let bull = 0, bear = 0, parts = [];
   if (px > mid) { bull += 0.4; parts.push("Above pivot"); }
@@ -366,52 +461,66 @@ function scoreL8_Saty(t) {
 // (for the options-ladder selector). A sloping daily ST is the strongest
 // confirmation; a flat daily ST + sloping 60m = entering early into a swing.
 
-const ST_TFS_INTRADAY = ["5", "15", "30"];
-const ST_TFS_SWING    = ["60", "240", "D"];
+// Production tf_tech labels: '10', '30', '1H', '4H', 'D' (NOT '60' or '240').
+const ST_TFS_INTRADAY = ["10", "30"];
+const ST_TFS_SWING    = ["1H", "4H", "D"];
 
 function _readSuperTrend(t, tf) {
-  // Multiple field shapes — be defensive.
+  // Production scoring writes ST as two flat fields on the TF row:
+  //   tf_tech.{tf}.stDir   — "BULL" | "BEAR" (or sometimes 1 / -1)
+  //   tf_tech.{tf}.stSlope — numeric slope (per-bar delta of the ST line)
+  // Older / alternate shapes are also supported as fallback.
   const tfRow = t?.tf_tech?.[tf];
-  return tfRow?.supertrend
-      || tfRow?.st
-      || t?.supertrend_by_tf?.[tf]
-      || null;
+  if (!tfRow) return null;
+  if (tfRow.stDir !== undefined || tfRow.stSlope !== undefined) {
+    return { dir: tfRow.stDir, slope: tfRow.stSlope };
+  }
+  return tfRow.supertrend || tfRow.st || null;
 }
 
 function _stSloping(st) {
   if (!st) return { sloping: false, slope_dir: 0, slope_age_bars: null };
-  // Direct field if available (preferred).
+  const dirRaw = st.dir ?? st.direction;
+  // Direction can be string ("BULL"/"BEAR"), number (1/-1), or boolean-ish.
+  let dirSign = 0;
+  if (typeof dirRaw === "number") dirSign = dirRaw > 0 ? 1 : dirRaw < 0 ? -1 : 0;
+  else if (typeof dirRaw === "string") {
+    const up = dirRaw.toUpperCase();
+    if (up === "BULL" || up === "LONG" || up === "UP")    dirSign = 1;
+    if (up === "BEAR" || up === "SHORT" || up === "DOWN") dirSign = -1;
+  }
+
+  // Preferred: explicit slope field.
   if (Number.isFinite(Number(st.slope))) {
     const s = Number(st.slope);
-    const dir = String(st.dir || st.direction || "").toUpperCase();
-    if (Math.abs(s) < 0.0005) return { sloping: false, slope_dir: 0, slope_age_bars: null };
+    if (Math.abs(s) < 0.0005) {
+      // Slope exists but ~0 — line is flat even though direction may be set.
+      return { sloping: false, slope_dir: 0, slope_age_bars: null, st_dir: dirRaw };
+    }
     const sign = s > 0 ? 1 : -1;
     return {
       sloping: true,
       slope_dir: sign,
       slope_age_bars: Number(st.slope_age_bars) || Number(st.flip_age_bars) || null,
-      st_dir: dir,
+      st_dir: dirRaw,
     };
   }
-  // Fallback — derive from a series of recent values if present.
+
+  // Series fallback.
   const series = Array.isArray(st.series) ? st.series : (Array.isArray(st.values) ? st.values : null);
   if (series && series.length >= 3) {
     const last = Number(series[series.length - 1]);
-    const prev = Number(series[series.length - 2]);
     const prev2 = Number(series[series.length - 3]);
-    if ([last, prev, prev2].every(Number.isFinite)) {
+    if ([last, prev2].every(Number.isFinite)) {
       const slope = last - prev2;
       const sign = slope > 0 ? 1 : slope < 0 ? -1 : 0;
       if (sign === 0) return { sloping: false, slope_dir: 0, slope_age_bars: null };
-      return { sloping: true, slope_dir: sign, slope_age_bars: null };
+      return { sloping: true, slope_dir: sign, slope_age_bars: null, st_dir: dirRaw };
     }
   }
-  // Last fallback — if we know direction but not slope, assume sloping (most
-  // ST implementations only flip when direction changes, so a held direction
-  // for several bars implies the line is moving with the trend).
-  const dir = String(st.dir || st.direction || "").toUpperCase();
-  if (dir === "BULL" || dir === "LONG")  return { sloping: true, slope_dir: 1,  slope_age_bars: null, st_dir: dir };
-  if (dir === "BEAR" || dir === "SHORT") return { sloping: true, slope_dir: -1, slope_age_bars: null, st_dir: dir };
+
+  // Last fallback: held direction means line is moving with the trend.
+  if (dirSign !== 0) return { sloping: true, slope_dir: dirSign, slope_age_bars: null, st_dir: dirRaw };
   return { sloping: false, slope_dir: 0, slope_age_bars: null };
 }
 

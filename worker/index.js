@@ -618,6 +618,7 @@ import {
   tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
   tdFetchOptionsChain as _tdFetchOptionsChain,
 } from "./twelvedata.js";
+import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
 import { AI_CIO_MODEL as _CIO_MODEL } from "./cio/cio-prompts.js";
 
 // Register all entry engines with the dispatcher
@@ -74097,12 +74098,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             chainStatus = `exception:${String(e?.message || e).slice(0, 80)}`;
           }
           const accountValue = Number(url.searchParams.get("account_value")) || 100_000;
-          const ladder = _buildOptionsLadder(ladderInput, { profile, account_value: accountValue, chain });
+          // 2026-05-30 — Root Strategy verdict drives ladder ordering.
+          let confluence = null;
+          try {
+            confluence = _scoreRootConfluence(data);
+          } catch (_) { /* best-effort */ }
+          // Ticker themes for LETF lookup.
+          let themes = [];
+          try { themes = _getThemesForTicker(ticker); } catch (_) {}
+          const ladder = _buildOptionsLadder(ladderInput, {
+            profile, account_value: accountValue, chain, confluence, themes,
+          });
           if (!ladder) return sendJSON({ ok: false, ticker, error: "ladder_build_failed" }, 500, corsHeaders(env, req));
           return sendJSON({
             ok: true,
             ticker,
             chain_status: chainStatus,
+            confluence_verdict: confluence,
             ...ladder,
           }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -74161,7 +74173,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 atr_pct: atrPct,
                 mode: "trader",
               };
-              const ladder = _buildOptionsLadder(ladderInput, { profile });
+              // Confluence-aware: each ticker gets its own root-strategy
+              // verdict so the ladder reflects RIDE/FADE/WAIT context.
+              let confluence = null;
+              try { confluence = _scoreRootConfluence(t); } catch (_) {}
+              let themes = [];
+              try { themes = _getThemesForTicker(sym); } catch (_) {}
+              const ladder = _buildOptionsLadder(ladderInput, { profile, confluence, themes });
               if (ladder && ladder.primary) {
                 plays.push({
                   ticker: sym,
@@ -74169,6 +74187,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   conviction: Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0)),
                   direction: ladderInput.direction,
                   price: px,
+                  confluence_mode: confluence?.mode || "UNKNOWN",
+                  confluence_score: confluence?.score || null,
+                  confluence_summary: confluence?.actionable_summary || null,
                   primary: ladder.primary,
                   ladder_count: ladder.ladder.length,
                   ladder_by_profile: ladder.ladder_by_profile,
@@ -74176,6 +74197,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) { /* skip individual failures */ }
           }
+          // 2026-05-30 — sort top picks by RIDE mode + confluence score
+          // (instead of just by entry_quality). Front-page favors the
+          // highest-conviction multi-layer alignments.
+          const MODE_RANK = { RIDE: 0, DRIFT: 1, READY: 2, FADE: 3, WAIT: 4, UNKNOWN: 5 };
+          plays.sort((a, b) => {
+            const dm = (MODE_RANK[a.confluence_mode] ?? 99) - (MODE_RANK[b.confluence_mode] ?? 99);
+            if (dm !== 0) return dm;
+            return (Number(b.confluence_score) || 0) - (Number(a.confluence_score) || 0);
+          });
           return sendJSON({
             ok: true,
             profile,

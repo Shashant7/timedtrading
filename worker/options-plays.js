@@ -37,6 +37,78 @@
 //
 //  Authored 2026-05-30.
 
+// ── Leveraged-ETF map ──────────────────────────────────────────────────────
+// Per-direction LETF lookup so the ladder can include "no-options leverage"
+// alternatives between stock and options. Operator-articulated: "leveraged
+// ETFs or pure stocks based on the circumstance — we lean risk on when
+// appropriate."
+//
+// Conservative: 2x/3x ETFs only when the underlying maps cleanly. For
+// thematics with no clean LETF, the slot stays empty and the ladder skips
+// the LETF tier.
+const LETF_MAP = {
+  // Broad indices
+  SPY:  { long: "SPXL", short: "SPXS",  factor: 3, note: "Direxion 3× S&P 500" },
+  QQQ:  { long: "TQQQ", short: "SQQQ",  factor: 3, note: "ProShares 3× Nasdaq-100" },
+  IWM:  { long: "TNA",  short: "TZA",   factor: 3, note: "Direxion 3× Russell 2000" },
+  DIA:  { long: "UDOW", short: "SDOW",  factor: 3, note: "ProShares 3× Dow" },
+  // Sectors
+  XLK:  { long: "TECL", short: "TECS",  factor: 3, note: "Direxion 3× Tech" },
+  XLF:  { long: "FAS",  short: "FAZ",   factor: 3, note: "Direxion 3× Financials" },
+  XLE:  { long: "ERX",  short: "ERY",   factor: 2, note: "Direxion 2× Energy" },
+  XLV:  { long: "CURE", short: null,    factor: 3, note: "Direxion 3× Healthcare (long only)" },
+  XLI:  { long: "DUSL", short: null,    factor: 3, note: "Direxion 3× Industrials" },
+  XLP:  { long: null,   short: null,    factor: 0, note: "No LETF (defensive sector)" },
+  // Semis (separately tracked theme)
+  SMH:  { long: "SOXL", short: "SOXS",  factor: 3, note: "Direxion 3× Semis" },
+  // Crypto-adjacent (high beta proxies for direct BTC/ETH exposure)
+  IBIT: { long: "BITX", short: "BITI",  factor: 2, note: "2× Bitcoin (Volatility Shares)" },
+  // Volatility
+  VIX:  { long: "UVXY", short: "SVXY",  factor: 1.5, note: "ProShares Ultra VIX" },
+  // Bonds (rare but useful)
+  TLT:  { long: "TMF",  short: "TMV",   factor: 3, note: "Direxion 3× 20+yr Treasury" },
+};
+
+// Per-ticker direct LETF mapping. When a single name is the leveraged play
+// (e.g. NVDA → NVDL/NVDU 2x), surface it as the LETF slot.
+const SINGLE_NAME_LETF = {
+  NVDA: { long: "NVDL", short: "NVDD", factor: 2, note: "GraniteShares 2× NVDA" },
+  TSLA: { long: "TSLL", short: "TSLZ", factor: 2, note: "GraniteShares 2× TSLA" },
+  AAPL: { long: "AAPU", short: "AAPD", factor: 2, note: "Direxion 2× AAPL" },
+  AMZN: { long: "AMZU", short: "AMZD", factor: 2, note: "Direxion 2× AMZN" },
+  MSFT: { long: "MSFU", short: "MSFD", factor: 2, note: "Direxion 2× MSFT" },
+  GOOGL:{ long: "GGLL", short: "GGLS", factor: 2, note: "Direxion 2× GOOGL" },
+  META: { long: "METU", short: "METD", factor: 2, note: "Direxion 2× META" },
+  COIN: { long: "CONL", short: null,    factor: 2, note: "GraniteShares 2× COIN" },
+  MSTR: { long: "MSTU", short: "MSTZ",  factor: 2, note: "T-Rex 2× MSTR" },
+  TSM:  { long: "TSMU", short: null,    factor: 2, note: "Direxion 2× TSM" },
+};
+
+// Theme-level LETF fallback (when ticker matches a tier-1 theme, suggest the
+// thematic LETF as the leverage alternative).
+const THEME_LETF = {
+  ai_infra_compute:  { long: "SOXL", short: "SOXS", factor: 3, note: "3× Semis" },
+  ai_infra_memory:   { long: "SOXL", short: "SOXS", factor: 3, note: "3× Semis" },
+  ai_infra_semicap:  { long: "SOXL", short: "SOXS", factor: 3, note: "3× Semis" },
+  ai_software:       { long: "TECL", short: "TECS", factor: 3, note: "3× Tech" },
+  ai_consumer:       { long: "TECL", short: "TECS", factor: 3, note: "3× Tech" },
+  banks_money_center:{ long: "FAS",  short: "FAZ",  factor: 3, note: "3× Financials" },
+  banks_regional:    { long: "DPST", short: "WDRW", factor: 3, note: "3× Regional Banks" },
+  oil_gas:           { long: "ERX",  short: "ERY",  factor: 2, note: "2× Energy" },
+  crypto_proxies:    { long: "BITX", short: "BITI", factor: 2, note: "2× Bitcoin" },
+  crypto_etf:        { long: "BITX", short: "BITI", factor: 2, note: "2× Bitcoin" },
+};
+
+function lookupLETF(ticker, themes = []) {
+  const sym = String(ticker || "").toUpperCase();
+  if (SINGLE_NAME_LETF[sym]) return { ticker: sym, ...SINGLE_NAME_LETF[sym] };
+  if (LETF_MAP[sym]) return { ticker: sym, ...LETF_MAP[sym] };
+  for (const theme of themes || []) {
+    if (THEME_LETF[theme]) return { ticker: sym, theme, ...THEME_LETF[theme] };
+  }
+  return null;
+}
+
 // ── Risk profiles ──────────────────────────────────────────────────────────
 // Order matters: index = how aggressive the user is. Used to rank ladder.
 export const RISK_PROFILES = ["conservative", "moderate", "aggressive", "speculator"];
@@ -453,6 +525,57 @@ function buildCoveredCall(ctx) {
   };
 }
 
+// 2026-05-30 — Leveraged ETF tier. Sits between Stock and Long Call in the
+// risk ladder for users who want amplified beta without options' time
+// decay / strike / expiration complexity.
+function buildLeveragedETF(ctx) {
+  const { ticker, price, sl, tp1, direction, dollars_at_risk, themes } = ctx;
+  const letf = lookupLETF(ticker, themes);
+  if (!letf) return null;
+  const sideKey = direction === "SHORT" ? "short" : "long";
+  const letfTicker = letf[sideKey];
+  if (!letfTicker) {
+    // No inverse LETF exists; if user wants short and only long LETF exists,
+    // suggest puts on the long LETF as the leverage path — but that becomes
+    // an options play, so we skip the LETF tier here.
+    return null;
+  }
+  const factor = Number(letf.factor) || 2;
+  // SL/TP geometry translates by factor (approximately, with daily-reset
+  // decay above 3% moves — flag in notes).
+  const underlyingPctMove = direction === "SHORT"
+    ? ((price - tp1) / price)
+    : ((tp1 - price) / price);
+  const slPctMove = direction === "SHORT"
+    ? ((sl - price) / price)
+    : ((price - sl) / price);
+  const letfExpectedGainPct = underlyingPctMove * factor * 100;
+  const letfExpectedLossPct = slPctMove * factor * 100;
+  // Position size: same dollars-at-risk constraint, but leverage means
+  // smaller dollar allocation captures the same magnitude move.
+  const shares = Math.max(1, Math.floor(dollars_at_risk / Math.max(0.5, slPctMove * factor * 100)));
+  const notional = Math.round(shares * (price * 0.5)); // rough — LETF price varies
+  return {
+    archetype: "leveraged_etf",
+    label: `${letfTicker} (${factor}× ${direction === "SHORT" ? "inverse" : "long"})`,
+    rationale: `${factor}× leveraged ETF on ${ticker} (${letf.note}). No expiration, no Greeks. Daily-reset decay makes it a 1-5 day vehicle, not a buy-and-hold. Expected gain ≈ ${letfExpectedGainPct.toFixed(1)}% if ${ticker} moves to TP1. Risk ≈ ${letfExpectedLossPct.toFixed(1)}% if ${ticker} stops out.`,
+    legs: [
+      { action: direction === "SHORT" ? "SELL_SHORT" : "BUY", instrument: "ETF", ticker: letfTicker, qty: shares },
+    ],
+    underlying: ticker,
+    letf_ticker: letfTicker,
+    factor,
+    contracts: shares,
+    max_loss_usd: Math.round(dollars_at_risk),
+    max_gain_label: `≈${letfExpectedGainPct.toFixed(0)}% on ${shares} shares if ${ticker} → $${tp1?.toFixed(2) ?? "TP"}`,
+    notes: [
+      `${factor}× daily-reset LETF — beta decay if held > ~5 trading days`,
+      `For longer holds, use options or the underlying directly`,
+      letf.theme ? `Mapped via theme: ${letf.theme}` : null,
+    ].filter(Boolean),
+  };
+}
+
 function buildLongStraddle(ctx) {
   const { price, atrPct, expiration, contracts, chain } = ctx;
   const strike = snapStrike(price);
@@ -486,29 +609,43 @@ function buildLongStraddle(ctx) {
   };
 }
 
-// ── Strategy ranking by profile ────────────────────────────────────────────
-// Returns ladder ranked by profile preference — first card is the headline,
-// subsequent cards are gradient alternatives (cheaper / safer or more
-// convex). Always includes at least the stock fallback so EVERY profile
-// sees something actionable.
+// ── Strategy ranking by profile + confluence ──────────────────────────────
+// Returns ladder ranked by profile preference, with confluence-boosted plays
+// (e.g. Long Call when root-strategy says RIDE LONG) floated to the top. The
+// stock fallback always remains so every profile sees something actionable.
 function rankByProfile(strategies, profile) {
   const order = PROFILE_META[profile]?.preferred || PROFILE_META.speculator.preferred;
-  const score = (s) => {
+  const profileScore = (s) => {
     const idx = order.indexOf(s.archetype);
     return idx === -1 ? 999 : idx;
   };
-  return [...strategies].sort((a, b) => score(a) - score(b));
+  return [...strategies].sort((a, b) => {
+    // Confluence boost wins — RIDE LONG ⇒ Long Call always on top for
+    // speculators / aggressive; FADE ⇒ vertical spreads on top.
+    const aBoost = a._confluence_boost ? -10 : 0;
+    const bBoost = b._confluence_boost ? -10 : 0;
+    if (aBoost !== bBoost) return aBoost - bBoost;
+    return profileScore(a) - profileScore(b);
+  });
 }
 
 // ── Public: build the full ladder for a contract ───────────────────────────
 //
 // contract: trader prediction contract object (price, direction, sl, tp1,
 //           tp2, tp3, rr, tier, stage, atr_pct, ...).
-// opts.profile        — risk profile (defaults to speculator)
-// opts.account_value  — for sizing (defaults to 100k baseline)
-// opts.risk_budget_pct— per-trade risk (defaults to contract's tier risk %)
-// opts.chain          — OPTIONAL live options chain (v2). If absent we use
-//                       Black-Scholes + ATR-IV estimates.
+// opts.profile         — risk profile (defaults to speculator)
+// opts.account_value   — for sizing (defaults to 100k baseline)
+// opts.risk_budget_pct — per-trade risk (defaults to contract's tier risk %)
+// opts.chain           — OPTIONAL live options chain. Without it we use
+//                        Black-Scholes + ATR-IV estimates.
+// opts.confluence      — OPTIONAL TT Root Strategy verdict from
+//                        scoreRootConfluence(). When supplied:
+//                          mode=RIDE → bias ladder to long premium (max convexity)
+//                          mode=READY → return ladder as "prepare" cards w/ note
+//                          mode=DRIFT → demote long premium, prefer spreads
+//                          mode=FADE → invert direction or favor credit spreads
+//                          mode=WAIT → return iron-condor-only or stock-only
+// opts.themes          — OPTIONAL ticker theme list (for LETF lookup)
 //
 export function buildOptionsLadder(contract, opts = {}) {
   if (!contract || !Number.isFinite(Number(contract.price))) return null;
@@ -534,23 +671,57 @@ export function buildOptionsLadder(contract, opts = {}) {
   const contracts = Math.max(1, Math.floor(dollarsAtRisk / (atmPrem * 100)));
 
   const ctx = {
+    ticker: contract.ticker,
     price, direction, sl, tp1, atrPct, expiration, contracts,
     account_value: accountValue, risk_budget_pct: riskBudgetPct,
     dollars_at_risk: dollarsAtRisk,
-    chain: opts.chain || null, // v2 — real chain data when supplied
+    chain: opts.chain || null,
+    themes: Array.isArray(opts.themes) ? opts.themes : [],
   };
+
+  // ── Root-strategy confluence integration ────────────────────────────────
+  // When a verdict is supplied, it influences:
+  //   - DIRECTIONAL plays (Long Call/Put) only run if the verdict's side
+  //     matches the contract direction OR mode is FADE (in which case we
+  //     flip to the FADE side).
+  //   - In FADE mode we lean credit spreads + iron condors (sell premium).
+  //   - In WAIT mode we suppress directional plays and only show defined-
+  //     risk + stock alternatives.
+  //   - In RIDE mode the long-premium plays get a `confluence_boost` tag
+  //     so the ranker can elevate them.
+  const verdict = opts.confluence || null;
+  const verdictMode = verdict?.mode || "UNKNOWN";
+  const verdictSide = verdict?.side || direction;
+  const effectiveDirection = (verdictMode === "FADE" && verdict?.side && verdict.side !== "NEUTRAL")
+    ? verdict.side
+    : direction;
+  // Re-derive context price-target geometry for FADE flips.
+  const fadeFlipped = effectiveDirection !== direction;
+  const ctxEff = fadeFlipped ? { ...ctx, direction: effectiveDirection, tp1: sl, sl: tp1 } : ctx;
 
   const ladder = [];
 
-  if (direction === "LONG" || direction === "") {
-    // Always offer the multi-bagger play first when bias is bullish.
-    const lc = buildLongCall(ctx);
-    if (lc) ladder.push(lc);
-    const bcs = buildVerticalSpread(ctx, "long");
-    if (bcs) ladder.push(bcs);
-    const csp = buildCashSecuredPut(ctx);
+  // Suppress directional plays entirely in WAIT mode.
+  const suppressDirectional = verdictMode === "WAIT";
+
+  if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
+    const lc = buildLongCall(ctxEff);
+    if (lc) {
+      if (verdictMode === "RIDE") lc._confluence_boost = true;
+      if (verdictMode === "READY") lc._pending_trigger = true;
+      if (verdictMode === "DRIFT") lc._late_entry = true;
+      ladder.push(lc);
+    }
+    const bcs = buildVerticalSpread(ctxEff, "long");
+    if (bcs) {
+      if (verdictMode === "FADE" || verdictMode === "DRIFT") bcs._confluence_boost = true;
+      ladder.push(bcs);
+    }
+    const letfLong = buildLeveragedETF({ ...ctxEff, direction: "LONG" });
+    if (letfLong) ladder.push(letfLong);
+    const csp = buildCashSecuredPut(ctxEff);
     if (csp) ladder.push(csp);
-    const cc = buildCoveredCall(ctx);
+    const cc = buildCoveredCall(ctxEff);
     if (cc) ladder.push(cc);
     ladder.push({
       archetype: "stock_long",
@@ -563,11 +734,21 @@ export function buildOptionsLadder(contract, opts = {}) {
     });
   }
 
-  if (direction === "SHORT" || direction === "") {
-    const lp = buildLongPut(ctx);
-    if (lp) ladder.push(lp);
-    const bps = buildVerticalSpread(ctx, "short");
-    if (bps) ladder.push(bps);
+  if (!suppressDirectional && (effectiveDirection === "SHORT" || effectiveDirection === "")) {
+    const lp = buildLongPut(ctxEff);
+    if (lp) {
+      if (verdictMode === "RIDE") lp._confluence_boost = true;
+      if (verdictMode === "READY") lp._pending_trigger = true;
+      if (verdictMode === "DRIFT") lp._late_entry = true;
+      ladder.push(lp);
+    }
+    const bps = buildVerticalSpread(ctxEff, "short");
+    if (bps) {
+      if (verdictMode === "FADE" || verdictMode === "DRIFT") bps._confluence_boost = true;
+      ladder.push(bps);
+    }
+    const letfShort = buildLeveragedETF({ ...ctxEff, direction: "SHORT" });
+    if (letfShort) ladder.push(letfShort);
     ladder.push({
       archetype: "stock_short",
       label: "Stock (Short)",
@@ -578,9 +759,8 @@ export function buildOptionsLadder(contract, opts = {}) {
     });
   }
 
-  if (direction === "" || atrPct >= 0.04) {
-    // Direction-neutral OR very volatile setup → straddle option.
-    const ls = buildLongStraddle(ctx);
+  if (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04) {
+    const ls = buildLongStraddle(ctxEff);
     if (ls) ladder.push(ls);
   }
 
@@ -648,6 +828,12 @@ export function buildOptionsLadder(contract, opts = {}) {
     ladder: ranked,
     ladder_by_profile,
     using_live_chain: !!opts.chain,
+    // Confluence verdict echo + how it shaped the ladder.
+    confluence_mode: verdictMode,
+    confluence_side: verdictSide,
+    confluence_score: Number(verdict?.score) || null,
+    confluence_summary: verdict?.actionable_summary || null,
+    direction_flipped_by_confluence: fadeFlipped,
     estimated_premium_caveat: opts.chain
       ? null
       : "Premium values are Black-Scholes estimates using ATR-implied volatility. Verify in your broker chain before executing.",
