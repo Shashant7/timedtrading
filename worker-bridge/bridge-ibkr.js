@@ -147,6 +147,122 @@ function _bytesToBigInt(bytes) {
   return bi;
 }
 
+/**
+ * Auto-detect operator's DH prime storage format and extract the prime
+ * as a clean hex string.
+ *
+ *   (a) Raw hex of the prime         — pass through
+ *   (b) Full DER hex (SEQUENCE)      — parse and pull the first INTEGER
+ *   (c) PEM with BEGIN/END markers   — base64 decode → DER parse
+ *
+ * Returns lowercase hex (no whitespace), or empty string on failure.
+ */
+function _extractDHPrimeHex(raw) {
+  if (!raw) return "";
+  const s = String(raw).trim();
+
+  // Case (d): OpenSSL `dhparam -text -noout` output. Looks like:
+  //   PKCS#3 DH Parameters: (2048 bit)
+  //   prime:
+  //       00:fd:f4:61:29:61:d6:59:f2:...
+  //       ...
+  //   generator: 2 (0x2)
+  //
+  // Extract everything between "prime:" and "generator:" (or end),
+  // keep only hex digits and colons, then strip everything non-hex.
+  // This is the SAFE path that doesn't get contaminated by letters
+  // from English labels.
+  if (/generator/i.test(s)) {
+    // Take everything BEFORE the first occurrence of "generator" (the
+    // OpenSSL trailing label), THEN strip all non-hex characters. If
+    // there's also a "prime:" prefix label, we slice past it too.
+    let primeRegion = s.split(/generator/i)[0];
+    if (/prime\s*:/i.test(primeRegion)) {
+      primeRegion = primeRegion.split(/prime\s*:/i).pop();
+    }
+    const primeOnly = primeRegion.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+    if (primeOnly.length >= 256) {
+      return primeOnly.startsWith("00") ? primeOnly.slice(2) : primeOnly;
+    }
+  }
+
+  // Case (c): PEM-wrapped — strip BEGIN/END + decode base64 → DER bytes.
+  if (s.includes("BEGIN DH PARAMETERS") || s.includes("BEGIN")) {
+    try {
+      const body = s
+        .replace(/-----BEGIN[^-]+-----/g, "")
+        .replace(/-----END[^-]+-----/g, "")
+        .replace(/\s+/g, "");
+      const bin = atob(body);
+      const der = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
+      const primeBytes = _derExtractFirstInteger(der);
+      if (primeBytes) return _bytesToHex(primeBytes);
+    } catch (_) {}
+  }
+
+  let hexOnly = s.replace(/[^0-9a-fA-F]/g, "").toLowerCase();
+  if (!hexOnly) return "";
+
+  // Case (b): DER-style hex. Try parsing if it starts with SEQUENCE tag.
+  if (hexOnly.startsWith("30")) {
+    try {
+      const der = new Uint8Array(hexOnly.length / 2);
+      for (let i = 0; i < hexOnly.length; i += 2) {
+        der[i / 2] = parseInt(hexOnly.slice(i, i + 2), 16);
+      }
+      const primeBytes = _derExtractFirstInteger(der);
+      if (primeBytes && primeBytes.length >= 64) {
+        return _bytesToHex(primeBytes);
+      }
+    } catch (_) {}
+  }
+
+  // Case (a) — raw hex of the prime. Strip any single leading 0x00
+  // sign-bit byte the operator may have copied over from DER form.
+  if (hexOnly.length >= 514 && hexOnly.startsWith("00")) {
+    hexOnly = hexOnly.slice(2);
+  }
+  return hexOnly;
+}
+
+/**
+ * Parse a DER-encoded SEQUENCE { INTEGER, ... } and return the bytes of
+ * the FIRST INTEGER. Strips the leading 0x00 byte that DER adds for
+ * positive-sign-bit numbers.
+ */
+function _derExtractFirstInteger(der) {
+  if (!der || der.length < 5) return null;
+  let i = 0;
+  // SEQUENCE tag.
+  if (der[i++] !== 0x30) return null;
+  // SEQUENCE length (skip).
+  i += _derLengthSkip(der, i);
+  // INTEGER tag.
+  if (der[i++] !== 0x02) return null;
+  const { length, offset } = _derParseLength(der, i);
+  i = offset;
+  let intBytes = der.slice(i, i + length);
+  // Strip the leading 0x00 (DER positive-sign indicator).
+  if (intBytes.length > 1 && intBytes[0] === 0x00) intBytes = intBytes.slice(1);
+  return intBytes;
+}
+
+function _derLengthSkip(der, off) {
+  const first = der[off];
+  if ((first & 0x80) === 0) return 1; // short form
+  return 1 + (first & 0x7f); // long form
+}
+
+function _derParseLength(der, off) {
+  const first = der[off++];
+  if ((first & 0x80) === 0) return { length: first, offset: off };
+  const nBytes = first & 0x7f;
+  let length = 0;
+  for (let k = 0; k < nBytes; k++) length = (length << 8) | der[off++];
+  return { length, offset: off };
+}
+
 function _bigIntToBytes(bi) {
   if (bi === 0n) return new Uint8Array([0]);
   const out = [];
@@ -367,10 +483,12 @@ async function _exchangeLst(env, creds) {
   const prependHex = _bytesToHex(prepend);
 
   // 2. DH: random a, A = 2^a mod p.
-  // Strip any whitespace from the DH prime hex (operator may have
-  // pasted it with line breaks from openssl output). BigInt parsing
-  // is strict — even one trailing space breaks it.
-  const dhPrimeClean = String(creds.dhPrime || "").replace(/[^0-9a-fA-F]/g, "");
+  // Operator may have stored the DH prime in several forms:
+  //   (a) Raw hex of the prime (correct — ~512 hex chars for 2048-bit)
+  //   (b) Full DER hex (SEQUENCE { INTEGER prime, INTEGER generator })
+  //   (c) PEM with BEGIN/END markers (need base64 decode → DER parse)
+  // We auto-detect via _extractDHPrimeHex which handles all three.
+  const dhPrimeClean = _extractDHPrimeHex(creds.dhPrime);
   if (!dhPrimeClean) throw new Error("dh_prime_empty_after_cleanup");
   const aBytes = crypto.getRandomValues(new Uint8Array(32));
   const a = _bytesToBigInt(aBytes);
@@ -438,30 +556,88 @@ async function _exchangeLst(env, creds) {
     );
   }
 
-  // 6. Compute K = (B^a) mod p, then LST = HMAC_SHA1(K_bytes, prepend).
+  // 6. Compute K = (B^a) mod p. Try MULTIPLE K-encoding interpretations
+  // because IBKR's spec is ambiguous on the byte representation.
+  // Variant winners are tracked + the one whose LST signature matches
+  // IBKR's is the one we use.
   const B = BigInt("0x" + body.diffie_hellman_response);
   const K = _modPow(B, a, p);
-  let kBytes = _bigIntToBytes(K);
-  // IBKR's spec: prepend a 0x00 byte if K's leading byte has high bit set.
-  if (kBytes[0] & 0x80) {
-    const padded = new Uint8Array(kBytes.length + 1);
-    padded[0] = 0x00;
-    padded.set(kBytes, 1);
-    kBytes = padded;
-  }
-  const lstBytes = await _hmac("SHA-1", kBytes, prepend);
-  const lstB64 = (() => {
-    let s = "";
-    for (let i = 0; i < lstBytes.length; i++) s += String.fromCharCode(lstBytes[i]);
-    return btoa(s);
+  const ibkrSig = String(body.live_session_token_signature || "").toLowerCase();
+  const consumerKeyBytes = new TextEncoder().encode(creds.consumerKey);
+
+  // Variant 1: minimal-bytes K + 0x80 pad when MSB high bit set (current).
+  const kRaw = _bigIntToBytes(K);
+  const kPadded = (kRaw[0] & 0x80)
+    ? (() => { const p = new Uint8Array(kRaw.length + 1); p[0] = 0; p.set(kRaw, 1); return p; })()
+    : kRaw;
+
+  // Variant 2: fixed-width K = prime byte length (256 bytes for 2048-bit prime),
+  // left-zero-padded.
+  const primeByteLen = Math.ceil(dhPrimeClean.length / 2);
+  const kFixed = (() => {
+    const out = new Uint8Array(primeByteLen);
+    out.set(kRaw, primeByteLen - kRaw.length);
+    return out;
   })();
 
-  // 7. Verify the LST by recomputing the LST signature IBKR sent.
-  const expectedSig = await _hmac("SHA-1", lstBytes, new TextEncoder().encode(creds.consumerKey));
-  const expectedHex = _bytesToHex(expectedSig);
-  const valid = String(body.live_session_token_signature || "").toLowerCase() === expectedHex.toLowerCase();
-  if (!valid) {
-    throw new Error("lst_signature_mismatch");
+  // Variant 3: minimal K without any 0x80 padding (raw bytes only).
+  const kMinimal = kRaw;
+
+  // Variant 4: K hex STRING as ASCII bytes (some Ruby/legacy impls do this).
+  const kHexAscii = new TextEncoder().encode(_bytesToHex(kRaw));
+
+  // Cross-product of K-encoding × prepend-encoding × consumer-key-encoding
+  // variants. One will match IBKR's signature; we report the winner +
+  // surface all attempts in the diagnostic.
+  const consumerKeyLower = new TextEncoder().encode((creds.consumerKey || "").toLowerCase());
+  const prependHexBytes = new TextEncoder().encode(prependHex);
+  const kVariants = [
+    { name: "K_padded_0x80",   bytes: kPadded },
+    { name: "K_fixed_width",   bytes: kFixed },
+    { name: "K_minimal",       bytes: kMinimal },
+    { name: "K_hex_ascii",     bytes: kHexAscii },
+  ];
+  const prependVariants = [
+    { name: "p_raw_bytes",  bytes: prepend },
+    { name: "p_hex_ascii",  bytes: prependHexBytes },
+  ];
+  const ckVariants = [
+    { name: "ck_utf8",       bytes: consumerKeyBytes },
+    { name: "ck_utf8_lower", bytes: consumerKeyLower },
+  ];
+
+  const tried = [];
+  let lstBytes = null, winner = null, lstB64 = null;
+  outer: for (const kv of kVariants) {
+    for (const pv of prependVariants) {
+      const candidateLst = await _hmac("SHA-1", kv.bytes, pv.bytes);
+      for (const cv of ckVariants) {
+        const candidateSig = await _hmac("SHA-1", candidateLst, cv.bytes);
+        const candidateHex = _bytesToHex(candidateSig);
+        const tag = `${kv.name}+${pv.name}+${cv.name}`;
+        tried.push({ variant: tag, sig_hex: candidateHex.slice(0, 16) });
+        if (candidateHex.toLowerCase() === ibkrSig) {
+          lstBytes = candidateLst;
+          winner = tag;
+          let s = ""; for (let i = 0; i < lstBytes.length; i++) s += String.fromCharCode(lstBytes[i]);
+          lstB64 = btoa(s);
+          break outer;
+        }
+      }
+    }
+  }
+
+  if (!lstBytes) {
+    // None matched — surface a compact diagnostic so we can compare with
+    // the IBKR signature externally. 16 combinations tried.
+    throw new Error(
+      `lst_signature_mismatch ibkr=${ibkrSig.slice(0, 16)} ` +
+      `prime_len=${dhPrimeClean.length} prime_start=${dhPrimeClean.slice(0, 8)} prime_end=${dhPrimeClean.slice(-8)} ` +
+      `K_len=${kRaw.length} K_start=${_bytesToHex(kRaw.slice(0, 8))} ` +
+      `prepend_len=${prepend.length} prepend_start=${_bytesToHex(prepend.slice(0, 8))} ` +
+      `B_len=${body.diffie_hellman_response?.length} B_start=${body.diffie_hellman_response?.slice(0, 8)} ` +
+      `consumer_key_len=${creds.consumerKey?.length}`,
+    );
   }
 
   return {
@@ -506,6 +682,10 @@ export async function _lstDebug(env, user) {
       has_private_encryption_key: !!creds.privateEncryptionKey,
       has_dh_prime: !!creds.dhPrime,
       dh_prime_hex_len: creds.dhPrime?.length || 0,
+      dh_prime_raw_first32: String(creds.dhPrime || "").slice(0, 32),
+      dh_prime_raw_last16: String(creds.dhPrime || "").slice(-16),
+      dh_prime_cleaned_len: _extractDHPrimeHex(creds.dhPrime).length,
+      dh_prime_cleaned_first32: _extractDHPrimeHex(creds.dhPrime).slice(0, 32),
       signature_key_header: _peekHeader(creds.privateSignatureKey),
       signature_key_der_head: _peek(creds.privateSignatureKey),
       encryption_key_header: _peekHeader(creds.privateEncryptionKey),
