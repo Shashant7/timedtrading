@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-r2"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-r3"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -4977,9 +4977,17 @@
           return () => clearInterval(id);
         }, [RailOverlay]);
 
-        const onSelectTicker = useCallback((sym) => {
+        const onSelectTicker = useCallback((sym, initialTab = null) => {
           if (!sym) return;
           setRailTicker(String(sym).toUpperCase());
+          // 2026-05-30 — Pass through an optional initialTab so callers
+          // (Options Plays of the Day, Open Positions strip, etc.) can
+          // deep-link straight to a specific Right Rail tab. Previously
+          // OptionsPlaysOfTheDay called onSelectTicker(ticker, "OPTIONS")
+          // but the second arg was discarded → rail always opened on
+          // the default ANALYSIS / SNAPSHOT tab.
+          if (initialTab) setRailInitialTab(String(initialTab).toUpperCase());
+          else setRailInitialTab(null);
         }, []);
                 const applyRailOpen = useCallback((detail) => {
           const p = typeof window.ttConsumeRailOpenForReact === "function"
