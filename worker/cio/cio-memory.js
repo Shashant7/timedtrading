@@ -4,6 +4,7 @@
 import { TICKER_PROXY_MAP, getThemesForTicker, THEMES } from "../sector-mapping.js";
 import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
+import { getStrategyForTicker, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
 
 function computeCryptoTrend(snapshots, idx) {
   if (idx < 10) return 0;
@@ -546,6 +547,33 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     }
   } catch (_) {
     // Best-effort — discovery enrichment must never break CIO.
+  }
+
+  // ── Layer 15: Strategic stance (2026-05-29 — FSD playbook) ──────────────
+  // Surfaces the active editorial playbook (currently Fundstrat 2026 Year
+  // Ahead) so CIO can:
+  //   - Bias APPROVE on tier-1 theme entries when the playbook is bullish
+  //   - Demand stronger justification for off-thesis trades
+  //   - Cite the source ("on-thesis: AI compute + MAG7 cohort") in reasoning
+  // See worker/strategy-context.js for the schema + how to rev the vintage.
+  try {
+    const strategy = getStrategyForTicker(sym, tickerData, getThemesForTicker);
+    if (strategy && (strategy.aligned || strategy.themes_matched?.length > 0)) {
+      mem.strategy_stance = {
+        playbook: STRATEGY_TITLE,
+        vintage: STRATEGY_VINTAGE,
+        stance: strategy.stance,
+        multiplier: strategy.multiplier,
+        tier: strategy.tier,
+        reason: strategy.reason,
+        sector: strategy.sector,
+        sector_stance: strategy.sector_stance,
+        themes_matched: (strategy.themes_matched || []).slice(0, 4),
+        smid_bump: !!strategy.smid_applies,
+      };
+    }
+  } catch (_) {
+    // Strategy enrichment is best-effort — never break CIO memory.
   }
 
   return mem;
