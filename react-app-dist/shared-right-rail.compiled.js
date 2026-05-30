@@ -1411,6 +1411,717 @@
         }
       }, "No investor-mode detail available for ", sym, " yet. Scores compute hourly during market hours.")));
     }
+    function OptionsTabPanel({
+      tickerSymbol,
+      API_BASE
+    }) {
+      const h = React.createElement;
+      const [data, setData] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [err, setErr] = useState(null);
+      const [profile, setProfile] = useState("speculator");
+      const [profileMeta, setProfileMeta] = useState(null);
+      const [showLayers, setShowLayers] = useState(false);
+      useEffect(() => {
+        let cancelled = false;
+        (async () => {
+          try {
+            const base = API_BASE || window.API_BASE || "";
+            const r = await fetch(`${base}/timed/options/risk-profile`, {
+              credentials: "include",
+              cache: "no-store"
+            });
+            if (!r.ok) return;
+            const j = await r.json();
+            if (!cancelled && j?.profile) {
+              setProfile(j.profile);
+              setProfileMeta(j);
+            }
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [API_BASE]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").toUpperCase();
+        if (!sym) return;
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        (async () => {
+          try {
+            const base = API_BASE || window.API_BASE || "";
+            const r = await fetch(`${base}/timed/options/ticker?ticker=${encodeURIComponent(sym)}&profile=${encodeURIComponent(profile)}`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const j = await r.json();
+            if (cancelled) return;
+            if (!j?.ok) {
+              setErr(j?.error || "load_failed");
+              setData(null);
+            } else setData(j);
+          } catch (e) {
+            if (!cancelled) setErr(String(e?.message || e));
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, profile, API_BASE]);
+      const updateProfile = async newProfile => {
+        setProfile(newProfile);
+        try {
+          const base = API_BASE || window.API_BASE || "";
+          await fetch(`${base}/timed/options/risk-profile`, {
+            method: "PUT",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              profile: newProfile
+            })
+          });
+        } catch (_) {}
+      };
+      const Panel = ({
+        title,
+        action,
+        children,
+        color
+      }) => h("div", {
+        style: {
+          background: "var(--ds-surface-1, rgba(255,255,255,0.02))",
+          border: `1px solid ${color ? color + "33" : "var(--ds-border-faint, rgba(255,255,255,0.06))"}`,
+          borderRadius: "var(--ds-radius-lg, 12px)",
+          padding: "var(--ds-space-3, 12px)"
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "var(--ds-space-2, 8px)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          color: color || "var(--ds-text-faint, #6b7280)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase"
+        }
+      }, title), action || null), children);
+      const sym = String(tickerSymbol || "").toUpperCase();
+      const MODE_META = {
+        RIDE: {
+          color: "#34d399",
+          bg: "rgba(52,211,153,0.10)",
+          icon: "🚀",
+          label: "RIDE"
+        },
+        READY: {
+          color: "#f5c25c",
+          bg: "rgba(245,194,92,0.10)",
+          icon: "⏳",
+          label: "READY"
+        },
+        DRIFT: {
+          color: "#60a5fa",
+          bg: "rgba(96,165,250,0.10)",
+          icon: "🌊",
+          label: "DRIFT"
+        },
+        FADE: {
+          color: "#a78bfa",
+          bg: "rgba(167,139,250,0.10)",
+          icon: "↩️",
+          label: "FADE"
+        },
+        WAIT: {
+          color: "#9ca3af",
+          bg: "rgba(156,163,175,0.10)",
+          icon: "⏸",
+          label: "WAIT"
+        },
+        UNKNOWN: {
+          color: "#9ca3af",
+          bg: "rgba(156,163,175,0.05)",
+          icon: "?",
+          label: "—"
+        }
+      };
+      const FRESH_META = {
+        fresh: "🟢 fresh (last 3 bars)",
+        in_motion: "🔵 in motion",
+        mature: "⚪ mature",
+        intraday_only: "🟡 intraday only",
+        none: "⚫ no slope"
+      };
+      const PROFILE_CHIPS = [{
+        key: "conservative",
+        label: "🛡 Conservative"
+      }, {
+        key: "moderate",
+        label: "⚖ Moderate"
+      }, {
+        key: "aggressive",
+        label: "🎯 Aggressive"
+      }, {
+        key: "speculator",
+        label: "🚀 Speculator"
+      }];
+      const fmtUsd = n => Number.isFinite(n) ? n >= 1000 ? "$" + Math.round(n).toLocaleString() : "$" + n.toFixed(0) : "—";
+      if (loading && !data) return h("div", {
+        style: {
+          padding: 24,
+          textAlign: "center",
+          color: "var(--ds-text-muted)"
+        }
+      }, "Loading options for ", sym, "…");
+      if (err) return h(Panel, {
+        title: "Options unavailable"
+      }, h("div", {
+        style: {
+          color: "var(--ds-text-muted)",
+          fontSize: 13
+        }
+      }, "Couldn't load: ", err));
+      if (!data || !data.primary) return h(Panel, {
+        title: "No play yet"
+      }, h("div", {
+        style: {
+          color: "var(--ds-text-muted)",
+          fontSize: 13
+        }
+      }, "No Trader contract for ", sym, " yet. Options plays require an active scoring snapshot."));
+      const verdict = data.confluence_verdict || {};
+      const mode = verdict.mode || "UNKNOWN";
+      const modeMeta = MODE_META[mode] || MODE_META.UNKNOWN;
+      const st = verdict.supertrend_trigger || {};
+      const stFresh = FRESH_META[st.freshness] || st.freshness || "—";
+      const contract = data.contract || {};
+      const primary = data.primary;
+      const ladder = (data.ladder || []).slice(0, 6);
+      return h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--ds-space-3)"
+        }
+      }, h(Panel, {
+        title: "📡 Root-Strategy Verdict",
+        color: modeMeta.color,
+        action: h("span", {
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: modeMeta.color,
+            background: modeMeta.bg,
+            padding: "3px 10px",
+            borderRadius: 999,
+            border: `1px solid ${modeMeta.color}66`
+          }
+        }, modeMeta.icon, " ", modeMeta.label, " · ", contract.direction || "—")
+      }, h("div", {
+        style: {
+          fontSize: 13,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5,
+          marginBottom: 8
+        }
+      }, verdict.actionable_summary || "Awaiting confluence verdict…"), h("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 8
+        }
+      }, h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "CONFLUENCE"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 18,
+          fontWeight: 700,
+          color: modeMeta.color,
+          marginTop: 2
+        }
+      }, verdict.score || 0, h("span", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-muted)"
+        }
+      }, "/100"))), h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "LAYERS"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 18,
+          fontWeight: 700,
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, verdict.layers_agreeing || 0, h("span", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-muted)"
+        }
+      }, "/", verdict.layers_total || 8))), h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "ST TRIGGER"), h("div", {
+        style: {
+          fontSize: 13,
+          fontWeight: 700,
+          color: st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)",
+          marginTop: 2
+        }
+      }, st.side || "NEUTRAL"), h("div", {
+        style: {
+          fontSize: 9,
+          color: "var(--ds-text-muted)"
+        }
+      }, stFresh))), st.confirmed_tfs && st.confirmed_tfs.length > 0 && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-muted)"
+        }
+      }, "SuperTrend sloping on TFs: ", h("strong", {
+        style: {
+          color: "var(--ds-text-body)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, st.confirmed_tfs.join(" · "))), h("button", {
+        onClick: () => setShowLayers(!showLayers),
+        style: {
+          marginTop: 8,
+          padding: "4px 10px",
+          fontSize: 10,
+          fontWeight: 600,
+          color: "var(--ds-text-muted)",
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid var(--ds-stroke)",
+          borderRadius: 6,
+          cursor: "pointer"
+        }
+      }, showLayers ? "Hide layer breakdown" : "Show layer breakdown (8 layers)"), showLayers && h("div", {
+        style: {
+          marginTop: 8,
+          display: "flex",
+          flexDirection: "column",
+          gap: 4
+        }
+      }, (verdict.layers || []).map(l => {
+        const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
+        const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
+        return h("div", {
+          key: l.key,
+          style: {
+            padding: 6,
+            background: "rgba(255,255,255,0.02)",
+            borderRadius: 4
+          }
+        }, h("div", {
+          style: {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: 2
+          }
+        }, h("span", {
+          style: {
+            fontSize: 11,
+            fontFamily: "var(--tt-font-mono)",
+            color: "var(--ds-text-body)"
+          }
+        }, l.key.replace(/_/g, " ").toUpperCase()), h("span", {
+          style: {
+            fontSize: 10,
+            fontFamily: "var(--tt-font-mono)",
+            color: sideColor,
+            fontWeight: 700
+          }
+        }, l.side, " (", l.strength.toFixed(2), ")")), h("div", {
+          style: {
+            height: 3,
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 2,
+            overflow: "hidden"
+          }
+        }, h("div", {
+          style: {
+            width: strengthBar + "%",
+            height: "100%",
+            background: sideColor,
+            transition: "width 0.3s"
+          }
+        })), l.evidence && h("div", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            marginTop: 2
+          }
+        }, l.evidence));
+      }))), h(Panel, {
+        title: "🎚 Your Risk Profile"
+      }, h("div", {
+        style: {
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          marginBottom: 8
+        }
+      }, PROFILE_CHIPS.map(p => h("button", {
+        key: p.key,
+        onClick: () => updateProfile(p.key),
+        style: {
+          padding: "5px 10px",
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 999,
+          background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
+          color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
+          border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
+          cursor: "pointer"
+        }
+      }, p.label))), data.profile_meta?.one_liner && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          fontStyle: "italic"
+        }
+      }, data.profile_meta.one_liner)), h(Panel, {
+        title: "🎯 Primary Play",
+        color: "#f5c25c",
+        action: primary._confluence_boost && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#34d399",
+            background: "rgba(52,211,153,0.10)",
+            padding: "2px 8px",
+            borderRadius: 999,
+            border: "1px solid rgba(52,211,153,0.30)"
+          }
+        }, "⚡ CONFLUENCE BOOSTED")
+      }, h("div", {
+        style: {
+          fontSize: 16,
+          fontWeight: 700,
+          color: "var(--ds-text-display)",
+          marginBottom: 4
+        }
+      }, primary.label), h("div", {
+        style: {
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5,
+          marginBottom: 10
+        }
+      }, primary.rationale), h("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 8
+        }
+      }, primary.strikes && h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "STRIKE(S)"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, primary.strikes.primary ? "$" + primary.strikes.primary : primary.strikes.long ? "$" + primary.strikes.long + " / $" + primary.strikes.short : "—")), primary.expiration && h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "EXPIRATION"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, primary.expiration.label || primary.expiration.iso)), h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(248,113,113,0.05)",
+          border: "1px solid rgba(248,113,113,0.20)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "#f87171",
+          letterSpacing: "0.05em"
+        }
+      }, "MAX LOSS"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "#f87171",
+          marginTop: 2
+        }
+      }, fmtUsd(primary.max_loss_usd))), h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(52,211,153,0.05)",
+          border: "1px solid rgba(52,211,153,0.20)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "#34d399",
+          letterSpacing: "0.05em"
+        }
+      }, "MAX GAIN"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "#34d399",
+          marginTop: 2
+        }
+      }, primary.max_gain_label || (primary.max_gain_usd != null ? fmtUsd(primary.max_gain_usd) : "Uncapped"))), primary.premium && h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "PREMIUM (per contract)"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, "$", Number(primary.premium.mid).toFixed(2), primary.premium.source === "live_chain" && h("span", {
+        style: {
+          fontSize: 9,
+          color: "#34d399",
+          marginLeft: 4
+        }
+      }, "LIVE"), primary.premium.source === "estimate_bs_atr_iv" && h("span", {
+        style: {
+          fontSize: 9,
+          color: "var(--ds-text-faint)",
+          marginLeft: 4
+        }
+      }, "EST"))), primary.contracts && h("div", {
+        style: {
+          padding: 8,
+          background: "rgba(255,255,255,0.03)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "SIZE (your budget)"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "var(--ds-text-body)",
+          marginTop: 2
+        }
+      }, primary.contracts, " ", primary.archetype && primary.archetype.includes("etf") ? "shares" : "contracts"))), (primary.breakeven || primary.breakeven_up) && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 11,
+          color: "var(--ds-text-muted)"
+        }
+      }, "Breakeven: ", primary.breakeven_up ? h("strong", {
+        style: {
+          color: "var(--ds-text-body)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "$" + primary.breakeven_up.toFixed(2), " up / $", primary.breakeven_down.toFixed(2), " down") : h("strong", {
+        style: {
+          color: "var(--ds-text-body)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "$" + primary.breakeven.toFixed(2))), primary.warnings && primary.warnings.length > 0 && h("div", {
+        style: {
+          marginTop: 8,
+          padding: 8,
+          background: "rgba(245,194,92,0.06)",
+          border: "1px solid rgba(245,194,92,0.20)",
+          borderRadius: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--tt-accent, #f5c25c)",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "⚠ WARNINGS"), primary.warnings.map((w, i) => h("div", {
+        key: i,
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)"
+        }
+      }, "• ", w))), primary.notes && primary.notes.length > 0 && h("ul", {
+        style: {
+          marginTop: 8,
+          paddingLeft: 16,
+          fontSize: 11,
+          color: "var(--ds-text-muted)"
+        }
+      }, primary.notes.map((n, i) => h("li", {
+        key: i
+      }, n))), data.estimated_premium_caveat && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontStyle: "italic"
+        }
+      }, data.estimated_premium_caveat)), ladder.length > 1 && h(Panel, {
+        title: `📊 Strategy Ladder (${ladder.length} plays)`
+      }, h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 6
+        }
+      }, ladder.slice(1).map((play, i) => h("div", {
+        key: play.archetype + i,
+        style: {
+          padding: 10,
+          background: "rgba(255,255,255,0.02)",
+          border: "1px solid var(--ds-stroke)",
+          borderRadius: 8
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "baseline",
+          marginBottom: 4
+        }
+      }, h("strong", {
+        style: {
+          fontSize: 13,
+          color: "var(--ds-text-body)"
+        }
+      }, play.label), play._confluence_boost && h("span", {
+        style: {
+          fontSize: 9,
+          color: "#34d399",
+          fontWeight: 700
+        }
+      }, "⚡ BOOSTED")), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.4,
+          marginBottom: 4
+        }
+      }, String(play.rationale || "").slice(0, 200)), h("div", {
+        style: {
+          display: "flex",
+          gap: 12,
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, play.max_loss_usd != null && h("span", null, "Risk: ", h("strong", {
+        style: {
+          color: "#f87171"
+        }
+      }, fmtUsd(play.max_loss_usd))), play.max_gain_usd != null && h("span", null, "Gain: ", h("strong", {
+        style: {
+          color: "#34d399"
+        }
+      }, fmtUsd(play.max_gain_usd))), play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2))))))), h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          textAlign: "center",
+          padding: 4
+        }
+      }, "Chain: ", data.chain_status || "?", " · Vintage: ", verdict.strategy_vintage || "?"));
+    }
     function _LWChartImpl({
       candles: rawCandles,
       chartTf,
@@ -3868,7 +4579,7 @@
       useEffect(() => {
         const raw = String(initialRailTab || "ANALYSIS").toUpperCase();
         let tab = raw;
-        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS"].includes(raw)) {
+        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
         setRailTab(tab);
@@ -4579,7 +5290,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "CATALYSTS", "INVESTOR"].includes(railTab) ? railTab : "SNAPSHOT";
+        const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "CATALYSTS", "INVESTOR", "OPTIONS"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
           value,
@@ -5089,7 +5800,7 @@
               scrollbarWidth: "none"
             }
           }, (() => {
-            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Trader"], ["INVESTOR", "Investor"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
+            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Trader"], ["INVESTOR", "Investor"], ["OPTIONS", "Options"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
             const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
             return tabs.map(([key, label]) => React.createElement("button", {
               key: key,
@@ -10179,6 +10890,9 @@
           effectiveTrade: effectiveTrade,
           tickerSymbol: tickerSymbol,
           API_BASE: API_BASE
+        }), v2RailTab === "OPTIONS" && React.createElement(OptionsTabPanel, {
+          tickerSymbol: tickerSymbol,
+          API_BASE: API_BASE
         }), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, (() => {
           const traderTrades = ledgerTrades.filter(t => t._source_mode !== "investor");
           const invTrades = ledgerTrades.filter(t => t._source_mode === "investor");
@@ -10961,6 +11675,9 @@
         ticker: ticker,
         latestTicker: latestTicker,
         effectiveTrade: effectiveTrade,
+        tickerSymbol: tickerSymbol,
+        API_BASE: API_BASE
+      }) : railTab === "OPTIONS" ? React.createElement(OptionsTabPanel, {
         tickerSymbol: tickerSymbol,
         API_BASE: API_BASE
       }) : railTab === "_LEGACY_INVESTOR_DESKTOP" ? (() => {
@@ -15186,4 +15903,4 @@
   };
 })();
 
-// cache-bust:1780108250861:217841231
+// cache-bust:1780118505311:227747623

@@ -938,6 +938,187 @@ function IndexPredictionsStrip({
     }
   }, "Read the full brief →"));
 }
+function OptionsPlaysOfTheDay({
+  onSelectTicker
+}) {
+  const [plays, setPlays] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/timed/options/all?limit=10`, {
+          credentials: "include",
+          cache: "no-store"
+        });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (alive && j?.ok && Array.isArray(j.plays)) {
+          const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
+          setPlays(actionable);
+        }
+      } catch (_) {} finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (loading) return null;
+  if (!plays || plays.length === 0) return null;
+  const MODE_META = {
+    RIDE: {
+      color: "#34d399",
+      bg: "rgba(52,211,153,0.10)",
+      icon: "🚀"
+    },
+    READY: {
+      color: "#f5c25c",
+      bg: "rgba(245,194,92,0.10)",
+      icon: "⏳"
+    },
+    DRIFT: {
+      color: "#60a5fa",
+      bg: "rgba(96,165,250,0.10)",
+      icon: "🌊"
+    },
+    FADE: {
+      color: "#a78bfa",
+      bg: "rgba(167,139,250,0.10)",
+      icon: "↩️"
+    }
+  };
+  return h("section", {
+    className: "tt-row",
+    style: {
+      marginBottom: 24
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      marginBottom: 8,
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "OPTIONS PLAYS OF THE DAY"), h("div", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: "var(--tt-text)",
+      letterSpacing: "-0.005em"
+    }
+  }, "Confluence-Driven Strategies")), h("a", {
+    href: "/learn.html#active-strategy",
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      textDecoration: "none"
+    }
+  }, "How this works →")), h("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+      gap: 10
+    }
+  }, plays.map(p => {
+    const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
+    const dirColor = p.direction === "SHORT" ? "#f87171" : "#34d399";
+    return h("div", {
+      key: p.ticker,
+      onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
+      style: {
+        padding: 12,
+        background: meta.bg,
+        border: `1px solid ${meta.color}33`,
+        borderRadius: 10,
+        cursor: "pointer",
+        transition: "transform 100ms ease, background 100ms ease"
+      },
+      onMouseEnter: e => {
+        e.currentTarget.style.transform = "translateY(-1px)";
+        e.currentTarget.style.background = meta.color + "20";
+      },
+      onMouseLeave: e => {
+        e.currentTarget.style.transform = "";
+        e.currentTarget.style.background = meta.bg;
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        marginBottom: 6
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 8
+      }
+    }, h("strong", {
+      style: {
+        fontSize: 16,
+        color: "var(--tt-text)"
+      }
+    }, p.ticker), h("span", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: dirColor,
+        letterSpacing: "0.05em"
+      }
+    }, p.direction)), h("span", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: meta.color,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: meta.color + "20",
+        letterSpacing: "0.05em"
+      }
+    }, meta.icon, " ", p.confluence_mode)), h("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 700,
+        color: "var(--tt-text)",
+        marginBottom: 4
+      }
+    }, p.primary?.label || "—"), h("div", {
+      style: {
+        display: "flex",
+        gap: 12,
+        fontSize: 11,
+        color: "var(--tt-text-muted)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, p.primary?.expiration?.label && h("span", null, p.primary.expiration.label), p.primary?.max_loss_usd != null && h("span", null, "Risk ", h("strong", {
+      style: {
+        color: "#f87171"
+      }
+    }, "$", p.primary.max_loss_usd >= 1000 ? Math.round(p.primary.max_loss_usd).toLocaleString() : p.primary.max_loss_usd)), p.primary?.max_gain_usd != null && h("span", null, "Gain ", h("strong", {
+      style: {
+        color: "#34d399"
+      }
+    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), h("div", {
+      style: {
+        marginTop: 6,
+        fontSize: 10,
+        color: "var(--tt-text-faint)"
+      }
+    }, "Conf ", h("strong", {
+      style: {
+        color: "var(--tt-text)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, p.confluence_score || 0, "/100"), " · ", p.setup_grade || "—"));
+  })));
+}
 function OpenPositionsPreview({
   onSelectTicker
 }) {
@@ -3692,6 +3873,8 @@ function TodayApp() {
     onSelectTicker
   }), h(OpenPositionsPreview, {
     onSelectTicker
+  }), h(OptionsPlaysOfTheDay, {
+    onSelectTicker
   }), data ? h(MarketState, {
     data,
     onSelectTicker
@@ -4118,6 +4301,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780108250861:217841231
+// cache-bust:1780118505311:227747623
 
-// cache-bust:1780108250861:217841231
+// cache-bust:1780118505311:227747623

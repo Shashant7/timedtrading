@@ -794,6 +794,223 @@ export async function cancelOrder(env, user, ibkrOrderId) {
   return callIbkr(env, user, "DELETE", `/iserver/account/${acctId}/order/${ibkrOrderId}`);
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// OPTIONS — secdef lookup + multi-leg combo orders
+// ─────────────────────────────────────────────────────────────────────────
+//
+// IBKR Client Portal Web API options flow:
+//   1. /trsrv/secdef/search?symbol=AAPL              → underlying conid
+//   2. /iserver/secdef/strikes?conid=X&sectype=OPT&month=YYYYMM → strikes
+//   3. /iserver/secdef/info?conid=X&sectype=OPT&month=YYYYMM&strike=S&right=C
+//                                                    → option contract conid
+//   4. /iserver/account/{acctId}/orders               → place order (single-leg
+//                                                      or multi-leg via combo)
+//
+// Multi-leg combo orders (verticals, straddles, etc.):
+//   Use orderType="LMT" with a `combo` payload listing conids and ratios.
+//   IBKR's combo order routing handles execution as a single net debit/credit.
+//
+// 2026-05-30 — added for Phase 3 of the TT Options Engine.
+
+/**
+ * Resolve an option contract conid from {symbol, expiration, strike, right}.
+ * Caches per (symbol, expiration_yyyymm, strike, right) for 6h in BRIDGE_KV.
+ *
+ * @param {object} leg - { symbol, expiration: 'YYYY-MM-DD', strike, right: 'C'|'P' }
+ */
+async function resolveOptionConid(env, user, leg) {
+  const sym = String(leg.symbol || "").toUpperCase();
+  const exp = String(leg.expiration || "");
+  const strike = Number(leg.strike);
+  const right = String(leg.right || "C").toUpperCase();
+  if (!sym || !exp || !strike) return { ok: false, error: "incomplete_option_leg" };
+  // IBKR month format is YYYYMM (no day).
+  const month = exp.replace(/-/g, "").slice(0, 6);
+
+  const KV = env?.BRIDGE_KV;
+  const cacheKey = `bridge:ibkr:optconid:${sym}:${month}:${strike}:${right}`;
+  if (KV) {
+    try {
+      const cached = await KV.get(cacheKey);
+      if (cached) return { ok: true, conid: Number(cached), cached: true };
+    } catch (_) {}
+  }
+
+  const underlyingConid = await resolveConid(env, user, sym);
+  if (!underlyingConid) return { ok: false, error: `underlying_conid_not_found_${sym}` };
+
+  const infoRes = await callIbkr(env, user, "GET",
+    `/iserver/secdef/info?conid=${underlyingConid}&sectype=OPT&month=${month}&strike=${strike}&right=${right}`);
+  // IBKR may return an array of matching contracts (multiple expirations in same month).
+  // Pick the one whose maturity date matches our expiration.
+  const arr = Array.isArray(infoRes?.response) ? infoRes.response : [];
+  let match = null;
+  for (const c of arr) {
+    const mat = String(c.maturityDate || "").replace(/-/g, ""); // "20260620" or "2026-06-20"
+    if (mat === exp.replace(/-/g, "")) { match = c; break; }
+  }
+  if (!match && arr.length > 0) match = arr[0]; // fallback to first
+  const optConid = match?.conid;
+  if (!optConid) return { ok: false, error: "option_conid_not_found", info_response: arr };
+
+  if (KV) {
+    try { await KV.put(cacheKey, String(optConid), { expirationTtl: 21600 }); } catch (_) {}
+  }
+  return { ok: true, conid: optConid, contract: match };
+}
+
+/**
+ * List available strikes for an underlying around an expiration.
+ */
+export async function listOptionStrikes(env, user, symbol, expiration) {
+  const month = String(expiration || "").replace(/-/g, "").slice(0, 6);
+  const conid = await resolveConid(env, user, symbol);
+  if (!conid) return { ok: false, error: "underlying_conid_not_found" };
+  return callIbkr(env, user, "GET",
+    `/iserver/secdef/strikes?conid=${conid}&sectype=OPT&month=${month}`);
+}
+
+/**
+ * Place an options order — single leg OR multi-leg (combo / spread).
+ *
+ * @param {object} order
+ *   For SINGLE leg:
+ *     { type: 'single', symbol, expiration, strike, right, action: 'BUY'|'SELL', qty }
+ *   For MULTI leg (vertical spread, straddle, etc.):
+ *     { type: 'combo', symbol, legs: [{ expiration, strike, right, action, ratio }],
+ *       net_price: number,        // limit price (debit positive, credit negative)
+ *       order_type: 'LMT' | 'MKT' // LMT recommended for combos
+ *     }
+ *   For LEVERAGED ETF (treated as stock):
+ *     { type: 'stock', symbol, action: 'BUY'|'SELL'|'SELL_SHORT', qty }
+ */
+export async function placeOptionsOrder(env, user, order) {
+  if (!order || typeof order !== "object") return { ok: false, error: "invalid_order" };
+  const acctId = await _accountId(env, user);
+
+  // ── Stock / LETF path — reuse standard placeOrder.
+  if (order.type === "stock" || order.type === "etf") {
+    return placeOrder(env, user, {
+      ticker: order.symbol,
+      side: order.action === "SELL_SHORT" ? "short" : (order.action === "SELL" ? "sell" : "buy"),
+      qty: order.qty,
+    });
+  }
+
+  // ── Single-leg option ─────────────────────────────────────────────
+  if (order.type === "single") {
+    const conidRes = await resolveOptionConid(env, user, {
+      symbol: order.symbol, expiration: order.expiration,
+      strike: order.strike, right: order.right,
+    });
+    if (!conidRes.ok) return conidRes;
+    const body = {
+      acctId,
+      conid: conidRes.conid,
+      secType: `${conidRes.conid}:OPT`,
+      orderType: order.order_type || "LMT",
+      price: Number(order.limit_price) || undefined,
+      side: order.action === "SELL" ? "SELL" : "BUY",
+      quantity: Number(order.qty) || 1,
+      tif: order.tif || "DAY",
+    };
+    return callIbkr(env, user, "POST", `/iserver/account/${acctId}/orders`, body);
+  }
+
+  // ── Multi-leg combo (vertical, straddle, condor, etc.) ─────────────
+  if (order.type === "combo") {
+    const conidResults = [];
+    for (const leg of (order.legs || [])) {
+      const r = await resolveOptionConid(env, user, {
+        symbol: leg.symbol || order.symbol,
+        expiration: leg.expiration, strike: leg.strike, right: leg.right,
+      });
+      if (!r.ok) return { ok: false, error: `combo_leg_unresolved`, leg, detail: r };
+      conidResults.push({ leg, conid: r.conid });
+    }
+    // IBKR combo order payload — `conidex` is a string of the form
+    // "1234567890,1234567891,..." with each leg's conid; `legs` carries
+    // the ratios (positive=buy, negative=sell). Standard 1:1 ratios.
+    const conidex = conidResults.map(x => x.conid).join(",");
+    const legs = conidResults.map((x) => ({
+      conid: x.conid,
+      ratio: Number(x.leg.ratio || 1) * (x.leg.action === "SELL" ? -1 : 1),
+    }));
+    const body = {
+      acctId,
+      conidex,
+      orderType: order.order_type || "LMT",
+      price: Number(order.net_price) || undefined,
+      side: "BUY", // combos always submitted as BUY; sign in legs determines direction
+      quantity: Number(order.qty) || 1,
+      tif: order.tif || "DAY",
+      isClose: false,
+      combo: { legs },
+    };
+    return callIbkr(env, user, "POST", `/iserver/account/${acctId}/orders`, body);
+  }
+
+  return { ok: false, error: `unknown_order_type_${order.type}` };
+}
+
+/**
+ * Translate a TT Options ladder play (from worker/options-plays.js) into
+ * an IBKR order request. The play's `archetype` determines order shape.
+ *
+ * @param {object} play - a ladder entry { archetype, legs, contracts, ... }
+ * @param {string} symbol - underlying ticker (passed from caller since play
+ *                          may have multi-symbol legs for LETFs)
+ */
+export function playToIbkrOrder(play, symbol) {
+  if (!play || !Array.isArray(play.legs) || play.legs.length === 0) return null;
+  const sym = symbol || play.ticker || (play.legs[0] && play.legs[0].ticker);
+
+  // Stock / LETF — single stock leg.
+  if (play.legs.length === 1 && play.legs[0].instrument && play.legs[0].instrument !== "OPTION") {
+    return {
+      type: play.legs[0].instrument === "ETF" ? "etf" : "stock",
+      symbol: play.legs[0].ticker || sym,
+      action: play.legs[0].action || "BUY",
+      qty: Number(play.legs[0].qty) || 1,
+    };
+  }
+
+  // Single-leg option.
+  if (play.legs.length === 1) {
+    const leg = play.legs[0];
+    return {
+      type: "single",
+      symbol: sym,
+      expiration: leg.expiration,
+      strike: leg.strike,
+      right: leg.optionType === "PUT" ? "P" : "C",
+      action: leg.action,
+      qty: Number(leg.qty) || 1,
+      limit_price: play.premium?.mid != null ? Number(play.premium.mid) : null,
+      order_type: "LMT",
+    };
+  }
+
+  // Multi-leg combo (vertical, straddle, condor).
+  const legs = play.legs.map((leg) => ({
+    expiration: leg.expiration,
+    strike: leg.strike,
+    right: leg.optionType === "PUT" ? "P" : "C",
+    action: leg.action,
+    ratio: 1,
+  }));
+  // Net debit ≈ play.premium.mid for debit spreads / straddles
+  const netPrice = play.premium?.mid != null ? Number(play.premium.mid) : null;
+  return {
+    type: "combo",
+    symbol: sym,
+    legs,
+    net_price: netPrice,
+    qty: Number(play.contracts) || 1,
+    order_type: "LMT",
+  };
+}
+
 // Mock response builder — mirrors bridge-robinhood.js shape so the
 // audit log + flow are exercised end-to-end without IBKR creds.
 function _mockResponse(path, body, t0) {
