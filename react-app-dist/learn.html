@@ -849,13 +849,14 @@
         <div class="toc-title">On this page</div>
         <ul class="toc-list">
           <li><a href="#how-it-works" data-section="how-it-works">1. How TT works</a></li>
-          <li><a href="#universe" data-section="universe">2. The TT Universe</a></li>
-          <li><a href="#brief" data-section="brief">3. The Daily Brief</a></li>
-          <li><a href="#modes" data-section="modes">4. Active Trader vs Investor</a></li>
-          <li><a href="#active-lanes" data-section="active-lanes">5. Active Trader lanes</a></li>
-          <li><a href="#investor-lanes" data-section="investor-lanes">6. Investor lanes</a></li>
-          <li><a href="#card-anatomy" data-section="card-anatomy">7. Anatomy of a card</a></li>
-          <li><a href="#scoring" data-section="scoring">8. How we keep score</a></li>
+          <li><a href="#active-strategy" data-section="active-strategy">2. The Active Strategy</a></li>
+          <li><a href="#universe" data-section="universe">3. The TT Universe</a></li>
+          <li><a href="#brief" data-section="brief">4. The Daily Brief</a></li>
+          <li><a href="#modes" data-section="modes">5. Active Trader vs Investor</a></li>
+          <li><a href="#active-lanes" data-section="active-lanes">6. Active Trader lanes</a></li>
+          <li><a href="#investor-lanes" data-section="investor-lanes">7. Investor lanes</a></li>
+          <li><a href="#card-anatomy" data-section="card-anatomy">8. Anatomy of a card</a></li>
+          <li><a href="#scoring" data-section="scoring">9. How we keep score</a></li>
         </ul>
       </aside>
 
@@ -887,9 +888,46 @@
           </div>
         </section>
 
-        <!-- ── 2. The TT Universe ────────────────────────────── -->
-        <section id="universe" class="chapter">
+        <!-- ── 2. The Active Strategy (FSD playbook) ──────────── -->
+        <section id="active-strategy" class="chapter">
           <span class="chapter-num">2</span>
+          <h2 class="chapter-title">The Active Strategy &mdash; what TT thinks happens next</h2>
+          <p class="chapter-subtitle">
+            Every TT view (cards, brief, AI CIO, discovery) is shaped by an underlying editorial
+            playbook. We start from Fundstrat Direct's quarterly research deck (Tom Lee, Mark Newton,
+            Ken Xuan) and codify the call as structured data the system reads from. When the deck
+            changes, the system&rsquo;s tilts change with it.
+          </p>
+
+          <h3>What the current vintage says (load the live version on <a href="/insights.html#active-strategy" style="color:#67e8f9;">Insights &rarr; Active Strategy</a>)</h3>
+          <ul>
+            <li><strong>Phase:</strong> Back-ended 2026 rally. Gains skewed toward Q4. Base case S&amp;P 500 7,300; aspirational 7,700; long-horizon 15,000 by 2030.</li>
+            <li><strong>Scenario weights:</strong> grind-higher 45% &middot; round-trip 40% &middot; bear retest 15%. Read: expect chop, not a straight line.</li>
+            <li><strong>Overweight sectors:</strong> Information Technology, Comm Services, Discretionary, Financials, Industrials, Energy, Materials.</li>
+            <li><strong>Tier-1 buy themes:</strong> MAG7 + AI compute / memory / semicap / software / consumer / power, large-cap &amp; regional banks, oil &amp; gas / nuclear, crypto (BTC + ETH).</li>
+            <li><strong>Underweight:</strong> Staples, Utilities (defensive bias drags in a back-ended rally tape; AI-power utilities are the carve-out).</li>
+            <li><strong>Active risks:</strong> Iran war (jet-fuel / diesel shock), new-Fed test (Warsh), SpaceX IPO lockup release (mechanical equity supply 2Q-3Q26), AI input-cost inflation.</li>
+          </ul>
+
+          <h3>How the system uses the playbook</h3>
+          <ul>
+            <li><strong>AI CIO</strong> &mdash; every entry/lifecycle decision sees a "strategy_stance" memory layer telling it whether the ticker is on/off-thesis. Tier-1 names get bias toward APPROVE; off-thesis names need stronger justification.</li>
+            <li><strong>Daily Brief</strong> &mdash; the morning and evening prompts inject the full playbook brief. Sector rotation, leadership patterns, and risk events get explained against the active thesis instead of from scratch.</li>
+            <li><strong>Discovery / Promotion Queue</strong> &mdash; candidates in overweight themes get a small additive boost in scoring; underweight names take a small deduction. Theme alignment never overrides quality &mdash; it breaks ties.</li>
+            <li><strong>Right Rail</strong> &mdash; each ticker shows an <span class="ds-chip ds-chip--up" style="font-family:var(--tt-font-mono);padding:2px 6px;border-radius:4px;">🎯 ON-THESIS</span> or <span class="ds-chip ds-chip--dn" style="font-family:var(--tt-font-mono);padding:2px 6px;border-radius:4px;">⚠ OFF-THESIS</span> chip beside the bias chip when the playbook has a non-neutral view.</li>
+          </ul>
+
+          <div class="callout tip">
+            <strong>The mental shift:</strong> the playbook isn&rsquo;t a list of stocks to buy. It&rsquo;s a frame
+            for interpreting what the model is seeing. When a TT signal aligns with the active thesis,
+            conviction is higher. When it disagrees, treat it as a contrarian read &mdash; valid, but
+            demanding extra evidence.
+          </div>
+        </section>
+
+        <!-- ── 3. The TT Universe ────────────────────────────── -->
+        <section id="universe" class="chapter">
+          <span class="chapter-num">3</span>
           <h2 class="chapter-title">The TT Universe &mdash; what we watch and why</h2>
           <p class="chapter-subtitle">
             The universe is a deliberately curated list, not the whole market. Watching everything
@@ -944,9 +982,9 @@
           </div>
         </section>
 
-        <!-- ── 3. The Daily Brief ────────────────────────────── -->
+        <!-- ── 4. The Daily Brief ────────────────────────────── -->
         <section id="brief" class="chapter">
-          <span class="chapter-num">3</span>
+          <span class="chapter-num">4</span>
           <h2 class="chapter-title">The Daily Brief &mdash; how the model frames the session</h2>
           <p class="chapter-subtitle">
             Every trading day, before the open, the model publishes a Daily Brief. This is your
@@ -970,9 +1008,9 @@
           </div>
         </section>
 
-        <!-- ── 4. The two modes ──────────────────────────────── -->
+        <!-- ── 5. The two modes ──────────────────────────────── -->
         <section id="modes" class="chapter">
-          <span class="chapter-num">4</span>
+          <span class="chapter-num">5</span>
           <h2 class="chapter-title">Two modes, one universe &mdash; Active Trader vs Investor</h2>
           <p class="chapter-subtitle">
             Active Trader and Investor share the same ticker universe but score and act on it
@@ -1027,9 +1065,9 @@
           </div>
         </section>
 
-        <!-- ── 5. Active Trader lanes ────────────────────────── -->
+        <!-- ── 6. Active Trader lanes ────────────────────────── -->
         <section id="active-lanes" class="chapter">
-          <span class="chapter-num">5</span>
+          <span class="chapter-num">6</span>
           <h2 class="chapter-title">Active Trader kanban lanes &mdash; what each one means and how to act</h2>
           <p class="chapter-subtitle">
             Every ticker in Active Trader mode sits in exactly one lane at a time. The lane tells you
@@ -1135,9 +1173,9 @@
           </div>
         </section>
 
-        <!-- ── 6. Investor lanes ─────────────────────────────── -->
+        <!-- ── 7. Investor lanes ─────────────────────────────── -->
         <section id="investor-lanes" class="chapter">
-          <span class="chapter-num">6</span>
+          <span class="chapter-num">7</span>
           <h2 class="chapter-title">Investor kanban lanes &mdash; the long-game equivalent</h2>
           <p class="chapter-subtitle">
             Investor mode uses different lanes because the time horizon is fundamentally different.
@@ -1239,9 +1277,9 @@
           </div>
         </section>
 
-        <!-- ── 7. Anatomy of a Kanban Card ─────────────────────── -->
+        <!-- ── 8. Anatomy of a Kanban Card ─────────────────────── -->
         <section id="card-anatomy" class="chapter">
-          <span class="chapter-num">7</span>
+          <span class="chapter-num">8</span>
           <h2 class="chapter-title">Anatomy of a kanban card &mdash; reading every element</h2>
           <p class="chapter-subtitle">
             Each kanban card packs a lot of information into a small space. Here&rsquo;s every element,
@@ -1459,9 +1497,9 @@
 
         </section>
 
-        <!-- ── 8. How we keep score ──────────────────────────── -->
+        <!-- ── 9. How we keep score ──────────────────────────── -->
         <section id="scoring" class="chapter">
-          <span class="chapter-num">8</span>
+          <span class="chapter-num">9</span>
           <h2 class="chapter-title">How we keep score &mdash; transparency, self-learning, AI CIO</h2>
           <p class="chapter-subtitle">
             Every trade the model takes is recorded, scored, and reviewed. Win or loss. There&rsquo;s no
@@ -1596,4 +1634,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1780104693616:421743077 -->
+<!-- cache-bust:1780108250861:217841231 -->

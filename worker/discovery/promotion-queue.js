@@ -27,6 +27,7 @@ import { THEMES, getThemesForTicker, computeThemeActivity } from "../sector-mapp
 import { loadInsiderSummariesBatch } from "./insider-tracker.js";
 import { loadNewsSummariesBatch } from "./news-tracker.js";
 import { loadSocialSummariesBatch } from "./social-tracker.js";
+import { getStrategyForTicker } from "../strategy-context.js";
 
 // ── Scoring weights ──────────────────────────────────────────────────────
 // 2026-05-29 — added W_SOCIAL (10). Note this lifts the theoretical max
@@ -43,6 +44,14 @@ const W_INSIDER = 10;
 const W_MACRO = 10;
 const W_PEER = 10;
 const W_SOCIAL = 10;
+// 2026-05-30 — Active-playbook alignment. When a candidate sits inside a
+// tier-1 theme of the current strategic stance (currently the Fundstrat
+// 2026 Year Ahead deck), it gets a small additive boost — strategy
+// pulls in the same direction as the screener signal. Editorial weight
+// intentionally smaller than W_THEME (theme activity is observed; this
+// is a normative tilt) but large enough to break ties between two ~50
+// scores in favour of the on-thesis name.
+const W_STRATEGY = 8;
 
 // ── Quality floors ───────────────────────────────────────────────────────
 const HARD_FLOOR_MARKET_CAP = 2_000_000_000; // $2B
@@ -521,6 +530,13 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
     parts.push(`Peer validation: ${components.peer.theme} cohort captures ${components.peer.peer_capture_rate}% of historical moves on our system.`);
   }
 
+  // Active playbook alignment.
+  if (components.strategy?.pts > 0) {
+    parts.push(`Active playbook: ON-THESIS (${components.strategy.stance.toUpperCase()}${components.strategy.tier ? ` · ${components.strategy.tier}` : ""})${components.strategy.reason ? ` — ${components.strategy.reason}` : ""}.`);
+  } else if (components.strategy?.pts < 0) {
+    parts.push(`Active playbook: OFF-THESIS (${components.strategy.stance.toUpperCase()}) — caution warranted.`);
+  }
+
   // Red flags.
   if (redFlags.length > 0) {
     parts.push(`⚠ Red flags: ${redFlags.map((f) => f.flag).join(", ")}.`);
@@ -529,6 +545,42 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
   // Verdict.
   parts.push(`**Score ${totalScore}/100 → ${statusLabel}.**`);
   return parts.join(" ");
+}
+
+// ── STRATEGY_ALIGNMENT component ─────────────────────────────────────────
+// 2026-05-30 — Editorial tilt boost. When the candidate sits in an OVERWEIGHT
+// theme or sector of the active playbook (currently FSD 2026), award up to
+// W_STRATEGY points. Penalise UNDERWEIGHT names by the same magnitude so
+// the queue actively de-prioritises off-thesis candidates without rejecting
+// them outright (the score gates already handle that). Pure data join —
+// no I/O.
+function scoreStrategyAlignment(sym, latest) {
+  try {
+    const aligned = getStrategyForTicker(sym, {
+      sector: latest?.sector,
+      market_cap: Number(latest?.market_cap) || null,
+    }, getThemesForTicker);
+    if (!aligned || aligned.stance === "neutral" || aligned.multiplier === 1.0) {
+      return { pts: 0, stance: "neutral", multiplier: 1.0, tier: null, reason: null };
+    }
+    // multiplier semantics: 1.25 = OW strongest, 0.90 = UW strongest.
+    // Map to symmetric ±W_STRATEGY around 1.0.
+    const delta = aligned.multiplier - 1.0; // in [-0.10, +0.25] range
+    const scale = Math.min(1.0, Math.abs(delta) / 0.25);
+    const sign = delta >= 0 ? 1 : -1;
+    const pts = Math.round(sign * scale * W_STRATEGY);
+    return {
+      pts,
+      stance: aligned.stance,
+      multiplier: aligned.multiplier,
+      tier: aligned.tier,
+      reason: aligned.reason,
+      sector: aligned.sector,
+      themes: (aligned.themes_matched || []).map(t => t.theme),
+    };
+  } catch (_) {
+    return { pts: 0, stance: "neutral", multiplier: 1.0, tier: null, reason: null };
+  }
 }
 
 // ── Main scorer ──────────────────────────────────────────────────────────
@@ -546,6 +598,7 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const macroResult = scoreMacro(themes, macroSnapshot, latest?.sector);
   const peerResult = scorePeer(themes, coverageGapsSummary);
   const socialResult = scoreSocial(socialSummary);
+  const strategyResult = scoreStrategyAlignment(sym, latest);
 
   const components = {
     sustain: sustainPts,
@@ -556,13 +609,15 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
     macro: macroResult,
     peer: peerResult,
     social: socialResult,
+    strategy: strategyResult,
     _raw_appearances: appearances,
   };
 
   const redFlags = detectRedFlags(latest, appearances, components, dayChangePct);
   const totalRaw =
     sustainPts + qualityPts + themeResult.pts + newsResult.pts +
-    insiderResult.pts + macroResult.pts + peerResult.pts + socialResult.pts;
+    insiderResult.pts + macroResult.pts + peerResult.pts + socialResult.pts +
+    strategyResult.pts;
   const deductions = redFlags.reduce((s, f) => s + f.deduction, 0);
   const totalScore = Math.max(-100, Math.min(SCORE_MAX, totalRaw - deductions));
 
