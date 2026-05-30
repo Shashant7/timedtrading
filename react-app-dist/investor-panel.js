@@ -397,29 +397,35 @@
       } catch {}
     }, [laneKey, items?.map(i => i.ticker).join(",")]);
 
-    return React.createElement("div", { className: "flex items-stretch gap-0 mb-0.5 kanban-lane" },
+    // 2026-05-30 — Responsive layout. On mobile (<md / 768px) the lane
+    // stacks: gutter sits on TOP as a full-width header row, cards
+    // scroll horizontally BELOW with the full viewport width. Mirrors
+    // the Active Trader pattern (active-trader.html .lane media query
+    // at line ~274) and frees ~88px of width per card on phones.
+    // Desktop unchanged — gutter on the left.
+    return React.createElement("div", { className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-0.5 kanban-lane" },
       // V15 P0.7.144/.152 — gutter shows lane title + action chip +
-      // count. The action chip ("BUY NOW" / "HOLDING" / "TRIM SOON" /
-      // "WAIT" / "SKIP") is the one-glance answer to "what do I do
-      // with this lane?". Color-coded so the user's eye lands on
-      // green BUY-NOW and amber TRIM-SOON without reading.
+      // count. On desktop: vertical column on the left. On mobile:
+      // horizontal strip on top so the cards below get the full width.
       React.createElement("div", {
-        className: "flex flex-col justify-center items-center min-w-[88px] w-[88px] shrink-0 border-r border-r-white/[0.04] px-1.5 py-2",
+        className: "flex flex-row md:flex-col items-center justify-between md:justify-center w-full md:w-[88px] md:min-w-[88px] md:shrink-0 border-b md:border-b-0 md:border-r border-white/[0.04] px-2.5 md:px-1.5 py-1.5 md:py-2 gap-2 md:gap-0",
         style: { background: "transparent" },
         title: hint || title,
       },
-        React.createElement("span", { className: "text-[9px] font-bold uppercase tracking-wider text-[#4b5563] text-center leading-tight break-words" }, title),
-        action && React.createElement("span", {
-          className: "text-[8px] font-bold tabular-nums mt-1 px-1 py-[1px] rounded",
-          style: {
-            color: actionColor,
-            background: `${actionColor}14`,
-            border: `1px solid ${actionColor}30`,
-            letterSpacing: "0.04em",
-            fontFamily: "var(--tt-font-mono)",
-          },
-        }, action),
-        React.createElement("span", { className: `text-[11px] font-bold tabular-nums mt-1 ${count > 0 ? "text-[#e5e7eb]" : "text-[#2a2e35]"}` }, count),
+        React.createElement("span", { className: "text-[10px] md:text-[9px] font-bold uppercase tracking-wider text-[#94a3b8] md:text-[#4b5563] md:text-center leading-tight break-words" }, title),
+        React.createElement("div", { className: "flex flex-row md:flex-col items-center gap-2 md:gap-1" },
+          action && React.createElement("span", {
+            className: "text-[9px] md:text-[8px] font-bold tabular-nums md:mt-1 px-1.5 md:px-1 py-[1px] rounded",
+            style: {
+              color: actionColor,
+              background: `${actionColor}14`,
+              border: `1px solid ${actionColor}30`,
+              letterSpacing: "0.04em",
+              fontFamily: "var(--tt-font-mono)",
+            },
+          }, action),
+          React.createElement("span", { className: `text-[12px] md:text-[11px] font-bold tabular-nums md:mt-1 ${count > 0 ? "text-[#e5e7eb]" : "text-[#4b5563] md:text-[#2a2e35]"}` }, count),
+        ),
       ),
       React.createElement("div", {
         ref: listRef,
@@ -902,4 +908,4 @@
   window.InvestorPanel = InvestorPanel;
 })();
 
-// cache-bust:1780173029385:811716929
+// cache-bust:1780174203314:149145512

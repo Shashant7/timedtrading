@@ -495,21 +495,28 @@ function InvestorKanbanColumn({
     } catch {}
   }, [laneKey, items?.map(i => i.ticker).join(",")]);
   return React.createElement("div", {
-    className: "flex items-stretch gap-0 mb-1 kanban-lane"
+    className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-1 kanban-lane"
   }, React.createElement("div", {
-    className: "flex flex-col justify-center items-center min-w-[72px] w-[72px] shrink-0 rounded-l-xl border-l-2 border-t border-b border-t-white/[0.04] border-b-white/[0.04] px-1.5 py-2",
+    className: "flex flex-row md:flex-col items-center justify-between md:justify-center w-full md:w-[72px] md:min-w-[72px] md:shrink-0 rounded-t-xl md:rounded-l-xl md:rounded-t-none border-t-2 md:border-t md:border-l-2 border-r md:border-r-0 border-b-0 md:border-b border-t-white/[0.04] md:border-b-white/[0.04] px-2.5 md:px-1.5 py-1.5 md:py-2 gap-2 md:gap-0",
     style: {
+      borderTopColor: color,
       borderLeftColor: color,
       background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.015) 100%)"
     },
     title: title
   }, React.createElement("span", {
-    className: "text-[11px] font-semibold text-white/90 tracking-wide text-center leading-tight break-words"
-  }, icon, React.createElement("br"), title), React.createElement("span", {
-    className: `text-[10px] font-bold tabular-nums mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`
+    className: "text-[12px] md:text-[11px] font-semibold text-white/90 tracking-wide md:text-center leading-tight break-words flex items-center md:block gap-1.5 md:gap-0"
+  }, React.createElement("span", {
+    className: "md:inline"
+  }, icon), React.createElement("span", {
+    className: "md:hidden"
+  }, " "), React.createElement("br", {
+    className: "hidden md:inline"
+  }), title), React.createElement("span", {
+    className: `text-[11px] md:text-[10px] font-bold tabular-nums md:mt-0.5 ${count > 0 ? "text-white/80" : "text-[#4b5563]"}`
   }, count)), React.createElement("div", {
     ref: listRef,
-    className: "flex-1 rounded-r-xl border-t border-r border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide",
+    className: "flex-1 rounded-b-xl md:rounded-r-xl md:rounded-b-none border-t-0 md:border-t border-r border-l md:border-l-0 border-b border-white/[0.04] p-1.5 overflow-x-auto scrollbar-hide",
     style: {
       overflowAnchor: "none",
       WebkitOverflowScrolling: "touch",
@@ -2498,6 +2505,6 @@ root.render(_AuthGate ? React.createElement(_AuthGate, {
 }, user => React.createElement(InvestorDashboard, {
   user
 })) : React.createElement(InvestorDashboard));
-// cache-bust:1780173029385:811716929
+// cache-bust:1780174203314:149145512
 
-// cache-bust:1780173029385:811716929
+// cache-bust:1780174203314:149145512
