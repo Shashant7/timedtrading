@@ -76,15 +76,17 @@ function BridgeSection({
   const mockMode = status?.mock_mode !== false;
   const killOn = status?.kill_switch === "on";
   const users = status?.users || [];
+  const errorKind = status?.error_kind || (status?.error?.includes("URL") ? "url_missing" : status?.error?.includes("OPERATOR_KEY") ? "key_missing" : status?.error ? "unreachable" : null);
+  const pillText = errorKind === "url_missing" ? "URL NOT SET" : errorKind === "key_missing" ? "OPERATOR KEY NOT SET" : errorKind === "unreachable" ? "BRIDGE UNREACHABLE" : "NOT LINKED";
   return React.createElement("div", {
     className: "mc-card mb-5"
   }, React.createElement("div", {
     className: "mc-section-title"
   }, React.createElement("span", {
     className: "mc-dot"
-  }), "8. Broker Bridge \u2014 Robinhood Agentic (Phase 1 Option C)", !bridgeConfigured && React.createElement("span", {
+  }), "8. Broker Bridge \u2014 Multi-Broker (IBKR \xB7 Robinhood)", !bridgeConfigured && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
-  }, "NOT DEPLOYED"), bridgeConfigured && mockMode && React.createElement("span", {
+  }, pillText), bridgeConfigured && mockMode && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
   }, "MOCK MODE"), bridgeConfigured && !mockMode && killOn && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
@@ -94,7 +96,13 @@ function BridgeSection({
     className: "text-[10px] mc-mute ml-2 mc-loading"
   }, "refreshing\u2026")), err && !bridgeConfigured && React.createElement("div", {
     className: "text-[12px] text-amber-300 mb-3"
-  }, "Bridge worker not yet deployed or env vars missing.", React.createElement("br", null), "Set ", React.createElement("code", null, "BROKER_BRIDGE_URL"), " + ", React.createElement("code", null, "BROKER_BRIDGE_OPERATOR_KEY"), " on main worker, deploy ", React.createElement("code", null, "worker-bridge/"), " as a separate Cloudflare Worker, and refresh.", React.createElement("br", null), "See ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " for the full setup runbook."), bridgeConfigured && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, errorKind === "url_missing" && React.createElement(React.Fragment, null, React.createElement("b", null, "Main worker can't find the bridge URL."), React.createElement("br", null), "Add to ", React.createElement("code", null, "worker/wrangler.toml [vars]"), ":", React.createElement("br", null), React.createElement("code", {
+    className: "text-[#34d399]"
+  }, "BROKER_BRIDGE_URL = \"https://tt-broker-bridge.shashant.workers.dev\""), React.createElement("br", null), "Then redeploy: ", React.createElement("code", null, "cd worker && wrangler deploy --env production"), "."), errorKind === "key_missing" && React.createElement(React.Fragment, null, React.createElement("b", null, "Bridge URL is set (", status?.bridge_url || "—", ") but the operator key is missing."), React.createElement("br", null), "Run ", React.createElement("code", {
+    className: "text-[#34d399]"
+  }, "wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production"), React.createElement("br", null), "and paste the bridge worker's operator key (same value used in ", React.createElement("code", null, "worker-bridge/wrangler.toml"), " OPERATOR_KEYS)."), errorKind === "unreachable" && React.createElement(React.Fragment, null, React.createElement("b", null, "Main worker found bridge URL (", status?.bridge_url || "—", ") but the request failed."), React.createElement("br", null), "Check the bridge worker is deployed and the URL is correct.", React.createElement("br", null), React.createElement("code", {
+    className: "text-[#fcd34d]"
+  }, status?.error)), !errorKind && React.createElement(React.Fragment, null, "Bridge connection failed.", React.createElement("br", null), "Set ", React.createElement("code", null, "BROKER_BRIDGE_URL"), " + ", React.createElement("code", null, "BROKER_BRIDGE_OPERATOR_KEY"), " on main worker, deploy ", React.createElement("code", null, "worker-bridge/"), " as a separate Cloudflare Worker, and refresh.", React.createElement("br", null), "See ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " for the full setup runbook.")), bridgeConfigured && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
   }, React.createElement("div", {
     className: "mc-kpi"
@@ -446,7 +454,43 @@ function MissionControl({
     className: "mc-kpi-sub"
   }, mp.last_calibration?.days_ago != null && mp.last_calibration.days_ago > 14 ? React.createElement("span", {
     className: "mc-warn"
-  }, "Due (>14d)") : "Healthy"))), React.createElement("div", {
+  }, "Due (>14d)") : "Healthy"))), (() => {
+    const unrealizedTotal = Number(data?.positions?.unrealized_total_usd ?? mp?.unrealized_usd) || 0;
+    const realized7d = Number(trailing?.d7?.pnl_usd) || 0;
+    const total7d = realized7d + unrealizedTotal;
+    const atUnrl = Number(data?.positions?.active_trader?.unrealized_usd) || 0;
+    const invUnrl = Number(data?.positions?.investor?.unrealized_usd) || 0;
+    return React.createElement("div", {
+      className: "grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"
+    }, React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Realized P&L (7d)"), React.createElement("div", {
+      className: `mc-kpi-value text-[16px] ${realized7d >= 0 ? "mc-pos" : "mc-neg"}`
+    }, fmtUsd(realized7d)), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "From closed trades only \xB7 ", Number(trailing?.d7?.total) || 0, " trades")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Unrealized P&L (mark-to-market)"), React.createElement("div", {
+      className: `mc-kpi-value text-[16px] ${unrealizedTotal >= 0 ? "mc-pos" : "mc-neg"}`
+    }, fmtUsd(unrealizedTotal)), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "AT ", fmtUsd(atUnrl), " \xB7 Investor ", fmtUsd(invUnrl))), React.createElement("div", {
+      className: "mc-kpi",
+      style: {
+        borderColor: total7d >= 0 ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"
+      }
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Total P&L (7d realized + open)"), React.createElement("div", {
+      className: `mc-kpi-value ${total7d >= 0 ? "mc-pos" : "mc-neg"}`
+    }, fmtUsd(total7d)), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "Realized close + live unrealized")));
+  })(), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-3 mb-4"
   }, [7, 14, 30].map(d => {
     const t = trailing[`d${d}`] || {};
@@ -459,7 +503,12 @@ function MissionControl({
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
-    }, "Trailing ", d, "d"), React.createElement("div", {
+    }, "Trailing ", d, "d ", React.createElement("span", {
+      className: "mc-mute",
+      style: {
+        fontWeight: 400
+      }
+    }, "(realized only)")), React.createElement("div", {
       className: "flex items-baseline gap-3 mt-1"
     }, React.createElement("span", {
       className: `text-lg font-bold ${pnlUsd >= 0 ? "mc-pos" : "mc-neg"}`
@@ -494,15 +543,21 @@ function MissionControl({
         className: "mc-pos"
       }, "Healthy");
     }
+    const replayCount = Number(mp.ai_cio_7d.replay_total) || 0;
     return React.createElement("div", {
       className: "mc-kpi mb-3"
     }, React.createElement("div", {
       className: "mc-kpi-label"
-    }, "AI CIO Activity (7d)"), React.createElement("div", {
+    }, "AI CIO Activity (7d) ", React.createElement("span", {
+      className: "mc-mute",
+      style: {
+        fontWeight: 400
+      }
+    }, "\xB7 live production only")), React.createElement("div", {
       className: "flex items-baseline gap-4 mt-1 flex-wrap text-xs"
     }, React.createElement("span", null, React.createElement("b", {
       className: "text-white"
-    }, cioTotal), " decisions"), React.createElement("span", {
+    }, cioTotal), " live decisions"), React.createElement("span", {
       className: "mc-mute"
     }, "|"), React.createElement("span", null, Number(mp.ai_cio_7d.shadow) || 0, " shadow"), React.createElement("span", null, fallbacks, " fallback"), React.createElement("span", {
       className: "mc-pos"
@@ -510,7 +565,11 @@ function MissionControl({
       className: "mc-neg"
     }, Number(mp.ai_cio_7d.block) || 0, " block"), React.createElement("span", {
       className: "mc-mute"
-    }, "\xB7"), status));
+    }, "\xB7"), status), replayCount > 0 && React.createElement("div", {
+      className: "mt-1.5 text-[10px] mc-mute italic"
+    }, "+", replayCount, " additional backtest-replay decisions excluded from this count", React.createElement("span", {
+      title: "ai_cio_decisions WHERE is_replay = 1"
+    }, " \xB7 is_replay tag")));
   })(), React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
@@ -667,7 +726,33 @@ function MissionControl({
     className: `mc-kpi-value text-[16px] ${(dc.by_tf?.D?.worst_stale?.days_stale || 0) > 5 ? "mc-warn" : "mc-pos"}`
   }, dc.by_tf?.D?.worst_stale?.days_stale != null ? `${dc.by_tf.D.worst_stale.days_stale}d` : "—"), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, dc.by_tf?.D?.worst_stale?.ticker || "—"))), React.createElement("div", {
+  }, dc.by_tf?.D?.worst_stale?.ticker || "—", dc.by_tf?.D?.worst_stale?.ticker && React.createElement("button", {
+    className: "ml-2 underline hover:text-[#22c55e]",
+    onClick: async () => {
+      const sym = dc.by_tf.D.worst_stale.ticker;
+      if (!confirm(`Backfill D candles for ${sym} (last 14 days)?`)) return;
+      try {
+        const r = await fetch(`${API_BASE}/timed/admin/alpaca-backfill?tf=D&ticker=${encodeURIComponent(sym)}&sinceDays=14`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: "{}"
+        });
+        const j = await r.json();
+        if (j.ok) {
+          alert(`Backfilled ${sym}: ${j.upserted || 0} candles. Refresh to see updated staleness.`);
+          fetchData();
+        } else {
+          alert(`Backfill failed: ${j.error || "unknown"}`);
+        }
+      } catch (e) {
+        alert(`Backfill failed: ${String(e.message || e)}`);
+      }
+    },
+    title: `Backfill D candles for ${dc.by_tf.D.worst_stale.ticker} now`
+  }, "\u21BB refresh")))), React.createElement("div", {
     style: {
       overflowX: "auto"
     }
@@ -891,7 +976,35 @@ function MissionControl({
     className: "mc-dot"
   }), "6. Weekly Retrospective", wr?.generated_at && React.createElement("span", {
     className: "text-[10px] mc-mute ml-2"
-  }, "Last: ", fmtAgo(wr.generated_at))), wr?.error ? React.createElement("div", {
+  }, "Last: ", fmtAgo(wr.generated_at)), React.createElement("button", {
+    className: "ml-2 mc-btn",
+    style: {
+      padding: "2px 8px",
+      fontSize: 10
+    },
+    onClick: async () => {
+      if (!confirm("Regenerate the weekly retrospective NOW? This runs the same code path as the Sunday cron and overwrites timed:retro:weekly:latest in KV.")) return;
+      try {
+        const r = await fetch(`${API_BASE}/timed/admin/weekly-retrospective?send_email=0`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: "{}"
+        });
+        const j = await r.json();
+        if (j.ok) {
+          alert(`Retro regenerated. ${Number(j?.stats?.trades?.total) || 0} closed trades in the window.`);
+          fetchData();
+        } else {
+          alert(`Retro failed: ${j.error || "unknown"}`);
+        }
+      } catch (e) {
+        alert(`Retro failed: ${String(e.message || e)}`);
+      }
+    }
+  }, "\u21BB Generate now")), wr?.error ? React.createElement("div", {
     className: "text-red-400 text-xs"
   }, wr.error) : !wr?.markdown ? React.createElement("div", {
     className: "text-xs mc-mute py-3"
@@ -899,7 +1012,7 @@ function MissionControl({
     className: "text-[#34d399]"
   }, "model_config.weekly_retro_enabled = '1'"), " to enable email distribution; report is generated regardless and stored at", React.createElement("code", {
     className: "ml-1"
-  }, "timed:retro:weekly:latest"), ".") : React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "timed:retro:weekly:latest"), ". Click ", React.createElement("b", null, "Generate now"), " above to trigger it mid-week.") : React.createElement(React.Fragment, null, React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
   }, React.createElement("div", {
     className: "mc-kpi"
@@ -1023,11 +1136,19 @@ function MissionControl({
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
-    }, "Decisions (14d)"), React.createElement("div", {
+    }, "Decisions (14d) ", React.createElement("span", {
+      className: "mc-mute",
+      style: {
+        fontWeight: 400
+      }
+    }, "\xB7 live only")), React.createElement("div", {
       className: "mc-kpi-value"
     }, s.total_decisions || 0), React.createElement("div", {
       className: "mc-kpi-sub"
-    }, s.entry_decisions || 0, " entry \xB7 ", s.lifecycle_decisions || 0, " lifecycle")), React.createElement("div", {
+    }, s.entry_decisions || 0, " entry \xB7 ", s.lifecycle_decisions || 0, " lifecycle", s.excluded_replay_count > 0 && React.createElement("div", {
+      className: "text-[10px] mt-0.5 italic",
+      title: "ai_cio_decisions WHERE is_replay = 1 \u2014 backfilled tag means historical rows still uncounted; new replay rows correctly tagged."
+    }, "+", s.excluded_replay_count, " replay decisions excluded"))), React.createElement("div", {
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
@@ -1231,6 +1352,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780128785422:189303447
+// cache-bust:1780149277733:112104625
 
-// cache-bust:1780128785422:189303447
+// cache-bust:1780149277733:112104625
