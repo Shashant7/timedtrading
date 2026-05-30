@@ -1307,14 +1307,14 @@ function OptionsPlaysOfTheDay({
       color: "var(--tt-text)",
       letterSpacing: "-0.005em"
     }
-  }, isSidebar ? `${plays.length} actionable` : "Confluence-Driven Strategies")), h("a", {
+  }, isSidebar ? `${plays.length} actionable` : "Confluence-Driven Strategies")), !isSidebar && h("a", {
     href: "/learn.html#active-strategy",
     style: {
       fontSize: 11,
       color: "var(--tt-text-muted)",
       textDecoration: "none"
     }
-  }, isSidebar ? "How →" : "How this works →")), h("div", {
+  }, "How this works →")), h("div", {
     style: containerStyle
   }, plays.map(p => {
     const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
@@ -4617,6 +4617,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780169857501:805101516
+// cache-bust:1780173029385:811716929
 
-// cache-bust:1780169857501:805101516
+// cache-bust:1780173029385:811716929
