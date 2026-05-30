@@ -175,39 +175,61 @@ function scoreL4_ICT(t) {
   const px = Number(t?.price || 0);
   if (!px) return { side: "NEUTRAL", strength: 0, evidence: "no_price" };
 
-  // FVG — prefer per-TF tf_tech.{tf}.fvg, fall back to top-level fvg_D/fvg_4h.
+  // FVG — production shape (top-level + per-TF):
+  //   fvg_D / fvg_4h: { activeBull, activeBear, inBullGap, inBearGap,
+  //                     nearestBullDist, nearestBearDist }
+  //   tf_tech.{tf}.fvg: same shape
+  // Interpretation:
+  //   activeBull > activeBear  → multiple bull FVGs below/around price act as
+  //                              cushion → supports longs.
+  //   activeBear > activeBull  → multiple bear FVGs overhead → resistance → supports shorts.
+  //   inBullGap = price currently inside a bullish FVG (being respected as support).
+  //   nearestBullDist < 0     = bull FVG is BELOW price (support distance)
+  //   nearestBearDist < 0     = bear FVG is ABOVE price (resistance distance)
   const fvgSrcs = [
-    ["W",  t?.tf_tech?.W?.fvg],
+    ["W",  t?.tf_tech?.W?.fvg, 1.0],
     ["D",  t?.tf_tech?.D?.fvg  || t?.fvg_D,  1.0],
     ["4H", t?.tf_tech?.["4H"]?.fvg || t?.fvg_4h, 0.6],
     ["1H", t?.tf_tech?.["1H"]?.fvg, 0.4],
   ];
-  for (const entry of fvgSrcs) {
-    const [tf, fvgObj, weight = 0.8] = entry;
+  for (const [tf, fvgObj, weight] of fvgSrcs) {
     if (!fvgObj) continue;
-    // Production shape: aggregate booleans.
     if (typeof fvgObj === "object" && (fvgObj.activeBull !== undefined || fvgObj.activeBear !== undefined)) {
       const aBull = Number(fvgObj.activeBull) || 0;
       const aBear = Number(fvgObj.activeBear) || 0;
       const inBullGap = fvgObj.inBullGap === true;
       const inBearGap = fvgObj.inBearGap === true;
-      // Bullish FVG below price + above price IS support; in-bull-gap is even stronger.
-      if (aBull > aBear) {
-        bull += weight * (inBullGap ? 1.2 : 0.6) * Math.min(1, aBull / 3);
-        parts.push(`${tf}: ${aBull} bull FVG${inBullGap ? " (in)" : ""}`);
-      } else if (aBear > aBull) {
-        bear += weight * (inBearGap ? 1.2 : 0.6) * Math.min(1, aBear / 3);
-        parts.push(`${tf}: ${aBear} bear FVG${inBearGap ? " (in)" : ""}`);
+      // Net imbalance — even a tilt of 2-vs-1 should register.
+      const netBull = aBull - aBear;
+      if (netBull > 0) {
+        // Base credit for each unfilled bull FVG (scaled), bonus if currently in one.
+        const credit = weight * (Math.min(1.0, netBull / 4) + (inBullGap ? 0.5 : 0));
+        if (credit > 0) {
+          bull += credit;
+          parts.push(`${tf}: ${aBull}b/${aBear}s FVG${inBullGap ? " (in bull)" : ""}`);
+        }
+      } else if (netBull < 0) {
+        const credit = weight * (Math.min(1.0, -netBull / 4) + (inBearGap ? 0.5 : 0));
+        if (credit > 0) {
+          bear += credit;
+          parts.push(`${tf}: ${aBull}b/${aBear}s FVG${inBearGap ? " (in bear)" : ""}`);
+        }
       }
-    }
-    // Array shape (per-individual-gap detail).
-    else if (Array.isArray(fvgObj)) {
+    } else if (Array.isArray(fvgObj)) {
       const unfilled = fvgObj.filter(f => f?.filled === false || f?.status === "unfilled");
       const bullFvg = unfilled.find(f => (f?.type === "bullish" || f?.dir === 1) && f?.top != null && f.top < px);
       const bearFvg = unfilled.find(f => (f?.type === "bearish" || f?.dir === -1) && f?.bottom != null && f.bottom > px);
       if (bullFvg) { bull += weight; parts.push(`${tf} bull FVG support`); }
       if (bearFvg) { bear += weight; parts.push(`${tf} bear FVG resist`); }
     }
+  }
+  // fvg_imbalance_D — top-level imbalance summary (when present, strong signal).
+  const imb = t?.fvg_imbalance_D || t?.tf_tech?.D?.fvg_imbalance;
+  if (imb && typeof imb === "object") {
+    const side = String(imb.side || imb.direction || "").toLowerCase();
+    const mag = Number(imb.magnitude || imb.strength || 0);
+    if (side === "bull" || side === "bullish") { bull += 0.5 + Math.min(0.5, mag); parts.push("D imbalance bull"); }
+    else if (side === "bear" || side === "bearish") { bear += 0.5 + Math.min(0.5, mag); parts.push("D imbalance bear"); }
   }
 
   // Liquidity sweep + reclaim. Production: liq_D, tf_tech.{tf}.liq.

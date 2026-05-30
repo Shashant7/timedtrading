@@ -619,6 +619,13 @@ import {
   tdFetchOptionsChain as _tdFetchOptionsChain,
 } from "./twelvedata.js";
 import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
+import {
+  loadAutoMirrorPrefs as _loadAutoMirrorPrefs,
+  saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
+  decideAutoMirror as _decideAutoMirror,
+  fireAutoMirror as _fireAutoMirror,
+  checkAndBumpDailyCounter as _bumpMirrorCounter,
+} from "./options-auto-mirror.js";
 import { AI_CIO_MODEL as _CIO_MODEL } from "./cio/cio-prompts.js";
 
 // Register all entry engines with the dispatcher
@@ -1150,12 +1157,16 @@ const ROUTES = [
   ["GET", "/timed/strategy", "GET /timed/strategy"],
   ["GET", "/timed/strategy/ticker", "GET /timed/strategy/ticker"],
   // ── Options strategy engine ──
-  ["GET",  "/timed/options/ticker",       "GET /timed/options/ticker"],
-  ["GET",  "/timed/options/all",          "GET /timed/options/all"],
-  ["GET",  "/timed/options/risk-profile", "GET /timed/options/risk-profile"],
-  ["PUT",  "/timed/options/risk-profile", "PUT /timed/options/risk-profile"],
-  ["GET",  "/timed/options/chain",        "GET /timed/options/chain"],
-  ["GET",  "/timed/options/expirations",  "GET /timed/options/expirations"],
+  ["GET",  "/timed/options/ticker",        "GET /timed/options/ticker"],
+  ["GET",  "/timed/options/all",           "GET /timed/options/all"],
+  ["GET",  "/timed/options/risk-profile",  "GET /timed/options/risk-profile"],
+  ["PUT",  "/timed/options/risk-profile",  "PUT /timed/options/risk-profile"],
+  ["GET",  "/timed/options/chain",         "GET /timed/options/chain"],
+  ["GET",  "/timed/options/expirations",   "GET /timed/options/expirations"],
+  // Phase 3 — operator-only auto-mirror controls.
+  ["GET",  "/timed/options/auto-mirror",   "GET /timed/options/auto-mirror"],
+  ["PUT",  "/timed/options/auto-mirror",   "PUT /timed/options/auto-mirror"],
+  ["POST", "/timed/options/mirror-now",    "POST /timed/options/mirror-now"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -73906,6 +73917,92 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      // ── GET /timed/options/auto-mirror ──────────────────────────────────
+      // Operator-only: view the auto-mirror preferences.
+      if (routeKey === "GET /timed/options/auto-mirror") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          if (!userEmail) return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+          if (userEmail.toLowerCase() !== String(env.ADMIN_EMAIL || "").toLowerCase()) {
+            return sendJSON({ ok: false, error: "operator_only", note: "Auto-mirror is operator-only. Standard users get suggested plays in their Options Tab." }, 403, corsHeaders(env, req));
+          }
+          const prefs = await _loadAutoMirrorPrefs(env, userEmail);
+          const today = new Date().toISOString().slice(0, 10);
+          const todayCount = Number(await env.KV_TIMED.get(`timed:options:auto-mirror:count:${userEmail.toLowerCase()}:${today}`)) || 0;
+          return sendJSON({
+            ok: true, user: userEmail, prefs,
+            today_count: todayCount, today_remaining: Math.max(0, (prefs.daily_cap || 0) - todayCount),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── PUT /timed/options/auto-mirror ──────────────────────────────────
+      if (routeKey === "PUT /timed/options/auto-mirror") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          if (!userEmail) return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+          if (userEmail.toLowerCase() !== String(env.ADMIN_EMAIL || "").toLowerCase()) {
+            return sendJSON({ ok: false, error: "operator_only" }, 403, corsHeaders(env, req));
+          }
+          const body = await req.json().catch(() => ({}));
+          const saved = await _saveAutoMirrorPrefs(env, userEmail, body);
+          return sendJSON({ ok: true, prefs: saved }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── POST /timed/options/mirror-now ──────────────────────────────────
+      // Operator-only: manually fire the auto-mirror decision for one
+      // ticker. Useful for testing the bridge round-trip without waiting
+      // for the cron-driven event.
+      if (routeKey === "POST /timed/options/mirror-now") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          if (!userEmail) return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+          if (userEmail.toLowerCase() !== String(env.ADMIN_EMAIL || "").toLowerCase()) {
+            return sendJSON({ ok: false, error: "operator_only" }, 403, corsHeaders(env, req));
+          }
+          const body = await req.json().catch(() => ({}));
+          const ticker = normTicker(body?.ticker);
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const dryRun = body?.dry_run !== false; // default DRY RUN unless explicitly set false
+          const contract = await buildTraderPredictionContract(env, ticker);
+          if (!contract) return sendJSON({ ok: false, error: "no_trader_contract" }, 404, corsHeaders(env, req));
+          const tickerSnap = await loadLatestPredictionTicker(env, ticker);
+          const prefs = await _loadAutoMirrorPrefs(env, userEmail);
+          let profile = "speculator";
+          try { const p = await env.KV_TIMED.get(`timed:options:profile:${userEmail.toLowerCase()}`); if (p) profile = p; } catch (_) {}
+          const decision = _decideAutoMirror({ ticker, traderContract: contract, tickerSnapshot: tickerSnap }, prefs, profile);
+          if (!decision.should_mirror) {
+            return sendJSON({ ok: true, fired: false, decision }, 200, corsHeaders(env, req));
+          }
+          if (dryRun) {
+            return sendJSON({ ok: true, fired: false, dry_run: true, decision }, 200, corsHeaders(env, req));
+          }
+          // Live fire.
+          const counter = await _bumpMirrorCounter(env, userEmail, prefs.daily_cap);
+          if (!counter.allowed) {
+            return sendJSON({ ok: false, error: "daily_cap_reached", counter }, 429, corsHeaders(env, req));
+          }
+          const fired = await _fireAutoMirror(env, userEmail, {
+            trade_id: contract.trade_id || null,
+            ticker,
+            play: decision.play,
+            confluence_verdict: decision.confluence,
+            source: "manual_mirror_now",
+          });
+          return sendJSON({ ok: true, fired, decision, counter }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ── GET /timed/options/risk-profile ─────────────────────────────────
       // Returns the user's saved risk profile (or default). Keyed by email
       // from authenticateUser. Unauthenticated callers get the default
@@ -74134,22 +74231,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           // Source: top-ranked tickers by entry-quality / rank from the
           // latest scoring snapshot. Already cached as timed:all.
-          const allRaw = await env.KV_TIMED.get("timed:all");
-          const all = allRaw ? JSON.parse(allRaw) : null;
-          const tickers = Array.isArray(all?.tickers) ? all.tickers : [];
+          // Try multiple KV keys for the snapshot — production writes to
+          // `timed:all:snapshot`; legacy `timed:all` may also exist.
+          let all = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+          if (!all) all = await kvGetJSON(env.KV_TIMED, "timed:all");
+          // Snapshot shape: object keyed by ticker. Flatten with injected
+          // ticker field for downstream consumers.
+          const tickers = (() => {
+            if (Array.isArray(all?.tickers)) return all.tickers;
+            if (Array.isArray(all)) return all;
+            const dataMap = all?.data || all || {};
+            if (typeof dataMap !== "object" || dataMap === null) return [];
+            return Object.entries(dataMap)
+              .filter(([k, v]) => k && !k.startsWith("__") && v && typeof v === "object")
+              .map(([k, v]) => v.ticker ? v : { ticker: String(k).toUpperCase(), ...v });
+          })();
+          // 2026-05-30 — broaden filter: include any ticker with non-zero
+          // rank OR score, then rely on confluence-mode sorting downstream
+          // to surface the genuinely actionable ones (RIDE/DRIFT/READY/FADE
+          // bubble to the top, WAIT plays are filtered out by the UI).
           const candidates = tickers
             .filter(t => {
               const eq = Number(t?.entry_quality?.score || 0);
               const rk = Number(t?.rank || 0);
-              const stage = String(t?.kanban_stage || "").toLowerCase();
-              return (eq >= 55 || rk >= 60) && (stage.includes("enter") || stage.includes("review") || stage.includes("hold"));
+              return eq > 0 || rk > 0;
             })
             .sort((a, b) => {
               const aScore = Math.max(Number(a?.entry_quality?.score || 0), Number(a?.rank || 0));
               const bScore = Math.max(Number(b?.entry_quality?.score || 0), Number(b?.rank || 0));
               return bScore - aScore;
             })
-            .slice(0, limit);
+            .slice(0, Math.min(40, limit * 3)); // pull 3x so we can post-filter by confluence
           const plays = [];
           for (const t of candidates) {
             try {
@@ -74199,13 +74311,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           // 2026-05-30 — sort top picks by RIDE mode + confluence score
           // (instead of just by entry_quality). Front-page favors the
-          // highest-conviction multi-layer alignments.
+          // highest-conviction multi-layer alignments. After sort, cap
+          // at the originally-requested `limit`.
           const MODE_RANK = { RIDE: 0, DRIFT: 1, READY: 2, FADE: 3, WAIT: 4, UNKNOWN: 5 };
           plays.sort((a, b) => {
             const dm = (MODE_RANK[a.confluence_mode] ?? 99) - (MODE_RANK[b.confluence_mode] ?? 99);
             if (dm !== 0) return dm;
             return (Number(b.confluence_score) || 0) - (Number(a.confluence_score) || 0);
           });
+          // Cap to requested limit after sort/filter.
+          plays.splice(limit);
           return sendJSON({
             ok: true,
             profile,

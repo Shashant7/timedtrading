@@ -547,22 +547,45 @@ export async function tdFetchOptionsExpirations(env, symbol) {
 
 /**
  * Fetch the full options chain for a single expiration date.
+ * TD docs are inconsistent on the URL path — try `/options/chain` first,
+ * fall back to `/options_chain` (the python SDK form). Auth via apikey
+ * query param (HTTP header form requires CORS preflight that doesn't fit
+ * the Workers cache path).
  * @param {string} expirationDate - ISO date (YYYY-MM-DD)
- * @returns {Promise<{ok, expiration, calls, puts, underlying_price, error?}>}
+ * @returns {Promise<{ok, expiration, calls, puts, underlying_price, error?, _tried?: object[]}>}
  */
 export async function tdFetchOptionsChain(env, symbol, expirationDate) {
   const apikey = env?.TWELVEDATA_API_KEY;
   if (!apikey) return { ok: false, error: "missing_api_key" };
   if (!expirationDate) return { ok: false, error: "missing_expiration" };
   const tdSym = toTdSymbol(symbol);
-  const url = `${TD_BASE}/options/chain?symbol=${encodeURIComponent(tdSym)}&expiration_date=${encodeURIComponent(expirationDate)}&apikey=${apikey}`;
-  try {
-    const r = await fetch(url, { cf: { cacheTtl: 60 } });
-    if (!r.ok) return { ok: false, error: `http_${r.status}` };
-    const j = await r.json();
-    if (j?.status === "error") return { ok: false, error: j.message || j.code };
-    // Normalize: TD shape is { meta, calls: [{ strike, last, bid, ask, ... }, ...], puts: [...] }
-    const normLeg = (leg) => {
+  const variants = [
+    `/options/chain?symbol=${encodeURIComponent(tdSym)}&expiration_date=${encodeURIComponent(expirationDate)}&apikey=${apikey}`,
+    `/options_chain?symbol=${encodeURIComponent(tdSym)}&expiration_date=${encodeURIComponent(expirationDate)}&apikey=${apikey}`,
+  ];
+  const tried = [];
+  let lastErr = null;
+  for (const path of variants) {
+    try {
+      const r = await fetch(`${TD_BASE}${path}`, { cf: { cacheTtl: 60 } });
+      tried.push({ path: path.split("?")[0], status: r.status });
+      if (!r.ok) { lastErr = `http_${r.status}`; continue; }
+      const j = await r.json();
+      if (j?.status === "error") { lastErr = j.message || j.code; continue; }
+      // Got data — normalize and return.
+      const result = _normalizeOptionsChainResponse(j, tdSym, expirationDate);
+      result._tried = tried;
+      return result;
+    } catch (e) {
+      tried.push({ path: path.split("?")[0], error: String(e?.message || e).slice(0, 80) });
+      lastErr = String(e?.message || e).slice(0, 200);
+    }
+  }
+  return { ok: false, error: lastErr || "no_endpoint_returned_data", _tried: tried };
+}
+
+function _normalizeOptionsChainResponse(j, tdSym, expirationDate) {
+  const normLeg = (leg) => {
       const bid = Number(leg?.bid);
       const ask = Number(leg?.ask);
       const mid = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0
@@ -585,20 +608,17 @@ export async function tdFetchOptionsChain(env, symbol, expirationDate) {
         symbol: leg?.symbol || leg?.contractSymbol || null,
       };
     };
-    const calls = Array.isArray(j?.calls) ? j.calls.map(normLeg).filter(l => l.strike > 0) : [];
-    const puts  = Array.isArray(j?.puts)  ? j.puts.map(normLeg).filter(l => l.strike > 0)  : [];
-    return {
-      ok: true,
-      symbol: tdSym,
-      expiration: expirationDate,
-      underlying_price: Number(j?.meta?.regular_market_price ?? j?.meta?.price) || null,
-      calls,
-      puts,
-      fetched_at: Date.now(),
-    };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e).slice(0, 200) };
-  }
+  const calls = Array.isArray(j?.calls) ? j.calls.map(normLeg).filter(l => l.strike > 0) : [];
+  const puts  = Array.isArray(j?.puts)  ? j.puts.map(normLeg).filter(l => l.strike > 0)  : [];
+  return {
+    ok: true,
+    symbol: tdSym,
+    expiration: expirationDate,
+    underlying_price: Number(j?.meta?.regular_market_price ?? j?.meta?.price) || null,
+    calls,
+    puts,
+    fetched_at: Date.now(),
+  };
 }
 
 /**

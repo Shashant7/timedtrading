@@ -294,6 +294,18 @@ export default {
         return await handleOrderWebhook(env, ctx, payload);
       }
 
+      // 2026-05-30 — POST /bridge/options/order — route TT options play
+      // (from worker/options-plays.js) to the broker. Operator-only for
+      // auto-execution; other users get review-only response (dry run).
+      if (method === "POST" && path === "/bridge/options/order") {
+        const rawBody = await req.text();
+        const sigFail = await requireWebhookSignature(env, req, rawBody);
+        if (sigFail) return sigFail;
+        let payload;
+        try { payload = JSON.parse(rawBody); } catch (_) { return json({ ok: false, error: "bad_json" }, 400); }
+        return await handleOptionsOrderWebhook(env, ctx, payload);
+      }
+
       return json({ ok: false, error: "not_found", path }, 404);
     } catch (e) {
       console.error("[BRIDGE] uncaught:", String(e?.message || e).slice(0, 500));
@@ -428,6 +440,105 @@ async function handleOrderWebhook(env, ctx, payload) {
     mock: !!place.mock,
     latency_ms: Date.now() - t0,
   }, 200);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// OPTIONS order webhook — Phase 3 of the TT Options Engine.
+//
+// Inbound payload shape:
+//   { user_id, trade_id, ticker, play: { archetype, legs, contracts, ... },
+//     confluence_verdict: {...}, source: 'auto_mirror' | 'manual' }
+//
+// Flow:
+//   1. Preflight (kill switch, enablement, options-specific opt-in)
+//   2. Translate play → IBKR order (playToIbkrOrder helper)
+//   3. Adapter routes order to broker (IBKR options API)
+//   4. Audit log + bump daily counter
+//
+// 2026-05-30 — Phase 3 of the TT Options Engine.
+// ─────────────────────────────────────────────────────────────────────
+async function handleOptionsOrderWebhook(env, ctx, payload) {
+  const t0 = Date.now();
+  const sanitized = {
+    user_id: String(payload?.user_id || "").toLowerCase(),
+    trade_id: payload?.trade_id || null,
+    ticker: String(payload?.ticker || "").toUpperCase(),
+    play: payload?.play || null,
+    confluence: payload?.confluence_verdict || null,
+    source: String(payload?.source || "manual"),
+    dry_run: payload?.dry_run === true,
+    ts: Date.now(),
+  };
+  if (!sanitized.user_id || !sanitized.ticker || !sanitized.play) {
+    return json({ ok: false, error: "missing_required_fields" }, 400);
+  }
+
+  // Load user + check enablement.
+  const { getUser } = await import("./bridge-storage.js");
+  const user = await getUser(env, sanitized.user_id);
+  if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+
+  // Global kill switch.
+  if (env?.BRIDGE_KILL_SWITCH === "true") {
+    return json({ ok: false, rejected: true, reason: "global_kill_switch" }, 200);
+  }
+  if (!user.broker_integration_enabled) {
+    return json({ ok: false, rejected: true, reason: "user_disabled" }, 200);
+  }
+  // Options-specific gate — separate from stock enablement so users
+  // can authorize stocks-only without options.
+  if (!user.options_enabled && user.role !== "operator") {
+    return json({ ok: false, rejected: true, reason: "options_not_enabled" }, 200);
+  }
+
+  // Translate play → broker order shape.
+  const { playToIbkrOrder, placeOptionsOrder } = await import("./bridge-ibkr.js");
+  const brokerOrder = playToIbkrOrder(sanitized.play, sanitized.ticker);
+  if (!brokerOrder) return json({ ok: false, rejected: true, reason: "play_translation_failed" }, 200);
+
+  // Dry-run path — return what WOULD be sent without hitting the broker.
+  if (sanitized.dry_run || user.mock_mode) {
+    return json({
+      ok: true,
+      dry_run: true,
+      mock: true,
+      ticker: sanitized.ticker,
+      translated_order: brokerOrder,
+      play_archetype: sanitized.play.archetype,
+      max_loss_usd: sanitized.play.max_loss_usd,
+      max_gain_usd: sanitized.play.max_gain_usd,
+      latency_ms: Date.now() - t0,
+    }, 200);
+  }
+
+  // Live execution.
+  const placed = await placeOptionsOrder(env, user, brokerOrder);
+
+  // Audit log (uses writeAudit which is the canonical helper).
+  try {
+    await writeAudit(env, {
+      kind: "options_order",
+      user_id: sanitized.user_id,
+      ticker: sanitized.ticker,
+      trade_id: sanitized.trade_id,
+      source: sanitized.source,
+      play_archetype: sanitized.play.archetype,
+      confluence_mode: sanitized.confluence?.mode || null,
+      confluence_score: sanitized.confluence?.score || null,
+      translated_order: brokerOrder,
+      broker_response: placed,
+      ts: Date.now(),
+    });
+  } catch (_) { /* best-effort */ }
+
+  return json({
+    ok: !!placed?.ok,
+    ticker: sanitized.ticker,
+    play_archetype: sanitized.play.archetype,
+    translated_order: brokerOrder,
+    broker_response: placed,
+    latency_ms: Date.now() - t0,
+  }, placed?.ok ? 200 : 502);
 }
 
 // ── Redaction helpers — never return token wraps to operator UI ──
