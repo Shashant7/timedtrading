@@ -1093,6 +1093,28 @@ function App() {
             ctx[normalizeTicker(row.ticker)] = row.context;
           }
         });
+        try {
+          const metaRes = await fetch(`${API_BASE}/timed/admin/ticker-metadata/all?_t=${requestTs}`, {
+            credentials: "include",
+            cache: "no-store"
+          });
+          if (metaRes.ok) {
+            const metaJson = await metaRes.json();
+            if (metaJson?.ok && metaJson?.by_ticker) {
+              for (const [sym, meta] of Object.entries(metaJson.by_ticker)) {
+                const t = normalizeTicker(sym);
+                const merged = {
+                  ...(ctx[t] || {})
+                };
+                if (!merged.name && meta.name) merged.name = meta.name;
+                if (!merged.sector && meta.sector) merged.sector = meta.sector;
+                if (!merged.industry && meta.industry) merged.industry = meta.industry;
+                if (!merged.market_cap && meta.market_cap) merged.market_cap = meta.market_cap;
+                ctx[t] = merged;
+              }
+            }
+          }
+        } catch (_) {}
         setContextData(ctx);
       }
       if (clearPendingFromResponse && json.tickers && json.tickers.length) {
@@ -2219,6 +2241,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1780072401750:180383653
+// cache-bust:1780099581485:473288440
 
-// cache-bust:1780072401750:180383653
+// cache-bust:1780099581485:473288440

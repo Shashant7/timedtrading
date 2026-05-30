@@ -820,6 +820,30 @@
         //   • avg position size (rank-based proxy)
         // The pill row stays — but the cio-card now renders a richer
         // body that surfaces the above.
+        // 2026-05-29 — B4: live open trades fetched directly so the
+        // board's "open positions" count + best/worst mover are based
+        // on actual D1 trade rows (not derived from kanban stage which
+        // can miss tickers whose stage doesn't map to one of the
+        // hardcoded "hold/active/defend/trim" buckets). Also pulls
+        // investor positions so the board reflects BOTH modes.
+        const [liveTraderTrades, setLiveTraderTrades] = useState([]);
+        const [liveInvestorPositions, setLiveInvestorPositions] = useState([]);
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              const [tR, iR] = await Promise.all([
+                fetch(`${API_BASE}/timed/ledger/trades?mode=trader&status=open&limit=50`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${API_BASE}/timed/investor/positions`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
+              ]);
+              if (!alive) return;
+              if (tR?.ok && Array.isArray(tR.trades)) setLiveTraderTrades(tR.trades);
+              if (iR?.ok && Array.isArray(iR.positions)) setLiveInvestorPositions(iR.positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN"));
+            } catch (_) {}
+          })();
+          return () => { alive = false; };
+        }, []);
+
         const board = useMemo(() => {
           const counts = { setup: 0, enter: 0, hold: 0, defend: 0, trim: 0, exit: 0 };
           const watching = [];
@@ -866,26 +890,48 @@
               sectorTallies[sector] = (sectorTallies[sector] || 0) + 1;
             }
           }
-          // Live Open P&L: derive from ticker.price vs entry_price (when
-          // present in the snapshot). Not every ticker carries entry_price
-          // but most open positions do — accept the partial coverage.
+          // 2026-05-29 — B4: live open P&L computed from /timed/ledger/
+          // trades + /timed/investor/positions directly. Previously this
+          // walked the kanban-stage-filtered `positions` array which
+          // missed tickers in stages outside hold/active/defend/trim
+          // (so the board showed 2 positions when there were 9+).
+          // Best/worst now respect mode tag so the user sees the actual
+          // top mover across both Trader and Investor lanes.
           let totalPl = 0;
           let plKnown = 0;
           let best = null;
           let worst = null;
-          for (const p of positions) {
-            const ep = Number(p.t?.entry_price);
-            const cp = Number(p.t?.price ?? p.t?.close);
-            const dir = String(p.t?.position_direction || p.t?.direction || "LONG").toUpperCase();
-            if (!Number.isFinite(ep) || !Number.isFinite(cp) || ep <= 0) continue;
-            const mul = dir === "SHORT" ? -1 : 1;
-            const plPct = ((cp - ep) / ep) * 100 * mul;
+          const allLive = [
+            ...liveTraderTrades.map(t => ({
+              sym: String(t.ticker || "").toUpperCase(),
+              mode: "trader",
+              ep: Number(t.entry_price),
+              cp: Number(((data || {})[t.ticker] || {}).price ?? ((data || {})[t.ticker] || {}).close ?? t.entry_price),
+              dir: String(t.direction || "LONG").toUpperCase(),
+            })),
+            ...liveInvestorPositions.map(p => ({
+              sym: String(p.ticker || "").toUpperCase(),
+              mode: "investor",
+              ep: Number(p.avg_entry),
+              cp: Number(((data || {})[p.ticker] || {}).price ?? ((data || {})[p.ticker] || {}).close ?? p.avg_entry),
+              dir: "LONG",
+            })),
+          ];
+          for (const p of allLive) {
+            if (!Number.isFinite(p.ep) || !Number.isFinite(p.cp) || p.ep <= 0) continue;
+            const mul = p.dir === "SHORT" ? -1 : 1;
+            const plPct = ((p.cp - p.ep) / p.ep) * 100 * mul;
             totalPl += plPct;
             plKnown += 1;
-            if (!best || plPct > best.plPct) best = { sym: p.sym, plPct };
-            if (!worst || plPct < worst.plPct) worst = { sym: p.sym, plPct };
+            if (!best || plPct > best.plPct) best = { sym: p.sym, plPct, mode: p.mode };
+            if (!worst || plPct < worst.plPct) worst = { sym: p.sym, plPct, mode: p.mode };
           }
           const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+          // Override the kanban-derived live positions count with the
+          // actual D1 count so KPI reflects truth.
+          counts.totalLive = allLive.length;
+          counts.traderLive = liveTraderTrades.length;
+          counts.investorLive = liveInvestorPositions.length;
           // Top watching by rank (or score fallback).
           watching.sort((a, b) => {
             const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
@@ -907,7 +953,7 @@
             liveCount: positions.length,
             plKnown,
           };
-        }, [data]);
+        }, [data, liveTraderTrades, liveInvestorPositions]);
 
         // ── 2. What the model has learned (top + bottom setups) ──
         const learnings = useMemo(() => {
@@ -1143,7 +1189,9 @@
           );
         }
         const fmtDate = (d) => String(d || "—");
-        const renderTickers = (arr, limit = 8) =>
+        // 2026-05-29 — B4: removed the 8-ticker cap. User wants to see
+        // the FULL list of additions/removals. limit defaults to 999.
+        const renderTickers = (arr, limit = 999) =>
           arr.slice(0, limit).map((a, i) => {
             const sym = typeof a === "string" ? a : (a?.ticker || "?");
             return h("span", { key: i, style: { marginRight: 6 } }, sym);
@@ -1153,7 +1201,7 @@
         // WITH direction and magnitude. Per user feedback: "TT
         // Universe Changes, this needs a bit more detail, such as
         // was AMD increased or decreased, STRL, same thing."
-        const renderReweighted = (arr, limit = 8) =>
+        const renderReweighted = (arr, limit = 999) =>
           arr.slice(0, limit).map((a, i) => {
             if (typeof a === "string") {
               return h("span", { key: i, className: "rw-pill" }, a);

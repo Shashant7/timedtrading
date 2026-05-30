@@ -4594,7 +4594,12 @@
                       // right after Setup so the trader → investor mental
                       // model flows naturally (Setup = trade today,
                       // Investor = position over weeks/months).
-                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Setup"],["INVESTOR","Investor"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
+                      // 2026-05-29 — "Setup" renamed to "Trader" per
+                      // user request. The tab key stays SETUP so all
+                      // downstream conditionals + railTab dispatch
+                      // keep working untouched; only the visible
+                      // label changes.
+                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Trader"],["INVESTOR","Investor"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
                       const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
                       return tabs.map(([key, label]) => (
                       <button
@@ -5547,9 +5552,101 @@
                     </>
                   )}
 
-                  {/* SETUP TAB */}
+                  {/* SETUP TAB (renamed to "Trader" in the tab strip
+                      label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
+                      {/* 2026-05-29 — B8: surface "Current Open Position"
+                          card at the TOP of the Trader tab when an
+                          active trade is open on this ticker. Mirrors
+                          the Your Position card in the Investor tab so
+                          both modes have consistent open-position UX.
+                          Uses effectiveTrade (resolved active trade
+                          from ledgerTrades when prop is null). */}
+                      {(() => {
+                        const t = effectiveTrade || trade;
+                        if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+                        const dirRaw = String(t.direction || "").toUpperCase();
+                        const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
+                        const entry = Number(t.entryPrice ?? t.entry_price);
+                        const shares = Number(t.shares || t.qty || t.size);
+                        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const unrealizedPct = (entry > 0 && livePx > 0)
+                          ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
+                          : null;
+                        const sl = Number(t.sl ?? ticker?.sl);
+                        const tp = Number(t.tp ?? ticker?.tp);
+                        const fmtUsdLocal = (n) => Number.isFinite(n)
+                          ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
+                          : "—";
+                        return (
+                          <Panel
+                            title="📍 Current Open Position"
+                            action={
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                                padding: "2px 8px", borderRadius: 999,
+                                color: dirColor,
+                                background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
+                                border: `1px solid ${dirColor}50`,
+                              }}>{dirRaw} · OPEN</span>
+                            }
+                          >
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {Number.isFinite(shares) ? shares.toFixed(2) : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>ENTRY</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {fmtUsdLocal(entry)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>STOP LOSS</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#f87171", marginTop: 2 }}>
+                                  {fmtUsdLocal(sl)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TAKE PROFIT</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#34d399", marginTop: 2 }}>
+                                  {fmtUsdLocal(tp)}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>NOTIONAL</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 }}>
+                                  {(Number.isFinite(entry) && Number.isFinite(shares))
+                                    ? fmtUsdLocal(entry * shares) : "—"}
+                                </div>
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>UNREALIZED</div>
+                                <div style={{
+                                  fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2,
+                                  color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171",
+                                }}>
+                                  {unrealizedPct != null
+                                    ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%`
+                                    : "—"}
+                                </div>
+                              </div>
+                            </div>
+                            {t.entry_ts && (
+                              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>
+                                Entered {new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                                {t.rank != null && <> · Rank <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rank)}</strong></>}
+                                {t.rr != null && <> · R:R <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rr).toFixed(2)}</strong></>}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
+
                       {(ticker?.entry_path || ticker?.setup_name) && (
                         <Panel title="Setup">
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
@@ -8091,22 +8188,70 @@
                         ) : (
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                             {ledgerTrades.slice(0, 10).map((t, i) => {
-                              const pnlPct = Number(t.pnl_pct ?? t.pnlPct) || 0;
-                              const pnlAbs = Number(t.pnl) || 0;
+                              const pnlPct = Number(t.pnl_pct ?? t.pnlPct);
+                              const pnlAbs = Number(t.pnl);
                               const isWin = String(t.status || "").toUpperCase() === "WIN";
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
                               const isInvestor = t._source_mode === "investor";
-                              // For investor lots, the row is a single BUY/SELL/DCA, not a closed trade.
                               const action = String(t.action || "").toUpperCase();
-                              const investorLabel = isInvestor
-                                ? (action === "SELL" ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY")
-                                : null;
-                              const showPnl = !isInvestor || action === "SELL";
+                              const isSell = isInvestor && action === "SELL";
+                              const isBuy = isInvestor && (action === "BUY" || action === "DCA_BUY");
+                              const investorLabel = isSell ? "SELL"
+                                : action === "DCA_BUY" ? "DCA"
+                                : "BUY";
+                              const lotShares = Number(t.shares);
+                              // 2026-05-29 — B7 fix. Lot-specific render:
+                              //   BUY/DCA → "X.XX sh @ $price"  (no P&L; it's an
+                              //              entry, P&L is unrealized until sold)
+                              //   SELL    → "X.XX sh · +/-X.XX% realized"
+                              //              (the lot's own pnl_pct + abs $)
+                              //   trader  → "+/-X.XX%" closing pct
+                              // Previously: BUY rows showed nothing useful;
+                              // SELL rows showed only the pct which could be
+                              // confused with the position aggregate.
+                              const entryPx = Number(t.entry_price ?? t.price);
+                              let rightSlot;
+                              if (isBuy) {
+                                rightSlot = (
+                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
+                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                    {Number.isFinite(entryPx) && entryPx > 0 && (
+                                      <span style={{ color: "var(--ds-text-faint)", marginLeft: 4 }}>@ ${entryPx.toFixed(2)}</span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (isSell) {
+                                const validPct = Number.isFinite(pnlPct);
+                                rightSlot = (
+                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
+                                      {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                    </span>
+                                    {validPct && (
+                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}% realized
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (Number.isFinite(pnlPct)) {
+                                rightSlot = (
+                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                  </span>
+                                );
+                              } else {
+                                rightSlot = (
+                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
+                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
+                                  </span>
+                                );
+                              }
                               return (
                                 <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
                                   title={isInvestor
-                                    ? `Investor lot: ${action} ${t.shares ? Number(t.shares).toFixed(2) + " sh" : ""}${t.reason ? " — " + t.reason : ""}`
+                                    ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(entryPx) ? entryPx.toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${t.reason ? " — " + t.reason : ""}`
                                     : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
@@ -8126,7 +8271,12 @@
                                 >
                                   <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
                                     {isInvestor ? (
-                                      <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", background: "rgba(139,92,246,0.14)", color: "#c4b5fd", borderColor: "rgba(139,92,246,0.30)" }}>
+                                      <span className="ds-chip ds-chip--sm" style={{
+                                        fontFamily: "var(--tt-font-mono)",
+                                        background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
+                                        color: isSell ? "#fda4af" : "#86efac",
+                                        borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
+                                      }}>
                                         INV {investorLabel}
                                       </span>
                                     ) : (
@@ -8134,15 +8284,7 @@
                                     )}
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
                                   </div>
-                                  {showPnl ? (
-                                    <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                    </span>
-                                  ) : (
-                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: "11px" }}>
-                                      {Number(t.shares) > 0 ? Number(t.shares).toFixed(1) + " sh" : "—"}
-                                    </span>
-                                  )}
+                                  {rightSlot}
                                 </div>
                               );
                             })}

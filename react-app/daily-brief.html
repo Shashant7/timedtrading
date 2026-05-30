@@ -2039,18 +2039,31 @@
       //     section a richer rhythm than the previous repeating-paragraphs
       //     layout.
       function IntradayFlash({ entries }) {
+        // 2026-05-29 — Rules-of-Hooks fix. PR for B9: this component
+        // had `useMemo(...)` called AFTER `if (!entries || entries.
+        // length === 0) return null` — so on first render (entries
+        // empty) only `useState` fired; on the second render (entries
+        // populated) `useState + useMemo` fired. React's hook count
+        // changed across renders → "Minified React error #310" crash
+        // observed on first load of /daily-brief. Now ALL hooks run
+        // before any conditional return.
         const [expanded, setExpanded] = useState(true);
-        if (!entries || entries.length === 0) return null;
-        const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
 
-        // Build chart markers (one per flash) keyed off publishedAt. The
-        // Lightweight-Charts marker `time` is a Unix-second timestamp; we
-        // align to the start of the 15-minute candle so markers anchor to
-        // a real bar instead of floating between bars.
+        // Stable sorted list — memoized to keep the flashMarkers memo
+        // honest (without this, sorted is a fresh array each render
+        // and breaks the markers memoization).
+        const sorted = useMemo(() => {
+          if (!Array.isArray(entries) || entries.length === 0) return [];
+          return [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+        }, [entries]);
+
+        // Build chart markers (one per flash) keyed off publishedAt.
+        // Lightweight-Charts marker `time` is a Unix-second timestamp;
+        // we align to the start of the 15-minute candle so markers
+        // anchor to a real bar instead of floating between bars.
         const flashMarkers = useMemo(() => {
+          if (sorted.length === 0) return [];
           const FIFTEEN_MIN = 15 * 60;
-          // Newest-first list above is good for rendering, but markers
-          // should be chronological for the chart engine.
           const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
           return chrono
             .filter(e => Number.isFinite(Number(e.publishedAt)))
@@ -2074,20 +2087,17 @@
             });
         }, [sorted]);
 
-        // 4-up grid: SPY (broad), QQQ (tech), IWM (small caps), VIXY (vol).
-        // Each gets its own MiniChart at 15m with the same flash markers
-        // so the user can scan each tape against the publish times. VIXY
-        // is the tradeable VIX-futures ETF used as a vol proxy because the
-        // raw VIX index isn't persisted as candles in the price pipeline
-        // (it's a calculated index, not a tradeable instrument). VIXY
-        // tracks intraday vol direction faithfully enough for "is the
-        // tape risk-on or risk-off right now" reads.
+        // 4-up grid: SPY (broad), QQQ (tech), IWM (small caps), VIXY
+        // (vol). Each chart shares the flash markers.
         const TODAYS_TAPE_TICKERS = useMemo(() => ([
           { sym: "SPY",  label: "SPY",  sub: "broad market",  accentColor: "#a78bfa" },
           { sym: "QQQ",  label: "QQQ",  sub: "tech",          accentColor: "#60a5fa" },
           { sym: "IWM",  label: "IWM",  sub: "small caps",    accentColor: "#fbbf24" },
           { sym: "VIXY", label: "VIXY", sub: "vol proxy",     accentColor: "#f87171" },
         ]), []);
+
+        // Early-return AFTER all hooks have run.
+        if (!entries || entries.length === 0) return null;
 
         return (
           <div className="tt-card mb-8" style={{ padding: "var(--ds-space-4, 18px)" }}>

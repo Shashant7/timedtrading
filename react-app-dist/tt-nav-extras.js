@@ -380,6 +380,31 @@
       // top of them produced a duplicate text-only nav row above
       // the branded nav row (user report 2026-05-26 11:51 PM UTC).
       "/daily-brief",
+      // 2026-05-29 — B3: admin pages render their own full
+      // .nav-links container (journey links + admin items via
+      // mission-control-style scaffold). Injecting the strip on
+      // top duplicates the row in the user's view ("stacked
+      // navigation"). Skip injection for every admin surface
+      // here. tt-nav-extras still injects the Admin dropdown +
+      // right-side widgets on these pages — only the
+      // duplicate-strip injection above the existing nav is
+      // suppressed.
+      "/analysis",
+      "/trades",
+      "/system-intelligence",
+      "/screener",
+      "/tickers",
+      "/ticker-management",
+      "/trade-autopsy",
+      "/admin-clients",
+      "/mission-control",
+      "/model-dashboard",
+      "/move-discovery",
+      "/calibration",
+      "/debug-dashboard",
+      "/brand-kit",
+      "/simulation-dashboard",
+      "/alerts",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a
@@ -567,4 +592,4 @@
   })();
 })();
 
-// cache-bust:1780072401750:180383653
+// cache-bust:1780099581485:473288440

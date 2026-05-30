@@ -1936,9 +1936,12 @@ function IntradayFlash({
   entries
 }) {
   const [expanded, setExpanded] = useState(true);
-  if (!entries || entries.length === 0) return null;
-  const sorted = [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  const sorted = useMemo(() => {
+    if (!Array.isArray(entries) || entries.length === 0) return [];
+    return [...entries].sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
+  }, [entries]);
   const flashMarkers = useMemo(() => {
+    if (sorted.length === 0) return [];
     const FIFTEEN_MIN = 15 * 60;
     const chrono = [...sorted].sort((a, b) => (a.publishedAt || 0) - (b.publishedAt || 0));
     return chrono.filter(e => Number.isFinite(Number(e.publishedAt))).map((e, idx) => {
@@ -1986,6 +1989,7 @@ function IntradayFlash({
     sub: "vol proxy",
     accentColor: "#f87171"
   }], []);
+  if (!entries || entries.length === 0) return null;
   return React.createElement("div", {
     className: "tt-card mb-8",
     style: {
@@ -2635,6 +2639,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1780072401750:180383653
+// cache-bust:1780099581485:473288440
 
-// cache-bust:1780072401750:180383653
+// cache-bust:1780099581485:473288440
