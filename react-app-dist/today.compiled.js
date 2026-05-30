@@ -1028,26 +1028,44 @@ function OptionsPlaysOfTheDay({
   }, plays.map(p => {
     const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
     const dirColor = p.direction === "SHORT" ? "#f87171" : "#34d399";
+    const isMoonshot = p.primary?._moonshot_active;
+    const cardBg = isMoonshot ? "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))" : meta.bg;
+    const cardBorder = isMoonshot ? "2px solid rgba(245,194,92,0.55)" : `1px solid ${meta.color}33`;
     return h("div", {
       key: p.ticker,
       onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
       style: {
         padding: 12,
-        background: meta.bg,
-        border: `1px solid ${meta.color}33`,
+        background: cardBg,
+        border: cardBorder,
         borderRadius: 10,
         cursor: "pointer",
-        transition: "transform 100ms ease, background 100ms ease"
+        transition: "transform 100ms ease, background 100ms ease",
+        boxShadow: isMoonshot ? "0 4px 16px rgba(167,139,250,0.20)" : "none",
+        position: "relative"
       },
       onMouseEnter: e => {
         e.currentTarget.style.transform = "translateY(-1px)";
-        e.currentTarget.style.background = meta.color + "20";
+        if (!isMoonshot) e.currentTarget.style.background = meta.color + "20";
       },
       onMouseLeave: e => {
         e.currentTarget.style.transform = "";
-        e.currentTarget.style.background = meta.bg;
+        if (!isMoonshot) e.currentTarget.style.background = cardBg;
       }
-    }, h("div", {
+    }, isMoonshot && h("div", {
+      style: {
+        position: "absolute",
+        top: -8,
+        right: 8,
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.10em",
+        color: "#0b0e11",
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: "linear-gradient(90deg, #f5c25c, #a78bfa)"
+      }
+    }, "🌙 MOONSHOT"), h("div", {
       style: {
         display: "flex",
         alignItems: "baseline",
@@ -4301,6 +4319,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780118505311:227747623
+// cache-bust:1780121184485:661516866
 
-// cache-bust:1780118505311:227747623
+// cache-bust:1780121184485:661516866

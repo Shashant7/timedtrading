@@ -620,6 +620,10 @@ import {
 } from "./twelvedata.js";
 import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
 import {
+  computeFuturesPairsState as _computeFuturesPairsState,
+  summarizeFuturesPairs as _summarizeFuturesPairs,
+} from "./futures-pairs.js";
+import {
   loadAutoMirrorPrefs as _loadAutoMirrorPrefs,
   saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
   decideAutoMirror as _decideAutoMirror,
@@ -1167,6 +1171,8 @@ const ROUTES = [
   ["GET",  "/timed/options/auto-mirror",   "GET /timed/options/auto-mirror"],
   ["PUT",  "/timed/options/auto-mirror",   "PUT /timed/options/auto-mirror"],
   ["POST", "/timed/options/mirror-now",    "POST /timed/options/mirror-now"],
+  // Futures pairs (Carter ES/NQ analysis).
+  ["GET",  "/timed/futures-pairs",         "GET /timed/futures-pairs"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -74003,6 +74009,67 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      // ── GET /timed/futures-pairs ─────────────────────────────────────────
+      // Carter ES/NQ relative strength + VIX + gap-and-go analysis.
+      if (routeKey === "GET /timed/futures-pairs") {
+        try {
+          // Build market snapshot from KV scoring data.
+          const allRaw = await env.KV_TIMED.get("timed:all:snapshot");
+          const all = allRaw ? JSON.parse(allRaw) : {};
+          const pricesRaw = await env.KV_TIMED.get("timed:prices");
+          const prices = pricesRaw ? JSON.parse(pricesRaw) : { prices: {} };
+          const pmap = prices.prices || prices || {};
+          const pull = (sym) => {
+            const tk = all[sym] || all[String(sym).toUpperCase()] || {};
+            const px = pmap[sym] || pmap[String(sym).toUpperCase()] || null;
+            return {
+              ticker: sym,
+              price: Number(px?.p) || Number(tk.price) || null,
+              prev_close: Number(px?.pc) || Number(tk.prev_close) || null,
+              open: Number(tk.open || tk.dayOpen) || null,
+              dayChangePct: Number(px?.dp) || Number(tk.day_change_pct) || 0,
+            };
+          };
+          const marketData = {
+            ES:  pull("ES1!")  || pull("ES"),
+            NQ:  pull("NQ1!")  || pull("NQ"),
+            YM:  pull("YM1!")  || pull("YM"),
+            RTY: pull("RTY1!") || pull("RTY"),
+            SPY: pull("SPY"),
+            QQQ: pull("QQQ"),
+            DIA: pull("DIA"),
+            IWM: pull("IWM"),
+            VIX: pull("VIX") || pull("VX1!"),
+          };
+          // Futures might not all be in the scoring set — fall back to ETFs.
+          if (!marketData.ES?.price  && marketData.SPY?.price) marketData.ES  = marketData.SPY;
+          if (!marketData.NQ?.price  && marketData.QQQ?.price) marketData.NQ  = marketData.QQQ;
+          if (!marketData.YM?.price  && marketData.DIA?.price) marketData.YM  = marketData.DIA;
+          if (!marketData.RTY?.price && marketData.IWM?.price) marketData.RTY = marketData.IWM;
+          // Pull marked levels (PDH/PDL/WKH/WKL) for SMT detection.
+          const levelsFor = (sym) => {
+            const tk = all[sym] || {};
+            return {
+              pdh: Number(tk.prev_day_high || tk.pdh) || null,
+              pdl: Number(tk.prev_day_low  || tk.pdl) || null,
+              wkh: Number(tk.weekly_high   || tk.wkh) || null,
+              wkl: Number(tk.weekly_low    || tk.wkl) || null,
+            };
+          };
+          const levels = {
+            ES:  levelsFor("ES1!") || levelsFor("SPY"),
+            NQ:  levelsFor("NQ1!") || levelsFor("QQQ"),
+            YM:  levelsFor("YM1!") || levelsFor("DIA"),
+            RTY: levelsFor("RTY1!") || levelsFor("IWM"),
+          };
+          const state = _computeFuturesPairsState(marketData, { levels });
+          state.summary = _summarizeFuturesPairs(state);
+          return sendJSON(state, state.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ── GET /timed/options/risk-profile ─────────────────────────────────
       // Returns the user's saved risk profile (or default). Keyed by email
       // from authenticateUser. Unauthenticated callers get the default
@@ -74203,8 +74270,79 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Ticker themes for LETF lookup.
           let themes = [];
           try { themes = _getThemesForTicker(ticker); } catch (_) {}
+          // Enrich ticker data for moonshot momentum detection — pull
+          // day/5d change from the live price feed + scoring snapshot.
+          let tickerForMomentum = data || {};
+          try {
+            const pricesRaw = await env.KV_TIMED.get("timed:prices");
+            const prices = pricesRaw ? JSON.parse(pricesRaw) : null;
+            const priceRow = prices?.prices?.[ticker] || prices?.[ticker] || null;
+            if (priceRow) {
+              tickerForMomentum = {
+                ...tickerForMomentum,
+                day_change_pct: Number(priceRow.dp ?? tickerForMomentum.day_change_pct) || 0,
+                volume_ratio_20: Number(priceRow.vr ?? tickerForMomentum.volume_ratio_20) || 1,
+              };
+            }
+            const fiveDay = data?.structureContext?.fiveDayChangePct
+                          ?? data?.fiveDayChangePct;
+            if (Number.isFinite(Number(fiveDay))) {
+              tickerForMomentum.fiveDayChangePct = Number(fiveDay);
+            }
+          } catch (_) { /* best-effort */ }
+          // 2026-05-30 — Index Quartet + SMT injection. Single fetch +
+          // 5min KV cache so this is cheap. Powers both the moonshot
+          // SMT-elevated activation path AND L5 Carter's SMT bonus
+          // in root-strategy. When SMT confirms a 2-stage reversal,
+          // moonshot activates even without the in-motion price gate.
+          try {
+            const quartetCacheKey = "timed:futures-pairs:state";
+            let quartetState = null;
+            const cached = await env.KV_TIMED.get(quartetCacheKey);
+            if (cached) {
+              const j = JSON.parse(cached);
+              if (Date.now() - (j._fetched_at || 0) < 300_000) quartetState = j;
+            }
+            if (!quartetState) {
+              // Inline compute (same logic as /timed/futures-pairs endpoint).
+              const allRaw2 = await env.KV_TIMED.get("timed:all:snapshot");
+              const all2 = allRaw2 ? JSON.parse(allRaw2) : {};
+              const pricesRaw2 = await env.KV_TIMED.get("timed:prices");
+              const prices2 = pricesRaw2 ? JSON.parse(pricesRaw2) : { prices: {} };
+              const pmap2 = prices2.prices || prices2 || {};
+              const pullQ = (sym) => {
+                const tk = all2[sym] || {};
+                const px = pmap2[sym] || null;
+                return {
+                  ticker: sym,
+                  price: Number(px?.p) || Number(tk.price) || null,
+                  prev_close: Number(px?.pc) || Number(tk.prev_close) || null,
+                  open: Number(tk.open || tk.dayOpen) || null,
+                  dayChangePct: Number(px?.dp) || Number(tk.day_change_pct) || 0,
+                };
+              };
+              const mkt = {
+                ES: pullQ("ES1!") || pullQ("SPY"),
+                NQ: pullQ("NQ1!") || pullQ("QQQ"),
+                YM: pullQ("YM1!") || pullQ("DIA"),
+                RTY: pullQ("RTY1!") || pullQ("IWM"),
+                SPY: pullQ("SPY"), QQQ: pullQ("QQQ"), DIA: pullQ("DIA"), IWM: pullQ("IWM"),
+                VIX: pullQ("VIX") || pullQ("VX1!"),
+              };
+              if (!mkt.ES?.price && mkt.SPY?.price) mkt.ES = mkt.SPY;
+              if (!mkt.NQ?.price && mkt.QQQ?.price) mkt.NQ = mkt.QQQ;
+              if (!mkt.YM?.price && mkt.DIA?.price) mkt.YM = mkt.DIA;
+              if (!mkt.RTY?.price && mkt.IWM?.price) mkt.RTY = mkt.IWM;
+              quartetState = _computeFuturesPairsState(mkt);
+              quartetState._fetched_at = Date.now();
+              await env.KV_TIMED.put(quartetCacheKey, JSON.stringify(quartetState), { expirationTtl: 600 });
+            }
+            tickerForMomentum._index_quartet = quartetState;
+            if (data) data._index_quartet = quartetState;
+          } catch (_) { /* best-effort */ }
           const ladder = _buildOptionsLadder(ladderInput, {
             profile, account_value: accountValue, chain, confluence, themes,
+            tickerData: tickerForMomentum,
           });
           if (!ladder) return sendJSON({ ok: false, ticker, error: "ladder_build_failed" }, 500, corsHeaders(env, req));
           return sendJSON({

@@ -148,6 +148,14 @@ export const PROFILE_META = {
 //   max_loss    : "defined" | "undefined" | "capped_at_premium"
 //   max_gain    : "defined" | "uncapped"
 export const ARCHETYPES = {
+  // The Moonshot tier — short-dated OTM single legs that activate only
+  // when ALL of: RIDE confluence + ST fresh + underlying in motion +
+  // squeeze released + volume above avg + speculator/aggressive profile.
+  // Gamma-driven — small premium, can 5-10x if the move continues. Theta
+  // is brutal (must work in 5-14 days). This is where TT shines: using
+  // the fused 8-layer verdict to time both DIRECTION and MOMENT.
+  moonshot_call:       { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🌙 Moonshot Call" },
+  moonshot_put:        { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🌙 Moonshot Put" },
   long_call:           { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Call" },
   long_put:            { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Put" },
   vertical_spread:     { directional: "either",  risk_class: "aggressive",   max_loss: "defined",           max_gain: "defined",   label: "Vertical Spread" },
@@ -184,6 +192,136 @@ function snapStrike(price, grid = null) {
 // brackets the swing — never less than 5 DTE (avoids 0DTE gamma fryer
 // for the default user) and never more than 60 DTE for directional plays
 // (theta decay dominates beyond that).
+/**
+ * Moonshot expiration picker — short-dated weekly. Target 7 DTE; snap to
+ * nearest Friday in the 5-14 DTE window. Never goes < 5 DTE (theta cliff)
+ * or > 14 DTE (defeats the gamma-engine purpose).
+ */
+export function pickMoonshotExpiration(now = Date.now()) {
+  const dteTarget = 7;
+  const target = new Date(now + dteTarget * 86400000);
+  const dow = target.getUTCDay();
+  const offset = (5 - dow + 7) % 7;
+  const friday = new Date(target.getTime() + offset * 86400000);
+  friday.setUTCHours(20, 0, 0, 0);
+  let dte = Math.round((friday.getTime() - now) / 86400000);
+  // If we landed too short (< 5 DTE), bump to next Friday.
+  if (dte < 5) {
+    friday.setUTCDate(friday.getUTCDate() + 7);
+    dte = Math.round((friday.getTime() - now) / 86400000);
+  }
+  return {
+    iso: friday.toISOString().slice(0, 10),
+    dte,
+    label: `${friday.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${dte}DTE) · short-dated`,
+  };
+}
+
+/**
+ * Detect "underlying already in motion" — the moonshot ignition condition.
+ * The fused TT call has identified BOTH direction AND moment; the move is
+ * underway and we want to ride it via gamma.
+ *
+ * Returns { in_motion, direction, day_change_pct, multi_day_change_pct,
+ *           volume_ratio, evidence }.
+ */
+export function detectMomentumInMotion(tickerData) {
+  if (!tickerData) return { in_motion: false, reason: "no_ticker_data" };
+
+  const dayPct = Number(tickerData.day_change_pct ?? tickerData.dailyChgPct ?? tickerData.percent_change ?? 0);
+  const fiveDayPct = Number(tickerData.fiveDayChangePct ?? tickerData._5d_change_pct ?? 0);
+  const oneDayPct = Number(tickerData.oneDayChangePct ?? dayPct ?? 0);
+  // Volume ratio — today's volume vs 20-day avg.
+  const volRatio = Number(tickerData.volume_ratio_20 ?? tickerData._vol_ratio ?? 1);
+
+  // Threshold: at least 3% in the trade direction over the day OR 5%+ over 5d.
+  const absDay = Math.abs(dayPct);
+  const absMulti = Math.abs(fiveDayPct);
+  if (absDay < 3 && absMulti < 5) {
+    return { in_motion: false, reason: `quiet (day ${dayPct.toFixed(1)}%, 5d ${fiveDayPct.toFixed(1)}%)`, day_change_pct: dayPct, multi_day_change_pct: fiveDayPct };
+  }
+
+  // Direction must be consistent — day and 5d should agree (no whipsaw).
+  const dayDir  = dayPct > 0 ? "LONG" : dayPct < 0 ? "SHORT" : null;
+  const multiDir = fiveDayPct > 0 ? "LONG" : fiveDayPct < 0 ? "SHORT" : null;
+  if (dayDir && multiDir && dayDir !== multiDir) {
+    return { in_motion: false, reason: "whipsaw (day ↔ 5d disagree)", day_change_pct: dayPct, multi_day_change_pct: fiveDayPct };
+  }
+
+  const direction = dayDir || multiDir;
+  const evidence = [];
+  if (absDay >= 3) evidence.push(`day ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(1)}%`);
+  if (absMulti >= 5) evidence.push(`5d ${fiveDayPct >= 0 ? "+" : ""}${fiveDayPct.toFixed(1)}%`);
+  if (Number.isFinite(volRatio) && volRatio >= 1.5) evidence.push(`vol ${volRatio.toFixed(1)}× avg`);
+
+  return {
+    in_motion: true,
+    direction,
+    day_change_pct: dayPct,
+    multi_day_change_pct: fiveDayPct,
+    volume_ratio: volRatio,
+    evidence: evidence.join(" · "),
+  };
+}
+
+/**
+ * Decide whether the Moonshot tier should activate for a given setup.
+ *
+ * Standard path (gamma-window detection):
+ *   - Confluence = RIDE
+ *   - SuperTrend freshness = "fresh"
+ *   - Underlying in motion (day ≥3% or 5d ≥5% in the trade direction)
+ *
+ * SMT-elevated path (Smart Money Technique confirms):
+ *   - Confluence = RIDE OR DRIFT
+ *   - SMT 2-stage CONFIRMED on the index quartet aligned with direction
+ *   - This is the highest-edge entry — multi-asset divergence at HTF
+ *     levels with LTF PSP confirmation. Standalone 81% historical win
+ *     rate per the source — when this confirms our other layers we
+ *     activate moonshot even without the in-motion price prerequisite.
+ *
+ * Returns { activate, reason, motion?, smt_path?: boolean }.
+ */
+export function shouldActivateMoonshot({ confluence, tickerData, profile }) {
+  if (profile !== "speculator" && profile !== "aggressive") {
+    return { activate: false, reason: "profile_not_speculator_or_aggressive" };
+  }
+
+  // SMT-elevated path: if the index quartet has a confirmed 2-stage SMT
+  // aligned with our confluence side, we have institutional reversal
+  // confirmation — moonshot is justified at high conviction.
+  const quartet = tickerData?._index_quartet || tickerData?.index_quartet;
+  const smtConfirmed = quartet?.smt_confirmed || quartet?.SMT_CONFIRMED;
+  if (smtConfirmed?.confirmed && confluence && (confluence.mode === "RIDE" || confluence.mode === "DRIFT")) {
+    if (smtConfirmed.direction === confluence.side) {
+      const motion = detectMomentumInMotion(tickerData);
+      return {
+        activate: true,
+        smt_path: true,
+        motion: motion.in_motion ? motion : { in_motion: false, evidence: "SMT confirms — momentum not required" },
+        smt_evidence: smtConfirmed.status,
+      };
+    }
+  }
+
+  // Standard path: full gate.
+  if (!confluence || confluence.mode !== "RIDE") {
+    return { activate: false, reason: `mode_${confluence?.mode || "unknown"}_not_RIDE` };
+  }
+  const stFresh = confluence?.supertrend_trigger?.freshness;
+  if (stFresh !== "fresh") {
+    return { activate: false, reason: `st_freshness_${stFresh}_not_fresh` };
+  }
+  const motion = detectMomentumInMotion(tickerData);
+  if (!motion.in_motion) {
+    return { activate: false, reason: motion.reason, motion };
+  }
+  if (motion.direction !== confluence.side) {
+    return { activate: false, reason: `motion_${motion.direction}_vs_confluence_${confluence.side}`, motion };
+  }
+  return { activate: true, motion };
+}
+
 function pickExpiration(setupStage, now = Date.now()) {
   // Days-to-expiry target by stage.
   const dteTarget =
@@ -345,10 +483,93 @@ function _chainLeg(chain, side, strike) {
   return best;
 }
 
+/**
+ * Carter's Delta Decision Tree — pick the chain leg whose delta matches
+ * a target. Used for delta-targeted strike selection instead of blind
+ * "snap to ATM":
+ *
+ *   0.70-0.80 → Stock Replacement (deep ITM, ~1:1 with underlying, low time value)
+ *   0.50      → ATM balanced
+ *   0.25-0.35 → Moonshot / Speculative OTM (max gamma, cheap)
+ *
+ * Returns the chain leg whose absolute delta is closest to targetDelta.
+ * Falls back to nearest-strike when chain Greeks are missing.
+ */
+export function pickLegByDelta(chain, side, targetDelta, fallbackPrice = 0) {
+  if (!chain) return { leg: null, source: "no_chain" };
+  const arr = side === "C" ? chain.calls : chain.puts;
+  if (!Array.isArray(arr) || arr.length === 0) return { leg: null, source: "no_legs" };
+  // Filter to legs with valid delta + bid/ask (skip illiquid).
+  const withDelta = arr.filter(l => Number.isFinite(Number(l.delta)) && Number.isFinite(Number(l.mid)));
+  if (withDelta.length === 0) {
+    // Fall back to nearest-price strike, no delta info.
+    if (!(fallbackPrice > 0)) return { leg: null, source: "no_fallback_price" };
+    const snapped = snapStrike(fallbackPrice);
+    const near = _chainLeg(chain, side, snapped);
+    return near ? { leg: near, source: "fallback_nearest_strike" } : { leg: null, source: "no_match" };
+  }
+  // Find leg with delta closest to target. Puts have NEGATIVE delta in
+  // OCC convention — match on absolute delta.
+  let best = null, bestDiff = Infinity;
+  for (const leg of withDelta) {
+    const d = Math.abs(Math.abs(Number(leg.delta)) - targetDelta);
+    if (d < bestDiff) { best = leg; bestDiff = d; }
+  }
+  return { leg: best, source: "delta_match", diff_from_target: Math.round(bestDiff * 100) / 100 };
+}
+
+/**
+ * Delta-targeted strike fallback when no chain. Uses a rough Black-Scholes
+ * inverse — given desired delta + IV + DTE, what strike approximates it?
+ *
+ *   For calls:  K = S × exp((r - 0.5σ²)T - σ√T × invNorm(target_delta))
+ *   For puts:   K = S × exp((r - 0.5σ²)T + σ√T × invNorm(target_delta))
+ *
+ * Snapped to standard strike grid. Returns null if inputs invalid.
+ */
+function _invNorm(p) {
+  // Approximation of inverse normal CDF (Beasley-Springer-Moro).
+  if (p < 0.5) return -_invNorm(1 - p);
+  const t = Math.sqrt(-2 * Math.log(1 - p));
+  return t - ((0.010328 * t + 0.802853) * t + 2.515517) /
+             (((0.001308 * t + 0.189269) * t + 1.432788) * t + 1);
+}
+
+export function deltaToStrikeBS({ price, targetDelta, dte, atrPct, type }) {
+  if (!(price > 0 && targetDelta > 0 && dte > 0)) return null;
+  const sigma = Number.isFinite(atrPct) && atrPct > 0
+    ? Math.max(0.15, Math.min(2.0, atrPct * Math.sqrt(252)))
+    : 0.4;
+  const T = Math.max(1, dte) / 365;
+  const r = 0.045;
+  // invNorm(target_delta) — note for puts we invert.
+  const dPrime = type === "P" ? _invNorm(1 - targetDelta) : _invNorm(targetDelta);
+  const strike = price * Math.exp((r - 0.5 * sigma * sigma) * T - sigma * Math.sqrt(T) * dPrime);
+  return snapStrike(strike);
+}
+
 function buildLongCall(ctx) {
-  const { price, tp1, sl, atrPct, expiration, contracts, chain } = ctx;
-  const strike = snapStrike(price);
-  const chainLeg = _chainLeg(chain, "C", strike);
+  const { price, tp1, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50 } = ctx;
+  // Delta-targeted strike selection (Carter's framework):
+  //   0.70 = stock replacement (deep ITM, low time value)
+  //   0.50 = ATM balanced (default)
+  //   0.30 = OTM speculative (max gamma)
+  let strike, chainLeg, deltaSource = "snap_atm";
+  if (chain) {
+    const picked = pickLegByDelta(chain, "C", targetDelta, price);
+    if (picked.leg) {
+      strike = Number(picked.leg.strike);
+      chainLeg = picked.leg;
+      deltaSource = picked.source;
+    }
+  }
+  if (!strike) {
+    // Fall back to BS-derived strike or simple ATM snap.
+    strike = deltaToStrikeBS({ price, targetDelta, dte: expiration.dte, atrPct, type: "C" })
+          || snapStrike(price);
+    chainLeg = chain ? _chainLeg(chain, "C", strike) : null;
+    deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate";
+  }
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
@@ -357,10 +578,17 @@ function buildLongCall(ctx) {
   // Max gain at TP1 — intrinsic value at target.
   const intrinsicAtTP = Math.max(0, tp1 - strike);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
+  const deltaLabel = targetDelta >= 0.65 ? "Deep ITM (Stock Replacement)"
+                    : targetDelta >= 0.40 ? "ATM"
+                    : targetDelta >= 0.25 ? "OTM"
+                    : "Far OTM";
+  const deltaPct = (Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0);
   return {
     archetype: "long_call",
-    label: "Long Call (ATM)",
-    rationale: `Bullish bias to $${tp1?.toFixed(2) ?? "?"}. ATM call gives ~${(prem.greeks.delta * 100).toFixed(0)}% delta — every $1 the underlying moves up nets ~$${(prem.greeks.delta * 100).toFixed(0)}/contract. Max loss = premium paid.`,
+    label: `Long Call (${deltaLabel})`,
+    rationale: `Bullish bias to $${tp1?.toFixed(2) ?? "?"}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 underlying ≈ $${deltaPct}/contract. Max loss = premium paid.`,
+    target_delta: targetDelta,
+    actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
       { action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts },
     ],
@@ -381,9 +609,23 @@ function buildLongCall(ctx) {
 }
 
 function buildLongPut(ctx) {
-  const { price, tp1, sl, atrPct, expiration, contracts, chain } = ctx;
-  const strike = snapStrike(price);
-  const chainLeg = _chainLeg(chain, "P", strike);
+  const { price, tp1, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50 } = ctx;
+  // Delta-targeted strike selection (Carter's framework, puts mirror calls).
+  let strike, chainLeg, deltaSource = "snap_atm";
+  if (chain) {
+    const picked = pickLegByDelta(chain, "P", targetDelta, price);
+    if (picked.leg) {
+      strike = Number(picked.leg.strike);
+      chainLeg = picked.leg;
+      deltaSource = picked.source;
+    }
+  }
+  if (!strike) {
+    strike = deltaToStrikeBS({ price, targetDelta, dte: expiration.dte, atrPct, type: "P" })
+          || snapStrike(price);
+    chainLeg = chain ? _chainLeg(chain, "P", strike) : null;
+    deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate";
+  }
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "P", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
@@ -391,10 +633,17 @@ function buildLongPut(ctx) {
   const breakeven = strike - premPerShare;
   const intrinsicAtTP = Math.max(0, strike - tp1);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
+  const deltaLabel = targetDelta >= 0.65 ? "Deep ITM (Stock Replacement)"
+                    : targetDelta >= 0.40 ? "ATM"
+                    : targetDelta >= 0.25 ? "OTM"
+                    : "Far OTM";
+  const deltaPct = (Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0);
   return {
     archetype: "long_put",
-    label: "Long Put (ATM)",
-    rationale: `Bearish bias to $${tp1?.toFixed(2) ?? "?"}. ATM put gives ~${(Math.abs(prem.greeks.delta) * 100).toFixed(0)}% delta — every $1 down nets ~$${(Math.abs(prem.greeks.delta) * 100).toFixed(0)}/contract. Max loss = premium paid.`,
+    label: `Long Put (${deltaLabel})`,
+    rationale: `Bearish bias to $${tp1?.toFixed(2) ?? "?"}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 down ≈ $${deltaPct}/contract. Max loss = premium paid.`,
+    target_delta: targetDelta,
+    actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
       { action: "BUY", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts },
     ],
@@ -525,6 +774,101 @@ function buildCoveredCall(ctx) {
   };
 }
 
+// 🌙 Moonshot — the flagship play. Short-dated OTM single leg that
+// activates ONLY when confluence + ST + momentum + squeeze all line up.
+// This is where TT shines: using the fused 8-layer verdict to time both
+// DIRECTION (call vs put) and MOMENT (gamma window). Premium is small,
+// can 5-10x if the move continues; 100% loss if it stalls.
+//
+// Differs from Long Call/Put:
+//   • DTE: 5-14 (vs 14-30 for standard)
+//   • Delta: 0.25-0.30 (vs 0.50)
+//   • Sizing: 25-50% of standard risk budget (lottery)
+//   • Trade mgmt: scale out 100%+ profits aggressively, exit < 3 days
+//     if no follow-through (theta cliff)
+function buildMoonshot(ctx, direction) {
+  const { price, tp1, sl, atrPct, contracts, chain, dollars_at_risk, motion } = ctx;
+  const expiration = pickMoonshotExpiration();
+  const targetDelta = 0.30; // OTM speculative — max gamma
+  const type = direction === "SHORT" ? "P" : "C";
+
+  // Delta-targeted strike selection.
+  let strike, chainLeg, deltaSource = "snap";
+  if (chain) {
+    const picked = pickLegByDelta(chain, type, targetDelta, price);
+    if (picked.leg) {
+      strike = Number(picked.leg.strike);
+      chainLeg = picked.leg;
+      deltaSource = picked.source;
+    }
+  }
+  if (!strike) {
+    strike = deltaToStrikeBS({ price, targetDelta, dte: expiration.dte, atrPct, type })
+          || (direction === "SHORT" ? snapStrike(price * 0.97) : snapStrike(price * 1.03));
+    deltaSource = chain ? "no_delta_fallback" : "bs_estimate";
+  }
+
+  const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type, chainLeg });
+  if (!prem || prem.mid <= 0) return null;
+  const premPerShare = prem.mid;
+
+  // Moonshot sizing — cap at 25-50% of standard budget (lottery).
+  const moonshotBudget = dollars_at_risk * 0.40;
+  const moonshotContracts = Math.max(1, Math.floor(moonshotBudget / (premPerShare * 100)));
+  const maxLoss = premPerShare * 100 * moonshotContracts;
+
+  // Theoretical gains: 100%, 200%, 300% of premium.
+  const target100 = premPerShare * 2;
+  const target200 = premPerShare * 3;
+  const target300 = premPerShare * 4;
+
+  // Underlying price required for each multi-bagger (intrinsic ≥ premium × N).
+  const underlyingFor = (intrinsicPerShare) => direction === "SHORT"
+    ? Math.max(0, strike - intrinsicPerShare)
+    : strike + intrinsicPerShare;
+  const px2x = underlyingFor(premPerShare);   // intrinsic = premium → 2x play (~100%)
+  const px3x = underlyingFor(premPerShare * 2); // 3x play
+  const px5x = underlyingFor(premPerShare * 4); // 5x play
+
+  const motionWord = motion?.evidence ? ` Momentum: ${motion.evidence}.` : "";
+  const dirWord = direction === "SHORT" ? "down" : "up";
+  const archetype = direction === "SHORT" ? "moonshot_put" : "moonshot_call";
+
+  return {
+    archetype,
+    label: `🌙 Moonshot ${direction === "SHORT" ? "Put" : "Call"} (${expiration.dte}DTE, ${(targetDelta * 100).toFixed(0)}Δ)`,
+    rationale: `🌙 The fused verdict says ${direction} with conviction AND the move is underway — gamma play.${motionWord} ${moonshotContracts}× $${strike} ${type === "P" ? "puts" : "calls"} expiring in ${expiration.dte} days. Risk $${Math.round(maxLoss)} for a shot at 2-5× if ${ctx.ticker || "underlying"} keeps moving ${dirWord} to $${px3x.toFixed(2)}+ by expiry. THIS IS A LOTTERY — small position, scale out aggressively on profits.`,
+    target_delta: targetDelta,
+    actual_delta: Number(prem.greeks?.delta) || null,
+    legs: [{ action: "BUY", optionType: type === "P" ? "PUT" : "CALL", strike, expiration: expiration.iso, qty: moonshotContracts }],
+    strikes: { primary: strike },
+    expiration,
+    premium: prem,
+    contracts: moonshotContracts,
+    max_loss_usd: Math.round(maxLoss),
+    max_gain_label: "Uncapped — gamma-driven",
+    breakeven: direction === "SHORT" ? strike - premPerShare : strike + premPerShare,
+    multi_bagger_targets: {
+      "2x_underlying_at": +px2x.toFixed(2),
+      "3x_underlying_at": +px3x.toFixed(2),
+      "5x_underlying_at": +px5x.toFixed(2),
+    },
+    moonshot: true,
+    sizing_note: `${Math.round(moonshotBudget)}/$${Math.round(dollars_at_risk)} (40% of std risk budget — lottery)`,
+    trade_mgmt: [
+      "🎯 Scale out at +100% (sell 1/3), +200% (sell 1/2), +300% (let runner)",
+      "⏰ Theta cliff — exit if no follow-through within 2-3 trading days",
+      `🛡 Hard stop: ${ctx.ticker || "underlying"} closes below the breakout level`,
+      `💸 Premium ≈ $${premPerShare.toFixed(2)}/contract × ${moonshotContracts} contracts = $${Math.round(maxLoss)} total at risk`,
+    ],
+    notes: [
+      `Delta ${(Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0)}% — every $1 in direction ≈ $${(Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0)}/contract`,
+      `Theta ≈ −$${Math.abs((prem.greeks?.theta || -premPerShare / expiration.dte) * 100 * moonshotContracts).toFixed(2)}/day decay`,
+      `Vega ≈ $${((prem.greeks?.vega || 0) * 100 * moonshotContracts).toFixed(2)} per 1% IV change`,
+    ],
+  };
+}
+
 // 2026-05-30 — Leveraged ETF tier. Sits between Stock and Long Call in the
 // risk ladder for users who want amplified beta without options' time
 // decay / strike / expiration complexity.
@@ -609,10 +953,13 @@ function buildLongStraddle(ctx) {
   };
 }
 
-// ── Strategy ranking by profile + confluence ──────────────────────────────
-// Returns ladder ranked by profile preference, with confluence-boosted plays
-// (e.g. Long Call when root-strategy says RIDE LONG) floated to the top. The
-// stock fallback always remains so every profile sees something actionable.
+// ── Strategy ranking by profile + confluence + moonshot ───────────────────
+// Priority order:
+//   1. 🌙 Moonshot active (when ALL conditions met) — top of ladder
+//   2. Confluence-boosted plays (RIDE → long premium, FADE → spreads)
+//   3. Risk profile preference
+// The stock fallback always remains so every profile sees something
+// actionable even when WAIT / no confluence.
 function rankByProfile(strategies, profile) {
   const order = PROFILE_META[profile]?.preferred || PROFILE_META.speculator.preferred;
   const profileScore = (s) => {
@@ -620,8 +967,11 @@ function rankByProfile(strategies, profile) {
     return idx === -1 ? 999 : idx;
   };
   return [...strategies].sort((a, b) => {
-    // Confluence boost wins — RIDE LONG ⇒ Long Call always on top for
-    // speculators / aggressive; FADE ⇒ vertical spreads on top.
+    // Moonshot wins above everything when active (it IS the gem).
+    const aMoon = a._moonshot_active ? -100 : 0;
+    const bMoon = b._moonshot_active ? -100 : 0;
+    if (aMoon !== bMoon) return aMoon - bMoon;
+    // Confluence boost — RIDE ⇒ long premium / FADE ⇒ spreads.
     const aBoost = a._confluence_boost ? -10 : 0;
     const bBoost = b._confluence_boost ? -10 : 0;
     if (aBoost !== bBoost) return aBoost - bBoost;
@@ -670,6 +1020,23 @@ export function buildOptionsLadder(contract, opts = {}) {
   const atmPrem = atmEst?.mid || 1.0;
   const contracts = Math.max(1, Math.floor(dollarsAtRisk / (atmPrem * 100)));
 
+  // ── Delta target selection by confluence mode + risk profile ────────────
+  // Carter's framework codified:
+  //   RIDE + Speculator   → 0.70 delta (stock replacement, high conviction)
+  //   RIDE + Aggressive   → 0.50 delta (ATM balanced)
+  //   READY/DRIFT         → 0.50 delta (don't lean too far in until confirmed)
+  //   FADE                → 0.30 delta (countertrend = use OTM for cheap entry)
+  //   WAIT                → 0.50 delta (any directional is suppressed anyway)
+  const verdictModeForDelta = opts.confluence?.mode || "UNKNOWN";
+  const targetDelta = (() => {
+    if (verdictModeForDelta === "RIDE") {
+      return profile === "speculator" ? 0.70 : 0.50;
+    }
+    if (verdictModeForDelta === "FADE") return 0.30;
+    if (verdictModeForDelta === "READY" || verdictModeForDelta === "DRIFT") return 0.50;
+    return 0.50;
+  })();
+
   const ctx = {
     ticker: contract.ticker,
     price, direction, sl, tp1, atrPct, expiration, contracts,
@@ -677,7 +1044,17 @@ export function buildOptionsLadder(contract, opts = {}) {
     dollars_at_risk: dollarsAtRisk,
     chain: opts.chain || null,
     themes: Array.isArray(opts.themes) ? opts.themes : [],
+    targetDelta,
   };
+
+  // ── Moonshot activation check — flagship tier ───────────────────────────
+  // Activates only when ALL of: RIDE mode + ST fresh + momentum in motion +
+  // Speculator/Aggressive profile. Returns null otherwise.
+  const moonshotDecision = shouldActivateMoonshot({
+    confluence: opts.confluence,
+    tickerData: opts.tickerData || contract,
+    profile,
+  });
 
   // ── Root-strategy confluence integration ────────────────────────────────
   // When a verdict is supplied, it influences:
@@ -703,6 +1080,21 @@ export function buildOptionsLadder(contract, opts = {}) {
 
   // Suppress directional plays entirely in WAIT mode.
   const suppressDirectional = verdictMode === "WAIT";
+
+  // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
+  // This is the gem: short-dated OTM gamma play when the model has identified
+  // both direction AND moment with multi-layer confluence.
+  if (moonshotDecision.activate && !suppressDirectional) {
+    const moonshot = buildMoonshot(
+      { ...ctxEff, motion: moonshotDecision.motion },
+      effectiveDirection,
+    );
+    if (moonshot) {
+      moonshot._confluence_boost = true; // always top of ladder when active
+      moonshot._moonshot_active = true;
+      ladder.push(moonshot);
+    }
+  }
 
   if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
     const lc = buildLongCall(ctxEff);
@@ -764,38 +1156,60 @@ export function buildOptionsLadder(contract, opts = {}) {
     if (ls) ladder.push(ls);
   }
 
-  // 2026-05-30 — Liquidity + IV warnings (only computable with live chain).
-  // Surface as `warnings: [...]` on each play. UI renders these as orange
-  // chips on the strategy card so users can defer / pick a different
-  // strategy if a leg is illiquid.
-  if (opts.chain) {
-    for (const s of ladder) {
-      const warns = [];
-      for (const leg of (s.legs || [])) {
-        if (leg.instrument === "STOCK") continue;
-        const side = leg.optionType === "PUT" ? "P" : "C";
-        const cl = _chainLeg(opts.chain, side, leg.strike);
-        if (!cl) {
-          warns.push(`No live quote for $${leg.strike} ${leg.optionType} — strike may not exist on the chain.`);
-          continue;
+  // 2026-05-30 — Liquidity + IV warnings (per-play). Surfaced as
+  // `warnings: [...]` arrays. UI renders as orange chips.
+  //
+  // Two operating modes:
+  //   - With live chain: real bid/ask/OI/IV per leg — full diagnostic.
+  //   - Without chain: only IV-crush warning from contract.earnings_dte
+  //     vs setup's expected IV (ATR-derived).
+  for (const s of ladder) {
+    const warns = [];
+    for (const leg of (s.legs || [])) {
+      if (leg.instrument === "STOCK" || leg.instrument === "ETF") continue;
+      const side = leg.optionType === "PUT" ? "P" : "C";
+      const cl = opts.chain ? _chainLeg(opts.chain, side, leg.strike) : null;
+      if (opts.chain && !cl) {
+        warns.push(`No live quote for $${leg.strike} ${leg.optionType} — strike may not exist on the chain.`);
+        continue;
+      }
+      if (cl) {
+        const oi = Number(cl.open_interest) || 0;
+        const vol = Number(cl.volume) || 0;
+        // Liquidity gate: OI < 100 AND volume < 50 = illiquid.
+        if (oi < 100 && vol < 50) {
+          warns.push(`Illiquid: $${leg.strike} ${leg.optionType} OI=${oi} vol=${vol} — fills may slip $0.10+.`);
+        } else if (oi < 100) {
+          warns.push(`Low OI on $${leg.strike} ${leg.optionType} (${oi} open) — verify before sizing up.`);
         }
-        if ((cl.open_interest || 0) < 100) {
-          warns.push(`Low OI on $${leg.strike} ${leg.optionType} (${cl.open_interest || 0} contracts) — fills may be poor.`);
-        }
+        // Spread gate.
         if (Number.isFinite(cl.bid) && Number.isFinite(cl.ask) && cl.ask > 0) {
           const spreadPct = ((cl.ask - cl.bid) / cl.ask) * 100;
-          if (spreadPct > 10) {
-            warns.push(`Wide bid-ask on $${leg.strike} ${leg.optionType} (${spreadPct.toFixed(0)}% spread) — expect slippage.`);
+          if (spreadPct > 15) {
+            warns.push(`Wide bid-ask on $${leg.strike} ${leg.optionType} (${spreadPct.toFixed(0)}% spread) — limit order required.`);
+          } else if (spreadPct > 8) {
+            warns.push(`Moderate spread on $${leg.strike} ${leg.optionType} (${spreadPct.toFixed(0)}%) — use mid-price limit.`);
           }
         }
-        // IV crush check: if implied vol > 80% AND earnings within DTE window.
+        // IV crush warning.
         const iv = Number(cl.implied_volatility);
-        if (Number.isFinite(iv) && iv > 0.80 && Number(contract.earnings_dte) > 0 && Number(contract.earnings_dte) <= expiration.dte) {
-          warns.push(`Earnings before expiry + IV ${(iv * 100).toFixed(0)}% — heavy IV crush risk post-event.`);
+        const earnDte = Number(contract.earnings_dte ?? contract.earningsDte);
+        if (Number.isFinite(iv) && iv > 0.80 && Number.isFinite(earnDte) && earnDte > 0 && earnDte <= expiration.dte) {
+          warns.push(`⚠ Earnings in ${earnDte}d + IV ${(iv * 100).toFixed(0)}% — expect heavy IV crush post-event. Consider exiting before report.`);
+        }
+        // Elevated IV → suggest spread instead of long single.
+        if (Number.isFinite(iv) && iv > 0.60 && (s.archetype === "long_call" || s.archetype === "long_put" || s.archetype === "moonshot_call" || s.archetype === "moonshot_put")) {
+          warns.push(`IV elevated (${(iv * 100).toFixed(0)}%) — paying expensive vol. Spread alternatives below offer cheaper exposure.`);
+        }
+      } else {
+        // No chain — at least surface earnings IV crush warning from contract.
+        const earnDte = Number(contract.earnings_dte ?? contract.earningsDte);
+        if (Number.isFinite(earnDte) && earnDte > 0 && earnDte <= expiration.dte) {
+          warns.push(`⚠ Earnings in ${earnDte}d before expiry. Verify IV in your broker chain — IV crush risk post-event.`);
         }
       }
-      if (warns.length > 0) s.warnings = warns;
     }
+    if (warns.length > 0) s.warnings = warns;
   }
 
   const ranked = rankByProfile(ladder, profile);
@@ -834,6 +1248,13 @@ export function buildOptionsLadder(contract, opts = {}) {
     confluence_score: Number(verdict?.score) || null,
     confluence_summary: verdict?.actionable_summary || null,
     direction_flipped_by_confluence: fadeFlipped,
+    target_delta: targetDelta,
+    // Moonshot tier metadata — UI uses to surface special treatment.
+    moonshot: {
+      activated: !!moonshotDecision.activate,
+      reason: moonshotDecision.reason || null,
+      motion: moonshotDecision.motion || null,
+    },
     estimated_premium_caveat: opts.chain
       ? null
       : "Premium values are Black-Scholes estimates using ATR-implied volatility. Verify in your broker chain before executing.",
