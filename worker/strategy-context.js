@@ -30,15 +30,19 @@
 //  Authored 2026-05-29.
 
 // ── Vintage / provenance ───────────────────────────────────────────────────
+// STRATEGY_SOURCE is user-visible (Insights, Learn, /timed/strategy). It must
+// describe the playbook generically — no external firm or author names. The
+// internal commit history and CONTEXT.md record the underlying research feed
+// for engineering provenance.
 export const STRATEGY_VINTAGE = "2026-05-28";
-export const STRATEGY_SOURCE = "Fundstrat Direct — 2026 Year Ahead (Tom Lee, Mark Newton, Ken Xuan)";
+export const STRATEGY_SOURCE = "TT Editorial Playbook · 2026 Year Ahead";
 export const STRATEGY_TITLE = "Resilience & US Exceptionalism — Back-Ended 2026 Rally";
 
 // ── 1. Headline thesis ─────────────────────────────────────────────────────
 // One paragraph. Used verbatim in Daily Brief, Right Rail "Active Strategy",
 // and Learn page. Keep <= 600 chars so it fits a Discord embed description.
 export const STRATEGY_HEADLINE = [
-  "Our active playbook (Fundstrat 5/28/26) tracks a back-ended 2026 rally:",
+  "Our active playbook tracks a back-ended 2026 rally:",
   "S&P 500 base case 7,300 → aspirational 7,700 by year-end, with a possible",
   "mid-year round-trip lower as markets test the new Fed (Warsh) and digest",
   "Iran-war shocks before resuming. US exceptionalism is the throughline:",
