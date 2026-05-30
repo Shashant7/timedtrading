@@ -1350,6 +1350,7 @@ const ROUTES = [
   ["POST", "/timed/admin/ai-cio/operator-task", "POST /timed/admin/ai-cio/operator-task"],
   ["POST", "/timed/admin/wm-bootstrap", "POST /timed/admin/wm-bootstrap"],
   ["GET",  "/timed/admin/wm-bootstrap/status", "GET /timed/admin/wm-bootstrap/status"],
+  ["POST", "/timed/admin/rescore-ticker", "POST /timed/admin/rescore-ticker"],
   ["GET",  "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["POST", "/timed/admin/ai-cio/review", "POST /timed/admin/ai-cio/review"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
@@ -55149,6 +55150,73 @@ export default {
         }
       }
 
+      // ──────────────────────────────────────────────────────────────────
+      // POST /timed/admin/rescore-ticker?ticker=SYM
+      //
+      // Force a single-ticker rescore using the same assembleTickerData
+      // path the scoring cron runs every 5 min. Useful after a candle
+      // backfill (W/M) when you don't want to wait for the next cron tick
+      // to see Investor Score Breakdown components populate. Writes the
+      // refreshed snapshot to KV `timed:latest:<ticker>` then triggers
+      // the investor compute so the new components flow to the UI.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/rescore-ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const ticker = normTicker(String(url.searchParams.get("ticker") || "").trim());
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          // Load all the TFs the scoring cron uses, but with W/M limits
+          // raised above the 50-bar minimum that computeServerSideScores
+          // enforces for bundle compute (worker/indicators.js:6530).
+          // Production cron previously used limit=24 for M (NEVER built
+          // monthly bundle). Even at limit=60, Alpaca's M ingestion stores
+          // duplicate bars per month with 4-hour-apart timestamps (see
+          // AMZN: 242 rows in D1 but only ~30 unique months after dedup),
+          // so 60 → post-dedup ≈ 30 → still < 50 bundle min. Forcing 250
+          // for M leaves comfortable headroom for dedup (250 → ~125 unique
+          // months → 10 years).
+          const tfConfigs = [
+            { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
+            { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
+            { tf: "30", limit: 100 }, { tf: "15", limit: 60 },
+            { tf: "10", limit: 100 }, { tf: "M", limit: 250 },
+          ];
+          const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
+          const getCandlesCached = async (_env, _ticker, tf, _limit) => {
+            const tfKey = normalizeTfKey(tf);
+            return candleCache[tfKey] || { ok: false, candles: [] };
+          };
+          // Pull existing snapshot to preserve sticky fields (kanban stage etc.).
+          const existing = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`) || null;
+          // Same call signature the scoring cron uses (line ~83774).
+          const Indicators = await import("./indicators.js");
+          const tickerData = await Indicators.computeServerSideScores(ticker, getCandlesCached, env, existing);
+          if (!tickerData) {
+            return sendJSON({ ok: false, error: "rescore_returned_null", ticker, hint: "Check that D/W/M candles exist in D1 for this ticker." }, 500, corsHeaders(env, req));
+          }
+          await kvPutJSON(env.KV_TIMED, `timed:latest:${ticker}`, tickerData);
+          // Summarize what now exists on the snapshot
+          const tfTechKeys = tickerData.tf_tech ? Object.keys(tickerData.tf_tech) : [];
+          const summary = {
+            tf_tech_keys: tfTechKeys,
+            has_W: tfTechKeys.includes("W"),
+            has_M: tfTechKeys.includes("M") || !!tickerData.monthly_bundle,
+            has_monthly_bundle: !!tickerData.monthly_bundle,
+            has_ichimoku_d: !!tickerData.ichimoku_d,
+            has_ichimoku_w: !!tickerData.ichimoku_w,
+            price: tickerData.price,
+            rank: tickerData.rank,
+          };
+          return sendJSON({
+            ok: true, ticker, summary,
+            note: "Snapshot refreshed in KV. Trigger POST /timed/investor/compute (or wait for the next 5-min cron) for the Investor Score Breakdown components to reflect the new W/M / monthly_bundle data.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/ai-cio/operator-task") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -78294,10 +78362,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn(`[REPLAY-TICKER] profile load failed for ${tickerParam}:`, String(e?.message || e));
         }
         const replayTfConfigs = [
-          { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+          // 2026-05-30 — Mirror of the live cron's W/M bump so replays
+          // also build the monthly_bundle + weekly tf_tech entries.
+          { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
           { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
           { tf: "30", limit: 100 }, { tf: "15", limit: 100 },
-          { tf: "10", limit: 100 }, { tf: "M", limit: 24 },
+          { tf: "10", limit: 100 }, { tf: "M", limit: 250 },
         ];
         const replayCandleCache = await d1GetCandlesAllTfs(env, tickerParam, replayTfConfigs, { beforeTs: tsEnd });
         const getReplayCandlesCached = async (_env, _ticker, tf, _limit) => {
@@ -83679,11 +83749,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // EMA-233 meaningful on D/4H only. Sub-hourly TFs need ~100 candles max.
             // 1m candles REMOVED — only used for optional TD Sequential chart overlay,
             // not core scoring. Saves ~1.9M D1 queries/month.
+            //
+            // 2026-05-30 — Raised W from 100 → 300 and M from 24 → 250 so the
+            // 50-bar bundle minimum (worker/indicators.js:6530) is always
+            // satisfied AFTER dedup. With limit=24 for M the monthly_bundle
+            // was NEVER built — every ticker's monthlyTrend / Investor Score
+            // Breakdown monthly component scored 0. Alpaca's M ingestion
+            // stores duplicate bars per month (verified AMZN: 242 rows in D1,
+            // ~30 unique months post-dedup), so limit=60 wasn't enough either.
+            // limit=250 leaves comfortable headroom (≈125 unique months / 10 years).
+            // Cost: ~150 extra D1 reads/ticker/tick × 260 tickers ≈ 11M reads/day,
+            // well within the D1 plan.
             const tfConfigs = [
-              { tf: "W", limit: 100 }, { tf: "D", limit: 250 },
+              { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
               { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
               { tf: "30", limit: 100 }, { tf: "10", limit: 100 },
-              { tf: "M", limit: 24 },
+              { tf: "M", limit: 250 },
             ];
             const candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
             // Wrap cache in a getCandles-compatible function (no additional D1 calls)
