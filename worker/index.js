@@ -1349,6 +1349,7 @@ const ROUTES = [
   ["POST", "/timed/admin/ai-cio/backfill-outcomes", "POST /timed/admin/ai-cio/backfill-outcomes"],
   ["POST", "/timed/admin/ai-cio/operator-task", "POST /timed/admin/ai-cio/operator-task"],
   ["POST", "/timed/admin/wm-bootstrap", "POST /timed/admin/wm-bootstrap"],
+  ["GET",  "/timed/admin/wm-bootstrap/status", "GET /timed/admin/wm-bootstrap/status"],
   ["GET",  "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
   ["POST", "/timed/admin/ai-cio/review", "POST /timed/admin/ai-cio/review"],
   // ── Right Rail Fundamentals tab (TwelveData-backed, KV-cached 6h) ──
@@ -54903,32 +54904,99 @@ export default {
           const body = await req.json().catch(() => ({}));
           const wDays = Math.max(30, Math.min(3650, Number(body?.sinceDays?.W) || 1100));
           const mDays = Math.max(90, Math.min(3650, Number(body?.sinceDays?.M) || 1825));
-          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-          const _key = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
-          const results = {};
-          for (const { tf, sinceDays } of [{ tf: "W", sinceDays: wDays }, { tf: "M", sinceDays: mDays }]) {
-            const t0 = Date.now();
-            try {
-              const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=${sinceDays}&include_user=1${_key}`, {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-              });
-              const j = await r.json().catch(() => ({}));
-              results[tf] = {
-                ok: !!j?.ok,
-                sinceDays,
-                upserted: j?.upserted || 0,
-                tickers: j?.tickers || 0,
-                errors: j?.errors || 0,
-                elapsed_ms: Date.now() - t0,
-              };
-            } catch (e) {
-              results[tf] = { ok: false, error: String(e?.message || e).slice(0, 200), elapsed_ms: Date.now() - t0 };
+          // 2026-05-30 — Operator reported that the prior synchronous
+          // implementation hung curl (subrequest chain takes 5-10
+          // minutes for the full universe — well beyond CF Workers'
+          // 30s subrequest timeout). Now fire-and-forget via
+          // ctx.waitUntil(), return immediately with a job_id the
+          // operator can poll via GET /timed/admin/wm-bootstrap/status.
+          const KV = env.KV_TIMED;
+          const jobId = `wm-${Date.now().toString(36)}`;
+          const jobKey = `timed:wm-bootstrap:${jobId}`;
+          await KV.put(jobKey, JSON.stringify({
+            ok: true, status: "running", started_at: Date.now(),
+            sinceDays: { W: wDays, M: mDays },
+            results: {},
+          }), { expirationTtl: 86400 });
+          // Also write the "latest" pointer for /status without a job_id.
+          await KV.put("timed:wm-bootstrap:latest", jobId, { expirationTtl: 86400 });
+          ctx.waitUntil((async () => {
+            const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+            const _key = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+            const results = {};
+            for (const { tf, sinceDays } of [{ tf: "W", sinceDays: wDays }, { tf: "M", sinceDays: mDays }]) {
+              const t0 = Date.now();
+              try {
+                const r = await fetch(`${selfUrl}/timed/admin/alpaca-backfill?tf=${tf}&sinceDays=${sinceDays}&include_user=1${_key}`, {
+                  method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+                });
+                const j = await r.json().catch(() => ({}));
+                results[tf] = {
+                  ok: !!j?.ok,
+                  sinceDays,
+                  upserted: j?.upserted || 0,
+                  tickers: j?.tickers || 0,
+                  errors: j?.errors || 0,
+                  elapsed_ms: Date.now() - t0,
+                };
+              } catch (e) {
+                results[tf] = { ok: false, error: String(e?.message || e).slice(0, 200), elapsed_ms: Date.now() - t0 };
+              }
+              // Persist incremental progress so the operator can see
+              // W finish before waiting on M.
+              try {
+                await KV.put(jobKey, JSON.stringify({
+                  ok: true, status: "running", started_at: Date.now(),
+                  sinceDays: { W: wDays, M: mDays },
+                  results,
+                }), { expirationTtl: 86400 });
+              } catch (_) {}
             }
-          }
+            try {
+              await KV.put(jobKey, JSON.stringify({
+                ok: true, status: "done", started_at: Date.now(), finished_at: Date.now(),
+                sinceDays: { W: wDays, M: mDays },
+                results,
+              }), { expirationTtl: 86400 });
+            } catch (_) {}
+          })());
           return sendJSON({
-            ok: true, results,
-            note: "Done. Re-load /timed/investor/ticker?ticker=AMZN (or any ticker that was scoring 0 on weeklyTrend/monthlyTrend/ichimokuW) to verify the Investor Score Breakdown components have populated.",
-          }, 200, corsHeaders(env, req));
+            ok: true,
+            status: "kicked_off",
+            job_id: jobId,
+            estimate_minutes: 5,
+            sinceDays: { W: wDays, M: mDays },
+            poll_url: `${env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev"}/timed/admin/wm-bootstrap/status?job_id=${jobId}`,
+            note: "Backfill kicked off in background. Poll the URL above (or just /timed/admin/wm-bootstrap/status for the latest) to watch progress. Expect 3-6 minutes for the full universe.",
+          }, 202, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // GET /timed/admin/wm-bootstrap/status?job_id=...
+      //
+      // Poll progress of a wm-bootstrap job. If job_id is omitted,
+      // returns the LATEST job (pointer kept at timed:wm-bootstrap:latest).
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "GET /timed/admin/wm-bootstrap/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const KV = env.KV_TIMED;
+          let jobId = String(url.searchParams.get("job_id") || "").trim();
+          if (!jobId) {
+            jobId = (await KV.get("timed:wm-bootstrap:latest", "text")) || "";
+          }
+          if (!jobId) {
+            return sendJSON({ ok: false, error: "no_job", note: "No bootstrap has ever been kicked off." }, 404, corsHeaders(env, req));
+          }
+          const blob = await KV.get(`timed:wm-bootstrap:${jobId}`, "json");
+          if (!blob) {
+            return sendJSON({ ok: false, error: "job_not_found_or_expired", job_id: jobId }, 404, corsHeaders(env, req));
+          }
+          return sendJSON({ ok: true, job_id: jobId, ...blob }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
