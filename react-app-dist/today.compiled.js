@@ -929,7 +929,8 @@ function IndexPredictionsStrip({
         briefType,
         livePx: Number(live?.price),
         dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-        onSelectTicker
+        onSelectTicker,
+        prose
       });
     }
     return h(BriefIndexCard, {
@@ -959,7 +960,8 @@ function BriefIndexRowCompact({
   briefType,
   livePx,
   dayPct,
-  onSelectTicker
+  onSelectTicker,
+  prose
 }) {
   const SYM = String(idx?.sym || "").toUpperCase();
   const briefPx = Number(idx?.price);
@@ -1003,20 +1005,20 @@ function BriefIndexRowCompact({
     e.preventDefault();
     if (typeof onSelectTicker === "function") onSelectTicker(SYM);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
   };
+  const trimmedProse = prose ? String(prose).replace(/\s+/g, " ").trim() : null;
   return h("button", {
     onClick,
     style: {
       textAlign: "left",
-      padding: "8px 10px",
+      padding: "10px 12px",
       width: "100%",
       background: "rgba(255,255,255,0.02)",
       border: "1px solid rgba(255,255,255,0.06)",
       borderRadius: 8,
       cursor: "pointer",
       display: "flex",
-      alignItems: "center",
-      gap: 10,
-      flexWrap: "wrap",
+      flexDirection: "column",
+      gap: 6,
       transition: "border-color 0.15s, background 0.05s"
     },
     onMouseEnter: e => {
@@ -1028,12 +1030,12 @@ function BriefIndexRowCompact({
       e.currentTarget.style.background = "rgba(255,255,255,0.02)";
     },
     title: `${SYM} — open detail`
-  }, h("span", {
+  }, h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
-      gap: 6,
-      minWidth: 130
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, h("strong", {
     style: {
@@ -1054,7 +1056,7 @@ function BriefIndexRowCompact({
       fontWeight: 600,
       color: _dirColor
     }
-  }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`)), h("span", {
+  }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`), h("span", {
     style: {
       padding: "1px 7px",
       borderRadius: 999,
@@ -1070,23 +1072,39 @@ function BriefIndexRowCompact({
     style: {
       fontSize: 10,
       color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)",
+      marginLeft: "auto"
+    }
+  }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`)), trimmedProse && h("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text)",
+      lineHeight: 1.5,
+      margin: 0,
+      display: "-webkit-box",
+      WebkitLineClamp: 3,
+      WebkitBoxOrient: "vertical",
+      overflow: "hidden"
+    }
+  }, trimmedProse), (Number.isFinite(bullT) || Number.isFinite(bearT)) && h("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      flexWrap: "wrap",
+      fontSize: 10,
       fontFamily: "var(--tt-font-mono)"
     }
-  }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`), Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
+  }, Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
     style: {
-      fontSize: 10,
       color: "var(--tt-up, #34d399)",
-      fontFamily: "var(--tt-font-mono)",
       whiteSpace: "nowrap"
     }
-  }, `▲ ${_fmt(bullT)} → ${_fmt(bullTgt)}`), Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
+  }, `▲ Bull ${_fmt(bullT)} → ${_fmt(bullTgt)}`), Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
     style: {
-      fontSize: 10,
       color: "var(--tt-dn, #f87171)",
-      fontFamily: "var(--tt-font-mono)",
       whiteSpace: "nowrap"
     }
-  }, `▼ ${_fmt(bearT)} → ${_fmt(bearTgt)}`));
+  }, `▼ Bear ${_fmt(bearT)} → ${_fmt(bearTgt)}`)));
 }
 function OptionsPlaysOfTheDay({
   onSelectTicker,
@@ -4599,6 +4617,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780168805965:582938800
+// cache-bust:1780169857501:805101516
 
-// cache-bust:1780168805965:582938800
+// cache-bust:1780169857501:805101516

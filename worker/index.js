@@ -75529,11 +75529,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // primary options play. Used by Today page "Options Plays of the Day".
       // No chain fetching here (would be N×TD calls) — uses estimates.
       // Per-ticker chain enrichment happens on detail view.
+      //
+      // 2026-05-30 — Caching added. The compute path iterates up to 40
+      // tickers × 3 heavy calls per ticker (buildTraderPredictionContract +
+      // scoreRootConfluence + buildOptionsLadder), so a cold response is
+      // 2-4 seconds. The underlying scoring data only refreshes every 5 min
+      // anyway (timed:all snapshot is rewritten by the scoring cron), so
+      // caching the response for 5 min is safe and turns warm reads into
+      // ~30ms KV hits. Cache key is per-(profile, limit) so different
+      // risk profiles don't poison each other.
       if (routeKey === "GET /timed/options/all") {
         try {
           let profile = String(url.searchParams.get("profile") || "").toLowerCase();
           if (!_OPT_PROFILE_META[profile]) profile = _OPT_DEFAULT_RISK_PROFILE;
           const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 10));
+
+          const _opaCacheKey = `timed:options:plays-of-day:${profile}:${limit}`;
+          const _bypassCache = String(url.searchParams.get("_nocache") || "0") === "1";
+          if (!_bypassCache) {
+            const cached = await kvGetJSON(env.KV_TIMED, _opaCacheKey).catch(() => null);
+            if (cached && (Date.now() - (Number(cached._cached_at) || 0)) < 5 * 60 * 1000) {
+              return sendJSON({ ...cached, _cache: "hit" }, 200, corsHeaders(env, req));
+            }
+          }
           // Source: top-ranked tickers by entry-quality / rank from the
           // latest scoring snapshot. Already cached as timed:all.
           // Try multiple KV keys for the snapshot — production writes to
@@ -75566,14 +75584,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const bScore = Math.max(Number(b?.entry_quality?.score || 0), Number(b?.rank || 0));
               return bScore - aScore;
             })
-            .slice(0, Math.min(40, limit * 3)); // pull 3x so we can post-filter by confluence
-          const plays = [];
-          for (const t of candidates) {
+            // 2026-05-30 — Reduced candidate cap (was Math.min(40, limit*3)).
+            // Each candidate does ~3 D1 reads + scoring + ladder build;
+            // full Promise.all of 40 hit CF error 1102 (subrequest/CPU
+            // cap exceeded). For limit=10 we now pull at most 20 — still
+            // gives confluence-mode sort plenty of room while staying
+            // comfortably under CF limits.
+            .slice(0, Math.min(20, limit * 2));
+          // 2026-05-30 — Bounded-concurrency parallelism. Was a serial
+          // for loop (40 × 500ms = 20s+ cold). Naive Promise.all of 40
+          // tripped CF error 1102. Batch of 5-in-flight gives ~3-4s cold
+          // for 20 candidates while staying safe.
+          const CONCURRENCY = 5;
+          const enrichOne = async (t) => {
             try {
               const sym = String(t?.ticker || "").toUpperCase();
-              if (!sym) continue;
+              if (!sym) return null;
               const contract = await buildTraderPredictionContract(env, sym);
-              if (!contract) continue;
+              if (!contract) return null;
               const atrDay = Number(t?.atr_levels?.atr_day) || 0;
               const px = Number(contract?.price) || Number(t?.price) || 0;
               const atrPct = atrDay > 0 && px > 0 ? atrDay / px : 0.025;
@@ -75590,29 +75618,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 atr_pct: atrPct,
                 mode: "trader",
               };
-              // Confluence-aware: each ticker gets its own root-strategy
-              // verdict so the ladder reflects RIDE/FADE/WAIT context.
               let confluence = null;
               try { confluence = _scoreRootConfluence(t); } catch (_) {}
               let themes = [];
               try { themes = _getThemesForTicker(sym); } catch (_) {}
               const ladder = _buildOptionsLadder(ladderInput, { profile, confluence, themes });
-              if (ladder && ladder.primary) {
-                plays.push({
-                  ticker: sym,
-                  setup_grade: contract?.tier || null,
-                  conviction: Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0)),
-                  direction: ladderInput.direction,
-                  price: px,
-                  confluence_mode: confluence?.mode || "UNKNOWN",
-                  confluence_score: confluence?.score || null,
-                  confluence_summary: confluence?.actionable_summary || null,
-                  primary: ladder.primary,
-                  ladder_count: ladder.ladder.length,
-                  ladder_by_profile: ladder.ladder_by_profile,
-                });
-              }
-            } catch (_) { /* skip individual failures */ }
+              if (!ladder || !ladder.primary) return null;
+              return {
+                ticker: sym,
+                setup_grade: contract?.tier || null,
+                conviction: Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0)),
+                direction: ladderInput.direction,
+                price: px,
+                confluence_mode: confluence?.mode || "UNKNOWN",
+                confluence_score: confluence?.score || null,
+                confluence_summary: confluence?.actionable_summary || null,
+                primary: ladder.primary,
+                ladder_count: ladder.ladder.length,
+                ladder_by_profile: ladder.ladder_by_profile,
+              };
+            } catch (_) { return null; }
+          };
+          const plays = [];
+          for (let i = 0; i < candidates.length; i += CONCURRENCY) {
+            const batch = candidates.slice(i, i + CONCURRENCY);
+            const settled = await Promise.all(batch.map(enrichOne));
+            for (const r of settled) if (r) plays.push(r);
           }
           // 2026-05-30 — sort top picks by RIDE mode + confluence score
           // (instead of just by entry_quality). Front-page favors the
@@ -75626,7 +75657,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           });
           // Cap to requested limit after sort/filter.
           plays.splice(limit);
-          return sendJSON({
+          const payload = {
             ok: true,
             profile,
             profile_meta: _OPT_PROFILE_META[profile],
@@ -75634,7 +75665,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             plays,
             note: "Premium estimates only. Open per-ticker detail for live chain pricing.",
             generated_at: Date.now(),
-          }, 200, corsHeaders(env, req));
+            _cached_at: Date.now(),
+          };
+          // Fire-and-forget cache write (10 min TTL — covers two scoring
+          // cron cycles so a stale-cache miss is rare).
+          ctx.waitUntil(env.KV_TIMED.put(_opaCacheKey, JSON.stringify(payload), { expirationTtl: 600 }).catch(() => {}));
+          return sendJSON({ ...payload, _cache: "miss" }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -80705,6 +80741,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     const _isEveryMin = event.cron === "*/1 * * * *" || event.cron === "* * * * *";
     const _isEvery5Min = event.cron === "*/5 * * * *";
     const _isHourly = event.cron === "0 * * * *";
+
+    // 2026-05-30 — Options Plays of the Day cache pre-warm. Fires on
+    // every */5 tick during ET trading hours (and twice/hour off-hours
+    // via the */5 schedule). Hits /timed/options/all?_nocache=1 in the
+    // background so the next user-facing request always finds a warm
+    // 5-min cached payload. Before: cold load was 27s (40 tickers ×
+    // serial buildTraderPredictionContract); with parallelization
+    // it's ~1.5s, and the prewarm makes it instant.
+    if (_isEvery5Min) {
+      ctx.waitUntil((async () => {
+        try {
+          const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          const _key = env?.TIMED_API_KEY ? `&key=${encodeURIComponent(env.TIMED_API_KEY)}` : "";
+          // Pre-warm both the default (moderate) and the most-used
+          // profile cache slots. Limit=10 matches Today page default.
+          for (const profile of ["moderate", "aggressive"]) {
+            await fetch(`${selfUrl}/timed/options/all?profile=${profile}&limit=10&_nocache=1${_key}`)
+              .catch(() => {});
+          }
+        } catch (_) {}
+      })());
+    }
 
     // Build the set of virtual crons that WOULD have fired at this time
     const vc = new Set();
