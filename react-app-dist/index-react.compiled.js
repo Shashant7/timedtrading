@@ -17246,7 +17246,7 @@ function App() {
         group: isActive ? "ALL" : "TT_SELECTED"
       }),
       className: `px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap inline-flex items-center gap-1.5 ${isActive ? "bg-amber-500/20 border-amber-500/40 text-amber-200" : "bg-white/[0.02] border-white/[0.06] text-[#6b7280] hover:text-amber-200 hover:bg-amber-500/10"}`,
-      title: "Show TT Selected tickers (Fundstrat Direct picks)"
+      title: "Show TT Selected tickers (active-playbook high-conviction picks)"
     }, React.createElement("span", {
       style: {
         width: 6,
@@ -19046,6 +19046,6 @@ function ActivityFeedDrawer({
 window.App = App;
 window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;
-// cache-bust:1780149277733:112104625
+// cache-bust:1780152178589:884288210
 
-// cache-bust:1780149277733:112104625
+// cache-bust:1780152178589:884288210
