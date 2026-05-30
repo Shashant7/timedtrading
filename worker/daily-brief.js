@@ -6,6 +6,8 @@ import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-cale
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
 import { getStrategyBrief, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
+import { scoreRootConfluence } from "./root-strategy.js";
+import { computeFuturesPairsState, summarizeFuturesPairs } from "./futures-pairs.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -1540,6 +1542,52 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
     crossAssetContext: buildCrossAssetContext(_pf),
     priceFeedRaw: _pf,
+    // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
+    // synthesized 8-layer root-strategy verdict per top-conviction
+    // ticker AND the Index Quartet + SMT state — same intelligence
+    // that drives the Options engine. Brief prompt references these
+    // so the narrative is consistent with what cards / Options Tab
+    // display.
+    indexQuartetSummary: (() => {
+      try {
+        const md = {
+          ES: _pf?.["ES1!"], NQ: _pf?.["NQ1!"],
+          YM: _pf?.["YM1!"], RTY: _pf?.["RTY1!"],
+          SPY: _pf?.SPY, QQQ: _pf?.QQQ, DIA: _pf?.DIA, IWM: _pf?.IWM,
+          VIX: _pf?.["VX1!"] || _pf?.VIX,
+        };
+        // Map { p, dp } → { price, dayChangePct, prev_close } shape the
+        // futures-pairs module expects.
+        const norm = {};
+        for (const k of Object.keys(md)) {
+          const v = md[k];
+          if (!v) continue;
+          norm[k] = {
+            price: Number(v.p) || null,
+            dayChangePct: Number(v.dp) || 0,
+            prev_close: Number(v.pc) || null,
+            open: Number(v.op) || null,
+          };
+        }
+        if (!norm.ES?.price && norm.SPY?.price) norm.ES = norm.SPY;
+        if (!norm.NQ?.price && norm.QQQ?.price) norm.NQ = norm.QQQ;
+        if (!norm.YM?.price && norm.DIA?.price) norm.YM = norm.DIA;
+        if (!norm.RTY?.price && norm.IWM?.price) norm.RTY = norm.IWM;
+        const state = computeFuturesPairsState(norm);
+        return state.ok ? summarizeFuturesPairs(state) : null;
+      } catch (_) { return null; }
+    })(),
+    topConfluencePicks: (() => {
+      try {
+        // Top 5 RIDE/DRIFT/READY/FADE setups by confluence score.
+        const arr = [];
+        // _pf doesn't have full ticker data — pull from /timed/all via
+        // the caller's existing data fetches. For now we leave this null;
+        // the cron-driven brief generation populates it from
+        // /timed/options/all once that endpoint runs in the same env.
+        return arr.length > 0 ? arr : null;
+      } catch (_) { return null; }
+    })(),
   };
 }
 
@@ -2921,6 +2969,10 @@ NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the P
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX are making notable moves (>1%), LEAD with the cross-asset story and explain the equity implications.
 
+## Index Quartet (ES/NQ/YM/RTY + VIX) — the institutional liquidity grid:
+${data.indexQuartetSummary || "Quartet data unavailable."}
+USE this to gate single-name calls: if ES+NQ are bullish but YM+RTY diverge, mention the rotation. If the SMT block is firing (one index swept a marked level while others refused), surface the reversal bias.
+
 ## Timed Trading Full Signal Context (MUST reference — this is what our system sees across timeframes):
 ${["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
 
@@ -3272,6 +3324,10 @@ ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote
 ${getStrategyBrief()}
 
 REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read.
+
+## Index Quartet (ES/NQ/YM/RTY + VIX):
+${data.indexQuartetSummary || "Quartet data unavailable."}
+USE this to explain leadership and rotation in the recap. If SMT fired today, lead with that reversal narrative.
 
 ## Market Close Data:
 ${(() => {

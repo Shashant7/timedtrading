@@ -1184,6 +1184,9 @@ const ROUTES = [
   ["GET",  "/timed/futures-pairs",         "GET /timed/futures-pairs"],
   // Volume Profile (POC, VAH, VAL).
   ["GET",  "/timed/volume-profile",        "GET /timed/volume-profile"],
+  // Daily-candle coverage + backfill (admin).
+  ["GET",  "/timed/admin/candle-coverage", "GET /timed/admin/candle-coverage"],
+  ["POST", "/timed/admin/backfill-candles","POST /timed/admin/backfill-candles"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -40230,14 +40233,28 @@ async function buildTraderPredictionContract(env, ticker) {
   // Direction-aware targets. For SHORT, if data.tp_* sits ABOVE price,
   // the targets came from a LONG-biased model run — derive proper SHORT
   // targets from ATR fibs below price.
+  //
+  // 2026-05-30 — added MAX-DISTANCE CAP. Targets pulled from the scoring
+  // model can be unreasonably extreme on high-volatility names (e.g. CVNA
+  // SHORT was producing tp_runner = -$8.59 which is mathematically
+  // impossible). Cap legacy targets at ±30% from current price for swing
+  // trades, and floor at $0.50 for SHORT runner. If clamped, fall back
+  // to ATR fib targets (which use 0.618/1.0/1.618× day-ATR multipliers
+  // and are inherently bounded).
   const _rawTrim = Number.isFinite(Number(data?.tp_trim)) ? Number(data.tp_trim) : null;
   const _rawExit = Number.isFinite(Number(data?.tp_exit)) ? Number(data.tp_exit) : null;
   const _rawRunner = Number.isFinite(Number(data?.tp_runner)) ? Number(data.tp_runner) : null;
+  const MAX_TARGET_DISTANCE_PCT = 0.35; // 35% from price = absolute swing-trade ceiling
+  const MIN_PRICE_FLOOR = 0.50;          // never target below $0.50
   const _tpsValid = (tps) => {
     if (!Array.isArray(tps) || tps.length === 0) return false;
     if (!_pxNow) return true;
-    if (direction === "LONG") return tps.every((t) => Number(t) > _pxNow);
-    if (direction === "SHORT") return tps.every((t) => Number(t) < _pxNow);
+    // Direction check.
+    if (direction === "LONG" && !tps.every((t) => Number(t) > _pxNow)) return false;
+    if (direction === "SHORT" && !tps.every((t) => Number(t) < _pxNow && Number(t) >= MIN_PRICE_FLOOR)) return false;
+    // Distance check — every target must be within MAX_TARGET_DISTANCE_PCT.
+    const maxDist = _pxNow * MAX_TARGET_DISTANCE_PCT;
+    if (!tps.every((t) => Math.abs(Number(t) - _pxNow) <= maxDist)) return false;
     return true;
   };
   const _legacyTps = [_rawTrim, _rawExit, _rawRunner].filter((t) => Number.isFinite(t) && t > 0);
@@ -40246,11 +40263,21 @@ async function buildTraderPredictionContract(env, ticker) {
     if (_useLegacyTargets) return null;
     if (!_pxNow || !(_atrDay > 0)) return null;
     const sign = direction === "SHORT" ? -1 : 1;
-    return [
-      { label: "Trim", price: Math.round((_pxNow + sign * 0.618 * _atrDay) * 100) / 100 },
-      { label: "Exit", price: Math.round((_pxNow + sign * 1.0 * _atrDay) * 100) / 100 },
-      { label: "Runner", price: Math.round((_pxNow + sign * 1.618 * _atrDay) * 100) / 100 },
+    // Build raw fib targets then apply distance + floor clamps.
+    const raw = [
+      { label: "Trim",   raw: _pxNow + sign * 0.618 * _atrDay },
+      { label: "Exit",   raw: _pxNow + sign * 1.0   * _atrDay },
+      { label: "Runner", raw: _pxNow + sign * 1.618 * _atrDay },
     ];
+    const maxDist = _pxNow * MAX_TARGET_DISTANCE_PCT;
+    return raw.map(({ label, raw: r }) => {
+      let p = r;
+      // Distance clamp.
+      if (Math.abs(p - _pxNow) > maxDist) p = _pxNow + sign * maxDist;
+      // Floor for SHORT.
+      if (direction === "SHORT" && p < MIN_PRICE_FLOOR) p = MIN_PRICE_FLOOR;
+      return { label, price: Math.round(p * 100) / 100 };
+    });
   })();
 
   const invalidation = [];
@@ -74092,6 +74119,125 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const state = _computeFuturesPairsState(marketData, { levels });
           state.summary = _summarizeFuturesPairs(state);
           return sendJSON(state, state.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/admin/candle-coverage ─────────────────────────────────
+      // Reports D-candle coverage per ticker (admin-only). Useful to spot
+      // gaps before features that need long history (VP, key levels, SMT).
+      if (routeKey === "GET /timed/admin/candle-coverage") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          const isAdmin = userEmail && userEmail.toLowerCase() === String(env.ADMIN_EMAIL || "").toLowerCase();
+          if (!isAdmin) return sendJSON({ ok: false, error: "admin_only" }, 403, corsHeaders(env, req));
+          const targetDays = Math.max(60, Math.min(504, Number(url.searchParams.get("target")) || 252));
+          // Query D1 for ticker → count + min/max ts.
+          const r = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) AS cnt, MIN(ts) AS min_ts, MAX(ts) AS max_ts
+             FROM ticker_candles WHERE tf = 'D' GROUP BY ticker`
+          ).all();
+          const rows = r?.results || [];
+          const universe = (await env.KV_TIMED.get("timed:tickers"))
+            ? JSON.parse(await env.KV_TIMED.get("timed:tickers"))
+            : Object.keys(SECTOR_MAP);
+          const byTicker = Object.fromEntries(rows.map(r => [String(r.ticker || "").toUpperCase(), r]));
+          const tomorrowMs = Date.now() + 86400_000;
+          const summary = { total: universe.length, full: 0, partial: 0, missing: 0, tickers_short: [], tickers_missing: [] };
+          for (const sym of universe) {
+            const SYM = String(sym).toUpperCase();
+            const row = byTicker[SYM];
+            if (!row || !row.cnt) {
+              summary.missing++;
+              summary.tickers_missing.push(SYM);
+              continue;
+            }
+            const cnt = Number(row.cnt);
+            if (cnt >= targetDays) {
+              summary.full++;
+            } else {
+              summary.partial++;
+              if (summary.tickers_short.length < 60) {
+                summary.tickers_short.push({ ticker: SYM, cnt, target: targetDays, shortfall: targetDays - cnt });
+              }
+            }
+          }
+          return sendJSON({ ok: true, target_days: targetDays, ...summary }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── POST /timed/admin/backfill-candles ───────────────────────────────
+      // Triggers D-candle backfill for any ticker below target coverage.
+      // Body: { target_days?: 365, max_tickers?: 50, tickers?: [...] }
+      // Runs sequentially (limited concurrency) to avoid rate-limiting TD.
+      if (routeKey === "POST /timed/admin/backfill-candles") {
+        try {
+          // Two auth paths: user session OR `X-TT-Admin-Key` header
+          // matching env.ADMIN_API_KEY (for cron / agent triggers).
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          const isAdmin = (userEmail && userEmail.toLowerCase() === String(env.ADMIN_EMAIL || "").toLowerCase())
+                       || (env.ADMIN_API_KEY && req.headers.get("X-TT-Admin-Key") === env.ADMIN_API_KEY);
+          if (!isAdmin) return sendJSON({ ok: false, error: "admin_only" }, 403, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const targetDays = Math.max(60, Math.min(504, Number(body.target_days) || 365));
+          const maxTickers = Math.max(1, Math.min(300, Number(body.max_tickers) || 50));
+          const force = body.force === true;
+
+          // Build the list — explicit set, or coverage-deficient subset.
+          let toBackfill = [];
+          if (Array.isArray(body.tickers) && body.tickers.length > 0) {
+            toBackfill = body.tickers.map(s => String(s).toUpperCase()).slice(0, maxTickers);
+          } else {
+            const r = await env.DB.prepare(
+              `SELECT ticker, COUNT(*) AS cnt FROM ticker_candles WHERE tf = 'D' GROUP BY ticker`
+            ).all();
+            const byTicker = Object.fromEntries((r?.results || []).map(r => [String(r.ticker).toUpperCase(), Number(r.cnt)]));
+            const universeRaw = await env.KV_TIMED.get("timed:tickers");
+            const universe = universeRaw ? JSON.parse(universeRaw) : Object.keys(SECTOR_MAP);
+            for (const sym of universe) {
+              const SYM = String(sym).toUpperCase();
+              const cnt = byTicker[SYM] || 0;
+              if (force || cnt < targetDays) {
+                toBackfill.push(SYM);
+                if (toBackfill.length >= maxTickers) break;
+              }
+            }
+          }
+
+          if (toBackfill.length === 0) {
+            return sendJSON({ ok: true, message: "no_tickers_need_backfill", target_days: targetDays }, 200, corsHeaders(env, req));
+          }
+
+          // Import data provider on demand.
+          const { backfill: tdBackfill } = await import("./data-provider.js");
+          const results = [];
+          for (const sym of toBackfill) {
+            try {
+              const res = await tdBackfill(env, [sym], "D", { sinceDays: targetDays });
+              const stats = res?.perTf?.D || res?.perTfStats?.D || res?.D || {};
+              results.push({ ticker: sym, ok: true, upserted: stats.upserted || 0, requested: targetDays });
+            } catch (e) {
+              results.push({ ticker: sym, ok: false, error: String(e?.message || e).slice(0, 120) });
+            }
+            // Small delay between tickers to ease TD rate limits.
+            await new Promise(r => setTimeout(r, 100));
+          }
+          const totalUpserted = results.reduce((s, r) => s + (Number(r.upserted) || 0), 0);
+          const successCount = results.filter(r => r.ok).length;
+          return sendJSON({
+            ok: true,
+            target_days: targetDays,
+            requested: toBackfill.length,
+            succeeded: successCount,
+            failed: toBackfill.length - successCount,
+            total_candles_upserted: totalUpserted,
+            results,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }

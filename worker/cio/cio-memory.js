@@ -5,6 +5,7 @@ import { TICKER_PROXY_MAP, getThemesForTicker, THEMES } from "../sector-mapping.
 import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 import { getStrategyForTicker, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
+import { scoreRootConfluence } from "../root-strategy.js";
 
 function computeCryptoTrend(snapshots, idx) {
   if (idx < 10) return 0;
@@ -548,6 +549,48 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
   } catch (_) {
     // Best-effort — discovery enrichment must never break CIO.
   }
+
+  // ── Layer 16: Root Strategy Confluence (2026-05-30) ──────────────────────
+  // Synthesized 8-layer verdict from worker/root-strategy.js — the same
+  // engine that drives the Options ladder. Now feeds CIO so its
+  // ENTRY/LIFECYCLE decisions inherit the fused POV (Lee + Newton +
+  // Markov + Huddleston + Carter + DeMark + Ripster + Saty + SMT + VP).
+  //
+  // CIO can now reason:
+  //   "Root verdict is RIDE LONG (75/100), ST fresh, 6/8 layers agree —
+  //    APPROVE entry with full size."
+  // or:
+  //   "Root verdict is WAIT (only 2/8 layers), DRIFT mode at best —
+  //    REJECT or downsize."
+  try {
+    const rootVerdict = scoreRootConfluence(tickerData);
+    if (rootVerdict && rootVerdict.ok) {
+      mem.root_confluence = {
+        mode: rootVerdict.mode,
+        side: rootVerdict.side,
+        score: rootVerdict.score,
+        layers_agreeing: rootVerdict.layers_agreeing,
+        layers_total: rootVerdict.layers_total,
+        long_strength: rootVerdict.long_strength,
+        short_strength: rootVerdict.short_strength,
+        supertrend_trigger: rootVerdict.supertrend_trigger?.side
+          ? {
+              side: rootVerdict.supertrend_trigger.side,
+              freshness: rootVerdict.supertrend_trigger.freshness,
+              confirmed_tfs: (rootVerdict.supertrend_trigger.confirmed_tfs || []).slice(0, 4),
+            }
+          : null,
+        // Top 3 strongest agreeing layers — surfaces "why" without
+        // overwhelming the CIO prompt.
+        top_layers: (rootVerdict.layers || [])
+          .filter((l) => l.side === rootVerdict.side && l.strength > 0.3)
+          .sort((a, b) => b.strength - a.strength)
+          .slice(0, 3)
+          .map((l) => ({ key: l.key, evidence: l.evidence })),
+        actionable_summary: rootVerdict.actionable_summary,
+      };
+    }
+  } catch (_) { /* best-effort */ }
 
   // ── Layer 15: Strategic stance (2026-05-29 — FSD playbook) ──────────────
   // Surfaces the active editorial playbook (currently Fundstrat 2026 Year
