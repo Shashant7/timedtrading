@@ -1174,7 +1174,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260226a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530a"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530c"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -9373,9 +9373,8 @@
             content: (
               <div className="space-y-4">
                 {/* P0.7.133 — Step 3 rewritten to match the actual tabs
-                    rendered by shared-right-rail.js (Snapshot / Chart /
-                    Trader / Investor / Technicals / Fundamentals /
-                    Catalysts / History). The previous
+                    rendered by shared-right-rail.js (Snapshot / Setup /
+                    Technicals / Fundamentals / History). The previous
                     copy listed legacy / internal tab names (Analysis,
                     Investor, Model, Journey, Trades) with Pro badges
                     that no longer apply — every signed-up user is on
@@ -9389,8 +9388,8 @@
                     <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Live chart, score breakdown, the system's current trade recommendation, key levels, and the signal radar — the at-a-glance view of where a ticker stands right now.</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
-                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Trader</h3>
-                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Current open position (when held), risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.</p>
+                    <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Setup</h3>
+                    <p className="text-[12px] text-[#a1a8b2] leading-[1.6]">Risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-4">
                     <h3 className="text-amber-300 font-semibold text-sm mb-1.5">Technicals</h3>

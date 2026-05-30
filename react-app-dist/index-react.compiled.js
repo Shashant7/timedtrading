@@ -6437,9 +6437,9 @@ function DashboardWelcomeModal({
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
       className: "text-amber-300 font-semibold text-sm mb-1.5"
-    }, "Trader"), React.createElement("p", {
+    }, "Setup"), React.createElement("p", {
       className: "text-[12px] text-[#a1a8b2] leading-[1.6]"
-    }, "Current open position (when held), risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.")), React.createElement("div", {
+    }, "Risk / reward, management levels (SL / TP), buy zone, and the exact trigger conditions the engine is watching for before it acts.")), React.createElement("div", {
       className: "bg-white/[0.03] border border-white/[0.06] rounded-lg p-4"
     }, React.createElement("h3", {
       className: "text-amber-300 font-semibold text-sm mb-1.5"
@@ -19046,6 +19046,6 @@ function ActivityFeedDrawer({
 window.App = App;
 window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;
-// cache-bust:1780103261497:555696674
+// cache-bust:1780104693616:421743077
 
-// cache-bust:1780103261497:555696674
+// cache-bust:1780104693616:421743077

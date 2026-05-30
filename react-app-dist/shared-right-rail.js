@@ -605,19 +605,6 @@
       const components = detail?.components || null;
       const accumZone = detail?.accumZone || null;
       const pos = detail?.position?.owned ? detail.position : null;
-      // 2026-05-30 — Trader-mode trade fallback. When an investor doesn't
-      // own this name in investor-mode but the user IS in a trader-mode
-      // open position (e.g. AA defended in Trader board), still surface
-      // the position at the top of the Investor tab so the open exposure
-      // is never invisible. Mirror the Trader tab's `effectiveTrade ||
-      // trade` resolution.
-      const traderOpenPos = (() => {
-        const t = effectiveTrade;
-        if (!t) return null;
-        const st = String(t.status || "").toUpperCase();
-        if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
-        return t;
-      })();
       const rs = detail?.rs || null;
       const rsRank = Number(detail?.rsRank);
       const sector = detail?.sector || ticker?._sector || null;
@@ -707,115 +694,7 @@
           }
         : null;
 
-      // 2026-05-30 — Renderable "Current Open Position" card. Used at the
-      // TOP of the Investor tab so any open exposure (whether investor-
-      // mode lot or trader-mode hard trade) is the first thing the user
-      // sees. The shape merges the two sources: prefer the investor-mode
-      // lot when present, otherwise fall back to the trader-mode trade.
-      const currentOpenPositionCard = (() => {
-        const fmtUsdLocal = (v) => Number.isFinite(v)
-          ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v)
-          : "—";
-        // Source A: investor-mode lot (owned/avg_entry/cost_basis/unrealized_pct)
-        if (pos) {
-          return h(Panel, {
-            title: "📍 Current Open Position",
-            action: h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: "#34d399", background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.30)" },
-            }, "INVESTOR · OPEN"),
-          },
-            h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
-              h("div", null,
-                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
-              ),
-              h("div", null,
-                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(Number(pos.avg_entry) || 0)),
-              ),
-              h("div", null,
-                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(Number(pos.cost_basis) || 0)),
-              ),
-              h("div", null,
-                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
-                  pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
-                ),
-              ),
-            ),
-            pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
-              "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
-              pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
-              " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-            ),
-          );
-        }
-        // Source B: trader-mode hard trade fallback (so investor tab still
-        // shows current exposure when held in trader mode only).
-        const t = traderOpenPos;
-        if (!t) return null;
-        const dirRaw = String(t.direction || "").toUpperCase();
-        const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
-        const entry = Number(t.entryPrice ?? t.entry_price);
-        const shares = Number(t.shares || t.qty || t.size);
-        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
-        const unrealizedPct = (entry > 0 && livePx > 0)
-          ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
-          : null;
-        const sl = Number(t.sl ?? ticker?.sl);
-        const tp = Number(t.tp ?? ticker?.tp);
-        return h(Panel, {
-          title: "📍 Current Open Position",
-          action: h("span", {
-            style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: dirColor, background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)", border: `1px solid ${dirColor}50` },
-          }, `TRADER · ${dirRaw} · OPEN`),
-        },
-          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } },
-                Number.isFinite(shares) ? shares.toFixed(2) : "—"),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "ENTRY"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsdLocal(entry)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "STOP LOSS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#f87171", marginTop: 2 } }, fmtUsdLocal(sl)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "TAKE PROFIT"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#34d399", marginTop: 2 } }, fmtUsdLocal(tp)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "NOTIONAL"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } },
-                (Number.isFinite(entry) && Number.isFinite(shares)) ? fmtUsdLocal(entry * shares) : "—"),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: unrealizedPct == null ? "var(--ds-text-muted)" : unrealizedPct >= 0 ? "#34d399" : "#f87171" } },
-                unrealizedPct != null ? `${unrealizedPct >= 0 ? "+" : ""}${unrealizedPct.toFixed(2)}%` : "—"),
-            ),
-          ),
-          t.entry_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
-            "Entered ", new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
-            t.rank != null && h(React.Fragment, null, " · Rank ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(t.rank))),
-            t.rr != null && h(React.Fragment, null, " · R:R ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(t.rr).toFixed(2))),
-          ),
-        );
-      })();
-
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" } },
-
-        // 2026-05-30 — Current Open Position MOVED to top of Investor tab.
-        //   Was rendered as section 5; user feedback: "open positions
-        //   should be at the top and labeled Current Open Positions".
-        //   Title updated from "💼 Your Position" → "📍 Current Open
-        //   Position" for parity with the Trader tab.
-        currentOpenPositionCard,
 
         // 0. Catalyst banner — when ticker just had a major move
         catalystEvent && h("div", {
@@ -911,9 +790,34 @@
           ),
         ),
 
-        // 5. Position — moved to top as `currentOpenPositionCard` above
-        //    (2026-05-30). Slot intentionally empty to preserve section
-        //    numbering in the file for future readers.
+        // 5. Position
+        pos && h(Panel, { title: "💼 Your Position" },
+          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.avg_entry) || 0)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.cost_basis) || 0)),
+            ),
+            h("div", null,
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
+                pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
+              ),
+            ),
+          ),
+          pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
+            "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
+            pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
+            " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+          ),
+        ),
 
         // 6. RS + Sector
         (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "📈 Strength + Sector Context" },
@@ -2207,6 +2111,25 @@
         const [predictionContract, setPredictionContract] = useState(null);
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
+
+        // 2026-05-30 — Strategy alignment chip (FSD playbook). Lazy-fetched
+        // from /timed/strategy/ticker on ticker change. Lightweight; renders
+        // only when the ticker is on/off-thesis (stance !== "neutral").
+        const [strategyAlignment, setStrategyAlignment] = useState(null);
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) { setStrategyAlignment(null); return; }
+          let cancelled = false;
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              if (!r.ok) return;
+              const j = await r.json();
+              if (!cancelled && j?.ok) setStrategyAlignment(j);
+            } catch (_) { /* best-effort */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, API_BASE]);
 
         // 2026-05-28 — AI CIO verdict for the active trade (Setup tab).
         // Lazy-fetched when (a) Setup tab is active AND (b) effectiveTrade
@@ -3779,26 +3702,17 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          // 2026-05-30 — fetch ledgerTrades whenever a ticker is loaded, NOT
-          // only on the History tab. The Trader (SETUP) tab + Investor tab
-          // both render a "Current Open Position" card that derives the
-          // active trade via `effectiveTrade = trade || pickOpenFrom(ledgerTrades)`.
-          // Previously ledgerTrades was empty unless History was viewed, so
-          // the position card never showed up on Trader / Investor tabs
-          // when the page didn't pass an explicit `trade` prop (e.g. the
-          // active-trader board → rail flow). User-visible bug: AA in the
-          // DEFEND lane with an open position rendered the rail's Trader
-          // tab with NO position context, only the proposed plan.
-          if (!sym) {
+          // Fire for both legacy v1 ("TRADE_HISTORY") and v2 ("HISTORY") rail tab names.
+          const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
+          if (!sym || !isHistoryTab) {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
             setTradeChartSelection(null);
             return;
           }
-          // Reset only the trade-history-tab chart selection so it
-          // re-defaults to the newest trade on next History tab view.
-          setTradeChartSelection(null);
+
+          setTradeChartSelection(null); // clear so default will be first of new list
           let cancelled = false;
           // V15 P0.7.143 (2026-05-13) — fetch BOTH trader and investor
           // trade histories so the History tab shows the full picture
@@ -3850,10 +3764,7 @@
             cancelled = true;
             setLedgerTradesLoading(false);
           };
-          // Dep array intentionally drops railTab — we want ledgerTrades
-          // populated regardless of which tab is active so the Trader /
-          // Investor "Current Open Position" cards have data to render.
-        }, [tickerSymbol]);
+        }, [tickerSymbol, railTab]);
 
         // Default Trade History chart to first trade when tab has trades and no selection
         useEffect(() => {
@@ -4377,6 +4288,23 @@
                       )}
                       {stageChip && (
                         <span className={`ds-chip ds-chip--sm ${stageChip.cls}`}>{stageChip.label}</span>
+                      )}
+                      {/* 2026-05-30 — Strategy alignment chip (FSD playbook).
+                          Surfaces whether this ticker is on/off the active
+                          editorial playbook. Hides when neutral. */}
+                      {strategyAlignment && strategyAlignment.stance && strategyAlignment.stance !== "neutral" && (
+                        <span
+                          className={`ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`}
+                          title={[
+                            `Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`,
+                            strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "",
+                            strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "",
+                            "See Insights → Active Strategy for full detail.",
+                          ].filter(Boolean).join(" · ")}
+                          style={{ fontFamily: "var(--tt-font-mono)" }}
+                        >
+                          {strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"}
+                        </span>
                       )}
                     </div>
                     <div className="flex items-center gap-1">
@@ -5673,15 +5601,7 @@
                           from ledgerTrades when prop is null). */}
                       {(() => {
                         const t = effectiveTrade || trade;
-                        // 2026-05-30 — was requiring status === "OPEN", but
-                        // intermediate states like TP_HIT_TRIM are still
-                        // open positions. effectiveTrade has already
-                        // filtered out closed (WIN/LOSS) trades, so trust
-                        // it: any non-null effectiveTrade IS the active
-                        // position for this ticker.
-                        if (!t) return null;
-                        const st = String(t.status || "").toUpperCase();
-                        if (st === "WIN" || st === "LOSS" || st === "FLAT" || st === "ARCHIVED") return null;
+                        if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
                         const entry = Number(t.entryPrice ?? t.entry_price);
@@ -8297,8 +8217,86 @@
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
                     <>
+                      {/* 2026-05-30 — Header stats row: per-mode tally with
+                          win-rate + total realized $ + currently-open count.
+                          Replaces the bare "N trades" chip. Trader and
+                          investor are tallied separately because their
+                          semantics differ (trader = trade-level outcome;
+                          investor = lot-level realized on sells). */}
+                      {(() => {
+                        const traderTrades = ledgerTrades.filter(t => t._source_mode !== "investor");
+                        const invTrades = ledgerTrades.filter(t => t._source_mode === "investor");
+                        const traderClosed = traderTrades.filter(t => {
+                          const s = String(t.status || "").toUpperCase();
+                          return s === "WIN" || s === "LOSS" || s === "FLAT";
+                        });
+                        const traderWins = traderClosed.filter(t => String(t.status || "").toUpperCase() === "WIN").length;
+                        const traderOpen = traderTrades.filter(t => {
+                          const s = String(t.status || "").toUpperCase();
+                          return s === "OPEN" || s === "TP_HIT_TRIM";
+                        }).length;
+                        const traderRealized = traderClosed.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                        const invSells = invTrades.filter(t => String(t.action || "").toUpperCase() === "SELL");
+                        const invRealized = invSells.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                        const fmtUsdHdr = (n) => Number.isFinite(n)
+                          ? (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })
+                          : "—";
+                        const fmtPctHdr = (n) => Number.isFinite(n) ? Math.round(n) + "%" : "—";
+                        return (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
+                            {traderTrades.length > 0 && (
+                              <>
+                                <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid var(--ds-stroke)", borderRadius: "var(--ds-radius-sm)" }}>
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER · CLOSED</div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 }}>
+                                    {traderClosed.length} <span style={{ fontSize: 10, fontWeight: 500, color: "var(--ds-text-muted)" }}>trades</span>
+                                  </div>
+                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                    {traderClosed.length > 0 ? `${fmtPctHdr((traderWins / traderClosed.length) * 100)} WR` : "—"}
+                                  </div>
+                                </div>
+                                {traderClosed.length > 0 && (
+                                  <div style={{ padding: "var(--ds-space-2)", background: traderRealized >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)", border: `1px solid ${traderRealized >= 0 ? "rgba(52,211,153,0.20)" : "rgba(248,113,113,0.20)"}`, borderRadius: "var(--ds-radius-sm)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER · REALIZED</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, marginTop: 2, color: traderRealized >= 0 ? "#34d399" : "#f87171" }}>
+                                      {fmtUsdHdr(traderRealized)}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>net P&amp;L</div>
+                                  </div>
+                                )}
+                                {traderOpen > 0 && (
+                                  <div style={{ padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.06)", border: "1px solid rgba(245,194,92,0.20)", borderRadius: "var(--ds-radius-sm)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER · OPEN</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-accent)", marginTop: 2 }}>{traderOpen}</div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>active</div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {invTrades.length > 0 && (
+                              <>
+                                <div style={{ padding: "var(--ds-space-2)", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.20)", borderRadius: "var(--ds-radius-sm)" }}>
+                                  <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR · LOTS</div>
+                                  <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 }}>{invTrades.length}</div>
+                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{invSells.length} sold</div>
+                                </div>
+                                {invSells.length > 0 && (
+                                  <div style={{ padding: "var(--ds-space-2)", background: invRealized >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)", border: `1px solid ${invRealized >= 0 ? "rgba(52,211,153,0.20)" : "rgba(248,113,113,0.20)"}`, borderRadius: "var(--ds-radius-sm)" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR · REALIZED</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, marginTop: 2, color: invRealized >= 0 ? "#34d399" : "#f87171" }}>
+                                      {fmtUsdHdr(invRealized)}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>from sells</div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* Trade Ledger summary + per-trade rows */}
-                      <Panel title="Trade Ledger" action={ledgerTrades.length > 0 && <span className="ds-chip ds-chip--sm">{ledgerTrades.length} trade{ledgerTrades.length === 1 ? "" : "s"}</span>}>
+                      <Panel title="Trade Ledger" action={ledgerTrades.length > 0 && <span className="ds-chip ds-chip--sm">{ledgerTrades.length} row{ledgerTrades.length === 1 ? "" : "s"}</span>}>
                         {ledgerTrades.length === 0 ? (
                           <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>No prior trades on this ticker.</div>
                         ) : (
@@ -8306,7 +8304,10 @@
                             {ledgerTrades.slice(0, 10).map((t, i) => {
                               const pnlPct = Number(t.pnl_pct ?? t.pnlPct);
                               const pnlAbs = Number(t.pnl);
-                              const isWin = String(t.status || "").toUpperCase() === "WIN";
+                              const status = String(t.status || "").toUpperCase();
+                              const isWin = status === "WIN";
+                              const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT";
+                              const isOpen = status === "OPEN" || status === "TP_HIT_TRIM";
                               const dt = new Date(Number(t.entry_ts || t.exit_ts || 0));
                               const isInvestor = t._source_mode === "investor";
                               const action = String(t.action || "").toUpperCase();
@@ -8316,23 +8317,31 @@
                                 : action === "DCA_BUY" ? "DCA"
                                 : "BUY";
                               const lotShares = Number(t.shares);
-                              // 2026-05-29 — B7 fix. Lot-specific render:
-                              //   BUY/DCA → "X.XX sh @ $price"  (no P&L; it's an
-                              //              entry, P&L is unrealized until sold)
-                              //   SELL    → "X.XX sh · +/-X.XX% realized"
-                              //              (the lot's own pnl_pct + abs $)
-                              //   trader  → "+/-X.XX%" closing pct
-                              // Previously: BUY rows showed nothing useful;
-                              // SELL rows showed only the pct which could be
-                              // confused with the position aggregate.
                               const entryPx = Number(t.entry_price ?? t.price);
+                              const exitPx = Number(t.exit_price);
+                              const trimmedPct = Number(t.trimmed_pct);
+                              const trimPx = Number(t.trim_price);
+                              // 2026-05-30 — rich render for ALL row types
+                              // (B7 follow-up). Previously trader rows were
+                              // just a pct chip with no shares / entry / exit
+                              // detail — too thin. Investor rows already had
+                              // shares + price detail; this brings trader
+                              // rows to parity with the investor render so
+                              // the History tab tells the same story for
+                              // both modes:
+                              //   trader OPEN (no trim)    → "X.XX sh @ $entry · ▲ +Y% unrealized"
+                              //   trader OPEN (with trim)  → "X.XX sh · Z% trimmed @ $trim · ▲ +Y% running"
+                              //   trader CLOSED (WIN/LOSS) → "X.XX sh @ $entry → $exit · ▲ +Y% realized"
+                              //   investor BUY/DCA         → "X.XX sh @ $price"
+                              //   investor SELL            → "X.XX sh · +/-Y% realized"
+                              const fmt2 = (n) => Number.isFinite(n) ? n.toFixed(2) : "—";
                               let rightSlot;
                               if (isBuy) {
                                 rightSlot = (
                                   <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
                                     {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
                                     {Number.isFinite(entryPx) && entryPx > 0 && (
-                                      <span style={{ color: "var(--ds-text-faint)", marginLeft: 4 }}>@ ${entryPx.toFixed(2)}</span>
+                                      <span style={{ color: "var(--ds-text-faint)", marginLeft: 4 }}>@ ${fmt2(entryPx)}</span>
                                     )}
                                   </span>
                                 );
@@ -8346,6 +8355,51 @@
                                     {validPct && (
                                       <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                                         {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}% realized
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (!isInvestor && isClosed) {
+                                // Closed trader trade — show shares, entry → exit, realized pct.
+                                const validPct = Number.isFinite(pnlPct);
+                                rightSlot = (
+                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    {Number.isFinite(lotShares) && (
+                                      <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>{lotShares.toFixed(2)} sh</span>
+                                    )}
+                                    {Number.isFinite(entryPx) && entryPx > 0 && (
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
+                                        ${fmt2(entryPx)}{Number.isFinite(exitPx) && exitPx > 0 ? <>→ ${fmt2(exitPx)}</> : null}
+                                      </span>
+                                    )}
+                                    {validPct && (
+                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%{Number.isFinite(pnlAbs) ? <span style={{ marginLeft: 4, opacity: 0.75 }}>(${pnlAbs >= 0 ? "+" : "−"}${Math.abs(pnlAbs).toFixed(0)})</span> : null}
+                                      </span>
+                                    )}
+                                  </span>
+                                );
+                              } else if (!isInvestor && isOpen) {
+                                // Open trader trade — show running unrealized + trim history if any.
+                                const validPct = Number.isFinite(pnlPct);
+                                const hasTrim = Number.isFinite(trimmedPct) && trimmedPct > 0;
+                                rightSlot = (
+                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                    {Number.isFinite(lotShares) && (
+                                      <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>{lotShares.toFixed(2)} sh</span>
+                                    )}
+                                    {Number.isFinite(entryPx) && entryPx > 0 && (
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>@ ${fmt2(entryPx)}</span>
+                                    )}
+                                    {hasTrim && (
+                                      <span style={{ color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>
+                                        {Math.round(trimmedPct * 100)}% TRIM{Number.isFinite(trimPx) && trimPx > 0 ? ` @ $${fmt2(trimPx)}` : ""}
+                                      </span>
+                                    )}
+                                    {validPct && (
+                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                        <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.85, fontWeight: 700 }}>OPEN</span>
                                       </span>
                                     )}
                                   </span>
@@ -8396,9 +8450,23 @@
                                         INV {investorLabel}
                                       </span>
                                     ) : (
-                                      <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                      // 2026-05-30 — color the direction chip by direction
+                                      // (LONG=green, SHORT=red); status (WIN/LOSS) shown
+                                      // separately so an OPEN winning LONG isn't tagged
+                                      // red by isWin===false anymore.
+                                      <>
+                                        <span className={`ds-chip ds-chip--sm ${String(t.direction || "").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                        {isClosed && (
+                                          <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em" }}>{status}</span>
+                                        )}
+                                      </>
                                     )}
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
+                                    {t.setup_name && !isInvestor && (
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
+                                        · {String(t.setup_name).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).slice(0, 24)}
+                                      </span>
+                                    )}
                                   </div>
                                   {rightSlot}
                                 </div>
@@ -13145,4 +13213,4 @@
   };
 })();
 
-// cache-bust:1780103261497:555696674
+// cache-bust:1780104693616:421743077

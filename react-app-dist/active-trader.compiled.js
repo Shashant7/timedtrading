@@ -307,16 +307,9 @@ function ATCard({
       return null;
     }
   })();
-  const _rthOpen = window.TimedPriceUtils && window.TimedPriceUtils.isNyRegularMarketOpen ? window.TimedPriceUtils.isNyRegularMarketOpen() : true;
-  let price;
-  if (_rthOpen) {
-    price = Number(t?._live_price ?? t?.price ?? t?.close);
-  } else {
-    const prevClose = Number(t?._live_prev_close ?? t?.prev_close ?? t?.previous_close ?? t?.pc);
-    price = Number.isFinite(prevClose) && prevClose > 0 ? prevClose : Number(t?.price ?? t?.close);
-  }
-  const dayPct = _rthOpen && Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-  const dayChg = _rthOpen && Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+  const price = Number(t?.price ?? t?.close);
+  const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
   const TT = window.TimedBubbleChart || {};
   const score = (() => {
@@ -537,15 +530,7 @@ function ATCard({
     style: {
       fontSize: 18
     }
-  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—", !_rthOpen && Number.isFinite(price) && h("span", {
-    style: {
-      marginLeft: 6,
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: "var(--ds-text-faint)"
-    }
-  }, "RTH CLOSE")), dayPct != null && h("div", {
+  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && h("div", {
     className: `ds-tickercard__change ds-tickercard__change--${dir}`,
     style: {
       fontSize: 12
@@ -556,32 +541,7 @@ function ATCard({
       opacity: 0.7,
       fontSize: 10
     }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), !_rthOpen && (() => {
-    if (sym === "BTCUSD" || sym === "ETHUSD") return null;
-    const ahPct = Number(t?._ah_change_pct ?? t?.extended_percent_change);
-    const ahPrice = Number(t?._ah_price ?? t?.extended_price);
-    if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
-    const ahDir = ahPct >= 0 ? "up" : "dn";
-    return h("div", {
-      style: {
-        marginTop: 2,
-        fontSize: 11,
-        color: ahDir === "up" ? "var(--ds-up)" : "var(--ds-dn)",
-        fontFamily: "var(--tt-font-mono)",
-        display: "inline-flex",
-        alignItems: "baseline",
-        gap: 4
-      },
-      title: "Extended-hours quote (pre-market / after-hours)"
-    }, h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: "0.05em",
-        color: "var(--ds-text-faint)"
-      }
-    }, "EXT"), Number.isFinite(ahPrice) && ahPrice > 0 && h("span", null, `$${ahPrice.toFixed(2)}`), h("span", null, `${ahPct >= 0 ? "+" : ""}${ahPct.toFixed(2)}%`));
-  })(), progressBarData && (() => {
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), progressBarData && (() => {
     const {
       xPct,
       pnlPct,
@@ -1444,6 +1404,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780103261497:555696674
+// cache-bust:1780104693616:421743077
 
-// cache-bust:1780103261497:555696674
+// cache-bust:1780104693616:421743077
