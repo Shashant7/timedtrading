@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-mc-batch"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-q2"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -4963,16 +4963,17 @@
             // not raw prediction-contract) on the right. Stacks
             // vertically below 980px.
             h(TodayHero, { brief, data, earnings, onSelectTicker }),
-            // 2026-05-28 — Open Positions strip: lightweight preview of
-            // what the model is currently managing. Renders nothing
-            // when there are no open positions. Hidden until the trade
-            // ledger fetch resolves.
-            h(OpenPositionsPreview, { onSelectTicker }),
-            // 2026-05-30 — Options Plays of the Day: top setups (sorted
-            // by Root-Strategy confluence mode) with their primary
-            // options play. Renders only when at least one ticker is
-            // in RIDE/DRIFT mode.
+            // 2026-05-30 (user request) — Options Plays of the Day now
+            // sits directly below the Hero (which contains Quick Glance
+            // in its left column), so the actionable options row is the
+            // first thing in the eye-flow after the brief + glance. Was
+            // previously below Open Positions Preview, which buried it.
             h(OptionsPlaysOfTheDay, { onSelectTicker }),
+            // Open Positions strip moved BELOW Options Plays — what the
+            // model is currently managing reads naturally as "...and
+            // here's what's already in flight" after the day's
+            // actionable plays.
+            h(OpenPositionsPreview, { onSelectTicker }),
             // 2026-05-20 (user request): Market Pulse moved ABOVE the
             // Focus rows. The session-level context (where SPY / QQQ /
             // sectors are right now) sets the frame for evaluating
