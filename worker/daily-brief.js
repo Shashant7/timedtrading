@@ -2823,6 +2823,71 @@ function formatSMCForPrompt(smcLevels) {
   return parts.length > 0 ? parts.join("\n") : "No significant levels detected.";
 }
 
+// 2026-05-29 — Area A. Section-order override appended to both
+// morning + evening prompts. The earlier sections in the prompt
+// cover data + tone in detail; this block at the end FORCES the
+// output structure the user asked for, in plain-English retail-
+// friendly language, including SPY/QQQ/IWM scorecards alongside
+// ES, combined Key Levels + Structure with chart placeholders,
+// and named sector references (not 3-letter codes).
+function buildRetailFriendlyOutputSpec(type) {
+  const isEvening = type === "evening";
+  const orderHeader = isEvening
+    ? "EVENING BRIEF — REQUIRED SECTION ORDER (override any earlier structural instructions)"
+    : "MORNING BRIEF — REQUIRED SECTION ORDER (override any earlier structural instructions)";
+
+  // Section list per type
+  const sections = isEvening
+    ? `1. **Session Recap & Context** (~100 words)
+2. **Sector Themes** (~80 words)
+3. **ES Prediction Scorecard** (today's call vs what actually happened — exact same format for SPY, QQQ, IWM)
+4. **SPY Prediction Scorecard** (same shape as ES)
+5. **QQQ Prediction Scorecard** (same shape as ES)
+6. **IWM Prediction Scorecard** (same shape as ES)
+7. **Key Levels & Structural Update** (combined — bullets per index with the structural note alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
+8. **Looking Ahead** (~80 words)
+9. **Risk Factors** (1-2 key risks, ≤20 words each)
+10. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
+11. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`
+    : `1. **Market Context** (~100 words)
+2. **Sector Themes** (~80 words)
+3. **Earnings Watch & Macro News** (today's reports + any macro releases / Fed speakers)
+4. **ES Prediction** (today's game plan — exact same format for SPY, QQQ, IWM)
+5. **SPY Prediction** (same shape as ES)
+6. **QQQ Prediction** (same shape as ES)
+7. **IWM Prediction** (same shape as ES)
+8. **Key Levels & Game Plan** (combined — bullets per index with structure + scenario alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
+9. **Risk Factors** (1-2 key risks, ≤20 words each)
+10. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
+11. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`;
+
+  return `
+
+## ${orderHeader}
+
+The brief MUST be output in exactly this order, with each section as its own ## heading:
+
+${sections}
+
+## Retail-Friendly Language Rules (apply to ALL sections above):
+
+- **Spell out sector names.** "Technology (XLK)" not "XLK". "Energy (XLE)" not "XLE". On second mention, the bare ticker is fine.
+- **When you reference cross-asset moves, explain WHY they matter to equity traders.** Don't say "XLK's relationship with crude and gold" — say "Technology stocks usually weaken when crude oil spikes (energy costs hit margins) and gold rallies (recession fear). Today both moved against tech."
+- **Translate jargon.** First time you use any of these, parenthetically define them: SMC, FVG, BSL/SSL, ATR, RSI, MACD, OPEX, VWAP, SuperTrend, EMA. Example: "Fair Value Gap (FVG — an unfilled price gap from a fast move that often gets revisited)".
+- **Lead with WHAT IT MEANS, then the data.** Bad: "SPY closed at $755.27, ATR 7.02, above the 50d EMA at $742." Good: "SPY held its rising 50-day average and closed near the high of the day — a bullish read for the next session."
+- **Per-index Prediction Scorecards (sections 3-6 evening, 4-7 morning) MUST use the SAME schema as ES** so they can be compared at a glance. For each index produce:
+  - One narrative sentence (the prose)
+  - Bull above $X → $Y target (+Z%)
+  - Bear below $X → $Y target (-Z%)
+  - Range today: $LOW – $HIGH
+  - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
+- **Chart placeholders** in section 7/8: write \`[CHART: SPY]\` on its own line where you want the SPY 15m or daily chart to render. Same for QQQ, IWM. The renderer will substitute with an actual chart. Put the chart RIGHT NEXT TO the commentary for that index — interleave, don't batch all charts at the end.
+- **Active Trader / Investor Portfolio** sections must reference the actual open positions list provided in the data. Each row ≤ 25 words.
+
+CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The 11 sections, in this order, are the required output.
+`;
+}
+
 function buildMorningPrompt(data) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
@@ -3183,7 +3248,8 @@ CRITICAL on the per-ETF predictions:
 - Expected range MUST be a real low–high pair AND must equal the Day Gate bounds for that ETF.
 - Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.
 - DO NOT invent SMC level names ("4-hour gap", "ORB high", "daily pivot") in the Prediction
-  sentence — those belong in the earlier SPY / QQQ structure section.`;
+  sentence — those belong in the earlier SPY / QQQ structure section.
+${buildRetailFriendlyOutputSpec("morning")}`;
 }
 
 function buildEveningPrompt(data) {
@@ -3372,7 +3438,8 @@ STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a t
 
 End with TWO sections:
 - **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. Plain English.
-- **Risk Factors**: 1-2 key risks for tomorrow.`;
+- **Risk Factors**: 1-2 key risks for tomorrow.
+${buildRetailFriendlyOutputSpec("evening")}`;
 }
 
 /**
@@ -4569,7 +4636,25 @@ function buildIntradayPrompt(data) {
     lines.push("");
   }
 
-  lines.push("Write the flash insight. Lead with the cross-asset story driving the tape. Connect to equity action using our model signals. Give specific levels and a clear 1-3 session outlook. Under 500 words.");
+  lines.push(`Write the flash insight.
+
+CRITICAL OUTPUT FORMAT (2026-05-29 — Area A):
+
+1. **First line MUST be a TLDR.** Single sentence, ≤ 25 words, lead with the lean.
+   Example formats:
+     "TLDR: Bull bias intact — SPY held 750.46 reclaim, tech leading, weak crude is the tailwind."
+     "TLDR: Risk-off creep — VIX up 8%, breadth flipping red, watch for SPY 745 lose to confirm."
+   No preamble before the TLDR. No "Today we see…". Just "TLDR: <lean>".
+
+2. After the TLDR, leave one blank line, then write the flash insight body.
+
+3. Lead the body with the cross-asset story driving the tape. Connect to equity
+   action using our model signals. Give specific levels and a clear 1-3 session
+   outlook. Under 400 words.
+
+4. Spell out sector names on first mention ("Technology (XLK)", "Energy (XLE)").
+   Translate jargon (SMC, FVG, ATR, RSI) the first time. Lead with WHAT IT MEANS,
+   then the data.`);
   return lines.join("\n");
 }
 
@@ -4708,6 +4793,35 @@ export async function generateIntradayBrief(env, opts = {}) {
         VALUES (?1, ?2, 'intraday', ?3, NULL, ?4, ?5)
         ON CONFLICT(id) DO UPDATE SET content = excluded.content, published_at = excluded.published_at
       `).bind(entry.id, data.today, content, now, now).run();
+    }
+
+    // 2026-05-29 — Area A: dispatch Intraday Pulse to Discord (TRADE
+    // lane — these are market-pulse insights for traders, not ops
+    // noise). The TLDR sentence is the embed description so readers
+    // get the lean at a glance in the channel; the full body is
+    // linked via the brief permalink.
+    if (opts.notifyDiscord) {
+      try {
+        const tldr = (() => {
+          // First line of the brief, stripped of any "TLDR:" prefix.
+          const firstLine = String(content || "").split(/\r?\n/)[0].trim();
+          return firstLine.replace(/^TLDR:\s*/i, "").slice(0, 380);
+        })();
+        const brandColor = 0x9A7BFF; // violet — same as the in-app Intraday Flash chip
+        const embed = {
+          title: `Intraday Pulse · ${data.currentTimeET || "now"}`,
+          description: tldr || "Flash insight published.",
+          url: `https://timed-trading.com/daily-brief#${entry.id}`,
+          color: brandColor,
+          timestamp: new Date(now).toISOString(),
+          footer: { text: "Timed Trading · Intraday Pulse" },
+        };
+        await opts.notifyDiscord(env, embed, "trade").catch(e =>
+          console.warn("[INTRADAY BRIEF] Discord dispatch failed:", String(e?.message || e).slice(0, 200)),
+        );
+      } catch (e) {
+        console.warn("[INTRADAY BRIEF] Discord prep failed:", String(e?.message || e).slice(0, 200));
+      }
     }
 
     const elapsed = Date.now() - start;
