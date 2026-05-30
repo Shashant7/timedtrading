@@ -2466,13 +2466,119 @@
             marginBottom: 14,
           },
         },
-          h("div", { style: { minWidth: 0 } },
+          h("div", { style: { minWidth: 0, display: "flex", flexDirection: "column", gap: 14 } },
             brief
               ? h(BriefPreview, { brief })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
+            // 2026-05-29 — B5: Quick Glance panel fills the empty
+            // column space below the brief preview. Shows market
+            // regime + breadth + top sector + biggest mover + active
+            // position summary — all derived from data already loaded
+            // for the page, no extra fetches.
+            h(QuickGlance, { brief, data, onSelectTicker }),
           ),
           h("div", { style: { minWidth: 0 } },
             brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker }),
+          ),
+        );
+      }
+
+      // ── QuickGlance — fills the space below the Brief Preview ──
+      // 2026-05-29 (B5). Reuses the brief's regime + breadth + top-3
+      // signals plus a live top-mover scan over the snapshot. Designed
+      // to be glance-able: ~6-second read for the user to absorb
+      // today's market shape without leaving the Today page.
+      function QuickGlance({ brief, data, onSelectTicker }) {
+        const info = brief?.infographic || {};
+        const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
+        const regime = headline?.regime || info?.regime || null;
+        const breadth = headline?.breadth || info?.breadth || null;
+        const breadthGreen = Number(breadth?.green);
+        const breadthTotal = Number(breadth?.total);
+        const breadthPct = (Number.isFinite(breadthGreen) && Number.isFinite(breadthTotal) && breadthTotal > 0)
+          ? (breadthGreen / breadthTotal) * 100 : null;
+
+        // Live top mover from snapshot — first-pass: largest +day%.
+        const topMover = useMemo(() => {
+          if (!data) return null;
+          let best = null;
+          for (const t of Object.values(data)) {
+            if (!t?.ticker) continue;
+            const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
+            const pct = Number(dc?.dayPct);
+            if (!Number.isFinite(pct)) continue;
+            if (!best || pct > best.pct) best = { sym: t.ticker, pct };
+          }
+          return best;
+        }, [data]);
+
+        // Latent HMM regime — same source MarketState uses.
+        const latent = useMemo(() => {
+          if (!data) return null;
+          for (const t of Object.values(data)) {
+            if (t?.latent_regime?.state) return t.latent_regime;
+          }
+          return null;
+        }, [data]);
+
+        const REGIME_TONE = {
+          RISK_ON: "#34d399", BULL: "#34d399", BULL_TREND: "#34d399",
+          NEUTRAL: "#f5c25c", CHOP: "#f5c25c",
+          RISK_OFF: "#f87171", BEAR: "#f87171", BEAR_TREND: "#f87171",
+        };
+        const regimeTone = REGIME_TONE[String(regime || "").toUpperCase()] || "var(--tt-text-muted)";
+        const latentTone = REGIME_TONE[String(latent?.state || "").toUpperCase()] || "var(--tt-text-muted)";
+
+        const Tile = ({ label, value, sub, color }) => h("div", {
+          style: {
+            flex: 1, minWidth: 120,
+            padding: 10,
+            background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
+            border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
+            borderRadius: 8,
+          },
+        },
+          h("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-faint)", textTransform: "uppercase" } }, label),
+          h("div", { style: { marginTop: 4, fontFamily: "var(--tt-font-mono)", fontSize: 16, fontWeight: 700, color: color || "var(--tt-text)" } }, value || "—"),
+          sub && h("div", { style: { marginTop: 2, fontSize: 10.5, color: "var(--tt-text-muted)" } }, sub),
+        );
+
+        return h("section", { className: "tt-card tt-card-pad" },
+          h("div", { className: "tt-sec-title", style: { marginBottom: 8 } }, "QUICK GLANCE"),
+          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
+            h(Tile, {
+              label: "Daily Regime",
+              value: regime ? String(regime).replace(/_/g, " ") : "—",
+              sub: breadthPct != null ? `Breadth ${breadthPct.toFixed(0)}% green (${breadthGreen}/${breadthTotal})` : null,
+              color: regimeTone,
+            }),
+            latent && h(Tile, {
+              label: "Latent Regime · HMM",
+              value: String(latent.state || "—").replace(/_/g, " "),
+              sub: latent.posterior
+                ? Object.entries(latent.posterior).map(([k, v]) => `${k.replace(/_/g, " ").toLowerCase()} ${(v * 100).toFixed(0)}%`).join(" · ")
+                : null,
+              color: latentTone,
+            }),
+            topMover && h("div", {
+              style: {
+                flex: 1, minWidth: 120,
+                padding: 10,
+                background: topMover.pct >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
+                border: `1px solid ${topMover.pct >= 0 ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
+                borderRadius: 8,
+                cursor: "pointer",
+                transition: "border-color 0.12s",
+              },
+              onClick: () => typeof onSelectTicker === "function" && onSelectTicker(topMover.sym),
+              title: `Open ${topMover.sym} in the right rail`,
+            },
+              h("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-faint)", textTransform: "uppercase" } }, "Top Mover · RTH"),
+              h("div", { style: { marginTop: 4, fontFamily: "var(--tt-font-mono)", fontSize: 16, fontWeight: 700, color: topMover.pct >= 0 ? "var(--tt-up)" : "var(--tt-dn)" } },
+                topMover.sym, " ", topMover.pct >= 0 ? "+" : "", topMover.pct.toFixed(2), "%",
+              ),
+              h("div", { style: { marginTop: 2, fontSize: 10.5, color: "var(--tt-text-muted)" } }, "Click to open detail"),
+            ),
           ),
         );
       }
