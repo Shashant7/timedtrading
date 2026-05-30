@@ -79,11 +79,13 @@
   /* ─── Ticker logo (with monogram fallback) ────────────────────────── */
 
   function tickerLogoUrl(symbol) {
-    // External logo provider via TwelveData. Falls back to monogram if image fails.
-    // Pattern: https://eodhd.com/img/logos/US/{ticker}.png — public CDN
-    const sym = String(symbol || '').toUpperCase();
+    // Worker-cached PNG (Finnhub profile2 → eodhd fallback). Monogram if 404.
+    const sym = String(symbol || '').toUpperCase().replace(/[^A-Z0-9.-]/g, '');
     if (!sym) return null;
-    return `https://eodhd.com/img/logos/US/${sym}.png`;
+    const base = (typeof W.__TT_LOGO_BASE === 'string' && W.__TT_LOGO_BASE)
+      ? W.__TT_LOGO_BASE.replace(/\/$/, '')
+      : '/timed/logo';
+    return `${base}/${encodeURIComponent(sym)}.png`;
   }
   function tickerMonogram(symbol) {
     return String(symbol || '').toUpperCase().slice(0, 2);

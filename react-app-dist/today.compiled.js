@@ -2117,7 +2117,7 @@ function TickerLogo({
     for (let i = 0; i < SYM.length; i++) hash = (hash << 5) - hash + SYM.charCodeAt(i);
     return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
   })();
-  const url = SYM ? `https://eodhd.com/img/logos/US/${SYM}.png` : null;
+  const url = SYM && window.DS ? window.DS.tickerLogoUrl(SYM) : SYM ? `/timed/logo/${encodeURIComponent(SYM)}.png` : null;
   return h("span", {
     className: "tt-trow__logo",
     style: {
@@ -4617,6 +4617,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780176019185:840683348
+// cache-bust:1780184526728:93573330
 
-// cache-bust:1780176019185:840683348
+// cache-bust:1780184526728:93573330

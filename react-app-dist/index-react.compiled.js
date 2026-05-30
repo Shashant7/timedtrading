@@ -14645,7 +14645,7 @@ const StableTickerLogo = React.memo(function StableTickerLogo({
   size = 24
 }) {
   const upper = String(sym || "").toUpperCase();
-  const url = upper ? `https://eodhd.com/img/logos/US/${upper}.png` : null;
+  const url = upper ? window.DS?.tickerLogoUrl?.(upper) || `/timed/logo/${encodeURIComponent(upper)}.png` : null;
   const monogram = upper.slice(0, 2);
   const color = (() => {
     let hash = 0;
@@ -19046,6 +19046,6 @@ function ActivityFeedDrawer({
 window.App = App;
 window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;
-// cache-bust:1780176019185:840683348
+// cache-bust:1780184526728:93573330
 
-// cache-bust:1780176019185:840683348
+// cache-bust:1780184526728:93573330

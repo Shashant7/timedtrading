@@ -1081,6 +1081,7 @@ const ROUTES = [
   ["GET", "/timed/ticker-scenario", "GET /timed/ticker-scenario"],
   ["GET", "/timed/prediction-contract", "GET /timed/prediction-contract"],
   ["GET", "/timed/tickers", "GET /timed/tickers"],
+  ["GET", (p) => /^\/timed\/logo\/[A-Z0-9.-]+$/i.test(p), "GET /timed/logo/:ticker"],
   ["GET", "/timed/all", "GET /timed/all"],
   ["GET", "/timed/prices", "GET /timed/prices"],
   ["GET", "/timed/earnings/upcoming", "GET /timed/earnings/upcoming"],
@@ -1363,6 +1364,8 @@ const ROUTES = [
   ["GET",  "/timed/admin/ticker-metadata/all",     "GET /timed/admin/ticker-metadata/all"],
   ["GET",  "/timed/admin/ticker-metadata",         "GET /timed/admin/ticker-metadata"],
   ["POST", "/timed/admin/ticker-metadata/hydrate", "POST /timed/admin/ticker-metadata/hydrate"],
+  ["GET", "/timed/admin/logos/status", "GET /timed/admin/logos/status"],
+  ["POST", "/timed/admin/logos/sync", "POST /timed/admin/logos/sync"],
   ["POST", "/timed/admin/ticker-metadata/refresh-mcap", "POST /timed/admin/ticker-metadata/refresh-mcap"],
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
@@ -47519,6 +47522,50 @@ export default {
         }
       }
 
+      if (routeKey === "GET /timed/logo/:ticker") {
+        try {
+          const m = url.pathname.match(/^\/timed\/logo\/([^/]+)$/i);
+          const rawTicker = m?.[1] || "";
+          const Logos = await import("./ticker-logos.js");
+          return await Logos.serveLogo(env, rawTicker, corsHeaders(env, req));
+        } catch (e) {
+          return new Response(null, { status: 500, headers: corsHeaders(env, req) });
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/logos/status") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Logos = await import("./ticker-logos.js");
+          const result = await Logos.getLogoStatus(env, Object.keys(SECTOR_MAP));
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/logos/sync") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const Logos = await import("./ticker-logos.js");
+          const max = Number(url.searchParams.get("max") || body.max) || 80;
+          const onlyMissing = body.only_missing !== false && url.searchParams.get("all") !== "1";
+          const tickers = Array.isArray(body.tickers) ? body.tickers : null;
+          const result = await Logos.syncUniverseLogos(env, {
+            max,
+            onlyMissing,
+            tickers,
+            sectorMapKeys: Object.keys(SECTOR_MAP),
+          });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/fundamentals") {
         try {
           // V15 P0.7.150 (2026-05-13) — Right Rail Fundamentals tab
@@ -82018,6 +82065,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (e) {
           console.error("[DISCOVERY BATCH 5/5] Promotion queue failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, { op: "promotion_queue_rebuild", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
+        // 6. Ticker logos — cache missing universe logos in KV (Finnhub → eodhd).
+        try {
+          const Logos = await import("./ticker-logos.js");
+          const result = await Logos.syncUniverseLogos(env, {
+            max: 40,
+            onlyMissing: true,
+            sectorMapKeys: Object.keys(SECTOR_MAP),
+          });
+          console.log(`[DISCOVERY BATCH 6/6] Logos: synced ${result.synced}/${result.attempted}, failed ${result.failed}, remaining ~${result.remaining_missing}`);
+          recordCronSuccess(env, "ticker_logos_sync").catch(() => {});
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 6/6] Logo sync failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "ticker_logos_sync", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
 
         console.log(`[DISCOVERY BATCH] Complete in ${Date.now() - batchStart}ms`);
