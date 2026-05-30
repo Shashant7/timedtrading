@@ -5,6 +5,172 @@
 
 ---
 
+## Options Engine + Fused-POV Strategy Mega-Session [2026-05-28 → 2026-05-30]
+
+Eight-PR window (#371 → #377) that took the system from "Trader-tab only" to a
+fully-fused multi-philosophy options platform with end-to-end IBKR automation.
+
+**Shipped:**
+- `worker/strategy-context.js` — Fundstrat Direct macro playbook (sector/theme
+  tilts, scenario weights, S&P targets, catalyst overrides, education snippets).
+- `worker/root-strategy.js` — 8-layer confluence scorer (Lee/Newton/Markov/
+  Huddleston/Carter/DeMark/Ripster-SuperTrend/Saty) with SuperTrend (10,3) slope
+  as the dedicated **trigger gate** that elevates votes into RIDE/READY/DRIFT/
+  FADE/WAIT modes.
+- `worker/options-plays.js` — delta-targeted strategy ladder (0.70/0.50/0.30Δ),
+  archetypes (Long Call/Put, Vertical Spread, CSP, Covered Call, Straddle,
+  **Moonshot**, Leveraged ETF), risk-profile ranking, liquidity/IV warnings.
+- `worker/alpaca-options.js` — primary options chain provider (snapshots +
+  Greeks + real Open Interest via Broker API). TD relegated to fallback.
+- `worker/futures-pairs.js` — ES/NQ/YM/RTY Index Quartet with Stage 1 SMT
+  (sweep at marked level) + Stage 2 (LTF SMT or Precision Swing Point).
+- `worker/volume-profile.js` — POC/VAH/VAL/HVN from D1 candles → feeds L4 ICT.
+- `worker/options-auto-mirror.js` + bridge wiring — operator-only auto-execution
+  of options plays via signed IBKR webhook with caps/blocklists/audit.
+- `worker-bridge/bridge-ibkr.js` — single-leg + multi-leg combo orders, robust
+  DH prime extraction → **IBKR LST live and green**.
+- UI: Right Rail Options tab + Today "Options Plays of the Day" + Trader-tab
+  Root-Strategy verdict chip + tab-aware **Delight Me Chart** overlay +
+  operator `bridge-audit.html`.
+
+### IBKR LST signature mismatch was caused by `IBKR_DH_PRIME` env var
+
+The `lst_signature_mismatch` error was NOT a bug in our DH/HMAC/RSA chain. It
+was that operators paste the FULL `openssl dhparam -text -noout` output into
+the env variable, which includes a trailing `generator: 2 (0x2)` line. The
+naive hex-strip leaked letters (`g`, `e`, `n`, `r`, `a`, `t`, `o`) into the
+prime, producing 530 hex chars (265 bytes) instead of 512 (256 bytes for a
+2048-bit prime). The shared secret K then differed from IBKR's by hundreds of
+bits → signature mismatch.
+
+**Fix:** `_extractDHPrimeHex` in `worker-bridge/bridge-ibkr.js` now slices the
+input at `generator` (and `prime:` prefix) BEFORE stripping non-hex chars, and
+validates length is 256/384/512 bytes.
+
+**Rule for future agents:** when an env variable holds cryptographic material
+pasted from a CLI tool, always sanitize for the human-readable diagnostics
+the tool may include. A `dhparam -text` output is NOT a hex prime.
+
+### TwelveData options endpoints are unreliable — Alpaca is the option provider
+
+After trying both `/options/chain` and `/options_chain` URL variants and
+multiple parameter combinations, TwelveData consistently 404s on the options
+endpoints despite documentation claiming support. We pivoted to Alpaca, which
+delivers snapshots with Greeks (delta/gamma/vega/theta + IV) and real Open
+Interest (via the separate `/v2/options/contracts` Broker API call). TD remains
+as a fallback only.
+
+**Rule:** for any new options work, default to Alpaca. Use TD only for
+non-options data (quotes, time series, fundamentals).
+
+### Confluence scoring ordering — enrichments MUST precede `scoreRootConfluence`
+
+Initial wiring called `scoreRootConfluence(ticker)` and THEN injected Volume
+Profile (`_vp`) and Index Quartet (`_index_quartet`) — so L4 ICT and L5 Carter
+never saw those fields and scored neutral. Symptom: VP appeared in
+`/timed/volume-profile` but layer evidence said "no VP" or "no SMT signal".
+
+**Rule:** in `/timed/options/ticker` handler, the order is fixed:
+1. Hydrate ticker from `timed:all` KV.
+2. Inject `_vp` (volume profile lookup).
+3. Inject `_index_quartet` (futures-pairs state).
+4. Inject `_strategy_stance` (macro playbook bias).
+5. ONLY THEN call `scoreRootConfluence(tickerForScoring)`.
+
+Any new layer that reads a derived field must register its enrichment BEFORE
+the confluence call. Layer-evidence string is the only smoke test that catches
+this drift (e.g., L4 evidence should say `VP: Above VAH $XXX` not just `PD:
+premium`).
+
+### `timed:all` KV is keyed by symbol — NOT a `tickers[]` array
+
+`/timed/options/all` initially returned 0 plays because the code read
+`all.tickers` (array) when production stores `{ data: { SYM: {...}, ... } }`
+(object keyed by symbol). The same bug exists across any new endpoint that
+iterates the universe — verify the shape before iterating.
+
+**Rule:** when pulling the universe from `timed:all`, normalize first:
+```
+const universe = Array.isArray(all?.tickers)
+  ? all.tickers
+  : Object.values(all?.data || {});
+```
+
+### CVNA target geometry — legacy targets need sanity caps before display
+
+For a SHORT on CVNA at ~$73, the legacy prediction-contract logic produced
+`TP_trim=$41.96`, `TP_exit=$22.65`, `TP_runner=-$8.59` (NEGATIVE price).
+Source: legacy targets are computed from very wide volatility envelopes that
+work for stocks at $300+ but degenerate at $50-100 with high IV. UI displays
+without bounds-checking, leaving traders staring at impossible numbers.
+
+**Fix:** `buildTraderPredictionContract` now applies `MAX_TARGET_DISTANCE_PCT
+= 0.35` (35% from current price) and `MIN_PRICE_FLOOR = 0.50` to every
+target. Out-of-bounds targets fall back to ATR-fib targets, which are also
+clamped.
+
+**Rule:** every model-derived price displayed in the UI must pass a sanity
+gate: (a) positive, (b) within 35% of current price for swing targets, (c)
+floor of $0.50. Never trust the model's raw output for display.
+
+### DELL stale-RTH-close — `prev_close` is NOT today's close
+
+The Right Rail header showed `$317.05 RTH CLOSE` for DELL while EXT chip
+showed `$420.20`. The header was reading `src.prev_close` (yesterday's close)
+when outside RTH, because the original logic assumed "outside RTH = use
+previous close." That's wrong on gap days. The 4 PM ET price-feed cron writes
+today's close into `src.price` / `src.close`, so:
+
+**Rule for resolveDisplayPrice outside RTH:** prefer `src.close` (today's
+explicit close) → `src.price` (cron-locked today's close) → `src.prev_close`
+(only as a last-resort fallback when today's data is genuinely missing).
+The label "RTH CLOSE" means TODAY's close, not yesterday's.
+
+### Trader-tab confluence chip pre-fetches via SETUP/SNAPSHOT/OPTIONS hook
+
+The `📡 ROOT-STRATEGY VERDICT` chip on the Trader tab needs `optionsTabData`
+to be populated, but `optionsTabData` is fetched by a `useEffect` that gates
+on `railTab === "OPTIONS"`. To avoid a flicker / empty chip on Trader, the
+gate is `railTab === "OPTIONS" || railTab === "SETUP" || railTab ===
+"SNAPSHOT"` — so opening Trader triggers the same fetch.
+
+**Rule:** when two tabs share derived data, the fetch hook's `needsX` gate
+must include both tab keys, otherwise the secondary consumer sees null until
+the user manually visits the producer tab.
+
+### Moonshot activation — confluence-gated, not always-on
+
+A moonshot is a short-dated (~5-9 DTE), slightly-OTM (0.30Δ) option for high-
+conviction runners. `shouldActivateMoonshot` requires:
+1. `confluence.mode === "RIDE"` (full RIDE only — not READY/DRIFT/FADE)
+2. SuperTrend (10,3) trigger fresh on D or 4H
+3. Underlying already in motion (≥5% intraday OR ≥10% 5d)
+4. **OR** SMT 2-stage confirmed at marked HTF level (overrides RIDE-only).
+
+This prevents moonshots from polluting the ladder on every speculator-profile
+request. On a quiet Saturday with 0 RIDE tickers, no moonshots fire — which is
+the correct behavior.
+
+### Comprehensive sweep methodology (post-mega-feature checklist)
+
+After landing 6+ new modules + UI surfaces, run this 8-point sweep:
+1. `node --check` every new worker file (syntax).
+2. Live-probe every new endpoint with `curl` + parse JSON (`ok=true`).
+3. Verify all 8 confluence layers fire with non-trivial evidence strings.
+4. Verify a representative ticker (AAPL/GS/NVDA) returns a populated ladder.
+5. Verify IBKR `prepend_decrypt_ok` + `lst_exchange_ok` both true.
+6. Verify cache-version drift: all consumer HTML pages reference the same
+   `shared-right-rail.compiled.js?v=...`.
+7. Verify Trader/Setup label consistency — but distinguish tab name from
+   setup-pattern name (the latter is correct as "Setup").
+8. Verify recent UI bug fixes are live (DELL=$421, CVNA targets clamped).
+
+This caught zero new bugs but confirmed the system is healthy. Document any
+"expected null" finding (e.g., "no RIDE on Saturday → no moonshots") so the
+next agent doesn't waste time investigating expected behavior.
+
+---
+
 ## Daily Brief + Fundamentals + Markov hardening session [2026-05-26 → 2026-05-27]
 
 Multi-PR window (#299 → #311) covering: Daily Brief UI refactor + regression
