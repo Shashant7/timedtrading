@@ -141,25 +141,25 @@ function scoreL2_Newton(t) {
 
   const net = bull - bear;
   const strength = Math.min(1, (bull + bear) / 2.5);
-  if (net > 0.5) return { side: "LONG", strength, evidence: parts.join(", ") || "Newton bull mix" };
-  if (net < -0.5) return { side: "SHORT", strength, evidence: parts.join(", ") || "Newton bear mix" };
-  return { side: "NEUTRAL", strength: strength * 0.3, evidence: parts.join(", ") || "Newton mixed" };
+  if (net > 0.5) return { side: "LONG", strength, evidence: parts.join(", ") || "Structure bull mix" };
+  if (net < -0.5) return { side: "SHORT", strength, evidence: parts.join(", ") || "Structure bear mix" };
+  return { side: "NEUTRAL", strength: strength * 0.3, evidence: parts.join(", ") || "Structure mixed" };
 }
 
 function scoreL3_Statistical(t) {
-  // Markov regime forecast + simple random-walk baseline.
+  // Regime-forecast (Markov-chain) prior vs random-walk baseline. Evidence
+  // text uses the function (1-day regime forecast) rather than the math.
   const f = t?.regime_forecast || null;
-  if (!f) return { side: "NEUTRAL", strength: 0, evidence: "no_forecast" };
-  // Sum bullish vs bearish probability over the 1-day horizon.
+  if (!f) return { side: "NEUTRAL", strength: 0, evidence: "Regime forecast unavailable" };
   const p1d = f.p_1d || {};
   const bull = (Number(p1d.HTF_BULL_LTF_BULL) || 0) + (Number(p1d.HTF_BULL_LTF_PULLBACK) || 0);
   const bear = (Number(p1d.HTF_BEAR_LTF_BEAR) || 0) + (Number(p1d.HTF_BEAR_LTF_PULLBACK) || 0);
   // Compare against random-walk baseline (50/50). Strength = distance from 0.5.
   const net = bull - bear;
   const strength = Math.min(1, Math.abs(net) * 2);
-  if (net > 0.15) return { side: "LONG", strength, evidence: `Markov 1d bull ${(bull * 100).toFixed(0)}%` };
-  if (net < -0.15) return { side: "SHORT", strength, evidence: `Markov 1d bear ${(bear * 100).toFixed(0)}%` };
-  return { side: "NEUTRAL", strength: 0.2, evidence: `Markov 1d coin-flip (bull ${(bull * 100).toFixed(0)}%)` };
+  if (net > 0.15) return { side: "LONG", strength, evidence: `1-day regime bull ${(bull * 100).toFixed(0)}%` };
+  if (net < -0.15) return { side: "SHORT", strength, evidence: `1-day regime bear ${(bear * 100).toFixed(0)}%` };
+  return { side: "NEUTRAL", strength: 0.2, evidence: `1-day regime coin-flip (bull ${(bull * 100).toFixed(0)}%)` };
 }
 
 function scoreL4_ICT(t) {
@@ -291,7 +291,7 @@ function scoreL4_ICT(t) {
   const strength = Math.min(1, total / 3);
   if (net > 0.3) return { side: "LONG", strength, evidence: parts.join(", ") };
   if (net < -0.3) return { side: "SHORT", strength, evidence: parts.join(", ") };
-  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "ICT balanced" };
+  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "Liquidity balanced" };
 }
 
 function scoreL5_Carter(t) {
@@ -396,7 +396,7 @@ function scoreL5_Carter(t) {
   const strength = Math.min(1, total / 2.3);
   if (net > 0.3) return { side: "LONG", strength, evidence: parts.join(", ") };
   if (net < -0.3) return { side: "SHORT", strength, evidence: parts.join(", ") };
-  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "Carter neutral" };
+  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "Volatility/momentum neutral" };
 }
 
 function scoreL6_DeMark(t) {
@@ -410,7 +410,7 @@ function scoreL6_DeMark(t) {
   // dominant direction. Perfected 9 or 13 = exhaustion.
   const tdSeq = t?.td_sequential || t?.td_seq || t?._td_seq;
   const perTf = tdSeq?.per_tf || (tdSeq ? { D: tdSeq } : null);
-  if (!perTf) return { side: "NEUTRAL", strength: 0, evidence: "no_td" };
+  if (!perTf) return { side: "NEUTRAL", strength: 0, evidence: "Wave count unavailable" };
   let bull = 0, bear = 0, parts = [];
   for (const tf of ["D", "4H", "240"]) {
     const row = perTf[tf];
@@ -435,7 +435,7 @@ function scoreL6_DeMark(t) {
   const strength = Math.min(1, total / 1.5);
   if (net > 0.3) return { side: "LONG", strength, evidence: parts.join(", ") };
   if (net < -0.3) return { side: "SHORT", strength, evidence: parts.join(", ") };
-  return { side: "NEUTRAL", strength: 0, evidence: parts.join(", ") || "TD neutral" };
+  return { side: "NEUTRAL", strength: 0, evidence: parts.join(", ") || "Wave count neutral" };
 }
 
 function scoreL7_Trend(t) {
@@ -445,11 +445,13 @@ function scoreL7_Trend(t) {
   //   tf_tech.D.stDir + .stSlope
   let bull = 0, bear = 0, parts = [];
 
-  // Ripster c72/89 cloud — daily.
+  // EMA 72/89 cloud — daily. Internal source path retains the engineering
+  // attribution (tf_tech.D.ripster.c72_89) but evidence text shown to users
+  // describes the cloud generically.
   const rip = t?.tf_tech?.D?.ripster?.c72_89 || t?.ripster?.c72_89;
   if (rip) {
-    if (rip.above) { bull += 0.5; parts.push("Ripster above"); }
-    else if (rip.below) { bear += 0.5; parts.push("Ripster below"); }
+    if (rip.above) { bull += 0.5; parts.push("Above EMA cloud"); }
+    else if (rip.below) { bear += 0.5; parts.push("Below EMA cloud"); }
   }
 
   // SuperTrend daily + slope (production fields).
@@ -480,26 +482,56 @@ function scoreL7_Trend(t) {
 }
 
 function scoreL8_Saty(t) {
-  // ATR fib day-gate — Saty Mahajan's execution-level signal. Production
-  // path: tf_tech.D.saty OR top-level atr_levels.
+  // Day Gate (Phase + ATR fib) — synthesizes two intraday signals:
+  //   (a) trend-phase position via t.saty_phase_pct (−1 .. +1, where ~0 is
+  //       compression / coil and ±1 is fully extended in trend direction).
+  //   (b) day-range pivot + ±38.2% fib gates derived from current ATR
+  //       (production path: tf_tech.D.saty OR top-level atr_levels).
+  //
+  // The two sub-signals reinforce each other: when phase is sloping up AND
+  // price is above the day pivot, the day is structurally bullish; when phase
+  // is coiled near zero, the day is awaiting expansion in either direction.
+  //
+  // Internal source path retains its engineering attribution; evidence text
+  // surfaced to users describes the function (Phase + ATR), not the author.
   const af = t?.tf_tech?.D?.saty || t?.atr_levels || t?.atrFibLevels;
-  if (!af) return { side: "NEUTRAL", strength: 0, evidence: "no_atr_fib" };
+  const phasePct = Number(t?.saty_phase_pct ?? t?.phase_pct ?? t?.tf_tech?.D?.phase_pct);
   const px = Number(t?.price || 0);
+
+  let bull = 0, bear = 0, parts = [];
+
+  // Phase sub-signal (works even when ATR levels are missing).
+  if (Number.isFinite(phasePct)) {
+    if (phasePct > 0.40) { bull += 0.35; parts.push(`Phase trending bull (${(phasePct * 100).toFixed(0)}%)`); }
+    else if (phasePct < -0.40) { bear += 0.35; parts.push(`Phase trending bear (${(phasePct * 100).toFixed(0)}%)`); }
+    else if (Math.abs(phasePct) < 0.10) { parts.push(`Phase coiled (${(phasePct * 100).toFixed(0)}%)`); }
+  }
+
+  if (!af) {
+    if (parts.length === 0) return { side: "NEUTRAL", strength: 0, evidence: "Phase + ATR data unavailable" };
+    return { side: "NEUTRAL", strength: 0.2, evidence: parts.join(", ") };
+  }
+
   const mid = Number(af.anchor || af.mid || af.pivot);
   const levels = af.levels || af;
   const up = Number(levels["+38.2%"] || levels["+38.2"] || af["+38.2%"]);
   const dn = Number(levels["-38.2%"] || levels["-38.2"] || af["-38.2%"]);
-  if (!px || !mid) return { side: "NEUTRAL", strength: 0, evidence: "no_anchor" };
-  let bull = 0, bear = 0, parts = [];
-  if (px > mid) { bull += 0.4; parts.push("Above pivot"); }
-  else if (px < mid) { bear += 0.4; parts.push("Below pivot"); }
-  if (Number.isFinite(up) && px < up * 0.997) { bull += 0.3; parts.push(`Room to +38.2 @ ${up.toFixed(2)}`); }
-  if (Number.isFinite(dn) && px > dn * 1.003) { bear += 0.3; parts.push(`Room to −38.2 @ ${dn.toFixed(2)}`); }
+
+  if (!px || !mid) {
+    if (parts.length === 0) return { side: "NEUTRAL", strength: 0, evidence: "Phase + ATR awaiting anchor" };
+    return { side: "NEUTRAL", strength: 0.2, evidence: parts.join(", ") };
+  }
+
+  // ATR fib sub-signal.
+  if (px > mid) { bull += 0.4; parts.push("Above day pivot"); }
+  else if (px < mid) { bear += 0.4; parts.push("Below day pivot"); }
+  if (Number.isFinite(up) && px < up * 0.997) { bull += 0.3; parts.push(`Room to +38.2% @ ${up.toFixed(2)}`); }
+  if (Number.isFinite(dn) && px > dn * 1.003) { bear += 0.3; parts.push(`Room to −38.2% @ ${dn.toFixed(2)}`); }
   const net = bull - bear;
   const strength = Math.min(1, (bull + bear) / 1.0);
   if (net > 0.3) return { side: "LONG", strength, evidence: parts.join(", ") };
   if (net < -0.3) return { side: "SHORT", strength, evidence: parts.join(", ") };
-  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "Saty neutral" };
+  return { side: "NEUTRAL", strength: strength * 0.4, evidence: parts.join(", ") || "Phase + ATR neutral" };
 }
 
 // ── SuperTrend(10,3) Trigger Gate ────────────────────────────────────────

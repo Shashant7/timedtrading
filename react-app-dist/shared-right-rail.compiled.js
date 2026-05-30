@@ -1752,6 +1752,17 @@
       }, (verdict.layers || []).map(l => {
         const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
         const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
+        const LAYER_LABEL = {
+          L1_macro: "L1 · Macro Regime",
+          L2_newton: "L2 · Rel. Strength + Structure",
+          L3_markov: "L3 · Statistical Prior",
+          L4_ict: "L4 · Liquidity & Structure",
+          L5_carter: "L5 · Volatility & Momentum",
+          L6_demark: "L6 · Wave Maturity",
+          L7_trend: "L7 · Trend Health",
+          L8_saty: "L8 · Day Gate (Phase + ATR)"
+        };
+        const displayLabel = LAYER_LABEL[l.key] || l.key.replace(/_/g, " ").toUpperCase();
         return h("div", {
           key: l.key,
           style: {
@@ -1772,7 +1783,7 @@
             fontFamily: "var(--tt-font-mono)",
             color: "var(--ds-text-body)"
           }
-        }, l.key.replace(/_/g, " ").toUpperCase()), h("span", {
+        }, displayLabel), h("span", {
           style: {
             fontSize: 10,
             fontFamily: "var(--tt-font-mono)",
@@ -11973,8 +11984,8 @@
         });
         if (flags.saty_compression_multi_tf) badges.push({
           icon: "🗜️",
-          label: "Compressed",
-          tip: `Compressed: Phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — coiled for a move`
+          label: "Phase Coil",
+          tip: `Phase Coil: trend-phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — momentum coiled, expansion in either direction expected. Distinct from the volatility-squeeze badge: phase coil = trend-direction indecision; volatility squeeze = Bollinger / Keltner bands compressed.`
         });
         if (badges.length === 0) return null;
         return badges.map((b, i) => React.createElement("span", {
@@ -16284,4 +16295,4 @@
   };
 })();
 
-// cache-bust:1780149277733:112104625
+// cache-bust:1780152178589:884288210

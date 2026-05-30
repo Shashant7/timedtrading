@@ -2759,7 +2759,7 @@ CRITICAL: The model data tells the REAL story. When the data says bearish on 4H/
 5. **Cross-reference check**: If Market Data and Price Feed disagree by >1%, trust Price Feed values.
 6. **Sanity bounds**: SPY daily moves >3% and QQQ >4% are rare. Flag or verify.
 
-## Cross-Asset Correlation (Newton-Style — CRITICAL)
+## Cross-Asset Correlation (CRITICAL)
 ALWAYS connect the dots across asset classes. Don't just describe equity price action in isolation — show the web of causation:
 
 - **Crude Oil (CL1!) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
@@ -2965,7 +2965,7 @@ ${(() => {
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
 
-## Cross-Asset Context (USE for Newton-style correlated analysis):
+## Cross-Asset Context (USE for cross-asset correlated analysis):
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX are making notable moves (>1%), LEAD with the cross-asset story and explain the equity implications.
 
@@ -3341,7 +3341,7 @@ ${(() => {
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Close Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
 
-## Cross-Asset Context (USE for Newton-style correlated analysis):
+## Cross-Asset Context (USE for cross-asset correlated analysis):
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX made notable moves today (>1%), highlight the cross-asset story and explain how it drove or correlated with equity action.
 
@@ -4560,10 +4560,10 @@ export async function handleGetArchiveBrief(env, briefId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// INTRADAY FLASH BRIEF — Newton-style real-time market insights
+// INTRADAY FLASH BRIEF — real-time market insights in a technician's voice
 // ═══════════════════════════════════════════════════════════════════════
 
-const INTRADAY_SYSTEM_PROMPT = `You are a veteran market technician writing real-time flash insights for active traders — think Mark Newton at Fundstrat. You've traded through every market cycle and you call it like you see it. Your insights land in a live feed that traders check throughout the session.
+const INTRADAY_SYSTEM_PROMPT = `You are a veteran market technician writing real-time flash insights for active traders. You've traded through every market cycle and you call it like you see it. Your voice is institutional — clear, direct, evidence-driven, never attributing to any external strategist or firm by name. Your insights land in a live feed that traders check throughout the session.
 
 ## Your Voice
 First-person, authoritative, direct. You have a view and you own it.
@@ -4604,7 +4604,7 @@ Write 2-4 tight paragraphs (300-500 words total):
 - ALWAYS reference specific price levels.
 - Do NOT use emojis. Markdown headers sparingly (one ## at most for a section break).
 - Keep under 500 words — this is a flash, not a brief.
-- Be concise, be specific, be Newton.`;
+- Be concise, be specific, be a veteran technician.`;
 
 
 function buildIntradayPrompt(data) {

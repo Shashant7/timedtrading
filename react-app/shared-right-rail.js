@@ -1040,9 +1040,24 @@
             (verdict.layers || []).map((l) => {
               const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
               const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
+              // 2026-05-30 — friendly layer labels. The internal keys (L2_newton,
+              // L5_carter, L8_saty, etc.) attribute the source author for
+              // engineering provenance, but users shouldn't see external author
+              // names in the UI. Map to function-based labels instead.
+              const LAYER_LABEL = {
+                L1_macro:  "L1 · Macro Regime",
+                L2_newton: "L2 · Rel. Strength + Structure",
+                L3_markov: "L3 · Statistical Prior",
+                L4_ict:    "L4 · Liquidity & Structure",
+                L5_carter: "L5 · Volatility & Momentum",
+                L6_demark: "L6 · Wave Maturity",
+                L7_trend:  "L7 · Trend Health",
+                L8_saty:   "L8 · Day Gate (Phase + ATR)",
+              };
+              const displayLabel = LAYER_LABEL[l.key] || l.key.replace(/_/g, " ").toUpperCase();
               return h("div", { key: l.key, style: { padding: 6, background: "rgba(255,255,255,0.02)", borderRadius: 4 } },
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
-                  h("span", { style: { fontSize: 11, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-body)" } }, l.key.replace(/_/g, " ").toUpperCase()),
+                  h("span", { style: { fontSize: 11, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-body)" } }, displayLabel),
                   h("span", { style: { fontSize: 10, fontFamily: "var(--tt-font-mono)", color: sideColor, fontWeight: 700 } }, l.side, " (", l.strength.toFixed(2), ")"),
                 ),
                 h("div", { style: { height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" } },
@@ -9305,7 +9320,7 @@
                       if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
                       if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
                       if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });
-                      if (flags.saty_compression_multi_tf) badges.push({ icon: "🗜️", label: "Compressed", tip: `Compressed: Phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — coiled for a move` });
+                      if (flags.saty_compression_multi_tf) badges.push({ icon: "🗜️", label: "Phase Coil", tip: `Phase Coil: trend-phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — momentum coiled, expansion in either direction expected. Distinct from the volatility-squeeze badge: phase coil = trend-direction indecision; volatility squeeze = Bollinger / Keltner bands compressed.` });
                       if (badges.length === 0) return null;
                       return badges.map((b, i) => (
                         <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
