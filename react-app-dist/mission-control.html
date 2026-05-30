@@ -20,6 +20,37 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      /* 2026-05-30 (P8) — Inline nav CSS. mission-control.html's static
+         <nav class="topnav"> scaffold (added 2026-05-28) had no matching
+         CSS because the base nav rules live inline in today.html, not in
+         tt-tokens.css. Without these styles the nav rendered as an
+         unstyled stack of links. Mirrors the today.html block 1:1 so any
+         changes there should be carried forward here until the nav is
+         extracted to a shared stylesheet. */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #e5e7eb; font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px;
+        color: #94a3b8;
+        text-decoration: none;
+        padding: 6px 11px;
+        border-radius: 7px;
+        font-weight: 500;
+        transition: all 0.15s;
+      }
+      .nav-link:hover { background: rgba(255,255,255,0.04); color: #f1f5f9; }
       .mc-card {
         background: linear-gradient(180deg, rgba(20, 22, 30, 0.95), rgba(15, 17, 24, 0.95));
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -111,8 +142,8 @@
     </nav>
 
     <div id="root"></div>
-    <script src="mission-control.compiled.js?v=1780152178589"></script>
+    <script src="mission-control.compiled.js?v=1780158470699"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780152178589:884288210 -->
+<!-- cache-bust:1780158470699:409697599 -->

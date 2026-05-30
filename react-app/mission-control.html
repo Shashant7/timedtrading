@@ -21,6 +21,37 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
       ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+      /* 2026-05-30 (P8) — Inline nav CSS. mission-control.html's static
+         <nav class="topnav"> scaffold (added 2026-05-28) had no matching
+         CSS because the base nav rules live inline in today.html, not in
+         tt-tokens.css. Without these styles the nav rendered as an
+         unstyled stack of links. Mirrors the today.html block 1:1 so any
+         changes there should be carried forward here until the nav is
+         extracted to a shared stylesheet. */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: #e5e7eb; font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px;
+        color: #94a3b8;
+        text-decoration: none;
+        padding: 6px 11px;
+        border-radius: 7px;
+        font-weight: 500;
+        transition: all 0.15s;
+      }
+      .nav-link:hover { background: rgba(255,255,255,0.04); color: #f1f5f9; }
       .mc-card {
         background: linear-gradient(180deg, rgba(20, 22, 30, 0.95), rgba(15, 17, 24, 0.95));
         border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1391,24 +1422,61 @@
                             </div>
                             <table className="mc-table mt-2" style={{ fontSize: 11 }}>
                               <tbody>
-                                {rows.map((r) => (
-                                  <tr key={r.id}>
-                                    <td style={{ padding: "5px 4px", width: 20, textAlign: "center" }}>
-                                      {r.met === true ? <span className="mc-pos">✓</span>
-                                       : r.met === false ? <span className="mc-neg">✗</span>
-                                       : <span className="mc-mute">—</span>}
-                                    </td>
-                                    <td style={{ padding: "5px 4px" }}>
-                                      <div className="text-[11px] text-[#d1d5db]">{r.label}</div>
-                                      <div className="text-[10px] mc-mute">Target: {r.threshold}</div>
-                                    </td>
-                                    <td style={{ padding: "5px 4px", textAlign: "right", whiteSpace: "nowrap" }}>
-                                      <span className={`text-[11px] font-mono ${r.met ? "mc-pos" : "text-[#d1d5db]"}`}>
-                                        {fmtVal(r)}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
+                                {rows.map((r) => {
+                                  // 2026-05-30 (P9) — D_operator gates are
+                                  // human checks the operator must complete
+                                  // by hand. Render a toggle so they can flip
+                                  // them green/red right from Mission Control
+                                  // (calls /timed/admin/ai-cio/operator-task
+                                  // which persists the flip into model_config).
+                                  const isOperatorTask = g.key === "D_operator" && ["manual_review", "lifecycle_live_first", "autosnap_safeguard"].includes(r.id);
+                                  const toggleOperatorTask = async () => {
+                                    try {
+                                      const res = await fetch(`${API_BASE}/timed/admin/ai-cio/operator-task`, {
+                                        method: "POST",
+                                        credentials: "include",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ task: r.id, done: !r.met }),
+                                      });
+                                      const j = await res.json();
+                                      if (j.ok) fetchCio();
+                                      else alert(`Toggle failed: ${j.error || "unknown"}`);
+                                    } catch (e) {
+                                      alert(`Toggle failed: ${String(e.message || e)}`);
+                                    }
+                                  };
+                                  return (
+                                    <tr key={r.id}>
+                                      <td style={{ padding: "5px 4px", width: 20, textAlign: "center" }}>
+                                        {r.met === true ? <span className="mc-pos">✓</span>
+                                         : r.met === false ? <span className="mc-neg">✗</span>
+                                         : <span className="mc-mute">—</span>}
+                                      </td>
+                                      <td style={{ padding: "5px 4px" }}>
+                                        <div className="text-[11px] text-[#d1d5db]">{r.label}</div>
+                                        <div className="text-[10px] mc-mute">Target: {r.threshold}</div>
+                                      </td>
+                                      <td style={{ padding: "5px 4px", textAlign: "right", whiteSpace: "nowrap" }}>
+                                        {isOperatorTask ? (
+                                          <button
+                                            onClick={toggleOperatorTask}
+                                            className="underline hover:text-[#22c55e]"
+                                            style={{ fontSize: 10, color: r.met ? "#22c55e" : "#fbbf24" }}
+                                            title={r.met
+                                              ? "Click to mark this gate NOT DONE (resets)."
+                                              : "Click to mark this gate DONE after completing the physical check."}
+                                          >
+                                            {r.met ? "✓ Done · undo" : "Mark done"}
+                                          </button>
+                                        ) : (
+                                          <span className={`text-[11px] font-mono ${r.met ? "mc-pos" : "text-[#d1d5db]"}`}>
+                                            {fmtVal(r)}
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>

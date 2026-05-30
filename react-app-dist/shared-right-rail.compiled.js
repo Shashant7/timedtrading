@@ -5952,7 +5952,7 @@
                 color: "var(--ds-text-display)",
                 letterSpacing: "-0.01em"
               }
-            }, "$", v2Price.toFixed(2)), _rthForChip && Number.isFinite(v2DayPct) && React.createElement("span", {
+            }, "$", v2Price.toFixed(2)), Number.isFinite(v2DayPct) && React.createElement("span", {
               className: `ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`,
               style: {
                 fontFamily: "var(--tt-font-mono)"
@@ -10119,6 +10119,7 @@
           return React.createElement("div", {
             className: "ds-fundamentals-tab",
             style: {
+              fontFamily: "var(--ds-font-sans, 'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif)",
               "--ds-fs-h2": "13px",
               "--ds-fs-h3": "11px",
               "--ds-fs-md": "10px",
@@ -11682,7 +11683,7 @@
               fontSize: 10
             },
             title: `Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`
-          }, "\xB7 ", String(t.setup_name).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).slice(0, 24))), rightSlot);
+          }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24))), rightSlot);
         }))), candlePerf && Object.keys(candlePerf).length > 0 && React.createElement(Panel, {
           title: "Performance"
         }, React.createElement("div", {
@@ -12439,7 +12440,16 @@
           className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase"
         }, "Score Breakdown"), React.createElement("div", {
           className: "text-[10px] text-[#4b5563] mb-2.5"
-        }, "How the system arrived at this stock's overall score."), React.createElement("div", {
+        }, "How the system arrived at this stock's overall score."), (() => {
+          const zeroCount = Object.values(d.components).filter(v => Number(v) === 0).length;
+          const totalCount = Object.keys(d.components).length;
+          if (zeroCount >= Math.ceil(totalCount * 0.6)) {
+            return React.createElement("div", {
+              className: "text-[10px] text-amber-300 bg-amber-500/[0.08] border border-amber-500/[0.20] rounded px-2 py-1 mb-2"
+            }, "\u26A0 ", zeroCount, "/", totalCount, " components scored 0 \u2014 usually means weekly / monthly candles or Ichimoku-W aren't yet backfilled for this ticker. Try the Mission Control candle-coverage panel.");
+          }
+          return null;
+        })(), React.createElement("div", {
           className: "space-y-2"
         }, Object.entries(d.components).map(([k, v]) => {
           const meta = COMPONENT_LABELS[k] || {
@@ -12450,10 +12460,11 @@
           const maxVal = meta.max || 10;
           const pct = v / maxVal;
           const dotColor = pct >= 0.6 ? "bg-[#00e676]" : pct >= 0.3 ? "bg-amber-400" : "bg-red-400";
+          const isZero = Number(v) === 0;
           return React.createElement("div", {
             key: k,
             className: "flex items-center gap-2",
-            title: meta.tip
+            title: `${meta.tip}${isZero ? "\n(0 — may indicate missing TF data; check Mission Control candle coverage)" : ""}`
           }, React.createElement("span", {
             className: `w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`
           }), React.createElement("span", {
@@ -12466,7 +12477,7 @@
               width: `${Math.min(100, v / maxVal * 100)}%`
             }
           })), React.createElement("span", {
-            className: "text-xs text-white w-6 text-right tabular-nums shrink-0"
+            className: `text-xs ${isZero ? "text-amber-300/70" : "text-white"} w-6 text-right tabular-nums shrink-0`
           }, v));
         }))), d.rs && React.createElement("div", null, React.createElement("h3", {
           className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase"
@@ -16295,4 +16306,4 @@
   };
 })();
 
-// cache-bust:1780152178589:884288210
+// cache-bust:1780158470699:409697599
