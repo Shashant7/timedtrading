@@ -36,7 +36,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-q2b"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-r1"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -868,6 +868,11 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+      /* 2026-05-30 — Skeleton shimmer for OptionsPlaysOfTheDay loading state */
+      @keyframes tt-skeleton-shimmer {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(100%);  }
+      }
 
       /* Loading bar — slim gold strip across the top of the page while
          /timed/all + /timed/tickers + brief + earnings + cal are in flight.
@@ -1432,7 +1437,7 @@
       </main>
     </div>
 
-    <script src="today.compiled.js?v=1780160934793"></script>
+    <script src="today.compiled.js?v=1780163390602"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -1441,4 +1446,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1780160934793:663190748 -->
+<!-- cache-bust:1780163390602:272420044 -->

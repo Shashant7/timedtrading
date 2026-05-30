@@ -965,7 +965,93 @@ function OptionsPlaysOfTheDay({
       alive = false;
     };
   }, []);
-  if (loading) return null;
+  if (loading) {
+    return h("section", {
+      className: "tt-row",
+      style: {
+        marginBottom: 24
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        marginBottom: 8,
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, h("div", null, h("div", {
+      className: "tt-sec-title"
+    }, "OPTIONS PLAYS OF THE DAY"), h("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        color: "var(--tt-text)",
+        letterSpacing: "-0.005em"
+      }
+    }, "Confluence-Driven Strategies")), h("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-faint)",
+        fontStyle: "italic"
+      }
+    }, "Loading…")), h("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+        gap: 10
+      }
+    }, [0, 1, 2, 3].map(i => h("div", {
+      key: `sk-${i}`,
+      style: {
+        padding: 12,
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.04)",
+        borderRadius: 10,
+        minHeight: 110,
+        position: "relative",
+        overflow: "hidden"
+      }
+    }, h("div", {
+      style: {
+        width: "60%",
+        height: 14,
+        background: "rgba(255,255,255,0.06)",
+        borderRadius: 4,
+        marginBottom: 8
+      }
+    }), h("div", {
+      style: {
+        width: "85%",
+        height: 12,
+        background: "rgba(255,255,255,0.04)",
+        borderRadius: 4,
+        marginBottom: 6
+      }
+    }), h("div", {
+      style: {
+        width: "40%",
+        height: 10,
+        background: "rgba(255,255,255,0.04)",
+        borderRadius: 4,
+        marginBottom: 4
+      }
+    }), h("div", {
+      style: {
+        width: "55%",
+        height: 10,
+        background: "rgba(255,255,255,0.04)",
+        borderRadius: 4
+      }
+    }), h("div", {
+      style: {
+        position: "absolute",
+        inset: 0,
+        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent)",
+        animation: "tt-skeleton-shimmer 1.6s linear infinite"
+      }
+    })))));
+  }
   if (!plays || plays.length === 0) return null;
   const MODE_META = {
     RIDE: {
@@ -4319,6 +4405,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780160934793:663190748
+// cache-bust:1780163390602:272420044
 
-// cache-bust:1780160934793:663190748
+// cache-bust:1780163390602:272420044
