@@ -285,6 +285,7 @@ function CioDecisionReview({
   const [draftNotes, setDraftNotes] = useState({});
   const [saving, setSaving] = useState({});
   const [savedFlash, setSavedFlash] = useState({});
+  const [reviewErr, setReviewErr] = useState({});
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -312,6 +313,17 @@ function CioDecisionReview({
       ...s,
       [tradeId]: true
     }));
+    setReviewErr(e => {
+      const c = {
+        ...e
+      };
+      delete c[tradeId];
+      return c;
+    });
+    setSavedFlash(f => ({
+      ...f,
+      [tradeId]: verdict
+    }));
     try {
       const r = await fetch(`${apiBase}/timed/admin/ai-cio/review`, {
         method: "POST",
@@ -325,12 +337,13 @@ function CioDecisionReview({
           notes: draftNotes[tradeId] || ""
         })
       });
-      const j = await r.json();
-      if (j.ok) {
-        setSavedFlash(f => ({
-          ...f,
-          [tradeId]: verdict
-        }));
+      let j = null;
+      try {
+        j = await r.json();
+      } catch (_) {
+        j = null;
+      }
+      if (r.ok && j?.ok) {
         setTimeout(() => setSavedFlash(f => {
           const c = {
             ...f
@@ -344,10 +357,43 @@ function CioDecisionReview({
         refresh();
         if (typeof onReviewSaved === "function") onReviewSaved();
       } else {
-        alert(`Review failed: ${j.error || "unknown"}`);
+        setSavedFlash(f => {
+          const c = {
+            ...f
+          };
+          delete c[tradeId];
+          return c;
+        });
+        const msg = j?.error || `HTTP ${r.status}`;
+        setReviewErr(e => ({
+          ...e,
+          [tradeId]: msg
+        }));
+        console.warn("[ai-cio/review] failed", {
+          tradeId,
+          verdict,
+          status: r.status,
+          body: j
+        });
       }
     } catch (e) {
-      alert(`Review failed: ${String(e.message || e)}`);
+      setSavedFlash(f => {
+        const c = {
+          ...f
+        };
+        delete c[tradeId];
+        return c;
+      });
+      const msg = String(e?.message || e);
+      setReviewErr(er => ({
+        ...er,
+        [tradeId]: msg
+      }));
+      console.warn("[ai-cio/review] threw", {
+        tradeId,
+        verdict,
+        error: msg
+      });
     } finally {
       setSaving(s => {
         const c = {
@@ -539,7 +585,12 @@ function CioDecisionReview({
       }
     }, "~ Meh / inconclusive"), d.review_verdict && React.createElement("span", {
       className: "text-[10px] mc-mute italic"
-    }, "(reviewed ", fmtAgo(d.review_ts), " by ", d.review_by, ")")), React.createElement("textarea", {
+    }, "(reviewed ", fmtAgo(d.review_ts), " by ", d.review_by, ")"), savedFlash[d.trade_id] && !d.review_verdict && React.createElement("span", {
+      className: "text-[10px] text-emerald-300 italic"
+    }, "saved \u2713"), reviewErr[d.trade_id] && React.createElement("span", {
+      className: "text-[10px] text-red-300 italic",
+      title: reviewErr[d.trade_id]
+    }, "\u26A0 ", String(reviewErr[d.trade_id]).slice(0, 80))), React.createElement("textarea", {
       value: draftNotes[d.trade_id] ?? d.review_notes ?? "",
       onChange: e => setDraftNotes(n => ({
         ...n,
@@ -1956,6 +2007,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780174203314:149145512
+// cache-bust:1780176019185:840683348
 
-// cache-bust:1780174203314:149145512
+// cache-bust:1780176019185:840683348
