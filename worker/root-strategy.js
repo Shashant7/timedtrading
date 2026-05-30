@@ -348,10 +348,29 @@ function scoreL5_Carter(t) {
       parts.push(`ORB bear (${orb.shortBreakouts}/${orb.resolvedCount} windows)`);
     }
     if (Number(orb.reclaimCount) >= 2) {
-      // Reclaim = strong reversal signal. Side determined by current orbBias.
       if (orbBias > 0) { bull += 0.3; parts.push(`ORB reclaim → bull (${orb.reclaimCount})`); }
       else if (orbBias < 0) { bear += 0.3; parts.push(`ORB reclaim → bear (${orb.reclaimCount})`); }
     }
+  }
+
+  // SMT — Smart Money Technique. Quartet-level divergence at marked HTF
+  // levels = institutional manipulation = reversal in progress. We accept
+  // SMT context injected via tickerData._index_quartet (populated by the
+  // scoring layer when present) and treat Stage 1 as a meaningful bonus,
+  // Stage 2 (confirmed) as a heavy weight.
+  const quartet = t?._index_quartet || t?.index_quartet;
+  const smt = quartet?.smt || quartet?.SMT;
+  if (smt && smt.stage1) {
+    // Stage 1 alone — meaningful confluence boost in the direction
+    // opposite to the swept level (since SMT signals reversal).
+    if (smt.direction === "BULL") { bull += 0.5; parts.push(`SMT-S1 ${smt.divergent_index} swept ${smt.level_type}`); }
+    else if (smt.direction === "BEAR") { bear += 0.5; parts.push(`SMT-S1 ${smt.divergent_index} swept ${smt.level_type}`); }
+  }
+  const smtConfirmed = quartet?.smt_confirmed || quartet?.SMT_CONFIRMED;
+  if (smtConfirmed?.confirmed) {
+    // Stage 1 + Stage 2 — the 81% setup. Heavy weight.
+    if (smtConfirmed.direction === "BULL") { bull += 1.0; parts.push(`SMT 2-stage CONFIRMED bull`); }
+    else if (smtConfirmed.direction === "BEAR") { bear += 1.0; parts.push(`SMT 2-stage CONFIRMED bear`); }
   }
 
   const net = bull - bear;

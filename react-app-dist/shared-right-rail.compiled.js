@@ -1828,10 +1828,53 @@
           color: "var(--ds-text-muted)",
           fontStyle: "italic"
         }
-      }, data.profile_meta.one_liner)), h(Panel, {
-        title: "🎯 Primary Play",
-        color: "#f5c25c",
-        action: primary._confluence_boost && h("span", {
+      }, data.profile_meta.one_liner)), primary._moonshot_active && h("div", {
+        style: {
+          background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
+          border: "2px solid rgba(245,194,92,0.50)",
+          borderRadius: 14,
+          padding: 14,
+          marginBottom: 12,
+          boxShadow: "0 6px 24px rgba(167,139,250,0.15)"
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          marginBottom: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.10em",
+          color: "#f5c25c"
+        }
+      }, "🌙 THE GEM · MOONSHOT ACTIVATED"), h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#34d399",
+          padding: "2px 8px",
+          borderRadius: 999,
+          background: "rgba(52,211,153,0.15)",
+          border: "1px solid rgba(52,211,153,0.40)"
+        }
+      }, "RIDE+FRESH+MOTION")), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5
+        }
+      }, "The fused 8-layer verdict has identified ", h("strong", null, "both direction AND moment"), ". Short-dated OTM gamma play — small position, multi-bagger potential if the move continues. ", data.moonshot?.motion?.evidence && h("strong", {
+        style: {
+          color: "var(--ds-text-display)"
+        }
+      }, "Motion: " + data.moonshot.motion.evidence + "."))), h(Panel, {
+        title: primary._moonshot_active ? "🌙 Moonshot Play" : "🎯 Primary Play",
+        color: primary._moonshot_active ? "#f5c25c" : "#f5c25c",
+        action: primary._confluence_boost && !primary._moonshot_active && h("span", {
           style: {
             fontSize: 10,
             fontWeight: 700,
@@ -2040,7 +2083,98 @@
           fontSize: 11,
           color: "var(--ds-text-muted)"
         }
-      }, "• ", w))), primary.notes && primary.notes.length > 0 && h("ul", {
+      }, "• ", w))), primary._moonshot_active && primary.multi_bagger_targets && h("div", {
+        style: {
+          marginTop: 8,
+          padding: 10,
+          background: "rgba(52,211,153,0.06)",
+          border: "1px solid rgba(52,211,153,0.25)",
+          borderRadius: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#34d399",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "🚀 MULTI-BAGGER TARGETS"), h("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "repeat(3, 1fr)",
+          gap: 8
+        }
+      }, h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "2× PLAY"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "var(--ds-text-body)"
+        }
+      }, "$", primary.multi_bagger_targets["2x_underlying_at"])), h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "3× PLAY"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#34d399"
+        }
+      }, "$", primary.multi_bagger_targets["3x_underlying_at"])), h("div", null, h("div", {
+        style: {
+          fontSize: 9,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "5× PLAY"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: "#34d399"
+        }
+      }, "$", primary.multi_bagger_targets["5x_underlying_at"]))), primary.sizing_note && h("div", {
+        style: {
+          marginTop: 6,
+          fontSize: 10,
+          color: "var(--ds-text-faint)"
+        }
+      }, "💸 ", primary.sizing_note)), primary._moonshot_active && primary.trade_mgmt && h("div", {
+        style: {
+          marginTop: 8,
+          padding: 10,
+          background: "rgba(167,139,250,0.06)",
+          border: "1px solid rgba(167,139,250,0.25)",
+          borderRadius: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#a78bfa",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "📋 TRADE MANAGEMENT"), primary.trade_mgmt.map((m, i) => h("div", {
+        key: i,
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-body)",
+          marginBottom: 3,
+          lineHeight: 1.4
+        }
+      }, m))), primary.notes && primary.notes.length > 0 && h("ul", {
         style: {
           marginTop: 8,
           paddingLeft: 16,
@@ -15903,4 +16037,4 @@
   };
 })();
 
-// cache-bust:1780118505311:227747623
+// cache-bust:1780121889205:526592403

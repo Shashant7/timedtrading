@@ -618,7 +618,15 @@ import {
   tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
   tdFetchOptionsChain as _tdFetchOptionsChain,
 } from "./twelvedata.js";
+import {
+  alpacaFetchOptionsChain as _alpacaFetchOptionsChain,
+  alpacaFetchOptionsExpirations as _alpacaFetchOptionsExpirations,
+} from "./alpaca-options.js";
 import { scoreRootConfluence as _scoreRootConfluence } from "./root-strategy.js";
+import {
+  computeFuturesPairsState as _computeFuturesPairsState,
+  summarizeFuturesPairs as _summarizeFuturesPairs,
+} from "./futures-pairs.js";
 import {
   loadAutoMirrorPrefs as _loadAutoMirrorPrefs,
   saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
@@ -1167,6 +1175,8 @@ const ROUTES = [
   ["GET",  "/timed/options/auto-mirror",   "GET /timed/options/auto-mirror"],
   ["PUT",  "/timed/options/auto-mirror",   "PUT /timed/options/auto-mirror"],
   ["POST", "/timed/options/mirror-now",    "POST /timed/options/mirror-now"],
+  // Futures pairs (Carter ES/NQ analysis).
+  ["GET",  "/timed/futures-pairs",         "GET /timed/futures-pairs"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -74003,6 +74013,67 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      // ── GET /timed/futures-pairs ─────────────────────────────────────────
+      // Carter ES/NQ relative strength + VIX + gap-and-go analysis.
+      if (routeKey === "GET /timed/futures-pairs") {
+        try {
+          // Build market snapshot from KV scoring data.
+          const allRaw = await env.KV_TIMED.get("timed:all:snapshot");
+          const all = allRaw ? JSON.parse(allRaw) : {};
+          const pricesRaw = await env.KV_TIMED.get("timed:prices");
+          const prices = pricesRaw ? JSON.parse(pricesRaw) : { prices: {} };
+          const pmap = prices.prices || prices || {};
+          const pull = (sym) => {
+            const tk = all[sym] || all[String(sym).toUpperCase()] || {};
+            const px = pmap[sym] || pmap[String(sym).toUpperCase()] || null;
+            return {
+              ticker: sym,
+              price: Number(px?.p) || Number(tk.price) || null,
+              prev_close: Number(px?.pc) || Number(tk.prev_close) || null,
+              open: Number(tk.open || tk.dayOpen) || null,
+              dayChangePct: Number(px?.dp) || Number(tk.day_change_pct) || 0,
+            };
+          };
+          const marketData = {
+            ES:  pull("ES1!")  || pull("ES"),
+            NQ:  pull("NQ1!")  || pull("NQ"),
+            YM:  pull("YM1!")  || pull("YM"),
+            RTY: pull("RTY1!") || pull("RTY"),
+            SPY: pull("SPY"),
+            QQQ: pull("QQQ"),
+            DIA: pull("DIA"),
+            IWM: pull("IWM"),
+            VIX: pull("VIX") || pull("VX1!"),
+          };
+          // Futures might not all be in the scoring set — fall back to ETFs.
+          if (!marketData.ES?.price  && marketData.SPY?.price) marketData.ES  = marketData.SPY;
+          if (!marketData.NQ?.price  && marketData.QQQ?.price) marketData.NQ  = marketData.QQQ;
+          if (!marketData.YM?.price  && marketData.DIA?.price) marketData.YM  = marketData.DIA;
+          if (!marketData.RTY?.price && marketData.IWM?.price) marketData.RTY = marketData.IWM;
+          // Pull marked levels (PDH/PDL/WKH/WKL) for SMT detection.
+          const levelsFor = (sym) => {
+            const tk = all[sym] || {};
+            return {
+              pdh: Number(tk.prev_day_high || tk.pdh) || null,
+              pdl: Number(tk.prev_day_low  || tk.pdl) || null,
+              wkh: Number(tk.weekly_high   || tk.wkh) || null,
+              wkl: Number(tk.weekly_low    || tk.wkl) || null,
+            };
+          };
+          const levels = {
+            ES:  levelsFor("ES1!") || levelsFor("SPY"),
+            NQ:  levelsFor("NQ1!") || levelsFor("QQQ"),
+            YM:  levelsFor("YM1!") || levelsFor("DIA"),
+            RTY: levelsFor("RTY1!") || levelsFor("IWM"),
+          };
+          const state = _computeFuturesPairsState(marketData, { levels });
+          state.summary = _summarizeFuturesPairs(state);
+          return sendJSON(state, state.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ── GET /timed/options/risk-profile ─────────────────────────────────
       // Returns the user's saved risk profile (or default). Keyed by email
       // from authenticateUser. Unauthenticated callers get the default
@@ -74054,7 +74125,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
 
       // ── GET /timed/options/expirations?ticker=AAPL ──────────────────────
-      // Lists available expirations from TwelveData (KV-cached 1h).
+      // Lists available expirations. Tries Alpaca first (real-time, free
+      // indicative feed). Falls back to TwelveData if Alpaca fails.
+      // KV-cached 1h.
       if (routeKey === "GET /timed/options/expirations") {
         try {
           const ticker = normTicker(url.searchParams.get("ticker"));
@@ -74064,21 +74137,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (cached) {
             return sendJSON({ ok: true, ticker, ...JSON.parse(cached), cached: true }, 200, corsHeaders(env, req));
           }
-          const res = await _tdFetchOptionsExpirations(env, ticker);
-          if (!res.ok) {
-            return sendJSON({ ok: false, ticker, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+          let res = await _alpacaFetchOptionsExpirations(env, ticker);
+          let provider = "alpaca";
+          if (!res.ok || res.expirations.length === 0) {
+            const tdRes = await _tdFetchOptionsExpirations(env, ticker);
+            if (tdRes.ok && tdRes.expirations.length > 0) {
+              res = tdRes;
+              provider = "twelvedata";
+            }
           }
-          // Cache 1h (TD expirations move slowly).
-          await env.KV_TIMED.put(cacheKey, JSON.stringify({ expirations: res.expirations, fetched_at: Date.now() }), { expirationTtl: 3600 });
-          return sendJSON({ ok: true, ticker, expirations: res.expirations, fetched_at: Date.now() }, 200, corsHeaders(env, req));
+          if (!res.ok) {
+            return sendJSON({ ok: false, ticker, error: res.error || "no_provider_succeeded" }, 502, corsHeaders(env, req));
+          }
+          const payload = { expirations: res.expirations, provider, fetched_at: Date.now() };
+          await env.KV_TIMED.put(cacheKey, JSON.stringify(payload), { expirationTtl: 3600 });
+          return sendJSON({ ok: true, ticker, ...payload }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
       // ── GET /timed/options/chain?ticker=AAPL&exp=2026-06-20 ─────────────
-      // Returns the live chain for one expiration. KV-cached 5min during
-      // RTH, 30min otherwise.
+      // Live chain. Alpaca primary (real Greeks + bid/ask + IV).
+      // TwelveData fallback. KV-cached 5min RTH / 30min off-hours.
       if (routeKey === "GET /timed/options/chain") {
         try {
           const ticker = normTicker(url.searchParams.get("ticker"));
@@ -74094,9 +74175,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return sendJSON({ ok: true, ...j, cached: true, age_ms: ageMs }, 200, corsHeaders(env, req));
             }
           }
-          const res = await _tdFetchOptionsChain(env, ticker, exp);
+          let res = await _alpacaFetchOptionsChain(env, ticker, exp);
+          if (!res.ok || ((res.calls?.length || 0) + (res.puts?.length || 0)) === 0) {
+            const tdRes = await _tdFetchOptionsChain(env, ticker, exp);
+            if (tdRes.ok) res = tdRes;
+          }
           if (!res.ok) {
-            return sendJSON({ ok: false, ticker, exp, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+            return sendJSON({ ok: false, ticker, exp, error: res.error || "no_provider_succeeded" }, 502, corsHeaders(env, req));
           }
           await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
           return sendJSON({ ok: true, ...res }, 200, corsHeaders(env, req));
@@ -74182,13 +74267,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (age < ttl) { chain = j; chainStatus = "from_cache"; }
             }
             if (!chain) {
-              const res = await _tdFetchOptionsChain(env, ticker, expISO);
+              // Alpaca primary — real Greeks, bid/ask, IV, free indicative feed.
+              let res = await _alpacaFetchOptionsChain(env, ticker, expISO);
+              let provider = "alpaca";
+              if (!res.ok || ((res.calls?.length || 0) + (res.puts?.length || 0)) === 0) {
+                // TwelveData fallback.
+                const tdRes = await _tdFetchOptionsChain(env, ticker, expISO);
+                if (tdRes.ok) { res = tdRes; provider = "twelvedata"; }
+              }
               if (res.ok) {
                 chain = res;
-                chainStatus = "fresh_fetch";
+                chainStatus = `fresh_fetch:${provider}`;
                 await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
               } else {
-                chainStatus = `td_error:${res.error || "unknown"}`;
+                chainStatus = `provider_error:${res.error || "unknown"}`;
               }
             }
           } catch (e) {
@@ -74203,8 +74295,79 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Ticker themes for LETF lookup.
           let themes = [];
           try { themes = _getThemesForTicker(ticker); } catch (_) {}
+          // Enrich ticker data for moonshot momentum detection — pull
+          // day/5d change from the live price feed + scoring snapshot.
+          let tickerForMomentum = data || {};
+          try {
+            const pricesRaw = await env.KV_TIMED.get("timed:prices");
+            const prices = pricesRaw ? JSON.parse(pricesRaw) : null;
+            const priceRow = prices?.prices?.[ticker] || prices?.[ticker] || null;
+            if (priceRow) {
+              tickerForMomentum = {
+                ...tickerForMomentum,
+                day_change_pct: Number(priceRow.dp ?? tickerForMomentum.day_change_pct) || 0,
+                volume_ratio_20: Number(priceRow.vr ?? tickerForMomentum.volume_ratio_20) || 1,
+              };
+            }
+            const fiveDay = data?.structureContext?.fiveDayChangePct
+                          ?? data?.fiveDayChangePct;
+            if (Number.isFinite(Number(fiveDay))) {
+              tickerForMomentum.fiveDayChangePct = Number(fiveDay);
+            }
+          } catch (_) { /* best-effort */ }
+          // 2026-05-30 — Index Quartet + SMT injection. Single fetch +
+          // 5min KV cache so this is cheap. Powers both the moonshot
+          // SMT-elevated activation path AND L5 Carter's SMT bonus
+          // in root-strategy. When SMT confirms a 2-stage reversal,
+          // moonshot activates even without the in-motion price gate.
+          try {
+            const quartetCacheKey = "timed:futures-pairs:state";
+            let quartetState = null;
+            const cached = await env.KV_TIMED.get(quartetCacheKey);
+            if (cached) {
+              const j = JSON.parse(cached);
+              if (Date.now() - (j._fetched_at || 0) < 300_000) quartetState = j;
+            }
+            if (!quartetState) {
+              // Inline compute (same logic as /timed/futures-pairs endpoint).
+              const allRaw2 = await env.KV_TIMED.get("timed:all:snapshot");
+              const all2 = allRaw2 ? JSON.parse(allRaw2) : {};
+              const pricesRaw2 = await env.KV_TIMED.get("timed:prices");
+              const prices2 = pricesRaw2 ? JSON.parse(pricesRaw2) : { prices: {} };
+              const pmap2 = prices2.prices || prices2 || {};
+              const pullQ = (sym) => {
+                const tk = all2[sym] || {};
+                const px = pmap2[sym] || null;
+                return {
+                  ticker: sym,
+                  price: Number(px?.p) || Number(tk.price) || null,
+                  prev_close: Number(px?.pc) || Number(tk.prev_close) || null,
+                  open: Number(tk.open || tk.dayOpen) || null,
+                  dayChangePct: Number(px?.dp) || Number(tk.day_change_pct) || 0,
+                };
+              };
+              const mkt = {
+                ES: pullQ("ES1!") || pullQ("SPY"),
+                NQ: pullQ("NQ1!") || pullQ("QQQ"),
+                YM: pullQ("YM1!") || pullQ("DIA"),
+                RTY: pullQ("RTY1!") || pullQ("IWM"),
+                SPY: pullQ("SPY"), QQQ: pullQ("QQQ"), DIA: pullQ("DIA"), IWM: pullQ("IWM"),
+                VIX: pullQ("VIX") || pullQ("VX1!"),
+              };
+              if (!mkt.ES?.price && mkt.SPY?.price) mkt.ES = mkt.SPY;
+              if (!mkt.NQ?.price && mkt.QQQ?.price) mkt.NQ = mkt.QQQ;
+              if (!mkt.YM?.price && mkt.DIA?.price) mkt.YM = mkt.DIA;
+              if (!mkt.RTY?.price && mkt.IWM?.price) mkt.RTY = mkt.IWM;
+              quartetState = _computeFuturesPairsState(mkt);
+              quartetState._fetched_at = Date.now();
+              await env.KV_TIMED.put(quartetCacheKey, JSON.stringify(quartetState), { expirationTtl: 600 });
+            }
+            tickerForMomentum._index_quartet = quartetState;
+            if (data) data._index_quartet = quartetState;
+          } catch (_) { /* best-effort */ }
           const ladder = _buildOptionsLadder(ladderInput, {
             profile, account_value: accountValue, chain, confluence, themes,
+            tickerData: tickerForMomentum,
           });
           if (!ladder) return sendJSON({ ok: false, ticker, error: "ladder_build_failed" }, 500, corsHeaders(env, req));
           return sendJSON({
