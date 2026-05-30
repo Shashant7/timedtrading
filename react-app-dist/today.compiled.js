@@ -939,10 +939,12 @@ function IndexPredictionsStrip({
   }, "Read the full brief →"));
 }
 function OptionsPlaysOfTheDay({
-  onSelectTicker
+  onSelectTicker,
+  layout = "grid"
 }) {
   const [plays, setPlays] = useState(null);
   const [loading, setLoading] = useState(true);
+  const isSidebar = layout === "sidebar";
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -966,10 +968,20 @@ function OptionsPlaysOfTheDay({
     };
   }, []);
   if (loading) {
+    const skSlotCount = isSidebar ? 4 : 4;
+    const skContainerStyle = isSidebar ? {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    } : {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+      gap: 10
+    };
     return h("section", {
-      className: "tt-row",
+      className: isSidebar ? "" : "tt-row",
       style: {
-        marginBottom: 24
+        marginBottom: isSidebar ? 0 : 24
       }
     }, h("div", {
       style: {
@@ -989,57 +1001,47 @@ function OptionsPlaysOfTheDay({
         color: "var(--tt-text)",
         letterSpacing: "-0.005em"
       }
-    }, "Confluence-Driven Strategies")), h("span", {
+    }, isSidebar ? "Today's setups" : "Confluence-Driven Strategies")), h("span", {
       style: {
         fontSize: 10,
         color: "var(--tt-text-faint)",
         fontStyle: "italic"
       }
     }, "Loading…")), h("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-        gap: 10
-      }
-    }, [0, 1, 2, 3].map(i => h("div", {
+      style: skContainerStyle
+    }, Array.from({
+      length: skSlotCount
+    }, (_, i) => h("div", {
       key: `sk-${i}`,
       style: {
-        padding: 12,
+        padding: isSidebar ? 10 : 12,
         background: "rgba(255,255,255,0.02)",
         border: "1px solid rgba(255,255,255,0.04)",
         borderRadius: 10,
-        minHeight: 110,
+        minHeight: isSidebar ? 76 : 110,
         position: "relative",
         overflow: "hidden"
       }
     }, h("div", {
       style: {
         width: "60%",
-        height: 14,
-        background: "rgba(255,255,255,0.06)",
-        borderRadius: 4,
-        marginBottom: 8
-      }
-    }), h("div", {
-      style: {
-        width: "85%",
         height: 12,
-        background: "rgba(255,255,255,0.04)",
+        background: "rgba(255,255,255,0.06)",
         borderRadius: 4,
         marginBottom: 6
       }
     }), h("div", {
       style: {
-        width: "40%",
-        height: 10,
+        width: "85%",
+        height: 11,
         background: "rgba(255,255,255,0.04)",
         borderRadius: 4,
-        marginBottom: 4
+        marginBottom: 5
       }
     }), h("div", {
       style: {
-        width: "55%",
-        height: 10,
+        width: "40%",
+        height: 9,
         background: "rgba(255,255,255,0.04)",
         borderRadius: 4
       }
@@ -1052,7 +1054,37 @@ function OptionsPlaysOfTheDay({
       }
     })))));
   }
-  if (!plays || plays.length === 0) return null;
+  if (!plays || plays.length === 0) {
+    if (isSidebar) {
+      return h("section", null, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          marginBottom: 8,
+          gap: 8,
+          flexWrap: "wrap"
+        }
+      }, h("div", null, h("div", {
+        className: "tt-sec-title"
+      }, "OPTIONS PLAYS OF THE DAY"), h("div", {
+        style: {
+          fontSize: 14,
+          fontWeight: 600,
+          color: "var(--tt-text)",
+          letterSpacing: "-0.005em"
+        }
+      }, "Today's setups"))), h("div", {
+        className: "tt-card tt-card-pad",
+        style: {
+          fontSize: 12,
+          color: "var(--tt-text-muted)",
+          lineHeight: 1.5
+        }
+      }, "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually."));
+    }
+    return null;
+  }
   const MODE_META = {
     RIDE: {
       color: "#34d399",
@@ -1075,10 +1107,19 @@ function OptionsPlaysOfTheDay({
       icon: "↩️"
     }
   };
+  const containerStyle = isSidebar ? {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8
+  } : {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+    gap: 10
+  };
   return h("section", {
-    className: "tt-row",
+    className: isSidebar ? "" : "tt-row",
     style: {
-      marginBottom: 24
+      marginBottom: isSidebar ? 0 : 24
     }
   }, h("div", {
     style: {
@@ -1098,19 +1139,15 @@ function OptionsPlaysOfTheDay({
       color: "var(--tt-text)",
       letterSpacing: "-0.005em"
     }
-  }, "Confluence-Driven Strategies")), h("a", {
+  }, isSidebar ? `${plays.length} actionable` : "Confluence-Driven Strategies")), h("a", {
     href: "/learn.html#active-strategy",
     style: {
       fontSize: 11,
       color: "var(--tt-text-muted)",
       textDecoration: "none"
     }
-  }, "How this works →")), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-      gap: 10
-    }
+  }, isSidebar ? "How →" : "How this works →")), h("div", {
+    style: containerStyle
   }, plays.map(p => {
     const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
     const dirColor = p.direction === "SHORT" ? "#f87171" : "#34d399";
@@ -1121,7 +1158,7 @@ function OptionsPlaysOfTheDay({
       key: p.ticker,
       onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
       style: {
-        padding: 12,
+        padding: isSidebar ? 10 : 12,
         background: cardBg,
         border: cardBorder,
         borderRadius: 10,
@@ -1156,17 +1193,19 @@ function OptionsPlaysOfTheDay({
         display: "flex",
         alignItems: "baseline",
         justifyContent: "space-between",
-        marginBottom: 6
+        marginBottom: isSidebar ? 4 : 6,
+        gap: 4,
+        flexWrap: "wrap"
       }
     }, h("div", {
       style: {
         display: "flex",
         alignItems: "baseline",
-        gap: 8
+        gap: 6
       }
     }, h("strong", {
       style: {
-        fontSize: 16,
+        fontSize: isSidebar ? 14 : 16,
         color: "var(--tt-text)"
       }
     }, p.ticker), h("span", {
@@ -1188,18 +1227,20 @@ function OptionsPlaysOfTheDay({
       }
     }, meta.icon, " ", p.confluence_mode)), h("div", {
       style: {
-        fontSize: 13,
+        fontSize: isSidebar ? 12 : 13,
         fontWeight: 700,
         color: "var(--tt-text)",
-        marginBottom: 4
+        marginBottom: isSidebar ? 3 : 4,
+        lineHeight: 1.3
       }
     }, p.primary?.label || "—"), h("div", {
       style: {
         display: "flex",
-        gap: 12,
-        fontSize: 11,
+        gap: isSidebar ? 8 : 12,
+        fontSize: isSidebar ? 10 : 11,
         color: "var(--tt-text-muted)",
-        fontFamily: "var(--tt-font-mono)"
+        fontFamily: "var(--tt-font-mono)",
+        flexWrap: "wrap"
       }
     }, p.primary?.expiration?.label && h("span", null, p.primary.expiration.label), p.primary?.max_loss_usd != null && h("span", null, "Risk ", h("strong", {
       style: {
@@ -1209,7 +1250,7 @@ function OptionsPlaysOfTheDay({
       style: {
         color: "#34d399"
       }
-    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), h("div", {
+    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), !isSidebar && h("div", {
       style: {
         marginTop: 6,
         fontSize: 10,
@@ -1431,6 +1472,10 @@ function TodayHero({
     data,
     earnings,
     onSelectTicker
+  }), brief && h(IndexPredictionsStrip, {
+    brief,
+    data,
+    onSelectTicker
   }), h(QuickGlance, {
     brief,
     data,
@@ -1439,10 +1484,9 @@ function TodayHero({
     style: {
       minWidth: 0
     }
-  }, brief && h(IndexPredictionsStrip, {
-    brief,
-    data,
-    onSelectTicker
+  }, h(OptionsPlaysOfTheDay, {
+    onSelectTicker,
+    layout: "sidebar"
   })));
 }
 function QuickGlance({
@@ -3975,8 +4019,6 @@ function TodayApp() {
     data,
     earnings,
     onSelectTicker
-  }), h(OptionsPlaysOfTheDay, {
-    onSelectTicker
   }), h(OpenPositionsPreview, {
     onSelectTicker
   }), data ? h(MarketState, {
@@ -4405,6 +4447,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780163390602:272420044
+// cache-bust:1780166155473:42208597
 
-// cache-bust:1780163390602:272420044
+// cache-bust:1780166155473:42208597
