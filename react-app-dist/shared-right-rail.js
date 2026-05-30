@@ -1167,6 +1167,156 @@
               : h("strong", { style: { color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" } },
                   "$" + primary.breakeven.toFixed(2)),
           ),
+          // 2026-05-30 (P4) — "How This Works" panel. User feedback:
+          // "Our users vary in their experience of options and may not
+          // know much beyond buying calls and puts, so we want to make
+          // sure they can understand how these other strategies may
+          // work." Walks through each leg in plain English + the
+          // expiry-day P&L scenarios. Generated from primary.legs +
+          // primary.strikes + primary.premium so it auto-adapts to
+          // every archetype (long call / put / vertical spread / CSP /
+          // covered call / straddle / moonshot / LETF / stock).
+          (() => {
+            const arch = String(primary.archetype || "").toLowerCase();
+            const legs = Array.isArray(primary.legs) ? primary.legs : [];
+            const exp = primary.expiration?.label || primary.expiration?.iso || "expiry";
+            const sym = String(tickerSymbol || data?.ticker || "the underlying").toUpperCase();
+            const netPrem = Number(primary.premium?.mid);
+            const contracts = Number(primary.contracts) || 1;
+            const maxLoss = Number(primary.max_loss_usd);
+            const maxGain = Number(primary.max_gain_usd);
+            const beUp = Number(primary.breakeven_up);
+            const beDn = Number(primary.breakeven_down);
+            const beSingle = Number(primary.breakeven);
+            const longStrike  = Number(primary.strikes?.long  ?? primary.strikes?.primary);
+            const shortStrike = Number(primary.strikes?.short);
+            const stockPrice = Number(data?.ticker?.price ?? data?.price);
+
+            // Build the per-leg lines (plain English: "BUY 1 $X CALL")
+            const legLines = legs.map((l) => {
+              const action = String(l.action || "").toUpperCase();
+              const strike = Number(l.strike);
+              const qty = Number(l.qty) || 1;
+              const otype = String(l.optionType || l.option_type || "").toUpperCase();
+              const inst = String(l.instrument || "").toUpperCase();
+              if (inst === "ETF") {
+                return `${action} ${qty.toLocaleString()} shares of ${l.ticker || sym}`;
+              }
+              if (!Number.isFinite(strike) || !otype) {
+                return `${action} ${qty} ${l.ticker || sym}`;
+              }
+              return `${action} ${qty} × $${strike} ${otype} (${exp})`;
+            });
+
+            // Pick the archetype-specific scenarios paragraph
+            const scenarios = (() => {
+              const fmt$ = (n) => Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
+              const fmtU = (n) => Number.isFinite(n) ? (n >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(0)}`) : "—";
+              if (arch.includes("vertical")) {
+                const isBull = legs[0]?.optionType?.toUpperCase() === "CALL";
+                const dir = isBull ? "rises" : "falls";
+                const farStrike = isBull ? shortStrike : longStrike;
+                const closeStrike = isBull ? longStrike : shortStrike;
+                return [
+                  `📈 You pay ${fmt$(netPrem)} per spread × ${contracts} = ${fmtU(maxLoss)} upfront (your max loss).`,
+                  `🎯 You profit if ${sym} ${dir} past ${fmt$(beSingle)} by ${exp}.`,
+                  `🏆 At or beyond ${fmt$(farStrike)} you collect the full ${fmtU(maxGain)} — the spread width (${fmt$(Math.abs((shortStrike || 0) - (longStrike || 0)))}) minus what you paid.`,
+                  `🔒 The short leg at ${fmt$(farStrike)} caps your upside — you keep ${fmtU(maxLoss)} of capital at risk in exchange for ${(maxGain / Math.max(1, maxLoss)).toFixed(1)}× the return profile vs a long ${isBull ? "call" : "put"} alone.`,
+                  `⛔ Below ${fmt$(closeStrike)} at expiry, both legs expire worthless — you lose the full ${fmtU(maxLoss)}.`,
+                ];
+              }
+              if (arch.includes("long_call") || arch.includes("moonshot_call")) {
+                return [
+                  `📈 You pay ${fmt$(netPrem)} per contract × ${contracts} = ${fmtU(maxLoss)} upfront (your max loss).`,
+                  `🎯 You profit if ${sym} closes above ${fmt$(beSingle)} by ${exp}.`,
+                  `🏆 Upside is unlimited — every $1 ${sym} rises past breakeven is roughly +$100 per contract.`,
+                  `⛔ Below ${fmt$(longStrike)} at expiry the call expires worthless — you lose the full ${fmtU(maxLoss)}.`,
+                ];
+              }
+              if (arch.includes("long_put") || arch.includes("moonshot_put")) {
+                return [
+                  `📉 You pay ${fmt$(netPrem)} per contract × ${contracts} = ${fmtU(maxLoss)} upfront (your max loss).`,
+                  `🎯 You profit if ${sym} closes below ${fmt$(beSingle)} by ${exp}.`,
+                  `🏆 Max gain ≈ ${fmtU((longStrike - netPrem) * 100 * contracts)} if ${sym} → $0 by expiry.`,
+                  `⛔ Above ${fmt$(longStrike)} at expiry the put expires worthless — you lose the full ${fmtU(maxLoss)}.`,
+                ];
+              }
+              if (arch.includes("cash_secured_put") || arch.includes("csp")) {
+                return [
+                  `💰 You COLLECT ${fmt$(netPrem)} per contract × ${contracts} = ${fmtU(Number.isFinite(maxGain) ? maxGain : netPrem * 100 * contracts)} premium upfront.`,
+                  `🏦 You must set aside ${fmtU((longStrike || 0) * 100 * contracts)} cash as collateral (the broker holds it while the put is open).`,
+                  `🎯 If ${sym} stays above ${fmt$(longStrike)} at ${exp}, the put expires worthless — you keep the full premium.`,
+                  `📦 If ${sym} drops below ${fmt$(longStrike)}, you're ASSIGNED 100 shares at $${longStrike} per contract. Effective cost basis: ${fmt$((longStrike || 0) - (netPrem || 0))} (strike minus collected premium).`,
+                ];
+              }
+              if (arch.includes("covered_call")) {
+                return [
+                  `📦 You must already own 100 shares of ${sym} per contract you sell.`,
+                  `💰 You COLLECT ${fmt$(netPrem)} per contract × ${contracts} = ${fmtU(Number.isFinite(netPrem) ? netPrem * 100 * contracts : 0)} premium upfront.`,
+                  `🎯 If ${sym} stays below ${fmt$(longStrike)} at ${exp}, the call expires worthless — you keep the premium AND your shares.`,
+                  `🚪 If ${sym} closes above ${fmt$(longStrike)}, your shares are CALLED AWAY at $${longStrike}. You give up the upside above that strike in exchange for the premium.`,
+                ];
+              }
+              if (arch.includes("straddle")) {
+                return [
+                  `📈📉 You BUY both a call AND a put at the same strike (${fmt$(longStrike)}). Total cost: ${fmt$(netPrem)} per straddle × ${contracts} = ${fmtU(maxLoss)} (your max loss).`,
+                  `🎯 You profit on a BIG move EITHER direction — past ${fmt$(beUp)} (up) or below ${fmt$(beDn)} (down) by ${exp}.`,
+                  `⚠ You LOSE money if ${sym} stays near ${fmt$(longStrike)} — both legs decay every day.`,
+                  `🏆 Best for binary events: earnings, FOMC, drug data, tariff announcements where the move is BIG but direction is unclear.`,
+                ];
+              }
+              if (arch.includes("leveraged_etf") || arch.includes("letf")) {
+                return [
+                  `📈 BUY ${primary.contracts || "?"} shares of ${primary.letf_ticker || "the leveraged ETF"} — a ${primary.factor || 3}× daily-reset ETF that tracks ${sym}.`,
+                  `⚡ A 1% move in ${sym} ≈ a ${primary.factor || 3}% move in the LETF (intraday only — overnight gaps and daily compounding can drift the relationship).`,
+                  `⏳ Hold ≤ 5 trading days. LETFs decay vs the underlying over longer windows due to daily-reset path dependence ("volatility drag").`,
+                  `🛒 Standard share order — no expiration, no Greeks, no premium decay. Just leveraged exposure.`,
+                ];
+              }
+              return null;
+            })();
+
+            if (legLines.length === 0 && !scenarios) return null;
+
+            return h("div", {
+              style: {
+                marginTop: 10,
+                padding: 10,
+                background: "rgba(59, 130, 246, 0.05)",
+                border: "1px solid rgba(59, 130, 246, 0.20)",
+                borderRadius: 8,
+              },
+            },
+              h("div", { style: { fontSize: 10, fontWeight: 700, color: "#60a5fa", letterSpacing: "0.06em", marginBottom: 6 } },
+                "📚 HOW THIS WORKS",
+              ),
+              // Per-leg breakdown
+              legLines.length > 0 && h("div", { style: { marginBottom: 8 } },
+                h("div", { style: { fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 3 } }, "THE LEGS"),
+                legLines.map((line, i) => h("div", {
+                  key: i,
+                  style: {
+                    fontFamily: "var(--tt-font-mono)",
+                    fontSize: 11,
+                    color: "var(--ds-text-body)",
+                    padding: "3px 6px",
+                    marginBottom: 2,
+                    background: "rgba(255,255,255,0.03)",
+                    borderRadius: 4,
+                    borderLeft: line.startsWith("BUY") ? "2px solid #34d399" : line.startsWith("SELL") ? "2px solid #f87171" : "2px solid var(--ds-text-faint)",
+                  },
+                }, line)),
+              ),
+              // Scenarios in plain English
+              scenarios && h("div", null,
+                h("div", { style: { fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 3 } }, `WHAT HAPPENS AT ${String(exp).toUpperCase()}`),
+                scenarios.map((s, i) => h("div", {
+                  key: i,
+                  style: { fontSize: 11, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 3 },
+                }, s)),
+              ),
+            );
+          })(),
           // Warnings (chain-derived)
           primary.warnings && primary.warnings.length > 0 && h("div", { style: { marginTop: 8, padding: 8, background: "rgba(245,194,92,0.06)", border: "1px solid rgba(245,194,92,0.20)", borderRadius: 6 } },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-accent, #f5c25c)", letterSpacing: "0.05em", marginBottom: 4 } }, "⚠ WARNINGS"),
@@ -13841,4 +13991,4 @@
   };
 })();
 
-// cache-bust:1780158470699:409697599
+// cache-bust:1780159765922:922889572

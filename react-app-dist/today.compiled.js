@@ -3889,9 +3889,9 @@ function TodayApp() {
     data,
     earnings,
     onSelectTicker
-  }), h(OpenPositionsPreview, {
-    onSelectTicker
   }), h(OptionsPlaysOfTheDay, {
+    onSelectTicker
+  }), h(OpenPositionsPreview, {
     onSelectTicker
   }), data ? h(MarketState, {
     data,
@@ -4319,6 +4319,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780158470699:409697599
+// cache-bust:1780159765922:922889572
 
-// cache-bust:1780158470699:409697599
+// cache-bust:1780159765922:922889572
