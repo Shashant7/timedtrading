@@ -6,6 +6,7 @@ const {
   useCallback,
   useRef
 } = React;
+const h = React.createElement;
 const API_BASE = "";
 const AuthGate = window.TimedAuthGate;
 function fmtUsd(n, decimals = 0) {
@@ -1955,6 +1956,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780163390602:272420044
+// cache-bust:1780167809503:270842476
 
-// cache-bust:1780163390602:272420044
+// cache-bust:1780167809503:270842476
