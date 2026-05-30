@@ -3874,7 +3874,180 @@
         }
         return out.length > 0 ? out : EMPTY_PRICE_LINES;
       }, [predictionContract, trade, effectiveTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
-      const subtleKeyLevelLines = tradeplanPriceLines;
+      const investorPriceLines = useMemo(() => {
+        if (!investorData) return EMPTY_PRICE_LINES;
+        const out = [];
+        const pos = investorData.position?.owned ? investorData.position : null;
+        const az = investorData.accumZone;
+        if (pos?.avg_entry > 0) {
+          out.push({
+            price: Number(pos.avg_entry),
+            color: "rgba(167,139,250,0.85)",
+            lineWidth: 2,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `Avg Cost $${Number(pos.avg_entry).toFixed(2)}`
+          });
+        }
+        if (az?.inZone && Number.isFinite(Number(az.zoneTop)) && Number.isFinite(Number(az.zoneBottom))) {
+          out.push({
+            price: Number(az.zoneTop),
+            color: "rgba(34,211,238,0.6)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Buy Zone High $${Number(az.zoneTop).toFixed(2)}`
+          });
+          out.push({
+            price: Number(az.zoneBottom),
+            color: "rgba(34,211,238,0.6)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Buy Zone Low $${Number(az.zoneBottom).toFixed(2)}`
+          });
+        } else if (Number.isFinite(Number(az?.entryPrice))) {
+          out.push({
+            price: Number(az.entryPrice),
+            color: "rgba(34,211,238,0.6)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Buy Zone $${Number(az.entryPrice).toFixed(2)}`
+          });
+        }
+        const inv = Number(investorData.thesisInvalidationPrice ?? pos?.invalidation_price);
+        if (Number.isFinite(inv) && inv > 0) {
+          out.push({
+            price: inv,
+            color: "rgba(251,146,60,0.75)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Invalidation $${inv.toFixed(2)}`
+          });
+        }
+        return out.length > 0 ? out : EMPTY_PRICE_LINES;
+      }, [investorData]);
+      const [optionsTabData, setOptionsTabData] = useState(null);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").toUpperCase();
+        const needsConfluence = sym && (railTab === "OPTIONS" || railTab === "SETUP" || railTab === "SNAPSHOT");
+        if (!needsConfluence) {
+          setOptionsTabData(null);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!r.ok) return;
+            const j = await r.json();
+            if (!cancelled && j?.ok) setOptionsTabData(j);
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol, API_BASE]);
+      const optionsPriceLines = useMemo(() => {
+        if (!optionsTabData?.primary) return EMPTY_PRICE_LINES;
+        const out = [];
+        const p = optionsTabData.primary;
+        const strike = p.strikes?.primary || p.strikes?.long;
+        const shortK = p.strikes?.short;
+        const be = p.breakeven;
+        const beUp = p.breakeven_up;
+        const beDn = p.breakeven_down;
+        const isCall = p.archetype && p.archetype.includes("call");
+        const isPut = p.archetype && p.archetype.includes("put");
+        const stColor = isCall ? "rgba(52,211,153,0.85)" : isPut ? "rgba(248,113,113,0.85)" : "rgba(245,194,92,0.85)";
+        if (Number.isFinite(Number(strike)) && strike > 0) {
+          out.push({
+            price: Number(strike),
+            color: stColor,
+            lineWidth: 2,
+            lineStyle: 0,
+            axisLabelVisible: true,
+            title: `Long Strike $${Number(strike).toFixed(2)}`
+          });
+        }
+        if (Number.isFinite(Number(shortK)) && shortK > 0 && shortK !== strike) {
+          out.push({
+            price: Number(shortK),
+            color: "rgba(245,194,92,0.75)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Short Strike $${Number(shortK).toFixed(2)}`
+          });
+        }
+        if (Number.isFinite(Number(be))) {
+          out.push({
+            price: Number(be),
+            color: "rgba(96,165,250,0.85)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `Breakeven $${Number(be).toFixed(2)}`
+          });
+        }
+        if (Number.isFinite(Number(beUp))) {
+          out.push({
+            price: Number(beUp),
+            color: "rgba(96,165,250,0.85)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `BE Up $${Number(beUp).toFixed(2)}`
+          });
+        }
+        if (Number.isFinite(Number(beDn))) {
+          out.push({
+            price: Number(beDn),
+            color: "rgba(96,165,250,0.85)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `BE Dn $${Number(beDn).toFixed(2)}`
+          });
+        }
+        const mbt = p.multi_bagger_targets;
+        if (mbt) {
+          const a = Number(mbt["2x_underlying_at"]);
+          const b = Number(mbt["3x_underlying_at"]);
+          if (Number.isFinite(a)) {
+            out.push({
+              price: a,
+              color: "rgba(34,197,94,0.55)",
+              lineWidth: 1,
+              lineStyle: 2,
+              axisLabelVisible: true,
+              title: `🚀 2× @ $${a.toFixed(2)}`
+            });
+          }
+          if (Number.isFinite(b)) {
+            out.push({
+              price: b,
+              color: "rgba(34,197,94,0.75)",
+              lineWidth: 1,
+              lineStyle: 2,
+              axisLabelVisible: true,
+              title: `🚀 3× @ $${b.toFixed(2)}`
+            });
+          }
+        }
+        return out.length > 0 ? out : EMPTY_PRICE_LINES;
+      }, [optionsTabData]);
+      const subtleKeyLevelLines = useMemo(() => {
+        const tab = String(railTab || "").toUpperCase();
+        if (tab === "INVESTOR") return investorPriceLines;
+        if (tab === "OPTIONS") return optionsPriceLines;
+        return tradeplanPriceLines;
+      }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines]);
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
       const [fundamentalsError, setFundamentalsError] = useState(null);
@@ -7083,6 +7256,76 @@
             showLegend: true
           }));
         })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
+          const v = strategyAlignment ? null : null;
+          const conf = optionsTabData?.confluence_verdict || null;
+          if (!conf || !conf.mode) return null;
+          const META = {
+            RIDE: {
+              c: "#34d399",
+              b: "rgba(52,211,153,0.10)",
+              i: "🚀"
+            },
+            READY: {
+              c: "#f5c25c",
+              b: "rgba(245,194,92,0.10)",
+              i: "⏳"
+            },
+            DRIFT: {
+              c: "#60a5fa",
+              b: "rgba(96,165,250,0.10)",
+              i: "🌊"
+            },
+            FADE: {
+              c: "#a78bfa",
+              b: "rgba(167,139,250,0.10)",
+              i: "↩️"
+            },
+            WAIT: {
+              c: "#9ca3af",
+              b: "rgba(156,163,175,0.10)",
+              i: "⏸"
+            }
+          };
+          const m = META[conf.mode] || META.WAIT;
+          return React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-3)",
+              padding: 10,
+              background: m.b,
+              border: `1px solid ${m.c}50`,
+              borderRadius: 8
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              marginBottom: 4
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "\uD83D\uDCE1 ROOT-STRATEGY VERDICT"), React.createElement("span", {
+            style: {
+              fontSize: 11,
+              fontWeight: 700,
+              color: m.c,
+              padding: "1px 8px",
+              borderRadius: 999,
+              background: m.c + "20"
+            }
+          }, m.i, " ", conf.mode, " \xB7 ", conf.side)), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.4
+            }
+          }, conf.actionable_summary || `Confluence ${conf.score}/100, ${conf.layers_agreeing}/8 layers agree.`));
+        })(), (() => {
           const t = effectiveTrade || trade;
           if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
           const dirRaw = String(t.direction || "").toUpperCase();
@@ -16037,4 +16280,4 @@
   };
 })();
 
-// cache-bust:1780125249602:855647523
+// cache-bust:1780126907070:627167359

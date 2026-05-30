@@ -141,7 +141,7 @@ export function computeVolumeProfile(bars, opts = {}) {
  */
 export async function computeDailyVolumeProfile(env, ticker, opts = {}) {
   if (!env?.DB || !ticker) return null;
-  const lookbackDays = Math.max(5, Math.min(252, opts.lookbackDays || 20));
+  const lookbackDays = Math.max(5, Math.min(504, opts.lookbackDays || 20));
   const cacheKey = `timed:vp:${String(ticker).toUpperCase()}:${lookbackDays}`;
   try {
     const cached = await env.KV_TIMED?.get(cacheKey);
