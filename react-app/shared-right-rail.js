@@ -3712,12 +3712,30 @@
             if (Number.isFinite(live) && live > 0) return live;
             return Number(src.price ?? src.close) || 0;
           }
-          // Outside RTH: lock to the last RTH close so the number stops moving.
+          // 2026-05-30 — Outside RTH, show TODAY's RTH close (the
+          // 4pm-locked `price`/`close` field), NOT yesterday's close
+          // (the `pc`/`prev_close` field). Per the price-data-pipeline
+          // rule the cron locks `p` to the closing print after 4pm,
+          // so `price` represents today's RTH close while `pc` stays
+          // at the prior session.
+          //
+          // The old code preferred `pc` to "stop the number from
+          // moving" — but that defeated the label "RTH CLOSE" and
+          // broke gap days catastrophically (e.g. DELL +33% gap-up:
+          // header showed $317 from yesterday while EXT chip showed
+          // $420 from today, looking broken to the user).
+          //
+          // Priority outside RTH:
+          //   1. close   — explicitly today's closing print
+          //   2. price   — the live-feed `p` field (cron-locked to close after 4pm)
+          //   3. prevClose — fallback only if today's close missing
+          const close = Number(src.close);
+          if (Number.isFinite(close) && close > 0) return close;
+          const price = Number(src.price);
+          if (Number.isFinite(price) && price > 0) return price;
           const prev = Number(src.prevClose ?? src.prev_close ?? src.pc);
           if (Number.isFinite(prev) && prev > 0) return prev;
-          // Fallback to price/close if prev close isn't available yet
-          // (e.g. brand-new tickers added today).
-          return Number(src.price ?? src.close) || 0;
+          return 0;
         };
 
         // Prevent stale crosshair data from crashing renders when switching
