@@ -1,40 +1,84 @@
 # Documentation Index
 
-**Consolidated.** Analysis outputs and superseded plans live in [archive/docs/](../archive/docs/).
+> **New agents:** start at [`../AGENTS.md`](../AGENTS.md), then
+> [`../CONTEXT.md`](../CONTEXT.md). This folder is for **long-form
+> architectural docs and operational runbooks**, not day-to-day
+> playbooks. For copy-paste-ready playbooks see
+> [`../skills/`](../skills/).
+
+---
 
 ## Context
 
-- [CONTEXT.md](CONTEXT.md) - Project context, stack, and key decisions (start here)
+- [CONTEXT.md](CONTEXT.md) — pointer to the root [`../CONTEXT.md`](../CONTEXT.md). Read first.
 
-## Getting Started
+## Getting started / Deployment
 
-- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Full deployment (Worker, TradingView, UI)
-- [DEPLOYMENT_QUICK_START.md](DEPLOYMENT_QUICK_START.md) - Quick reference
-- [CLOUDFLARE_ACCESS_SETUP.md](CLOUDFLARE_ACCESS_SETUP.md) - CF Access JWT auth for dashboard
-- [tradingview/README.md](../tradingview/README.md) - Indicator setup, webhook, alerts
-- [worker/README.md](../worker/README.md) - Worker setup, KV, D1, secrets
+- [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) — full deployment walkthrough
+- [DEPLOYMENT_QUICK_START.md](DEPLOYMENT_QUICK_START.md) — quick reference
+- [CLOUDFLARE_ACCESS_SETUP.md](CLOUDFLARE_ACCESS_SETUP.md) — CF Access JWT auth
+- [SECURITY_DEPLOYMENT.md](SECURITY_DEPLOYMENT.md) — security & deployment hardening
+- [SET_CORS_ORIGIN.md](SET_CORS_ORIGIN.md) — CORS configuration
 
-## Architecture & Core
+## Architecture & core
 
-- [SCORING_ARCHITECTURE.md](SCORING_ARCHITECTURE.md) - Scoring details, Worker calculations
-- [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) - D1 ledger, positions, trade history
-- [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) - Worker-side scoring and Kanban
-- [MODEL_PIPELINE.md](MODEL_PIPELINE.md) - Model pipeline and analysis
+- [SCORING_ARCHITECTURE.md](SCORING_ARCHITECTURE.md) — scoring details + worker calculations
+- [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) — server-side scoring + Kanban
+- [MODEL_PIPELINE.md](MODEL_PIPELINE.md) — model pipeline
+- [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) — D1 ledger + positions
+- [D1_RETENTION_POLICY.md](D1_RETENTION_POLICY.md) — retention policy
 
-## Deployment & Ops
+## Live operations
 
-- [REVIEWING_WORKER_LOGS.md](REVIEWING_WORKER_LOGS.md) - Log debugging
-- [MONITOR_DEPLOYMENT.md](MONITOR_DEPLOYMENT.md) - Deployment monitoring
-- [SET_CORS_ORIGIN.md](SET_CORS_ORIGIN.md) - CORS configuration
-- [SECURITY_DEPLOYMENT.md](SECURITY_DEPLOYMENT.md) - Security and deployment
-- [VERSIONING_AND_MIGRATION.md](VERSIONING_AND_MIGRATION.md) - Script versioning, migrations
+- [RUNBOOK.md](RUNBOOK.md) — on-call / triage runbook
+- [REVIEWING_WORKER_LOGS.md](REVIEWING_WORKER_LOGS.md) — log inspection via `wrangler tail`
+- [REPLAY_AND_BACKTEST.md](REPLAY_AND_BACKTEST.md) — replay + backtest tooling
+- [REFERENCE_INTEL_AUTOMATION.md](REFERENCE_INTEL_AUTOMATION.md) — reference intel refresh cron
+- [VERSIONING_AND_MIGRATION.md](VERSIONING_AND_MIGRATION.md) — script versioning + DB migrations
+- [backtest-mode.md](backtest-mode.md) — backtest-mode operational notes
+- [2026-05-26-operator-runbook.md](2026-05-26-operator-runbook.md) — Mission-Control-era operator runbook
+- [2026-05-23-progress-recap.md](2026-05-23-progress-recap.md) — May 2026 progress recap
 
-## Feature & Reference
+## Specs / contracts (v1)
 
-- [REPLAY_AND_BACKTEST.md](REPLAY_AND_BACKTEST.md) - Full backtest replay, gap-based backfill, Replay Control UI
-- [MOMENTUM_ELITE_IMPLEMENTATION.md](MOMENTUM_ELITE_IMPLEMENTATION.md) - Momentum Elite feature
-- [SECTOR_WATCHLIST_GUIDE.md](SECTOR_WATCHLIST_GUIDE.md) - Sector watchlist and ticker management
+- [reference-score-rubric-v1.md](reference-score-rubric-v1.md) — investor/trader scoring rubric
+- [reference-intel-contract-v1.md](reference-intel-contract-v1.md) — reference-intel data contract
+- [context-intel-contract-v1.md](context-intel-contract-v1.md) — context-intel data contract
+- [cio-reference-integration-v1.md](cio-reference-integration-v1.md) — AI CIO reference integration
+- [live-replay-parity-contract-v1.md](live-replay-parity-contract-v1.md) — live ↔ replay parity contract
+- [trade-proof-contract-v1.md](trade-proof-contract-v1.md) — trade-proof contract
+- [go-no-go-gates-v1.md](go-no-go-gates-v1.md) — go/no-go gates
+- [promotion-checklist-v1.md](promotion-checklist-v1.md) — promotion checklist
+- [2026-05-26-adaptive-scoring-spec.md](2026-05-26-adaptive-scoring-spec.md) — adaptive scoring spec
 
-## Archived
+## Marketing / GTM
 
-Completed fixes, analysis outputs, and superseded plans: [archive/docs/](../archive/docs/) (including historical-movers/, analysis JSON/MD, and old implementation plans).
+- [GTM_CHECKLIST.md](GTM_CHECKLIST.md) — go-to-market checklist
+- [outreach-templates.md](outreach-templates.md) — operator outreach templates
+
+## Reference material
+
+- [reference-pdfs/](reference-pdfs/) — Fundstrat decks, Moonshot PDF,
+  third-party research used as input for the model
+- [openapi.json](openapi.json) — auto-generated worker API schema
+- [SECTOR_WATCHLIST_GUIDE.md](SECTOR_WATCHLIST_GUIDE.md) — sector watchlist editor
+
+## Archive
+
+[archive/](archive/) — completed one-shot analyses, superseded plans, and
+historical reports. Includes BIG_MOVERS_ANALYSIS, GOLD_PATTERNS_ANALYSIS,
+HISTORICAL_MOVERS, MOMENTUM_ELITE_IMPLEMENTATION, SIGNAL_OUTCOME_ANALYSIS,
+SECURITY_INSIGHTS_REVIEW_2026-05-10, etc.
+
+---
+
+## Where else to look
+
+| Need | Where |
+|---|---|
+| Onboarding | [`../AGENTS.md`](../AGENTS.md) |
+| One-page context refresh | [`../CONTEXT.md`](../CONTEXT.md) |
+| Copy-paste playbooks (backfill, deploy, rescore, ...) | [`../skills/`](../skills/) |
+| Live work plan | [`../tasks/todo.md`](../tasks/todo.md) |
+| Lessons / post-mortems | [`../tasks/lessons.md`](../tasks/lessons.md) |
+| Pre-May 2026 historical plans | [`../tasks/archive/2026-pre-may/`](../tasks/archive/2026-pre-may/) |
