@@ -608,6 +608,16 @@ import {
   getStrategyForTicker as _getStrategyForTicker,
   STRATEGY_VINTAGE as _STRATEGY_VINTAGE,
 } from "./strategy-context.js";
+import {
+  buildOptionsLadder as _buildOptionsLadder,
+  RISK_PROFILES as _OPT_RISK_PROFILES,
+  PROFILE_META as _OPT_PROFILE_META,
+  DEFAULT_RISK_PROFILE as _OPT_DEFAULT_RISK_PROFILE,
+} from "./options-plays.js";
+import {
+  tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
+  tdFetchOptionsChain as _tdFetchOptionsChain,
+} from "./twelvedata.js";
 import { AI_CIO_MODEL as _CIO_MODEL } from "./cio/cio-prompts.js";
 
 // Register all entry engines with the dispatcher
@@ -1138,6 +1148,13 @@ const ROUTES = [
   // ── Active Strategy (FSD playbook) ──
   ["GET", "/timed/strategy", "GET /timed/strategy"],
   ["GET", "/timed/strategy/ticker", "GET /timed/strategy/ticker"],
+  // ── Options strategy engine ──
+  ["GET",  "/timed/options/ticker",       "GET /timed/options/ticker"],
+  ["GET",  "/timed/options/all",          "GET /timed/options/all"],
+  ["GET",  "/timed/options/risk-profile", "GET /timed/options/risk-profile"],
+  ["PUT",  "/timed/options/risk-profile", "PUT /timed/options/risk-profile"],
+  ["GET",  "/timed/options/chain",        "GET /timed/options/chain"],
+  ["GET",  "/timed/options/expirations",  "GET /timed/options/expirations"],
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
@@ -73885,6 +73902,291 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/risk-profile ─────────────────────────────────
+      // Returns the user's saved risk profile (or default). Keyed by email
+      // from authenticateUser. Unauthenticated callers get the default
+      // (Speculator) so the Options Tab still renders for public preview.
+      if (routeKey === "GET /timed/options/risk-profile") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          if (!userEmail) {
+            return sendJSON({
+              ok: true,
+              profile: _OPT_DEFAULT_RISK_PROFILE,
+              profile_meta: _OPT_PROFILE_META[_OPT_DEFAULT_RISK_PROFILE],
+              all_profiles: _OPT_RISK_PROFILES.map(p => ({ key: p, ..._OPT_PROFILE_META[p] })),
+              authenticated: false,
+            }, 200, corsHeaders(env, req));
+          }
+          const stored = await env.KV_TIMED.get(`timed:options:profile:${userEmail.toLowerCase()}`);
+          const profile = stored && _OPT_PROFILE_META[stored] ? stored : _OPT_DEFAULT_RISK_PROFILE;
+          return sendJSON({
+            ok: true,
+            user_email: userEmail,
+            profile,
+            profile_meta: _OPT_PROFILE_META[profile],
+            all_profiles: _OPT_RISK_PROFILES.map(p => ({ key: p, ..._OPT_PROFILE_META[p] })),
+            authenticated: true,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── PUT /timed/options/risk-profile { profile } ─────────────────────
+      if (routeKey === "PUT /timed/options/risk-profile") {
+        try {
+          let userEmail = null;
+          try { const u = await authenticateUser(req, env); userEmail = u?.email || null; } catch (_) {}
+          if (!userEmail) return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+          const body = await req.json().catch(() => ({}));
+          const profile = String(body?.profile || "").toLowerCase();
+          if (!_OPT_PROFILE_META[profile]) {
+            return sendJSON({ ok: false, error: "invalid_profile", allowed: _OPT_RISK_PROFILES }, 400, corsHeaders(env, req));
+          }
+          await env.KV_TIMED.put(`timed:options:profile:${userEmail.toLowerCase()}`, profile);
+          return sendJSON({ ok: true, user_email: userEmail, profile, profile_meta: _OPT_PROFILE_META[profile] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/expirations?ticker=AAPL ──────────────────────
+      // Lists available expirations from TwelveData (KV-cached 1h).
+      if (routeKey === "GET /timed/options/expirations") {
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          const cacheKey = `timed:options:exp:${ticker}`;
+          const cached = await env.KV_TIMED.get(cacheKey);
+          if (cached) {
+            return sendJSON({ ok: true, ticker, ...JSON.parse(cached), cached: true }, 200, corsHeaders(env, req));
+          }
+          const res = await _tdFetchOptionsExpirations(env, ticker);
+          if (!res.ok) {
+            return sendJSON({ ok: false, ticker, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+          }
+          // Cache 1h (TD expirations move slowly).
+          await env.KV_TIMED.put(cacheKey, JSON.stringify({ expirations: res.expirations, fetched_at: Date.now() }), { expirationTtl: 3600 });
+          return sendJSON({ ok: true, ticker, expirations: res.expirations, fetched_at: Date.now() }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/chain?ticker=AAPL&exp=2026-06-20 ─────────────
+      // Returns the live chain for one expiration. KV-cached 5min during
+      // RTH, 30min otherwise.
+      if (routeKey === "GET /timed/options/chain") {
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          const exp = String(url.searchParams.get("exp") || "").trim();
+          if (!ticker || !exp) return sendJSON({ ok: false, error: "missing_ticker_or_exp" }, 400, corsHeaders(env, req));
+          const cacheKey = `timed:options:chain:${ticker}:${exp}`;
+          const cached = await env.KV_TIMED.get(cacheKey);
+          if (cached) {
+            const j = JSON.parse(cached);
+            const ageMs = Date.now() - (j.fetched_at || 0);
+            const ttl = isNyRegularMarketOpen() ? 300_000 : 1800_000;
+            if (ageMs < ttl) {
+              return sendJSON({ ok: true, ...j, cached: true, age_ms: ageMs }, 200, corsHeaders(env, req));
+            }
+          }
+          const res = await _tdFetchOptionsChain(env, ticker, exp);
+          if (!res.ok) {
+            return sendJSON({ ok: false, ticker, exp, error: res.error || "td_failed" }, 502, corsHeaders(env, req));
+          }
+          await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
+          return sendJSON({ ok: true, ...res }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/ticker?ticker=AAPL[&profile=speculator] ──────
+      // Returns the full strategy ladder for one ticker. Pulls the trader
+      // prediction contract, optionally pulls the live chain for the
+      // computed expiration, runs the strategy engine.
+      if (routeKey === "GET /timed/options/ticker") {
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          if (!ticker) return sendJSON({ ok: false, error: "missing_ticker" }, 400, corsHeaders(env, req));
+          // Optional profile override; otherwise use the user's saved profile.
+          let profile = String(url.searchParams.get("profile") || "").toLowerCase();
+          if (!_OPT_PROFILE_META[profile]) {
+            try {
+              const u = await authenticateUser(req, env);
+              const userEmail = u?.email || null;
+              if (userEmail) {
+                const stored = await env.KV_TIMED.get(`timed:options:profile:${userEmail.toLowerCase()}`);
+                if (stored && _OPT_PROFILE_META[stored]) profile = stored;
+              }
+            } catch (_) { /* best-effort */ }
+            if (!_OPT_PROFILE_META[profile]) profile = _OPT_DEFAULT_RISK_PROFILE;
+          }
+          // Build trader contract.
+          const contract = await buildTraderPredictionContract(env, ticker);
+          if (!contract) {
+            return sendJSON({ ok: false, ticker, error: "no_trader_contract" }, 404, corsHeaders(env, req));
+          }
+          // Hydrate normalized fields the ladder needs.
+          const data = await loadLatestPredictionTicker(env, ticker);
+          const atrPct = (() => {
+            const atrDay = Number(data?.atr_levels?.atr_day || data?.atr_day || 0);
+            const px = Number(contract?.price) || Number(data?.price) || 0;
+            return atrDay > 0 && px > 0 ? atrDay / px : 0.025;
+          })();
+          const ladderInput = {
+            ticker,
+            price: Number(contract?.price) || Number(data?.price) || null,
+            direction: contract?.direction || null,
+            sl: Number(contract?.sl) || Number(data?.sl) || null,
+            tp1: Number(contract?.tp_trim ?? contract?.tp1 ?? contract?.tp) || null,
+            tp2: Number(contract?.tp_exit) || null,
+            tp3: Number(contract?.tp_runner) || null,
+            rr: contract?.rr || null,
+            tier: contract?.tier || null,
+            riskPct: contract?.riskPct || null,
+            stage: contract?.stage || data?.kanban_stage || "swing",
+            atr_pct: atrPct,
+            earnings_dte: contract?.earnings_dte || null,
+            mode: "trader",
+          };
+          // Try to attach live chain. If no chain available, the engine
+          // gracefully falls back to BS estimates.
+          let chain = null;
+          let chainStatus = "not_attempted";
+          try {
+            // Compute the expiration the engine will pick, then fetch that
+            // chain. Avoids needing to fetch all expirations.
+            const { pickExpiration: _peLocal } = await import("./options-plays.js")
+              .then(m => ({ pickExpiration: m.pickExpiration }))
+              .catch(() => ({}));
+            const stage = String(ladderInput.stage || "swing").toLowerCase();
+            const dteTarget = stage.includes("intraday") ? 7
+              : stage.includes("hold") || stage.includes("trim") || stage.includes("runner") ? 35
+              : stage.includes("investor") ? 90 : 21;
+            const target = new Date(Date.now() + dteTarget * 86400000);
+            const dow = target.getUTCDay();
+            const offset = (5 - dow + 7) % 7;
+            const friday = new Date(target.getTime() + offset * 86400000);
+            const expISO = friday.toISOString().slice(0, 10);
+            const cacheKey = `timed:options:chain:${ticker}:${expISO}`;
+            const cached = await env.KV_TIMED.get(cacheKey);
+            if (cached) {
+              const j = JSON.parse(cached);
+              const age = Date.now() - (j.fetched_at || 0);
+              const ttl = isNyRegularMarketOpen() ? 300_000 : 1800_000;
+              if (age < ttl) { chain = j; chainStatus = "from_cache"; }
+            }
+            if (!chain) {
+              const res = await _tdFetchOptionsChain(env, ticker, expISO);
+              if (res.ok) {
+                chain = res;
+                chainStatus = "fresh_fetch";
+                await env.KV_TIMED.put(cacheKey, JSON.stringify(res), { expirationTtl: 1800 });
+              } else {
+                chainStatus = `td_error:${res.error || "unknown"}`;
+              }
+            }
+          } catch (e) {
+            chainStatus = `exception:${String(e?.message || e).slice(0, 80)}`;
+          }
+          const accountValue = Number(url.searchParams.get("account_value")) || 100_000;
+          const ladder = _buildOptionsLadder(ladderInput, { profile, account_value: accountValue, chain });
+          if (!ladder) return sendJSON({ ok: false, ticker, error: "ladder_build_failed" }, 500, corsHeaders(env, req));
+          return sendJSON({
+            ok: true,
+            ticker,
+            chain_status: chainStatus,
+            ...ladder,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/all?profile=speculator&limit=10 ──────────────
+      // Returns the top-conviction trader setups today, each with its
+      // primary options play. Used by Today page "Options Plays of the Day".
+      // No chain fetching here (would be N×TD calls) — uses estimates.
+      // Per-ticker chain enrichment happens on detail view.
+      if (routeKey === "GET /timed/options/all") {
+        try {
+          let profile = String(url.searchParams.get("profile") || "").toLowerCase();
+          if (!_OPT_PROFILE_META[profile]) profile = _OPT_DEFAULT_RISK_PROFILE;
+          const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit")) || 10));
+          // Source: top-ranked tickers by entry-quality / rank from the
+          // latest scoring snapshot. Already cached as timed:all.
+          const allRaw = await env.KV_TIMED.get("timed:all");
+          const all = allRaw ? JSON.parse(allRaw) : null;
+          const tickers = Array.isArray(all?.tickers) ? all.tickers : [];
+          const candidates = tickers
+            .filter(t => {
+              const eq = Number(t?.entry_quality?.score || 0);
+              const rk = Number(t?.rank || 0);
+              const stage = String(t?.kanban_stage || "").toLowerCase();
+              return (eq >= 55 || rk >= 60) && (stage.includes("enter") || stage.includes("review") || stage.includes("hold"));
+            })
+            .sort((a, b) => {
+              const aScore = Math.max(Number(a?.entry_quality?.score || 0), Number(a?.rank || 0));
+              const bScore = Math.max(Number(b?.entry_quality?.score || 0), Number(b?.rank || 0));
+              return bScore - aScore;
+            })
+            .slice(0, limit);
+          const plays = [];
+          for (const t of candidates) {
+            try {
+              const sym = String(t?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const contract = await buildTraderPredictionContract(env, sym);
+              if (!contract) continue;
+              const atrDay = Number(t?.atr_levels?.atr_day) || 0;
+              const px = Number(contract?.price) || Number(t?.price) || 0;
+              const atrPct = atrDay > 0 && px > 0 ? atrDay / px : 0.025;
+              const ladderInput = {
+                ticker: sym,
+                price: px,
+                direction: contract?.direction || null,
+                sl: Number(contract?.sl) || null,
+                tp1: Number(contract?.tp_trim ?? contract?.tp1 ?? contract?.tp) || null,
+                rr: contract?.rr || null,
+                tier: contract?.tier || null,
+                riskPct: contract?.riskPct || null,
+                stage: contract?.stage || t?.kanban_stage || "swing",
+                atr_pct: atrPct,
+                mode: "trader",
+              };
+              const ladder = _buildOptionsLadder(ladderInput, { profile });
+              if (ladder && ladder.primary) {
+                plays.push({
+                  ticker: sym,
+                  setup_grade: contract?.tier || null,
+                  conviction: Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0)),
+                  direction: ladderInput.direction,
+                  price: px,
+                  primary: ladder.primary,
+                  ladder_count: ladder.ladder.length,
+                  ladder_by_profile: ladder.ladder_by_profile,
+                });
+              }
+            } catch (_) { /* skip individual failures */ }
+          }
+          return sendJSON({
+            ok: true,
+            profile,
+            profile_meta: _OPT_PROFILE_META[profile],
+            count: plays.length,
+            plays,
+            note: "Premium estimates only. Open per-ticker detail for live chain pricing.",
+            generated_at: Date.now(),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 

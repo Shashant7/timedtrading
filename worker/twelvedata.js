@@ -489,3 +489,130 @@ export {
   aggregate5mTo10m,
   tdBarToAlpacaBar,
 };
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Options endpoints (TwelveData /options/* — pro plan or higher)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// 2026-05-30 — Added for the Options Tab. Two endpoints:
+//   /options/expiration?symbol=AAPL                        → expiration dates
+//   /options/chain?symbol=AAPL&expiration_date=2026-06-20  → full chain
+//
+// Both endpoints require TWELVEDATA_PLAN=pro (we already have it). Apikey
+// flows from env.TWELVEDATA_API_KEY exactly like other TD calls.
+//
+// Response normalization: TD returns slightly different shapes than the
+// industry-standard OCC format. We normalize to:
+//   { calls: [...], puts: [...], underlying_price, fetched_at, expiration }
+//   each leg: { strike, bid, ask, mid, last, volume, open_interest,
+//               implied_volatility, delta, gamma, theta, vega, rho, symbol }
+//
+// Caller is responsible for KV caching — these are fresh fetches.
+
+/**
+ * List available expiration dates for an underlying.
+ * Tries `/options/expiration` and `/options_chain/expiration` and the
+ * underscore form `/options_expiration` (TD docs disagree on the path).
+ * @returns {Promise<{ok: boolean, expirations: string[], error?: string, _tried?: object[]}>}
+ */
+export async function tdFetchOptionsExpirations(env, symbol) {
+  const apikey = env?.TWELVEDATA_API_KEY;
+  if (!apikey) return { ok: false, error: "missing_api_key", expirations: [] };
+  const tdSym = toTdSymbol(symbol);
+  const variants = [
+    `/options/expiration?symbol=${encodeURIComponent(tdSym)}&apikey=${apikey}`,
+    `/options_expiration?symbol=${encodeURIComponent(tdSym)}&apikey=${apikey}`,
+  ];
+  const tried = [];
+  for (const path of variants) {
+    try {
+      const r = await fetch(`${TD_BASE}${path}`, { cf: { cacheTtl: 60 } });
+      tried.push({ path: path.split("?")[0], status: r.status });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j?.status === "error") continue;
+      const dates = Array.isArray(j?.dates) ? j.dates
+        : Array.isArray(j?.values) ? j.values
+        : Array.isArray(j) ? j : [];
+      const expirations = dates.map(d => typeof d === "string" ? d : d?.date).filter(Boolean);
+      if (expirations.length > 0) {
+        return { ok: true, symbol: tdSym, expirations, _tried: tried };
+      }
+    } catch (e) {
+      tried.push({ path: path.split("?")[0], error: String(e?.message || e).slice(0, 80) });
+    }
+  }
+  return { ok: false, error: "no_endpoint_returned_data", expirations: [], _tried: tried };
+}
+
+/**
+ * Fetch the full options chain for a single expiration date.
+ * @param {string} expirationDate - ISO date (YYYY-MM-DD)
+ * @returns {Promise<{ok, expiration, calls, puts, underlying_price, error?}>}
+ */
+export async function tdFetchOptionsChain(env, symbol, expirationDate) {
+  const apikey = env?.TWELVEDATA_API_KEY;
+  if (!apikey) return { ok: false, error: "missing_api_key" };
+  if (!expirationDate) return { ok: false, error: "missing_expiration" };
+  const tdSym = toTdSymbol(symbol);
+  const url = `${TD_BASE}/options/chain?symbol=${encodeURIComponent(tdSym)}&expiration_date=${encodeURIComponent(expirationDate)}&apikey=${apikey}`;
+  try {
+    const r = await fetch(url, { cf: { cacheTtl: 60 } });
+    if (!r.ok) return { ok: false, error: `http_${r.status}` };
+    const j = await r.json();
+    if (j?.status === "error") return { ok: false, error: j.message || j.code };
+    // Normalize: TD shape is { meta, calls: [{ strike, last, bid, ask, ... }, ...], puts: [...] }
+    const normLeg = (leg) => {
+      const bid = Number(leg?.bid);
+      const ask = Number(leg?.ask);
+      const mid = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0
+        ? Math.round(((bid + ask) / 2) * 100) / 100
+        : Number(leg?.last) || null;
+      return {
+        strike: Number(leg?.strike) || null,
+        bid: Number.isFinite(bid) ? bid : null,
+        ask: Number.isFinite(ask) ? ask : null,
+        mid,
+        last: Number(leg?.last) || null,
+        volume: Number(leg?.volume) || 0,
+        open_interest: Number(leg?.open_interest ?? leg?.oi) || 0,
+        implied_volatility: Number(leg?.implied_volatility ?? leg?.iv) || null,
+        delta: Number(leg?.delta) || null,
+        gamma: Number(leg?.gamma) || null,
+        theta: Number(leg?.theta) || null,
+        vega:  Number(leg?.vega)  || null,
+        rho:   Number(leg?.rho)   || null,
+        symbol: leg?.symbol || leg?.contractSymbol || null,
+      };
+    };
+    const calls = Array.isArray(j?.calls) ? j.calls.map(normLeg).filter(l => l.strike > 0) : [];
+    const puts  = Array.isArray(j?.puts)  ? j.puts.map(normLeg).filter(l => l.strike > 0)  : [];
+    return {
+      ok: true,
+      symbol: tdSym,
+      expiration: expirationDate,
+      underlying_price: Number(j?.meta?.regular_market_price ?? j?.meta?.price) || null,
+      calls,
+      puts,
+      fetched_at: Date.now(),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+/**
+ * Find the closest available strike to a target on a chain side.
+ * Returns null if no leg within toleranceUSD of target.
+ */
+export function pickClosestStrike(legs, target, toleranceUSD = Infinity) {
+  if (!Array.isArray(legs) || legs.length === 0 || !Number.isFinite(target)) return null;
+  let best = null, bestDiff = Infinity;
+  for (const l of legs) {
+    if (!Number.isFinite(l.strike)) continue;
+    const d = Math.abs(l.strike - target);
+    if (d < bestDiff) { best = l; bestDiff = d; }
+  }
+  if (best && bestDiff <= toleranceUSD) return best;
+  return null;
+}
