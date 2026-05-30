@@ -648,6 +648,42 @@
 ---
 
 ## Recently Completed
+
+### Options Engine + Fused-POV mega-session [2026-05-28 → 2026-05-30]
+
+Eight-PR window (#371 → #377) — full options trading platform with fused
+multi-philosophy intelligence and end-to-end IBKR automation.
+
+- **PR #371** — Fundstrat Direct strategy context: sector/theme tilts,
+  scenario weights, S&P targets, catalyst overrides, education snippets,
+  CIO Layer 15.
+- **PR #372** — QA: investor open-pos at top, Trader-tab open-pos card, AA
+  price mismatch fix, Setup → Trader rename, rich History trade-ledger.
+- **PR #373** — Root Strategy 8-layer confluence scorer (Lee / Newton /
+  Markov / Huddleston / Carter / DeMark / Ripster-SuperTrend / Saty) +
+  SuperTrend (10,3) trigger gate + Options Tab in Right Rail + Today
+  "Options Plays of the Day" + Phase 3 auto-mirror engine.
+- **PR #374** — Phase 2 real chain: Alpaca options snapshots + delta-targeted
+  strike selection (0.70 / 0.50 / 0.30Δ per Carter) + Moonshot tier
+  (RIDE-gated, short-dated OTM) + Index Quartet (ES/NQ/YM/RTY) + SMT
+  detector + operator audit dashboard.
+- **PR #375** — Wrap-up: PDH/PDL/WKH/WKL persistence on snapshots,
+  Volume Profile (POC/VAH/VAL), real Open Interest via Alpaca Broker API,
+  IBKR LST signature-mismatch root-cause fix (DH prime env-var sanitization)
+  → **IBKR LIVE**.
+- **PR #376** — Root-strategy inheritance into AI CIO L16 + Daily Brief
+  quartet/SMT prompts + Trader-tab verdict chip + tab-aware Delight Me
+  Chart overlay + D-candle backfill admin + CVNA target clamps.
+- **PR #377** — DELL stale-RTH-close bug (header showed yesterday's $317
+  on +33% gap-up day instead of today's $421).
+
+Post-session comprehensive sweep ran 14 live endpoint probes + 8 module
+syntax checks + IBKR LST verification + DELL/CVNA fix validation + 8-layer
+confluence layer evidence audit. Zero new bugs uncovered. Lessons archived
+in `tasks/lessons.md` + `CONTEXT.md` Lessons section.
+
+### Pre-existing entries
+
 - **Trade Autopsy v2** [2026-02-26] — Backend: D1 `trade_autopsy_annotations` table, GET/POST `/timed/admin/trade-autopsy/annotations`, GET `/timed/admin/trade-autopsy/trades` (with direction_accuracy). Frontend: filtering (ticker, classification, date range), signal snapshots at entry (signal_snapshot_json, tf_stack_json) and exit context (exit_reason, MFE, MAE) in modal.
 - **Trade Autopsy** [2026-02-26] — New `trade-autopsy.html` page: table of all closed trades, click row → modal with TradingView chart (asOfTs for historical candles), notes textarea, classification dropdown (Bad Trade, Valid Loss/Win, Improvement Opportunity, Data Error, Edge Case, Execution Issue, Good Trade). Annotations stored in localStorage. Nav link added (admin-only) to index-react, simulation-dashboard, daily-brief. GET /timed/candles now supports optional `asOfTs` for historical chart data.
 - **Backfill for Backtest** [2026-02-27] — alpaca-backfill now accepts startDate/endDate to target the backtest range. full-backtest.sh backfills from 60 days before start (EMA warm-up) through end. Gap check uses same extended range. Fixes "0 candles" when backtest range was misaligned with sinceDays.

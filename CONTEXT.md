@@ -116,6 +116,18 @@ Only the user can update this — it lives in the Cloudflare Dashboard.
 
 ## Lessons (Critical)
 
+**Options Engine + Fused-POV (PR #371-#377, May 2026)**
+- **Confluence enrichments ordered FIRST**: in `/timed/options/ticker`, inject `_vp`, `_index_quartet`, `_strategy_stance` onto the ticker snapshot BEFORE `scoreRootConfluence()`. Layer evidence strings are the smoke test — L4 must say `VP: Above/Inside/Below VAH/VAL`, L5 must mention `SMT` or `ORB` when active. (PR #375)
+- **`timed:all` is keyed by symbol** — `{ data: { SYM: {...} } }`, NOT a `tickers[]` array. Normalize via `Object.values(all?.data || {})` before iterating. `/timed/options/all` shipped with 0 plays for an hour because of this. (PR #374)
+- **IBKR `IBKR_DH_PRIME` env var must hold ONLY the hex prime**, not the full `openssl dhparam -text -noout` output. Operators paste the human-readable diagnostic (`generator: 2 (0x2)` trailer) → naive hex-strip leaked letters → 530 hex chars instead of 512 → wrong shared secret K → `lst_signature_mismatch`. `_extractDHPrimeHex` now slices at `generator`/`prime:` BEFORE stripping. Validate length = 256/384/512 bytes. (PR #375)
+- **TwelveData options endpoints are unreliable** — both `/options/chain` and `/options_chain` 404 despite docs. Default options chain provider is Alpaca (`/v1beta1/options/snapshots/{sym}` + Broker API `/v2/options/contracts` for real OI). TD only as fallback. (PR #374)
+- **Outside-RTH price source is TODAY's close**: `resolveDisplayPrice` must prefer `src.close` → `src.price` → `src.prev_close`. Defaulting to `prev_close` shows yesterday's $317 on DELL when today's gap-up close is $421. The label "RTH CLOSE" means TODAY's. (PR #377)
+- **Legacy targets need sanity caps before UI render**: `buildTraderPredictionContract` enforces `MAX_TARGET_DISTANCE_PCT=0.35` + `MIN_PRICE_FLOOR=0.50`. Without this, CVNA SHORT at $73 produced `TP_runner=-$8.59` (negative price). Fall back to ATR-fib targets when legacy is out of bounds; clamp the ATR-fib too. (PR #376)
+- **Trader-tab confluence chip pre-fetches**: `optionsTabData` `useEffect` gate is `railTab in {OPTIONS, SETUP, SNAPSHOT}` so the Trader tab gets the verdict without the user visiting Options first. When two tabs share derived data, both tab keys go in the `needsX` gate. (PR #376)
+- **Moonshot is RIDE-only (or SMT 2-stage confirmed)**: `shouldActivateMoonshot` requires `confluence.mode === "RIDE"` + ST trigger fresh + underlying already in motion (≥5% intraday or ≥10% 5d) — OR an SMT 2-stage CONFIRMED override. Prevents moonshot pollution on every speculator-profile request. (PR #374)
+- **SuperTrend (10,3) slope is the trigger gate** for RIDE/READY/DRIFT/FADE/WAIT mode resolution — not just another layer vote. `computeSupertrendTrigger` is called separately from the 8 layers; its output gates whether confluence ≥ 0.5 becomes RIDE or READY (and whether ≤ -0.5 becomes FADE or DRIFT). Never adversely actioned when ST is sloping in the trade direction. (PR #373)
+- **All 8 layers must score with non-zero strength to ship**: if a layer always returns `strength: 0`, its required fields are missing from the ticker snapshot. Don't ship until each layer either fires or has a documented "data unavailable" path. The L4 ICT layer originally returned neutral on every ticker because `fvg_D`/`liq_D` weren't on the snapshot — `tf_tech.D.fvg` was the correct field. (PR #373 follow-up)
+
 **Deploy**
 - Deploy worker to BOTH default + production envs
 - ROUTES array must include new endpoints
