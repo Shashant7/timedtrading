@@ -105,6 +105,11 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# ── Broker Bridge (Phase 1, 2026-05-29) ──
+# Bridge worker deployed separately at this URL. See [env.production.vars]
+# for full notes. The matching secret BROKER_BRIDGE_OPERATOR_KEY must be
+# set via `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY`.
+BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
 # ── Dynamic Position Sizing (risk-based) ──
 # Uncomment and adjust to override defaults:
 # SIZING_BASE_RISK_PCT = "0.01"    # 1% of account per trade (baseline)
@@ -273,6 +278,15 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# ── Broker Bridge (Phase 1, 2026-05-29) ──
+# The bridge worker (`worker-bridge/`) is deployed separately at this URL.
+# Mission Control proxies its /bridge/status, /bridge/audit, /bridge/recent
+# endpoints through the main worker so the operator UI sees one origin.
+# Without these vars set, Mission Control shows "NOT DEPLOYED" even though
+# the bridge worker itself is up. The matching secret
+# BROKER_BRIDGE_OPERATOR_KEY must be set separately via
+# `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production`.
+BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
 
 # Scheduled triggers — mirrors top-level [triggers] above
 [env.production.triggers]

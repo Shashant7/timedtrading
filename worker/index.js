@@ -20168,15 +20168,15 @@ async function processTradeSimulation(
                 console.log(`[AI_CIO_EXIT] ${sym} STALL ${_sfcCio.decision}${_sfcShadow ? " [SHADOW]" : ""} (conf=${_sfcCio.confidence.toFixed(2)}, edge=${_sfcCio.edge_remaining.toFixed(2)}, ${_sfcCio.latency_ms}ms${_sfcCio.fallback ? " FALLBACK" : ""})`);
                 if (env?.DB && !_sfcCio.fallback) {
                   env.DB.prepare(
-                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
                   ).bind(
                     `${sym}-${now}-stall-${_sfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `STALL_${_sfcCio.decision}`, _sfcCio.confidence, _sfcCio.reasoning,
                     JSON.stringify(_sfcCio.risk_flags || []), _sfcCio.edge_remaining || 0,
                     _sfcCio.latency_ms, 0, _sfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_sfcProposal), JSON.stringify(_sfcCio.override || {}), Date.now(),
-                    _sfcShadow ? 1 : 0
+                    _sfcShadow ? 1 : 0, env?._isReplay ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 stall insert failed:", e));
                 }
                 if (_sfcCio.decision === "HOLD" && !_sfcCio.fallback) {
@@ -20253,15 +20253,15 @@ async function processTradeSimulation(
                 console.log(`[AI_CIO_EXIT] ${sym} RUNNER_STALE ${_rsfcCio.decision}${_rsfcShadow ? " [SHADOW]" : ""} (conf=${_rsfcCio.confidence.toFixed(2)}, edge=${_rsfcCio.edge_remaining.toFixed(2)}, ${_rsfcCio.latency_ms}ms${_rsfcCio.fallback ? " FALLBACK" : ""})`);
                 if (env?.DB && !_rsfcCio.fallback) {
                   env.DB.prepare(
-                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                    `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
                   ).bind(
                     `${sym}-${now}-runner-${_rsfcCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                     `RUNNER_STALE_${_rsfcCio.decision}`, _rsfcCio.confidence, _rsfcCio.reasoning,
                     JSON.stringify(_rsfcCio.risk_flags || []), _rsfcCio.edge_remaining || 0,
                     _rsfcCio.latency_ms, 0, _rsfcCio.model || AI_CIO_MODEL,
                     JSON.stringify(_rsfcProposal), JSON.stringify(_rsfcCio.override || {}), Date.now(),
-                    _rsfcShadow ? 1 : 0
+                    _rsfcShadow ? 1 : 0, env?._isReplay ? 1 : 0
                   ).run().catch(e => console.warn("[AI_CIO_EXIT] runner stale insert failed:", e));
                 }
                 if (_rsfcCio.decision === "HOLD" && !_rsfcCio.fallback) {
@@ -20829,15 +20829,15 @@ async function processTradeSimulation(
             console.log(`[AI_CIO_EXIT] ${sym} ${_exitCio.decision}${_exitShadow ? " [SHADOW]" : ""} exit reason=${exitReasonRaw} (conf=${_exitCio.confidence.toFixed(2)}, edge=${_exitCio.edge_remaining.toFixed(2)}, latency=${_exitCio.latency_ms}ms${_exitCio.fallback ? " FALLBACK" : ""})`);
             if (env?.DB && !_exitCio.fallback) {
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
               ).bind(
                 `${sym}-${now}-exit-${_exitCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `EXIT_${_exitCio.decision}`, _exitCio.confidence, _exitCio.reasoning,
                 JSON.stringify(_exitCio.risk_flags || []), _exitCio.edge_remaining || 0,
                 _exitCio.latency_ms, 0, _exitCio.model || AI_CIO_MODEL,
                 JSON.stringify(_exitProposal), JSON.stringify(_exitCio.override || {}), Date.now(),
-                _exitShadow ? 1 : 0
+                _exitShadow ? 1 : 0, env?._isReplay ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_EXIT] D1 insert failed:", e));
             }
             if (_exitCio.decision === "HOLD" && !_exitCio.fallback) {
@@ -21205,15 +21205,15 @@ async function processTradeSimulation(
             console.log(`[AI_CIO_TRIM] ${sym} ${_trimCio.decision}${_trimShadow ? " [SHADOW]" : ""} trim ${(target*100).toFixed(0)}%→${_trimCio.decision === "OVERRIDE" && _trimCio.override?.trim_pct != null ? ((_trimCio.override.trim_pct*100).toFixed(0)+"%") : "as-is"} (conf=${_trimCio.confidence.toFixed(2)}, latency=${_trimCio.latency_ms}ms${_trimCio.fallback ? " FALLBACK" : ""})`);
             if (env?.DB && !_trimCio.fallback) {
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
               ).bind(
                 `${sym}-${now}-trim-${_trimCio.decision.toLowerCase()}`, sym, openTrade?.direction || "LONG",
                 `TRIM_${_trimCio.decision}`, _trimCio.confidence, _trimCio.reasoning,
                 JSON.stringify(_trimCio.risk_flags || []), _trimCio.edge_remaining || 0,
                 _trimCio.latency_ms, 0, _trimCio.model || AI_CIO_MODEL,
                 JSON.stringify(_trimProposal), JSON.stringify(_trimCio.override || {}), Date.now(),
-                _trimShadow ? 1 : 0
+                _trimShadow ? 1 : 0, env?._isReplay ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO_TRIM] D1 insert failed:", e));
             }
             if (_trimCio.decision === "HOLD" && !_trimCio.fallback) {
@@ -22865,8 +22865,8 @@ async function processTradeSimulation(
                   // Persist rejection for accuracy tracking (always — including shadow)
                   if (env?.DB) {
                     env.DB.prepare(
-                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
                     ).bind(
                       `${sym}-${now}-rejected`,
                       sym, direction, "REJECT",
@@ -22879,7 +22879,7 @@ async function processTradeSimulation(
                       JSON.stringify(proposal),
                       null,
                       Date.now(),
-                      _entryShadow ? 1 : 0
+                      _entryShadow ? 1 : 0, env?._isReplay ? 1 : 0
                     ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
                   }
                   // Accumulate in-memory for replay CIO self-accuracy (only when not shadow —
@@ -23013,8 +23013,8 @@ async function processTradeSimulation(
                   console.log(`[AI_CIO] ${_cioDecision.decision}${_entryShadow ? " [SHADOW]" : ""} ${sym} ${direction} (conf=${_cioDecision.confidence.toFixed(2)}, edge=${_cioDecision.edge_score.toFixed(2)}, latency=${_cioDecision.latency_ms}ms${_cioDecision.fallback ? ", FALLBACK" : ""})`);
                   if (env?.DB && !_cioDecision.fallback) {
                     env.DB.prepare(
-                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                      `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
                     ).bind(
                       `${sym}-${now}-${_cioDecision.decision.toLowerCase()}`,
                       sym, direction, _cioDecision.decision,
@@ -23027,7 +23027,7 @@ async function processTradeSimulation(
                       JSON.stringify(_cioDecision.proposal || {}),
                       _cioDecision.decision === "ADJUST" ? JSON.stringify(_cioDecision.adjustments || {}) : null,
                       Date.now(),
-                      _entryShadow ? 1 : 0
+                      _entryShadow ? 1 : 0, env?._isReplay ? 1 : 0
                     ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
                   }
                 }
@@ -23505,8 +23505,8 @@ async function processTradeSimulation(
             if (_cioDecision && env?.DB) {
               const _isFallback = _cioDecision.fallback === true;
               env.DB.prepare(
-                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`
+                `INSERT INTO ai_cio_decisions (trade_id, ticker, direction, decision, confidence, reasoning, risk_flags, edge_score, latency_ms, fallback, model, proposal_json, adjustments_json, created_at, shadow, is_replay)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)`
               ).bind(
                 tradeId, sym, direction, _cioDecision.decision,
                 _cioDecision.confidence ?? null,
@@ -23519,7 +23519,7 @@ async function processTradeSimulation(
                 JSON.stringify(_cioDecision.proposal || {}),
                 _cioDecision.adjustments ? JSON.stringify(_cioDecision.adjustments) : null,
                 Date.now(),
-                _cioShadowMode(env) ? 1 : 0
+                _cioShadowMode(env) ? 1 : 0, env?._isReplay ? 1 : 0
               ).run().catch(e => console.warn("[AI_CIO] D1 insert failed:", e));
             }
             // Accumulate in-memory for replay CIO self-accuracy (Layer 5)
@@ -30770,6 +30770,19 @@ async function d1EnsureLearningSchema(env) {
     } catch { /* column may already exist */ }
     try {
       await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_cio_decisions_shadow ON ai_cio_decisions(shadow, created_at DESC)`).run();
+    } catch { /* index may already exist */ }
+    // 2026-05-30: is_replay column distinguishes live CIO decisions from
+    // decisions written during backtest replays (which use the same
+    // processTradeSimulation path). Mission Control filters on
+    // `COALESCE(is_replay, 0) = 0` so dashboard counts reflect actual live
+    // production activity, not replay noise from backtests run weeks ago.
+    // All ai_cio_decisions INSERTs now check `env._isReplay` and either
+    // skip the write or set this column to 1.
+    try {
+      await db.prepare(`ALTER TABLE ai_cio_decisions ADD COLUMN is_replay INTEGER DEFAULT 0`).run();
+    } catch { /* column may already exist */ }
+    try {
+      await db.prepare(`CREATE INDEX IF NOT EXISTS idx_ai_cio_decisions_is_replay ON ai_cio_decisions(is_replay, created_at DESC)`).run();
     } catch { /* index may already exist */ }
     // Three-tier awareness: ticker + sector profiles
     try {
@@ -54529,13 +54542,25 @@ export default {
           }
 
           // Pull window decisions
+          // 2026-05-30 — Filter `COALESCE(is_replay, 0) = 0` so backtest-replay
+          // decisions don't pollute the live-readiness gates. Historical
+          // rows have no is_replay tag (NULL → 0) and are counted; new rows
+          // emitted during replays since this fix carry is_replay=1 and
+          // are excluded.
           const _windowDecisions = (await db.prepare(
             `SELECT decision, COALESCE(shadow,0) AS shadow, confidence, edge_score,
                     latency_ms, fallback, trade_outcome, trade_pnl_pct, created_at, reasoning
              FROM ai_cio_decisions
              WHERE created_at >= ?1
+               AND COALESCE(is_replay, 0) = 0
              ORDER BY created_at DESC`
           ).bind(_since).all())?.results || [];
+          // Also count how many were excluded so the operator can see the
+          // tag is working (especially right after the cutover).
+          const _replayCount = (await db.prepare(
+            `SELECT COUNT(*) AS n FROM ai_cio_decisions
+             WHERE created_at >= ?1 AND COALESCE(is_replay, 0) = 1`
+          ).bind(_since).first().catch(() => null))?.n || 0;
 
           // Buckets
           const _entrySet = new Set(["APPROVE", "ADJUST", "REJECT"]);
@@ -54632,6 +54657,9 @@ export default {
               avg_lifecycle_latency_ms: _lifeLat,
               adjust_avg_pnl_pct: _avgAdjPnl,
               adjust_win_rate_pct: _adjWr,
+              // 2026-05-30 — Replay-decisions excluded count, surfaced so
+              // the operator can see backtest noise is being filtered.
+              excluded_replay_count: Number(_replayCount) || 0,
             },
             gates,
             note: "See tasks/2026-05-28-cio-shadow-to-live-audit.md for full gate definitions + rationale.",
@@ -57445,11 +57473,21 @@ export default {
           }
 
           // 5. AI CIO activity
+          // 2026-05-30 — Bug fix: this query had been silently failing for
+          // weeks. Schema columns are `created_at` and `decision`, not `ts`
+          // and `action`. The SQL error was swallowed by `.catch(() => null)`
+          // so cioRow was always null and the retro always reported "No CIO
+          // decisions this week (entry engine quiet or shadow mode)" — even
+          // when the live CIO was firing dozens of decisions a day. Also
+          // exclude replay-tagged rows so backtests don't pollute the count.
           const cioRow = await db.prepare(
             `SELECT COUNT(*) AS total,
-                    SUM(CASE WHEN action='enter' THEN 1 ELSE 0 END) AS enter,
-                    SUM(CASE WHEN action='block' THEN 1 ELSE 0 END) AS block
-             FROM ai_cio_decisions WHERE ts >= ?1`
+                    SUM(CASE WHEN decision IN ('APPROVE','ADJUST') THEN 1 ELSE 0 END) AS enter,
+                    SUM(CASE WHEN decision = 'REJECT' THEN 1 ELSE 0 END) AS block,
+                    SUM(CASE WHEN shadow = 1 THEN 1 ELSE 0 END) AS shadow_count
+             FROM ai_cio_decisions
+             WHERE created_at >= ?1
+               AND COALESCE(is_replay, 0) = 0`
           ).bind(weekAgo).first().catch(() => null);
 
           // ── Build markdown ──
@@ -57615,6 +57653,12 @@ export default {
             `SELECT COUNT(*) AS n FROM trades WHERE status='OPEN'`
           ).first().catch(() => null);
           // AI CIO health (last 7 days)
+          // 2026-05-30 — Now filters `COALESCE(is_replay, 0) = 0` so the
+          // dashboard count only reflects live production CIO activity,
+          // not decisions written during backtest replays (which previously
+          // inflated the 7d total into the high hundreds for a few weeks
+          // of actual live shadow mode). Also returns replay_total
+          // separately so the operator can see the breakdown if needed.
           let aicio = null;
           try {
             const cutoff = nowMs - 7 * 86400000;
@@ -57625,9 +57669,19 @@ export default {
                  SUM(CASE WHEN fallback=1 THEN 1 ELSE 0 END) AS fallback,
                  SUM(CASE WHEN decision IN ('APPROVE','ADJUST') THEN 1 ELSE 0 END) AS enter,
                  SUM(CASE WHEN decision = 'REJECT' THEN 1 ELSE 0 END) AS block
-               FROM ai_cio_decisions WHERE created_at >= ?1`
+               FROM ai_cio_decisions
+               WHERE created_at >= ?1
+                 AND COALESCE(is_replay, 0) = 0`
+            ).bind(cutoff).first().catch(() => null);
+            const cioReplayRow = await db.prepare(
+              `SELECT COUNT(*) AS total FROM ai_cio_decisions
+               WHERE created_at >= ?1 AND COALESCE(is_replay, 0) = 1`
             ).bind(cutoff).first().catch(() => null);
             aicio = cioRow || { total: 0, shadow: 0, fallback: 0, enter: 0, block: 0 };
+            aicio.replay_total = Number(cioReplayRow?.total) || 0;
+            aicio.note = aicio.replay_total > 0
+              ? `${aicio.replay_total} additional decisions logged from backtest replays (excluded from this count)`
+              : "Live production decisions only (replay rows excluded since 2026-05-30)";
           } catch {}
           // Latest calibration run (if calibration_runs table exists)
           let lastCalibration = null;
@@ -57807,6 +57861,11 @@ export default {
         })();
         const _sec5 = (async () => {
         // ─ Section 5: positions ──
+        // 2026-05-30 — Added unrealized P&L (mark-to-market) for open
+        // positions so Mission Control can show Realized + Unrealized + Total
+        // P&L, not just realized. Without it, the dashboard was misleading:
+        // it showed -X realized from closed trades while the open positions
+        // were sitting on +Y unrealized.
         try {
           const [atOpen, atTotalNotional, invOpen, invTotalCost, recentFills] = await Promise.all([
             db.prepare(
@@ -57830,17 +57889,67 @@ export default {
                FROM investor_lots WHERE ts >= ?1 ORDER BY ts DESC LIMIT 20`
             ).bind(Date.now() - 24 * 3600 * 1000).all().catch(() => ({ results: [] })),
           ]);
+
+          // Mark-to-market unrealized P&L from live KV prices.
+          // KV `timed:prices` stores the latest price feed; per-symbol
+          // entries use short keys (`p` = price). When the market is
+          // closed, this is the 4 PM ET close; intraday it's the live tick.
+          let livePrices = {};
+          try {
+            const pricesBlob = KV ? await KV.get("timed:prices", "json").catch(() => null) : null;
+            if (pricesBlob && typeof pricesBlob === "object") livePrices = pricesBlob;
+          } catch {}
+
+          const _markPx = (sym) => {
+            const p = livePrices[String(sym || "").toUpperCase()];
+            if (!p) return null;
+            const v = Number(p.p ?? p.price ?? p.close);
+            return Number.isFinite(v) && v > 0 ? v : null;
+          };
+
+          // Active Trader unrealized
+          let atUnrealizedUsd = 0;
+          let atMarkedCount = 0;
+          for (const t of (atOpen?.results || [])) {
+            const px = _markPx(t.ticker);
+            const entry = Number(t.entry_price);
+            const sh = Number(t.shares);
+            if (!Number.isFinite(px) || !Number.isFinite(entry) || !Number.isFinite(sh)) continue;
+            const dir = String(t.direction || "LONG").toUpperCase();
+            const pnl = (dir === "SHORT" ? (entry - px) : (px - entry)) * sh;
+            atUnrealizedUsd += pnl;
+            atMarkedCount++;
+          }
+
+          // Investor unrealized
+          let invUnrealizedUsd = 0;
+          let invMarkedCount = 0;
+          for (const p of (invOpen?.results || [])) {
+            const px = _markPx(p.ticker);
+            const avg = Number(p.avg_entry);
+            const sh = Number(p.shares);
+            if (!Number.isFinite(px) || !Number.isFinite(avg) || !Number.isFinite(sh)) continue;
+            invUnrealizedUsd += (px - avg) * sh;
+            invMarkedCount++;
+          }
+
           out.positions = {
             active_trader: {
               count: (atOpen?.results || []).length,
               total_notional: Number(atTotalNotional?.total) || 0,
+              unrealized_usd: Math.round(atUnrealizedUsd * 100) / 100,
+              marked_count: atMarkedCount,
               positions: atOpen?.results || [],
             },
             investor: {
               count: (invOpen?.results || []).length,
               total_cost: Number(invTotalCost?.total) || 0,
+              unrealized_usd: Math.round(invUnrealizedUsd * 100) / 100,
+              marked_count: invMarkedCount,
               positions: invOpen?.results || [],
             },
+            // Combined view — matches what the operator sees in Open Trades.
+            unrealized_total_usd: Math.round((atUnrealizedUsd + invUnrealizedUsd) * 100) / 100,
             recent_investor_lots_24h: recentFills?.results || [],
           };
         } catch (e) {
@@ -67764,9 +67873,28 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const bridgeUrl = env?.BROKER_BRIDGE_URL;
-        if (!bridgeUrl) return sendJSON({ ok: false, error: "BROKER_BRIDGE_URL_not_configured" }, 503, corsHeaders(env, req));
         const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
-        if (!opKey) return sendJSON({ ok: false, error: "BROKER_BRIDGE_OPERATOR_KEY_not_configured" }, 503, corsHeaders(env, req));
+        // 2026-05-30 — distinguish the two not-configured paths so Mission
+        // Control can guide the operator to the exact missing piece. Most
+        // common case: `wrangler.toml` has the URL but
+        // BROKER_BRIDGE_OPERATOR_KEY isn't set yet.
+        if (!bridgeUrl) {
+          return sendJSON({
+            ok: false,
+            error: "BROKER_BRIDGE_URL_not_configured",
+            error_kind: "url_missing",
+            hint: "Set BROKER_BRIDGE_URL in worker/wrangler.toml [vars] and redeploy. Or set via `wrangler secret put BROKER_BRIDGE_URL` if you want it as a secret.",
+          }, 503, corsHeaders(env, req));
+        }
+        if (!opKey) {
+          return sendJSON({
+            ok: false,
+            error: "BROKER_BRIDGE_OPERATOR_KEY_not_configured",
+            error_kind: "key_missing",
+            bridge_url: bridgeUrl,
+            hint: "Bridge URL is set but the operator key is not. Run `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY` (then `--env production`) — paste the bridge worker's operator key (same value used in worker-bridge/wrangler.toml OPERATOR_KEYS).",
+          }, 503, corsHeaders(env, req));
+        }
         try {
           const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/status`, {
             headers: { "Authorization": `Bearer ${opKey}` },
@@ -67775,7 +67903,12 @@ export default {
           const ctype = r.headers.get("content-type") || "application/json";
           return new Response(text, { status: r.status, headers: { "Content-Type": ctype, ...corsHeaders(env, req) } });
         } catch (e) {
-          return sendJSON({ ok: false, error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}` }, 502, corsHeaders(env, req));
+          return sendJSON({
+            ok: false,
+            error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}`,
+            error_kind: "unreachable",
+            bridge_url: bridgeUrl,
+          }, 502, corsHeaders(env, req));
         }
       }
       if (routeKey === "GET /timed/admin/broker-bridge/audit") {
