@@ -295,6 +295,26 @@ function CIOWatchlist({
     if (!raw) return "Other";
     return String(raw).replace(/^TT\s+/i, "").replace(/^Tt[\s_]+/i, "").replace(/^tt_/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim() || "Other";
   };
+  const [liveTraderTrades, setLiveTraderTrades] = useState([]);
+  const [liveInvestorPositions, setLiveInvestorPositions] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [tR, iR] = await Promise.all([fetch(`${API_BASE}/timed/ledger/trades?mode=trader&status=open&limit=50`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/positions`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        if (!alive) return;
+        if (tR?.ok && Array.isArray(tR.trades)) setLiveTraderTrades(tR.trades);
+        if (iR?.ok && Array.isArray(iR.positions)) setLiveInvestorPositions(iR.positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN"));
+      } catch (_) {}
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const board = useMemo(() => {
     const counts = {
       setup: 0,
@@ -371,25 +391,40 @@ function CIOWatchlist({
     let plKnown = 0;
     let best = null;
     let worst = null;
-    for (const p of positions) {
-      const ep = Number(p.t?.entry_price);
-      const cp = Number(p.t?.price ?? p.t?.close);
-      const dir = String(p.t?.position_direction || p.t?.direction || "LONG").toUpperCase();
-      if (!Number.isFinite(ep) || !Number.isFinite(cp) || ep <= 0) continue;
-      const mul = dir === "SHORT" ? -1 : 1;
-      const plPct = (cp - ep) / ep * 100 * mul;
+    const allLive = [...liveTraderTrades.map(t => ({
+      sym: String(t.ticker || "").toUpperCase(),
+      mode: "trader",
+      ep: Number(t.entry_price),
+      cp: Number(((data || {})[t.ticker] || {}).price ?? ((data || {})[t.ticker] || {}).close ?? t.entry_price),
+      dir: String(t.direction || "LONG").toUpperCase()
+    })), ...liveInvestorPositions.map(p => ({
+      sym: String(p.ticker || "").toUpperCase(),
+      mode: "investor",
+      ep: Number(p.avg_entry),
+      cp: Number(((data || {})[p.ticker] || {}).price ?? ((data || {})[p.ticker] || {}).close ?? p.avg_entry),
+      dir: "LONG"
+    }))];
+    for (const p of allLive) {
+      if (!Number.isFinite(p.ep) || !Number.isFinite(p.cp) || p.ep <= 0) continue;
+      const mul = p.dir === "SHORT" ? -1 : 1;
+      const plPct = (p.cp - p.ep) / p.ep * 100 * mul;
       totalPl += plPct;
       plKnown += 1;
       if (!best || plPct > best.plPct) best = {
         sym: p.sym,
-        plPct
+        plPct,
+        mode: p.mode
       };
       if (!worst || plPct < worst.plPct) worst = {
         sym: p.sym,
-        plPct
+        plPct,
+        mode: p.mode
       };
     }
     const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+    counts.totalLive = allLive.length;
+    counts.traderLive = liveTraderTrades.length;
+    counts.investorLive = liveInvestorPositions.length;
     watching.sort((a, b) => {
       const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
       const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
@@ -409,7 +444,7 @@ function CIOWatchlist({
       liveCount: positions.length,
       plKnown
     };
-  }, [data]);
+  }, [data, liveTraderTrades, liveInvestorPositions]);
   const learnings = useMemo(() => {
     const rows = summary?.breakdown?.bySetup;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -673,7 +708,7 @@ function UniverseChanges({
     }, "No universe changes in the last 30 days. When the universe is refreshed or an admin adds / removes a ticker, those events will appear here."));
   }
   const fmtDate = d => String(d || "—");
-  const renderTickers = (arr, limit = 8) => arr.slice(0, limit).map((a, i) => {
+  const renderTickers = (arr, limit = 999) => arr.slice(0, limit).map((a, i) => {
     const sym = typeof a === "string" ? a : a?.ticker || "?";
     return h("span", {
       key: i,
@@ -682,7 +717,7 @@ function UniverseChanges({
       }
     }, sym);
   });
-  const renderReweighted = (arr, limit = 8) => arr.slice(0, limit).map((a, i) => {
+  const renderReweighted = (arr, limit = 999) => arr.slice(0, limit).map((a, i) => {
     if (typeof a === "string") {
       return h("span", {
         key: i,
@@ -924,6 +959,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780098703744:854464015
+// cache-bust:1780099288465:798491797
 
-// cache-bust:1780098703744:854464015
+// cache-bust:1780099288465:798491797
