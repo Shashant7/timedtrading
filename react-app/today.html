@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260530-r3"></script>
+    <script src="shared-right-rail.compiled.js?v=20260530-hero-tight"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -2170,7 +2170,7 @@
         );
       }
 
-      function IndexPredictionsStrip({ brief, data, onSelectTicker }) {
+      function IndexPredictionsStrip({ brief, data, onSelectTicker, layout = "full" }) {
         // 2026-05-28 — Now reads from the brief's per-index gamePlan
         // (morning.infographic.indices[*]) so this strip is a TRUE
         // preview of what the Brief publishes — not a parallel
@@ -2201,26 +2201,35 @@
         const _label = briefType === "evening"
           ? "Today's Day-Trade Scorecard"
           : "Today's Day-Trade Plan";
+        const _isCompact = layout === "compact";
 
         return h("aside", {
           className: "tt-card tt-card-pad",
-          style: { display: "flex", flexDirection: "column", gap: 10, height: "100%" },
+          style: {
+            display: "flex", flexDirection: "column",
+            gap: _isCompact ? 6 : 10,
+            height: "100%",
+            // 2026-05-30 — pad less in compact mode (the hero already breathes
+            // between left rows; the predictions don't need their own halo)
+            padding: _isCompact ? "12px 14px" : undefined,
+          },
         },
-          h("div", { className: "tt-sec-title" }, "DAILY BRIEF · DAY-TRADE PREDICTIONS"),
-          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, justifyContent: "space-between", flexWrap: "wrap" } },
-            h("div", { className: "tt-sec-h", style: { fontSize: 16, margin: 0 } }, _label),
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+            h("div", { className: "tt-sec-title", style: { margin: 0 } },
+              _isCompact ? `${_label.toUpperCase()} · 3 INDICES` : "DAILY BRIEF · DAY-TRADE PREDICTIONS",
+            ),
             briefDate && h("span", {
               style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-faint)" },
             }, briefDate),
           ),
-          // Subtitle reinforcing intraday framing (mirrors ES Prediction prose)
-          h("p", {
+          !_isCompact && h("div", { className: "tt-sec-h", style: { fontSize: 16, margin: 0 } }, _label),
+          !_isCompact && h("p", {
             style: { fontSize: 11, color: "var(--tt-text-muted)", fontStyle: "italic", margin: "0", lineHeight: 1.5 },
           },
             "Intraday triggers + targets — same Golden-Gate game plan the brief publishes for ES.",
           ),
           h("div", {
-            style: { display: "flex", flexDirection: "column", gap: 8, marginTop: 4 },
+            style: { display: "flex", flexDirection: "column", gap: _isCompact ? 4 : 8, marginTop: _isCompact ? 0 : 4 },
           },
             indices.map((idx) => {
               const sym = String(idx?.sym || "").toUpperCase();
@@ -2263,6 +2272,16 @@
               const prose = proseRaw
                 ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim()
                 : proseFallback;
+              if (_isCompact) {
+                return h(BriefIndexRowCompact, {
+                  key: sym,
+                  idx,
+                  briefType,
+                  livePx: Number(live?.price),
+                  dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
+                  onSelectTicker,
+                });
+              }
               return h(BriefIndexCard, {
                 key: sym,
                 idx,
@@ -2278,11 +2297,103 @@
             href: "/daily-brief.html",
             style: {
               fontSize: 11, color: "var(--tt-accent, #f5c25c)", textDecoration: "none",
-              marginTop: 4, display: "inline-flex", alignItems: "center", gap: 4,
+              marginTop: _isCompact ? 2 : 4, display: "inline-flex", alignItems: "center", gap: 4,
             },
           },
-            "Read the full brief →",
+            _isCompact ? "Full plan + scorecard →" : "Read the full brief →",
           ),
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // BriefIndexRowCompact — 2026-05-30 (v3)
+      //
+      // Single-row compact rendering of one index prediction, designed
+      // for the TodayHero left column where vertical real estate matters.
+      // Reads the same brief gamePlan + live price + range fields as the
+      // full BriefIndexCard but layouts them as ONE row with inline
+      // chips: [logo] SYM $price ▲% [bias] · Range $lo-$hi · ▲ trigger
+      // → target · ▼ trigger → target. Click → opens ticker detail
+      // (same handler).
+      // ─────────────────────────────────────────────────────────────
+      function BriefIndexRowCompact({ idx, briefType, livePx, dayPct, onSelectTicker }) {
+        const SYM = String(idx?.sym || "").toUpperCase();
+        const briefPx = Number(idx?.price);
+        const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
+        const lev = idx?.levels || {};
+        const gp = lev.gamePlan || {};
+        const bullT = Number(gp.bullTrigger);
+        const bullTgt = Number(gp.bullTarget);
+        const bearT = Number(gp.bearTrigger);
+        const bearTgt = Number(gp.bearTarget);
+        const _rng = (() => {
+          const note = String(lev.goldenGateNote || "");
+          const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
+          if (!m) return null;
+          const lo = Number(m[1]); const hi = Number(m[2]);
+          return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? { lo, hi } : null;
+        })();
+        const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
+        const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
+        // Direction inferred only from current price vs triggers (live state).
+        const biasMeta = bullActive
+          ? { label: "BULL", color: "#34d399", bg: "rgba(52,211,153,0.12)" }
+          : bearActive
+            ? { label: "BEAR", color: "#f87171", bg: "rgba(248,113,113,0.12)" }
+            : { label: "WAIT", color: "#9ca3af", bg: "rgba(156,163,175,0.10)" };
+        const _fmt = (n) => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
+        const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
+        const _dirColor = dayPct == null ? "var(--tt-text-muted)"
+                       : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
+
+        const onClick = (e) => {
+          e.preventDefault();
+          if (typeof onSelectTicker === "function") onSelectTicker(SYM);
+          else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
+        };
+
+        return h("button", {
+          onClick,
+          style: {
+            textAlign: "left", padding: "8px 10px", width: "100%",
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 8, cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+            transition: "border-color 0.15s, background 0.05s",
+          },
+          onMouseEnter: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; },
+          onMouseLeave: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.background = "rgba(255,255,255,0.02)"; },
+          title: `${SYM} — open detail`,
+        },
+          // SYM + price + day change
+          h("span", { style: { display: "flex", alignItems: "baseline", gap: 6, minWidth: 130 } },
+            h("strong", { style: { fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, SYM),
+            h("span", { style: { fontSize: 12, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" } }, _fmt(price) || "—"),
+            dayPct != null && h("span", {
+              style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 600, color: _dirColor },
+            }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
+          ),
+          // Bias chip
+          h("span", {
+            style: {
+              padding: "1px 7px", borderRadius: 999, fontSize: 9, fontWeight: 700,
+              letterSpacing: "0.08em", fontFamily: "var(--tt-font-mono)",
+              background: biasMeta.bg, color: biasMeta.color, border: `1px solid ${biasMeta.color}55`,
+            },
+          }, biasMeta.label),
+          // Range
+          _rng && h("span", {
+            style: { fontSize: 10, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" },
+          }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`),
+          // Bull trigger → target
+          Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
+            style: { fontSize: 10, color: "var(--tt-up, #34d399)", fontFamily: "var(--tt-font-mono)", whiteSpace: "nowrap" },
+          }, `▲ ${_fmt(bullT)} → ${_fmt(bullTgt)}`),
+          // Bear trigger → target
+          Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
+            style: { fontSize: 10, color: "var(--tt-dn, #f87171)", fontFamily: "var(--tt-font-mono)", whiteSpace: "nowrap" },
+          }, `▼ ${_fmt(bearT)} → ${_fmt(bearTgt)}`),
         );
       }
 
@@ -2640,14 +2751,17 @@
       // takes ~40%. Below 980px both stack vertically.
       // ─────────────────────────────────────────────────────────────
       function TodayHero({ brief, data, earnings, onSelectTicker }) {
-        // 2026-05-30 — Restructured per user request. Left column now
-        // stacks Daily Brief → Trade Predictions (Index Strip) →
-        // Quick Glance. Right column becomes a vertical Options Plays
-        // sidebar so the top-of-page eye-flow is:
-        //   brief read  →  index day-trade plan  →  glance pulse
-        //   (left column, top to bottom)
-        //   →  today's actionable options plays
-        //   (right column, scannable vertical list)
+        // 2026-05-30 (v3) — Tighter layout per user feedback "still funky
+        // and has dead space". Two changes:
+        //   1. Quick Glance moved UP — directly below the Brief, above
+        //      Predictions. So the eye sees Brief → Pulse → Plan, with
+        //      the dense plan rows at the bottom of the hero (not the
+        //      tall blocking element).
+        //   2. Predictions render in COMPACT single-row mode (one row
+        //      per index, ~40px tall vs ~180px) so the hero hero stays
+        //      short enough for the Options sidebar on the right to feel
+        //      proportional. Full per-index narrative + scorecard still
+        //      live on the Daily Brief page for users who want depth.
         return h("div", {
           className: "today-hero",
           style: {
@@ -2661,8 +2775,8 @@
             brief
               ? h(BriefPreview, { brief })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
-            brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker }),
             h(QuickGlance, { brief, data, onSelectTicker }),
+            brief && h(IndexPredictionsStrip, { brief, data, onSelectTicker, layout: "compact" }),
           ),
           h("div", { style: { minWidth: 0 } },
             h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "sidebar" }),

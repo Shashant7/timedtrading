@@ -835,7 +835,8 @@ function BriefIndexCard({
 function IndexPredictionsStrip({
   brief,
   data,
-  onSelectTicker
+  onSelectTicker,
+  layout = "full"
 }) {
   const morning = brief?.morning || (brief?.type === "morning" ? brief : null);
   const evening = brief?.evening || (brief?.type === "evening" ? brief : null);
@@ -846,37 +847,42 @@ function IndexPredictionsStrip({
   if (indices.length === 0) return null;
   const briefDate = active?.date || morning?.date || null;
   const _label = briefType === "evening" ? "Today's Day-Trade Scorecard" : "Today's Day-Trade Plan";
+  const _isCompact = layout === "compact";
   return h("aside", {
     className: "tt-card tt-card-pad",
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 10,
-      height: "100%"
+      gap: _isCompact ? 6 : 10,
+      height: "100%",
+      padding: _isCompact ? "12px 14px" : undefined
     }
   }, h("div", {
-    className: "tt-sec-title"
-  }, "DAILY BRIEF · DAY-TRADE PREDICTIONS"), h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
-      gap: 8,
       justifyContent: "space-between",
+      gap: 8,
       flexWrap: "wrap"
     }
   }, h("div", {
-    className: "tt-sec-h",
+    className: "tt-sec-title",
     style: {
-      fontSize: 16,
       margin: 0
     }
-  }, _label), briefDate && h("span", {
+  }, _isCompact ? `${_label.toUpperCase()} · 3 INDICES` : "DAILY BRIEF · DAY-TRADE PREDICTIONS"), briefDate && h("span", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10,
       color: "var(--tt-text-faint)"
     }
-  }, briefDate)), h("p", {
+  }, briefDate)), !_isCompact && h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 16,
+      margin: 0
+    }
+  }, _label), !_isCompact && h("p", {
     style: {
       fontSize: 11,
       color: "var(--tt-text-muted)",
@@ -888,8 +894,8 @@ function IndexPredictionsStrip({
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 8,
-      marginTop: 4
+      gap: _isCompact ? 4 : 8,
+      marginTop: _isCompact ? 0 : 4
     }
   }, indices.map(idx => {
     const sym = String(idx?.sym || "").toUpperCase();
@@ -916,6 +922,16 @@ function IndexPredictionsStrip({
       return `${sym} stays inside the expected day range of $${lo}–$${hi} early; only resolves higher above $${bullT} (target $${bullTgt}) or lower below $${bearT} (target $${bearTgt}). ${why.trim()}.`;
     })();
     const prose = proseRaw ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim() : proseFallback;
+    if (_isCompact) {
+      return h(BriefIndexRowCompact, {
+        key: sym,
+        idx,
+        briefType,
+        livePx: Number(live?.price),
+        dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
+        onSelectTicker
+      });
+    }
     return h(BriefIndexCard, {
       key: sym,
       idx,
@@ -931,12 +947,146 @@ function IndexPredictionsStrip({
       fontSize: 11,
       color: "var(--tt-accent, #f5c25c)",
       textDecoration: "none",
-      marginTop: 4,
+      marginTop: _isCompact ? 2 : 4,
       display: "inline-flex",
       alignItems: "center",
       gap: 4
     }
-  }, "Read the full brief →"));
+  }, _isCompact ? "Full plan + scorecard →" : "Read the full brief →"));
+}
+function BriefIndexRowCompact({
+  idx,
+  briefType,
+  livePx,
+  dayPct,
+  onSelectTicker
+}) {
+  const SYM = String(idx?.sym || "").toUpperCase();
+  const briefPx = Number(idx?.price);
+  const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
+  const lev = idx?.levels || {};
+  const gp = lev.gamePlan || {};
+  const bullT = Number(gp.bullTrigger);
+  const bullTgt = Number(gp.bullTarget);
+  const bearT = Number(gp.bearTrigger);
+  const bearTgt = Number(gp.bearTarget);
+  const _rng = (() => {
+    const note = String(lev.goldenGateNote || "");
+    const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const lo = Number(m[1]);
+    const hi = Number(m[2]);
+    return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? {
+      lo,
+      hi
+    } : null;
+  })();
+  const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
+  const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
+  const biasMeta = bullActive ? {
+    label: "BULL",
+    color: "#34d399",
+    bg: "rgba(52,211,153,0.12)"
+  } : bearActive ? {
+    label: "BEAR",
+    color: "#f87171",
+    bg: "rgba(248,113,113,0.12)"
+  } : {
+    label: "WAIT",
+    color: "#9ca3af",
+    bg: "rgba(156,163,175,0.10)"
+  };
+  const _fmt = n => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
+  const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
+  const _dirColor = dayPct == null ? "var(--tt-text-muted)" : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
+  const onClick = e => {
+    e.preventDefault();
+    if (typeof onSelectTicker === "function") onSelectTicker(SYM);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
+  };
+  return h("button", {
+    onClick,
+    style: {
+      textAlign: "left",
+      padding: "8px 10px",
+      width: "100%",
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.06)",
+      borderRadius: 8,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      transition: "border-color 0.15s, background 0.05s"
+    },
+    onMouseEnter: e => {
+      e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)";
+      e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+    },
+    onMouseLeave: e => {
+      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+    },
+    title: `${SYM} — open detail`
+  }, h("span", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 6,
+      minWidth: 130
+    }
+  }, h("strong", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text)",
+      letterSpacing: "0.02em"
+    }
+  }, SYM), h("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, _fmt(price) || "—"), dayPct != null && h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10,
+      fontWeight: 600,
+      color: _dirColor
+    }
+  }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`)), h("span", {
+    style: {
+      padding: "1px 7px",
+      borderRadius: 999,
+      fontSize: 9,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      fontFamily: "var(--tt-font-mono)",
+      background: biasMeta.bg,
+      color: biasMeta.color,
+      border: `1px solid ${biasMeta.color}55`
+    }
+  }, biasMeta.label), _rng && h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`), Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-up, #34d399)",
+      fontFamily: "var(--tt-font-mono)",
+      whiteSpace: "nowrap"
+    }
+  }, `▲ ${_fmt(bullT)} → ${_fmt(bullTgt)}`), Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-dn, #f87171)",
+      fontFamily: "var(--tt-font-mono)",
+      whiteSpace: "nowrap"
+    }
+  }, `▼ ${_fmt(bearT)} → ${_fmt(bearTgt)}`));
 }
 function OptionsPlaysOfTheDay({
   onSelectTicker,
@@ -1472,14 +1622,15 @@ function TodayHero({
     data,
     earnings,
     onSelectTicker
-  }), brief && h(IndexPredictionsStrip, {
-    brief,
-    data,
-    onSelectTicker
   }), h(QuickGlance, {
     brief,
     data,
     onSelectTicker
+  }), brief && h(IndexPredictionsStrip, {
+    brief,
+    data,
+    onSelectTicker,
+    layout: "compact"
   })), h("div", {
     style: {
       minWidth: 0
@@ -4448,6 +4599,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780167809503:270842476
+// cache-bust:1780168805965:582938800
 
-// cache-bust:1780167809503:270842476
+// cache-bust:1780168805965:582938800
