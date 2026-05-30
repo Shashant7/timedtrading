@@ -1186,37 +1186,67 @@ function MissionControl({
         style: {
           fontSize: 11
         }
-      }, React.createElement("tbody", null, rows.map(r => React.createElement("tr", {
-        key: r.id
-      }, React.createElement("td", {
-        style: {
-          padding: "5px 4px",
-          width: 20,
-          textAlign: "center"
-        }
-      }, r.met === true ? React.createElement("span", {
-        className: "mc-pos"
-      }, "\u2713") : r.met === false ? React.createElement("span", {
-        className: "mc-neg"
-      }, "\u2717") : React.createElement("span", {
-        className: "mc-mute"
-      }, "\u2014")), React.createElement("td", {
-        style: {
-          padding: "5px 4px"
-        }
-      }, React.createElement("div", {
-        className: "text-[11px] text-[#d1d5db]"
-      }, r.label), React.createElement("div", {
-        className: "text-[10px] mc-mute"
-      }, "Target: ", r.threshold)), React.createElement("td", {
-        style: {
-          padding: "5px 4px",
-          textAlign: "right",
-          whiteSpace: "nowrap"
-        }
-      }, React.createElement("span", {
-        className: `text-[11px] font-mono ${r.met ? "mc-pos" : "text-[#d1d5db]"}`
-      }, fmtVal(r))))))));
+      }, React.createElement("tbody", null, rows.map(r => {
+        const isOperatorTask = g.key === "D_operator" && ["manual_review", "lifecycle_live_first", "autosnap_safeguard"].includes(r.id);
+        const toggleOperatorTask = async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/ai-cio/operator-task`, {
+              method: "POST",
+              credentials: "include",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                task: r.id,
+                done: !r.met
+              })
+            });
+            const j = await res.json();
+            if (j.ok) fetchCio();else alert(`Toggle failed: ${j.error || "unknown"}`);
+          } catch (e) {
+            alert(`Toggle failed: ${String(e.message || e)}`);
+          }
+        };
+        return React.createElement("tr", {
+          key: r.id
+        }, React.createElement("td", {
+          style: {
+            padding: "5px 4px",
+            width: 20,
+            textAlign: "center"
+          }
+        }, r.met === true ? React.createElement("span", {
+          className: "mc-pos"
+        }, "\u2713") : r.met === false ? React.createElement("span", {
+          className: "mc-neg"
+        }, "\u2717") : React.createElement("span", {
+          className: "mc-mute"
+        }, "\u2014")), React.createElement("td", {
+          style: {
+            padding: "5px 4px"
+          }
+        }, React.createElement("div", {
+          className: "text-[11px] text-[#d1d5db]"
+        }, r.label), React.createElement("div", {
+          className: "text-[10px] mc-mute"
+        }, "Target: ", r.threshold)), React.createElement("td", {
+          style: {
+            padding: "5px 4px",
+            textAlign: "right",
+            whiteSpace: "nowrap"
+          }
+        }, isOperatorTask ? React.createElement("button", {
+          onClick: toggleOperatorTask,
+          className: "underline hover:text-[#22c55e]",
+          style: {
+            fontSize: 10,
+            color: r.met ? "#22c55e" : "#fbbf24"
+          },
+          title: r.met ? "Click to mark this gate NOT DONE (resets)." : "Click to mark this gate DONE after completing the physical check."
+        }, r.met ? "✓ Done · undo" : "Mark done") : React.createElement("span", {
+          className: `text-[11px] font-mono ${r.met ? "mc-pos" : "text-[#d1d5db]"}`
+        }, fmtVal(r))));
+      }))));
     })), cioReadiness.recommendation && React.createElement("div", {
       className: "mt-4 px-3 py-2.5 rounded text-[11.5px] leading-relaxed",
       style: {
@@ -1352,6 +1382,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780152178589:884288210
+// cache-bust:1780158470699:409697599
 
-// cache-bust:1780152178589:884288210
+// cache-bust:1780158470699:409697599
