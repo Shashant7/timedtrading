@@ -45114,6 +45114,23 @@ export default {
         }
         const _isSlim = url.searchParams.get("slim") === "1";
 
+        // 2026-05-31 — Response-level micro-cache for the assembled
+        // snapshot path. Anonymized — keyed only on (admin vs not) +
+        // slim flag — because the activeSet filter is identical for
+        // every Pro/free user in the same admin bucket (it gates on
+        // SECTOR_MAP + market-pulse + user-added; user-added is an
+        // overlay added below). 30s TTL absorbs page-load fan-out
+        // (Today + Active + Insights all firing within seconds of each
+        // other on a cold-load — without this cache, each one paid the
+        // full snapshot assembly cost).
+        //
+        // Skip the micro-cache for admins so they always see the
+        // freshest position/overlay state. Skip for users with custom
+        // tickers (returns a per-user superset; we still need to filter
+        // the per-user activeSet after read).
+        const _microCacheBypass = url.searchParams.get("nocache") === "1";
+        const _wantMicroCache = !_microCacheBypass;
+
         // Scope user-added tickers to the requesting user (not all users)
         let _reqUserEmail = null;
         let _isAdminReq = false;
@@ -45155,12 +45172,56 @@ export default {
 
         // KV snapshot fast-path: serve pre-assembled snapshot if fresh (<300s old)
         // Scoring cron rebuilds the snapshot every 5 min, so 300s TTL matches the cycle.
-        // Falls through to D1 if snapshot is missing or stale
+        // Falls through to D1 if snapshot is missing or stale.
+        //
+        // 2026-05-31 — Out-of-hours window bumped from 24h → 14d. The
+        // cron does not run on weekends + holidays, so the snapshot
+        // can be 30-72h old on a Sunday. The previous 24h cap meant
+        // every page load on a Sunday fell through to the D1-from-
+        // scratch path (Today/Active/Insights/Portfolio each ~12-15s
+        // first-load reported). The data is stale-but-correct out of
+        // session — daily candles only update on close, so serving the
+        // last cron's snapshot is by definition the right answer until
+        // the next session opens. Snappy weekend UX > theoretical
+        // freshness during a closed market.
+        // Cheap response micro-cache check (30s TTL). The assembled
+        // payload is keyed by isAdmin + slim flag. If hit, skip ALL
+        // KV/D1 work below.
+        const _microCacheKey = `timed:all:micro:v2:${_isAdminReq ? "admin" : "user"}:${_isSlim ? "slim" : "full"}`;
+        if (_wantMicroCache) {
+          try {
+            const _micro = await kvGetJSON(KV, _microCacheKey);
+            if (_micro?.data && _micro?.built_at && (Date.now() - _micro.built_at) < 30000) {
+              // Per-user activeSet filter still has to run (user-added
+              // tickers + open positions). Otherwise the micro cache is
+              // a superset filtered down to the right tickers.
+              const _activeSetMicro = new Set([
+                ...Object.keys(SECTOR_MAP),
+                ...userAddedForReq,
+                ...MARKET_PULSE_SYMS,
+                ..._openPosTickers,
+              ]);
+              try {
+                const _rawRemovedMicro = (await kvGetJSON(KV, "timed:removed")) || [];
+                const _removedSetMicro = new Set(Array.isArray(_rawRemovedMicro) ? _rawRemovedMicro : []);
+                for (const t of _removedSetMicro) _activeSetMicro.delete(t);
+              } catch (_) {}
+              const _filteredMicro = {};
+              for (const [sym, payload] of Object.entries(_micro.data)) {
+                if (_activeSetMicro.has(sym)) _filteredMicro[sym] = payload;
+              }
+              return sendJSON(
+                { ok: true, data: _filteredMicro, count: Object.keys(_filteredMicro).length, source: "micro_cache", built_at: _micro.built_at, freshness_ts: Date.now() },
+                200,
+                { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+              );
+            }
+          } catch (_) { /* fall through to full path */ }
+        }
+
         try {
           const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          // 360s (6 min) > 300s cron interval: snapshot never goes stale between scoring runs.
-          // Previous 300s window caused D1 fallback flicker at the boundary.
-          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 360000 : 86400000;
+          const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 360000 : 14 * 86400000;
           if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
@@ -45733,12 +45794,27 @@ export default {
                   __execution_ready: obj.__execution_ready, __execution_block_reason: obj.__execution_block_reason,
                 };
               }
-            return sendJSON(
+              // 2026-05-31 — Populate the 30s micro-cache so subsequent
+              // requests skip the full snapshot assembly. Fire-and-
+              // forget so we don't block the response.
+              if (_wantMicroCache) {
+                try {
+                  ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data: slimData, built_at: _snapFreshTs }, 60));
+                } catch (_) {}
+              }
+              return sendJSON(
                 { ok: true, data: slimData, count: Object.keys(slimData).length, source: "kv_snapshot_slim", built_at: snapshot.built_at, freshness_ts: _snapFreshTs },
-              200,
-              { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
-            );
-          }
+                200,
+                { ...corsHeaders(env, req), "Cache-Control": "public, max-age=15" },
+              );
+            }
+
+            // Same micro-cache write for the full path.
+            if (_wantMicroCache) {
+              try {
+                ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60));
+              } catch (_) {}
+            }
 
             return sendJSON(
               { ok: true, data, count: Object.keys(data).length, source: "kv_snapshot", built_at: snapshot.built_at, freshness_ts: _snapFreshTs },
@@ -64655,6 +64731,12 @@ export default {
               tier: user.tier,
               subscription_status: user.subscription_status || null,
               trial_end: user.trial_end || null,
+              // 2026-05-31 — expires_at is the unix-ms timestamp the
+              // current paid/trial period or grace window runs out.
+              // The auth-gate uses it to decide whether `past_due`
+              // and `canceling` users still have Pro access.
+              expires_at: user.expires_at || null,
+              stripe_customer_id: user.stripe_customer_id || null,
               last_login_at: user.last_login_at,
               terms_accepted_at: user.terms_accepted_at || null,
             },

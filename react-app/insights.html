@@ -901,6 +901,13 @@
           let plKnown = 0;
           let best = null;
           let worst = null;
+          // 2026-05-31 — Sector exposure was tallied from the kanban
+          // walk above (only stages hold/active/just_entered/defend/
+          // trim), which misses any trader/investor position whose
+          // ticker's kanban_stage isn't one of those. Re-derive from
+          // the real D1 trade rows so the EXPOSURE pill row matches
+          // the live position count below.
+          const realSectorTallies = {};
           const allLive = [
             ...liveTraderTrades.map(t => ({
               sym: String(t.ticker || "").toUpperCase(),
@@ -925,6 +932,12 @@
             plKnown += 1;
             if (!best || plPct > best.plPct) best = { sym: p.sym, plPct, mode: p.mode };
             if (!worst || plPct < worst.plPct) worst = { sym: p.sym, plPct, mode: p.mode };
+            // Sector pulled from ticker snapshot (data[sym].context?.sector).
+            const snap = (data || {})[p.sym] || (data || {})[p.sym.toLowerCase()];
+            const rawSector = String(snap?.context?.sector || snap?.sector || "").trim();
+            if (rawSector) {
+              realSectorTallies[rawSector] = (realSectorTallies[rawSector] || 0) + 1;
+            }
           }
           const avgPl = plKnown > 0 ? totalPl / plKnown : null;
           // Override the kanban-derived live positions count with the
@@ -938,11 +951,15 @@
             const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
             return ra - rb;
           });
-          // Sector mix sorted by count desc, top 5.
-          const sectors = Object.entries(sectorTallies)
+          // Sector mix sorted by count desc, top 6. Suppress "Unknown"
+          // bucket — it adds noise and made the strip read as "Exposure
+          // Unknown 5" with no useful information.
+          const sectors = Object.entries(realSectorTallies)
+            .filter(([name]) => name && name.toLowerCase() !== "unknown")
             .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
+            .slice(0, 6)
             .map(([name, n]) => ({ name, n }));
+          const sectorUnknownCount = Number(realSectorTallies["Unknown"]) || 0;
           return {
             counts,
             watching: watching.slice(0, 8),
@@ -950,7 +967,15 @@
             best,
             worst,
             sectors,
-            liveCount: positions.length,
+            sectorUnknownCount,
+            // 2026-05-31 — liveCount was the kanban-stage-filtered count
+            // (only hold/active/just_entered/defend/trim). For most users
+            // most stages don't match exactly, so the card read "5 live
+            // positions" when the user actually had 9+ open across
+            // Trader + Investor. Use the D1-truth count instead.
+            liveCount: allLive.length,
+            traderLive: liveTraderTrades.length,
+            investorLive: liveInvestorPositions.length,
             plKnown,
           };
         }, [data, liveTraderTrades, liveInvestorPositions]);
@@ -1044,7 +1069,9 @@
                   ),
                 ),
               ),
-              // Sector exposure of live positions.
+              // Sector exposure of live positions. Only render the
+              // row when we have at least one named sector (the
+              // "Unknown" bucket is suppressed in the data layer).
               board.sectors.length > 0 && h("div", { className: "cio-board-sectors" },
                 h("span", { className: "cio-board-sectors-l" }, "Exposure"),
                 board.sectors.map((s) => h("span", {
@@ -1052,9 +1079,17 @@
                   className: "cio-board-sector-pill",
                   title: `${s.n} live position${s.n === 1 ? "" : "s"}`,
                 }, s.name, " ", h("strong", null, s.n))),
+                board.sectorUnknownCount > 0 && h("span", {
+                  className: "cio-board-sector-pill",
+                  title: `${board.sectorUnknownCount} position${board.sectorUnknownCount === 1 ? "" : "s"} without a tagged sector — usually a freshly-added ticker or a non-equity instrument.`,
+                  style: { opacity: 0.55 },
+                }, "Other ", h("strong", null, board.sectorUnknownCount)),
               ),
               h("p", { className: "cio-card-sub" },
-                `${board.liveCount} live position${board.liveCount === 1 ? "" : "s"}. `,
+                `${board.liveCount} live position${board.liveCount === 1 ? "" : "s"}`,
+                board.traderLive > 0 && board.investorLive > 0
+                  ? ` (${board.traderLive} trader · ${board.investorLive} investor). `
+                  : ". ",
                 `${board.counts.setup + board.counts.enter} setup${(board.counts.setup + board.counts.enter) === 1 ? "" : "s"} on deck. `,
                 board.counts.defend + board.counts.exit > 0
                   ? `${board.counts.defend + board.counts.exit} under stress.`
