@@ -9,6 +9,42 @@
     const el = document.createElement("style");
     el.id = "tt-activity-strip-styles";
     el.textContent = `
+      /* 2026-05-31 — Sticky header wrapper. The nav and the activity
+         strip are moved into this container at runtime so they stick
+         together as a single unit. Before, the nav was \`position:
+         sticky; top: 0\` and the strip was \`position: fixed; top:
+         52px\` on mobile — iOS Safari momentarily de-sticks
+         position:sticky elements during the address-bar collapse,
+         which made the fixed-position strip momentarily appear ABOVE
+         the unstuck nav. One sticky container = both pin together,
+         always in DOM order. */
+      .tt-sticky-top {
+        position: sticky;
+        top: 0;
+        z-index: 60;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        transform: translate3d(0, 0, 0);
+        -webkit-transform: translate3d(0, 0, 0);
+        will-change: transform;
+      }
+      .tt-sticky-top > nav.topnav {
+        position: static !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: transparent !important;
+        z-index: auto !important;
+      }
+      .tt-sticky-top > [data-tt-activity-strip],
+      .tt-sticky-top > .tt-activity-strip {
+        position: static !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+        z-index: auto !important;
+      }
+
       .tt-activity-strip {
         position: sticky; top: 56px; z-index: 40;
         background: rgba(10,12,16,0.85);
@@ -21,7 +57,11 @@
         display: flex; align-items: center; gap: 12px;
       }
       @media (max-width: 720px) {
-        .tt-activity-strip { position: fixed; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
+        /* 2026-05-31 — Mobile keeps sticky positioning (was fixed),
+           but inside the .tt-sticky-top wrapper the !important rules
+           above force position:static so the strip flows under the
+           nav within the sticky container. */
+        .tt-activity-strip { position: sticky; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
         .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
@@ -167,23 +207,23 @@
     }, 400);
   }
 
+  // 2026-05-31 — Tracks the live nav height as a CSS variable so the
+  // desktop activity strip's `top: 56px` rule can scale to the real
+  // nav height (previously hard-coded). The body padding-top hack
+  // that used to live here is no longer needed: the .tt-sticky-top
+  // wrapper keeps both elements in document flow, so content
+  // naturally starts BELOW the sticky header without a synthetic
+  // padding-top spacer (which used to fight with iOS Safari's
+  // address bar collapse). Cleanup the old spacer if a previous
+  // page load left it on body.
   function ensureMobileSpacer(host) {
     const apply = () => {
       try {
-        const isMobile = window.matchMedia?.("(max-width: 720px)")?.matches;
         const navH = document.querySelector("nav.topnav")?.getBoundingClientRect().height || 52;
         document.documentElement.style.setProperty("--tt-nav-h", `${Math.round(navH)}px`);
-        if (!isMobile) {
-          if (document.body?.dataset.ttStripSpacer) {
-            document.body.style.paddingTop = "";
-            delete document.body.dataset.ttStripSpacer;
-          }
-          return;
-        }
-        const total = Math.round(navH) + (Math.round(host.getBoundingClientRect().height) || 44);
-        if (document.body) {
-          document.body.style.paddingTop = `${total}px`;
-          document.body.dataset.ttStripSpacer = String(total);
+        if (document.body?.dataset.ttStripSpacer) {
+          document.body.style.paddingTop = "";
+          delete document.body.dataset.ttStripSpacer;
         }
       } catch (_) {}
     };
@@ -335,6 +375,25 @@
     render(host, _events);
   }
 
+  // 2026-05-31 — Wrap <nav.topnav> + <[data-tt-activity-strip]> in a
+  // single .tt-sticky-top container so they pin together as one unit
+  // (see CSS comment above). Idempotent: re-running this function is
+  // a no-op once the wrapper exists.
+  function ensureStickyWrapper(host) {
+    try {
+      const nav = document.querySelector("nav.topnav");
+      if (!nav) return;
+      // Already wrapped? Done.
+      if (nav.parentElement && nav.parentElement.classList.contains("tt-sticky-top")) return;
+      const wrapper = document.createElement("div");
+      wrapper.className = "tt-sticky-top";
+      // Insert wrapper where nav currently lives, then move nav + host into it.
+      nav.parentNode.insertBefore(wrapper, nav);
+      wrapper.appendChild(nav);
+      if (host && host !== wrapper) wrapper.appendChild(host);
+    } catch (_) { /* defensive: never break the page over a UI nicety */ }
+  }
+
   function mount() {
     ensureStyles();
     let host = document.querySelector("[data-tt-activity-strip]");
@@ -348,6 +407,8 @@
     } else {
       host.classList.add("tt-activity-strip");
     }
+    // Wrap nav + strip in the sticky container so they pin as one.
+    ensureStickyWrapper(host);
     // Default to hidden until auth-bootstrap fires; prevents a brief
     // flash of the strip on cold page load before auth-gate resolves.
     setHostVisible(host, false);

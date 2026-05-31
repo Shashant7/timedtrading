@@ -1586,6 +1586,55 @@
               ),
               "My Account",
             ),
+            // 2026-05-31 — Switch account button (above Sign Out).
+            // Sign Out alone only clears CF Access + our local
+            // session; the user's Google session in the browser
+            // persists, so the next sign-in silently auto-completes
+            // with the same account. "Switch account" routes through
+            // /logout.html?switch=1 which additionally clears the
+            // browser's Google session, forcing the account picker
+            // on the next sign-in. (Sign Out kept underneath for the
+            // simple "just log me out" case.)
+            React.createElement(
+              "button",
+              {
+                onClick: () => {
+                  clearSession();
+                  window.location.href = "/logout.html?switch=1";
+                },
+                style: {
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#67e8f9",
+                  fontSize: "13px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                },
+                onMouseEnter: (e) =>
+                  (e.currentTarget.style.background = "rgba(103, 232, 249, 0.10)"),
+                onMouseLeave: (e) =>
+                  (e.currentTarget.style.background = "transparent"),
+              },
+              React.createElement(
+                "svg",
+                {
+                  width: "14", height: "14", viewBox: "0 0 24 24", fill: "none",
+                  stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round",
+                },
+                React.createElement("path", { d: "M17 1l4 4-4 4" }),
+                React.createElement("path", { d: "M3 11V9a4 4 0 0 1 4-4h14" }),
+                React.createElement("path", { d: "M7 23l-4-4 4-4" }),
+                React.createElement("path", { d: "M21 13v2a4 4 0 0 1-4 4H3" }),
+              ),
+              "Switch account",
+            ),
             // Sign Out button
             React.createElement(
               "button",
@@ -1602,12 +1651,25 @@
                   textAlign: "left",
                   cursor: "pointer",
                   fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
                 },
                 onMouseEnter: (e) =>
                   (e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"),
                 onMouseLeave: (e) =>
                   (e.currentTarget.style.background = "transparent"),
               },
+              React.createElement(
+                "svg",
+                {
+                  width: "14", height: "14", viewBox: "0 0 24 24", fill: "none",
+                  stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round",
+                },
+                React.createElement("path", { d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" }),
+                React.createElement("polyline", { points: "16 17 21 12 16 7" }),
+                React.createElement("line", { x1: "21", y1: "12", x2: "9", y2: "12" }),
+              ),
               "Sign Out",
             ),
           ),
