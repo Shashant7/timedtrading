@@ -748,7 +748,7 @@
   //   requiredTier - optional: "admin", "pro", "free". If set, blocks users below this tier.
   //   children    - render prop: (user) => ReactElement
   function AuthGate({ apiBase, requiredTier, children }) {
-    const [state, setState] = useState("checking"); // checking | authenticated | unauthenticated
+    const [state, setState] = useState("checking"); // checking | authenticated | unauthenticated | blocked
     const [user, setUser] = useState(null);
     const [error, setError] = useState(null);
     const [serverVerified, setServerVerified] = useState(false); // true only after /timed/me confirms auth
@@ -768,6 +768,19 @@
           });
           if (res.ok) {
             const json = await res.json();
+            // 2026-05-31 — Hard-blocked accounts surface as a dedicated
+            // state. Without this, the auth-gate fell through to the
+            // unauthenticated branch, showed the LoginScreen, the user
+            // clicked Sign In, CF Access re-attached the same JWT, and
+            // /timed/me returned blocked again → infinite loop.
+            if (json.ok && json.authenticated && json.blocked) {
+              clearSession();
+              clearBootstrap();
+              setUser(json.user || null);
+              setServerVerified(true);
+              setState("blocked");
+              return;
+            }
             if (json.ok && json.authenticated && json.user) {
               if (json.user.auth_d1_unavailable) {
                 const cached = getStoredSession();
@@ -1069,6 +1082,61 @@
         error: error,
         loading: false,
       });
+    }
+
+    if (state === "blocked") {
+      // 2026-05-31 — Dedicated screen for hard-blocked accounts. Different
+      // from "unauthenticated" — Sign In would loop the user back here, so
+      // we surface a clear support contact path instead of any login CTA.
+      const blockedEmail = user?.email || "your account";
+      return React.createElement("div", {
+        style: {
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          background: "#0b0e11", padding: "24px",
+          fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        },
+      },
+        React.createElement("div", {
+          style: {
+            maxWidth: "480px", width: "100%", padding: "40px 32px", textAlign: "center",
+            background: "#13171D", border: "1px solid rgba(248,113,113,0.18)",
+            borderRadius: "14px",
+          },
+        },
+          React.createElement("div", {
+            style: { fontSize: "32px", marginBottom: "12px", color: "#f87171" },
+          }, "⛔"),
+          React.createElement("h1", {
+            style: { fontSize: "22px", margin: "0 0 12px", color: "#fff", fontWeight: 700 },
+          }, "Account suspended"),
+          React.createElement("p", {
+            style: { fontSize: "14px", lineHeight: 1.6, color: "#9ca3af", margin: "0 0 8px" },
+          },
+            "Sign-in succeeded for ",
+            React.createElement("code", { style: { color: "#fbbf24" } }, blockedEmail),
+            ", but this account is currently blocked from accessing Timed Trading.",
+          ),
+          React.createElement("p", {
+            style: { fontSize: "13px", lineHeight: 1.6, color: "#6b7280", margin: "0 0 24px" },
+          },
+            "If you believe this is a mistake, contact ",
+            React.createElement("a", {
+              href: "mailto:support@timed-trading.com",
+              style: { color: "#67e8f9", textDecoration: "underline" },
+            }, "support@timed-trading.com"),
+            ".",
+          ),
+          React.createElement("a", {
+            href: "/cdn-cgi/access/logout",
+            style: {
+              display: "inline-block", padding: "10px 18px", fontSize: "13px",
+              color: "#e5e7eb", background: "transparent",
+              border: "1px solid rgba(255,255,255,0.12)", borderRadius: "8px",
+              textDecoration: "none", fontWeight: 600,
+            },
+          }, "Sign out"),
+        ),
+      );
     }
 
     // Stripe activation in progress: show loading screen instead of paywall

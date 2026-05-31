@@ -29,6 +29,19 @@
       [skills/broker-bridge.md](../skills/broker-bridge.md) → "Cloudflare
       error 1042". Symptom: Mission Control bridge tile shows
       `bridge_responded_404` even though the bridge worker is up.
+- [ ] **FAQ ↔ Learn content alignment.** `/faq.html` Q&A pairs predate
+      the May 2026 product rewrite (Today / Active Trader / Investor /
+      Insights / journey-page split, fused-POV options, IBKR auto-mirror,
+      AI CIO Decision Review). Rewrite each Q&A to match the language and
+      claims in `/learn.html`. Specifically audit:
+      - Pricing question (numbers must match `/splash.html#pricing`)
+      - "What does the system trade?" (now multi-engine: investor + active
+        trader + options + futures pairs)
+      - "How does the AI work?" (mention AI CIO Decision Review, replay
+        backtests, 8-layer Root Strategy fusion)
+      - "What about live execution?" (IBKR live, Robinhood in research)
+      - Add a "Why is my session signed out after admin removed me?"
+        entry that points to the auto-reactivation flow (PR after #391).
 
 ### Watch
 

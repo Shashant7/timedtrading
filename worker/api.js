@@ -369,9 +369,72 @@ export async function authenticateUser(req, env) {
       .first();
 
     if (existing) {
-      if (existing.status === "blocked" || existing.status === "removed") {
-        return null;
+      // Hard ban — keep blocking. The /timed/me handler still surfaces
+      // this case explicitly so the operator sees a "blocked" page
+      // instead of an infinite login loop.
+      if (existing.status === "blocked") {
+        return { ...existing, _blocked: true };
       }
+
+      // Soft-removed (admin "Remove" button, not "PERMANENTLY delete").
+      // Old behaviour returned null → frontend stuck on LoginScreen,
+      // SSO loop, user dead-ended (2026-05-31 incident: benjasani test).
+      //
+      // New behaviour: treat status='removed' as "this account was
+      // offboarded; if the same person comes back via the same Google
+      // identity, they almost always mean to start fresh." Auto-revive
+      // with subscription cleared so they re-enter the trial flow. Keep
+      // an audit trail via `reactivated_at` + the original
+      // `removed_at`. Admin can still hard ban via "Block" if intent
+      // was punitive.
+      if (existing.status === "removed") {
+        const now = Date.now();
+        try {
+          await DB.prepare(
+            `UPDATE users SET
+              status = 'active',
+              tier = 'free',
+              role = CASE WHEN role = 'admin' THEN role ELSE 'member' END,
+              subscription_status = NULL,
+              stripe_customer_id = NULL,
+              stripe_subscription_id = NULL,
+              trial_end = NULL,
+              terms_accepted_at = NULL,
+              reactivated_at = ?,
+              updated_at = ?,
+              last_login_at = ?,
+              display_name = COALESCE(?, display_name)
+            WHERE email = ?`,
+          )
+            .bind(now, now, now, name, email)
+            .run();
+        } catch (e) {
+          // Older schemas may not have the reactivated_at column; fall
+          // back to the minimum revive so the user can still proceed.
+          try {
+            await DB.prepare(
+              `UPDATE users SET status = 'active', tier = 'free', subscription_status = NULL,
+                trial_end = NULL, terms_accepted_at = NULL, updated_at = ?, last_login_at = ?
+                WHERE email = ?`,
+            )
+              .bind(now, now, email)
+              .run();
+          } catch (_) {}
+        }
+        try { console.log(`[AUTH] Reactivated soft-removed user: ${email}`); } catch (_) {}
+        return {
+          ...existing,
+          status: "active",
+          tier: "free",
+          subscription_status: null,
+          trial_end: null,
+          terms_accepted_at: null,
+          reactivated_at: now,
+          last_login_at: now,
+          display_name: name || existing.display_name,
+        };
+      }
+
       // Update last login + session tracking (login_count, login_days)
       const now = Date.now();
       const todayNY = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // "YYYY-MM-DD"

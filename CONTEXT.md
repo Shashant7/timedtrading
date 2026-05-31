@@ -101,15 +101,22 @@ root redirect lives in `react-app/_worker.js`.
 
 **CF Access policy regex (User Pages) must list every authenticated HTML page**
 or users hit a login loop. **Public (do not require Access):** `splash.html`,
-`terms.html`, `logout.html`. **Admin HTML** is also gated server-side by
-`react-app/_worker.js` → `ADMIN_ONLY_PAGES` (defense in depth).
+`terms.html`, `logout.html`, `proof.html`, `faq.html`, `learn.html`. **Admin
+HTML** is also gated server-side by `react-app/_worker.js` → `ADMIN_ONLY_PAGES`
+(defense in depth).
 
 Update the Cloudflare Dashboard regex when adding any new `react-app/*.html`
-(except public pages above). Suggested combined pattern (May 2026):
+(except public pages above). Authenticated-only regex (2026-05-31, corrects
+the over-aggressive May 30 version that gated `faq`, `learn`, and `proof`):
 
 ```
-(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|learn|faq|calibration|proof|mission-control|bridge-audit|screener|trade-autopsy|system-intelligence|ticker-management|admin-clients|brand-kit|debug-dashboard|model-dashboard|move-discovery)\.html
+(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|calibration|mission-control|bridge-audit|screener|trade-autopsy|system-intelligence|ticker-management|admin-clients|brand-kit|debug-dashboard|model-dashboard|move-discovery)\.html
 ```
+
+**Public** marketing/info pages — **must NOT be added to CF Access**:
+`splash`, `terms`, `logout`, `proof`, `faq`, `learn`. Adding any of these to
+the Access policy will block unauthenticated visitors from the conversion
+funnel.
 
 If `/trade-autopsy/` (directory index) is served separately, add that path to
 the same Access application. Only the operator can edit policies in Cloudflare.
