@@ -1,26 +1,26 @@
 {
-  "generated_at_utc": "2026-05-30T19:41:53.752258+00:00",
-  "baseline_file": "data/reference-intel/history/reference-selection-20260530-194139.json",
+  "generated_at_utc": "2026-05-31T09:23:27.490292+00:00",
+  "baseline_file": "data/reference-intel/history/reference-selection-20260531-092313.json",
   "candidate_file": "data/reference-intel/reference-selection-v1.json",
   "baseline_count": 250,
   "candidate_count": 250,
   "trade_overlap_count": 231,
   "trade_jaccard_similarity": 1.0,
   "sector_delta_counts": {
-    "Crypto": 0,
-    "Precious Metals": 0,
     "Consumer Staples": 0,
-    "Financials": 0,
-    "Information Technology": 0,
     "Healthcare": 0,
-    "Basic Materials": 0,
-    "Health Care": 0,
+    "Financials": 0,
+    "Precious Metals": 0,
     "Communication Services": 0,
+    "Energy": 0,
+    "Crypto": 0,
     "Industrials": 0,
     "Commodity ETF": 0,
+    "Basic Materials": 0,
+    "ETF": 0,
+    "Health Care": 0,
     "Consumer Discretionary": 0,
-    "Energy": 0,
-    "ETF": 0
+    "Information Technology": 0
   },
   "drift_alert": false
 }
