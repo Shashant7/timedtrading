@@ -454,8 +454,15 @@
 
     return h("div", {
       style: {
+        // 2026-05-31 — Mobile bottom nav was being captured into the
+        // paywall card's containing block on iOS because the wrapping
+        // div used overflow: hidden + min-height which can create a
+        // local positioning context with some Safari builds. Bumped
+        // padding-bottom so the paywall card never overlaps the
+        // bottom-nav strip on mobile.
         minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#0b0e11", fontFamily: font, padding: "24px 12px",
+        background: "#0b0e11", fontFamily: font,
+        padding: "24px 12px max(96px, env(safe-area-inset-bottom)) 12px",
       },
     },
       h("div", {
@@ -560,10 +567,29 @@
         ),
         h("p", { style: { fontSize: "12px", color: "#374151", marginTop: "16px" } },
           "Signed in as ", h("span", { style: { color: "#6b7280" } }, user?.email || "Unknown")),
-        h("a", {
-          href: "/splash.html",
-          style: { fontSize: "12px", color: "#4b5563", textDecoration: "underline", display: "inline-block", marginTop: "8px" },
-        }, "Back to home"),
+        // 2026-05-31 — Three navigation escape hatches for a paywalled
+        // user:
+        //   • Back to home → splash (public marketing)
+        //   • Switch account → /logout.html (clears CF + Google session,
+        //     forces account picker on next sign-in)
+        //   • Sign out → /logout.html (same flow, neutral label)
+        // Without these, a free user who chose the wrong Google account
+        // had no way out except clearing cookies manually.
+        h("div", {
+          style: {
+            display: "flex", flexWrap: "wrap", justifyContent: "center",
+            gap: "14px", marginTop: "10px",
+          },
+        },
+          h("a", {
+            href: "/splash.html",
+            style: { fontSize: "12px", color: "#4b5563", textDecoration: "underline" },
+          }, "Back to home"),
+          h("a", {
+            href: "/logout.html?switch=1",
+            style: { fontSize: "12px", color: "#67e8f9", textDecoration: "underline", fontWeight: 600 },
+          }, "Sign in with a different account"),
+        ),
       ),
     );
   }

@@ -550,12 +550,44 @@
     }
   }
 
+  // 2026-05-31 — Brand link smart-routing.
+  //
+  // The page's top-nav brand logo (<a class="nav-brand" href="/today.html">)
+  // is hard-coded to point at the authenticated dashboard. For a user who
+  // is signed in but on the paywall (free / past-paywall / not yet trialing),
+  // clicking the logo re-loads the paywall — no way back to splash. For a
+  // user with a stale session showing the LoginScreen, same problem.
+  //
+  // This helper rewrites the brand link to /splash.html whenever the user
+  // is NOT Pro. Pro users keep the dashboard link. Re-evaluated on every
+  // tt-auth-bootstrap-updated so a successful Stripe trial activation
+  // restores the dashboard link automatically.
+  function wireBrandLink() {
+    const brands = document.querySelectorAll("a.nav-brand, .nav-brand[href]");
+    if (!brands.length) return;
+    const isPro =
+      window._ttIsPro === true ||
+      document.body?.dataset?.isPro === "true" ||
+      window._ttIsAdmin === true ||
+      document.body?.dataset?.isAdmin === "true";
+    for (const a of brands) {
+      // Preserve the original href the first time we see this link so we
+      // can restore it if the user upgrades to Pro mid-session.
+      if (!a.dataset.ttBrandHrefOriginal) {
+        a.dataset.ttBrandHrefOriginal = a.getAttribute("href") || "/today.html";
+      }
+      const original = a.dataset.ttBrandHrefOriginal;
+      a.setAttribute("href", isPro ? original : "/splash.html");
+    }
+  }
+
   // ── Init ──────────────────────────────────────────────────────
   async function init() {
     ensureStyles();
     injectAdminMenu();
     injectRightWidgets();
     injectJourneyLinks();
+    wireBrandLink();
 
     // Badges — kick off in parallel; render whichever returns.
     fetchOpenTradeCount().then((n) => {
@@ -598,6 +630,7 @@
   window.addEventListener("tt-auth-bootstrap-updated", () => {
     injectAdminMenu();
     injectRightWidgets();
+    wireBrandLink();
   });
 
   // Also poll briefly during the first ~3s in case the user is
@@ -617,4 +650,4 @@
   })();
 })();
 
-// cache-bust:1780255443681:748341418
+// cache-bust:1780265662499:114397457
