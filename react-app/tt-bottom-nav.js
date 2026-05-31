@@ -28,24 +28,30 @@
       bottom: 0;
       left: 0;
       right: 0;
-      z-index: 8500;
+      /* 2026-05-31 — User report: bottom nav was appearing mid-page on
+         iOS Safari instead of pinned to the viewport. Root cause was
+         the PaywallScreen wrapper using `transform: translate3d` (and
+         some legacy callers using `transform: translateZ(0)` to force
+         GPU layers) — when ANY ancestor of a position:fixed element
+         has a transform, filter, or perspective, the fixed element's
+         containing block becomes that ancestor instead of the
+         viewport. So the nav appeared at the bottom of the paywall
+         card, not the bottom of the screen.
+
+         Re-parent the nav DIRECTLY under <body> via document.body
+         .appendChild() (already in code below) AND bump z-index so
+         it always wins. The translate3d inside the nav itself is
+         fine (it doesn't affect its own positioning context) — it's
+         ancestor transforms that break fixed positioning. */
+      z-index: 2147483000;
       padding: 8px 8px max(8px, env(safe-area-inset-bottom));
       background: rgba(10,12,16,0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
-      /* Bug 2026-05-20 (user report): on iOS Safari the bottom nav was
-         "floating up" mid-page during scroll instead of staying pinned
-         to the viewport bottom. Root cause is a known WebKit issue
-         where fixed-positioned elements with backdrop-filter can be
-         miscomputed during momentum scroll — the element gets briefly
-         re-positioned relative to the layout viewport before the URL
-         bar collapse, instead of the current visual viewport.
-         Forcing a GPU compositing layer via translate3d(0,0,0) +
-         will-change pins the nav to its own layer and prevents the
-         miscalculation. transform: translateZ(0) alone also works on
-         some WebKit versions; translate3d is more reliable. */
+      /* Bug 2026-05-20: iOS Safari momentum-scroll fixed-position quirk.
+         Force GPU compositing so the nav stays in its own layer. */
       transform: translate3d(0, 0, 0);
       -webkit-transform: translate3d(0, 0, 0);
       will-change: transform;
