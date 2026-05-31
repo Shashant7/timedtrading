@@ -285,4 +285,4 @@
   setInterval(applyBadges, 60 * 1000);
 })();
 
-// cache-bust:1780253299009:450894845
+// cache-bust:1780255443681:748341418
