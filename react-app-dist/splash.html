@@ -627,15 +627,22 @@
       border-radius: 10px;
       margin-bottom: 32px;
     }
-    /* Real backtest stats strip — 6 tiles, equal-width on desktop, 2-col on mobile */
+    /* Live proof KPI strip — same metrics as /proof.html */
     .proof-stats {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
       gap: 12px;
-      margin-bottom: 32px;
+      margin-bottom: 16px;
     }
     @media (max-width: 768px) {
       .proof-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    }
+    .proof-stats-note {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      letter-spacing: 0.03em;
     }
     .proof-stat {
       padding: 16px 14px;
@@ -1352,16 +1359,59 @@
         </p>
       </div>
 
-      <div class="reveal" style="margin-top:28px;text-align:center">
-        <p class="proof-disclaimer" style="margin-bottom:20px">
-          For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss.
+      <div class="reveal" style="margin-top:28px">
+        <div class="proof-stats" id="splashProofStats" aria-live="polite">
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spAccount">&mdash;</div>
+            <div class="proof-stat-label">Account Value</div>
+            <div class="proof-stat-sub" id="spAccountSub">$100K start</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spTotal">&mdash;</div>
+            <div class="proof-stat-label">Total P&amp;L</div>
+            <div class="proof-stat-sub" id="spTotalSub">since Jul 1, 2025</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spRealized">&mdash;</div>
+            <div class="proof-stat-label">Realized P&amp;L</div>
+            <div class="proof-stat-sub" id="spRealizedSub">closed trades</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spTrades">&mdash;</div>
+            <div class="proof-stat-label">Closed Trades</div>
+            <div class="proof-stat-sub" id="spTradesSub">&mdash;</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spWR">&mdash;</div>
+            <div class="proof-stat-label">Win Rate</div>
+            <div class="proof-stat-sub" id="spWRSub">&mdash;</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spSharpe">&mdash;</div>
+            <div class="proof-stat-label">Sharpe</div>
+            <div class="proof-stat-sub" id="spSharpeSub">daily, ann.</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spRR">&mdash;</div>
+            <div class="proof-stat-label">Avg R:R</div>
+            <div class="proof-stat-sub" id="spRRSub">avg win / avg loss</div>
+          </div>
+        </div>
+        <p class="proof-stats-note">
+          Active Trader simulation ledger &middot; since Jul 1, 2025 &middot; <span id="spUpdated">Loading&hellip;</span>
         </p>
-        <a href="/proof.html" class="hero-cta" style="display:inline-flex">
-          View live proof
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-          </svg>
-        </a>
+
+        <div style="text-align:center">
+          <p class="proof-disclaimer" style="margin-bottom:20px">
+            For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss.
+          </p>
+          <a href="/proof.html" class="hero-cta" style="display:inline-flex">
+            View live proof
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+            </svg>
+          </a>
+        </div>
       </div>
     </div>
   </section>
@@ -1686,8 +1736,127 @@
     })();
   </script>
 
+  <script>
+  (() => {
+    const API = "https://timed-trading-ingest.shashant.workers.dev";
+    const fmtUsd = (n) => {
+      if (!Number.isFinite(n)) return "\u2014";
+      const abs = Math.abs(n);
+      const sign = n < 0 ? "-" : "";
+      if (abs >= 1_000_000) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+      if (abs >= 10_000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+      if (abs >= 1000) return `${sign}$${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+      return `${sign}$${abs.toFixed(2)}`;
+    };
+    const fmtPct = (p) => Number.isFinite(p) ? `${p >= 0 ? "+" : ""}${p.toFixed(2)}%` : "\u2014";
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const setValClass = (id, positive) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove("up", "down");
+      if (positive === true) el.classList.add("up");
+      if (positive === false) el.classList.add("down");
+    };
+
+    function computeSharpe(points) {
+      if (!Array.isArray(points) || points.length < 10) return null;
+      const returns = [];
+      for (let i = 1; i < points.length; i++) {
+        const prev = Number(points[i - 1]?.equity);
+        const cur = Number(points[i]?.equity);
+        if (prev > 0 && Number.isFinite(cur)) returns.push((cur - prev) / prev);
+      }
+      if (returns.length < 10) return null;
+      const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+      const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+      const sd = Math.sqrt(variance);
+      if (!(sd > 0)) return null;
+      return (mean / sd) * Math.sqrt(252);
+    }
+
+    async function loadAccount() {
+      try {
+        const res = await fetch(`${API}/timed/account-summary?mode=trader`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const j = await res.json();
+        if (!j.ok) throw new Error(j.error || "no_data");
+        const startCash = Number(j.startCash) || 100000;
+        const account = Number(j.accountValue) || 0;
+        const realized = Number(j.totalRealized) || 0;
+        const unrealized = Number(j.unrealized) || 0;
+        const total = realized + unrealized;
+        const totalPct = startCash > 0 ? (total / startCash) * 100 : 0;
+        setText("spAccount", fmtUsd(account));
+        setText("spTotal", `${total >= 0 ? "+" : ""}${fmtUsd(total)}`);
+        setValClass("spTotal", total >= 0);
+        setText("spTotalSub", `${fmtPct(totalPct)} since Jul 1, 2025`);
+        setText("spRealized", `${realized >= 0 ? "+" : ""}${fmtUsd(realized)}`);
+        setValClass("spRealized", realized >= 0);
+        setText("spRealizedSub", `${unrealized >= 0 ? "+" : ""}${fmtUsd(unrealized)} unrealized open`);
+        try {
+          const ts = new Date(j.generated_at);
+          setText("spUpdated", `Updated ${ts.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`);
+        } catch (_) {
+          setText("spUpdated", "Live from proof ledger");
+        }
+      } catch (_) {
+        setText("spUpdated", "Stats unavailable \u2014 see proof page");
+      }
+    }
+
+    async function loadEquityCurve() {
+      try {
+        const res = await fetch(`${API}/timed/portfolio/equity-curve?mode=trader`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const j = await res.json();
+        const points = Array.isArray(j.trader?.points) ? j.trader.points : [];
+        const sharpe = computeSharpe(points);
+        if (sharpe != null) {
+          setText("spSharpe", sharpe.toFixed(2));
+          setValClass("spSharpe", sharpe >= 1.5 ? true : sharpe >= 0.5 ? null : false);
+          setText("spSharpeSub", `${points.length} sessions, ann.`);
+        }
+      } catch (_) { /* Sharpe stays em dash */ }
+    }
+
+    async function loadTrades() {
+      try {
+        const [winRes, lossRes] = await Promise.all([
+          fetch(`${API}/timed/ledger/trades?status=WIN&limit=500`, { cache: "no-store" }),
+          fetch(`${API}/timed/ledger/trades?status=LOSS&limit=500`, { cache: "no-store" }),
+        ]);
+        if (!winRes.ok || !lossRes.ok) throw new Error("HTTP fail");
+        const wj = await winRes.json();
+        const lj = await lossRes.json();
+        const all = [...(wj.trades || []), ...(lj.trades || [])].filter((t) => {
+          const s = String(t.status || "").toUpperCase();
+          return s === "WIN" || s === "LOSS";
+        });
+        const wins = all.filter((t) => String(t.status).toUpperCase() === "WIN");
+        const losses = all.filter((t) => String(t.status).toUpperCase() === "LOSS");
+        const wr = all.length > 0 ? (wins.length / all.length) * 100 : 0;
+        setText("spTrades", String(all.length));
+        setText("spTradesSub", `${wins.length}W \u00b7 ${losses.length}L`);
+        setText("spWR", `${wr.toFixed(1)}%`);
+        setText("spWRSub", `${wins.length} wins / ${all.length} trades`);
+        const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / wins.length : 0;
+        const avgLossAbs = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / losses.length) : 0;
+        const avgRR = avgLossAbs > 0 ? avgWin / avgLossAbs : 0;
+        setText("spRR", avgRR > 0 ? avgRR.toFixed(2) : "\u2014");
+        setValClass("spRR", avgRR >= 1 ? true : avgRR > 0 ? null : false);
+        setText("spRRSub", avgRR > 0 ? `+$${avgWin.toFixed(0)} avg win \u00b7 -$${avgLossAbs.toFixed(0)} avg loss` : "avg win / avg loss");
+      } catch (_) { /* tiles stay em dash */ }
+    }
+
+    loadAccount();
+    loadEquityCurve();
+    loadTrades();
+    setInterval(() => { loadAccount(); loadEquityCurve(); loadTrades(); }, 5 * 60 * 1000);
+  })();
+  </script>
+
 
 </body>
 </html>
 
-<!-- cache-bust:1780260111821:440457695 -->
+<!-- cache-bust:1780260401833:466552510 -->
