@@ -34,7 +34,7 @@ The operator story—manual prep overload → bubble map → full lifecycle auto
 ### Splash / pricing alignment (product marketing debt)
 
 - Splash should lead with **exit discipline + proof**, not Charter scarcity ([`tasks/marketing/account-playbook-x.md`](./tasks/marketing/account-playbook-x.md)).
-- **Stripe today:** ~$60/mo, **30-day trial** (align all copy; splash footnote still said 14-day in places—fix on next frontend pass).
+- **Stripe today:** ~$60/mo, **14-day trial** (splash and nurture copy must match).
 - **Charter:** reframe as *founding member* (rate lock + direct line), not countdown FOMO.
 
 ---
@@ -235,7 +235,7 @@ You already have this. Make it the proof point.
 
 | Tier | Price | What you get |
 |------|-------|--------------|
-| **Trial** | $0 for **30 days** | Full product trial (Stripe); align splash/footer copy. |
+| **Trial** | $0 for **14 days** | Full product trial (Stripe); align splash/footer copy. |
 | **Pro (Charter / standard)** | **$60/mo** | Active Trader + Investor modes, live signals, dashboard, trade autopsy, Discord. Charter = founding-member rate lock + direct line—not fake scarcity. |
 | **Free email (future)** | $0 | Daily Brief opt-in without full dashboard—spec’d in automation doc; not required for trust phase. |
 

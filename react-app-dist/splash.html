@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Timed Trading — Founder's Charter. $60/mo locked for life.</title>
-  <meta name="description" content="Lock in $60/mo Charter pricing — for life. Timed Trading scores every major ticker in real time and tells you when conditions line up. Active Trader + Investor modes, AI-validated entries, full transparency. Charter members get the discount and a direct line to the team." />
-  <meta property="og:title" content="Timed Trading — Founder's Charter. $60/mo locked for life." />
-  <meta property="og:description" content="Charter members lock today's rate as standard pricing rises. Live signals, clear levels, the moment to act." />
+  <title>Timed Trading — Stop Guessing. Start Timing.</title>
+  <meta name="description" content="Timed Trading tells you when to enter, trim, and exit — so winners stop turning into losers. Live ledger, bubble map, and Setup → Trim → Exit lanes. Active Trader + Investor modes. 14-day free trial." />
+  <meta property="og:title" content="Timed Trading — Stop Guessing. Start Timing." />
+  <meta property="og:description" content="Lifecycle signals with clear levels — from entry through trim and exit. See the live trade ledger, then start a 14-day free trial." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://timed-trading.com/" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Timed Trading — Stop guessing. Start timing." />
-  <meta name="twitter:description" content="Your trading co-pilot. Live signals, clear levels, the moment to act." />
+  <meta name="twitter:description" content="When to enter, trim, and exit — with a live ledger that shows wins and losses. timed-trading.com/proof.html" />
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -627,15 +627,22 @@
       border-radius: 10px;
       margin-bottom: 32px;
     }
-    /* Real backtest stats strip — 6 tiles, equal-width on desktop, 2-col on mobile */
+    /* Live proof KPI strip — same metrics as /proof.html */
     .proof-stats {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
       gap: 12px;
-      margin-bottom: 32px;
+      margin-bottom: 16px;
     }
     @media (max-width: 768px) {
       .proof-stats { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    }
+    .proof-stats-note {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      letter-spacing: 0.03em;
     }
     .proof-stat {
       padding: 16px 14px;
@@ -1133,7 +1140,7 @@
       <div class="hero-particles" id="heroParticles"></div>
     </div>
     <div class="hero-content">
-      <div class="hero-badge">Your Trading Co-Pilot</div>
+      <div class="hero-badge">Lifecycle signals &middot; Active Trader + Investor</div>
       <h1>Stop Guessing.<br />Start Timing.</h1>
       <p class="hero-oneliner">
         Live signals. Clear levels. The moment to act.
@@ -1142,21 +1149,21 @@
         Timed Trading scores every major ticker in real time and tells you when conditions actually line up &mdash; so you stop chasing and start acting with a system.
       </p>
       <div class="hero-cta-row">
-        <a href="/today.html" class="hero-cta">
-          Reserve Charter Seat &mdash; $60/mo locked
+        <a href="/proof.html" class="hero-cta">
+          See live proof
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
-        <a href="/learn.html" class="hero-cta-secondary">
-          How it works
+        <a href="/today.html" class="hero-cta-secondary">
+          Start 14-day free trial
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 6 15 12 9 18" />
           </svg>
         </a>
       </div>
       <p class="hero-footnote">
-        14-day free trial &middot; Lock your rate at signup &middot; Cancel anytime
+        14-day free trial &middot; $60/mo after trial &middot; Cancel anytime
       </p>
     </div>
 
@@ -1344,147 +1351,66 @@
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
-        <span class="section-label">Real Results</span>
+        <span class="section-label">Proof</span>
         <h2 class="section-title">The model shows its work.</h2>
-        <p class="section-desc" style="margin:0 auto">Every trade is logged. Entry, exit, levels, and reasoning &mdash; fully transparent.</p>
+        <p class="section-desc" style="margin:0 auto;max-width:640px">
+          The Active Trader equity curve reflects the model buying and selling shares in a simulation ledger &mdash; not a curated highlight reel.
+          Since July 1, 2025, the public proof page shows a <strong>live equity curve</strong>, <strong>win rate</strong>, and <strong>trade ledger</strong> (recent wins and losses), updated on a regular cadence.
+        </p>
       </div>
 
-      <div class="reveal" style="margin-top:32px">
-        <div class="proof-disclaimer">
-          Simulated results from historical backtesting (Jul 2025 &ndash; May 2026, 203 trading days). Past performance does not guarantee future results. All trading involves risk of loss.
-        </div>
-
-        <!-- Real backtest stats — Active Trader, Jul 2025 → May 2026 -->
-        <div class="proof-stats">
+      <div class="reveal" style="margin-top:28px">
+        <div class="proof-stats" id="splashProofStats" aria-live="polite">
           <div class="proof-stat">
-            <div class="proof-stat-value up">+40.0%</div>
-            <div class="proof-stat-label">Total Return</div>
-            <div class="proof-stat-sub">$100k &rarr; $140k</div>
+            <div class="proof-stat-value" id="spAccount">&mdash;</div>
+            <div class="proof-stat-label">Account Value</div>
+            <div class="proof-stat-sub" id="spAccountSub">$100K start</div>
           </div>
           <div class="proof-stat">
-            <div class="proof-stat-value">4.62</div>
-            <div class="proof-stat-label">Sharpe Ratio</div>
-            <div class="proof-stat-sub">annualized</div>
+            <div class="proof-stat-value" id="spTotal">&mdash;</div>
+            <div class="proof-stat-label">Total P&amp;L</div>
+            <div class="proof-stat-sub" id="spTotalSub">since Jul 1, 2025</div>
           </div>
           <div class="proof-stat">
-            <div class="proof-stat-value down">-2.7%</div>
-            <div class="proof-stat-label">Max Drawdown</div>
-            <div class="proof-stat-sub">peak-to-trough</div>
+            <div class="proof-stat-value" id="spRealized">&mdash;</div>
+            <div class="proof-stat-label">Realized P&amp;L</div>
+            <div class="proof-stat-sub" id="spRealizedSub">closed trades</div>
           </div>
           <div class="proof-stat">
-            <div class="proof-stat-value">52.2%</div>
-            <div class="proof-stat-label">Win Rate</div>
-            <div class="proof-stat-sub">307W &middot; 281L</div>
-          </div>
-          <div class="proof-stat">
-            <div class="proof-stat-value">588</div>
+            <div class="proof-stat-value" id="spTrades">&mdash;</div>
             <div class="proof-stat-label">Closed Trades</div>
-            <div class="proof-stat-sub">~3 / day</div>
+            <div class="proof-stat-sub" id="spTradesSub">&mdash;</div>
           </div>
           <div class="proof-stat">
-            <div class="proof-stat-value">203</div>
-            <div class="proof-stat-label">Trading Days</div>
-            <div class="proof-stat-sub">10 months live</div>
+            <div class="proof-stat-value" id="spWR">&mdash;</div>
+            <div class="proof-stat-label">Win Rate</div>
+            <div class="proof-stat-sub" id="spWRSub">&mdash;</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spSharpe">&mdash;</div>
+            <div class="proof-stat-label">Sharpe</div>
+            <div class="proof-stat-sub" id="spSharpeSub">daily, ann.</div>
+          </div>
+          <div class="proof-stat">
+            <div class="proof-stat-value" id="spRR">&mdash;</div>
+            <div class="proof-stat-label">Payoff ratio</div>
+            <div class="proof-stat-sub" id="spRRSub">avg win / avg loss</div>
           </div>
         </div>
-        <p class="proof-period">
-          Win rate near 50% pairs with disciplined risk: the average winner is larger than the average loser, and max drawdown stays inside &minus;3%.
+        <p class="proof-stats-note">
+          Active Trader simulation ledger &middot; since Jul 1, 2025 &middot; <span id="spUpdated">Loading&hellip;</span>
         </p>
 
-        <div class="trade-cards">
-          <!-- Trade 1: KLAC -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc1Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 70 L30 68 L60 72 L90 60 L120 55 L150 48 L180 35 L210 30 L240 28 L270 22 L300 18 V100 H0 Z" fill="url(#tc1Fill)"/>
-              <line x1="60" y1="72" x2="60" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="60" cy="72" r="4" fill="#3b82f6"/>
-              <line x1="210" y1="30" x2="210" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="210" cy="30" r="4" fill="#fbbf24"/>
-              <line x1="270" y1="22" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="270" cy="22" r="4" fill="#34d399"/>
+        <div style="text-align:center">
+          <p class="proof-disclaimer" style="margin-bottom:20px">
+            For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss.
+          </p>
+          <a href="/proof.html" class="hero-cta" style="display:inline-flex">
+            View live proof
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
             </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">KLAC</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Prime</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 2 &middot; $742.18</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 2 &middot; $759.74</span></div>
-              <div class="trade-card-pnl">+$177.06</div>
-              <div class="trade-card-caption">Multi-timeframe alignment confirmed. Trimmed 50% at TP1, runner exited at trailing stop.</div>
-            </div>
-          </div>
-
-          <!-- Trade 2: CSX -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc2Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 65 L40 60 L80 62 L120 50 L160 42 L200 38 L240 25 L280 20 L300 22 V100 H0 Z" fill="url(#tc2Fill)"/>
-              <line x1="80" y1="62" x2="80" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="80" cy="62" r="4" fill="#3b82f6"/>
-              <line x1="240" y1="25" x2="240" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="240" cy="25" r="4" fill="#34d399"/>
-            </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">CSX</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Confirmed</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $34.82</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $35.83</span></div>
-              <div class="trade-card-pnl">+$146.30</div>
-              <div class="trade-card-caption">Squeeze release detected. Entry on breakout confirmation. Exited as momentum reached exhaustion.</div>
-            </div>
-          </div>
-
-          <!-- Trade 3: ITT -->
-          <div class="trade-card">
-            <svg class="trade-card-chart" viewBox="0 0 300 100" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="tc3Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#00c853" stop-opacity="0.15"/>
-                  <stop offset="100%" stop-color="#00c853" stop-opacity="0"/>
-                </linearGradient>
-              </defs>
-              <rect width="300" height="100" fill="#0d1117"/>
-              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30" stroke="#00e676" stroke-width="2" fill="none" opacity="0.8"/>
-              <path d="M0 75 L30 72 L60 68 L90 70 L120 58 L150 52 L180 45 L210 40 L240 32 L270 28 L300 30 V100 H0 Z" fill="url(#tc3Fill)"/>
-              <line x1="90" y1="70" x2="90" y2="100" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="90" cy="70" r="4" fill="#3b82f6"/>
-              <line x1="180" y1="45" x2="180" y2="100" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="180" cy="45" r="4" fill="#fbbf24"/>
-              <line x1="270" y1="28" x2="270" y2="100" stroke="#34d399" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <circle cx="270" cy="28" r="4" fill="#34d399"/>
-            </svg>
-            <div class="trade-card-body">
-              <div class="trade-card-header">
-                <span class="tc-ticker">ITT</span>
-                <span class="tc-status win">WIN</span>
-              </div>
-              <div class="trade-card-row"><span>Direction</span><span class="tc-val">LONG &middot; TT Early</span></div>
-              <div class="trade-card-row"><span>Entry</span><span class="tc-val">Jul 1 &middot; $148.20</span></div>
-              <div class="trade-card-row"><span>Exit</span><span class="tc-val">Jul 1 &middot; $153.72</span></div>
-              <div class="trade-card-pnl">+$79.61</div>
-              <div class="trade-card-caption">Trend alignment confirmed. Pullback recovery entry. Trimmed at TP1, runner exited at support break.</div>
-            </div>
-          </div>
+          </a>
         </div>
       </div>
     </div>
@@ -1663,17 +1589,17 @@
   <section id="pricing">
     <div class="container">
       <div class="reveal" style="text-align:center">
-        <span class="section-label">Founder's Charter</span>
-        <h2 class="section-title">Lock in early-access pricing</h2>
+        <span class="section-label">Pricing</span>
+        <h2 class="section-title">Try the full platform, then decide</h2>
         <p class="section-desc" style="margin:0 auto">
-          We're in our founder phase. Charter members lock today's rate for life &mdash;
-          even when standard pricing rises as the product matures.
+          Start with the live ledger at <a href="/proof.html" style="color:var(--accent);text-decoration:none;font-weight:600">proof</a>.
+          Founding members who subscribe during early access keep $60/mo even if standard pricing rises later.
         </p>
       </div>
       <div class="pricing-card reveal">
-        <span class="pricing-badge">Charter Pricing &middot; Limited Window</span>
-        <div class="pricing-name">Timed Trading &mdash; Charter Member</div>
-        <p class="pricing-tagline">Full platform access. Founder's Charter perks. Locked rate.</p>
+        <span class="pricing-badge">Founding member &middot; Early access</span>
+        <div class="pricing-name">Timed Trading Pro</div>
+        <p class="pricing-tagline">Full platform access. Locked rate for founding members.</p>
 
         <div class="pricing-price-row">
           <span class="pricing-price-anchor">$99<span>/mo</span></span>
@@ -1686,7 +1612,7 @@
           Locked for life as long as your subscription stays active
         </div>
         <p class="pricing-fine">
-          14-day free trial &middot; Cancel anytime &middot; Your rate is locked the moment you reserve a seat
+          14-day free trial &middot; Cancel anytime &middot; Founding-member rate locks when you subscribe during early access
         </p>
 
         <div class="pricing-section-title">What every member gets</div>
@@ -1701,25 +1627,24 @@
           <li>Full trade history with equity curve and portfolio tracking</li>
         </ul>
 
-        <div class="pricing-section-title">Charter perks (founder phase only)</div>
+        <div class="pricing-section-title">Founding member perks (early access)</div>
         <ul class="pricing-charter-perks">
-          <li><strong>$60/mo locked for life</strong> &mdash; never raised on you, even when standard pricing hits $99+</li>
-          <li><strong>Charter Member badge</strong> in the app and on your trades</li>
-          <li><strong>Direct line to the team</strong> &mdash; bring us feature requests, bugs, roadmap input</li>
-          <li><strong>Early access to new features</strong> as they ship &mdash; options play paths, leveraged ETF setups, more</li>
+          <li><strong>$60/mo locked for active subscribers</strong> &mdash; not raised on you if standard pricing moves to $99+</li>
+          <li><strong>Founding member badge</strong> in the app</li>
+          <li><strong>Direct line to the team</strong> &mdash; feature requests, bugs, roadmap input</li>
+          <li><strong>Early access to new features</strong> as they ship</li>
         </ul>
 
         <a href="/today.html" class="hero-cta" style="display:inline-flex;width:100%;justify-content:center">
-          Reserve Your Charter Seat
+          Start 14-day free trial
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
           </svg>
         </a>
 
         <div class="pricing-honest-note">
-          <strong>Why a charter phase?</strong> We're still actively building. The platform is real and live,
-          but features are landing weekly. As the product matures, standard pricing rises. Charter members
-          get the discount &mdash; and a real say in what comes next.
+          <strong>Why founding member pricing?</strong> The platform is live and improving every week.
+          Early subscribers help shape the roadmap and keep today's rate if list pricing rises later.
         </div>
       </div>
     </div>
@@ -1728,13 +1653,19 @@
   <!-- CLOSING STATEMENT -->
   <section class="cta-banner">
     <div class="container reveal">
-      <h2>The system is watching. The scores are live.</h2>
-      <p>Lock in $60/mo as a Charter Member &mdash; before standard pricing arrives.</p>
+      <h2>Stop Guessing. Start Timing.</h2>
+      <p>See the live trade ledger first &mdash; wins and losses, updated every 5 minutes. Start a trial when the process fits how you trade.</p>
       <div class="hero-cta-row" style="justify-content:center">
-        <a href="/today.html" class="hero-cta">
-          Reserve Charter Seat
+        <a href="/proof.html" class="hero-cta">
+          See live proof
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+          </svg>
+        </a>
+        <a href="/today.html" class="hero-cta-secondary">
+          Start 14-day free trial
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 6 15 12 9 18" />
           </svg>
         </a>
       </div>
@@ -1805,8 +1736,127 @@
     })();
   </script>
 
+  <script>
+  (() => {
+    const API = "https://timed-trading-ingest.shashant.workers.dev";
+    const fmtUsd = (n) => {
+      if (!Number.isFinite(n)) return "\u2014";
+      const abs = Math.abs(n);
+      const sign = n < 0 ? "-" : "";
+      if (abs >= 1_000_000) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
+      if (abs >= 10_000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+      if (abs >= 1000) return `${sign}$${abs.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+      return `${sign}$${abs.toFixed(2)}`;
+    };
+    const fmtPct = (p) => Number.isFinite(p) ? `${p >= 0 ? "+" : ""}${p.toFixed(2)}%` : "\u2014";
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const setValClass = (id, positive) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove("up", "down");
+      if (positive === true) el.classList.add("up");
+      if (positive === false) el.classList.add("down");
+    };
+
+    function computeSharpe(points) {
+      if (!Array.isArray(points) || points.length < 10) return null;
+      const returns = [];
+      for (let i = 1; i < points.length; i++) {
+        const prev = Number(points[i - 1]?.equity);
+        const cur = Number(points[i]?.equity);
+        if (prev > 0 && Number.isFinite(cur)) returns.push((cur - prev) / prev);
+      }
+      if (returns.length < 10) return null;
+      const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
+      const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / returns.length;
+      const sd = Math.sqrt(variance);
+      if (!(sd > 0)) return null;
+      return (mean / sd) * Math.sqrt(252);
+    }
+
+    async function loadAccount() {
+      try {
+        const res = await fetch(`${API}/timed/account-summary?mode=trader`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const j = await res.json();
+        if (!j.ok) throw new Error(j.error || "no_data");
+        const startCash = Number(j.startCash) || 100000;
+        const account = Number(j.accountValue) || 0;
+        const realized = Number(j.totalRealized) || 0;
+        const unrealized = Number(j.unrealized) || 0;
+        const total = realized + unrealized;
+        const totalPct = startCash > 0 ? (total / startCash) * 100 : 0;
+        setText("spAccount", fmtUsd(account));
+        setText("spTotal", `${total >= 0 ? "+" : ""}${fmtUsd(total)}`);
+        setValClass("spTotal", total >= 0);
+        setText("spTotalSub", `${fmtPct(totalPct)} since Jul 1, 2025`);
+        setText("spRealized", `${realized >= 0 ? "+" : ""}${fmtUsd(realized)}`);
+        setValClass("spRealized", realized >= 0);
+        setText("spRealizedSub", `${unrealized >= 0 ? "+" : ""}${fmtUsd(unrealized)} unrealized open`);
+        try {
+          const ts = new Date(j.generated_at);
+          setText("spUpdated", `Updated ${ts.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" })}`);
+        } catch (_) {
+          setText("spUpdated", "Live from proof ledger");
+        }
+      } catch (_) {
+        setText("spUpdated", "Stats unavailable \u2014 see proof page");
+      }
+    }
+
+    async function loadEquityCurve() {
+      try {
+        const res = await fetch(`${API}/timed/portfolio/equity-curve?mode=trader`, { cache: "no-store" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const j = await res.json();
+        const points = Array.isArray(j.trader?.points) ? j.trader.points : [];
+        const sharpe = computeSharpe(points);
+        if (sharpe != null) {
+          setText("spSharpe", sharpe.toFixed(2));
+          setValClass("spSharpe", sharpe >= 1.5 ? true : sharpe >= 0.5 ? null : false);
+          setText("spSharpeSub", `${points.length} sessions, ann.`);
+        }
+      } catch (_) { /* Sharpe stays em dash */ }
+    }
+
+    async function loadTrades() {
+      try {
+        const [winRes, lossRes] = await Promise.all([
+          fetch(`${API}/timed/ledger/trades?status=WIN&limit=500`, { cache: "no-store" }),
+          fetch(`${API}/timed/ledger/trades?status=LOSS&limit=500`, { cache: "no-store" }),
+        ]);
+        if (!winRes.ok || !lossRes.ok) throw new Error("HTTP fail");
+        const wj = await winRes.json();
+        const lj = await lossRes.json();
+        const all = [...(wj.trades || []), ...(lj.trades || [])].filter((t) => {
+          const s = String(t.status || "").toUpperCase();
+          return s === "WIN" || s === "LOSS";
+        });
+        const wins = all.filter((t) => String(t.status).toUpperCase() === "WIN");
+        const losses = all.filter((t) => String(t.status).toUpperCase() === "LOSS");
+        const wr = all.length > 0 ? (wins.length / all.length) * 100 : 0;
+        setText("spTrades", String(all.length));
+        setText("spTradesSub", `${wins.length}W \u00b7 ${losses.length}L`);
+        setText("spWR", `${wr.toFixed(1)}%`);
+        setText("spWRSub", `${wins.length} wins / ${all.length} trades`);
+        const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / wins.length : 0;
+        const avgLossAbs = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / losses.length) : 0;
+        const avgRR = avgLossAbs > 0 ? avgWin / avgLossAbs : 0;
+        setText("spRR", avgRR > 0 ? avgRR.toFixed(2) : "\u2014");
+        setValClass("spRR", avgRR >= 1 ? true : avgRR > 0 ? null : false);
+        setText("spRRSub", avgRR > 0 ? `+$${avgWin.toFixed(0)} avg win \u00b7 -$${avgLossAbs.toFixed(0)} avg loss` : "avg win / avg loss");
+      } catch (_) { /* tiles stay em dash */ }
+    }
+
+    loadAccount();
+    loadEquityCurve();
+    loadTrades();
+    setInterval(() => { loadAccount(); loadEquityCurve(); loadTrades(); }, 5 * 60 * 1000);
+  })();
+  </script>
+
 
 </body>
 </html>
 
-<!-- cache-bust:1780255443681:748341418 -->
+<!-- cache-bust:1780261195838:268918723 -->

@@ -201,7 +201,7 @@
     <div class="kpi"><div class="kpi-label">Closed Trades</div><div class="kpi-value" id="kpiTrades">&mdash;</div><div class="kpi-sub" id="kpiTradesSub">&mdash;</div></div>
     <div class="kpi"><div class="kpi-label">Win Rate</div><div class="kpi-value" id="kpiWR">&mdash;</div><div class="kpi-sub" id="kpiWRSub">&mdash;</div></div>
     <div class="kpi"><div class="kpi-label">Sharpe</div><div class="kpi-value" id="kpiSharpe">&mdash;</div><div class="kpi-sub" id="kpiSharpeSub">daily, ann.</div></div>
-    <div class="kpi"><div class="kpi-label">Avg R:R</div><div class="kpi-value" id="kpiRR">&mdash;</div><div class="kpi-sub" id="kpiRRSub">avg win / avg loss</div></div>
+    <div class="kpi"><div class="kpi-label">Payoff ratio</div><div class="kpi-value" id="kpiRR">&mdash;</div><div class="kpi-sub" id="kpiRRSub">avg win / avg loss</div></div>
     <div class="kpi"><div class="kpi-label">Max Drawdown</div><div class="kpi-value" id="kpiDD">&mdash;</div><div class="kpi-sub" id="kpiDDSub">peak-to-trough</div></div>
   </div>
 
@@ -441,7 +441,7 @@
       setText("kpiWR", `${wr.toFixed(1)}%`);
       setText("kpiWRSub", `${wins.length} wins / ${all.length} trades`);
 
-      // Avg R:R = avg(win pnl) / |avg(loss pnl)|
+      // Payoff ratio = avg(win pnl) / |avg(loss pnl)| — not planned entry SL/TP R:R
       const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / wins.length : 0;
       const avgLossAbs = losses.length > 0 ? Math.abs(losses.reduce((s, t) => s + (Number(t.pnl) || 0), 0) / losses.length) : 0;
       const avgRR = avgLossAbs > 0 ? avgWin / avgLossAbs : 0;
