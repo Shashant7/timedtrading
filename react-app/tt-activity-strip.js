@@ -290,8 +290,34 @@
   function isAdmin() {
     return window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
   }
+  // 2026-05-31 — Activity strip is a Pro-tier feature. Free / not-yet-
+  // trialing visitors should not be able to follow the live trade feed
+  // without paying (the strip lets you see every ENTRY / TRIM / EXIT
+  // the model takes in real time — that's the core value). We gate
+  // hide-if-not-Pro server-side too via the endpoint auth, but the UI
+  // gate also (a) avoids the fetch entirely (less noise + faster page),
+  // and (b) collapses the DOM so there is no empty strip placeholder.
+  function isProOrAdmin() {
+    if (isAdmin()) return true;
+    if (window._ttIsPro === true) return true;
+    if (document.body?.dataset?.isPro === "true") return true;
+    return false;
+  }
+
+  function setHostVisible(host, visible) {
+    if (!host) return;
+    host.style.display = visible ? "" : "none";
+    host.setAttribute("data-tt-activity-strip-gated", visible ? "0" : "1");
+  }
 
   async function refresh(host) {
+    if (!isProOrAdmin()) {
+      // Free user — hide and bail. Re-evaluated on tt-auth-bootstrap-updated.
+      _events = [];
+      setHostVisible(host, false);
+      return;
+    }
+    setHostVisible(host, true);
     const adminEndpoint = "/timed/admin/activity-feed";
     const publicEndpoint = "/timed/activity";
     let endpoint = isAdmin() ? adminEndpoint : publicEndpoint;
@@ -322,6 +348,9 @@
     } else {
       host.classList.add("tt-activity-strip");
     }
+    // Default to hidden until auth-bootstrap fires; prevents a brief
+    // flash of the strip on cold page load before auth-gate resolves.
+    setHostVisible(host, false);
     ensureMobileSpacer(host);
     refresh(host);
     window.addEventListener("tt-auth-bootstrap-updated", () => refresh(host));

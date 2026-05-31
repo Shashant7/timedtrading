@@ -480,9 +480,20 @@
       return;
     }
 
+    // 2026-05-31 — The notification bell streams live model alerts
+    // (entries, trims, exits, investor zone enters). On a free /
+    // not-yet-trialing account that is identical to giving away the
+    // signal feed for free. Gate the alerts slot on Pro/Admin/Trialing
+    // — for non-Pro users the bell is suppressed entirely (no mount,
+    // no API polling). The user still sees Discord + avatar.
+    const isPro =
+      window._ttIsPro === true ||
+      document.body?.dataset?.isPro === "true" ||
+      window._ttIsAdmin === true ||
+      document.body?.dataset?.isAdmin === "true";
     const slots = [
       { key: "discord",  Factory: window.TimedWaitlistButton    || window.TimedDiscordButton },
-      { key: "alerts",   Factory: window.TimedNotificationCenter, requiresUser: true },
+      { key: "alerts",   Factory: window.TimedNotificationCenter, requiresUser: true, requiresPro: true },
       { key: "avatar",   Factory: window.TimedUserBadge,          requiresUser: true },
     ];
 
@@ -502,6 +513,20 @@
       // resolves. When the user finally arrives we render into the
       // same root so the layout doesn't reshuffle.
       if (slot.requiresUser && !hasUser) continue;
+
+      // Pro-gated slot (notification bell): when the user is not Pro,
+      // unmount any existing root and skip rendering. Re-evaluated on
+      // every tt-auth-bootstrap-updated so a Stripe trial activation
+      // upgrades the UI without a hard reload.
+      if (slot.requiresPro && !isPro) {
+        const existing = _navRoots.get(slot.key);
+        if (existing) {
+          try { existing.unmount(); } catch (_) {}
+          _navRoots.delete(slot.key);
+        }
+        if (mount) mount.innerHTML = "";
+        continue;
+      }
 
       try {
         let root = _navRoots.get(slot.key);
@@ -592,4 +617,4 @@
   })();
 })();
 
-// cache-bust:1780253299009:450894845
+// cache-bust:1780255443681:748341418

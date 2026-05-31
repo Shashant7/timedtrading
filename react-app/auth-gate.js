@@ -987,8 +987,23 @@
     useEffect(() => {
       if (user) {
         const isAdmin = user.role === "admin" || user.tier === "admin";
-        const isPro = isAdmin || user.tier === "pro" || user.tier === "vip" ||
-          user.subscription_status === "active" || user.subscription_status === "trialing" || user.subscription_status === "manual";
+        // 2026-05-31 — Keep this in lockstep with the requiredTier
+        // paywall check above. `canceling` (user still in paid period
+        // after canceling) and `past_due` within `expires_at` grace
+        // both count as Pro so the chrome (activity strip, bell, pro
+        // gating) matches the actual access state.
+        const subStatus = user.subscription_status;
+        const isPastDueInGrace =
+          subStatus === "past_due" &&
+          Number.isFinite(Number(user.expires_at)) &&
+          Number(user.expires_at) > Date.now();
+        const isPro = isAdmin ||
+          user.tier === "pro" || user.tier === "vip" ||
+          subStatus === "active" ||
+          subStatus === "trialing" ||
+          subStatus === "manual" ||
+          subStatus === "canceling" ||
+          isPastDueInGrace;
         document.body.dataset.userRole = isAdmin ? "admin" : (user.role || "member");
         document.body.dataset.userTier = user.tier || "free";
         document.body.dataset.isPro = isPro ? "true" : "false";
@@ -1165,6 +1180,16 @@
     // Tier gating: if requiredTier is set, check the user has sufficient access
     // VIP users have the same access as Pro users (explicit check for robustness).
     // Users with subscription_status "manual" (admin-granted) bypass the paywall.
+    //
+    // 2026-05-31 — Subscription-state matrix tightened:
+    //   trialing | active | manual                → PASS  (Pro features)
+    //   canceling                                  → PASS  (still in paid period; tier=pro until period_end)
+    //   past_due (within 3-day grace)              → PASS  (matches webhook + email promise)
+    //   past_due (after expires_at)                → PAYWALL
+    //   canceled | (null/none)                     → PAYWALL
+    //
+    // Without the past_due grace, users got an email saying "3-day
+    // grace" while the auth-gate locked them out immediately.
     if (requiredTier && user) {
       const effectiveTier = user.tier === "vip" ? "pro" : user.tier;
       const required = TIER_ORDER[requiredTier] ?? 0;
@@ -1173,7 +1198,16 @@
         // For pro-tier pages: show paywall if user is free with no active subscription
         if (requiredTier === "pro" && (effectiveTier === "free" || !effectiveTier)) {
           const subStatus = user.subscription_status;
-          if (subStatus !== "trialing" && subStatus !== "active" && subStatus !== "manual") {
+          const isPaidStatus =
+            subStatus === "trialing" ||
+            subStatus === "active" ||
+            subStatus === "manual" ||
+            subStatus === "canceling";
+          const isPastDueInGrace =
+            subStatus === "past_due" &&
+            Number.isFinite(Number(user.expires_at)) &&
+            Number(user.expires_at) > Date.now();
+          if (!isPaidStatus && !isPastDueInGrace) {
             return React.createElement(PaywallScreen, {
               user: user,
               apiBase: apiBase,

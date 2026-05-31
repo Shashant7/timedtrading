@@ -391,6 +391,7 @@ function CIOWatchlist({
     let plKnown = 0;
     let best = null;
     let worst = null;
+    const realSectorTallies = {};
     const allLive = [...liveTraderTrades.map(t => ({
       sym: String(t.ticker || "").toUpperCase(),
       mode: "trader",
@@ -420,6 +421,11 @@ function CIOWatchlist({
         plPct,
         mode: p.mode
       };
+      const snap = (data || {})[p.sym] || (data || {})[p.sym.toLowerCase()];
+      const rawSector = String(snap?.context?.sector || snap?.sector || "").trim();
+      if (rawSector) {
+        realSectorTallies[rawSector] = (realSectorTallies[rawSector] || 0) + 1;
+      }
     }
     const avgPl = plKnown > 0 ? totalPl / plKnown : null;
     counts.totalLive = allLive.length;
@@ -430,10 +436,11 @@ function CIOWatchlist({
       const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
       return ra - rb;
     });
-    const sectors = Object.entries(sectorTallies).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, n]) => ({
+    const sectors = Object.entries(realSectorTallies).filter(([name]) => name && name.toLowerCase() !== "unknown").sort((a, b) => b[1] - a[1]).slice(0, 6).map(([name, n]) => ({
       name,
       n
     }));
+    const sectorUnknownCount = Number(realSectorTallies["Unknown"]) || 0;
     return {
       counts,
       watching: watching.slice(0, 8),
@@ -441,7 +448,10 @@ function CIOWatchlist({
       best,
       worst,
       sectors,
-      liveCount: positions.length,
+      sectorUnknownCount,
+      liveCount: allLive.length,
+      traderLive: liveTraderTrades.length,
+      investorLive: liveInvestorPositions.length,
       plKnown
     };
   }, [data, liveTraderTrades, liveInvestorPositions]);
@@ -570,9 +580,15 @@ function CIOWatchlist({
     key: s.name,
     className: "cio-board-sector-pill",
     title: `${s.n} live position${s.n === 1 ? "" : "s"}`
-  }, s.name, " ", h("strong", null, s.n)))), h("p", {
+  }, s.name, " ", h("strong", null, s.n))), board.sectorUnknownCount > 0 && h("span", {
+    className: "cio-board-sector-pill",
+    title: `${board.sectorUnknownCount} position${board.sectorUnknownCount === 1 ? "" : "s"} without a tagged sector — usually a freshly-added ticker or a non-equity instrument.`,
+    style: {
+      opacity: 0.55
+    }
+  }, "Other ", h("strong", null, board.sectorUnknownCount))), h("p", {
     className: "cio-card-sub"
-  }, `${board.liveCount} live position${board.liveCount === 1 ? "" : "s"}. `, `${board.counts.setup + board.counts.enter} setup${board.counts.setup + board.counts.enter === 1 ? "" : "s"} on deck. `, board.counts.defend + board.counts.exit > 0 ? `${board.counts.defend + board.counts.exit} under stress.` : "All clear on stress lanes.")), h("div", {
+  }, `${board.liveCount} live position${board.liveCount === 1 ? "" : "s"}`, board.traderLive > 0 && board.investorLive > 0 ? ` (${board.traderLive} trader · ${board.investorLive} investor). ` : ". ", `${board.counts.setup + board.counts.enter} setup${board.counts.setup + board.counts.enter === 1 ? "" : "s"} on deck. `, board.counts.defend + board.counts.exit > 0 ? `${board.counts.defend + board.counts.exit} under stress.` : "All clear on stress lanes.")), h("div", {
     className: "cio-card"
   }, h("div", {
     className: "cio-card-l"
@@ -1255,6 +1271,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780253299009:450894845
+// cache-bust:1780255443681:748341418
 
-// cache-bust:1780253299009:450894845
+// cache-bust:1780255443681:748341418
