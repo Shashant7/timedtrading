@@ -178,12 +178,39 @@ function buildCompiledScriptName(outputHtmlPath, sourceCode) {
 // guarantees we never hit that mode silently.
 const BUILD_MARKER = `cache-bust:${Date.now()}:${Math.floor(Math.random() * 1e9)}`;
 
+// 2026-05-31 — Shared script cache-bust rewriter. The HTML pages
+// reference shared scripts (auth-gate.js, tt-activity-strip.js,
+// tt-nav-extras.js, shared-right-rail.compiled.js, etc.) with a
+// hard-coded `?v=<date-tag>` query string that was bumped MANUALLY
+// when those files changed. We kept forgetting (e.g. PR #397
+// shipped sticky-header + Switch-account changes that landed in the
+// JS but the HTML kept `tt-activity-strip.js?v=20260528a` and
+// `auth-gate.js?v=20260516a` from 4+ days earlier — browsers served
+// stale cached copies and the user reported "I merged but I don't
+// see the change"). This pass rewrites the `?v=` value on every
+// .js / .compiled.js reference to the current BUILD_MARKER's
+// timestamp, so every deploy automatically busts every shared
+// bundle's cache. Files: auth-gate, tt-*, shared-*, ds-components,
+// ticker-spider-chart, investor-panel, trades-performance,
+// service-worker. (Pages adds its own ETag on top, but the URL-
+// level change is what forces a fresh fetch on the browser side.)
+function rewriteSharedScriptCacheBust(html) {
+  const stamp = BUILD_MARKER.split(":")[1] || String(Date.now());
+  // Match `<script src="<name>.js?v=<existing>">` and same for .compiled.js.
+  // Captures the script path so we can rewrite only the query string.
+  return html.replace(
+    /(<script[^>]+src=["'])([^"'?]+\.(?:compiled\.)?js)\?v=[^"']+(["'])/g,
+    `$1$2?v=${stamp}$3`,
+  );
+}
+
 function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {
   let html = fs.readFileSync(sourceHtmlPath, "utf8");
 
   html = replaceReactBuilds(html);
   html = replaceTailwindRuntime(html, outputHtmlPath);
   html = removeBabelStandalone(html);
+  html = rewriteSharedScriptCacheBust(html);
 
   const babelMatch = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/m);
   if (!babelMatch) {
