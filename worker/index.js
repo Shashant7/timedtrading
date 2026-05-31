@@ -29871,6 +29871,13 @@ async function d1EnsureUserStatusSchema(env) {
   if (!db) return;
   try {
     try { await db.prepare(`ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'`).run(); } catch { /* exists */ }
+    // 2026-05-31 — soft-remove revival audit (see api.js → authenticateUser).
+    // When an admin clicks "Remove" and the user later logs back in via the
+    // same Google identity, we reset them to a fresh trial state and stamp
+    // this column with the revival timestamp so the admin can tell the
+    // difference between a never-touched user and one that's been
+    // off-then-on-boarded.
+    try { await db.prepare(`ALTER TABLE users ADD COLUMN reactivated_at INTEGER`).run(); } catch { /* exists */ }
     _userStatusSchemaReady = true;
   } catch (e) {
     console.error("[USER_STATUS] Schema migration failed:", String(e).slice(0, 200));
@@ -64637,11 +64644,34 @@ export default {
       if (routeKey === "GET /timed/me") {
         const returnUrl = url.searchParams.get("return");
         try {
+          // Make sure the `status` + `reactivated_at` columns exist before
+          // authenticateUser reads them — older D1 databases that haven't
+          // had this schema migration run would otherwise crash the read.
+          try { await d1EnsureUserStatusSchema(env); } catch (_) {}
           const user = await authenticateUser(req, env);
           if (!user) {
             // If return param and not authenticated, CF Access didn't gate this path —
             // fall through with normal JSON so the client auth-gate shows login.
             return sendJSON({ ok: true, authenticated: false, user: null }, 200, corsHeaders(env, req));
+          }
+          // 2026-05-31 — Hard-blocked accounts now surface as `blocked`
+          // instead of silently returning `authenticated:false`. Without
+          // this distinction the auth-gate showed the LoginScreen, the
+          // user clicked "Sign In", CF Access re-attached the same JWT,
+          // authenticateUser returned the same blocked result, and the
+          // user looped forever. The frontend now renders a clear
+          // "Account suspended" message and a support contact instead.
+          if (user._blocked) {
+            return sendJSON({
+              ok: true,
+              authenticated: true,
+              blocked: true,
+              user: {
+                email: user.email,
+                display_name: user.display_name || user.email,
+                status: "blocked",
+              },
+            }, 200, corsHeaders(env, req));
           }
 
           // Auto-promote admin email if not already admin
