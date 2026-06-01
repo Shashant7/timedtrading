@@ -116,9 +116,45 @@
       .mc-table-scroll .mc-table td[data-prose] {
         white-space: normal; min-width: 280px; max-width: 460px;
       }
+      /* 2026-06-01 — Global fallback: ANY mc-table that isn't already
+         inside an .mc-table-scroll wrapper still needs horizontal
+         scroll on narrow viewports. The .mc-card parent (which holds
+         every table in this page) becomes the scroll container by
+         giving the table display:block + overflow + min-width:
+         max-content inside the media query. Preserves table cell
+         alignment because we keep thead/tbody/tr/td as their default
+         displays and just make the outer .mc-table block-level. */
       @media (max-width: 720px) {
         .mc-table-scroll .mc-table td[data-prose] { min-width: 220px; max-width: 320px; }
         .mc-table th, .mc-table td { padding: 6px 8px; font-size: 11px; }
+        /* Wrap any unwrapped mc-table in its own scroll context. */
+        :not(.mc-table-scroll) > .mc-table {
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          max-width: 100%;
+        }
+        /* Re-establish table layout for the inner content (display:block
+           on .mc-table would otherwise break cell column alignment). */
+        :not(.mc-table-scroll) > .mc-table > thead,
+        :not(.mc-table-scroll) > .mc-table > tbody {
+          display: table;
+          min-width: max-content;
+          width: 100%;
+        }
+      }
+      /* Scroll-edge gradient hint so users know there's more content
+         off-screen. Applied to .mc-card so it doesn't clip. */
+      .mc-card { position: relative; }
+      .mc-card::after {
+        content: ""; position: absolute; top: 0; right: 0; bottom: 0;
+        width: 20px; pointer-events: none;
+        background: linear-gradient(to right, transparent, rgba(15,17,24,0.4));
+        opacity: 0; transition: opacity 0.2s;
+      }
+      @media (max-width: 720px) {
+        .mc-card:has(.mc-table)::after,
+        .mc-card:has(.mc-table-scroll)::after { opacity: 1; }
       }
       .mc-pill { display: inline-block; padding: 2px 7px; border-radius: 4px;
         font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
@@ -1028,7 +1064,16 @@
                                     body: JSON.stringify({ user_id: u.user_id, max_per_order_usd: n }),
                                   });
                                   const j = await r.json().catch(() => null);
-                                  if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                  if (!j?.ok) {
+                                    alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                  } else if (j?.user_caps) {
+                                    setStatus((prev) => prev?.users ? {
+                                      ...prev,
+                                      users: prev.users.map((x) => x.user_id === u.user_id
+                                        ? { ...x, user_caps: j.user_caps, user_caps_updated_at: j.updated_at }
+                                        : x),
+                                    } : prev);
+                                  }
                                   refresh();
                                 } catch (e) { alert(`Update threw: ${String(e?.message || e)}`); }
                                 finally { setBusy(false); }
@@ -1058,7 +1103,28 @@
                                       }),
                                     });
                                     const j = await r.json().catch(() => null);
-                                    if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                    if (!j?.ok) {
+                                      alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                    } else if (j?.user_caps) {
+                                      // 2026-06-01 — Optimistic update.
+                                      // KV reads have ~60s global
+                                      // eventual consistency, so the next
+                                      // /status fetch may still return
+                                      // stale caps. Patch the local
+                                      // status state with the saved caps
+                                      // so the UI reflects the change
+                                      // immediately. The next natural
+                                      // refresh will reconcile.
+                                      setStatus((prev) => {
+                                        if (!prev?.users) return prev;
+                                        return {
+                                          ...prev,
+                                          users: prev.users.map((x) => x.user_id === u.user_id
+                                            ? { ...x, user_caps: j.user_caps, user_caps_updated_at: j.updated_at }
+                                            : x),
+                                        };
+                                      });
+                                    }
                                     refresh();
                                   } catch (e) { alert(`Update threw: ${String(e?.message || e)}`); }
                                   finally { setBusy(false); }
@@ -1069,6 +1135,11 @@
                                   border: "1px solid rgba(251,191,36,0.28)",
                                 }}
                               >Apply small-account defaults ⚡</button>
+                            )}
+                            {caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && (
+                              <span className="text-[10px] mc-mute italic" title={new Date(userRow.user_caps_updated_at).toLocaleString()}>
+                                · saved {fmtAgo(userRow.user_caps_updated_at)} ago
+                              </span>
                             )}
                           </div>
                           {ok && positions.length > 0 && (

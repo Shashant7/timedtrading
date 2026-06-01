@@ -12,13 +12,13 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
-<script src="auth-gate.js?v=1780286272072"></script>
-    <script src="tt-nav-extras.js?v=1780286272072" defer></script>
+<script src="auth-gate.js?v=1780287197418"></script>
+    <script src="tt-nav-extras.js?v=1780287197418" defer></script>
     <!-- 2026-05-30 — Activity strip + live-data + rail-bridge so Mission Control
          shares the same top-of-page UX as today/active-trader/investor. -->
-    <script src="tt-live-data.js?v=1780286272072"></script>
-    <script src="tt-rail-bridge.js?v=1780286272072" defer></script>
-    <script src="tt-activity-strip.js?v=1780286272072" defer></script>
+    <script src="tt-live-data.js?v=1780287197418"></script>
+    <script src="tt-rail-bridge.js?v=1780287197418" defer></script>
+    <script src="tt-activity-strip.js?v=1780287197418" defer></script>
     <style>
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; min-height: 100vh; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -115,9 +115,45 @@
       .mc-table-scroll .mc-table td[data-prose] {
         white-space: normal; min-width: 280px; max-width: 460px;
       }
+      /* 2026-06-01 — Global fallback: ANY mc-table that isn't already
+         inside an .mc-table-scroll wrapper still needs horizontal
+         scroll on narrow viewports. The .mc-card parent (which holds
+         every table in this page) becomes the scroll container by
+         giving the table display:block + overflow + min-width:
+         max-content inside the media query. Preserves table cell
+         alignment because we keep thead/tbody/tr/td as their default
+         displays and just make the outer .mc-table block-level. */
       @media (max-width: 720px) {
         .mc-table-scroll .mc-table td[data-prose] { min-width: 220px; max-width: 320px; }
         .mc-table th, .mc-table td { padding: 6px 8px; font-size: 11px; }
+        /* Wrap any unwrapped mc-table in its own scroll context. */
+        :not(.mc-table-scroll) > .mc-table {
+          display: block;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          max-width: 100%;
+        }
+        /* Re-establish table layout for the inner content (display:block
+           on .mc-table would otherwise break cell column alignment). */
+        :not(.mc-table-scroll) > .mc-table > thead,
+        :not(.mc-table-scroll) > .mc-table > tbody {
+          display: table;
+          min-width: max-content;
+          width: 100%;
+        }
+      }
+      /* Scroll-edge gradient hint so users know there's more content
+         off-screen. Applied to .mc-card so it doesn't clip. */
+      .mc-card { position: relative; }
+      .mc-card::after {
+        content: ""; position: absolute; top: 0; right: 0; bottom: 0;
+        width: 20px; pointer-events: none;
+        background: linear-gradient(to right, transparent, rgba(15,17,24,0.4));
+        opacity: 0; transition: opacity 0.2s;
+      }
+      @media (max-width: 720px) {
+        .mc-card:has(.mc-table)::after,
+        .mc-card:has(.mc-table-scroll)::after { opacity: 1; }
       }
       .mc-pill { display: inline-block; padding: 2px 7px; border-radius: 4px;
         font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
@@ -162,8 +198,8 @@
     <div data-tt-activity-strip></div>
 
     <div id="root"></div>
-    <script src="mission-control.compiled.js?v=1780286272072"></script>
+    <script src="mission-control.compiled.js?v=1780287197418"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780286272072:685482157 -->
+<!-- cache-bust:1780287197418:502599281 -->

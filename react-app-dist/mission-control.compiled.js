@@ -999,7 +999,18 @@ function BridgeSection({
             })
           });
           const j = await r.json().catch(() => null);
-          if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+          if (!j?.ok) {
+            alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+          } else if (j?.user_caps) {
+            setStatus(prev => prev?.users ? {
+              ...prev,
+              users: prev.users.map(x => x.user_id === u.user_id ? {
+                ...x,
+                user_caps: j.user_caps,
+                user_caps_updated_at: j.updated_at
+              } : x)
+            } : prev);
+          }
           refresh();
         } catch (e) {
           alert(`Update threw: ${String(e?.message || e)}`);
@@ -1037,7 +1048,21 @@ function BridgeSection({
             })
           });
           const j = await r.json().catch(() => null);
-          if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+          if (!j?.ok) {
+            alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+          } else if (j?.user_caps) {
+            setStatus(prev => {
+              if (!prev?.users) return prev;
+              return {
+                ...prev,
+                users: prev.users.map(x => x.user_id === u.user_id ? {
+                  ...x,
+                  user_caps: j.user_caps,
+                  user_caps_updated_at: j.updated_at
+                } : x)
+              };
+            });
+          }
           refresh();
         } catch (e) {
           alert(`Update threw: ${String(e?.message || e)}`);
@@ -1054,7 +1079,10 @@ function BridgeSection({
         color: "#fbbf24",
         border: "1px solid rgba(251,191,36,0.28)"
       }
-    }, "Apply small-account defaults \u26A1")), ok && positions.length > 0 && React.createElement("table", {
+    }, "Apply small-account defaults \u26A1"), caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && React.createElement("span", {
+      className: "text-[10px] mc-mute italic",
+      title: new Date(userRow.user_caps_updated_at).toLocaleString()
+    }, "\xB7 saved ", fmtAgo(userRow.user_caps_updated_at), " ago")), ok && positions.length > 0 && React.createElement("table", {
       className: "mc-table"
     }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", {
       style: {
@@ -2614,6 +2642,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780286272072:685482157
+// cache-bust:1780287197418:502599281
 
-// cache-bust:1780286272072:685482157
+// cache-bust:1780287197418:502599281
