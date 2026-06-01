@@ -1326,32 +1326,54 @@ export async function sendInvestorAlertEmails(env, alert) {
   const { type, data } = alert || {};
   if (!type || !data?.ticker) return { sent: 0, recipients: 0 };
 
+  /* 2026-06-01 — Investor alert email rewrite per operator feedback:
+
+     "Can we make them more apparent that it is an Investor Signal to
+     accumulate or whichever signal it is. As you can tell, it seems
+     vague on how one should react to these signals. Also the email
+     does not include the chart."
+
+     Three changes:
+       1. Subject + masthead now prefixed `[INVESTOR · ACTION]` so the
+          system + intent are visible at-a-glance in the inbox list.
+       2. Large action badge ("ACCUMULATE", "WATCH", "ADD ON PULLBACK",
+          "REDUCE / EXIT") at the top of the body with the
+          deriveInvestorAlertAction() one-liner explaining what to do.
+       3. Chart embedded via /timed/chart-image — Daily timeframe, 60
+          bars (~3 months of context) since Investor signals are
+          multi-week / multi-month horizon (vs the 1H/48-bar chart
+          used by trade-exit emails which are a different time
+          horizon entirely).
+
+     deriveInvestorAlertAction lives in worker/alerts.js so the Discord
+     embed and email stay in lockstep. */
+  const { deriveInvestorAlertAction } = await import("./alerts.js");
+  const action = deriveInvestorAlertAction(type, data);
+
   const TYPE_META = {
     accumulation_zone: {
-      subject: data.zoneType === "momentum_runner"
+      subjectBase: data.zoneType === "momentum_runner"
         ? `${data.ticker} — Momentum-Runner Zone Confirmed`
         : `${data.ticker} — Entered Accumulation Zone`,
       headline: data.zoneType === "momentum_runner" ? "Momentum-Runner Zone Confirmed" : "Entered Accumulation Zone",
-      tone: "#10b981",
       lede: data.zoneType === "momentum_runner"
-        ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks. <em>Not a fresh-entry "buy the dip" signal; price may already be extended from a low.</em>`
+        ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks.`
         : `<strong>${data.ticker}</strong> has entered an accumulation zone — a potentially attractive pullback-entry point for long-term investors.`,
     },
     rs_breakout: {
-      subject: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,
+      subjectBase: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,
       headline: `Relative Strength Breakout`,
-      tone: "#3b82f6",
       lede: `<strong>${data.ticker}</strong> relative-strength line hit a new ${data.period || "3-month"} high vs SPY. Outperforming ${data.rsRank || "?"}% of the universe.`,
     },
     thesis_invalidation: {
-      subject: `${data.ticker} — Investment Thesis Invalidated`,
+      subjectBase: `${data.ticker} — Investment Thesis Invalidated`,
       headline: `Investment Thesis Invalidated`,
-      tone: "#ef4444",
       lede: `One or more conditions that supported your investment in <strong>${data.ticker}</strong> are no longer valid: ${(data.reasons || []).join("; ")}.`,
     },
   };
   const meta = TYPE_META[type];
   if (!meta) return { sent: 0, recipients: opted.length };
+  const tone = action.color;
 
   const factsHtml = (() => {
     const rows = [];
@@ -1363,24 +1385,49 @@ export async function sendInvestorAlertEmails(env, alert) {
     return rows.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#9ca3af;font-size:12px;vertical-align:top">${k}</td><td style="padding:6px 0;color:#e5e7eb;font-size:13px;font-weight:600">${v}</td></tr>`).join("");
   })();
 
+  // Daily 60-bar chart for Investor horizon (~3 months of context).
+  // The chart-image endpoint already accepts ticker/tf/bars; no
+  // entry/sl/tp annotations needed for an informational signal.
+  const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
+  const _chartImgUrl = `${_workerUrl}/timed/chart-image?ticker=${encodeURIComponent(data.ticker)}&tf=D&bars=60`;
+  const chartImgHtml = `
+<div style="margin:18px 0 8px">
+  <a href="https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)">
+    <img src="${_chartImgUrl}" alt="${data.ticker} daily chart (last ~3 months)" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:8px"/>
+  </a>
+  <div style="margin:4px 2px 0;font-size:10px;color:#6b7280">Daily chart · last 60 bars · refreshes every 5 min</div>
+</div>`;
+
   const tickerUrl = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}`;
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${meta.subject}</title></head>
+  const subject = `[INVESTOR · ${action.verb}] ${meta.subjectBase} — Timed Trading`;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${subject}</title></head>
 <body style="margin:0;background:#0a0a0f;color:#e5e7eb;font-family:'Inter',Helvetica,Arial,sans-serif">
 <table width="100%" cellspacing="0" cellpadding="0" style="background:#0a0a0f;padding:24px 16px">
 <tr><td align="center">
 <table width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#141821;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px">
 <tr><td>
-<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${meta.tone};text-transform:uppercase;margin-bottom:8px">${meta.headline}</div>
+<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">INVESTOR SIGNAL</div>
+<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:8px">${meta.headline}</div>
 <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f0f6fc">${data.ticker}</h1>
-<p style="margin:0 0 16px;font-size:14px;line-height:1.55;color:#cbd5e1">${meta.lede}</p>
-<table cellspacing="0" cellpadding="0" style="margin-bottom:18px">${factsHtml}</table>
-<a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${meta.tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
+
+<!-- Action badge — the single most important thing in this email -->
+<div style="margin:0 0 14px;padding:14px 16px;border-radius:10px;background:${tone}1A;border:1px solid ${tone}55">
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:4px">▶ What to do</div>
+  <div style="font-size:18px;font-weight:700;color:${tone};letter-spacing:0.02em;margin-bottom:6px">${action.verb}</div>
+  <div style="font-size:13px;line-height:1.55;color:#e5e7eb">${action.one_liner}</div>
+</div>
+
+<p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#cbd5e1">${meta.lede}</p>
+
+${chartImgHtml}
+
+<table cellspacing="0" cellpadding="0" style="margin:14px 0 18px">${factsHtml}</table>
+<a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
 <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
 Informational signal only. Not financial advice. The trade simulator tracks this; live execution requires the Phase 1 share-mirror config.<br>
-You're receiving this because Investor Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${meta.tone};text-decoration:none">Manage preferences</a>.
+You're receiving this because Investor Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${tone};text-decoration:none">Manage preferences</a>.
 </div>
 </td></tr></table></td></tr></table></body></html>`;
-  const subject = `${meta.subject} — Timed Trading`;
   let sent = 0, failed = 0;
   for (const u of opted) {
     try {
@@ -1388,7 +1435,10 @@ You're receiving this because Investor Signal emails are enabled. <a href="https
         to: u.email,
         subject,
         html,
-        text: `${meta.headline}: ${data.ticker}\n\n${meta.lede.replace(/<[^>]+>/g, "")}\n\nView: ${tickerUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
+        text: `[INVESTOR · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
+              `What to do — ${action.verb}\n${action.one_liner}\n\n` +
+              `${meta.lede.replace(/<[^>]+>/g, "")}\n\n` +
+              `View: ${tickerUrl}\nChart: ${_chartImgUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
       });
       if (r?.ok) sent++; else failed++;
     } catch (e) {
