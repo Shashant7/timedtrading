@@ -1708,10 +1708,12 @@ function BridgeSection({
     hour: "numeric",
     minute: "2-digit"
   }) : "—")))))), manifest && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "flex items-baseline justify-between mb-2 mt-3"
+    className: "flex items-baseline justify-between mb-2 mt-3 flex-wrap gap-2"
   }, React.createElement("div", {
     className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
   }, "Mirror Trade Manifest (", (manifest.rows || []).length, (manifest.rows || []).length === 50 ? "+" : "", ")"), React.createElement("div", {
+    className: "flex items-center gap-2 flex-wrap"
+  }, React.createElement("div", {
     className: "text-[10px] mc-mute flex gap-2 flex-wrap"
   }, Object.entries(manifest.counts || {}).map(([k, v]) => React.createElement("span", {
     key: k,
@@ -1719,7 +1721,36 @@ function BridgeSection({
     style: {
       fontSize: 9
     }
-  }, k, ": ", v)))), !manifest.ok && manifest.error && React.createElement("div", {
+  }, k, ": ", v))), React.createElement("button", {
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    onClick: async () => {
+      try {
+        const r = await fetch(`${apiBase}/timed/admin/broker-bridge/reconcile`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            dry_run: false
+          })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j?.ok === false) {
+          console.warn("[reconcile] failed", j);
+          return;
+        }
+        console.log("[reconcile]", j);
+        setTimeout(refresh, 600);
+      } catch (e) {
+        console.warn("[reconcile] error", e);
+      }
+    }
+  }, "\uD83D\uDD04 Force reconcile"))), !manifest.ok && manifest.error && React.createElement("div", {
     className: "text-[11px] text-amber-300 mb-2 italic"
   }, String(manifest.error).slice(0, 240)), (manifest.rows || []).length > 0 ? React.createElement("div", {
     className: "mc-table-scroll mb-2"
@@ -3037,6 +3068,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780319764796:149329
+// cache-bust:1780319816538:692433852
 
-// cache-bust:1780319764796:149329
+// cache-bust:1780319816538:692433852

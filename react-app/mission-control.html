@@ -1592,30 +1592,49 @@
                 )}
 
                 {/* 2026-06-01 — Phase A: mirror_trade_manifest debug
-                    view. One row per (user, model trade, broker account)
-                    showing what the model emitted vs what the broker
-                    actually placed/filled. sync_state column drives
+                    view + Phase C 'Force reconcile' button (operator
+                    can trigger an immediate sweep instead of waiting
+                    for the 5-min cron). sync_state column drives
                     operator action (in_sync → green, pending → amber,
-                    rejected/mirror_suppressed → red). Phase C's
-                    reconciler will populate broker_filled_qty and flip
-                    sync_state automatically; for now (writer-only)
-                    most rows will show 'in_sync' (filled at place time)
-                    or 'pending' (filled_qty not reported by broker).  */}
+                    rejected/mirror_suppressed/orphan → red). Phase C
+                    cron updates sync_state automatically. */}
                 {manifest && (
                   <>
-                    <div className="flex items-baseline justify-between mb-2 mt-3">
+                    <div className="flex items-baseline justify-between mb-2 mt-3 flex-wrap gap-2">
                       <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold">
                         Mirror Trade Manifest ({(manifest.rows || []).length}
                         {(manifest.rows || []).length === 50 ? "+" : ""})
                       </div>
-                      <div className="text-[10px] mc-mute flex gap-2 flex-wrap">
-                        {Object.entries(manifest.counts || {}).map(([k, v]) => (
-                          <span key={k} className={
-                            "mc-pill " + (k === "in_sync" ? "mc-pill-ok"
-                              : k === "rejected" || k === "mirror_suppressed" || k === "broker_orphan" || k === "mothership_orphan" ? "mc-pill-warn"
-                              : "")
-                          } style={{fontSize:9}}>{k}: {v}</span>
-                        ))}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-[10px] mc-mute flex gap-2 flex-wrap">
+                          {Object.entries(manifest.counts || {}).map(([k, v]) => (
+                            <span key={k} className={
+                              "mc-pill " + (k === "in_sync" ? "mc-pill-ok"
+                                : k === "rejected" || k === "mirror_suppressed" || k === "broker_orphan" || k === "mothership_orphan" ? "mc-pill-warn"
+                                : "")
+                            } style={{fontSize:9}}>{k}: {v}</span>
+                          ))}
+                        </div>
+                        <button
+                          className="mc-btn mc-btn-ok"
+                          style={{ fontSize: 10, padding: "3px 8px" }}
+                          onClick={async () => {
+                            try {
+                              const r = await fetch(`${apiBase}/timed/admin/broker-bridge/reconcile`, {
+                                method: "POST", credentials: "include",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ dry_run: false }),
+                              });
+                              const j = await r.json().catch(() => ({}));
+                              if (!r.ok || j?.ok === false) {
+                                console.warn("[reconcile] failed", j);
+                                return;
+                              }
+                              console.log("[reconcile]", j);
+                              setTimeout(refresh, 600); // give writes time to land
+                            } catch (e) { console.warn("[reconcile] error", e); }
+                          }}
+                        >🔄 Force reconcile</button>
                       </div>
                     </div>
                     {!manifest.ok && manifest.error && (

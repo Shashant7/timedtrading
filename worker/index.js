@@ -1536,6 +1536,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/broker-bridge/options-prefs",    "GET /timed/admin/broker-bridge/options-prefs"],
   ["POST", "/timed/admin/broker-bridge/options-prefs",    "POST /timed/admin/broker-bridge/options-prefs"],
   ["GET",  "/timed/admin/broker-bridge/manifest",         "GET /timed/admin/broker-bridge/manifest"],
+  ["POST", "/timed/admin/broker-bridge/reconcile",        "POST /timed/admin/broker-bridge/reconcile"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -69138,6 +69139,18 @@ export default {
           error_kind: result.status === 401 ? "key_missing" : "unreachable",
           rows: [], counts: {},
         }, 200, corsHeaders(env, req));
+      }
+
+      // 2026-06-01 — Phase C: on-demand reconcile. Operator-only.
+      // Body { user_id?, dry_run?, limit? }. Returns aggregate stats.
+      if (routeKey === "POST /timed/admin/broker-bridge/reconcile") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const result = await _postBridge("/bridge/reconcile", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
       }
 
       // 2026-06-01 — GET /timed/admin/broker-bridge/portfolio

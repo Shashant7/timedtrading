@@ -3,6 +3,14 @@ main = "bridge-index.js"
 compatibility_date = "2026-05-29"
 compatibility_flags = ["nodejs_compat"]
 
+# 2026-06-01 — Phase C reconciler cron. Runs every 5 minutes; the
+# scheduled() handler gates on NY regular-hours so off-hours
+# invocations are cheap no-ops. Set BROKER_RECONCILE_24_7=true to
+# disable the gate (useful for Investor mode + post-market checks).
+# Set BROKER_RECONCILE_DRY_RUN=true to log without persisting.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # 2026-05-29 — Phase 1 sidecar bridge for live broker integration.
 # Separate worker from timed-trading-ingest by design: keeps RH OAuth
 # tokens + the entire credentials surface OUT of the main worker, and
@@ -28,7 +36,25 @@ DEFAULT_MAX_ORDERS_PER_DAY = "3"
 
 # Long-only enforcement — RH Agentic doesn't support shorts at launch.
 # When "true" the bridge rejects any side='short' / side='sell_short'.
+# 2026-06-01 — Naked shorts are now HARD-rejected at the code level
+# regardless of this var; left here for documentation only.
 REJECT_SHORT_SIDES = "true"
+
+# 2026-06-01 — Phase B manifest-aware reducer rollout switch.
+#   "on"  — reject TRIM/EXIT per §4.1 (manifest required)
+#   "log" — shadow mode: log "would_reject" but allow the order
+#   "off" — skip manifest check entirely (back-compat / emergency rollback)
+# Default to "log" for the first week of production so the operator
+# can review the warn-logs before flipping to "on".
+BROKER_MANIFEST_ENFORCE = "log"
+
+# 2026-06-01 — Phase C reconciler config.
+# When "true" the cron runs 24/7 (useful for Investor mode); otherwise
+# it skips off-hours invocations. Default false.
+BROKER_RECONCILE_24_7 = "false"
+# When "true" the cron classifies drift + logs but does NOT persist
+# updates to the manifest. Default false (live reconciliation).
+BROKER_RECONCILE_DRY_RUN = "false"
 
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
