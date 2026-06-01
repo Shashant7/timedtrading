@@ -158,43 +158,45 @@
     </div>
   </div>
 
-  <!-- Hidden iframe for CF Access logout -->
-  <iframe id="cf-logout" src="about:blank" style="display:none"></iframe>
-
   <script>
     (function() {
       var urlParams = new URLSearchParams(window.location.search);
-      // 2026-06-01 — Third revision of the switch-account flow.
+      // 2026-06-01 — Fourth (and final) revision of the switch flow.
       //
-      // History:
-      //   PR #396/397 — Hidden iframe to accounts.google.com/Logout.
-      //     SILENTLY BROKEN: Google sets x-frame-options: SAMEORIGIN,
-      //     so the iframe never loaded and the Google session was
-      //     never cleared.
-      //   PR #399 — Top-level navigation to accounts.google.com/Logout
-      //     ?continue=<our_url>. BROKE WITH 400: Google rejects the
-      //     `continue` parameter when it points to a non-Google
-      //     third-party domain ("400 — The server cannot process the
-      //     request because it is malformed").
+      // Revision history + bugs:
+      //   #396/#397: hidden iframe to accounts.google.com/Logout —
+      //     blocked by Google's x-frame-options: SAMEORIGIN.
+      //   #399: top-level redirect to accounts.google.com/Logout
+      //     ?continue=<our_url> — Google 400s on third-party
+      //     continue URLs.
+      //   #400: open Google logout in a new tab + manual user
+      //     return — but ALSO used a HIDDEN IFRAME to clear the
+      //     CF Access cookie (/cdn-cgi/access/logout). User report
+      //     proved this fails: after signing out of all Google
+      //     accounts AND signing into a different one, CF Access
+      //     still recognized them as the previous account. Smoking
+      //     gun: the CF cookie was never cleared.
       //
-      // This revision: don't try to control Google's logout flow at
-      // all. We CAN'T (Google won't let us cross-origin frame their
-      // logout AND won't accept a third-party continue URL). What we
-      // CAN do reliably:
-      //   1. Clear OUR session (local + CF Access).
-      //   2. Open Google's logout page in a NEW TAB so the user can
-      //      manually sign out (or pick a different account) there.
-      //   3. Tell the user clearly to come back and tap Sign In.
-      //   4. On Sign In, CF Access redirects to Google, and because
-      //      the Google session is now cleared, Google shows the
-      //      account picker.
+      // Root cause: iOS Safari's third-party-cookie isolation
+      // treats /cdn-cgi/access/logout in an iframe as third-party
+      // context, so the Set-Cookie headers in the response are
+      // dropped. Combined with CF Bot Mitigation challenging
+      // iframe requests, the cookie never gets cleared.
       //
-      // This is unambiguous, error-proof, and works across every
-      // browser including iOS Safari (where top-level redirects to
-      // third-party logout URLs have additional quirks).
+      // Solution: do a TOP-LEVEL navigation to
+      // /cdn-cgi/access/logout?returnTo=<us>. The browser
+      // unambiguously processes the cookie-clear response and
+      // then CF Access redirects back to us. Two-phase load:
+      //   Phase 1 (no ?cf_done): kick off the top-level CF logout
+      //   Phase 2 (?cf_done=1):  CF cookie is cleared; render the
+      //                          appropriate "done" card.
       var isSwitchAccount = urlParams.has("switch");
+      var isCfDone        = urlParams.has("cf_done");
 
-      // Phase 0: Clear app + client-side cookies (synchronous).
+      // Always clear local storage + attempt client-side cookie
+      // delete (best-effort — the CF cookie is HttpOnly so this
+      // doesn't actually work for it, but harmless and clears any
+      // non-HttpOnly cookies).
       try { localStorage.removeItem("timed_auth_session"); } catch(_) {}
       try {
         var d = window.location.hostname;
@@ -204,32 +206,28 @@
       } catch(_) {}
       try { sessionStorage.setItem("tt_logout", "1"); } catch(_) {}
 
-      // Phase 1: CF Access logout via iframe (same-origin, this works).
-      var cfIframe = document.getElementById("cf-logout");
-      var cfDone = false;
-      cfIframe.onload  = function() { cfDone = true; };
-      cfIframe.onerror = function() { cfDone = true; };
-      cfIframe.src = window.location.origin + "/cdn-cgi/access/logout";
-
-      function whenCfDone(cb) {
-        var start = Date.now();
-        (function poll() {
-          if (cfDone || (Date.now() - start) > 2000) { cb(); return; }
-          setTimeout(poll, 100);
-        })();
+      if (!isCfDone) {
+        // Phase 1: top-level navigation to CF Access logout. The
+        // returnTo param bounces back to us with ?cf_done=1 so
+        // Phase 2 can render the right card. CF Access supports
+        // returnTo on its app-level logout endpoint.
+        var returnTo = window.location.origin + "/logout.html?cf_done=1" +
+          (isSwitchAccount ? "&switch=1" : "");
+        window.location.href = "/cdn-cgi/access/logout?returnTo=" +
+          encodeURIComponent(returnTo);
+        return;
       }
 
-      whenCfDone(function() {
-        document.getElementById("signing-out").style.display = "none";
-        if (isSwitchAccount) {
-          document.getElementById("switch-card").style.display = "block";
-        } else {
-          document.getElementById("signed-out").style.display = "block";
-        }
-      });
+      // Phase 2: CF cookie is now cleared. Render the right card.
+      document.getElementById("signing-out").style.display = "none";
+      if (isSwitchAccount) {
+        document.getElementById("switch-card").style.display = "block";
+      } else {
+        document.getElementById("signed-out").style.display = "block";
+      }
     })();
   </script>
 </body>
 </html>
 
-<!-- cache-bust:1780272904858:643984617 -->
+<!-- cache-bust:1780273651677:796073514 -->
