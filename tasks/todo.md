@@ -50,6 +50,18 @@
 - [ ] **Broker bridge console noise** — `/status` + `/audit` now return 200
       with structured `error_kind` (same PR). Confirm DevTools is clean.
 
+### Planned
+
+- [ ] **BYOB — Bring Your Own Broker.** Multi-user broker connect flow
+      (Robinhood + IBKR per-user). Plan:
+      [2026-06-01-byob-broker-connect-plan.md](2026-06-01-byob-broker-connect-plan.md).
+      Bridge architecture is already multi-user-ready (per-user storage,
+      OAuth, encrypted tokens, risk caps, audit log all live). What's
+      missing: user-facing Connect-Broker UI, Robinhood OAuth wiring,
+      IBKR per-user wizard, compliance + risk controls. 4-phase
+      rollout estimated 4-6 weeks of focused work + parallel legal
+      review.
+
 ---
 
 ## Strategic plans (one-shot, recently shipped)
