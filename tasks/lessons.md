@@ -6,6 +6,68 @@
 
 ---
 
+## Trade-aware mirror sync — Phase B (manifest-aware reducer) [2026-06-01]
+
+### Three-mode rollout switch is non-negotiable for behavior changes
+
+The Phase B reducer changes which orders the bridge accepts. Shipping
+that with a single boolean (`on` / `off`) gives the operator no way to
+**observe** what _would_ have been rejected before flipping the switch.
+The Phase A writer ran for ~days in production before Phase B even
+existed, but the operator still needs a way to verify the manifest is
+populating the rows Phase B's decision matrix expects.
+
+Pattern: `BROKER_MANIFEST_ENFORCE` env var with three modes:
+- `on` — reject per the §4.1 decision matrix
+- `log` — shadow mode: log `would_reject ...` lines but allow the order
+- `off` — skip the check entirely (back-compat)
+
+Default to `on` once the design is approved, but document the `log`
+mode prominently in the broker-bridge skill so the operator can flip
+to it for a week-long observation pass before any real rejects fire.
+
+**Rule:** Any guard that changes order-acceptance behavior MUST ship
+with a shadow / dry-run mode. Boolean on/off forces you to bet the
+farm on the first deploy.
+
+### Reducer-aware reject reasons need to be distinctive
+
+When Phase B rejects, the reject_reason MUST carry enough information
+for the operator to act:
+- `no_manifest_for_trade` — bridge never opened this trade (probably a
+  preflight reject at entry, possibly a stale model trade_id)
+- `mirror_suppressed:<reason>` — explicitly suppressed; reason text is
+  the original preflight failure or operator-set note
+- `reducer_blocked_by_sync_state:rejected` — entry was rejected at
+  preflight; same as suppressed but distinguishable in the audit log
+- `reducer_blocked_by_sync_state:pending` — entry placed but fill not
+  yet confirmed; the reducer needs to wait for the reconciler
+- `reducer_missing_trade_id_for_manifest_lookup` — model emitted a
+  TRIM/EXIT without a trade_id, which is structurally unsafe
+
+Each maps to a different operator workflow. A single
+`mirror_suppressed` umbrella reason would hide that.
+
+### Fail-OPEN on manifest read errors
+
+Phase B reads the manifest on every TRIM/EXIT. If the D1 table is
+degraded (D1 outage, schema drift, etc.), the read can throw. Two
+options: fail-CLOSED (reject all reducers — safe but operator-hostile)
+or fail-OPEN (allow + log warning — risky but recovers gracefully).
+
+We chose fail-OPEN because:
+1. The portfolio-aware guard (PR #409) is the last-line defense and
+   independently catches naked-short risk at the position level.
+2. The reconciler (Phase C) will surface a drift event within 5 minutes
+   if the manifest write was actually missing.
+3. Operator never sees a flood of false rejects during a partial D1
+   outage; only the warn-log accumulates.
+
+**Rule:** Make explicit in code comments which way each guard fails
+(open vs closed) and why. Future agents reading the code need to know.
+
+---
+
 ## Trade-aware mirror sync — Phase A (manifest writer) [2026-06-01]
 
 ### Writer must NEVER block the order flow

@@ -3,18 +3,27 @@
 **WHEN to use:** Anything involving live order execution, IBKR LST / OAuth,
 the operator audit log, or the `tt-broker-bridge` worker.
 
-> **🚧 Designed but not yet implemented (v2 design):**
-> Trade-Aware Mirror Sync — per-`trade_id` manifest + reconciler
-> keeping mothership and spawns in lockstep across Trader +
-> Investor × Shares + Options (incl. LEAPs), with per-vehicle
-> toggles, per-broker-owner daily emails, and user-modification
-> handling. **No naked shorts.** Every model action mapped to
-> explicit IBKR Client Portal API calls including OCO lifecycle.
-> Plan: [`../tasks/2026-06-01-trade-aware-mirror-sync-design.md`](../tasks/2026-06-01-trade-aware-mirror-sync-design.md).
-> Required before BYOB launches. Until it ships, the bridge has
-> the portfolio-level guard from PR #409 (catches naked-short risk)
-> but does NOT have trade-level identity, OCO lifecycle awareness,
-> or per-vehicle toggles.
+> **🚧 In progress — Trade-Aware Mirror Sync v2:**
+>
+> | Phase | Status | What it adds |
+> |---|---|---|
+> | Pre-1.5 (PR #409) | ✅ shipped | Portfolio-aware lock-tight guard (catches naked-short risk at the position level) |
+> | §1.5 (PR #412) | ✅ shipped | Hard naked-short deferral + per-vehicle toggle (engine + bridge + MC UI) |
+> | Phase A (PR #414) | ✅ shipped | `mirror_trade_manifest` D1 writer + Mission Control debug view |
+> | **Phase B (this PR)** | ✅ shipped | Manifest-aware reducer — `preflightOrder` reads the manifest before the portfolio check; TRIM/EXIT on a `no_manifest_for_trade` or `mirror_suppressed` trade is rejected with an explicit reason |
+> | Phase C | next | Reconciler cron (5 min RTH) + drift classification + auto-suppress + on-demand `POST /bridge/reconcile` |
+> | Phase D | planned | Options/LEAP/Investor reconciler extensions, per-vehicle execution enforcement, OCO cancel-before-trim / SL-modify |
+> | Phase E | planned | Drift notifications (severity tiers) + MC Mirror Sync panel + Daily Owner Email cron |
+>
+> Full design: [`../tasks/2026-06-01-trade-aware-mirror-sync-design.md`](../tasks/2026-06-01-trade-aware-mirror-sync-design.md).
+>
+> **Rollout safety:** Phase B is gated by `BROKER_MANIFEST_ENFORCE`:
+> - `on` (default) — reject per the §4.1 decision matrix
+> - `log` — shadow mode: log "would_reject" but allow the order
+> - `off` — skip the manifest check entirely (back-compat)
+>
+> Start in `log` for the first week to gather data; flip to `on` once the
+> log shows no false-positive rejects.
 
 **Architecture:**
 
