@@ -110,6 +110,16 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # for full notes. The matching secret BROKER_BRIDGE_OPERATOR_KEY must be
 # set via `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY`.
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-06-01 — Service Binding for direct worker-to-worker dispatch.
+# Replaces HTTP fetch to the workers.dev URL above, which was hitting
+# Cloudflare's worker-to-worker loop detection and returning a generic
+# 404 + 'error code: 1042'. Service Bindings bypass the public edge
+# entirely and call the bridge directly — same auth, zero latency,
+# no loop detection. Bridge endpoints below now go through
+# env.BROKER_BRIDGE.fetch(...) when this binding is present.
+[[services]]
+binding = "BROKER_BRIDGE"
+service = "tt-broker-bridge"
 # ── Dynamic Position Sizing (risk-based) ──
 # Uncomment and adjust to override defaults:
 # SIZING_BASE_RISK_PCT = "0.01"    # 1% of account per trade (baseline)
@@ -287,6 +297,12 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # BROKER_BRIDGE_OPERATOR_KEY must be set separately via
 # `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production`.
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-06-01 — Mirror Service Binding in production. Same rationale
+# as the top-level [[services]] block above — bypass worker-to-worker
+# loop detection (CF error 1042).
+[[env.production.services]]
+binding = "BROKER_BRIDGE"
+service = "tt-broker-bridge"
 
 # Scheduled triggers — mirrors top-level [triggers] above
 [env.production.triggers]

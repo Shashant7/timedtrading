@@ -1527,6 +1527,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/broker-bridge/status",           "GET /timed/admin/broker-bridge/status"],
   ["GET",  "/timed/admin/broker-bridge/audit",            "GET /timed/admin/broker-bridge/audit"],
   ["GET",  "/timed/admin/broker-bridge/recent",           "GET /timed/admin/broker-bridge/recent"],
+  ["GET",  "/timed/admin/broker-bridge/portfolio",        "GET /timed/admin/broker-bridge/portfolio"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -68682,106 +68683,122 @@ export default {
       //
       // Auth: standard admin/CF-Access JWT — same as other admin pages.
       // ──────────────────────────────────────────────────────────────────
+      // 2026-06-01 — Broker bridge dispatcher. Prefers Service Binding
+      // (env.BROKER_BRIDGE) over HTTP fetch to bypass Cloudflare's
+      // worker-to-worker loop detection (which was returning 404 +
+      // "error code: 1042" for every HTTP call to the bridge's
+      // workers.dev URL — confirmed via direct curl). Falls back to
+      // HTTP fetch if the binding isn't present (e.g. during local
+      // `wrangler dev`). Same auth header, same response handling —
+      // only the transport changes.
+      async function _callBridge(path, search = "") {
+        const op = env?.BROKER_BRIDGE_OPERATOR_KEY;
+        if (!op) {
+          return { kind: "key_missing", status: 0, body: "BROKER_BRIDGE_OPERATOR_KEY not configured" };
+        }
+        const headers = { "Authorization": `Bearer ${op}` };
+        try {
+          if (env?.BROKER_BRIDGE && typeof env.BROKER_BRIDGE.fetch === "function") {
+            // Preferred: Service Binding. URL host is arbitrary — CF
+            // routes by binding name, not by host.
+            const r = await env.BROKER_BRIDGE.fetch(
+              new Request(`https://bridge.internal${path}${search}`, { headers }),
+            );
+            const text = await r.text();
+            return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "service-binding" };
+          }
+          const bridgeUrl = env?.BROKER_BRIDGE_URL;
+          if (!bridgeUrl) {
+            return { kind: "url_missing", status: 0, body: "BROKER_BRIDGE_URL not configured and no service binding present" };
+          }
+          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}${path}${search}`, { headers });
+          const text = await r.text();
+          return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "http" };
+        } catch (e) {
+          return { kind: "unreachable", status: 0, body: String(e?.message || e).slice(0, 200) };
+        }
+      }
+
       if (routeKey === "GET /timed/admin/broker-bridge/status") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const bridgeUrl = env?.BROKER_BRIDGE_URL;
-        const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
-        // 2026-05-30 — Mission Control polls this endpoint on every page
-        // load. When the bridge isn't configured yet (most operators), we
-        // intentionally return HTTP 200 with a structured `error_kind`
-        // payload so Chrome's network panel doesn't log a red error for
-        // a known/expected state. The UI already gates on
-        // `status.ok !== false` to decide what badge to show.
-        if (!bridgeUrl) {
-          return sendJSON({
-            ok: false,
-            error: "BROKER_BRIDGE_URL_not_configured",
-            error_kind: "url_missing",
-            hint: "Set BROKER_BRIDGE_URL in worker/wrangler.toml [vars] and redeploy. Or set via `wrangler secret put BROKER_BRIDGE_URL` if you want it as a secret.",
-          }, 200, corsHeaders(env, req));
-        }
-        if (!opKey) {
-          return sendJSON({
-            ok: false,
-            error: "BROKER_BRIDGE_OPERATOR_KEY_not_configured",
-            error_kind: "key_missing",
-            bridge_url: bridgeUrl,
-            hint: "Bridge URL is set but the operator key is not. Run `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY` (then `--env production`) — paste the bridge worker's operator key (same value used in worker-bridge/wrangler.toml OPERATOR_KEYS).",
-          }, 200, corsHeaders(env, req));
-        }
-        try {
-          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/status`, {
-            headers: { "Authorization": `Bearer ${opKey}` },
+        const result = await _callBridge("/bridge/status");
+        if (result.kind === "ok") {
+          return new Response(result.body, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport, ...corsHeaders(env, req) },
           });
-          const text = await r.text();
-          // If the bridge itself returns non-200 we still wrap it as a 200
-          // structured response so the operator UI surfaces the issue
-          // inline instead of via a noisy console network error.
-          if (!r.ok) {
-            return sendJSON({
-              ok: false,
-              error: `bridge_responded_${r.status}: ${text.slice(0, 200)}`,
-              error_kind: r.status === 401 ? "key_missing" : "unreachable",
-              bridge_url: bridgeUrl,
-              upstream_status: r.status,
-            }, 200, corsHeaders(env, req));
-          }
-          return new Response(text, { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });
-        } catch (e) {
+        }
+        if (result.kind === "key_missing" || result.kind === "url_missing") {
           return sendJSON({
             ok: false,
-            error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}`,
-            error_kind: "unreachable",
-            bridge_url: bridgeUrl,
+            error: result.body,
+            error_kind: result.kind,
+            hint: result.kind === "key_missing"
+              ? "Run `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production` and paste the bridge's operator key."
+              : "Add the [[services]] binding to worker/wrangler.toml (binding=BROKER_BRIDGE, service=tt-broker-bridge) and redeploy.",
           }, 200, corsHeaders(env, req));
         }
+        return sendJSON({
+          ok: false,
+          error: `bridge_${result.kind}_${result.status}: ${String(result.body).slice(0, 200)}`,
+          error_kind: result.status === 401 ? "key_missing" : "unreachable",
+          upstream_status: result.status,
+        }, 200, corsHeaders(env, req));
       }
+
       if (routeKey === "GET /timed/admin/broker-bridge/audit") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
-        const bridgeUrl = env?.BROKER_BRIDGE_URL;
-        const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
-        // 2026-05-30 — Like /status above, this is polled on every
-        // Mission Control page load. Always return 200 with structured
-        // payload so a not-configured bridge doesn't add red errors to
-        // the operator's browser console.
-        if (!bridgeUrl || !opKey) {
-          return sendJSON({
-            ok: false,
-            error: "bridge_not_configured",
-            error_kind: !bridgeUrl ? "url_missing" : "key_missing",
-            rows: [],
-          }, 200, corsHeaders(env, req));
-        }
         const limit = Number(url.searchParams.get("limit")) || 50;
         const userId = url.searchParams.get("user_id") || "";
         const qs = new URLSearchParams({ limit: String(limit) });
         if (userId) qs.set("user_id", userId);
-        try {
-          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/audit?${qs.toString()}`, {
-            headers: { "Authorization": `Bearer ${opKey}` },
+        const result = await _callBridge("/bridge/audit", `?${qs.toString()}`);
+        if (result.kind === "ok") {
+          return new Response(result.body, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport, ...corsHeaders(env, req) },
           });
-          const text = await r.text();
-          if (!r.ok) {
-            return sendJSON({
-              ok: false,
-              error: `bridge_responded_${r.status}: ${text.slice(0, 200)}`,
-              error_kind: r.status === 401 ? "key_missing" : "unreachable",
-              upstream_status: r.status,
-              rows: [],
-            }, 200, corsHeaders(env, req));
-          }
-          return new Response(text, { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });
-        } catch (e) {
-          return sendJSON({
-            ok: false,
-            error: `bridge_unreachable: ${String(e?.message || e).slice(0, 200)}`,
-            error_kind: "unreachable",
-            rows: [],
-          }, 200, corsHeaders(env, req));
         }
+        if (result.kind === "key_missing" || result.kind === "url_missing") {
+          return sendJSON({ ok: false, error: result.body, error_kind: result.kind, rows: [] }, 200, corsHeaders(env, req));
+        }
+        return sendJSON({
+          ok: false,
+          error: `bridge_${result.kind}_${result.status}: ${String(result.body).slice(0, 200)}`,
+          error_kind: result.status === 401 ? "key_missing" : "unreachable",
+          upstream_status: result.status,
+          rows: [],
+        }, 200, corsHeaders(env, req));
       }
+
+      // 2026-06-01 — GET /timed/admin/broker-bridge/portfolio
+      // Surfaces real IBKR account balance + open positions from the
+      // bridge into Mission Control. Proxies to bridge's new
+      // /bridge/portfolio endpoint (added below).
+      if (routeKey === "GET /timed/admin/broker-bridge/portfolio") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const result = await _callBridge("/bridge/portfolio");
+        if (result.kind === "ok") {
+          return new Response(result.body, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport, ...corsHeaders(env, req) },
+          });
+        }
+        if (result.kind === "key_missing" || result.kind === "url_missing") {
+          return sendJSON({ ok: false, error: result.body, error_kind: result.kind, users: [] }, 200, corsHeaders(env, req));
+        }
+        return sendJSON({
+          ok: false,
+          error: `bridge_${result.kind}_${result.status}: ${String(result.body).slice(0, 200)}`,
+          error_kind: result.status === 401 ? "key_missing" : "unreachable",
+          upstream_status: result.status,
+          users: [],
+        }, 200, corsHeaders(env, req));
+      }
+
       if (routeKey === "GET /timed/admin/broker-bridge/recent") {
         // Reads the local ring buffer in KV (no cross-worker fetch) — shows
         // the last N orders the main worker has sent to the bridge. Useful

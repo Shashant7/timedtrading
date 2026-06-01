@@ -243,6 +243,81 @@ export default {
         return json({ ok: true, count: rows.length, rows });
       }
 
+      // 2026-06-01 — GET /bridge/portfolio
+      // Aggregates balance + open positions per connected user so
+      // Mission Control's "Broker Bridge" section can show real
+      // account state inline (instead of just "LIVE" / "MOCK" pill).
+      // For each user in `connected` status, fetches portfolio +
+      // equity positions via the broker adapter. Errors per-user are
+      // captured in the row rather than failing the whole call —
+      // operator can still see partial results.
+      if (method === "GET" && path === "/bridge/portfolio") {
+        if (operatorFail) return operatorFail;
+        const users = await listConnectedUsers(env);
+        const out = [];
+        for (const u of users) {
+          const userId = u.user_id || u.email;
+          const summary = { user_id: userId, broker: u.broker || "ibkr", status: u.status };
+          try {
+            const adapter = brokerAdapterFor(u);
+            // getPortfolio returns broker-specific shape — IBKR
+            // returns { ok, accounts: [{ accountId, summary }] }.
+            // We normalize to top-line equity + cash for the UI.
+            const portfolio = typeof adapter.getPortfolio === "function"
+              ? await adapter.getPortfolio(env, u).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
+              : { ok: false, error: "broker_no_portfolio_method" };
+            summary.portfolio = portfolio;
+            if (portfolio?.ok) {
+              // IBKR Client Portal /portfolio/{acctId}/summary returns
+              // fields under `response.<lowercase>` (e.g.
+              // `response.netliquidation.amount`). Other adapters
+              // (Robinhood mock, etc.) may return camelCase or top-
+              // level keys. Try every shape we've seen.
+              const r = portfolio.response || portfolio;
+              const acct = (Array.isArray(portfolio.accounts) && portfolio.accounts[0]) || portfolio.summary || r;
+              const equity = Number(
+                acct?.netliquidation?.amount ?? acct?.NetLiquidation?.amount
+                ?? acct?.equitywithloanvalue?.amount
+                ?? acct?.equity?.current ?? acct?.equity ?? acct?.net_liquidation
+              );
+              const cash = Number(
+                acct?.totalcashvalue?.amount ?? acct?.TotalCashValue?.amount
+                ?? acct?.availablefunds?.amount
+                ?? acct?.cash?.current ?? acct?.cash ?? acct?.total_cash
+              );
+              const buyingPower = Number(
+                acct?.buyingpower?.amount ?? acct?.BuyingPower?.amount ?? acct?.buying_power
+              );
+              const acctId = String(acct?.accountcode?.value || acct?.accountId || acct?.account || "").trim();
+              summary.equity_usd = Number.isFinite(equity) ? equity : null;
+              summary.cash_usd = Number.isFinite(cash) ? cash : null;
+              summary.buying_power_usd = Number.isFinite(buyingPower) ? buyingPower : null;
+              if (acctId) summary.account_id = acctId;
+            }
+          } catch (e) {
+            summary.portfolio = { ok: false, error: String(e?.message || e).slice(0, 200) };
+          }
+          try {
+            const adapter = brokerAdapterFor(u);
+            const positions = typeof adapter.getEquityPositions === "function"
+              ? await adapter.getEquityPositions(env, u).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
+              : { ok: false, error: "broker_no_positions_method" };
+            summary.positions = positions;
+            if (positions?.ok && Array.isArray(positions.positions)) {
+              summary.positions_count = positions.positions.length;
+            } else if (Array.isArray(positions)) {
+              // Some adapters return the array directly.
+              summary.positions = { ok: true, positions };
+              summary.positions_count = positions.length;
+            }
+          } catch (e) {
+            summary.positions = { ok: false, error: String(e?.message || e).slice(0, 200) };
+          }
+          out.push(summary);
+        }
+        return json({ ok: true, users_count: out.length, users: out, ts: Date.now() });
+      }
+
       if (method === "POST" && path === "/bridge/killswitch") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
