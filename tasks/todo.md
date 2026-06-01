@@ -52,15 +52,32 @@
 
 ### Planned
 
+- [ ] **Trade-Aware Mirror Sync.** Manifest table + reconciler so the
+      mothership (model trade state) stays in lockstep with each
+      spawn (user's broker account). Drift detection + user
+      notification + per-trade kill switch. Plan:
+      [2026-06-01-trade-aware-mirror-sync-design.md](2026-06-01-trade-aware-mirror-sync-design.md).
+      Builds ON the portfolio-aware guard from PR #409 with trade-
+      level identity (per `trade_id`) so a TSLA trim doesn't
+      accidentally touch user's manual TSLA shares. **Full scope:**
+      Trader + Investor × Shares + Options, with all 6 simulation
+      actions (entry / trim / update SL / TP hit / SL hit / exit)
+      mapped per cell of the matrix. **Prerequisite for BYOB** —
+      must ship before letting third-party users connect their own
+      broker. 5 phases (A→E), ~14 days total work; Phase F polish
+      is post-launch.
+
 - [ ] **BYOB — Bring Your Own Broker.** Multi-user broker connect flow
       (Robinhood + IBKR per-user). Plan:
       [2026-06-01-byob-broker-connect-plan.md](2026-06-01-byob-broker-connect-plan.md).
       Bridge architecture is already multi-user-ready (per-user storage,
       OAuth, encrypted tokens, risk caps, audit log all live). What's
       missing: user-facing Connect-Broker UI, Robinhood OAuth wiring,
-      IBKR per-user wizard, compliance + risk controls. 4-phase
-      rollout estimated 4-6 weeks of focused work + parallel legal
-      review.
+      IBKR per-user wizard, compliance + risk controls. **Depends on
+      Trade-Aware Mirror Sync (above)** — letting third-party users
+      connect their own broker requires lock-tight trade-level
+      isolation. 4-phase rollout estimated 4-6 weeks of focused work
+      + parallel legal review.
 
 ---
 
