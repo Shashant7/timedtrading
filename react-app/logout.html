@@ -153,6 +153,28 @@
       </div>
     </div>
 
+    <!-- 2026-06-01 — Last-resort troubleshooting block. The CF Access
+         policy session duration was lowered from 24h → 12h, which
+         combined with our top-level /cdn-cgi/access/logout + Google
+         sign-out (step 1 above) should resolve the silent re-auth
+         issue for every normal flow. This <details> stays as a
+         "in case it ever happens again" recovery hint, collapsed by
+         default and worded much more softly than the original
+         (which sounded like the bug was unsolved). -->
+    <details class="troubleshoot" style="margin-top:24px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+      <summary style="cursor:pointer;color:#6b7280;font-size:11.5px;font-weight:500;list-style:none;">
+        Still signing in as the same account? &middot; Recovery options &rarr;
+      </summary>
+      <div style="margin-top:8px;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;font-size:11.5px;color:#9ca3af;line-height:1.6;">
+        If steps 1 and 2 above don't switch you to the new account, try
+        one of these:
+        <ul style="margin:8px 0 0 18px;padding:0;">
+          <li>Open this site in a <strong>Private / Incognito window</strong> and sign in there.</li>
+          <li>OR clear cookies for <code style="color:#67e8f9;">timed-trading.com</code> in your browser settings, then sign in normally.</li>
+        </ul>
+      </div>
+    </details>
+
     <div class="footer-links">
       <a href="/splash.html">Back to home</a>
     </div>

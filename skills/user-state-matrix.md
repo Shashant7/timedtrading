@@ -91,6 +91,40 @@ const isPro =
 - **Activity strip / bell mounting before auth bootstraps.** Now defaults hidden until `tt-auth-bootstrap-updated` fires.
 - **Suppressing the FOOTER for free users.** Don't. Legal disclaimer + Twelve Data attribution must be visible on every page.
 
+---
+
+## CF Access policy session duration (resolved 2026-06-01)
+
+**Current config:** the `Allow users` policy on the Timed Trading Access app has **Policy session duration = 12 hours**. This was lowered from `24 hours` after the user reported the "Switch account flow keeps signing me in as the previous account" bug.
+
+**The bug:** Cloudflare Access maintains a TEAM-LEVEL session that persists across app-level `/cdn-cgi/access/logout` calls. There's no public endpoint to clear the team session from outside the CF Dashboard. With the default 24h policy session, our app-cookie clear would be silently undone by the team session re-issuing the app cookie WITHOUT going through Google.
+
+**Why 12 hours fixes it:** the policy session duration is the upper bound on how long the team-cached identity can survive. After 12h, CF Access MUST re-authenticate via the IdP. Combined with our switch-account flow (which clears the app cookie immediately AND prompts the user to sign out of Google), the team session can't be older than the policy duration, so worst-case waiting time is bounded.
+
+**UX impact:** essentially zero. Re-auth in 12h windows is silent for a user with an active Google session (which is the normal case — Google sessions persist for weeks). Users see at most a ~200ms invisible redirect through Google. Comparable to the auto-relog cadence of Robinhood/E*TRADE/Schwab.
+
+### How to find the setting
+
+- **Cloudflare Dashboard → Zero Trust → Access controls → Policies**
+- Click the **Allow users** policy
+- Right-hand panel → **Policy session duration**
+- Note: this OVERRIDES the application-level Session Duration. Per-app value is ignored when policy value is set.
+
+### If a future operator wants longer sessions back
+
+You can raise the policy session duration back up if you ALSO add `prompt=select_account` to the Google IdP, which forces the account picker on every CF Access auth regardless of cached session. To find that:
+
+- **Cloudflare Dashboard → Zero Trust → Team & Resources → Login methods** (or via direct URL `https://one.dash.cloudflare.com/<account_id>/access/authentication`)
+- Edit the **Google** IdP
+- Add OAuth param: `prompt` = `select_account`
+- Save
+
+With that combination, you can set policy session duration to `1 week` or `1 month` and switching accounts still works perfectly.
+
+### Mirror config on the Admin Pages app
+
+The second app — **Timed Trading - Admin Pages** with the **Admin Only** policy — should mirror the same policy session duration so admins also benefit from the switch-account flow. If you haven't yet, set it there too.
+
 ## Source
 
 - `worker/api.js` → `authenticateUser` (D1 lookup + auto-provision + blocked/removed handling)
