@@ -6,6 +6,40 @@
 
 ---
 
+## Calibration UX: explain what it is, prove it ran, badge freshness [2026-06-01]
+
+Operator: *"I truly don't see where calibration applies, where it shows what's in place. Hitting Run Analysis, nothing seems to happen and the numbers don't update. The recommendations, how do I know if they are valid and fresh?"*
+
+Three independent UX problems on the System Intelligence → Analysis tab:
+
+1. **No "what is this" explainer.** The page jumped straight into a `Run Analysis` button without explaining that calibration writes to `model_config` `deep_audit_*` keys that the next scoring cron picks up.
+2. **No visible feedback on Run Analysis.** Click → "Analyzing…" → silent return. Numbers DID refresh but the change was hard to notice; failures were lost in the small `error` banner.
+3. **No freshness signal on recommendations.** A `STAR HIGH +119% pts` card looked identical whether it was generated 5 minutes ago or 5 days ago.
+
+### Fix
+
+Three UI additions in `react-app/system-intelligence.html`:
+
+**a) Calibration explainer card at the very top.** Plain-language description of what calibration does (analyses closed trades → computes thresholds → writes `deep_audit_*` to `model_config` → next scoring cron picks them up), where it shows up (the Effective model_config table + Engine tab live KPIs), and how to use the page. Right-aligned freshness chip showing `FRESH / OK / STALE` based on time since last Run Analysis.
+
+**b) Run-status toast** after `handleRun`:
+- Success: `"✓ Analysis complete — 3 recommendations from 631 closed trades. (5.2s)"`
+- Failure: `"✗ Analysis failed: <error>. (1.1s)"`
+
+Auto-dismisses after 6 seconds.
+
+**c) Freshness chip on the Deep Audit header.** Same `FRESH / OK / STALE` colour ladder (green <6h, amber <24h, red >24h) with hover tooltip explaining the >24h case.
+
+### Rule
+
+Any UI that runs a long-ish backend operation MUST surface explicit success/failure feedback the moment the operation completes — not just a button label flip. Operators routinely click → wait → assume nothing happened → click again. A 6-second auto-dismissing toast costs nothing and removes that entire failure mode.
+
+Any UI that presents stale-able recommendations MUST visibly badge the underlying data's age.
+
+Any UI that mutates persistent operator state MUST include a plain-language "what this does, where it shows up, how to verify" panel near the top.
+
+---
+
 ## Freshness monitor must heal before paging + chart SVG sl=0 trap [2026-06-01]
 
 Two operator-visible bugs surfaced in the polish sweep.

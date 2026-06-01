@@ -22,6 +22,18 @@
 
 ### Active
 
+- [x] **Calibration UX polish (PR pending).** Three additions to System
+      Intelligence → Analysis tab: (a) Calibration explainer card at
+      the top — plain-language "what calibration does, where it shows
+      up, how to use this page" with a right-aligned freshness chip
+      (FRESH <6h / OK <24h / STALE >24h based on time since last Run
+      Analysis). (b) Run-status toast after Run Analysis completes —
+      "✓ Analysis complete — N recs from M trades (Xs)" success or
+      "✗ Analysis failed: <error> (Xs)" — auto-dismisses 6s.
+      (c) Freshness chip on the Deep Audit header with the same
+      colour ladder + tooltip explaining the STALE case. Operator no
+      longer guesses whether Run Analysis did anything or whether
+      recommendations are current.
 - [x] **Setup-name display: tt_* keys mapped + direction-aware swap
       (PR #432).** Discord DIA exit embed showed "Setup: Atl Breakdown"
       for a LONG. Two bugs: (a) SETUP_NAME_MAP missed `tt_*` paths, so

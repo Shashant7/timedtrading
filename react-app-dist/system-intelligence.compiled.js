@@ -3474,7 +3474,29 @@ function DeepAuditTab() {
     className: "si-card__title"
   }, audit.trade_count, " closed trades analyzed"), React.createElement("div", {
     className: "si-card__subtitle"
-  }, "Generated ", new Date(audit.generated_at).toLocaleString())), React.createElement("button", {
+  }, "Generated ", new Date(audit.generated_at).toLocaleString(), (() => {
+    const ms = Number(audit?.generated_at);
+    if (!Number.isFinite(ms) || ms <= 0) return null;
+    const ageH = (Date.now() - ms) / 3600000;
+    const color = ageH < 6 ? "var(--ds-up, #00c853)" : ageH < 24 ? "var(--ds-warn, #fbbf24)" : "var(--ds-dn, #f43f5e)";
+    const label = ageH < 6 ? "FRESH" : ageH < 24 ? "OK" : "STALE";
+    const ageStr = ageH < 1 ? `${Math.round(ageH * 60)}m` : ageH < 24 ? `${ageH.toFixed(1)}h` : `${(ageH / 24).toFixed(1)}d`;
+    return React.createElement("span", {
+      style: {
+        marginLeft: 10,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 10,
+        fontWeight: 700,
+        padding: "2px 7px",
+        borderRadius: 999,
+        color,
+        background: `${color}22`,
+        border: `1px solid ${color}55`,
+        letterSpacing: "0.04em"
+      },
+      title: ageH >= 24 ? "Audit is more than 24 hours old — recommendations may not reflect current performance. Click Refresh." : `${ageStr} since this audit was generated`
+    }, label, " \xB7 ", ageStr, " old");
+  })())), React.createElement("button", {
     className: "si-action",
     onClick: runAudit
   }, "Refresh"), audit.recommendations?.length > 0 && React.createElement("button", {
@@ -6734,6 +6756,28 @@ function TradeGradingTab() {
     className: "text-xs text-slate-500"
   }, "No graded trades yet. Grade statistics will appear here once trades are taken with the grading system active.")));
 }
+function _fmtAge(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const ageS = Math.floor((Date.now() - ms) / 1000);
+  if (ageS < 60) return `${ageS}s ago`;
+  if (ageS < 3600) return `${Math.floor(ageS / 60)}m ago`;
+  if (ageS < 86400) return `${Math.floor(ageS / 3600)}h ago`;
+  return `${Math.floor(ageS / 86400)}d ago`;
+}
+function _ageColor(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "var(--ds-text-muted)";
+  const ageH = (Date.now() - ms) / 3600000;
+  if (ageH < 6) return "var(--ds-up, #00c853)";
+  if (ageH < 24) return "var(--ds-warn, #fbbf24)";
+  return "var(--ds-dn, #f43f5e)";
+}
+function _ageLabel(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const ageH = (Date.now() - ms) / 3600000;
+  if (ageH < 6) return "FRESH";
+  if (ageH < 24) return "OK";
+  return "STALE";
+}
 function AnalysisAutomationBar({
   isAdmin,
   snapshot,
@@ -6744,12 +6788,113 @@ function AnalysisAutomationBar({
   onRunAnalysis,
   running,
   onLoadProposals,
-  onApplyProposal
+  onApplyProposal,
+  lastRunAt,
+  runStatus
 }) {
   const runId = snapshot?.run_id;
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
   return React.createElement("div", {
     className: "space-y-4"
   }, React.createElement("div", {
+    className: "si-card",
+    style: {
+      borderLeft: "3px solid var(--ds-accent)"
+    }
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "What is calibration?"), React.createElement("div", {
+    className: "si-card__title"
+  }, "How this page changes the live engine")), Number.isFinite(lastRunAt) && lastRunAt > 0 && React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      gap: 4
+    }
+  }, React.createElement("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      fontWeight: 700,
+      padding: "3px 8px",
+      borderRadius: 999,
+      color: _ageColor(lastRunAt),
+      background: `${_ageColor(lastRunAt)}22`,
+      border: `1px solid ${_ageColor(lastRunAt)}55`,
+      letterSpacing: "0.04em"
+    }
+  }, _ageLabel(lastRunAt)), React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--ds-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, "Last run ", _fmtAge(lastRunAt)))), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      lineHeight: 1.55,
+      marginTop: 4
+    }
+  }, React.createElement("strong", {
+    style: {
+      color: "var(--ds-text-body)"
+    }
+  }, "What it does:"), " Calibration analyses recent closed trades, computes optimal thresholds, and writes them to ", React.createElement("code", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      color: "var(--ds-text-body)"
+    }
+  }, "model_config"), " as ", React.createElement("code", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, "deep_audit_*"), " keys. The next scoring cron reads those keys and adjusts entry gates, SL/TP geometry, sizing weights, and exit rules accordingly. Nothing changes until you click ", React.createElement("strong", null, "Apply"), " on a recommendation or proposal.", React.createElement("br", null), React.createElement("strong", {
+    style: {
+      color: "var(--ds-text-body)"
+    }
+  }, "Where it shows up:"), " the ", React.createElement("em", null, "Effective model_config"), " table on this tab lists every active key with its last-updated timestamp. The Engine tab's live KPIs reflect the same keys driving scoring decisions in real time.", React.createElement("br", null), React.createElement("strong", {
+    style: {
+      color: "var(--ds-text-body)"
+    }
+  }, "How to use this page:"), " click ", React.createElement("em", null, "Run Analysis"), " to refresh the audit from the latest closed-trade ledger. Review the recommendations + proposals. Click ", React.createElement("em", null, "Apply"), " on the ones you trust; the engine picks them up on the next 5-min scoring cycle.")), runStatus && React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      borderRadius: 8,
+      background: runStatus.kind === "error" ? "rgba(244,63,94,0.10)" : "rgba(0,200,83,0.10)",
+      border: `1px solid ${runStatus.kind === "error" ? "rgba(244,63,94,0.40)" : "rgba(0,200,83,0.40)"}`,
+      color: runStatus.kind === "error" ? "#fca5a5" : "#86efac",
+      fontSize: "var(--ds-fs-body)",
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    },
+    role: "status"
+  }, React.createElement("span", {
+    style: {
+      fontWeight: 700
+    }
+  }, runStatus.kind === "error" ? "✗" : "✓"), React.createElement("span", null, runStatus.message), runStatus.detail && React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--ds-text-muted)",
+      marginLeft: "auto"
+    }
+  }, runStatus.detail)), React.createElement("div", {
     className: "si-banner"
   }, React.createElement("div", {
     style: {
@@ -7119,10 +7264,19 @@ function App() {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, [queued]);
+  const [runStatus, setRunStatus] = useState(null);
+  const [lastRunAt, setLastRunAt] = useState(null);
+  useEffect(() => {
+    if (!runStatus) return;
+    const id = setTimeout(() => setRunStatus(null), 6000);
+    return () => clearTimeout(id);
+  }, [runStatus]);
   const handleRun = async () => {
     setRunning(true);
     setError(null);
+    setRunStatus(null);
     preCalibReportIdRef.current = reportId;
+    const _runStartMs = Date.now();
     try {
       let scopeArgs = {
         analysis_only: true
@@ -7155,14 +7309,35 @@ function App() {
         credentials: "include"
       });
       const data = await res.json();
+      const _elapsedMs = Date.now() - _runStartMs;
       if (data.ok && data.report) {
         setReport(data.report);
         setRecs(data.report?.recommendations);
         setReportId(data.report?.report_id || reportId);
+        setLastRunAt(Date.now());
+        const _recCount = data.report?.recommendations?.length || 0;
+        const _tradeCount = data.report?.trade_count || data.report?.sample?.closed || 0;
+        setRunStatus({
+          kind: "ok",
+          message: `Analysis complete — ${_recCount} recommendation${_recCount === 1 ? "" : "s"} from ${_tradeCount} closed trade${_tradeCount === 1 ? "" : "s"}.`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s`
+        });
         fetchData();
-      } else if (!data.ok) setError(data.error || "Analysis failed");
+      } else if (!data.ok) {
+        setError(data.error || "Analysis failed");
+        setRunStatus({
+          kind: "error",
+          message: `Analysis failed: ${data.error || "unknown error"}`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s`
+        });
+      }
     } catch (e) {
       setError(String(e));
+      setRunStatus({
+        kind: "error",
+        message: `Analysis failed: ${String(e?.message || e).slice(0, 120)}`,
+        detail: `${((Date.now() - _runStartMs) / 1000).toFixed(1)}s`
+      });
     }
     setRunning(false);
   };
@@ -7371,7 +7546,9 @@ function App() {
     onRunAnalysis: handleRun,
     running: running,
     onLoadProposals: fetchProposals,
-    onApplyProposal: applyProposal
+    onApplyProposal: applyProposal,
+    lastRunAt: lastRunAt,
+    runStatus: runStatus
   }), React.createElement(UnifiedAnalysisTab, {
     report: report,
     recs: recs,
@@ -7412,6 +7589,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1780340172175:989772963
+// cache-bust:1780341414358:574931498
 
-// cache-bust:1780340172175:989772963
+// cache-bust:1780341414358:574931498

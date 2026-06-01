@@ -2638,11 +2638,43 @@ function DeepAuditTab() {
   return (
     <div>
       {/* Audit header — banner-style, mirrors Engine tab */}
+      {/* 2026-06-01 — Freshness chip on the audit header. Same age-color
+          ladder used in the Calibration explainer above: green <6h,
+          amber <24h, red STALE >24h. Tells the operator at a glance
+          whether the recommendations are based on a recent run. */}
       <div className="si-banner" style={{marginBottom: "var(--ds-space-4)"}}>
         <div style={{flex:1, minWidth:200}}>
           <div className="si-card__eyebrow">Deep System Audit</div>
           <div className="si-card__title">{audit.trade_count} closed trades analyzed</div>
-          <div className="si-card__subtitle">Generated {new Date(audit.generated_at).toLocaleString()}</div>
+          <div className="si-card__subtitle">
+            Generated {new Date(audit.generated_at).toLocaleString()}
+            {(() => {
+              const ms = Number(audit?.generated_at);
+              if (!Number.isFinite(ms) || ms <= 0) return null;
+              const ageH = (Date.now() - ms) / 3600000;
+              const color = ageH < 6 ? "var(--ds-up, #00c853)"
+                          : ageH < 24 ? "var(--ds-warn, #fbbf24)"
+                          : "var(--ds-dn, #f43f5e)";
+              const label = ageH < 6 ? "FRESH" : ageH < 24 ? "OK" : "STALE";
+              const ageStr = ageH < 1 ? `${Math.round(ageH * 60)}m`
+                           : ageH < 24 ? `${ageH.toFixed(1)}h`
+                           : `${(ageH / 24).toFixed(1)}d`;
+              return (
+                <span style={{
+                  marginLeft: 10,
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 999,
+                  color, background: `${color}22`, border: `1px solid ${color}55`,
+                  letterSpacing: "0.04em",
+                }} title={ageH >= 24 ? "Audit is more than 24 hours old — recommendations may not reflect current performance. Click Refresh." : `${ageStr} since this audit was generated`}>
+                  {label} · {ageStr} old
+                </span>
+              );
+            })()}
+          </div>
         </div>
         <button className="si-action" onClick={runAudit}>Refresh</button>
         {audit.recommendations?.length > 0 && (
@@ -5136,10 +5168,109 @@ function TradeGradingTab() {
 // AnalysisAutomationBar — P2: Run Analysis from page + apply
 // proposed calibration deltas without dropping to a shell.
 // ═══════════════════════════════════════════════════════════════
-function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading, proposalApplying, proposalApplied, onRunAnalysis, running, onLoadProposals, onApplyProposal }) {
+/* 2026-06-01 — Calibration UX polish.
+
+   Operator: "I truly don't see where calibration applies, where it
+   shows what's in place. Hitting Run Analysis, nothing seems to
+   happen and the numbers don't update. The recommendations, how do
+   I know if they are valid and fresh?"
+
+   Added:
+   - Plain-language explainer at the top describing what Calibration
+     IS, what it touches, and where to verify the live state
+   - Last-run timestamp chip + colored age (green <6h, amber <24h,
+     red STALE >24h)
+   - Toast after Run Analysis completes (auto-dismiss 6s) so the
+     operator gets explicit "done" feedback instead of guessing
+     whether anything happened. */
+function _fmtAge(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const ageS = Math.floor((Date.now() - ms) / 1000);
+  if (ageS < 60) return `${ageS}s ago`;
+  if (ageS < 3600) return `${Math.floor(ageS / 60)}m ago`;
+  if (ageS < 86400) return `${Math.floor(ageS / 3600)}h ago`;
+  return `${Math.floor(ageS / 86400)}d ago`;
+}
+function _ageColor(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "var(--ds-text-muted)";
+  const ageH = (Date.now() - ms) / 3600000;
+  if (ageH < 6) return "var(--ds-up, #00c853)";
+  if (ageH < 24) return "var(--ds-warn, #fbbf24)";
+  return "var(--ds-dn, #f43f5e)";
+}
+function _ageLabel(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "—";
+  const ageH = (Date.now() - ms) / 3600000;
+  if (ageH < 6) return "FRESH";
+  if (ageH < 24) return "OK";
+  return "STALE";
+}
+function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading, proposalApplying, proposalApplied, onRunAnalysis, running, onLoadProposals, onApplyProposal, lastRunAt, runStatus }) {
   const runId = snapshot?.run_id;
+  // Tick every 30s so the "Last run X ago" label stays accurate
+  // without forcing a re-fetch.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
   return (
     <div className="space-y-4">
+      {/* 2026-06-01 — Calibration explainer. First thing on the page. */}
+      <div className="si-card" style={{borderLeft:"3px solid var(--ds-accent)"}}>
+        <div className="si-card__head">
+          <div style={{flex:1, minWidth:200}}>
+            <div className="si-card__eyebrow">What is calibration?</div>
+            <div className="si-card__title">How this page changes the live engine</div>
+          </div>
+          {Number.isFinite(lastRunAt) && lastRunAt > 0 && (
+            <div style={{display:"flex", flexDirection:"column", alignItems:"flex-end", gap:4}}>
+              <span style={{
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 11,
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: 999,
+                color: _ageColor(lastRunAt),
+                background: `${_ageColor(lastRunAt)}22`,
+                border: `1px solid ${_ageColor(lastRunAt)}55`,
+                letterSpacing: "0.04em",
+              }}>
+                {_ageLabel(lastRunAt)}
+              </span>
+              <span style={{fontSize: 10, color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)"}}>
+                Last run {_fmtAge(lastRunAt)}
+              </span>
+            </div>
+          )}
+        </div>
+        <div style={{fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.55, marginTop: 4}}>
+          <strong style={{color:"var(--ds-text-body)"}}>What it does:</strong> Calibration analyses recent closed trades, computes optimal thresholds, and writes them to <code style={{fontFamily:"var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-body)"}}>model_config</code> as <code style={{fontFamily:"var(--tt-font-mono)", fontSize: 11}}>deep_audit_*</code> keys. The next scoring cron reads those keys and adjusts entry gates, SL/TP geometry, sizing weights, and exit rules accordingly. Nothing changes until you click <strong>Apply</strong> on a recommendation or proposal.<br/>
+          <strong style={{color:"var(--ds-text-body)"}}>Where it shows up:</strong> the <em>Effective model_config</em> table on this tab lists every active key with its last-updated timestamp. The Engine tab's live KPIs reflect the same keys driving scoring decisions in real time.<br/>
+          <strong style={{color:"var(--ds-text-body)"}}>How to use this page:</strong> click <em>Run Analysis</em> to refresh the audit from the latest closed-trade ledger. Review the recommendations + proposals. Click <em>Apply</em> on the ones you trust; the engine picks them up on the next 5-min scoring cycle.
+        </div>
+      </div>
+
+      {/* Run-status toast (auto-dismissed after 6s, set by parent) */}
+      {runStatus && (
+        <div
+          style={{
+            padding: "10px 14px",
+            borderRadius: 8,
+            background: runStatus.kind === "error" ? "rgba(244,63,94,0.10)" : "rgba(0,200,83,0.10)",
+            border: `1px solid ${runStatus.kind === "error" ? "rgba(244,63,94,0.40)" : "rgba(0,200,83,0.40)"}`,
+            color: runStatus.kind === "error" ? "#fca5a5" : "#86efac",
+            fontSize: "var(--ds-fs-body)",
+            display: "flex", alignItems: "center", gap: 8,
+          }}
+          role="status"
+        >
+          <span style={{fontWeight:700}}>{runStatus.kind === "error" ? "✗" : "✓"}</span>
+          <span>{runStatus.message}</span>
+          {runStatus.detail && <span style={{fontSize:11, color: "var(--ds-text-muted)", marginLeft: "auto"}}>{runStatus.detail}</span>}
+        </div>
+      )}
+
       <div className="si-banner">
         <div style={{flex:1, minWidth:200}}>
           <div className="si-card__eyebrow">Analysis automation</div>
@@ -5443,9 +5574,21 @@ function App() {
     return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, [queued]);
 
+  /* 2026-06-01 — Run status toast for explicit user feedback. The bar
+     auto-dismisses after 6s. lastRunAt persists so the freshness chip
+     stays accurate between runs. */
+  const [runStatus, setRunStatus] = useState(null);
+  const [lastRunAt, setLastRunAt] = useState(null);
+  useEffect(() => {
+    if (!runStatus) return;
+    const id = setTimeout(() => setRunStatus(null), 6000);
+    return () => clearTimeout(id);
+  }, [runStatus]);
+
   const handleRun = async () => {
-    setRunning(true); setError(null);
+    setRunning(true); setError(null); setRunStatus(null);
     preCalibReportIdRef.current = reportId;
+    const _runStartMs = Date.now();
     try {
       // V15 P0.7.71: when there's an active promoted backtest, seed
       // calibration_trade_autopsy from it first so the Analysis runs against
@@ -5476,9 +5619,36 @@ function App() {
       }
       const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scopeArgs), credentials: "include" });
       const data = await res.json();
-      if (data.ok && data.report) { setReport(data.report); setRecs(data.report?.recommendations); setReportId(data.report?.report_id || reportId); fetchData(); }
-      else if (!data.ok) setError(data.error || "Analysis failed");
-    } catch (e) { setError(String(e)); }
+      const _elapsedMs = Date.now() - _runStartMs;
+      if (data.ok && data.report) {
+        setReport(data.report);
+        setRecs(data.report?.recommendations);
+        setReportId(data.report?.report_id || reportId);
+        setLastRunAt(Date.now());
+        const _recCount = (data.report?.recommendations?.length) || 0;
+        const _tradeCount = data.report?.trade_count || data.report?.sample?.closed || 0;
+        setRunStatus({
+          kind: "ok",
+          message: `Analysis complete — ${_recCount} recommendation${_recCount === 1 ? "" : "s"} from ${_tradeCount} closed trade${_tradeCount === 1 ? "" : "s"}.`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s`,
+        });
+        fetchData();
+      } else if (!data.ok) {
+        setError(data.error || "Analysis failed");
+        setRunStatus({
+          kind: "error",
+          message: `Analysis failed: ${data.error || "unknown error"}`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s`,
+        });
+      }
+    } catch (e) {
+      setError(String(e));
+      setRunStatus({
+        kind: "error",
+        message: `Analysis failed: ${String(e?.message || e).slice(0, 120)}`,
+        detail: `${((Date.now() - _runStartMs) / 1000).toFixed(1)}s`,
+      });
+    }
     setRunning(false);
   };
   // V15 P0.7.182 (2026-05-17) — Better Apply UX.
@@ -5660,6 +5830,8 @@ function App() {
                   running={running}
                   onLoadProposals={fetchProposals}
                   onApplyProposal={applyProposal}
+                  lastRunAt={lastRunAt}
+                  runStatus={runStatus}
                 />
                 <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />
                 <details className="si-card si-card--glass">
