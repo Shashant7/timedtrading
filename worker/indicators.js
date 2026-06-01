@@ -5058,6 +5058,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       phase_osc: bM.phaseOsc ? Math.round(bM.phaseOsc * 10) / 10 : undefined,
       px: bM.px ? Math.round(bM.px * 100) / 100 : undefined,
     } : undefined,
+    /* 2026-06-01 — weekly_bundle (mirror of monthly_bundle) so the Investor
+       thesis generator can quote actual price levels alongside the
+       Invalidation strings (e.g. "Price closes below Weekly EMA(200)
+       ($435.20)"). Operator wanted the level inline so they can see how
+       much room before invalidation triggers. supertrend_line + ema200
+       are the two referenced in worker/investor.js generateThesis. */
+    weekly_bundle: bW ? {
+      supertrend_dir: bW.stDir,
+      supertrend_line: bW.stLine ? Math.round(bW.stLine * 100) / 100 : undefined,
+      ema200: bW.e200 ? Math.round(bW.e200 * 100) / 100 : undefined,
+      rsi: bW.rsi ? Math.round(bW.rsi * 10) / 10 : undefined,
+      px: bW.px ? Math.round(bW.px * 100) / 100 : undefined,
+    } : undefined,
     // ── Daily structural profile (Phase E 2026-04-19) ──
     // Surfaces the raw D-EMA values + derived position/slope metrics the
     // entry engine needs for the Daily-Brief-aligned index-ETF swing path,

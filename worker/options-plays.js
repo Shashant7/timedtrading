@@ -1358,8 +1358,24 @@ export function buildOptionsLadder(contract, opts = {}) {
 
   const ladder = [];
 
-  // Suppress directional plays entirely in WAIT mode.
-  const suppressDirectional = verdictMode === "WAIT";
+  /* 2026-06-01 — Investor mode bypasses the trader-side WAIT suppression.
+
+     The trader confluence verdict (RIDE / READY / DRIFT / FADE / WAIT) is
+     a short-horizon "do we have a 1-5 day direction signal right now?"
+     judgment. The Investor Accumulate stage is a multi-month thesis built
+     on Monthly SuperTrend + Weekly EMA(200) + RS Rank — a fundamentally
+     different time-horizon signal. The Investor stage IS the directional
+     verdict; a trader-side WAIT (e.g. intraday chop or pre-catalyst
+     hesitation) should not strip the LEAP from the Investor ladder and
+     leave only a direction-neutral straddle.
+
+     Real-world bug this fixes: CRS in Investor Accumulate / ON-THESIS,
+     trader confluence was WAIT (pre-catalyst), and the ladder showed a
+     Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
+     "we are accumulating LONG" investor thesis. Operator flagged it. */
+  const isInvestorMode = String(contract?.mode || "").toLowerCase() === "investor"
+    || classifySetupStage(contract) === "investor";
+  const suppressDirectional = verdictMode === "WAIT" && !isInvestorMode;
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
   // This is the gem: short-dated OTM gamma play when the model has identified
@@ -1452,7 +1468,18 @@ export function buildOptionsLadder(contract, opts = {}) {
     });
   }
 
-  if (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04) {
+  /* 2026-06-01 — Direction-neutral plays (Long Straddle, by direction-
+     neutral construction) are excluded from Investor mode entirely. The
+     Investor thesis is "I'm long-term bullish; I want LONG exposure" —
+     a straddle that profits from a big move in EITHER direction does
+     NOT express that thesis. It only confused the operator: CRS at
+     Accumulate + ON-THESIS but the headline play was "Direction unclear
+     but BIG move expected". Trader mode still gets the straddle when
+     atr_pct >= 4% or verdict is WAIT — that's where direction-neutral
+     volatility expressions are appropriate (catalyst pending, squeeze
+     release, no clear short-term direction). */
+  const allowDirectionNeutral = !isInvestorMode;
+  if (allowDirectionNeutral && (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04)) {
     const ls = buildLongStraddle(ctxEff);
     if (ls) ladder.push(ls);
   }
