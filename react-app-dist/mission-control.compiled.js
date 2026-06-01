@@ -720,6 +720,317 @@ function CioDecisionReview({
     }));
   })));
 }
+function VehicleTogglesCard({
+  apiBase,
+  user,
+  onSaved
+}) {
+  const initial = React.useMemo(() => {
+    const DEFAULTS = {
+      equity_long: {
+        enabled: true,
+        daily_cap: 3,
+        max_per_order_usd: 300
+      },
+      long_call: {
+        enabled: false,
+        daily_cap: 2,
+        max_per_order_usd: 200,
+        max_loss_per_order_usd: 75
+      },
+      long_put: {
+        enabled: false,
+        daily_cap: 2,
+        max_per_order_usd: 200,
+        max_loss_per_order_usd: 75
+      },
+      vertical_spread: {
+        enabled: false,
+        daily_cap: 2,
+        max_per_order_usd: 200,
+        max_loss_per_order_usd: 75
+      },
+      leaps: {
+        enabled: false,
+        daily_cap: 1,
+        max_per_order_usd: 500,
+        max_loss_per_order_usd: 500
+      },
+      straddle: {
+        enabled: false,
+        daily_cap: 1,
+        max_per_order_usd: 300,
+        max_loss_per_order_usd: 200
+      },
+      moonshot: {
+        enabled: false,
+        daily_cap: 1,
+        max_per_order_usd: 100,
+        max_loss_per_order_usd: 100
+      }
+    };
+    const out = {};
+    for (const [k, v] of Object.entries(DEFAULTS)) {
+      out[k] = {
+        ...v,
+        ...(user?.options_prefs?.vehicles?.[k] || {})
+      };
+    }
+    return out;
+  }, [user?.options_prefs, user?.user_id]);
+  const [rows, setRows] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const updatedAt = user?.options_prefs_updated_at;
+  React.useEffect(() => {
+    setRows(initial);
+  }, [initial]);
+  const ROW_META = [{
+    key: "equity_long",
+    label: "Equity (long)",
+    showLoss: false
+  }, {
+    key: "long_call",
+    label: "Long Call",
+    showLoss: true
+  }, {
+    key: "long_put",
+    label: "Long Put",
+    showLoss: true
+  }, {
+    key: "vertical_spread",
+    label: "Vertical Spread",
+    showLoss: true
+  }, {
+    key: "leaps",
+    label: "LEAPs",
+    showLoss: true
+  }, {
+    key: "straddle",
+    label: "Straddle",
+    showLoss: true
+  }, {
+    key: "moonshot",
+    label: "Moonshot",
+    showLoss: true
+  }];
+  const setRow = (key, patch) => {
+    setRows(prev => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        ...patch
+      }
+    }));
+  };
+  const submit = async (payload, label) => {
+    setBusy(true);
+    setMsg({
+      kind: "info",
+      text: `${label}…`
+    });
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/broker-bridge/options-prefs`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          user_id: user?.user_id,
+          ...payload
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        const reason = j?.error || j?.reject_reason || `HTTP ${r.status}`;
+        setMsg({
+          kind: "err",
+          text: `Save failed: ${String(reason).slice(0, 140)}`
+        });
+        console.warn("[VehicleTogglesCard] save failed", j);
+        return;
+      }
+      setMsg({
+        kind: "ok",
+        text: "Saved."
+      });
+      const nextPrefs = j.options_prefs || null;
+      const nextRows = {};
+      for (const m of ROW_META) {
+        nextRows[m.key] = {
+          ...rows[m.key],
+          ...(nextPrefs?.vehicles?.[m.key] || {})
+        };
+      }
+      setRows(nextRows);
+      if (typeof onSaved === "function") onSaved(nextPrefs, j.updated_at);
+      setTimeout(() => setMsg(null), 3500);
+    } catch (e) {
+      setMsg({
+        kind: "err",
+        text: `Save failed: ${String(e?.message || e).slice(0, 140)}`
+      });
+      console.warn("[VehicleTogglesCard] save error", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement("div", {
+    className: "mt-3 pt-3",
+    style: {
+      borderTop: "1px solid rgba(255,255,255,0.06)"
+    }
+  }, React.createElement("div", {
+    className: "flex items-baseline justify-between flex-wrap gap-2 mb-2"
+  }, React.createElement("div", {
+    className: "text-[11px] font-semibold text-white"
+  }, "\u2699\uFE0F Options Auto-Mirror \u2014 per-vehicle toggles"), React.createElement("div", {
+    className: "flex items-center gap-2 flex-wrap"
+  }, msg && React.createElement("span", {
+    className: "text-[10px] " + (msg.kind === "err" ? "text-rose-300" : msg.kind === "ok" ? "mc-pos" : "mc-mute")
+  }, msg.text), updatedAt > 0 && !msg && React.createElement("span", {
+    className: "text-[10px] mc-mute italic",
+    title: new Date(updatedAt).toLocaleString()
+  }, "saved ", fmtAgo(updatedAt), " ago"), React.createElement("button", {
+    className: "mc-btn mc-btn-warn",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    disabled: busy,
+    onClick: () => submit({
+      apply_small_account_defaults: true
+    }, "Applying small-account defaults")
+  }, "Apply small-account defaults \u26A1"), React.createElement("button", {
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    disabled: busy,
+    onClick: () => submit({
+      vehicles: rows
+    }, "Saving")
+  }, "Save"))), React.createElement("div", {
+    className: "text-[10px] mc-mute italic mb-2"
+  }, "Naked-short vehicles (short_call \xB7 short_put \xB7 short_straddle \xB7 iron_condor_naked) are deferred and cannot be enabled here. All option vehicles default to OFF \u2014 opt in one at a time."), React.createElement("div", {
+    className: "mc-table-scroll",
+    style: {
+      background: "rgba(0,0,0,0.20)",
+      borderRadius: 6,
+      border: "1px solid rgba(255,255,255,0.04)"
+    }
+  }, React.createElement("table", {
+    className: "mc-table"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Vehicle"), React.createElement("th", {
+    style: {
+      textAlign: "center"
+    }
+  }, "Enabled"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Daily Cap"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Max / Order ($)"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Max Loss / Order ($)"))), React.createElement("tbody", null, ROW_META.map(m => {
+    const r = rows[m.key];
+    return React.createElement("tr", {
+      key: m.key
+    }, React.createElement("td", null, m.label), React.createElement("td", {
+      style: {
+        textAlign: "center"
+      }
+    }, React.createElement("input", {
+      type: "checkbox",
+      checked: !!r?.enabled,
+      disabled: busy,
+      onChange: e => setRow(m.key, {
+        enabled: e.target.checked
+      })
+    })), React.createElement("td", {
+      style: {
+        textAlign: "right"
+      }
+    }, React.createElement("input", {
+      type: "number",
+      min: "0",
+      max: "50",
+      step: "1",
+      value: Number(r?.daily_cap) || 0,
+      disabled: busy,
+      onChange: e => setRow(m.key, {
+        daily_cap: Number(e.target.value) || 0
+      }),
+      style: {
+        width: 50,
+        background: "rgba(0,0,0,0.30)",
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 4,
+        padding: "2px 4px",
+        color: "white",
+        fontSize: 11,
+        textAlign: "right"
+      }
+    })), React.createElement("td", {
+      style: {
+        textAlign: "right"
+      }
+    }, React.createElement("input", {
+      type: "number",
+      min: "1",
+      max: "100000",
+      step: "25",
+      value: Number(r?.max_per_order_usd) || 0,
+      disabled: busy,
+      onChange: e => setRow(m.key, {
+        max_per_order_usd: Number(e.target.value) || 0
+      }),
+      style: {
+        width: 70,
+        background: "rgba(0,0,0,0.30)",
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 4,
+        padding: "2px 4px",
+        color: "white",
+        fontSize: 11,
+        textAlign: "right"
+      }
+    })), React.createElement("td", {
+      style: {
+        textAlign: "right"
+      }
+    }, m.showLoss ? React.createElement("input", {
+      type: "number",
+      min: "0",
+      max: "100000",
+      step: "25",
+      value: Number(r?.max_loss_per_order_usd) || 0,
+      disabled: busy,
+      onChange: e => setRow(m.key, {
+        max_loss_per_order_usd: Number(e.target.value) || 0
+      }),
+      style: {
+        width: 70,
+        background: "rgba(0,0,0,0.30)",
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: 4,
+        padding: "2px 4px",
+        color: "white",
+        fontSize: 11,
+        textAlign: "right"
+      }
+    }) : React.createElement("span", {
+      className: "mc-mute"
+    }, "\u2014")));
+  })))));
+}
 function BridgeSection({
   apiBase
 }) {
@@ -1141,7 +1452,20 @@ function BridgeSection({
       className: "text-[11px] mc-mute italic"
     }, "No open positions."), !ok && u?.portfolio?.error && React.createElement("div", {
       className: "text-[11px] text-amber-300"
-    }, String(u.portfolio.error).slice(0, 240)));
+    }, String(u.portfolio.error).slice(0, 240)), React.createElement(VehicleTogglesCard, {
+      apiBase: apiBase,
+      user: userRow,
+      onSaved: (nextPrefs, updatedAt) => {
+        setStatus(prev => prev ? {
+          ...prev,
+          users: prev.users.map(x => x.user_id === userRow.user_id ? {
+            ...x,
+            options_prefs: nextPrefs,
+            options_prefs_updated_at: updatedAt
+          } : x)
+        } : prev);
+      }
+    }));
   })), autoMirror?.prefs && (() => {
     const prefs = autoMirror.prefs;
     const todayCount = Number(autoMirror.today_count) || 0;
@@ -2642,6 +2966,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780291216932:615209549
+// cache-bust:1780293003387:674926737
 
-// cache-bust:1780291216932:615209549
+// cache-bust:1780293003387:674926737

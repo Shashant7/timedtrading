@@ -372,6 +372,108 @@ export default {
         return json({ ok: true, user_id: userId, user_caps: next, updated_at: user.user_caps_updated_at });
       }
 
+      // 2026-06-01 — Per-vehicle options auto-mirror prefs for a single
+      // user. Mirrors the worker/options-auto-mirror.js VEHICLE_DEFAULTS
+      // shape; the bridge stores the inflated map on the user record so
+      // bridge-guards.validateVehiclePrefs can enforce it without making
+      // an extra KV round-trip per order.
+      //
+      // Payload:
+      //   { user_id, vehicles: { long_call: { enabled, max_per_order_usd,
+      //     daily_cap, max_loss_per_order_usd }, ... } }
+      // OR
+      //   { user_id, apply_small_account_defaults: true }
+      //   (writes a known-safe small-account preset)
+      //
+      // Naked-short vehicle keys are silently stripped (defense in depth
+      // — the engine already short-circuits before reaching here).
+      if (method === "POST" && path === "/bridge/user/options-prefs") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const userId = String(body?.user_id || "").trim().toLowerCase();
+        if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
+        const user = await readUser(env, userId);
+        if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+
+        const NAKED = new Set([
+          "short_call", "short_put", "iron_condor_naked", "short_straddle",
+          "short_strangle", "short_combo", "covered_call_naked",
+        ]);
+        const RECOGNIZED = new Set([
+          "equity_long", "long_call", "long_put", "vertical_spread",
+          "leaps", "straddle", "moonshot",
+        ]);
+        const SMALL_ACCOUNT_DEFAULTS = {
+          equity_long:     { enabled: true,  daily_cap: 3, max_per_order_usd: 300 },
+          long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+          long_put:        { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+          vertical_spread: { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+          leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
+          straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
+          moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+        };
+
+        const current = user.options_prefs?.vehicles || {};
+        let nextVehicles;
+        if (body?.apply_small_account_defaults === true) {
+          nextVehicles = JSON.parse(JSON.stringify(SMALL_ACCOUNT_DEFAULTS));
+        } else {
+          nextVehicles = { ...current };
+          for (const [k, row] of Object.entries(body?.vehicles || {})) {
+            const key = String(k || "").toLowerCase();
+            if (NAKED.has(key)) continue;
+            if (!RECOGNIZED.has(key)) continue;
+            // Validate each field; reject negative / absurd values.
+            const next = { ...(current[key] || {}) };
+            if (row?.enabled !== undefined) next.enabled = !!row.enabled;
+            if (row?.daily_cap !== undefined) {
+              const v = Number(row.daily_cap);
+              if (!Number.isFinite(v) || v < 0 || v > 100) {
+                return json({ ok: false, error: `${key}_daily_cap_must_be_0_to_100` }, 400);
+              }
+              next.daily_cap = Math.round(v);
+            }
+            if (row?.max_per_order_usd !== undefined) {
+              const v = Number(row.max_per_order_usd);
+              if (!Number.isFinite(v) || v <= 0 || v > 100_000) {
+                return json({ ok: false, error: `${key}_max_per_order_usd_must_be_1_to_100000` }, 400);
+              }
+              next.max_per_order_usd = Math.round(v);
+            }
+            if (row?.max_loss_per_order_usd !== undefined) {
+              const v = Number(row.max_loss_per_order_usd);
+              if (!Number.isFinite(v) || v < 0 || v > 100_000) {
+                return json({ ok: false, error: `${key}_max_loss_per_order_usd_must_be_0_to_100000` }, 400);
+              }
+              next.max_loss_per_order_usd = Math.round(v);
+            }
+            nextVehicles[key] = next;
+          }
+        }
+        user.options_prefs = { ...(user.options_prefs || {}), vehicles: nextVehicles };
+        user.options_prefs_updated_at = Date.now();
+        await writeUser(env, userId, user);
+        return json({
+          ok: true, user_id: userId,
+          options_prefs: user.options_prefs,
+          updated_at: user.options_prefs_updated_at,
+        });
+      }
+
+      // GET /bridge/user/options-prefs?user_id=X — read-only inspector
+      if (method === "GET" && path === "/bridge/user/options-prefs") {
+        if (operatorFail) return operatorFail;
+        const userId = String(url.searchParams.get("user_id") || "").trim().toLowerCase();
+        if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
+        const user = await readUser(env, userId);
+        if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+        return json({
+          ok: true, user_id: userId,
+          options_prefs: user.options_prefs || null,
+          updated_at: user.options_prefs_updated_at || null,
+        });
+      }
+
       if (method === "POST" && path === "/bridge/enable") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
@@ -690,5 +792,12 @@ function _redactUserForList(user) {
     // 'Apply small-account defaults' showed no change in the UI.
     user_caps: user.user_caps || null,
     user_caps_updated_at: user.user_caps_updated_at || null,
+    // 2026-06-01 — Per-vehicle options auto-mirror prefs. Mission Control
+    // renders these as a 7-row toggle table (Equity, Long Call, Long Put,
+    // Vertical Spread, LEAPs, Straddle, Moonshot) so the operator can
+    // see/edit which vehicles are enabled for this user without leaving
+    // the bridge section.
+    options_prefs: user.options_prefs || null,
+    options_prefs_updated_at: user.options_prefs_updated_at || null,
   };
 }

@@ -22,6 +22,20 @@
 
 ### Active
 
+- [x] **Naked-short deferral hardened + per-vehicle auto-mirror toggles.**
+      Engine: `NAKED_SHORT_ARCHETYPES` short-circuit in
+      `decideAutoMirror()` before prefs are read. `VEHICLE_DEFAULTS`
+      structure (equity_long ON; long_call / long_put / vertical_spread
+      / leaps / straddle / moonshot all OFF) with per-vehicle
+      `enabled / daily_cap / max_per_order_usd / max_loss_per_order_usd`.
+      Per-vehicle daily counters via `checkAndBumpVehicleCounter()`.
+      Bridge: `validateOrderShape` HARD-rejects short equity sides + any
+      `vehicle` key in `NAKED_SHORT_VEHICLES` (no env override).
+      `validateVehiclePrefs()` enforces per-user enable + cap.
+      `POST /bridge/user/options-prefs` + `apply_small_account_defaults`
+      preset. MC: new `VehicleTogglesCard` per connected user — 7-row
+      editable table with "Apply small-account defaults" button. Naked-
+      short vehicles intentionally absent from the UI.
 - [x] **Options engine emits LEAPs for long-direction tickers (Investor
       primary, Trader alternative).** New `leap_call` archetype +
       `pickLeapExpiration()` (~540 DTE, snapped to 3rd Friday, floored at
