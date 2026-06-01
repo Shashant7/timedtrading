@@ -91,6 +91,42 @@ const isPro =
 - **Activity strip / bell mounting before auth bootstraps.** Now defaults hidden until `tt-auth-bootstrap-updated` fires.
 - **Suppressing the FOOTER for free users.** Don't. Legal disclaimer + Twelve Data attribution must be visible on every page.
 
+---
+
+## ⚠️ Known issue: CF Access team session survives our logout
+
+**Symptom:** user signs out via "Switch account", picks a different Google account, returns to TT — and is silently re-signed-in as the previous account.
+
+**Why:** Cloudflare Access maintains a TEAM-LEVEL session (24h default lifetime) that persists across app-level `/cdn-cgi/access/logout` calls. There's no public endpoint to clear the team session from outside the CF Dashboard. Even after our top-level logout, CF Access uses the team session to silently re-issue the app cookie on the next visit, WITHOUT going through Google.
+
+**User workaround (in-app guidance is on `/logout.html?switch=1`):**
+- Use an Incognito / Private Browsing window for the new account, OR
+- Manually clear cookies for `timed-trading.com` in browser settings.
+
+**Permanent fix — operator action required (Cloudflare Dashboard):**
+
+Pick ONE of these in the Cloudflare Zero Trust dashboard. The first is the cleanest:
+
+1. **Force account picker on every sign-in** *(recommended)*
+   - **Zero Trust → Settings → Authentication → Login methods**
+   - Edit the Google IdP
+   - Under **OAuth scopes & params**, add:
+     - **Authentication parameter**: `prompt`
+     - **Authentication value**: `select_account`
+   - Save. Now every CF Access sign-in via Google will show the account picker, regardless of any cached session.
+
+2. **Shorten the CF Access app session** *(blunter)*
+   - **Zero Trust → Access → Applications → Timed Trading (or whatever app name)**
+   - Set **Session duration** to `15 minutes` (or even `No duration` to force re-auth on every visit).
+   - Trade-off: users have to re-auth more often. Combined with option 1, the picker shows every time.
+
+3. **Enable per-IdP "Always re-prompt"** *(if available in your CF plan)*
+   - Some plans expose a toggle for "Always re-authenticate" on the IdP configuration.
+
+Either #1 alone OR #2 alone resolves the user-reported issue. Doing both is fine.
+
+**Document this in the operator runbook** (`docs/2026-05-26-operator-runbook.md`) when this fix is applied so the next operator knows it was a conscious decision.
+
 ## Source
 
 - `worker/api.js` → `authenticateUser` (D1 lookup + auto-provision + blocked/removed handling)
