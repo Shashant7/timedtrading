@@ -204,6 +204,32 @@
             ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
             : "Open investor position",
         }, "OWNED"),
+        /* 2026-06-01 — JUST OPENED badge. When a position's first_entry_ts
+           is within the last 30 min, show a green pulse chip so the user
+           visually links the Discord entry alert to the kanban card. Two
+           prior complaints addressed: (a) "Discord says CRS LONG opened
+           but the card doesn't show OWNED" — now shows OWNED + JUST
+           OPENED, removing ambiguity. (b) "I can't tell which positions
+           are new vs old" — the 30-min window highlights the freshest
+           fills only. */
+        (() => {
+          const firstTs = isOwned ? Number(pos?.first_entry_ts) || 0 : 0;
+          if (!firstTs) return null;
+          const ageMs = Date.now() - firstTs;
+          if (ageMs < 0 || ageMs > 30 * 60 * 1000) return null;
+          const ageMin = Math.max(1, Math.floor(ageMs / 60000));
+          return React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)", marginLeft: 4,
+              color: "rgb(134,239,172)",
+              background: "rgba(34,197,94,0.18)",
+              borderColor: "rgba(34,197,94,0.55)",
+              animation: "tt-pulse 1.8s ease-in-out infinite",
+            },
+            title: `Position opened ${ageMin} min ago — matches the Discord entry alert`,
+          }, "JUST OPENED");
+        })(),
         // RS HIGH badge — investor-specific signal, gold accent
         t.rs?.rsNewHigh3m && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
@@ -424,7 +450,10 @@
               fontFamily: "var(--tt-font-mono)",
             },
           }, action),
-          React.createElement("span", { className: `text-[12px] md:text-[11px] font-bold tabular-nums md:mt-1 ${count > 0 ? "text-[#e5e7eb]" : "text-[#4b5563] md:text-[#2a2e35]"}` }, count),
+          React.createElement("span", {
+            className: `text-[12px] md:text-[11px] font-bold tabular-nums md:mt-1 ${(typeof count === "number" ? count > 0 : String(count || "").length > 0 && String(count) !== "0" && String(count) !== "0/0") ? "text-[#e5e7eb]" : "text-[#4b5563] md:text-[#2a2e35]"}`,
+            title: typeof count === "string" && count.includes("/") ? `${count.split("/")[0]} owned of ${count.split("/")[1]} in lane` : undefined,
+          }, count),
         ),
       ),
       React.createElement("div", {
@@ -475,11 +504,33 @@
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
-        for (const t of tickers) {
-          let stage = t.stage || "research_avoid";
-          if (stage === "research") stage = "research_avoid"; // backward compat: old API
-          if (grouped[stage]) grouped[stage].push(t);
-        }
+    /* 2026-06-01 — Demote unowned tickers out of HOLDING lanes.
+       classifyInvestorStage (worker/investor.js:700) returns `watch` for
+       UNOWNED tickers with investor_score >= watch_score_min. The panel
+       renders the `watch` lane as "Hold & Watch" with action chip
+       "HOLDING", which falsely implies all rows in that lane are held.
+       Real-world impact: ~30 tickers landed in `watch` with `position:
+       owned=false`, lane gutter said "HOLDING 29", visible tiles showed
+       "Watch" not "OWNED" — user reasonably asked "why does Core Hold
+       (sic) say HOLDING when I don't own these?".
+
+       Fix: any HOLDING-lane stage on an unowned ticker is remapped to a
+       not-owned lane:
+         core_hold (not owned) → research_on_watch  (rare; stale signal)
+         watch     (not owned) → research_on_watch  (line-700 case above)
+         reduce    (not owned) → research_low       (engine showed risk but
+                                                     we never bought)
+       Owned tickers retain their original stage. */
+    for (const t of tickers) {
+      let stage = t.stage || "research_avoid";
+      if (stage === "research") stage = "research_avoid";
+      const owned = !!(t?.position?.owned);
+      if (!owned) {
+        if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
+        else if (stage === "reduce") stage = "research_low";
+      }
+      if (grouped[stage]) grouped[stage].push(t);
+    }
     // Phase 3.9l — within each lane, push owned positions to the front so
     // user's actual portfolio is the first thing they see horizontally.
     // Stable secondary sort by score (DESC) preserves intra-group ranking.
@@ -501,6 +552,22 @@
     const ALWAYS_SHOW = new Set(["accumulate", "core_hold", "watch", "reduce"]);
     const visibleStages = stages.filter(s => ALWAYS_SHOW.has(s) || grouped[s].length > 0);
 
+    /* 2026-06-01 — owned-aware lane counts.
+       For HOLDING lanes (core_hold, watch, reduce) the gutter shows the
+       OWNED count so "HOLDING N" actually means "you own N positions in
+       this lane". If a lane contains items that aren't owned (e.g.
+       research signals showing alongside holdings — currently rare after
+       the demote fix above, but defense-in-depth) the gutter shows
+       "owned/total". For non-HOLDING lanes the count is the lane total
+       (semantics unchanged). */
+    const HOLDING_LANES = new Set(["core_hold", "watch", "reduce"]);
+    const laneCount = (stage) => {
+      const items = grouped[stage] || [];
+      if (!HOLDING_LANES.has(stage)) return items.length;
+      const owned = items.filter(t => !!(t?.position?.owned)).length;
+      if (owned === items.length) return owned;
+      return `${owned}/${items.length}`;
+    };
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
       ...visibleStages.map(stage =>
         React.createElement(InvestorKanbanColumn, {
@@ -512,7 +579,7 @@
           actionColor: stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
-          count: grouped[stage].length,
+          count: laneCount(stage),
           items: grouped[stage],
           renderCard,
           laneScrollRef,
@@ -603,18 +670,93 @@
         .catch(() => { setMemberTickersLoaded(true); });
     }, [base]);
 
+    /* 2026-06-01 — position reconciliation INSIDE the 60 s polling loop.
+       Previously this merge lived in investor.html's one-shot useEffect and
+       was never passed to the panel (the panel ran its own fetchData every
+       60 s and overwrote scores with /timed/investor/scores ONLY, losing
+       the position metadata). Net effect: a position opened by auto-
+       rebalance at 11:00 AM showed in Discord but the kanban cards stayed
+       "not owned" forever because the scoring cron's cached payload
+       predated the fill, and the 60 s refresh kept replaying that cached
+       payload without merging the fresh /positions row.
+
+       Now: every 60 s the panel also fetches /timed/investor/positions
+       (compact mode) and stitches OPEN positions into the scores list. If
+       a position's ticker is not in the scores payload (e.g. ETF outside
+       the SECTOR_MAP, or a brand-new symbol), we synthesize an entry with
+       the right stage so the kanban shows it as held. */
+    const reconcileWithPositions = useCallback((scoresResp, positionsResp) => {
+      if (!scoresResp?.ok) return scoresResp;
+      const tickers = Array.isArray(scoresResp.tickers) ? [...scoresResp.tickers] : [];
+      const seenOwned = new Set(
+        tickers
+          .filter(t => (t?.position || {}).owned)
+          .map(t => String(t?.ticker || "").toUpperCase())
+      );
+      const positions = (positionsResp?.ok && Array.isArray(positionsResp.positions))
+        ? positionsResp.positions : [];
+      for (const p of positions) {
+        const sym = String(p?.ticker || "").toUpperCase();
+        if (!sym) continue;
+        if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+        if (!(Number(p?.total_shares) > 0)) continue;
+        if (seenOwned.has(sym)) continue;
+        const mark = Number(p?.currentPrice) || Number(p?.price) || 0;
+        const avgEntry = Number(p?.avg_entry) || 0;
+        const unrealizedPct = (mark > 0 && avgEntry > 0)
+          ? ((mark - avgEntry) / avgEntry) * 100 : null;
+        const defaultStage = (unrealizedPct == null || unrealizedPct >= -10)
+          ? "core_hold" : "watch";
+        const posBlock = {
+          owned: true,
+          shares: Number(p?.total_shares) || 0,
+          avg_entry: avgEntry,
+          cost_basis: Number(p?.cost_basis) || 0,
+          first_entry_ts: Number(p?.first_entry_ts) || null,
+          last_entry_ts: Number(p?.last_entry_ts) || null,
+          unrealized_pct: unrealizedPct,
+          last_action_type: p?.last_action_type || null,
+          last_action_ts: Number(p?.last_action_ts) || null,
+          last_action_shares: Number(p?.last_action_shares) || null,
+          last_action_price: Number(p?.last_action_price) || null,
+        };
+        const existingIdx = tickers.findIndex(t => String(t?.ticker || "").toUpperCase() === sym);
+        if (existingIdx >= 0) {
+          tickers[existingIdx] = {
+            ...tickers[existingIdx],
+            position: posBlock,
+            stage: tickers[existingIdx].stage === "research_on_watch"
+              ? defaultStage : tickers[existingIdx].stage,
+            _reconciled: true,
+          };
+        } else {
+          tickers.push({
+            ticker: sym,
+            stage: defaultStage,
+            stageReason: "Open position not in scored universe — reconciled from /timed/investor/positions",
+            score: null,
+            position: posBlock,
+            sector: p?.sector || null,
+            _reconciled_synthetic: true,
+          });
+        }
+      }
+      return { ...scoresResp, tickers };
+    }, []);
+
     const fetchData = useCallback(async () => {
       setLoading(true);
       try {
-        const [scoresResp, healthResp] = await Promise.all([
-          fetch(`${base}/timed/investor/scores`).then(r => r.json()).catch(() => null),
+        const [scoresResp, healthResp, positionsResp] = await Promise.all([
+          fetch(`${base}/timed/investor/scores`, { credentials: "include" }).then(r => r.json()).catch(() => null),
           fetch(`${base}/timed/investor/market-health`).then(r => r.json()).catch(() => null),
+          fetch(`${base}/timed/investor/positions?status=OPEN&compact=true`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
-        if (scoresResp?.ok) setScores(scoresResp);
+        if (scoresResp?.ok) setScores(reconcileWithPositions(scoresResp, positionsResp));
         if (healthResp?.ok) setHealth(healthResp);
       } catch (_) {}
       finally { setLoading(false); }
-    }, [base]);
+    }, [base, reconcileWithPositions]);
 
     useEffect(() => {
       fetchData();
@@ -951,4 +1093,4 @@
   window.InvestorPanel = InvestorPanel;
 })();
 
-// cache-bust:1780326848286:393009456
+// cache-bust:1780333242222:588084236

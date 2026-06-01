@@ -449,6 +449,14 @@ input, button, select, textarea {
 .tt-pulse-up   { animation: tt-pulse-up   var(--tt-dur-pulse) var(--tt-ease-out); border-radius: 4px; padding: 0 2px; }
 .tt-pulse-down { animation: tt-pulse-down var(--tt-dur-pulse) var(--tt-ease-out); border-radius: 4px; padding: 0 2px; }
 
+/* 2026-06-01 — generic soft pulse used by the "JUST OPENED" chip on
+   Investor cards so a brand-new position visibly draws the eye for 30 min,
+   directly anchoring the Discord entry alert to the kanban tile. */
+@keyframes tt-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.75; transform: scale(1.04); }
+}
+
 /* Skeleton loader — quiet shimmer while data is fetching.
    Replace spinners with these. */
 @keyframes tt-skeleton-shimmer {
@@ -477,6 +485,7 @@ input, button, select, textarea {
   .tt-skeleton {
     animation: none !important;
   }
+  [style*="tt-pulse"] { animation: none !important; }
   .tt-heartbeat { opacity: 0.9; }
 }
 
