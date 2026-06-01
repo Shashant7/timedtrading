@@ -6,6 +6,56 @@
 
 ---
 
+## Reliability sweep: investor compute retry + manifest stale-bridge hint + toxic-ticker safety [2026-06-01]
+
+Operator polish-phase audit surfaced three independent reliability issues. Single PR fixed all three.
+
+### 1. Investor compute cron paged on a single transient 503
+
+Discord paged `Cron Failure: investor_hourly_compute — compute_failed_status_503_no_body`. The cron self-fetches `/timed/investor/compute` (a heavy N-ticker × per-ticker D1 reads pass) and on a single transient worker hiccup the cron immediately tombstoned and paged.
+
+Fix: replaced the single-attempt fetch with a 3-attempt retry on 5xx / 408 / 429 / network errors. Backoffs 0 / 8 s / 30 s. 4xx (auth, validation) does NOT retry — those won't self-heal. Tombstone now fires only after all attempts are exhausted; success on attempt 2 or 3 logs the retry attempt so operators can see the recovery happened.
+
+### 2. Bridge manifest 404 surfaced raw upstream error
+
+MC manifest card showed `bridge_upstream_error_404: {"ok":false,"error":"not_found","path":"/bridges/manifest"}`. The path `/bridges/manifest` (plural) doesn't exist in any current source file — almost certainly a stale deployed bridge worker echoing back a path that came from an old worker call.
+
+Fix: when the worker proxies to `/bridge/manifest` and gets back 404 / 401, it now emits a `remediation:` hint along with the raw error:
+- 404 → "The deployed broker-bridge appears to be on an older version… Redeploy: `cd worker-bridge && npx wrangler deploy`. Then verify GET /bridge/health."
+- 401 → "Bridge rejected the operator key. Verify BROKER_BRIDGE_OPERATOR_KEY matches between worker and worker-bridge."
+
+MC card renders the `remediation` line in a separate "Fix:" callout so the operator sees the action, not just the error.
+
+### 3. Auto-ban toxic tickers — TSM/AMZN safety guardrail
+
+Operator: *"be careful with the auto ban toxic tickers piece, it shows TSM and AMZN, which are working well for us."*
+
+Root cause: `worker/index.js` `runDeepAudit` marked any ticker with `SQN < -1 && n >= 3` as TOXIC. That's a historical-only metric — a ticker that lost money 6 months ago but has been winning the last 10 trades (or has an open winning position right now) still got flagged. The "Apply Top 3 Recs" button auto-applies the recommendation to `deep_audit_ticker_blacklist` → blocks all future entries on those tickers.
+
+Three-layer safety:
+1. **Min sample bumped 3 → 5.** A 3-trade sample is statistical noise; many genuinely-good tickers have 3 unlucky trades.
+2. **Open-position protection.** Any ticker with a `status='OPEN'` row in the trades table is excluded from the ban list. Reason in the protection log: `open_position_in_profit(X%)` or `open_position_active`. (Closed-trade analysis cannot recommend banning a name we're currently in the middle of trading.)
+3. **Recency recovery override.** Compute SQN over the last 10 closed trades per ticker. If `recent_sqn >= 0 && recent_n >= 3`, the ticker has clearly recovered — don't ban based on stale historical drawdown.
+
+Recommendation card now discloses BOTH lists:
+- Banned tickers with per-ticker (historical SQN, recent SQN, trade count)
+- Protected tickers with the specific protection reason
+
+If ALL toxic candidates get protected, the recommendation title flips to `"No toxic tickers to ban (N historically-poor name(s) protected)"` and the `config` payload is omitted entirely (so Apply doesn't clear an existing operator-set blacklist with an empty array).
+
+Smoke-tested 4 scenarios: TSM (hist SQN -0.51 → not even toxic), AMZN (-14 SQN + open position → protected), JUNK (-17 SQN + no open + no recovery → banned), STARTUP (3 trades only → below sample threshold). All behave correctly.
+
+### Rule
+
+When an automated "apply" button writes operator-impacting state (model_config, blacklists, kill switches), the recommendation BEFORE the button must:
+- Disclose the full set of items the action will affect (every ticker, every key)
+- Surface the live state that should protect items from the action (open positions, recent recovery, ongoing engagement)
+- Make the protection logic visible in the same card so the operator sees the safety rails
+
+Audit-based recommendations are stale by definition — they reason from a closed-trade ledger. They must be cross-checked against the live state (open positions, recent decisions) before being applied. Otherwise the system retroactively kills the active book.
+
+---
+
 ## ETF stagnant-exit: coil-before-break is constructive, not stagnant [2026-06-01]
 
 Operator audited a DIA LONG closed at +0.28% / $510.67 / "etf stagnant exit" while the live MTF chart showed DIA at $511.21+ with bullish Monthly + Weekly + Daily + a clear 30m coil that broke up minutes after the cut. Asked: *"was this a good exit? It looks like it had room to go higher."*

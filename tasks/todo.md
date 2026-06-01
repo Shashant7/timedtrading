@@ -22,6 +22,34 @@
 
 ### Active
 
+- [x] **Setup-name display: tt_* keys mapped + direction-aware swap
+      (PR #432).** Discord DIA exit embed showed "Setup: Atl Breakdown"
+      for a LONG. Two bugs: (a) SETUP_NAME_MAP missed `tt_*` paths, so
+      `formatSetupName` fell through to a regex that produced
+      "TT Tt Ath Breakout" (phantom "Tt" word from `tt_` getting
+      title-cased) — now every `tt_*` entry path is mapped explicitly
+      and the fallback regex strips a leading `tt_` first; (b) some
+      upstream write path stamps a stale/mis-derived setup_name —
+      added a direction-aware swap in `prettySetupName(name, direction)`
+      that converts a stored LONG/SHORT-mismatched setup to the
+      direction-correct paired name at render time. Logs warn so we
+      can trace the upstream stamp bug. Trim + exit embed call sites
+      pass direction. 9/9 smoke test scenarios pass.
+- [x] **Reliability sweep: investor compute retry + manifest stale-bridge
+      hint + toxic-ticker safety (PR pending).** Three independent
+      polish-phase fixes in one PR. (1) Investor cron now retries
+      `/timed/investor/compute` 3× with 0/8/30s backoff on 5xx/408/429
+      before tombstoning — single transient 503s no longer page.
+      (2) MC manifest 404 surfaces actionable remediation hint
+      ("redeploy worker-bridge" for 404, "key mismatch" for 401)
+      instead of just raw upstream error. (3) Auto-ban toxic tickers
+      now has three safety layers: min sample 3→5, open-position
+      protection (any ticker with an OPEN trade is excluded — covers
+      the TSM/AMZN case), recency recovery (last-10 trades SQN >= 0
+      overrides historical SQN). Card discloses both banned and
+      protected tickers with per-ticker context; if all candidates
+      protected, the `config` payload is omitted so Apply doesn't
+      clear an existing blacklist.
 - [x] **ETF stagnant-exit HTF gate (DIA 2026-06-01 audit, PR pending).**
       Operator flagged a DIA LONG cut at +0.28% via `etf stagnant exit`
       while the live MTF chart showed bullish Monthly + Weekly + Daily

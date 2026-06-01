@@ -1781,8 +1781,12 @@ function BridgeSection({
       }
     }
   }, "\uD83D\uDCE7 Preview daily digest"))), !manifest.ok && manifest.error && React.createElement("div", {
-    className: "text-[11px] text-amber-300 mb-2 italic"
-  }, String(manifest.error).slice(0, 240)), (manifest.rows || []).length > 0 ? React.createElement("div", {
+    className: "mb-2 px-3 py-2 rounded border border-amber-400/30 bg-amber-400/[0.05]"
+  }, React.createElement("div", {
+    className: "text-[11px] text-amber-300 italic"
+  }, String(manifest.error).slice(0, 240)), manifest.remediation && React.createElement("div", {
+    className: "text-[11px] text-amber-200/90 mt-1.5"
+  }, React.createElement("strong", null, "Fix:"), " ", manifest.remediation)), (manifest.rows || []).length > 0 ? React.createElement("div", {
     className: "mc-table-scroll mb-2"
   }, React.createElement("table", {
     className: "mc-table"
@@ -3201,6 +3205,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780336958604:877766580
+// cache-bust:1780340172175:989772963
 
-// cache-bust:1780336958604:877766580
+// cache-bust:1780340172175:989772963
