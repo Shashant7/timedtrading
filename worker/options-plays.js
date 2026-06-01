@@ -671,16 +671,19 @@ function buildLongCall(ctx) {
 
 /**
  * LEAP Call — long-dated, deep-ITM single call. The "stock replacement"
- * play for Investor-mode entries: synthetic long exposure with leverage
+ * play for long-term bullish theses: synthetic long exposure with leverage
  * at a fraction of the capital, defined max loss, and minimal theta drag.
  *
  * Differs from buildLongCall:
- *   - Forces a LEAP expiration (≥365 DTE) via pickLeapExpiration() —
- *     ignores ctx.expiration if it's shorter than 270 DTE.
+ *   - Forces a LEAP expiration (≥270 DTE) via pickLeapExpiration() —
+ *     ignores ctx.expiration if it's shorter.
  *   - Default delta target = 0.80 (deep ITM) instead of 0.50. This makes
- *     the LEAP behave like 0.80× shares with 1/4 the capital outlay.
- *   - Notes call out the multi-year horizon and "investor"-flavored
- *     rationale (vs. the swing/intraday tone of buildLongCall).
+ *     the LEAP behave like ~80% of shares with a fraction of the outlay.
+ *   - Notes call out the multi-year horizon, the PMCC follow-on play,
+ *     and roll discipline (close at T-180 days to avoid the theta cliff).
+ *   - Surfaces a capital-efficiency floor warning (< 2× means you're
+ *     overpaying — strike too deep ITM, or the LEAP is the wrong tool).
+ *   - LEAP-aware liquidity gate (lower OI threshold than weeklies).
  *
  * Returns the same Strategy shape as buildLongCall so the rest of the
  * ladder (ranker, profile preview, warnings) just works.
@@ -714,21 +717,58 @@ function buildLeapCall(ctx) {
   const premPerShare = prem.mid;
   const maxLoss = premPerShare * 100 * contracts;
   const breakeven = strike + premPerShare;
-  // For LEAP investor-style sizing, the "max gain at TP1" is misleading
-  // (1y+ horizon). Surface intrinsic value at TP plus the capital
-  // efficiency multiplier so the user sees the leverage thesis.
   const intrinsicAtTP = Math.max(0, tp1 - strike);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
-  const sharesEquivalent = Math.round(contracts * 100 * Math.abs(prem.greeks?.delta || targetDelta));
+  const actualDelta = Math.abs(prem.greeks?.delta || targetDelta);
+  const sharesEquivalent = Math.round(contracts * 100 * actualDelta);
   const sharesCapital = Math.round(sharesEquivalent * price);
   const leapCapital = Math.round(premPerShare * 100 * contracts);
   const capitalEfficiency = leapCapital > 0 ? (sharesCapital / leapCapital) : null;
-  const deltaPct = (Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0);
+  const deltaPct = (actualDelta * 100).toFixed(0);
+
+  // ── PMCC (Poor Man's Covered Call) suggestion ──────────────────────────
+  // Classic LEAP follow-on: sell a 30-45 DTE OTM call against the LEAP to
+  // monetize theta in your favor without giving up the long-term upside.
+  // Pick a strike that's ~5% OTM and one monthly cycle out (~35 DTE).
+  // We don't auto-build the short leg — just surface it as guidance so
+  // the user knows the LEAP isn't a "set and forget" trade.
+  const pmccShortStrike = snapStrike(price * 1.05);
+  const pmccShortDte = 35;
+
+  // ── IV at entry — Carter rule: cheap LEAP = low IV ─────────────────────
+  // High IV at entry means you're paying expensive vol on a contract with
+  // 18 months of vega exposure. The vol-crush risk is real. We surface a
+  // warning without blocking the trade — operator knows their thesis.
+  const ivAtEntry = Number(prem.iv_used) || null;
+  const ivIsExpensive = Number.isFinite(ivAtEntry) && ivAtEntry > 0.55;
+  const ivIsCheap = Number.isFinite(ivAtEntry) && ivAtEntry < 0.30;
+
+  // ── Capital-efficiency target ──────────────────────────────────────────
+  // Target 3-5× efficiency for a "good" LEAP entry. Below 2× and you're
+  // either too deep ITM (strike close to spot, not enough leverage) or
+  // the underlying is too cheap to justify the leverage premium. Surface
+  // as a soft warning in the notes so the operator can adjust.
+  const efficiencyHealthy = capitalEfficiency != null && capitalEfficiency >= 2.5;
+
+  const notes = [
+    `Synthetic long: ~${sharesEquivalent} share equivalent for $${leapCapital.toLocaleString()} (${capitalEfficiency ? capitalEfficiency.toFixed(1) + "× capital efficient" : "—"} vs ${sharesEquivalent} shares @ $${sharesCapital.toLocaleString()})`,
+    `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay (low — long DTE; theta accelerates inside T-180 days)`,
+    `Roll discipline: ${expiration.dte > 365 ? "close at T-180 days and roll to next-year LEAP cycle — never carry into the last 6 months" : "this contract is already inside the theta cliff zone; consider rolling to a longer-dated LEAP"}`,
+    `PMCC follow-on: once thesis confirms, sell a ${pmccShortDte} DTE ~$${pmccShortStrike} call (≈5% OTM) against this LEAP to monetize theta without capping LEAP upside`,
+  ];
+  if (!efficiencyHealthy) {
+    notes.push(`⚠ Capital efficiency only ${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "n/a"} — below the 3-5× target. Strike may be too deep ITM, or the LEAP is the wrong tool for this name.`);
+  }
+  if (ivIsExpensive) {
+    notes.push(`⚠ IV at entry ${(ivAtEntry * 100).toFixed(0)}% — premium is expensive. Vol crush is real on multi-year vega exposure. Best LEAP entries are at low IV; consider waiting for a vol contraction.`);
+  } else if (ivIsCheap) {
+    notes.push(`✓ IV at entry ${(ivAtEntry * 100).toFixed(0)}% — vol is cheap relative to typical pricing. Favorable entry timing for a long-vega contract.`);
+  }
 
   return {
     archetype: "leap_call",
     label: `LEAP Call (${expiration.dte}DTE · Stock Replacement)`,
-    rationale: `Long-term bullish to $${tp1?.toFixed(2) ?? "?"}. Deep-ITM ${expiration.iso} call at $${strike} (${deltaPct}Δ) tracks ~${deltaPct}% of every $1 move with ~${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "?"} less capital than buying ${sharesEquivalent} shares outright. Max loss = premium paid; no margin call, no forced exit on drawdown.`,
+    rationale: `Long-term bullish to $${tp1?.toFixed(2) ?? "?"}. Deep-ITM ${expiration.iso} call at $${strike} (${deltaPct}Δ) tracks ~${deltaPct}% of every $1 move with ~${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "?"} less capital than buying ${sharesEquivalent} shares outright. Max loss = premium paid; no margin call, no forced exit on drawdown. Plan to roll at T-180 days and consider stacking a poor-man's covered call once your thesis confirms.`,
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
@@ -747,18 +787,22 @@ function buildLeapCall(ctx) {
     contracts,
     max_loss_usd: Math.round(maxLoss),
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
-    max_gain_label: "Uncapped above target — held to investor thesis exit",
+    max_gain_label: "Uncapped above target — held to thesis exit or T-180 roll",
     breakeven,
     prob_profit_at_target: prem.greeks.prob_itm,
     // LEAP-specific metadata for UI / notifications.
     shares_equivalent: sharesEquivalent,
     shares_capital_usd: sharesCapital,
     capital_efficiency: capitalEfficiency != null ? Math.round(capitalEfficiency * 10) / 10 : null,
-    notes: [
-      `Synthetic long: ~${sharesEquivalent} share equivalent for $${leapCapital.toLocaleString()} (${capitalEfficiency ? capitalEfficiency.toFixed(1) + "× capital efficient" : "—"} vs ${sharesEquivalent} shares @ $${sharesCapital.toLocaleString()})`,
-      `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay (low — long DTE)`,
-      `Roll target: ${expiration.dte > 365 ? "T-180 days to next LEAP cycle" : "Hold to expiry or thesis change"}`,
-    ],
+    iv_at_entry: ivAtEntry,
+    iv_assessment: ivIsExpensive ? "expensive" : (ivIsCheap ? "cheap" : "normal"),
+    pmcc_suggestion: {
+      short_strike: pmccShortStrike,
+      short_dte_target: pmccShortDte,
+      rationale: "Sell ~5% OTM ~35 DTE call against this LEAP once thesis confirms (poor man's covered call).",
+    },
+    roll_target: expiration.dte > 365 ? "T-180_days" : "roll_now_to_longer_leap",
+    notes,
   };
 }
 
@@ -1332,27 +1376,27 @@ export function buildOptionsLadder(contract, opts = {}) {
     }
   }
 
-  // Investor-mode entries are long-term theses (months-to-years horizon),
-  // so when stage === "investor" we surface a LEAP Call as the headline
-  // option play. LEAPs are the natural option expression of "I'm bullish
-  // on this name for the long run, give me leverage without margin risk."
-  // The short-dated long_call below is kept in the ladder for operators
-  // who prefer the swing-trade flavor, but the LEAP is ranked first via
-  // the _investor_boost flag (see rankByProfile).
+  // 2026-06-01 — LEAPs always appear in the long-side ladder, regardless
+  // of stage. Rationale: every long-direction ticker has a "what if I
+  // wanted long-term exposure?" answer, and surfacing the LEAP alongside
+  // the swing-flavor Long Call lets the operator choose by horizon, not
+  // just by direction. The `_investor_boost` flag pins the LEAP as
+  // primary only for Investor-stage setups (or when the caller passed
+  // `mode: "investor"` explicitly); Trader-stage setups keep their
+  // short-dated long_call as primary and the LEAP sits below in the
+  // ladder as an alternative.
   const _isInvestorStage = classifySetupStage(contract) === "investor";
 
   if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
-    if (_isInvestorStage) {
-      const leap = buildLeapCall({
-        ...ctxEff,
-        expiration: pickLeapExpiration(),
-        targetDelta: 0.80,
-      });
-      if (leap) {
-        leap._investor_boost = true;
-        if (verdictMode === "RIDE") leap._confluence_boost = true;
-        ladder.push(leap);
-      }
+    const leap = buildLeapCall({
+      ...ctxEff,
+      expiration: pickLeapExpiration(),
+      targetDelta: 0.80,
+    });
+    if (leap) {
+      if (_isInvestorStage) leap._investor_boost = true;
+      if (verdictMode === "RIDE") leap._confluence_boost = true;
+      ladder.push(leap);
     }
     const lc = buildLongCall(ctxEff);
     if (lc) {
@@ -1433,11 +1477,21 @@ export function buildOptionsLadder(contract, opts = {}) {
       if (cl) {
         const oi = Number(cl.open_interest) || 0;
         const vol = Number(cl.volume) || 0;
-        // Liquidity gate: OI < 100 AND volume < 50 = illiquid.
-        if (oi < 100 && vol < 50) {
-          warns.push(`Illiquid: $${leg.strike} ${leg.optionType} OI=${oi} vol=${vol} — fills may slip $0.10+.`);
-        } else if (oi < 100) {
-          warns.push(`Low OI on $${leg.strike} ${leg.optionType} (${oi} open) — verify before sizing up.`);
+        // 2026-06-01 — LEAP-aware liquidity gate. LEAPs trade an order of
+        // magnitude thinner than weeklies because most users hold them; OI
+        // < 50 is normal on liquid mega-cap LEAPs and rarely causes fill
+        // problems below 5-10 contracts. Volume thresholds also relax —
+        // LEAPs rotate maybe 1-5 contracts/day even on AAPL. We keep the
+        // strict gate for short-dated single legs (where OI directly
+        // bounds your fill quality) and soften it for LEAPs.
+        const _isLeapLeg = s.archetype === "leap_call" || s.archetype === "leap_put";
+        const oiHard = _isLeapLeg ? 25 : 100;
+        const oiSoft = _isLeapLeg ? 100 : 100;
+        const volHard = _isLeapLeg ? 5 : 50;
+        if (oi < oiHard && vol < volHard) {
+          warns.push(`${_isLeapLeg ? "LEAP " : ""}Illiquid: $${leg.strike} ${leg.optionType} OI=${oi} vol=${vol} — fills may slip $0.${_isLeapLeg ? "20" : "10"}+. ${_isLeapLeg ? "Limit-only orders required; size down." : ""}`.trim());
+        } else if (oi < oiSoft) {
+          warns.push(`${_isLeapLeg ? "LEAP " : ""}Low OI on $${leg.strike} ${leg.optionType} (${oi} open) — ${_isLeapLeg ? "expected for LEAPs; mid-price limits will still fill on liquid names" : "verify before sizing up"}.`);
         }
         // Spread gate.
         if (Number.isFinite(cl.bid) && Number.isFinite(cl.ask) && cl.ask > 0) {
