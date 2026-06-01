@@ -944,32 +944,35 @@
     }, [user, apiBase, verifyAuth]);
 
     const handleLogin = useCallback(() => {
-      // V15 P0.7.188 (2026-05-17) — Two-mode login redirect.
+      // 2026-06-01 — Reworked to use the same proven top-level
+      // /cdn-cgi/access/logout flow as logout.html.
+      //
+      // Background:
+      //   The previous implementation used a hidden iframe to
+      //   /cdn-cgi/access/logout to clear the CF Access cookie.
+      //   User-confirmed broken (Jun 1 2026 report): even after
+      //   signing out of all Google accounts AND signing into a
+      //   different one, CF Access still recognized them as the
+      //   previous account. Root cause: iOS Safari third-party
+      //   cookie isolation + CF Bot Mitigation challenge on the
+      //   iframe means the Set-Cookie response is dropped and the
+      //   CF cookie persists.
       //
       // CASE A (already authenticated — wants to switch account):
-      //   We have a session cached locally. To FORCE Cloudflare Access
-      //   to re-prompt the user with the IdP picker we have to clear
-      //   the HttpOnly CF_Authorization cookie first. Server-side
-      //   clear via hidden /cdn-cgi/access/logout iframe, then
-      //   redirect to a protected URL to re-trigger SSO.
+      //   Route through /logout.html?switch=1, which now does a
+      //   top-level /cdn-cgi/access/logout?returnTo=... so the
+      //   browser actually processes the cookie-clear response.
       //
       // CASE B (NOT authenticated yet — fresh login):
-      //   No cookie to clear. The hidden iframe + 300ms wait + 3s
-      //   safety timeout adds latency for no benefit AND can hang
-      //   on mobile Safari (cross-frame policy quirks) which is
-      //   exactly the "stuck on the login page" symptom the user
-      //   reported. Skip the iframe and redirect directly.
-      //
-      // The redirect target is /today.html (the new product landing
-      // page) — it's in the user's CF Access policy regex, so CF
-      // Access will intercept the request, redirect to Google SSO,
-      // and on return set the CF_Authorization cookie for the whole
-      // domain. From there every other page authenticates without
-      // re-prompting.
+      //   Straight to the protected URL, let CF Access drive SSO.
+      //   (The old iframe pre-step did nothing useful for this
+      //   case — there was no cookie to clear.)
       const isLoggedIn = !!user;
       clearSession();
 
-      // Attempt client-side cookie deletion (handles non-HttpOnly cases).
+      // Attempt client-side cookie deletion (best-effort — the CF
+      // cookie is HttpOnly so this is a no-op for it, but clears
+      // any non-HttpOnly cookies we may have set).
       try {
         const d = window.location.hostname;
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -977,34 +980,17 @@
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
       } catch (_) {}
 
-      const redirectTarget = "/today.html?_auth=" + Date.now();
-
-      if (!isLoggedIn) {
-        // CASE B — straight to the protected URL, let CF Access drive SSO.
-        window.location.href = redirectTarget;
+      if (isLoggedIn) {
+        // CASE A: go through the switch-account flow that
+        // top-level-navigates to CF Access logout, then bounces
+        // back to render the manual Google-sign-out card.
+        window.location.href = "/logout.html?switch=1";
         return;
       }
 
-      // CASE A — server-side cookie clear via hidden iframe, then redirect.
-      let redirected = false;
-      const doRedirect = () => {
-        if (redirected) return;
-        redirected = true;
-        window.location.href = redirectTarget;
-      };
-      try {
-        const iframe = document.createElement("iframe");
-        iframe.style.display = "none";
-        iframe.onload = () => setTimeout(doRedirect, 300);
-        iframe.onerror = () => doRedirect();
-        iframe.src = window.location.origin + "/cdn-cgi/access/logout";
-        document.body.appendChild(iframe);
-      } catch (_) {
-        doRedirect();
-      }
-      // Safety timeout: if iframe doesn't respond in 1.5 seconds, redirect anyway
-      // (was 3000ms — too long for users to wait staring at a frozen button).
-      setTimeout(doRedirect, 1500);
+      // CASE B: not currently signed in. Go straight to the
+      // protected URL, let CF Access drive SSO.
+      window.location.href = "/today.html?_auth=" + Date.now();
     }, [user]);
 
     // Set user role on body for CSS-based admin gating of nav links
