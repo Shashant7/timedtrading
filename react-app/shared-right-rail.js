@@ -4700,9 +4700,29 @@
           const sym = String(tickerSymbol || "")
             .trim()
             .toUpperCase();
-          // Fire for both legacy v1 ("TRADE_HISTORY") and v2 ("HISTORY") rail tab names.
+          // 2026-06-01 — Fetch ledgerTrades for ANY tab that needs an
+          // open-trade context (TSM screenshot: Trader tab + History tab
+          // both showed "PROPOSED" / "No prior trades" even though TSM
+          // was open as an Active Trader position). The fetch is cheap
+          // (LEFT JOIN + 20-row cap + per-ticker filter, hot in CF KV
+          // cache), and it powers effectiveTrade for:
+          //   - Header chip "TRADER · LONG · ACTIVE" (was just "TRADER · LONG")
+          //   - Risk & Targets "ACTIVE PLAN" vs "PROPOSED PLAN" eyebrow
+          //   - Trade Plan / SL / TP ladder (real risk levels vs model proposal)
+          //   - Trader-tab "📍 Current Open Position" panel
+          //   - History-tab trade ledger rows
+          // Fire on Trader / Snapshot / Setup / Trade History / Investor /
+          // Chart so all tabs see the same open-trade context. Skip on
+          // pure-text tabs (Catalysts, Fundamentals, Technicals) to avoid
+          // burning a request when not needed.
           const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
-          if (!sym || !isHistoryTab) {
+          const isTraderTab = railTab === "SETUP";
+          const isSnapshotTab = railTab === "SNAPSHOT";
+          const isChartTab = railTab === "CHART";
+          const isInvestorTab = railTab === "INVESTOR";
+          const isOptionsTab = railTab === "OPTIONS";
+          const needsLedger = isHistoryTab || isTraderTab || isSnapshotTab || isChartTab || isInvestorTab || isOptionsTab;
+          if (!sym || !needsLedger) {
             setLedgerTrades([]);
             setLedgerTradesError(null);
             setLedgerTradesLoading(false);
@@ -4710,7 +4730,11 @@
             return;
           }
 
-          setTradeChartSelection(null); // clear so default will be first of new list
+          // Only reset chart selection on the History tab — other tabs
+          // never set tradeChartSelection so clearing it would be a no-op
+          // but the dependency would still re-run the effect when we
+          // landed on a new tab.
+          if (isHistoryTab) setTradeChartSelection(null);
           let cancelled = false;
           // V15 P0.7.143 (2026-05-13) — fetch BOTH trader and investor
           // trade histories so the History tab shows the full picture
@@ -6717,7 +6741,18 @@
                           from ledgerTrades when prop is null). */}
                       {(() => {
                         const t = effectiveTrade || trade;
-                        if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+                        if (!t) return null;
+                        // 2026-06-01 — Broaden the open-trade check to match
+                        // tradeIsOpen() logic used by the Risk & Targets panel
+                        // and the v2 header. TSM showed PROPOSED on the Trader
+                        // tab because (a) ledgerTrades wasn't fetched here
+                        // (fixed above) and (b) the OPEN-only check missed
+                        // TP_HIT_TRIM rows. Mirror the canonical isOpen logic.
+                        const _trStatus = String(t.status || "").toUpperCase();
+                        const _isOpen = _trStatus === "OPEN"
+                          || _trStatus === "TP_HIT_TRIM"
+                          || (!(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED");
+                        if (!_isOpen) return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
                         const entry = Number(t.entryPrice ?? t.entry_price);
@@ -6731,6 +6766,7 @@
                         const fmtUsdLocal = (n) => Number.isFinite(n)
                           ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
                           : "—";
+                        const _openLabel = _trStatus === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN";
                         return (
                           <Panel
                             title="📍 Current Open Position"
@@ -6741,7 +6777,7 @@
                                 color: dirColor,
                                 background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
                                 border: `1px solid ${dirColor}50`,
-                              }}>{dirRaw} · OPEN</span>
+                              }}>{dirRaw} · {_openLabel}</span>
                             }
                           >
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -9438,8 +9474,23 @@
 
                       {/* Trade Ledger summary + per-trade rows */}
                       <Panel title="Trade Ledger" action={ledgerTrades.length > 0 && <span className="ds-chip ds-chip--sm">{ledgerTrades.length} row{ledgerTrades.length === 1 ? "" : "s"}</span>}>
-                        {ledgerTrades.length === 0 ? (
-                          <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>No prior trades on this ticker.</div>
+                        {ledgerTradesLoading && ledgerTrades.length === 0 ? (
+                          <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>Loading trade history…</div>
+                        ) : ledgerTradesError && ledgerTrades.length === 0 ? (
+                          <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-dn)" }}>
+                            Failed to load trade history: {String(ledgerTradesError).slice(0, 140)}
+                          </div>
+                        ) : ledgerTrades.length === 0 ? (
+                          <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
+                            No prior trades on this ticker.
+                            {(ticker?.has_open_position || latestTicker?.has_open_position) && (
+                              <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.08)", border: "1px solid rgba(245,194,92,0.25)", borderRadius: "var(--ds-radius-xs)", color: "var(--ds-accent)", fontSize: "var(--ds-fs-caption)" }}>
+                                ⚠ This ticker shows an open position but no trade row was found in the ledger.
+                                The trade row may not have been written yet (entry signal stamped but execution didn't persist).
+                                Check Mission Control → Recent Trades for the actual write status.
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-1)" }}>
                             {ledgerTrades.slice(0, 10).map((t, i) => {
