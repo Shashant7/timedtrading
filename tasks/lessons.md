@@ -6,6 +6,49 @@
 
 ---
 
+## Freshness monitor must heal before paging + chart SVG sl=0 trap [2026-06-01]
+
+Two operator-visible bugs surfaced in the polish sweep.
+
+### 1. BK candle_freshness_60 paged despite working self-heal
+
+Operator: *"Cron Failure for BK. Isn't there self-healing? esp when we can backfill candles in a seconds for any ticker?"*
+
+Diagnosis: the freshness monitor sequence was **detect → page → heal**. So even when the heal succeeded (next cron tick saw fresh candles), the operator already got paged for the transient stale state. BK at 71.5h stale was a vendor-side intraday gap that the very next sweep cleared — but the alert had already fired.
+
+Fix: reordered to **detect → heal → re-check → page only if still stale**. The auto-heal now runs synchronously when a 60m row crosses the staleness threshold, then the monitor re-queries the worst-row and only records a failure if the heal didn't take. Page text now distinguishes the two cases:
+- Pre-heal stale, post-heal fresh → success log, no page
+- Pre-heal stale, post-heal still stale → page with `"(auto-heal attempted, still stale — likely vendor-side gap or delisted/M&A symbol)"` suffix so the operator immediately understands this is a real data problem, not a transient blip.
+
+D-tier check stays page-first (D backfill is slower and a 5d-stale D candle usually means a real ticker problem worth seeing). 60m is the noisy one for transient gaps and is where this fix has the most impact.
+
+### 2. DIA exit email rendered an empty chart (sl=0 trap)
+
+Operator: *"The Email for DIA Exit has the Chart outline but no candles."*
+
+Diagnosis chain:
+1. `email.js` passed `sl=0` to `/timed/chart-image` (exit has no live stop; default value was 0)
+2. URL contained `sl=0`
+3. Chart endpoint did `Number("0") || null === null` and passed sl=null to renderer
+4. `renderChartSvg` checked `Number.isFinite(Number(opts.sl))` — `Number.isFinite(Number(null))` is `Number.isFinite(0)` which is **true** — so sl was coerced to 0 and treated as a real annotation
+5. Y-range calculation included 0 → yMin became 0 → candles (around $510) became a tiny squiggle at the top of a chart that went from $0 to $539
+6. "SL 0.00" label visible at bottom of the rendered SVG
+
+Three defenses, each independently sufficient to prevent the bug:
+- **email.js**: skip `sl`/`tp` entirely for EXIT emails (no live stop to draw); require `> 0` for all annotation values at URL-encode time
+- **chart-svg.js**: `_toPositivePrice(v)` helper requires `Number.isFinite(v) && v > 0` for any annotation
+- **chart-svg.js**: outlier filter excludes any annotation more than 30% off the price midpoint (defense against stored stale SL/TP values from old trades)
+
+Smoke-tested 5 scenarios: bug case (sl=0), reasonable SL within 30%, normal entry+sl+tp triple, empty candles, negative SL. All behave correctly.
+
+### Rule
+
+When a renderer accepts optional numeric annotations that affect display layout (axes, scales, ranges), `Number.isFinite()` alone is not a sufficient guard — `Number(null)` returns 0 which is finite. Always combine with a domain-specific range check (`> 0` for prices, sign-aware for ratios, etc.). Callers should also strip semantically-meaningless values (e.g. exits have no live stop; the renderer should never see one).
+
+Monitors that page based on transient state must run any auto-heal **before** the page decision. Detecting → paging → then healing produces a stream of false alarms for self-healing conditions; the operator loses trust in the alert. The order is: detect → heal → re-check → page only if still failing, with the page text including "auto-heal attempted" so the operator knows it's a real problem.
+
+---
+
 ## Reliability sweep: investor compute retry + manifest stale-bridge hint + toxic-ticker safety [2026-06-01]
 
 Operator polish-phase audit surfaced three independent reliability issues. Single PR fixed all three.
