@@ -274,6 +274,135 @@ function StatusGrid({
     href: "#retro"
   }));
 }
+function CioLifecycleStatsCard({
+  apiBase
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/ai-cio/lifecycle-stats?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) {
+        setErr(j?.error || `HTTP ${r.status}`);
+        setData(null);
+      } else {
+        setData(j);
+      }
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  const cfg = data?.config || {};
+  const types = data?.types || {};
+  const monthlyUsd = Number(data?.monthly_usd) || 0;
+  const cap = Number(cfg.monthly_usd_cap) || 0;
+  const pctOfCap = cap > 0 ? Math.min(100, monthlyUsd / cap * 100) : 0;
+  const rowMeta = [{
+    key: "entry_skip_review",
+    label: "Entry skip review (Loop 2 trip)",
+    recordOnly: false
+  }, {
+    key: "rebalance_trim",
+    label: "Investor rebalance trim",
+    recordOnly: false
+  }, {
+    key: "sl_move",
+    label: "SL move",
+    recordOnly: !!cfg.record_only?.sl_move
+  }, {
+    key: "defend_record",
+    label: "DEFEND opinion (audit-only)",
+    recordOnly: true
+  }];
+  return React.createElement("div", {
+    className: "mc-card"
+  }, React.createElement("div", {
+    className: "mc-card-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-xs mc-mute uppercase tracking-wider"
+  }, "CIO Lifecycle Coverage"), React.createElement("div", {
+    className: "num-md text-white"
+  }, cfg.master_on === false ? "Disabled" : "Active")), React.createElement("button", {
+    onClick: refresh,
+    disabled: loading,
+    className: "px-2 py-1 text-[10px] font-semibold rounded bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+  }, loading ? "..." : "Refresh")), err && React.createElement("div", {
+    className: "mt-2 text-[11px] text-rose-400"
+  }, err), data && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "mt-3 grid grid-cols-2 gap-3 text-[11px]"
+  }, React.createElement("div", {
+    className: "bg-slate-900/40 border border-slate-700 rounded px-3 py-2"
+  }, React.createElement("div", {
+    className: "mc-mute uppercase tracking-wider text-[10px]"
+  }, "Monthly spend"), React.createElement("div", {
+    className: "num-sm text-slate-100"
+  }, "$", monthlyUsd.toFixed(3), " / $", cap.toFixed(0)), React.createElement("div", {
+    className: "h-1.5 mt-1.5 bg-slate-700 rounded-full overflow-hidden"
+  }, React.createElement("div", {
+    className: `h-full ${pctOfCap >= 80 ? "bg-rose-500" : pctOfCap >= 50 ? "bg-amber-400" : "bg-emerald-500"}`,
+    style: {
+      width: `${pctOfCap}%`
+    }
+  }))), React.createElement("div", {
+    className: "bg-slate-900/40 border border-slate-700 rounded px-3 py-2"
+  }, React.createElement("div", {
+    className: "mc-mute uppercase tracking-wider text-[10px]"
+  }, "Timeout cap"), React.createElement("div", {
+    className: "num-sm text-slate-100"
+  }, cfg.timeout_ms || "?", " ms"), React.createElement("div", {
+    className: "text-[10px] mc-mute mt-1"
+  }, "Month: ", data.month))), React.createElement("div", {
+    className: "mt-3 mc-table-scroll"
+  }, React.createElement("table", {
+    className: "mc-table"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Type"), React.createElement("th", null, "State"), React.createElement("th", {
+    className: "text-right"
+  }, "Calls"), React.createElement("th", {
+    className: "text-right"
+  }, "Overrides"), React.createElement("th", {
+    className: "text-right"
+  }, "Override %"), React.createElement("th", {
+    className: "text-right"
+  }, "Fallbacks"), React.createElement("th", {
+    className: "text-right"
+  }, "Timeouts"))), React.createElement("tbody", null, rowMeta.map(rm => {
+    const t = types[rm.key] || {};
+    const enabled = cfg.types_enabled?.[rm.key];
+    return React.createElement("tr", {
+      key: rm.key
+    }, React.createElement("td", null, rm.label), React.createElement("td", null, enabled ? React.createElement("span", {
+      className: `inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${rm.recordOnly ? "bg-amber-900/40 text-amber-300" : "bg-emerald-900/40 text-emerald-300"}`
+    }, rm.recordOnly ? "RECORD" : "AUTH") : React.createElement("span", {
+      className: "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-700 text-slate-400"
+    }, "OFF")), React.createElement("td", {
+      className: "text-right num-mono"
+    }, t.calls ?? 0), React.createElement("td", {
+      className: "text-right num-mono"
+    }, t.overrides ?? 0), React.createElement("td", {
+      className: "text-right num-mono"
+    }, t.override_rate != null ? `${t.override_rate}%` : "—"), React.createElement("td", {
+      className: "text-right num-mono"
+    }, t.fallbacks ?? 0), React.createElement("td", {
+      className: "text-right num-mono"
+    }, t.timeouts ?? 0));
+  })))), React.createElement("div", {
+    className: "mt-2 text-[10px] mc-mute"
+  }, "AUTH = CIO can override the engine; RECORD = CIO opinion logged but engine decision wins. Flip per-type via ", React.createElement("span", {
+    className: "text-slate-300 font-mono"
+  }, "model_config"), " keys (ai_cio_*_enabled / ai_cio_sl_move_authoritative / ai_cio_lifecycle_all_in_enabled).")));
+}
 function CioDecisionReview({
   apiBase,
   onReviewSaved
@@ -3215,7 +3344,9 @@ function MissionControl({
       },
       className: "mc-mute"
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
-  }))))), React.createElement(CioDecisionReview, {
+  }))))), React.createElement(CioLifecycleStatsCard, {
+    apiBase: API_BASE
+  }), React.createElement(CioDecisionReview, {
     apiBase: API_BASE,
     onReviewSaved: fetchCio
   }), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
@@ -3257,6 +3388,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780350356554:11422876
+// cache-bust:1780353714594:687651749
 
-// cache-bust:1780350356554:11422876
+// cache-bust:1780353714594:687651749

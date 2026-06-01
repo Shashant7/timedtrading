@@ -15,6 +15,10 @@ Single reference for agents. Read this first to avoid context overload.
 - **Lessons**: After user corrections → add to "Lessons" below; review at session start
 - **Simplicity**: Minimal impact, no temporary fixes
 - **Skills first**: Before inventing a new method, check [`skills/`](skills/) for an existing playbook. If you do something new that's reusable, write a skill for it before exiting.
+- **PR conflict hygiene** (operator pain in 2026-06 sessions when multiple PRs in flight):
+  - **Do NOT edit `tasks/todo.md` from individual feature PRs.** The PR body already carries the description; multiple PRs all editing the same top-of-Active line in `tasks/todo.md` guarantees pairwise merge conflicts. If a `todo.md` update is genuinely needed, append to the **bottom** of `### Active` in a separate housekeeping PR after a batch lands.
+  - **For `react-app-dist/` conflicts**: build artifacts conflict every time because each build stamps a unique cache-bust marker. Resolution recipe: `git checkout --theirs react-app-dist/ && git add react-app-dist/ && node scripts/build-frontend.js && git add react-app-dist/`. Never hand-merge dist files.
+  - **One logical change per PR, rebase before push**: when stacking 4+ PRs in a day, `git fetch origin main && git rebase origin/main` on each branch immediately after the previous one lands. Don't wait for GitHub to flag CONFLICTING.
 
 ## Design System — canonical source
 

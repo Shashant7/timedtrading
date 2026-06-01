@@ -6,6 +6,48 @@
 
 ---
 
+## CIO "all in" for lifecycle decisions — gate pattern, not direct wiring [2026-06-01]
+
+Operator: *"Let's try going all in and trim down as needed. We have pretty much low number of users, so better now to learn what needs to be refined than later."*
+
+Wanted: CIO consulted on every lifecycle decision (entry skip / rebalance trim / SL move / DEFEND). Risk: one LLM in the hot path of every tick = single point of failure + latency stack + cost runaway.
+
+### Pattern: `worker/cio/cio-lifecycle-gate.js`
+
+Universal wrapper around `evaluateCIOLifecycle()` with three guardrails baked in. EVERY new CIO lifecycle hook goes through this gate, never directly through `evaluateCIOLifecycle`:
+
+1. **Latency cap** — per-call AbortController + Promise.race timeout (default 1500 ms, configurable via `ai_cio_lifecycle_timeout_ms` model_config key). Engine default returned on timeout.
+2. **Monthly $ cap** — KV-backed running counter `ai_cio:spend:YYYY-MM` (USD). Hard-stop when `ai_cio_monthly_usd_cap` (default $50) hits. Cost estimated per-call from model name.
+3. **Dedup cache** — per-isolate cache keyed by `(sym, type, bucket)`, 60s TTL. Stops the same trade's SL trail consulting CIO 12 times per scoring cycle.
+4. **Differential override logging** — stable `[AI_CIO_GATE] override` prefix + per-type KV counters at `ai_cio:stats:YYYY-MM:<type>` so MC can show override-rates without scanning logs.
+5. **Record-only mode per type** — SL moves and DEFEND default to record-only (CIO opinion logged, engine decision wins) until 2 weeks of audit data justifies flipping `ai_cio_sl_move_authoritative`.
+
+### Wiring (4 hooks in this PR)
+
+1. **Entry-skip on Loop 2 trip** (`qualifiesForEnter` post-processing in `processTradeSimulation`). CIO can OVERRIDE if `edge_remaining >= 0.7`.
+2. **Investor rebalance auto-trim** (`POST /timed/investor/auto-rebalance` `reduce` stage path). CIO can HOLD if `edge_remaining >= 0.6`. Deferred trims surface in the response as `cioDeferredTrims[]`.
+3. **SL trailing-move record** (ATR trail path). RECORD-ONLY; non-blocking. Builds audit dataset before flipping authoritative.
+4. **DEFEND opinion record** (helper `cioRecordDefend()` ready to drop in next to any `return "defend"` site). RECORD-ONLY by design (doctrine wins per PR #285).
+
+### Operator surface
+
+- New endpoint `GET /timed/admin/ai-cio/lifecycle-stats` — per-type calls / overrides / timeouts / fallbacks / monthly spend.
+- New MC card `CioLifecycleStatsCard` — read-only, shows AUTH/RECORD/OFF state per type + spend bar vs. cap.
+- Kill switches (model_config keys, no redeploy):
+  - `ai_cio_lifecycle_all_in_enabled` = false → master kill
+  - `ai_cio_entry_skip_review_enabled` / `ai_cio_rebalance_trim_enabled` / `ai_cio_sl_move_enabled` / `ai_cio_defend_record_enabled` = per-type kill
+  - `ai_cio_sl_move_authoritative` = true → flip SL gate from record-only to authoritative
+
+### Rule
+
+When threading an LLM into a hot path, never call the LLM directly from the decision site. Always wrap it in a gate that owns the latency cap, cost cap, dedup, fallback, and stats. The decision site only learns "did CIO approve / override?". This way:
+- Rollback = single env/model_config flip; no code-revert.
+- New hook = ~10 lines at the call site; gate handles all the cross-cutting concerns.
+- Cost overruns are mathematically bounded.
+- A bad CIO call cascade can't take down trade management.
+
+---
+
 ## Setup-name upstream stamp bug fixed at the WRITE boundary [2026-06-01]
 
 PR #432 fixed the setup-name display layer (direction-aware swap in `prettySetupName`). The display now always shows the right label even when D1 has a direction-mismatched `setup_name`. But the underlying bad data was still being written every time a new trade closed — the heal was display-only.
