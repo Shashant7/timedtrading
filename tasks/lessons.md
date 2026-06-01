@@ -63,6 +63,142 @@ name" reports trace to one of these two bugs.
 
 ---
 
+## Calibration ↔ AI CIO ↔ Active Strategy — the relationship [2026-06-01]
+
+Operator asked two related questions:
+1. *"Does calibration refresh AI CIO and align it with the plan?"*
+2. *"When it comes to our underlying strategy outlined in Insights, does the AI CIO make use of that?"*
+
+Short answers (with the fix that this PR adds):
+
+### Calibration → AI CIO
+
+**Indirect only.** Calibration apply (`POST /timed/calibration/apply`) writes
+these `model_config` keys: `calibrated_sl_atr`, `calibrated_tp_tiers`,
+`calibrated_rank_min`, `consensus_signal_weights`, `consensus_tf_weights`,
+`adaptive_entry_gates`, `adaptive_sl_tp`, `adaptive_rank_weights`,
+`adaptive_regime_gates`. Plus KV side channels (`golden-profiles`,
+`lifecycle-profiles`).
+
+These keys are loaded by the `*/5` scoring cron into `env._adaptive*` /
+`env._calibrated*` and used in: `computeRank`, `qualifiesForEnter`,
+`build3TierTPArray`, `processTradeSimulation` lifecycle gates. They
+shape **which trades reach the AI CIO** and the **rank/SL/TP** values
+in the proposal sent to it.
+
+But the **AI CIO prompt** (`worker/cio/cio-prompts.js`) and the LLM's
+`confidence` / `edge_score` outputs are NOT touched by calibration.
+The model's reasoning is free-form on top of the proposal it sees.
+
+**Operator implication:** Running calibration won't "retrain" the CIO.
+It'll change the trade flow that reaches the CIO and tighten/loosen
+the SL/TP geometry in proposals. The CIO will reason on top of those
+new inputs.
+
+### Active Strategy → AI CIO (FIXED in this PR)
+
+Was: per-ticker `strategy_stance` was injected into MEMORY only when
+the ticker was actively `aligned` or had `themes_matched`. The full
+playbook brief (the same one the Daily Brief opens with) was **not**
+in the CIO prompt at all. ~60% of tickers got NO playbook context.
+The system prompt also gave the LLM no guidance on how to use
+`strategy_stance` when it did appear.
+
+Now (PR fix):
+1. `getStrategyBrief()` injected at the **top of every CIO prompt**
+   (entry + lifecycle). Same brief the Daily Brief sees — phase,
+   scenario weights, overweight/underweight sectors, tier-1 themes,
+   active risks.
+2. `strategy_stance` is **always** added to memory (even for neutral
+   stance / no theme match). "Neutral" is itself a signal worth telling
+   the LLM, instead of silently omitting.
+3. New `on_thesis` boolean on the stance for fast LLM branching.
+4. System prompt has a dedicated **ACTIVE STRATEGY PLAYBOOK** section
+   explaining how to use overweight/underweight + tier-1 themes +
+   active risks as soft priors on APPROVE/REJECT, and an explicit
+   **STRATEGY STANCE** section explaining the per-ticker block.
+5. Evaluation-order line elevates PLAYBOOK + STRATEGY STANCE above
+   MACRO TILT (cross-asset RS), PDZ, TICKER PROFILE, etc.
+
+**Rule:** When you change strategy-context.js (revising the editorial
+playbook), the change flows into the CIO on the **next deploy** — no
+KV refresh needed. CIO and Daily Brief stay in lockstep.
+
+### What about confidence + edge_score?
+
+These come from the LLM. Calibration doesn't post-process them; the
+playbook injection IS what aligns them with the editorial view. After
+the PR, ON-THESIS tier-1 trades should see higher `edge_score` and
+`confidence` cited explicitly in reasoning; OFF-THESIS should see
+lower with the reason called out.
+
+---
+
+## Operator alert noise — freshness + Phase C circuit breaker [2026-06-01]
+
+Operator received three alerts on Monday June 1 morning:
+
+### 1. `candle_freshness_60: Worst 60m candle stale 65.5h (BRK-B). Threshold 24h.`
+
+**Weekend false positive.** The 9 AM ET freshness check ran before
+the first Monday 60m bar had completed. At 9 AM Monday, the newest
+60m bar for any ticker is Friday 16:00 ET = ~65 hours stale. The
+static 24h threshold tripped on every Monday morning regardless of
+data health.
+
+Fix: `STALE_60_HOURS` is now weekend-aware. On Mondays at 9 AM ET,
+threshold is 72h (covers Fri 4 PM → Mon 9 AM = 65h + 7h buffer).
+Tue-Fri keeps the strict 24h.
+
+**Rule:** Time-based thresholds that monitor data feeds must account
+for the trading calendar, not wall-clock. The same logic should be
+applied to holiday Mondays (Memorial Day etc.) — the
+`isMondayMorning` flag covers ~85% of cases; a future PR can wire
+in the full US trading calendar.
+
+### 2. `candle_freshness_d: Worst D candle stale 6.5d (BK). Threshold 5d.`
+
+This one IS legitimate — BK = Bank of New York Mellon, actively
+traded, 6.5d stale on the D feed means the last candle is from ~May 22.
+Either:
+- Backfill cron skipped it (auto-self-heal at `worker/index.js`
+  ~82547 should pick it up on next sweep)
+- TwelveData feed gap (rare; vendor-side)
+- M&A / corporate-action change to the ticker symbol
+
+Operator action: check `bridge_audit` for any BK-related errors;
+manually trigger `POST /timed/admin/backfill?ticker=BK&tf=D&days=10`
+if the self-heal hasn't cleared it within 24h.
+
+### 3. `Phase C — Engine Paused: Loop 2 circuit breaker tripped wr_20`
+
+This is the **safety feature working as designed**. The numbers in
+the alert:
+- Last 10 trades win rate: 20%
+- Today P&L: -1.15%
+- Consecutive losses: 3
+
+Loop 2's `wr_20` rule trips when the rolling 20-trade window's win
+rate drops below the configured floor. New entries are blocked until
+**the next session open**; open trades are unaffected and continue to
+manage with their existing SL/TP. This prevents the engine from
+compounding losses during a bad streak (the "Phase C" experience —
+let losing periods burn out before deploying more risk).
+
+**Operator playbook when this fires:**
+1. Don't panic-clear it — that's the WHOLE point of the circuit breaker.
+2. Review the 3 consecutive losses in the trade ledger. Are they:
+   - Same setup family? → probably a calibration issue with that
+     setup; let the breaker hold + retune.
+   - Different setups + market-wide adverse regime? → wait for regime
+     shift; the breaker correctly identified bad tape.
+   - Same ticker / cohort? → maybe a model-config drift; check
+     `deep_audit_cohort_*` knobs.
+3. The pause auto-clears at next session open. To clear manually,
+   `POST /timed/admin/loop2-clear` (admin-auth).
+
+---
+
 ## Investor engine fire schedule (operator FAQ) [2026-06-01]
 
 A second user question on the Investor Accumulate lane: "When does the

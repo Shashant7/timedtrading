@@ -599,20 +599,30 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
   //   - Demand stronger justification for off-thesis trades
   //   - Cite the source ("on-thesis: AI compute + MAG7 cohort") in reasoning
   // See worker/strategy-context.js for the schema + how to rev the vintage.
+  //
+  // 2026-06-01 — Always include strategy_stance (even when stance is
+  // "neutral" with no theme matches) so the LLM can never assume "no
+  // entry = no playbook signal". Previous behavior omitted the entire
+  // block for neutral names — making the LLM blind to the global
+  // playbook backdrop for ~60% of the universe. Now every ticker
+  // carries playbook context; "neutral" is itself a signal.
   try {
     const strategy = getStrategyForTicker(sym, tickerData, getThemesForTicker);
-    if (strategy && (strategy.aligned || strategy.themes_matched?.length > 0)) {
+    if (strategy) {
       mem.strategy_stance = {
         playbook: STRATEGY_TITLE,
         vintage: STRATEGY_VINTAGE,
-        stance: strategy.stance,
-        multiplier: strategy.multiplier,
-        tier: strategy.tier,
-        reason: strategy.reason,
-        sector: strategy.sector,
-        sector_stance: strategy.sector_stance,
+        stance: strategy.stance || "neutral",
+        multiplier: strategy.multiplier || 1.0,
+        tier: strategy.tier || null,
+        reason: strategy.reason || "no_theme_match_no_sector_tilt",
+        sector: strategy.sector || null,
+        sector_stance: strategy.sector_stance || "neutral",
         themes_matched: (strategy.themes_matched || []).slice(0, 4),
         smid_bump: !!strategy.smid_applies,
+        // Explicit alignment flag so the LLM can branch quickly
+        // without inspecting themes/sector/multiplier.
+        on_thesis: !!strategy.aligned || ((strategy.themes_matched || []).length > 0),
       };
     }
   } catch (_) {
