@@ -1528,6 +1528,9 @@ const ROUTES = [
   ["GET",  "/timed/admin/broker-bridge/audit",            "GET /timed/admin/broker-bridge/audit"],
   ["GET",  "/timed/admin/broker-bridge/recent",           "GET /timed/admin/broker-bridge/recent"],
   ["GET",  "/timed/admin/broker-bridge/portfolio",        "GET /timed/admin/broker-bridge/portfolio"],
+  ["POST", "/timed/admin/broker-bridge/killswitch",       "POST /timed/admin/broker-bridge/killswitch"],
+  ["POST", "/timed/admin/broker-bridge/enable",           "POST /timed/admin/broker-bridge/enable"],
+  ["POST", "/timed/admin/broker-bridge/user-caps",        "POST /timed/admin/broker-bridge/user-caps"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -68843,6 +68846,59 @@ export default {
           upstream_status: result.status,
           rows: [],
         }, 200, corsHeaders(env, req));
+      }
+
+      // 2026-06-01 — POST proxies for operator-side bridge controls.
+      // All route through _callBridge with method=POST + JSON body.
+      async function _postBridge(path, body) {
+        const op = env?.BROKER_BRIDGE_OPERATOR_KEY;
+        if (!op) return { kind: "key_missing", status: 0, body: "BROKER_BRIDGE_OPERATOR_KEY not configured" };
+        const headers = { "Authorization": `Bearer ${op}`, "Content-Type": "application/json" };
+        const init = { method: "POST", headers, body: JSON.stringify(body || {}) };
+        try {
+          if (env?.BROKER_BRIDGE && typeof env.BROKER_BRIDGE.fetch === "function") {
+            const r = await env.BROKER_BRIDGE.fetch(new Request(`https://bridge.internal${path}`, init));
+            const text = await r.text();
+            return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "service-binding" };
+          }
+          const bridgeUrl = env?.BROKER_BRIDGE_URL;
+          if (!bridgeUrl) return { kind: "url_missing", status: 0, body: "BROKER_BRIDGE_URL not configured and no service binding" };
+          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}${path}`, init);
+          const text = await r.text();
+          return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "http" };
+        } catch (e) {
+          return { kind: "unreachable", status: 0, body: String(e?.message || e).slice(0, 200) };
+        }
+      }
+
+      if (routeKey === "POST /timed/admin/broker-bridge/killswitch") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const result = await _postBridge("/bridge/killswitch", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: result.kind === "ok" ? 200 : 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
+      }
+
+      if (routeKey === "POST /timed/admin/broker-bridge/enable") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const result = await _postBridge("/bridge/enable", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
+      }
+
+      if (routeKey === "POST /timed/admin/broker-bridge/user-caps") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const result = await _postBridge("/bridge/user/caps", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
       }
 
       // 2026-06-01 — GET /timed/admin/broker-bridge/portfolio
