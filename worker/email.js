@@ -565,39 +565,115 @@ export async function sendFarewellEmail(env, email) {
 // Discord Welcome Email
 // ═══════════════════════════════════════════════════════════════════════
 
+/* 2026-06-01 — Discord welcome email rewritten per operator request.
+
+   Operator: "Open up Discord Access, so the UI should now say 'link
+   Discord' and that should kick off the user add flow with the welcome
+   email to discord. We should update the email to include
+   straightforward rules around the community. People need to acknowledge
+   that they will be good citizens, be respectful, not promote or spam,
+   maintain integrity, not spew or hate or debate everything. Include a
+   simple breakdown of the three channels that they can start with:
+   general for just chit chat, respectful chit chat, trade signals for
+   keeping up with what the model is firing off, and support for things
+   that the user needs help with. Trade ideas is a place for people to
+   share their ideas."
+
+   Channels covered (all four — operator named three to start + trade
+   ideas explicitly later):
+     #general       — respectful chit chat
+     #trade-signals — keeping up with what the model is firing
+     #trade-ideas   — share your own setups
+     #support       — questions, problems
+
+   Community guidelines are EXPLICIT (not soft suggestions). The email
+   asks users to acknowledge they'll be a good citizen — this is the
+   contract. We can't enforce it programmatically but stating it up
+   front sets the culture from day one. */
 export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
+  const guildId = env.DISCORD_GUILD_ID || "";
+  const openDiscordUrl = guildId ? `https://discord.com/channels/${guildId}` : "https://discord.com";
   const html = emailLayout(`
     <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:white">Welcome to the TT Discord</h1>
     <p style="margin:0 0 20px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
       Your Discord account <strong style="color:white">${discordUsername}</strong> has been linked and you've been added to the Timed Trading community server.
     </p>
 
-    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Channels to explore</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
-      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#general</strong> &mdash; introduce yourself and chat with the community</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#trade-signals</strong> &mdash; real-time alerts from the scoring engine</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#trade-ideas</strong> &mdash; share your setups and discuss plays</td></tr>
-      <tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}"><strong style="color:white">#support</strong> &mdash; questions, feedback, or bug reports</td></tr>
+    <p style="margin:0 0 12px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Where to start &mdash; four channels</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px">
+      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary};line-height:1.55">
+        <strong style="color:white">#general</strong> &mdash; respectful chit chat. Say hi, share what you're watching, talk markets.
+      </td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary};line-height:1.55">
+        <strong style="color:white">#trade-signals</strong> &mdash; keep up with what the model is firing off. Real-time entry / trim / exit alerts from the scoring engine. Read-only.
+      </td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary};line-height:1.55">
+        <strong style="color:white">#trade-ideas</strong> &mdash; share your own setups. Post charts, talk thesis, debate entries. Constructive only.
+      </td></tr>
+      <tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary};line-height:1.55">
+        <strong style="color:white">#support</strong> &mdash; questions, problems, anything you need help with. Maintainers and other members will jump in.
+      </td></tr>
     </table>
 
-    <div style="padding:14px 16px;background:rgba(88,101,242,0.06);border:1px solid rgba(88,101,242,0.15);border-radius:8px;margin:0 0 24px">
-      <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:white">Community Rules</p>
-      <p style="margin:0;font-size:12px;color:${BRAND.textSecondary};line-height:1.6">
-        Be professional and respectful. No personal attacks, spam, or unsolicited promotions.
-        Share constructively, support fellow traders, and keep discussions on topic.
-        Violations may result in removal from the community.
+    <div style="padding:16px 18px;background:rgba(88,101,242,0.08);border:1px solid rgba(88,101,242,0.28);border-radius:10px;margin:0 0 22px">
+      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:white">Be a good citizen &mdash; the community contract</p>
+      <p style="margin:0 0 10px;font-size:12px;color:${BRAND.textSecondary};line-height:1.65">
+        We're keeping this server small, signal-dense, and worth opening every day. That only works if everyone shows up the right way. By joining, you agree to:
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px">
+        <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+          <span style="color:${BRAND.green};font-weight:700;margin-right:6px">&#10003;</span>
+          <strong style="color:white">Be respectful.</strong> Treat every member the way you'd want to be treated. Disagreement is fine; personal attacks are not.
+        </td></tr>
+        <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+          <span style="color:${BRAND.green};font-weight:700;margin-right:6px">&#10003;</span>
+          <strong style="color:white">No spam, no promotion.</strong> Don't pitch other paid services, courses, signals, affiliate links, or your trading group. This server is the product.
+        </td></tr>
+        <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+          <span style="color:${BRAND.green};font-weight:700;margin-right:6px">&#10003;</span>
+          <strong style="color:white">Maintain integrity.</strong> If you call a trade, own the outcome. Don't fudge entries / exits after the fact. Don't paper-trade and claim P&amp;L.
+        </td></tr>
+        <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+          <span style="color:${BRAND.green};font-weight:700;margin-right:6px">&#10003;</span>
+          <strong style="color:white">No hate, no rants, don't debate everything.</strong> Politics, religion, identity slurs, and contrarian-for-its-own-sake debate kill signal. Keep it about markets and the model.
+        </td></tr>
+        <tr><td style="padding:3px 0;font-size:12px;color:${BRAND.textSecondary};line-height:1.5">
+          <span style="color:${BRAND.green};font-weight:700;margin-right:6px">&#10003;</span>
+          <strong style="color:white">Help when you can.</strong> If a member asks a question in #support and you know the answer, jump in. This is a community, not a help desk.
+        </td></tr>
+      </table>
+      <p style="margin:14px 0 0;font-size:11px;color:${BRAND.textMuted};line-height:1.6;font-style:italic">
+        Violations may result in a warning, mute, or removal from the community at the maintainers' discretion. Repeat violations are zero-tolerance.
       </p>
     </div>
 
     <table role="presentation" cellpadding="0" cellspacing="0">
       <tr><td style="background:#5865F2;border-radius:8px;padding:12px 28px">
-        <a href="https://discord.com/channels/${env.DISCORD_GUILD_ID || ''}" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Discord</a>
+        <a href="${openDiscordUrl}" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Open Discord</a>
       </td></tr>
     </table>
-  `, { preheader: "You've been added to the Timed Trading Discord community." });
 
-  const text = `Your Discord account (${discordUsername}) has been linked to Timed Trading.\n\nChannels:\n- #general — introduce yourself\n- #trade-signals — real-time alerts\n- #trade-ideas — share setups\n- #support — questions & feedback\n\nCommunity Rules: Be professional and respectful. No personal attacks, spam, or unsolicited promotions. Violations may result in removal.\n\nOpen Discord to get started.`;
-  return sendEmail(env, { to: email, subject: "Welcome to the Timed Trading Discord", html, text, category: "discord" });
+    <p style="margin:18px 0 0;font-size:11px;color:${BRAND.textMuted};line-height:1.55">
+      Questions about the community itself? Reply to this email or post in <strong style="color:${BRAND.textSecondary}">#support</strong>.
+    </p>
+  `, { preheader: "You've been added to the Timed Trading Discord community — here's how to use it." });
+
+  const text = `Your Discord account (${discordUsername}) has been linked to Timed Trading.\n\n` +
+    `Where to start — four channels:\n` +
+    `  #general       — respectful chit chat. Say hi, share what you're watching, talk markets.\n` +
+    `  #trade-signals — real-time entry / trim / exit alerts from the scoring engine. Read-only.\n` +
+    `  #trade-ideas   — share your own setups. Post charts, talk thesis, constructive only.\n` +
+    `  #support       — questions, problems, anything you need help with.\n\n` +
+    `Be a good citizen — the community contract:\n` +
+    `  ✓ Be respectful. Disagreement is fine; personal attacks are not.\n` +
+    `  ✓ No spam, no promotion. Don't pitch other paid services / courses / affiliate links.\n` +
+    `  ✓ Maintain integrity. Own your trade outcomes; no fudging entries/exits after the fact.\n` +
+    `  ✓ No hate, no rants, don't debate everything. Politics / religion / identity slurs kill signal.\n` +
+    `  ✓ Help when you can. If you know the answer to a #support question, jump in.\n\n` +
+    `Violations may result in warning, mute, or removal. Repeat violations are zero-tolerance.\n\n` +
+    `Open Discord: ${openDiscordUrl}\n\n` +
+    `Questions? Reply to this email or post in #support.`;
+  return sendEmail(env, { to: email, subject: "Welcome to the Timed Trading Discord — read me first", html, text, category: "discord" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════

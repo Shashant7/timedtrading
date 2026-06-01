@@ -22,25 +22,16 @@
 
 ### Active
 
-- [x] **MC: editable modes + archetypes for options auto-mirror
-      (PR pending).** Operator: "Where can the mode/archetype get
-      updated?". Previously the MODES/ARCHETYPES KPI in the Options
-      Auto-Mirror sub-card was read-only. Added two purple "Edit modes"
-      and "Edit archetypes" buttons next to the existing edit-cap
-      buttons. Modes prompt lists RIDE / READY / DRIFT / FADE with
-      operator-facing descriptions and the default (RIDE only).
-      Archetypes prompt lists every allowed option vehicle
-      (long_call/put, vertical_spread, leap_call/put, csp, cc, moonshot,
-      straddle/strangle, iron_condor — naked-shorts are EXCLUDED
-      because the engine blocks them unconditionally). Both validate
-      against the allow-list before saving via the existing PUT
-      /timed/options/auto-mirror endpoint. Note: operator confirmed
-      Account Balance is syncing properly — no fix needed there.
+- [x] **Discord: link-flow button + welcome email rules (PR pending).**
+      Operator: "Lets also open up Discord Access, so the UI should
+      now say link Discord and that should kick off the user add flow
+      with the welcome email to discord." Backend OAuth flow already
+      existed. (a) auth-gate.js button renamed "Discord Waitlist" →
+      "Link Discord". (b) sendDiscordWelcomeEmail() rewritten with
+      operator's community contract: "Be a good citizen" + 5 rules +
+      four-channel guide.
+- [x] **MC: editable modes + archetypes for options auto-mirror (PR #437).**
 - [x] **Day-trade options plays + Options-tab loading overlay (PR #436).**
-      Operator request for 0/1 DTE day-trader plays on the Today page,
-      clearly labeled so they can't be confused with swing/investor
-      plays on the same ticker. Plus loading overlay on the right-rail
-      Options tab during horizon/profile transitions.
 - [x] **Calibration UX polish (PR #435).** Three additions to System
       Intelligence → Analysis tab: (a) Calibration explainer card at
       the top — plain-language "what calibration does, where it shows

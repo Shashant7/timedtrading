@@ -2459,53 +2459,79 @@
                 h("polygon", { points: "22 2 15 22 11 13 2 9 22 2" }),
               ),
         ),
+        /* 2026-06-01 — Button label changed from "Discord Waitlist"
+           → "Link Discord" now that the OAuth + auto-add-to-server
+           flow is open to all signed-in members. Operator: "Lets also
+           open up Discord Access, so the UI should now say link
+           Discord and that should kick off the user add flow with the
+           welcome email to discord." */
         // 2026-05-04 — Wrapped in span so mobile CSS can icon-collapse the label.
-        h("span", { className: "tt-waitlist-label" }, joined ? "Discord invite pending" : "Discord Waitlist"),
+        h("span", { className: "tt-waitlist-label" }, joined ? "Discord linked" : "Link Discord"),
       ),
       open && h("div", { style: panelStyle },
         h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 10 } },
-          h("div", { style: { width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg, #f59e0b, #ef4444)", display: "flex", alignItems: "center", justifyContent: "center" } },
-            h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "white", strokeWidth: "2.2", strokeLinecap: "round", strokeLinejoin: "round" },
-              h("polygon", { points: "22 2 15 22 11 13 2 9 22 2" }),
+          h("div", { style: { width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg, #5865F2, #404eed)", display: "flex", alignItems: "center", justifyContent: "center" } },
+            h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "white" },
+              h("path", { d: "M20.317 4.369A19.79 19.79 0 0 0 16.558 3a14.86 14.86 0 0 0-.68 1.39 18.27 18.27 0 0 0-5.487 0A14.86 14.86 0 0 0 9.71 3 19.79 19.79 0 0 0 5.952 4.369C2.49 9.524 1.555 14.55 2.023 19.5a19.9 19.9 0 0 0 6.072 3.063 14.6 14.6 0 0 0 1.224-1.96 12.94 12.94 0 0 1-1.926-.917c.161-.118.319-.241.471-.366a14.21 14.21 0 0 0 12.262 0c.155.125.313.248.471.366-.612.36-1.262.673-1.93.92.36.682.77 1.34 1.227 1.964a19.9 19.9 0 0 0 6.073-3.063c.55-5.736-.937-10.717-3.939-15.137zM8.02 16.49c-1.183 0-2.157-1.085-2.157-2.42 0-1.333.954-2.42 2.157-2.42 1.21 0 2.18 1.092 2.157 2.42 0 1.335-.954 2.42-2.157 2.42zm7.974 0c-1.184 0-2.157-1.085-2.157-2.42 0-1.333.954-2.42 2.157-2.42 1.21 0 2.18 1.092 2.157 2.42 0 1.335-.948 2.42-2.157 2.42z" }),
             ),
           ),
           h("div", null,
-            h("div", { style: { fontWeight: 700, fontSize: 14 } }, success || joined ? "You're on the Discord waitlist" : "Join the Discord waitlist"),
-            h("div", { style: { fontSize: 11, color: "#9ca3af", marginTop: 1 } }, success || joined ? "We'll email you when the next invite batch opens." : "Get Discord access as we open seats."),
+            h("div", { style: { fontWeight: 700, fontSize: 14 } }, success || joined ? "Discord linked" : "Link your Discord"),
+            h("div", { style: { fontSize: 11, color: "#9ca3af", marginTop: 1 } }, success || joined ? "You're in the Timed Trading server." : "One click — sign in, get added, jump straight in."),
           ),
         ),
         success || joined ? h("div", null,
-          h("div", { style: { fontSize: 12, color: "#d1d5db", lineHeight: 1.55, marginTop: 6, padding: "10px 12px", background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.22)", borderRadius: 8 } },
-            "Thanks — we'll reach out with an invite as soon as a spot opens up. Feel free to share with traders you'd want in the room."
+          h("div", { style: { fontSize: 12, color: "#d1d5db", lineHeight: 1.55, marginTop: 6, padding: "10px 12px", background: "rgba(88,101,242,0.10)", border: "1px solid rgba(88,101,242,0.30)", borderRadius: 8 } },
+            "You're in the Timed Trading Discord. Check your inbox for the welcome email with the community rules and channel guide.",
           ),
+          h("a", {
+            href: "https://discord.com/app",
+            target: "_blank",
+            rel: "noopener noreferrer",
+            style: { display: "block", textAlign: "center", marginTop: 12, padding: "10px 16px", borderRadius: 8, background: "#5865F2", color: "white", fontSize: 13, fontWeight: 700, textDecoration: "none" },
+          }, "Open Discord →"),
           h("button", {
             onClick: () => setOpen(false),
-            style: { marginTop: 12, width: "100%", padding: "9px 14px", borderRadius: 8, background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af", fontSize: 12, cursor: "pointer" },
+            style: { marginTop: 8, width: "100%", padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid rgba(255,255,255,0.1)", color: "#9ca3af", fontSize: 12, cursor: "pointer" },
           }, "Close"),
-        ) : h("form", { onSubmit: handleSubmit },
+        ) : h("div", null,
           h("p", { style: { fontSize: 12, color: "#9ca3af", lineHeight: 1.55, margin: "8px 0 12px" } },
-            "Our Discord is invite-only while we grow the early cohort. Drop your email and we'll send your Discord invite as seats open.",
+            "Click below to sign in with Discord. We'll add you to the Timed Trading server automatically and email you a quick guide with the community rules + which channel to start in.",
           ),
-          h("input", {
-            ref: inputRef,
-            type: "email",
-            value: email,
-            onChange: (e) => { setEmail(e.target.value); if (error) setError(null); },
-            placeholder: "you@example.com",
-            autoComplete: "email",
-            required: true,
-            style: { width: "100%", padding: "9px 12px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", color: "#e5e7eb", fontSize: 13, outline: "none", boxSizing: "border-box" },
-          }),
-          error && h("div", { style: { fontSize: 11.5, color: "#fca5a5", marginTop: 6 } }, error),
+          /* 2026-06-01 — Single-click flow: hit /timed/discord/oauth-start
+             to get the Discord OAuth URL, then redirect (or popup-window
+             if signed-in via CF Access). The callback at
+             /timed/discord/callback handles everything else: exchanges
+             code for token, adds user to the guild with the subscriber
+             role, sends the welcome email. */
           h("button", {
-            type: "submit",
+            onClick: async () => {
+              setLoading(true); setError(null);
+              try {
+                const r = await fetch(`${apiBase}/timed/discord/oauth-start`, { credentials: "include" });
+                const j = await r.json().catch(() => null);
+                if (j?.ok && j.url) {
+                  // Open in same tab — the callback responds with HTML that
+                  // signals the parent window to refresh, but the simpler UX
+                  // is just a direct navigation + return to the app.
+                  window.location.href = j.url;
+                } else if (j?.error === "auth_required") {
+                  setError("Sign in first, then click Link Discord again.");
+                } else {
+                  setError(j?.error || "Could not start Discord linking");
+                }
+              } catch (_) {
+                setError("Network error — try again");
+              }
+              setLoading(false);
+            },
             disabled: loading,
             style: {
-              marginTop: 10,
+              marginTop: 0,
               width: "100%",
-              padding: "10px 16px",
+              padding: "11px 16px",
               borderRadius: 8,
-              background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+              background: "#5865F2",
               color: "white",
               fontSize: 13,
               fontWeight: 700,
@@ -2513,10 +2539,17 @@
               cursor: loading ? "wait" : "pointer",
               opacity: loading ? 0.7 : 1,
               letterSpacing: "0.01em",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             },
-          }, loading ? "Saving..." : "Reserve my spot"),
-          h("div", { style: { fontSize: 10, color: "#6b7280", marginTop: 8, lineHeight: 1.5 } },
-            "No spam, ever. One email when your invite is ready.",
+          },
+            h("svg", { width: 16, height: 16, viewBox: "0 0 24 24", fill: "currentColor" },
+              h("path", { d: "M20.317 4.369A19.79 19.79 0 0 0 16.558 3a14.86 14.86 0 0 0-.68 1.39 18.27 18.27 0 0 0-5.487 0A14.86 14.86 0 0 0 9.71 3 19.79 19.79 0 0 0 5.952 4.369C2.49 9.524 1.555 14.55 2.023 19.5a19.9 19.9 0 0 0 6.072 3.063 14.6 14.6 0 0 0 1.224-1.96 12.94 12.94 0 0 1-1.926-.917c.161-.118.319-.241.471-.366a14.21 14.21 0 0 0 12.262 0c.155.125.313.248.471.366-.612.36-1.262.673-1.93.92.36.682.77 1.34 1.227 1.964a19.9 19.9 0 0 0 6.073-3.063c.55-5.736-.937-10.717-3.939-15.137zM8.02 16.49c-1.183 0-2.157-1.085-2.157-2.42 0-1.333.954-2.42 2.157-2.42 1.21 0 2.18 1.092 2.157 2.42 0 1.335-.954 2.42-2.157 2.42zm7.974 0c-1.184 0-2.157-1.085-2.157-2.42 0-1.333.954-2.42 2.157-2.42 1.21 0 2.18 1.092 2.157 2.42 0 1.335-.948 2.42-2.157 2.42z" }),
+            ),
+            loading ? "Opening…" : "Link with Discord",
+          ),
+          error && h("div", { style: { fontSize: 11.5, color: "#fca5a5", marginTop: 8 } }, error),
+          h("div", { style: { fontSize: 10, color: "#6b7280", marginTop: 10, lineHeight: 1.5 } },
+            "By linking, you agree to be respectful, no spam or promotion, maintain integrity, and keep discussion on markets. Full rules in the welcome email.",
           ),
         ),
       ),
