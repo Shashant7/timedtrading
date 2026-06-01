@@ -1,6 +1,8 @@
 // Email module — SendGrid integration for outbound emails
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
+import { optionsPlayEmailHtml } from "./options-plays.js";
+
 const SENDGRID_API = "https://api.sendgrid.com/v3/mail/send";
 const FROM_EMAIL = "notifications@timed-trading.com";
 const FROM_NAME = "Timed Trading";
@@ -819,6 +821,11 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     trimmedPct, newTrimmedPct, trimDeltaPct, shares_trimmed, shares_remaining,
     trim_reason, action_ts, chart_url,
     momentum_elite, vwap_pct, cio,
+    // 2026-06-01 — recommended options play surfaced alongside the equity
+    // entry. Compact representation built via compactOptionsPlay(); see
+    // worker/options-plays.js for the shape. Trader entries surface a
+    // short-dated long-call/spread; Investor entries surface a LEAP.
+    options_play,
   } = alert;
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
@@ -900,6 +907,20 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   }
   const setupSection = setupLines.length > 0 ? _section("Setup", setupLines.join("<br>")) : "";
 
+  // OPTIONS PLAY (entry only) — compact card sitting between Setup and
+  // Signals. 2026-06-01: Trader entries get a short-dated long-call /
+  // spread; Investor entries get a LEAP. Section is suppressed for
+  // exits/trims (where the options play has long since been chosen).
+  let optionsPlaySection = "";
+  if (isEntry && options_play) {
+    const _html = optionsPlayEmailHtml(options_play);
+    if (_html) {
+      const _isLeap = options_play.archetype === "leap_call" || options_play.archetype === "leap_put";
+      const _label = _isLeap ? "Options Play — LEAP (Investor)" : "Options Play (Trader)";
+      optionsPlaySection = _section(_label, _html);
+    }
+  }
+
   // SIGNALS row (compact)
   const signalsParts = [];
   if (momentum_elite) signalsParts.push("🚀 Momentum Elite");
@@ -963,6 +984,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ${posSection}
     ${trimSection}
     ${setupSection}
+    ${optionsPlaySection}
     ${signalsSection}
     ${whySection}
     ${cioSection}
@@ -983,6 +1005,17 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   if (cio && cio.decision) {
     _txtParts.push("", `AI CIO: ${cio.decision} (${cio.confidence ? Math.round(cio.confidence * 100) + "% conf" : ""}${cio.edge_score ? ", edge " + Math.round(cio.edge_score * 100) + "%" : ""})`);
     if (cio.reasoning) _txtParts.push(cio.reasoning);
+  }
+  if (isEntry && options_play && Array.isArray(options_play.lines) && options_play.lines.length > 0) {
+    const isLeap = options_play.archetype === "leap_call" || options_play.archetype === "leap_put";
+    _txtParts.push("", `Options Play${isLeap ? " (LEAP)" : ""}: ${options_play.headline}`);
+    for (const line of options_play.lines) _txtParts.push("  " + line);
+    if (options_play.net_cost_usd != null) {
+      const sign = options_play.net_side === "credit" ? "+" : "-";
+      _txtParts.push(`  Net ${options_play.net_side}: ${sign}$${Math.abs(options_play.net_cost_usd).toLocaleString()}`);
+    }
+    if (options_play.max_loss_usd != null) _txtParts.push(`  Max loss: $${Math.abs(options_play.max_loss_usd).toLocaleString()}`);
+    if (options_play.breakeven != null) _txtParts.push(`  Breakeven: $${options_play.breakeven.toFixed(2)}`);
   }
   _txtParts.push("", "View: " + ctaUrl);
   const text = _txtParts.join("\n");

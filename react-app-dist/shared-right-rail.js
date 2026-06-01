@@ -874,7 +874,7 @@
     //      max gain/loss / breakeven / contracts / premium
     //   4. Ladder of alternatives — gradient of risk tiers (cheaper → more convex)
     //   5. Layer breakdown — which signals are voting and why
-    function OptionsTabPanel({ tickerSymbol, API_BASE }) {
+    function OptionsTabPanel({ tickerSymbol, API_BASE, mode: modeProp }) {
       const h = React.createElement;
       const [data, setData] = useState(null);
       const [loading, setLoading] = useState(true);
@@ -882,6 +882,21 @@
       const [profile, setProfile] = useState("speculator");
       const [profileMeta, setProfileMeta] = useState(null);
       const [showLayers, setShowLayers] = useState(false);
+      // 2026-06-01 — Horizon toggle (Trader / Investor). Investor mode
+      // routes through /timed/options/ticker?mode=investor which pins
+      // the LEAP as primary; Trader mode keeps the short-dated ladder.
+      // Auto-detect from the host URL (investor.html → investor) unless
+      // an explicit `mode` prop is passed, then let the user override
+      // via the in-panel toggle so they can preview both horizons.
+      const _autoMode = (() => {
+        if (modeProp) return modeProp;
+        try {
+          const path = (window.location?.pathname || "").toLowerCase();
+          if (path.includes("/investor")) return "investor";
+        } catch (_) {}
+        return "trader";
+      })();
+      const [horizon, setHorizon] = useState(_autoMode);
 
       // Load user's saved profile on mount.
       useEffect(() => {
@@ -901,7 +916,7 @@
         return () => { cancelled = true; };
       }, [API_BASE]);
 
-      // Fetch ladder per ticker + profile.
+      // Fetch ladder per ticker + profile + horizon.
       useEffect(() => {
         const sym = String(tickerSymbol || "").toUpperCase();
         if (!sym) return;
@@ -910,7 +925,8 @@
         (async () => {
           try {
             const base = API_BASE || window.API_BASE || "";
-            const r = await fetch(`${base}/timed/options/ticker?ticker=${encodeURIComponent(sym)}&profile=${encodeURIComponent(profile)}`, { cache: "no-store", credentials: "include" });
+            const modeParam = horizon === "investor" ? "&mode=investor" : "";
+            const r = await fetch(`${base}/timed/options/ticker?ticker=${encodeURIComponent(sym)}&profile=${encodeURIComponent(profile)}${modeParam}`, { cache: "no-store", credentials: "include" });
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             const j = await r.json();
             if (cancelled) return;
@@ -923,7 +939,7 @@
           }
         })();
         return () => { cancelled = true; };
-      }, [tickerSymbol, profile, API_BASE]);
+      }, [tickerSymbol, profile, horizon, API_BASE]);
 
       const updateProfile = async (newProfile) => {
         setProfile(newProfile);
@@ -1087,6 +1103,36 @@
           ),
           data.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
             data.profile_meta.one_liner,
+          ),
+        ),
+
+        // 2b. Horizon toggle — Trader (short-dated ladder) vs Investor
+        // (LEAP-first). 2026-06-01. Auto-detected from host URL on mount
+        // but always operator-overridable so users can preview both
+        // horizons on any ticker without leaving the rail.
+        h(Panel, { title: "⏱ Horizon" },
+          h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
+            [
+              { key: "trader", label: "Trader · short-dated", emoji: "⚡" },
+              { key: "investor", label: "Investor · LEAP", emoji: "🪜" },
+            ].map((opt) => h("button", {
+              key: opt.key,
+              onClick: () => setHorizon(opt.key),
+              style: {
+                flex: 1,
+                padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                borderRadius: 8,
+                background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+                color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
+                border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
+                cursor: "pointer",
+              },
+            }, `${opt.emoji} ${opt.label}`)),
+          ),
+          h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
+            horizon === "investor"
+              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms."
+              : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.",
           ),
         ),
 
@@ -14097,4 +14143,4 @@
   };
 })();
 
-// cache-bust:1780287197418:502599281
+// cache-bust:1780291216932:615209549
