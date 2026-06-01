@@ -682,5 +682,13 @@ function _redactUserForList(user) {
     daily_order_count_date: user.daily_order_count_date || null,
     total_orders_lifetime: user.total_orders_lifetime || 0,
     mock_mode: !!user.mock_mode,
+    // 2026-06-01 — Surface user_caps so Mission Control can render
+    // the actual saved values in the 'caps: $X/order · Y/day · Z%
+    // per trade' line. Previously omitted, so MC always showed the
+    // default fallback values even after the operator saved
+    // tighter caps via /bridge/user/caps. Operator reported tapping
+    // 'Apply small-account defaults' showed no change in the UI.
+    user_caps: user.user_caps || null,
+    user_caps_updated_at: user.user_caps_updated_at || null,
   };
 }
