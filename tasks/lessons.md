@@ -6,6 +6,32 @@
 
 ---
 
+## Day-trade options plays for SPY/QQQ/IWM (0/1 DTE) on the Today page [2026-06-01]
+
+Operator: *"For our SPY, QQQ, IWM predictions, is it possible to provide an options play valid for the day? straddle, call, put, spread, etc, this would be primarily for day traders who use 0 or 1 DTE. The plays can be shown on the Options Play list on the Today page in addition to other tickers. But the SPY, QQQ, IWM option play for the day should be clearly labeled as a day trade. So if there is a SPY longer-term swing trade or investor, it does not confuse."*
+
+### Fix
+
+**Engine — `worker/options-plays.js`**:
+- `pickDayTradeExpiration(now, { forceTomorrow })` — returns 0DTE (today) before 4 PM ET, else 1DTE (next trading day). Weekend-aware.
+- `buildDayTradePlay(ctx)` — directional ATM call/put for LONG/SHORT bias, ATM straddle for NEUTRAL high-vol days (`atrPct >= 1.2 %`). Returns `null` for non-allow-list tickers and for low-vol NEUTRAL days. Carries `_day_trade: true` + `_day_trade_flavor: "call|put|straddle"` for UI badge rendering.
+- `DAY_TRADE_TICKERS = new Set(["SPY", "QQQ", "IWM"])` — strict allow-list. The day-trade builder assumes daily-listed options + deep ATM liquidity.
+
+**Endpoint — `worker/index.js` `GET /timed/options/all`**:
+- After the normal `plays` array is built/sorted, iterate the three day-trade tickers and return them in a new `day_trade_plays: [...]` array on the same response. Always computed (independent of `limit`).
+
+**Today UI — `react-app/today.html` `OptionsPlaysOfTheDay`**:
+- New `renderDayTradeStrip()` renders a dedicated section ABOVE the main grid. Amber-tinted card + `DAY TRADE · 0DTE` / `DAY TRADE · 1DTE` pill + flavor pill (CALL / PUT / STRADDLE).
+- Renders whenever day-trade plays are present, even if no swing plays met the threshold.
+
+### Rule
+
+Asset classes with materially different time horizons need separate surfaces — operators reading "SPY" alongside an 18-month LEAP and a 5-minute 0DTE need explicit, visible separation, not just a small DTE field. A dedicated row with distinctive colour + a `DAY TRADE` pill prevents confusing a scalp with a swing/investor commitment.
+
+Strict allow-lists for high-cadence plays. 0DTE plays make sense only for the most-liquid, most-listed index ETFs.
+
+---
+
 ## Calibration UX: explain what it is, prove it ran, badge freshness [2026-06-01]
 
 Operator: *"I truly don't see where calibration applies, where it shows what's in place. Hitting Run Analysis, nothing seems to happen and the numbers don't update. The recommendations, how do I know if they are valid and fresh?"*
