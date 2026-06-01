@@ -6,6 +6,45 @@
 
 ---
 
+## Investor cards out of sync with Discord entries — three independent bugs [2026-06-01]
+
+Operator screenshotted Discord firing 6 fresh `Investor New Entry: CRS/IESC/FSLR/WTS/ASTS/TSM LONG` alerts at 11:00 AM and the Investor kanban tiles for those same tickers showing **no OWNED chip, no POS strip**. Also asked why "cards say COR HOLD but don't have positions". Three distinct bugs collapsed into the same operator complaint.
+
+### Bug 1 — Position reconciliation only fired on first paint
+
+`react-app/investor.html` fetched `/timed/all` + `/timed/investor/scores` + `/timed/investor/positions` in a one-shot `useEffect([], ...)` and stitched the open positions into a local `investorScores` state. That state was **never passed to `InvestorPanel` as a prop**. The panel ran its own `fetchData()` every 60 s that called `/timed/investor/scores` ALONE and overwrote its internal `scores` state — wiping the reconciliation done at page load.
+
+Net effect: a position opened by Auto-Rebalance at 11:00 AM showed in Discord but the kanban card stayed "not owned" forever, because the scoring cron's cached payload predated the fill and the 60 s refresh kept replaying that cached payload without ever merging `/timed/investor/positions`.
+
+Fix: moved the reconciliation INTO `InvestorPanel.fetchData` (`react-app/investor-panel.js`). Every 60 s tick now fetches scores + market-health + positions in parallel and runs `reconcileWithPositions()` before `setScores(...)`. The page-level effect in `investor.html` still runs for fast first paint and `chipCounts`, but the panel is now self-sufficient.
+
+### Bug 2 — `watch` stage is overloaded between owned and unowned
+
+`worker/investor.js:700` returns `stage:"watch"` for **unowned** tickers when `investor_score >= cfg.watch_score_min`. The panel rendered the `watch` lane as **"Hold & Watch"** with action chip **"HOLDING"**, falsely implying every row in that lane is held. Real-world: ~30 tickers landed in `watch` with `position.owned=false`, lane gutter said "HOLDING 29", visible tiles showed "Watch" not "OWNED" — operator reasonably asked "why does this say HOLDING when I don't own these?".
+
+Fix: panel-side demote. In the grouping loop, any HOLDING-lane stage on an unowned ticker is remapped to a not-owned lane:
+- `core_hold` + `!owned` → `research_on_watch` (rare; stale signal)
+- `watch` + `!owned` → `research_on_watch` (line-700 case)
+- `reduce` + `!owned` → `research_low` (signal showed risk but we never bought)
+
+Owned tickers retain their original stage. The engine output is unchanged — this is purely a display correction so the lane chip semantics line up with reality. A future cleanup could fix the overload in `classifyInvestorStage` directly, but the panel fix is safe and immediate.
+
+### Bug 3 — Lane gutter showed total-items, not owned-count
+
+For HOLDING lanes the chip "HOLDING N" meant "N items in the lane", which after Bug 2's demote always equals owned-count anyway — but defense-in-depth: now any HOLDING lane (core_hold, watch, reduce) computes the owned count separately. If all items in the lane are owned, show the integer; if mixed, show "owned/total" (e.g. "8/12") with a hover tooltip "8 owned of 12 in lane". Non-HOLDING lanes (accumulate, on-radar, low, avoid) keep total-items semantics — those don't claim ownership.
+
+### Bug 4 — No direct visual link between Discord entry and card
+
+Even when Bug 1 is fixed, a position opened "just now" looks identical to one held for months. The operator has no way to visually confirm "Discord fired CRS at 11:00 AM → here it is on the kanban". Added a green pulsing **"JUST OPENED"** chip on cards where `position.first_entry_ts` is within the last 30 min. Anchored to the same `tt-pulse` keyframe registered in `tt-tokens.css`; respected by the `prefers-reduced-motion` block.
+
+### Rule
+
+When two pages each hold their own copy of the same fetched data, the one that polls wins. Either (a) hoist state up and pass it down as a prop, or (b) duplicate the merge logic in BOTH callers and accept the cost. Silent state-replacement on a polling tick is the worst of both worlds — it works for ~60 s and then breaks invisibly. Pick (b) when the polling component has its own refresh cadence and shouldn't depend on a parent's data.
+
+Also: lane / chip labels that imply ownership ("HOLDING", "OWNED") must filter on actual position state, not on stage-classifier output, because stage-classifier outputs are deliberately overloaded for engine logic.
+
+---
+
 ## Open-position freshness alert noise — streak gate + tighter threshold [2026-06-01]
 
 Operator received `Open-position candle data stale (worst 15.9h) — DIA, GS, AA — 5=16.2min` during RTH. Three large, liquid names all stale by ~16 minutes simultaneously = brief shared-feed gap (Alpaca SIP blip, worker rate-limit, or vendor flush). The trade-update cron auto-heals on its next tick and `__candle_data_stale` pauses management until then. The alert was correct but the bar to fire was too low.

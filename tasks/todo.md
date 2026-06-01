@@ -22,6 +22,27 @@
 
 ### Active
 
+- [x] **Investor cards out of sync with Discord entries (PR pending).**
+      Operator screenshotted 6 fresh Discord entries (CRS, IESC, FSLR,
+      WTS, ASTS, TSM LONG) at 11 AM and the matching kanban tiles
+      showing NO OWNED chip. Three independent bugs collapsed into one
+      complaint: (1) `InvestorPanel.fetchData` polled
+      `/timed/investor/scores` alone every 60 s, wiping the
+      position-reconciliation `investor.html` did at first paint —
+      moved the merge of `/timed/investor/positions` INTO the panel's
+      polling loop so refresh now stays in sync with newly-opened
+      positions. (2) `worker/investor.js:700` classifies unowned
+      tickers with moderate scores as `stage:"watch"` and the lane
+      renders with action chip "HOLDING" — added panel-side demote:
+      `watch`/`core_hold` + !owned → `research_on_watch`,
+      `reduce` + !owned → `research_low`. (3) Lane gutter showed
+      total-items, not owned-count — HOLDING lanes now compute owned
+      separately and render "owned/total" when mixed. (4) Added a
+      green pulsing "JUST OPENED" chip for positions whose
+      `first_entry_ts` is within the last 30 min, directly anchoring
+      Discord entry alerts to kanban tiles. `tt-tokens.css` gains a
+      generic `tt-pulse` keyframe (respected by
+      `prefers-reduced-motion`).
 - [x] **Open-position freshness alert noise — streak gate + 20min
       5m RTH threshold (PR #426).** Operator paged for
       `5=16.2min` on DIA/GS/AA — a 5-15 min shared-feed blip that
