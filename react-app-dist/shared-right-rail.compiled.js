@@ -1484,6 +1484,38 @@
           cancelled = true;
         };
       }, [tickerSymbol, profile, horizon, API_BASE]);
+      const [dayTradeData, setDayTradeData] = useState(null);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").toUpperCase();
+        const _DT_TICKERS = new Set(["SPY", "QQQ", "IWM"]);
+        if (!sym || !_DT_TICKERS.has(sym)) {
+          setDayTradeData(null);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            const base = API_BASE || window.API_BASE || "";
+            const r = await fetch(`${base}/timed/options/all?limit=10`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!r.ok || cancelled) return;
+            const j = await r.json();
+            if (cancelled || !j?.ok) return;
+            const _live = (j.day_trade_plays || []).find(p => String(p?.ticker || "").toUpperCase() === sym);
+            const _suppressed = (j.day_trade_suppressed || []).find(s => String(s?.ticker || "").toUpperCase() === sym);
+            setDayTradeData({
+              play: _live || null,
+              suppressed: _suppressed || null,
+              expiration: j.day_trade_expiration || null
+            });
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, API_BASE]);
       const updateProfile = async newProfile => {
         setProfile(newProfile);
         try {
@@ -1619,13 +1651,152 @@
       const contract = data.contract || {};
       const primary = data.primary;
       const ladder = (data.ladder || []).slice(0, 6);
+      const _loadingOverlay = loading && data && h("div", {
+        style: {
+          position: "absolute",
+          inset: 0,
+          background: "rgba(11, 14, 17, 0.55)",
+          backdropFilter: "blur(1px)",
+          zIndex: 5,
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "center",
+          paddingTop: 20,
+          pointerEvents: "none",
+          borderRadius: "var(--ds-radius-lg, 12px)"
+        },
+        "aria-busy": "true"
+      }, h("div", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 14px",
+          borderRadius: 999,
+          background: "rgba(245,194,92,0.18)",
+          border: "1px solid rgba(245,194,92,0.55)",
+          color: "#f5c25c",
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          fontFamily: "var(--tt-font-mono)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.35)"
+        }
+      }, h("span", {
+        style: {
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          border: "2px solid rgba(245,194,92,0.4)",
+          borderTopColor: "#f5c25c",
+          animation: "spin 0.7s linear infinite"
+        }
+      }), "LOADING · ", String(horizon || "trader").toUpperCase(), " · ", String(profile || "speculator").toUpperCase()));
+      const _dayTradePanel = (() => {
+        if (!dayTradeData) return null;
+        const {
+          play,
+          suppressed,
+          expiration
+        } = dayTradeData;
+        if (!play && !suppressed) return null;
+        const headerColor = "#f5c25c";
+        if (play) {
+          const flavor = play.primary?._day_trade_flavor || "call";
+          const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
+          const flavorLabel = flavor === "put" ? "PUT" : flavor === "straddle" ? "STRADDLE" : "CALL";
+          const strike = Number(play.strike || play.primary?.strikes?.primary) || null;
+          const spot = Number(play.price) || null;
+          const strikeBlurb = strike ? flavor === "straddle" ? `$${strike} straddle` : `$${strike} ${flavorLabel.toLowerCase()}` : play.primary?.label || "Day-trade play";
+          return h(Panel, {
+            title: `DAY TRADE · ${play.day_trade_dte}DTE`,
+            color: headerColor,
+            action: h("span", {
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "2px 8px",
+                borderRadius: 999,
+                background: `${flavorColor}22`,
+                color: flavorColor,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                border: `1px solid ${flavorColor}55`
+              }
+            }, flavorLabel)
+          }, h("div", {
+            style: {
+              fontSize: 14,
+              fontWeight: 700,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text)",
+              marginBottom: 4
+            }
+          }, strikeBlurb), h("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              marginBottom: 8
+            }
+          }, `${play.primary?.expiration?.label || `${play.day_trade_dte}DTE`} · spot $${spot ? spot.toFixed(2) : "?"}`), h("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.55,
+              marginBottom: 8
+            }
+          }, play.primary?.rationale || play.primary?.label || ""), h("div", {
+            style: {
+              fontSize: 11,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-muted)"
+            }
+          }, `Max loss $${play.primary?.max_loss_usd || "?"}`, play.primary?.breakeven ? ` · BE $${play.primary.breakeven.toFixed(2)}` : play.primary?.breakeven_up ? ` · BE $${play.primary.breakeven_down.toFixed(2)} / $${play.primary.breakeven_up.toFixed(2)}` : ""));
+        }
+        return h(Panel, {
+          title: `DAY TRADE · ${expiration?.dte ?? "?"}DTE`,
+          color: "#6b7280",
+          action: h("span", {
+            style: {
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "rgba(107,114,128,0.18)",
+              color: "#9ca3af",
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              border: "1px solid rgba(107,114,128,0.45)"
+            }
+          }, "SUPPRESSED")
+        }, h("div", {
+          style: {
+            fontSize: 12,
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.55
+          }
+        }, "No day-trade play surfaced for this ticker right now. Reason: ", h("strong", {
+          style: {
+            color: "var(--ds-text)"
+          }
+        }, String(suppressed.reason || "unknown").replace(/_/g, " ")), "."), suppressed.strike && suppressed.spot && h("div", {
+          style: {
+            fontSize: 11,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)",
+            marginTop: 6
+          }
+        }, `Last considered strike $${suppressed.strike}, spot $${Number(suppressed.spot).toFixed(2)} — re-check after next /options/all refresh.`));
+      })();
       return h("div", {
         style: {
           display: "flex",
           flexDirection: "column",
-          gap: "var(--ds-space-3)"
+          gap: "var(--ds-space-3)",
+          position: "relative"
         }
-      }, h(Panel, {
+      }, _loadingOverlay, _dayTradePanel, h(Panel, {
         title: "📡 Root-Strategy Verdict",
         color: modeMeta.color,
         action: h("span", {
@@ -16677,4 +16848,4 @@
   };
 })();
 
-// cache-bust:1780344151540:112817095
+// cache-bust:1780350356554:11422876

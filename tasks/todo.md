@@ -24,14 +24,27 @@
 
 - [x] **Discord: link-flow button + welcome email rules (PR #438).**
 - [x] **Holistic MC smoke-test skill + polish-sweep logic verdict (PR #439).**
-- [x] **Investor alerts: explicit ACTION verb + chart in email
-      (PR pending).** New `deriveInvestorAlertAction(type, data)` in
-      `worker/alerts.js` returns a single-word verb (ACCUMULATE / ADD
-      ON PULLBACK / WATCH / WATCH FOR ENTRY / REDUCE / EXIT) + one-
-      liner. Discord title prepends `INVESTOR · <ACTION> —`; "▶ What
-      to do" field at top. Email subject `[INVESTOR · <ACTION>]`,
-      colored ACTION badge near the top, Daily 60-bar chart embedded.
+- [x] **Investor alerts: explicit ACTION verb + chart in email (PR #440).**
 - [x] **MC: editable modes + archetypes for options auto-mirror (PR #437).**
+- [x] **Mobile nav + day-trade card clarity + right-rail integration
+      (PR pending).** Three issues from the same operator screenshot.
+      (1) Mobile bottom nav missing — root cause was 8 pages
+      (today/active-trader/investor/portfolio/insights/learn/daily-
+      brief/bridge-audit) missing `viewport-fit=cover` in viewport
+      meta → iOS Safari returned 0 for env(safe-area-inset-bottom)
+      → nav with bottom:0 hid behind Safari's URL bar. Added
+      viewport-fit=cover to all 8 + bumped nav's min padding-bottom
+      14px as belt-and-suspenders. (2) Day-trade card strike unclear
+      — added a prominent mono-font strike line ("$760 call (spot
+      $610.50)"); switched the day-trade builder to use LIVE
+      timed:prices KV spot (was using contract.price which could be
+      stale, producing 25-30% inflated strikes); added invalidation
+      gates (strike drift >2% from spot / after-close 0DTE / low-vol
+      NEUTRAL) with `day_trade_suppressed[]` array surfacing reasons.
+      (3) Right-rail Options tab for SPY/QQQ/IWM now fetches
+      /timed/options/all and shows a dedicated DAY TRADE panel above
+      the main ladder. Plus polish-series final summary in
+      `tasks/2026-06-01-polish-sweep-final-summary.md`.
 - [x] **Day-trade options plays + Options-tab loading overlay (PR #436).**
 - [x] **Calibration UX polish (PR #435).** Three additions to System
       Intelligence → Analysis tab: (a) Calibration explainer card at
