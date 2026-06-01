@@ -1533,6 +1533,8 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/killswitch",       "POST /timed/admin/broker-bridge/killswitch"],
   ["POST", "/timed/admin/broker-bridge/enable",           "POST /timed/admin/broker-bridge/enable"],
   ["POST", "/timed/admin/broker-bridge/user-caps",        "POST /timed/admin/broker-bridge/user-caps"],
+  ["GET",  "/timed/admin/broker-bridge/options-prefs",    "GET /timed/admin/broker-bridge/options-prefs"],
+  ["POST", "/timed/admin/broker-bridge/options-prefs",    "POST /timed/admin/broker-bridge/options-prefs"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -69074,6 +69076,30 @@ export default {
         if (authFail) return authFail;
         const body = await req.json().catch(() => ({}));
         const result = await _postBridge("/bridge/user/caps", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
+      }
+
+      // 2026-06-01 — Per-vehicle options auto-mirror prefs (PR #1 of
+      // the trade-aware-sync sequence). Backed by /bridge/user/options-
+      // prefs on the bridge. Mission Control renders the editable
+      // 7-row toggle table from /bridge/status (which now includes
+      // each user's options_prefs map).
+      if (routeKey === "POST /timed/admin/broker-bridge/options-prefs") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const body = await req.json().catch(() => ({}));
+        const result = await _postBridge("/bridge/user/options-prefs", body);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
+      }
+      if (routeKey === "GET /timed/admin/broker-bridge/options-prefs") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const userId = url.searchParams.get("user_id");
+        const result = await _callBridge("/bridge/user/options-prefs", userId ? `?user_id=${encodeURIComponent(userId)}` : "");
         return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
           { status: 200,
             headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });

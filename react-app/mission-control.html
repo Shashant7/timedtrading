@@ -782,6 +782,190 @@
         );
       }
 
+      // ── Per-vehicle options auto-mirror toggle table ──────────────
+      // 2026-06-01 — One row per option vehicle (equity_long + 6 long-
+      // side option archetypes). Naked-short vehicles are intentionally
+      // absent (see worker/options-auto-mirror.js → NAKED_SHORT_ARCHETYPES).
+      //
+      // Defaults: equity_long ON, all others OFF. Operator opts in
+      // explicitly per vehicle. Each vehicle row has its own daily_cap +
+      // max_per_order_usd + (for options) max_loss_per_order_usd.
+      //
+      // "Apply small-account defaults" writes the known-safe preset
+      // documented in tasks/2026-06-01-trade-aware-mirror-sync-design.md §1.5.
+      function VehicleTogglesCard({ apiBase, user, onSaved }) {
+        const initial = React.useMemo(() => {
+          // Hydrate from user record; fall back to defaults for any
+          // vehicle not yet saved.
+          const DEFAULTS = {
+            equity_long:     { enabled: true,  daily_cap: 3, max_per_order_usd: 300 },
+            long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+            long_put:        { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+            vertical_spread: { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+            leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
+            straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
+            moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+          };
+          const out = {};
+          for (const [k, v] of Object.entries(DEFAULTS)) {
+            out[k] = { ...v, ...(user?.options_prefs?.vehicles?.[k] || {}) };
+          }
+          return out;
+        }, [user?.options_prefs, user?.user_id]);
+
+        const [rows, setRows] = useState(initial);
+        const [busy, setBusy] = useState(false);
+        const [msg, setMsg] = useState(null);
+        const updatedAt = user?.options_prefs_updated_at;
+
+        // Re-sync when user record changes externally (e.g. another tab saved).
+        React.useEffect(() => { setRows(initial); }, [initial]);
+
+        const ROW_META = [
+          { key: "equity_long",     label: "Equity (long)", showLoss: false },
+          { key: "long_call",       label: "Long Call",      showLoss: true  },
+          { key: "long_put",        label: "Long Put",       showLoss: true  },
+          { key: "vertical_spread", label: "Vertical Spread",showLoss: true  },
+          { key: "leaps",           label: "LEAPs",          showLoss: true  },
+          { key: "straddle",        label: "Straddle",       showLoss: true  },
+          { key: "moonshot",        label: "Moonshot",       showLoss: true  },
+        ];
+
+        const setRow = (key, patch) => {
+          setRows(prev => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+        };
+
+        const submit = async (payload, label) => {
+          setBusy(true); setMsg({ kind: "info", text: `${label}…` });
+          try {
+            const r = await fetch(`${apiBase}/timed/admin/broker-bridge/options-prefs`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ user_id: user?.user_id, ...payload }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j?.ok) {
+              const reason = j?.error || j?.reject_reason || `HTTP ${r.status}`;
+              setMsg({ kind: "err", text: `Save failed: ${String(reason).slice(0, 140)}` });
+              console.warn("[VehicleTogglesCard] save failed", j);
+              return;
+            }
+            setMsg({ kind: "ok", text: "Saved." });
+            const nextPrefs = j.options_prefs || null;
+            const nextRows = {};
+            for (const m of ROW_META) {
+              nextRows[m.key] = { ...rows[m.key], ...(nextPrefs?.vehicles?.[m.key] || {}) };
+            }
+            setRows(nextRows);
+            if (typeof onSaved === "function") onSaved(nextPrefs, j.updated_at);
+            setTimeout(() => setMsg(null), 3500);
+          } catch (e) {
+            setMsg({ kind: "err", text: `Save failed: ${String(e?.message || e).slice(0, 140)}` });
+            console.warn("[VehicleTogglesCard] save error", e);
+          } finally {
+            setBusy(false);
+          }
+        };
+
+        return (
+          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
+              <div className="text-[11px] font-semibold text-white">
+                ⚙️ Options Auto-Mirror — per-vehicle toggles
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {msg && (
+                  <span className={
+                    "text-[10px] " + (msg.kind === "err" ? "text-rose-300" : msg.kind === "ok" ? "mc-pos" : "mc-mute")
+                  }>{msg.text}</span>
+                )}
+                {updatedAt > 0 && !msg && (
+                  <span className="text-[10px] mc-mute italic" title={new Date(updatedAt).toLocaleString()}>
+                    saved {fmtAgo(updatedAt)} ago
+                  </span>
+                )}
+                <button
+                  className="mc-btn mc-btn-warn"
+                  style={{ fontSize: 10, padding: "3px 8px" }}
+                  disabled={busy}
+                  onClick={() => submit({ apply_small_account_defaults: true }, "Applying small-account defaults")}
+                >Apply small-account defaults ⚡</button>
+                <button
+                  className="mc-btn mc-btn-ok"
+                  style={{ fontSize: 10, padding: "3px 8px" }}
+                  disabled={busy}
+                  onClick={() => submit({ vehicles: rows }, "Saving")}
+                >Save</button>
+              </div>
+            </div>
+            <div className="text-[10px] mc-mute italic mb-2">
+              Naked-short vehicles (short_call · short_put · short_straddle · iron_condor_naked) are deferred and cannot be enabled here. All option vehicles default to OFF — opt in one at a time.
+            </div>
+            <div className="mc-table-scroll" style={{ background: "rgba(0,0,0,0.20)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.04)" }}>
+              <table className="mc-table">
+                <thead>
+                  <tr>
+                    <th>Vehicle</th>
+                    <th style={{textAlign:"center"}}>Enabled</th>
+                    <th style={{textAlign:"right"}}>Daily Cap</th>
+                    <th style={{textAlign:"right"}}>Max / Order ($)</th>
+                    <th style={{textAlign:"right"}}>Max Loss / Order ($)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ROW_META.map(m => {
+                    const r = rows[m.key];
+                    return (
+                      <tr key={m.key}>
+                        <td>{m.label}</td>
+                        <td style={{textAlign:"center"}}>
+                          <input
+                            type="checkbox"
+                            checked={!!r?.enabled}
+                            disabled={busy}
+                            onChange={(e) => setRow(m.key, { enabled: e.target.checked })}
+                          />
+                        </td>
+                        <td style={{textAlign:"right"}}>
+                          <input
+                            type="number" min="0" max="50" step="1"
+                            value={Number(r?.daily_cap) || 0}
+                            disabled={busy}
+                            onChange={(e) => setRow(m.key, { daily_cap: Number(e.target.value) || 0 })}
+                            style={{ width: 50, background: "rgba(0,0,0,0.30)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 4, padding: "2px 4px", color: "white", fontSize: 11, textAlign: "right" }}
+                          />
+                        </td>
+                        <td style={{textAlign:"right"}}>
+                          <input
+                            type="number" min="1" max="100000" step="25"
+                            value={Number(r?.max_per_order_usd) || 0}
+                            disabled={busy}
+                            onChange={(e) => setRow(m.key, { max_per_order_usd: Number(e.target.value) || 0 })}
+                            style={{ width: 70, background: "rgba(0,0,0,0.30)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 4, padding: "2px 4px", color: "white", fontSize: 11, textAlign: "right" }}
+                          />
+                        </td>
+                        <td style={{textAlign:"right"}}>
+                          {m.showLoss ? (
+                            <input
+                              type="number" min="0" max="100000" step="25"
+                              value={Number(r?.max_loss_per_order_usd) || 0}
+                              disabled={busy}
+                              onChange={(e) => setRow(m.key, { max_loss_per_order_usd: Number(e.target.value) || 0 })}
+                              style={{ width: 70, background: "rgba(0,0,0,0.30)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 4, padding: "2px 4px", color: "white", fontSize: 11, textAlign: "right" }}
+                            />
+                          ) : <span className="mc-mute">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
+
       // ── Section 8 — Broker Bridge (Phase 1 Option C, 2026-05-29) ──
       function BridgeSection({ apiBase }) {
         const [status, setStatus] = useState(null);
@@ -1175,6 +1359,26 @@
                               {String(u.portfolio.error).slice(0, 240)}
                             </div>
                           )}
+
+                          {/* 2026-06-01 — Per-vehicle options auto-mirror
+                              toggle table. Sits beneath positions in
+                              each user's card. Naked-short vehicles are
+                              not listed (deferred at engine + bridge
+                              levels). "Apply small-account defaults"
+                              writes a known-safe preset to the user's
+                              options_prefs.vehicles map. */}
+                          <VehicleTogglesCard
+                            apiBase={apiBase}
+                            user={userRow}
+                            onSaved={(nextPrefs, updatedAt) => {
+                              setStatus(prev => prev ? {
+                                ...prev,
+                                users: prev.users.map(x => x.user_id === userRow.user_id
+                                  ? { ...x, options_prefs: nextPrefs, options_prefs_updated_at: updatedAt }
+                                  : x),
+                              } : prev);
+                            }}
+                          />
                         </div>
                       );
                     })}
