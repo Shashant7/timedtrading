@@ -614,6 +614,8 @@ import {
   RISK_PROFILES as _OPT_RISK_PROFILES,
   PROFILE_META as _OPT_PROFILE_META,
   DEFAULT_RISK_PROFILE as _OPT_DEFAULT_RISK_PROFILE,
+  compactOptionsPlay as _compactOptionsPlay,
+  optionsPlayDiscordField as _optionsPlayDiscordField,
 } from "./options-plays.js";
 import {
   tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
@@ -23647,6 +23649,29 @@ async function processTradeSimulation(
                     embed.fields = embed.fields || [];
                     embed.fields.push({ name: "Chart", value: `[View entry/trim/exit chart](${entryChartUrl})`, inline: false });
                   }
+                  // 2026-06-01 — surface the recommended options play next to
+                  // the equity entry so Discord/email subscribers can act on
+                  // either expression. Pure function; never blocks the embed.
+                  let _entryOptionsPlay = null;
+                  try {
+                    _entryOptionsPlay = buildEntryOptionsPlay({
+                      ticker: sym,
+                      direction,
+                      price: Number(entryPx),
+                      sl: Number(slCandidate),
+                      tp: Number(tpCandidate),
+                      mode: "trader",
+                      tickerData,
+                      env,
+                    });
+                    if (_entryOptionsPlay) {
+                      const _f = _optionsPlayDiscordField(_entryOptionsPlay);
+                      if (_f) {
+                        embed.fields = embed.fields || [];
+                        embed.fields.push(_f);
+                      }
+                    }
+                  } catch (_) { /* notification path must never throw */ }
                   if (_cioDecision && !_cioDecision.fallback) {
                     embed.fields = embed.fields || [];
                     const cioEmoji = _cioDecision.decision === "APPROVE" ? "✅" : _cioDecision.decision === "ADJUST" ? "⚙️" : "🛑";
@@ -23739,6 +23764,10 @@ async function processTradeSimulation(
                       model: _cioDecision.model || null,
                       shadow: !!_entryShadow,
                     } : null,
+                    // 2026-06-01 — same compact play surfaced in the Discord
+                    // embed above; the email renderer (worker/email.js)
+                    // expands it into a "Options Play" card.
+                    options_play: _entryOptionsPlay || null,
                   }, requestCtx));
 
                   // 2026-05-29 — Broker bridge (Phase 1 Option C). Same
@@ -26229,6 +26258,31 @@ async function processTradeSimulation(
                     isoToMs(trade.entryTime) || Number(trade.entry_ts) || Date.now(), // V15 P0.7.97 actionTs
                   )
                 : null;
+              // 2026-06-01 — attach the recommended options play (long-call
+              // / spread / moonshot ladder primary) to this entry embed too,
+              // matching the kanban-trade entry path above. Pure function;
+              // never blocks the alert.
+              if (embed) {
+                try {
+                  const _play = buildEntryOptionsPlay({
+                    ticker,
+                    direction,
+                    price: entryPrice,
+                    sl: Number(tickerData.sl),
+                    tp: validTP,
+                    mode: "trader",
+                    tickerData,
+                    env,
+                  });
+                  if (_play) {
+                    const _f = _optionsPlayDiscordField(_play);
+                    if (_f) {
+                      embed.fields = embed.fields || [];
+                      embed.fields.push(_f);
+                    }
+                  }
+                } catch (_) { /* notification path must never throw */ }
+              }
               const sendRes = allowDiscord
                 ? await notifyDiscord(env, embed).catch((err) => {
                     console.error(
@@ -36673,6 +36727,30 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
       note: `Entry ${c.sym} ${shares.toFixed(1)}sh @$${price.toFixed(2)} score=${c.score}`,
     }).catch(() => {});
     if (!replayCtx) {
+      // 2026-06-01 — Investor entries surface a LEAP-Call play alongside
+      // the equity buy. The Investor thesis is long-term bullish, so a
+      // deep-ITM LEAP is the natural option expression (synthetic shares
+      // with leverage + defined max loss). buildEntryOptionsPlay() routes
+      // through the investor-stage boost in options-plays.js and returns
+      // the LEAP as `primary` for moderate/aggressive profiles.
+      let _invEntryPlay = null;
+      try {
+        _invEntryPlay = buildEntryOptionsPlay({
+          ticker: c.sym,
+          direction: "LONG",
+          price,
+          // Investor entries don't have a tight SL/TP at decision time
+          // (long-term thesis), so we let buildEntryOptionsPlay synthesize
+          // sensible defaults from ATR — the LEAP play doesn't lean
+          // heavily on SL/TP geometry the way Trader plays do.
+          sl: null,
+          tp: null,
+          mode: "investor",
+          tickerData: c?.td || null,
+          env,
+        });
+      } catch (_) { /* never block the entry path on options computation */ }
+
       await dispatchTradeAlertEmails(env, {
         mode: "investor",
         type: "TRADE_ENTRY",
@@ -36681,18 +36759,24 @@ async function runInvestorDailyReplay(env, KV, replayCtx, dayDate, tickerDataMap
         price,
         rank: c.score,
         rr: null,
+        options_play: _invEntryPlay || null,
       });
+      const _invFields = [
+        { name: "Entry Price", value: `$${price.toFixed(2)}`, inline: true },
+        { name: "Shares", value: shares.toFixed(2), inline: true },
+        { name: "Value", value: `$${targetValue.toFixed(0)}`, inline: true },
+      ];
+      if (_invEntryPlay) {
+        const _f = _optionsPlayDiscordField(_invEntryPlay);
+        if (_f) _invFields.push(_f);
+      }
       // Discord notification so the operator sees new investor entries
       // in real-time (email requires SENDGRID; Discord fires unconditionally).
       notifyDiscord(env, {
         title: `🟢 Investor New Entry: ${c.sym} LONG`,
         description: `New investor position opened.\nScore: ${c.score} | Stage: accumulate`,
         color: 0x22c55e,
-        fields: [
-          { name: "Entry Price", value: `$${price.toFixed(2)}`, inline: true },
-          { name: "Shares", value: shares.toFixed(2), inline: true },
-          { name: "Value", value: `$${targetValue.toFixed(0)}`, inline: true },
-        ],
+        fields: _invFields,
         footer: { text: `Investor Portfolio • Daily Eval` },
       }).catch(() => {});
     }
@@ -38394,6 +38478,76 @@ function getTradeAutopsyChartUrl(env, tradeId) {
   if (!tradeId) return null;
   const base = getAppBaseUrl(env);
   return `${base}/trade-autopsy.html?trade_id=${encodeURIComponent(String(tradeId))}`;
+}
+
+/**
+ * Build the compact options-play payload for a TRADE_ENTRY notification.
+ *
+ * Trader entries → short-dated / swing options ladder (long_call / vertical
+ * spread / moonshot depending on confluence + profile).
+ * Investor entries → LEAP-first ladder via the investor-stage boost in
+ * buildOptionsLadder() (see options-plays.js for the routing logic).
+ *
+ * Returns the compactOptionsPlay() shape or `null` when:
+ *   - Inputs are insufficient to size a play (missing price/sl/tp).
+ *   - buildOptionsLadder() returns no primary play.
+ *   - Any unexpected error bubbles up (we never block the alert pipeline).
+ *
+ * The caller is responsible for deciding whether to surface the play
+ * (e.g. don't surface for SHORT investor entries — those are deferred).
+ */
+function buildEntryOptionsPlay({ ticker, direction, price, sl, tp, mode, tickerData, env }) {
+  try {
+    const p = Number(price);
+    if (!(p > 0)) return null;
+    const dir = String(direction || "").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+    const isInvestor = String(mode || "").toLowerCase() === "investor";
+    // Investor mode is long-only per the deferred-shorts decision; if a
+    // future SHORT investor entry sneaks through, skip the LEAP suggestion
+    // rather than emit a leap_put we don't support yet.
+    if (isInvestor && dir === "SHORT") return null;
+
+    // Defaults: TP1 = tp; SL = sl; fall back to ATR-implied if missing.
+    const atrPct = Number(
+      tickerData?.atr_pct
+        ?? tickerData?.atrPct
+        ?? tickerData?.tf_tech?.D?.atr_pct
+        ?? 0.025
+    );
+    const tp1 = Number.isFinite(Number(tp)) ? Number(tp) : (dir === "LONG" ? p * 1.05 : p * 0.95);
+    const sl1 = Number.isFinite(Number(sl)) ? Number(sl) : (dir === "LONG" ? p * 0.97 : p * 1.03);
+
+    const contract = {
+      ticker, direction: dir, price: p, sl: sl1, tp1, tp: tp1,
+      atr_pct: atrPct,
+      // Tag stage = investor so classifySetupStage() routes via the LEAP path.
+      mode: isInvestor ? "investor" : (tickerData?.mode || "trader"),
+      stage: isInvestor ? "investor" : (tickerData?.stage || "swing"),
+      earnings_dte: tickerData?.earnings_dte ?? tickerData?.earningsDte,
+      themes: tickerData?.themes || [],
+    };
+
+    // Profile defaults: Investor → moderate (LEAP ranks well there);
+    // Trader → operator's configured default (speculator unless overridden).
+    const profile = isInvestor ? "moderate" : (env?.OPTIONS_DEFAULT_PROFILE || "speculator");
+    // Use cached chain only if it's right there on tickerData; we don't
+    // do an extra fetch in the hot entry path (notifications must be cheap).
+    const chain = tickerData?.options_chain || tickerData?._options_chain || null;
+    const confluence = tickerData?.confluence || tickerData?._confluence || null;
+
+    const ladder = _buildOptionsLadder(contract, {
+      profile,
+      chain,
+      confluence,
+      themes: contract.themes,
+      account_value: Number(env?.OPTIONS_ACCOUNT_VALUE) || undefined,
+    });
+    if (!ladder || !ladder.primary) return null;
+    return _compactOptionsPlay(ladder.primary, { ticker, mode: isInvestor ? "investor" : "trader" });
+  } catch (e) {
+    try { console.warn(`[OPTIONS_PLAY] buildEntryOptionsPlay failed for ${ticker}: ${String(e?.message || e).slice(0, 200)}`); } catch {}
+    return null;
+  }
 }
 
 // Helper: Create Discord embed for trade entry
@@ -66372,6 +66526,30 @@ export default {
                 reasoning: "Prime-ranked AAPL long aligns with the active bull regime. Pullback to 1H VWAP +1.8% offers a controlled entry above the daily 5/12 EMA cloud, with TD Sequential at bar 3 (well clear of exhaustion). News sentiment is bullish (5/5 recent headlines positive on AI integration). Macro tilt favors large-cap tech this rotation, and theme rotation shows 6/8 ai_infra peers up >2% today.",
                 risk_flags: [], model: "gpt-5.4", shadow: false,
               },
+              // 2026-06-01 sample — Trader entry options play (short-dated
+              // long-call ladder primary). Operators can preview the new
+              // "Options Play" section by sending this fixture email.
+              options_play: buildEntryOptionsPlay({
+                ticker: "AAPL", direction: "LONG",
+                price: 175.50, sl: 172.40, tp: 182.00,
+                mode: "trader",
+                tickerData: { atr_pct: 0.025 },
+                env,
+              }),
+            })],
+            // Investor LEAP entry sample — exercises the LEAP renderer.
+            ["investor_entry_leap", () => sendTradeAlertEmail(env, to, {
+              type: "TRADE_ENTRY", ticker: "AAPL", direction: "LONG",
+              mode: "investor", price: 175.50, rank: 72, rr: null,
+              trade_id: "AAPL-inv-sample", entry: 175.50,
+              action_ts: Date.now(),
+              options_play: buildEntryOptionsPlay({
+                ticker: "AAPL", direction: "LONG",
+                price: 175.50, sl: null, tp: null,
+                mode: "investor",
+                tickerData: { atr_pct: 0.022 },
+                env,
+              }),
             })],
             ["trade_trim", () => sendTradeAlertEmail(env, to, {
               type: "TRADE_TRIM", ticker: "AAPL", direction: "LONG",
@@ -75685,10 +75863,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const px = Number(contract?.price) || Number(data?.price) || 0;
             return atrDay > 0 && px > 0 ? atrDay / px : 0.025;
           })();
+          // 2026-06-01 — `?mode=investor` query param. When set, the route
+          // builds an investor-flavored ladder input so the engine routes
+          // through the LEAP-first path (classifySetupStage → "investor"
+          // triggers `_investor_boost` in rankByProfile). When absent,
+          // default is "trader" (preserves existing right-rail behavior).
+          // The frontend Investor mode / Investor right-rail can opt in
+          // by appending `&mode=investor` to /timed/options/ticker calls.
+          const requestedMode = String(url.searchParams.get("mode") || "trader").toLowerCase();
+          const isInvestorMode = requestedMode === "investor";
           const ladderInput = {
             ticker,
             price: Number(contract?.price) || Number(data?.price) || null,
-            direction: contract?.direction || null,
+            // Investor mode is long-only (per the deferred-shorts plan in
+            // tasks/2026-06-01-trade-aware-mirror-sync-design.md); force
+            // LONG so a SHORT trader-contract direction doesn't suppress
+            // the LEAP. Trader mode preserves the contract direction.
+            direction: isInvestorMode ? "LONG" : (contract?.direction || null),
             sl: Number(contract?.sl) || Number(data?.sl) || null,
             tp1: Number(contract?.tp_trim ?? contract?.tp1 ?? contract?.tp) || null,
             tp2: Number(contract?.tp_exit) || null,
@@ -75696,10 +75887,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             rr: contract?.rr || null,
             tier: contract?.tier || null,
             riskPct: contract?.riskPct || null,
-            stage: contract?.stage || data?.kanban_stage || "swing",
+            // Investor mode forces stage="investor" so the engine emits a
+            // LEAP as the primary play. Trader mode keeps the trader
+            // prediction contract's stage (kanban_stage fallback).
+            stage: isInvestorMode ? "investor" : (contract?.stage || data?.kanban_stage || "swing"),
             atr_pct: atrPct,
             earnings_dte: contract?.earnings_dte || null,
-            mode: "trader",
+            mode: isInvestorMode ? "investor" : "trader",
           };
           // Try to attach live chain. If no chain available, the engine
           // gracefully falls back to BS estimates.
