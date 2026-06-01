@@ -1659,8 +1659,19 @@
                       </div>
                     </div>
                     {!manifest.ok && manifest.error && (
-                      <div className="text-[11px] text-amber-300 mb-2 italic">
-                        {String(manifest.error).slice(0, 240)}
+                      <div className="mb-2 px-3 py-2 rounded border border-amber-400/30 bg-amber-400/[0.05]">
+                        <div className="text-[11px] text-amber-300 italic">
+                          {String(manifest.error).slice(0, 240)}
+                        </div>
+                        {/* 2026-06-01 — Surface the worker's `remediation` hint
+                            (added for stale-bridge 404 + key mismatches) so
+                            the operator immediately sees the fix rather than
+                            just the raw upstream error. */}
+                        {manifest.remediation && (
+                          <div className="text-[11px] text-amber-200/90 mt-1.5">
+                            <strong>Fix:</strong> {manifest.remediation}
+                          </div>
+                        )}
                       </div>
                     )}
                     {(manifest.rows || []).length > 0 ? (
