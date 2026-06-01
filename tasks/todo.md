@@ -52,15 +52,40 @@
 
 ### Planned
 
+- [ ] **Trade-Aware Mirror Sync (v2 design).** Manifest table +
+      reconciler keeping mothership (model trade state) in lockstep
+      with each spawn (user broker account). Drift detection +
+      user notification + per-trade kill switch + per-vehicle
+      toggles + daily owner email + user-modification handling.
+      Plan: [2026-06-01-trade-aware-mirror-sync-design.md](2026-06-01-trade-aware-mirror-sync-design.md)
+      (v2). **Scope:** Trader + Investor × Shares + Options
+      (incl. LEAPs as 2nd-most-popular vehicle), 6 simulation
+      actions mapped per cell, every action mapped to explicit
+      IBKR Client Portal API calls including OCO order lifecycle
+      (cancel-before-trim, modify-SL, TP/SL fill detection). **No
+      naked shorts** — equity SHORT, options selling-to-open,
+      cash-secured puts, covered calls all deferred to a separate
+      risk-reviewed workstream. **Per-vehicle toggles**: equity_long
+      defaults ON; every option archetype (long_call, long_put,
+      vertical_spread, leaps, straddle, moonshot) defaults OFF.
+      **Daily owner email**: per-broker-account digest (trades,
+      positions, day P&L, tomorrow's outlook). **User-mod handling**:
+      revert SL/TP changes by default, accept user-initiated closes.
+      **Prerequisite for BYOB** — must ship before third-party
+      users connect their own broker. 7 phases (A→G), ~18 days
+      total before BYOB launch; Phase G polish post-launch.
+
 - [ ] **BYOB — Bring Your Own Broker.** Multi-user broker connect flow
       (Robinhood + IBKR per-user). Plan:
       [2026-06-01-byob-broker-connect-plan.md](2026-06-01-byob-broker-connect-plan.md).
       Bridge architecture is already multi-user-ready (per-user storage,
       OAuth, encrypted tokens, risk caps, audit log all live). What's
       missing: user-facing Connect-Broker UI, Robinhood OAuth wiring,
-      IBKR per-user wizard, compliance + risk controls. 4-phase
-      rollout estimated 4-6 weeks of focused work + parallel legal
-      review.
+      IBKR per-user wizard, compliance + risk controls. **Depends on
+      Trade-Aware Mirror Sync (above)** — letting third-party users
+      connect their own broker requires lock-tight trade-level
+      isolation. 4-phase rollout estimated 4-6 weeks of focused work
+      + parallel legal review.
 
 ---
 
