@@ -18100,10 +18100,7 @@ function App() {
   }, Number.isFinite(Number(item.progress)) ? `${Math.round(Number(item.progress) * 100)}%` : ""))))), React.createElement("nav", {
     className: "tt-mobile-bottom-nav",
     "data-coachmark": "nav-modes",
-    "aria-label": "View modes",
-    style: {
-      display: "none"
-    }
+    "aria-label": "View modes"
   }, [{
     id: "analysis",
     label: "Analysis",
@@ -19046,6 +19043,6 @@ function ActivityFeedDrawer({
 window.App = App;
 window.ActivityFeedDrawer = ActivityFeedDrawer;
 window.Coachmarks = Coachmarks;
-// cache-bust:1780293003387:674926737
+// cache-bust:1780318178689:65569815
 
-// cache-bust:1780293003387:674926737
+// cache-bust:1780318178689:65569815

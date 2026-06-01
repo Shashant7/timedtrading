@@ -1018,7 +1018,7 @@
         .tt-mobile-bottom-nav {
           position: fixed;
           left: 0; right: 0;
-          bottom: var(--tt-legal-footer-h, 32px);
+          bottom: 0;
           display: flex !important;
           align-items: stretch;
           justify-content: space-around;
@@ -1026,8 +1026,10 @@
           border-top: 1px solid var(--ds-stroke);
           backdrop-filter: blur(14px);
           -webkit-backdrop-filter: blur(14px);
-          z-index: 50;
+          z-index: 9200;
           padding-bottom: env(safe-area-inset-bottom);
+          transform: translate3d(0, 0, 0);
+          -webkit-transform: translate3d(0, 0, 0);
         }
         .tt-mobile-bottom-nav__item {
           flex: 1;
@@ -1169,7 +1171,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-right-rail.compiled.js?v=20260530-inv-lanes"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="./index-react.compiled.22d2bb2600.js"></script>
+    <script src="./index-react.compiled.c134393fab.js"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>

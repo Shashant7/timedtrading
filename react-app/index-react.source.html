@@ -1025,7 +1025,7 @@
         .tt-mobile-bottom-nav {
           position: fixed;
           left: 0; right: 0;
-          bottom: var(--tt-legal-footer-h, 32px);
+          bottom: 0;
           display: flex !important;
           align-items: stretch;
           justify-content: space-around;
@@ -1033,8 +1033,10 @@
           border-top: 1px solid var(--ds-stroke);
           backdrop-filter: blur(14px);
           -webkit-backdrop-filter: blur(14px);
-          z-index: 50;
+          z-index: 9200;
           padding-bottom: env(safe-area-inset-bottom);
+          transform: translate3d(0, 0, 0);
+          -webkit-transform: translate3d(0, 0, 0);
         }
         .tt-mobile-bottom-nav__item {
           flex: 1;
@@ -21860,7 +21862,6 @@
               className="tt-mobile-bottom-nav"
               data-coachmark="nav-modes"
               aria-label="View modes"
-              style={{ display: "none" }}
             >
               {[
                 {
