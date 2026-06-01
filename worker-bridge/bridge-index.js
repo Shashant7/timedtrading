@@ -28,6 +28,11 @@ import {
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
+import {
+  writeEntryManifest, writeRejectedEntry,
+  recentManifestRows, readManifestRow,
+  classifyOrderLifecycle,
+} from "./bridge-manifest.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 
@@ -474,6 +479,39 @@ export default {
         });
       }
 
+      // 2026-06-01 — Phase A: mirror trade manifest debug view.
+      // Operator-only. Returns the N most recent manifest rows ordered
+      // by updated_at DESC. Mission Control renders a table beneath
+      // the Bridge section so the operator can verify the writer is
+      // populating rows after each ENTRY/ADD.
+      if (method === "GET" && path === "/bridge/manifest") {
+        if (operatorFail) return operatorFail;
+        const userId = url.searchParams.get("user_id");
+        const limit = Number(url.searchParams.get("limit")) || 50;
+        const sinceMs = Number(url.searchParams.get("since_ms")) || 0;
+        const rows = await recentManifestRows(env, { user_id: userId, limit, since_ms: sinceMs });
+        // Surface counts by sync_state to make MC stats easy.
+        const counts = {};
+        for (const r of rows) {
+          const k = r.sync_state || "unknown";
+          counts[k] = (counts[k] || 0) + 1;
+        }
+        return json({
+          ok: true, rows, counts,
+          total_returned: rows.length,
+          server_time: Date.now(),
+        });
+      }
+      if (method === "GET" && path === "/bridge/manifest/row") {
+        if (operatorFail) return operatorFail;
+        const userId = url.searchParams.get("user_id");
+        const tradeId = url.searchParams.get("trade_id");
+        const accountId = url.searchParams.get("broker_account_id") || "default";
+        if (!userId || !tradeId) return json({ ok: false, error: "user_id_and_trade_id_required" }, 400);
+        const row = await readManifestRow(env, userId, tradeId, accountId);
+        return json({ ok: true, row });
+      }
+
       if (method === "POST" && path === "/bridge/enable") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
@@ -580,6 +618,18 @@ async function handleOrderWebhook(env, ctx, payload) {
       request_json: sanitized,
       latency_ms: Date.now() - t0,
     });
+    // 2026-06-01 — Phase A: stamp a manifest row when an ENTRY is
+    // rejected at preflight, so Phase B's reducer can later return
+    // `mirror_suppressed` on any follow-on TRIM/EXIT against this
+    // trade_id (the model thinks the position is open, but the
+    // broker never accepted it).
+    if (classifyOrderLifecycle(sanitized.side) === "open" && sanitized.trade_id) {
+      // Reload the user record so we have broker / account_id even
+      // though preflight failed before we hit pf.user. readUser is
+      // cheap; missing user just yields a no-op write.
+      const userForReject = await readUser(env, sanitized.user_id);
+      await writeRejectedEntry(env, sanitized, userForReject, pf.reject_reason);
+    }
     return json({ ok: false, rejected: true, reject_reason: pf.reject_reason, ...pf }, 200);
   }
 
@@ -650,6 +700,28 @@ async function handleOrderWebhook(env, ctx, payload) {
   });
   if (place.ok) {
     await bumpDailyCounter(env, sanitized.user_id);
+    // 2026-06-01 — Phase A: stamp the manifest with the entry-tracker
+    // row + order ID. Only fires for ENTRY/ADD orders (TRIM/EXIT are
+    // handled by Phase B's reducer once it ships). Best-effort: a
+    // manifest write failure does NOT undo the placed order — the
+    // reconciler will pick up the broker position on its next pass
+    // and create the row from the broker side instead.
+    if (classifyOrderLifecycle(sanitized.side) === "open" && sanitized.trade_id) {
+      // place.response.filled_qty may not be present for limit orders
+      // that haven't filled yet; track the requested qty and let the
+      // reconciler update the filled_qty when the fill confirms.
+      const filledQty = Number(place?.response?.filled_qty
+        ?? place?.response?.cumulative_quantity
+        ?? 0);
+      const mfRes = await writeEntryManifest(env, sanitized, user, {
+        broker_order_id: rhOrderId,
+        filled_qty: filledQty,
+        requested_qty: sanitized.qty,
+      });
+      if (!mfRes?.ok && mfRes?.reason && env?.MANIFEST_DEBUG_LOG === "true") {
+        console.warn(`[MANIFEST] entry write skipped for ${sanitized.user_id}/${sanitized.trade_id}: ${mfRes.reason}`);
+      }
+    }
   }
 
   return json({
