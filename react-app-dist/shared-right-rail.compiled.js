@@ -1413,7 +1413,8 @@
     }
     function OptionsTabPanel({
       tickerSymbol,
-      API_BASE
+      API_BASE,
+      mode: modeProp
     }) {
       const h = React.createElement;
       const [data, setData] = useState(null);
@@ -1422,6 +1423,15 @@
       const [profile, setProfile] = useState("speculator");
       const [profileMeta, setProfileMeta] = useState(null);
       const [showLayers, setShowLayers] = useState(false);
+      const _autoMode = (() => {
+        if (modeProp) return modeProp;
+        try {
+          const path = (window.location?.pathname || "").toLowerCase();
+          if (path.includes("/investor")) return "investor";
+        } catch (_) {}
+        return "trader";
+      })();
+      const [horizon, setHorizon] = useState(_autoMode);
       useEffect(() => {
         let cancelled = false;
         (async () => {
@@ -1452,7 +1462,8 @@
         (async () => {
           try {
             const base = API_BASE || window.API_BASE || "";
-            const r = await fetch(`${base}/timed/options/ticker?ticker=${encodeURIComponent(sym)}&profile=${encodeURIComponent(profile)}`, {
+            const modeParam = horizon === "investor" ? "&mode=investor" : "";
+            const r = await fetch(`${base}/timed/options/ticker?ticker=${encodeURIComponent(sym)}&profile=${encodeURIComponent(profile)}${modeParam}`, {
               cache: "no-store",
               credentials: "include"
             });
@@ -1472,7 +1483,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, profile, API_BASE]);
+      }, [tickerSymbol, profile, horizon, API_BASE]);
       const updateProfile = async newProfile => {
         setProfile(newProfile);
         try {
@@ -1839,7 +1850,43 @@
           color: "var(--ds-text-muted)",
           fontStyle: "italic"
         }
-      }, data.profile_meta.one_liner)), primary._moonshot_active && h("div", {
+      }, data.profile_meta.one_liner)), h(Panel, {
+        title: "⏱ Horizon"
+      }, h("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          marginBottom: 6
+        }
+      }, [{
+        key: "trader",
+        label: "Trader · short-dated",
+        emoji: "⚡"
+      }, {
+        key: "investor",
+        label: "Investor · LEAP",
+        emoji: "🪜"
+      }].map(opt => h("button", {
+        key: opt.key,
+        onClick: () => setHorizon(opt.key),
+        style: {
+          flex: 1,
+          padding: "6px 10px",
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 8,
+          background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+          color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
+          border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
+          cursor: "pointer"
+        }
+      }, `${opt.emoji} ${opt.label}`))), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          fontStyle: "italic"
+        }
+      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms." : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.")), primary._moonshot_active && h("div", {
         style: {
           background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
           border: "2px solid rgba(245,194,92,0.50)",
@@ -16522,4 +16569,4 @@
   };
 })();
 
-// cache-bust:1780287197418:502599281
+// cache-bust:1780291216932:615209549
