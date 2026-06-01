@@ -708,6 +708,31 @@
           return stage === "accumulate" || stage === "reduce";
         });
       }
+      // 2026-06-01 — Sim-eligible: Actionable + D/W/M SuperTrend
+      // alignment matching the simulator's gate
+      // (worker/index.js:36692-36698). Required: Monthly bullish AND
+      // ≥2 of (D, W, M) bullish. stDir Pine convention: -1 = bullish.
+      // The scoring cron pre-computes `simEligible` + `_stDirD/W/M` on
+      // each row of /timed/investor/scores (see worker/index.js
+      // investorResults[ticker] = { ..., simEligible }). We prefer the
+      // pre-computed flag; legacy/light payloads without it fall back
+      // to either the structural fields on `tickerData` or, if those
+      // are also missing, to filtering OUT (sim-eligible is meant to
+      // be the strict cohort, so unknowns are excluded).
+      if (filterGroup === "SIM_ELIGIBLE") {
+        list = list.filter(t => {
+          const stage = String(t?.stage || "").toLowerCase();
+          if (stage !== "accumulate" && stage !== "reduce") return false;
+          if (typeof t?.simEligible === "boolean") return t.simEligible;
+          const td = tickerData?.[t.ticker] || {};
+          const dStBull = (t?._stDirD ?? td?.tf_tech?.D?.stDir) === -1;
+          const wStBull = (t?._stDirW ?? td?.tf_tech?.W?.stDir) === -1;
+          const mStBull = (t?._stDirM ?? td?.monthly_bundle?.supertrend_dir) === -1;
+          if (!mStBull) return false;
+          const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
+          return bullCount >= 2;
+        });
+      }
       if (allowedTickerSet instanceof Set) {
         list = list.filter(t => allowedTickerSet.has(t.ticker));
       }
@@ -719,6 +744,7 @@
         if (q && !sym.includes(q)) return;
         if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0 && !savedTickers.has(sym)) return;
         if (filterGroup === "INVESTOR_ACTIONABLE") return;
+        if (filterGroup === "SIM_ELIGIBLE") return;
         const mainData = tickerData?.[sym] || {};
         list.unshift({
           ticker: sym,
@@ -908,4 +934,4 @@
   window.InvestorPanel = InvestorPanel;
 })();
 
-// cache-bust:1780320301254:882740402
+// cache-bust:1780323671360:918566451

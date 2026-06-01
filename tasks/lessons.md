@@ -6,6 +6,66 @@
 
 ---
 
+## Display ≠ engine: surface the simulator's working set, not the full candidate pool [2026-06-01]
+
+### The problem
+
+User reported ~90 tickers in the Investor Accumulate lane during a healthy
+regime. The Accumulate lane gate (`worker/investor.js → classifyInvestorStage`)
+is permissive by design — it's meant to be a **browseable candidate pool**.
+The simulator (`worker/index.js:36685+`) is **strict** — it caps at 15
+positions, requires Monthly SuperTrend bullish + ≥2/3 of (D, W, M)
+SuperTrend bullish, and only deploys ~89% of $100k capital across them.
+
+Operator's mental model is "what's the system actually doing?" — so a lane
+that's 6× wider than what the sim will act on is confusing, even though
+both layers are working as designed.
+
+### The fix (two prongs)
+
+1. **Tightened the default `accumulate_strong_score_min` from 65 → 70**
+   in `worker/investor.js`. Removes the broad strong-score catch-all that
+   was sweeping low-conviction names into Accumulate. The `accumZone.inZone`
+   path stays permissive (those are the genuine pullback / momentum-runner
+   signals; score floor is still 30 + market-health 30). Operators who
+   want the wider Forensic-style cohort can flip
+   `deep_audit_investor_accumulate_strong_score_min` back to 60-65 via
+   the existing daCfg knob.
+
+2. **New "Sim-eligible" filter chip** in the Investor lane (and the
+   bubble map) that narrows Actionable further to the cohort the
+   simulator would actually buy. Matches the gate in
+   `worker/index.js:36692-36698` exactly: Monthly SuperTrend bullish AND
+   ≥2 of (D, W, M) SuperTrend bullish.
+
+### Pre-compute the flag at write time, not read time
+
+Naïve implementation reads `td?.tf_tech?.D?.stDir ?? td?._stDirD` on the
+client and recomputes the bull-count on every render. That works but ties
+the panel to the structural shape of two different payloads
+(`/timed/investor/scores` and `/timed/all`), which drift independently.
+
+Better: the scoring cron writes a single boolean (`simEligible`) and the
+underlying three direction fields (`_stDirD`, `_stDirW`, `_stDirM`) onto
+each `investorResults[ticker]` row. The panel reads
+`if (typeof t.simEligible === "boolean") return t.simEligible;` and only
+falls back to recomputing for legacy rows that lack the flag (off-cycle
+adds, reconciled-outside-universe positions).
+
+**Rule:** Any classifier the UI mirrors should be computed ONCE at the
+write site and serialized into the read payload. Recomputing on the
+client invites drift between engine and display.
+
+### Knob naming: tunable + back-compat
+
+The bumped default is `accumulate_strong_score_min: 70`. The operator
+override key is unchanged (`deep_audit_investor_accumulate_strong_score_min`)
+so anyone who'd already tuned it stays tuned. Docstrings updated to
+say "default 70 — was 65" so future agents see the history without
+needing to git blame.
+
+---
+
 ## Discord DM as a bonus notification channel (not a replacement) [2026-06-01]
 
 ### Webhooks ≠ DMs

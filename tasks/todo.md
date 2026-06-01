@@ -22,6 +22,17 @@
 
 ### Active
 
+- [x] **Investor Accumulate lane polish — tighter default + Sim-eligible
+      filter.** Bumped `accumulate_strong_score_min` default 65 → 70 in
+      `worker/investor.js` (the in-zone path stays permissive). Added a
+      "Sim-eligible" filter chip to the Investor lane + bubble map that
+      narrows Actionable to the cohort the simulator would actually buy
+      (Monthly ST bullish + ≥2/3 of D/W/M ST bullish — matches
+      `worker/index.js:36692-36698` exactly). Scoring cron pre-computes
+      `simEligible` + `_stDirD/W/M` on each `/timed/investor/scores`
+      row so the filter is a single boolean read on the client. Operator
+      override (`deep_audit_investor_accumulate_strong_score_min`)
+      unchanged; can flip back to 60-65 for wider Forensic-style cohort.
 - [x] **Discord DM as a bonus user notification channel.**
       New `discordDmUser(env, discordUserId, payload)` helper in
       `worker/alerts.js` — two-step bot API flow (open DM channel →

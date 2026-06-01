@@ -20,7 +20,15 @@
 // redeploys (mirror of TH config pattern in worker/trend-hold.js).
 // ─────────────────────────────────────────────────────────────────────────────
 export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
-  accumulate_strong_score_min: 65,                    // was 70 hardcoded
+  // 2026-06-01 — Bumped 65 → 70 to tighten the Accumulate lane after a
+  // user report that the lane was showing ~90 candidates in a healthy
+  // regime. The simulator can only act on 15 (INVESTOR_MAX_POSITIONS),
+  // so a wider lane is operator-noise not engine-noise. 70 was the
+  // original pre-3.9d hardcoded floor; we re-adopt it as the default
+  // and keep `deep_audit_investor_accumulate_strong_score_min` as the
+  // live-tunable override (operator can drop to 60-65 if they want the
+  // Forensic-style broader catch for backtest cohorts).
+  accumulate_strong_score_min: 70,                    // was 65 (was 70 hardcoded pre-3.9d)
   accumulate_strong_score_market_health_min: 40,      // unchanged
   accumulate_inzone_score_min: 30,                    // unchanged
   accumulate_inzone_market_health_min: 30,            // unchanged
@@ -55,7 +63,7 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
  * loadTrendHoldConfig in worker/trend-hold.js. Bounds-checked.
  *
  * Tunable keys (deep_audit_investor_*):
- *   - deep_audit_investor_accumulate_strong_score_min  (1-99, default 65)
+ *   - deep_audit_investor_accumulate_strong_score_min  (1-99, default 70 — was 65)
  *   - deep_audit_investor_watch_score_min              (1-99, default 50)
  *   - deep_audit_investor_research_on_watch_score_min  (1-99, default 40)
  *

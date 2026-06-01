@@ -110,12 +110,19 @@ function InvBubbleMap({
   const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
   const [hovered, setHovered] = useState(null);
-  const stageBySym = useMemo(() => {
+  const scoreBySym = useMemo(() => {
     const m = new Map();
     const list = Array.isArray(scores?.tickers) ? scores.tickers : Array.isArray(scores) ? scores : [];
     for (const row of list) {
       const sym = String(row?.ticker || "").toUpperCase();
       if (!sym) continue;
+      m.set(sym, row);
+    }
+    return m;
+  }, [scores]);
+  const stageBySym = useMemo(() => {
+    const m = new Map();
+    for (const [sym, row] of scoreBySym.entries()) {
       const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
       if (stage) m.set(sym, stage);
     }
@@ -139,12 +146,27 @@ function InvBubbleMap({
         const stage = stageBySym.get(sym) || "";
         if (stage !== "accumulate" && stage !== "reduce") return false;
       }
+      if (filter === "SIM_ELIGIBLE") {
+        const stage = stageBySym.get(sym) || "";
+        if (stage !== "accumulate" && stage !== "reduce") return false;
+        const scoreRow = scoreBySym.get(sym);
+        if (scoreRow && typeof scoreRow.simEligible === "boolean") {
+          if (!scoreRow.simEligible) return false;
+        } else {
+          const dStBull = t?.tf_tech?.D?.stDir === -1;
+          const wStBull = t?.tf_tech?.W?.stDir === -1;
+          const mStBull = t?.monthly_bundle?.supertrend_dir === -1;
+          if (!mStBull) return false;
+          const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
+          if (bullCount < 2) return false;
+        }
+      }
       const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
       if (stage && stage !== "null") return true;
       return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
     });
     return arr.slice(0, 250);
-  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym]);
+  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -517,6 +539,10 @@ function InvestorApp() {
     onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
     title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
   }, "Actionable"), h("button", {
+    className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
+    onClick: () => setFilterGroup("SIM_ELIGIBLE"),
+    title: "Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish"
+  }, "Sim-eligible"), h("button", {
     className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
     onClick: () => setFilterGroup("SAVED"),
     title: "Your saved tickers (star icon on any card)",
@@ -577,6 +603,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780320301254:882740402
+// cache-bust:1780323671360:918566451
 
-// cache-bust:1780320301254:882740402
+// cache-bust:1780323671360:918566451
