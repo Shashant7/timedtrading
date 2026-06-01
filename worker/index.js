@@ -55214,6 +55214,20 @@ export default {
           const tradeId = String(body?.trade_id || "").trim();
           const verdict = String(body?.verdict || "").trim().toLowerCase();
           const notes   = body?.notes != null ? String(body.notes).slice(0, 1000) : null;
+          // 2026-06-01 — Optional bulk-apply. When the operator
+          // reviews ONE representative card from a group of
+          // (ticker, decision, direction) decisions in shadow mode
+          // (e.g. 21 TRIM_PROCEED rows for HIMX), this flag asks the
+          // backend to mark every other un-reviewed row in the same
+          // group with the same verdict + notes. The operator gets
+          // one click → N reviews in the table.
+          const applyToGroup = body?.apply_to_group && typeof body.apply_to_group === "object"
+            ? {
+                ticker: String(body.apply_to_group.ticker || "").trim().toUpperCase(),
+                decision: String(body.apply_to_group.decision || "").trim().toUpperCase(),
+                direction: String(body.apply_to_group.direction || "").trim().toUpperCase(),
+              }
+            : null;
           if (!tradeId) return sendJSON({ ok: false, error: "missing_trade_id" }, 400, corsHeaders(env, req));
           if (!["good", "bad", "meh"].includes(verdict)) {
             return sendJSON({ ok: false, error: "invalid_verdict", allowed: ["good", "bad", "meh"] }, 400, corsHeaders(env, req));
@@ -55247,6 +55261,63 @@ export default {
               notes = excluded.notes,
               reviewed_at = excluded.reviewed_at
           `).bind(tradeId, reviewedBy, verdict, notes, Date.now()).run();
+
+          // 2026-06-01 — Bulk-apply path. When apply_to_group is set,
+          // mark every other un-reviewed CIO decision matching the
+          // same (ticker, decision[, direction]) in the last 30d
+          // with the same verdict. Scoped to live (is_replay=0) +
+          // non-fallback decisions only — never touches replay rows.
+          let bulkApplied = 0;
+          if (applyToGroup && applyToGroup.ticker && applyToGroup.decision) {
+            try {
+              const since30 = Date.now() - 30 * 86400000;
+              const dirClause = applyToGroup.direction
+                ? "AND UPPER(d.direction) = ?5" : "";
+              const binds = [since30, applyToGroup.ticker, applyToGroup.decision, reviewedBy];
+              if (applyToGroup.direction) binds.push(applyToGroup.direction);
+              const targets = await db.prepare(`
+                SELECT d.trade_id
+                FROM ai_cio_decisions d
+                LEFT JOIN ai_cio_decision_reviews r
+                  ON r.trade_id = d.trade_id AND r.reviewed_by = ?4
+                WHERE d.created_at >= ?1
+                  AND UPPER(d.ticker) = ?2
+                  AND UPPER(d.decision) = ?3
+                  AND r.trade_id IS NULL
+                  AND COALESCE(d.is_replay, 0) = 0
+                  AND COALESCE(d.fallback, 0) = 0
+                  ${dirClause}
+              `).bind(...binds).all().catch(() => ({ results: [] }));
+              const rows = Array.isArray(targets?.results) ? targets.results : [];
+              const now = Date.now();
+              // Idempotent INSERTs in a single batch (D1 supports
+              // up to ~500 statements per batch — bounded by group
+              // size; in practice we see 20-30 per group max).
+              const batch = [];
+              for (const row of rows) {
+                const tid = String(row.trade_id || "").trim();
+                if (!tid || tid === tradeId) continue;
+                batch.push(
+                  db.prepare(`
+                    INSERT INTO ai_cio_decision_reviews
+                      (trade_id, reviewed_by, verdict, notes, reviewed_at)
+                    VALUES (?1, ?2, ?3, ?4, ?5)
+                    ON CONFLICT(trade_id, reviewed_by) DO UPDATE SET
+                      verdict = excluded.verdict,
+                      notes = excluded.notes,
+                      reviewed_at = excluded.reviewed_at
+                  `).bind(tid, reviewedBy, verdict, notes, now)
+                );
+              }
+              if (batch.length > 0) {
+                await db.batch(batch);
+                bulkApplied = batch.length;
+              }
+            } catch (e) {
+              console.warn("[ai-cio/review] bulk apply_to_group failed:", String(e?.message || e).slice(0, 200));
+            }
+          }
+
           // Check whether the manual_review gate should auto-flip.
           const since14 = Date.now() - 14 * 86400000;
           const stats = await db.prepare(`
@@ -55267,6 +55338,7 @@ export default {
           return sendJSON({
             ok: true, trade_id: tradeId, verdict, reviewed_by: reviewedBy,
             review_stats_14d: { reviewed_14d: reviewed14 },
+            bulk_applied: bulkApplied,
             manual_review_gate_auto_flipped: autoFlipped,
             note: autoFlipped
               ? "Threshold (20) hit — manual_review D_operator gate auto-flipped to DONE."

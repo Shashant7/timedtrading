@@ -285,11 +285,12 @@ function CioDecisionReview({
   const [draftNotes, setDraftNotes] = useState({});
   const [saving, setSaving] = useState({});
   const [savedFlash, setSavedFlash] = useState({});
+  const [decisionFilter, setDecisionFilter] = useState("all");
   const [reviewErr, setReviewErr] = useState({});
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const url = `${apiBase}/timed/admin/ai-cio/decisions?limit=30${showAll ? "" : "&unreviewed=1"}&_t=${Date.now()}`;
+      const url = `${apiBase}/timed/admin/ai-cio/decisions?limit=200${showAll ? "" : "&unreviewed=1"}&_t=${Date.now()}`;
       const r = await fetch(url, {
         credentials: "include",
         cache: "no-store"
@@ -307,22 +308,64 @@ function CioDecisionReview({
   useEffect(() => {
     refresh();
   }, [refresh]);
-  const submitReview = async (tradeId, verdict) => {
-    if (saving[tradeId]) return;
+  const groups = useMemo(() => {
+    const buckets = new Map();
+    for (const d of decisions || []) {
+      const key = `${d.ticker}|${d.decision}|${d.direction}`;
+      const arr = buckets.get(key) || [];
+      arr.push(d);
+      buckets.set(key, arr);
+    }
+    const out = [];
+    for (const [key, arr] of buckets) {
+      arr.sort((a, b) => Number(b.created_at) - Number(a.created_at));
+      const latest = arr[0];
+      const reviewed = arr.filter(x => x.review_verdict).length;
+      out.push({
+        key,
+        ticker: latest.ticker,
+        direction: latest.direction,
+        decision: latest.decision,
+        latest,
+        all: arr,
+        count: arr.length,
+        reviewed,
+        spanMs: arr.length > 1 ? Number(latest.created_at) - Number(arr[arr.length - 1].created_at) : 0
+      });
+    }
+    out.sort((a, b) => Number(b.latest.created_at) - Number(a.latest.created_at));
+    return out;
+  }, [decisions]);
+  const filteredGroups = useMemo(() => {
+    if (decisionFilter === "all") return groups;
+    const entryDecisions = new Set(["APPROVE", "REJECT", "ADJUST"]);
+    const trimDecisions = new Set(["TRIM_PROCEED", "TRIM_OVERRIDE"]);
+    const exitStallDecisions = new Set(["EXIT_PROCEED", "EXIT_OVERRIDE", "STALL_PROCEED", "STALL_OVERRIDE"]);
+    return groups.filter(g => {
+      if (decisionFilter === "entry") return entryDecisions.has(g.decision);
+      if (decisionFilter === "trim") return trimDecisions.has(g.decision);
+      if (decisionFilter === "exit_stall") return exitStallDecisions.has(g.decision);
+      return true;
+    });
+  }, [groups, decisionFilter]);
+  const submitReview = async (group, verdict) => {
+    const key = group.key;
+    const tradeId = group.latest.trade_id;
+    if (saving[key]) return;
     setSaving(s => ({
       ...s,
-      [tradeId]: true
+      [key]: true
     }));
     setReviewErr(e => {
       const c = {
         ...e
       };
-      delete c[tradeId];
+      delete c[key];
       return c;
     });
     setSavedFlash(f => ({
       ...f,
-      [tradeId]: verdict
+      [key]: verdict
     }));
     try {
       const r = await fetch(`${apiBase}/timed/admin/ai-cio/review`, {
@@ -334,7 +377,12 @@ function CioDecisionReview({
         body: JSON.stringify({
           trade_id: tradeId,
           verdict,
-          notes: draftNotes[tradeId] || ""
+          notes: draftNotes[key] || "",
+          apply_to_group: {
+            ticker: group.ticker,
+            decision: group.decision,
+            direction: group.direction
+          }
         })
       });
       let j = null;
@@ -348,7 +396,7 @@ function CioDecisionReview({
           const c = {
             ...f
           };
-          delete c[tradeId];
+          delete c[key];
           return c;
         }), 1800);
         if (j.manual_review_gate_auto_flipped) {
@@ -361,13 +409,13 @@ function CioDecisionReview({
           const c = {
             ...f
           };
-          delete c[tradeId];
+          delete c[key];
           return c;
         });
         const msg = j?.error || `HTTP ${r.status}`;
         setReviewErr(e => ({
           ...e,
-          [tradeId]: msg
+          [key]: msg
         }));
         console.warn("[ai-cio/review] failed", {
           tradeId,
@@ -381,13 +429,13 @@ function CioDecisionReview({
         const c = {
           ...f
         };
-        delete c[tradeId];
+        delete c[key];
         return c;
       });
       const msg = String(e?.message || e);
       setReviewErr(er => ({
         ...er,
-        [tradeId]: msg
+        [key]: msg
       }));
       console.warn("[ai-cio/review] threw", {
         tradeId,
@@ -399,7 +447,7 @@ function CioDecisionReview({
         const c = {
           ...s
         };
-        delete c[tradeId];
+        delete c[key];
         return c;
       });
     }
@@ -407,6 +455,21 @@ function CioDecisionReview({
   const reviewed14 = Number(stats?.reviewed_14d) || 0;
   const threshold = 20;
   const pctToGate = Math.min(100, reviewed14 / threshold * 100);
+  const filterCounts = useMemo(() => {
+    const c = {
+      all: groups.length,
+      entry: 0,
+      trim: 0,
+      exit_stall: 0
+    };
+    const entryD = new Set(["APPROVE", "REJECT", "ADJUST"]);
+    const trimD = new Set(["TRIM_PROCEED", "TRIM_OVERRIDE"]);
+    const exitD = new Set(["EXIT_PROCEED", "EXIT_OVERRIDE", "STALL_PROCEED", "STALL_OVERRIDE"]);
+    for (const g of groups) {
+      if (entryD.has(g.decision)) c.entry += 1;else if (trimD.has(g.decision)) c.trim += 1;else if (exitD.has(g.decision)) c.exit_stall += 1;
+    }
+    return c;
+  }, [groups]);
   return React.createElement("div", {
     className: "mc-card",
     style: {
@@ -465,7 +528,7 @@ function CioDecisionReview({
   }, "Meh"), React.createElement("div", {
     className: "mc-kpi-value text-[18px]"
   }, Number(stats?.meh_count) || 0))), React.createElement("div", {
-    className: "flex items-center gap-2 mb-2"
+    className: "flex items-center gap-2 mb-2 flex-wrap"
   }, React.createElement("button", {
     onClick: () => setShowAll(!showAll),
     className: "mc-btn",
@@ -480,9 +543,43 @@ function CioDecisionReview({
       padding: "3px 10px",
       fontSize: 10
     }
-  }, "\u21BB Refresh queue")), decisions.length === 0 && !loading && React.createElement("div", {
+  }, "\u21BB Refresh queue")), React.createElement("div", {
+    className: "flex items-center gap-2 mb-3 flex-wrap"
+  }, [{
+    id: "all",
+    label: "All decisions",
+    n: filterCounts.all
+  }, {
+    id: "entry",
+    label: "Entry (APPROVE / REJECT)",
+    n: filterCounts.entry
+  }, {
+    id: "trim",
+    label: "Trim",
+    n: filterCounts.trim
+  }, {
+    id: "exit_stall",
+    label: "Exit / Stall",
+    n: filterCounts.exit_stall
+  }].map(opt => React.createElement("button", {
+    key: opt.id,
+    onClick: () => setDecisionFilter(opt.id),
+    disabled: opt.n === 0 && opt.id !== "all",
+    style: {
+      padding: "3px 10px",
+      fontSize: 10,
+      borderRadius: 999,
+      cursor: opt.n === 0 && opt.id !== "all" ? "default" : "pointer",
+      background: decisionFilter === opt.id ? "rgba(103,232,249,0.16)" : "rgba(255,255,255,0.04)",
+      color: decisionFilter === opt.id ? "#67e8f9" : "#9ca3af",
+      border: `1px solid ${decisionFilter === opt.id ? "rgba(103,232,249,0.34)" : "rgba(255,255,255,0.08)"}`,
+      opacity: opt.n === 0 && opt.id !== "all" ? 0.4 : 1
+    }
+  }, opt.label, React.createElement("span", {
+    className: "ml-1 mc-mute font-mono"
+  }, "(", opt.n, ")")))), filteredGroups.length === 0 && !loading && React.createElement("div", {
     className: "text-[11px] mc-mute py-3 italic"
-  }, showAll ? "No CIO decisions in the last 30 days." : "No unreviewed CIO decisions — you're caught up. Toggle to 'Show all' to re-review."), React.createElement("div", {
+  }, decisions.length === 0 ? showAll ? "No CIO decisions in the last 30 days." : "No unreviewed CIO decisions — you're caught up. Toggle to 'Show all' to re-review." : `No decisions in the "${decisionFilter}" filter. Try "All decisions" above.`), React.createElement("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -490,8 +587,10 @@ function CioDecisionReview({
       maxHeight: 600,
       overflowY: "auto"
     }
-  }, decisions.map(d => {
-    const flash = savedFlash[d.trade_id];
+  }, filteredGroups.map(g => {
+    const d = g.latest;
+    const key = g.key;
+    const flash = savedFlash[key];
     const verdictMeta = {
       good: {
         color: "#22c55e",
@@ -507,8 +606,9 @@ function CioDecisionReview({
       }
     };
     const currentVerdict = d.review_verdict || flash || null;
+    const allReviewed = g.reviewed === g.count;
     return React.createElement("div", {
-      key: d.trade_id,
+      key: key,
       style: {
         padding: 10,
         background: currentVerdict ? verdictMeta[currentVerdict]?.bg || "rgba(255,255,255,0.02)" : "rgba(255,255,255,0.02)",
@@ -521,23 +621,28 @@ function CioDecisionReview({
       className: "flex items-baseline gap-2 flex-wrap"
     }, React.createElement("strong", {
       className: "text-white text-[14px]"
-    }, d.ticker), React.createElement("span", {
-      className: String(d.direction).toUpperCase() === "LONG" ? "mc-pos text-[10px] font-semibold" : "mc-neg text-[10px] font-semibold"
-    }, d.direction), React.createElement("span", {
-      className: `mc-pill ${d.decision === "REJECT" ? "mc-pill-warn" : "mc-pill-ok"}`,
+    }, g.ticker), React.createElement("span", {
+      className: String(g.direction).toUpperCase() === "LONG" ? "mc-pos text-[10px] font-semibold" : "mc-neg text-[10px] font-semibold"
+    }, g.direction), React.createElement("span", {
+      className: `mc-pill ${g.decision === "REJECT" ? "mc-pill-warn" : "mc-pill-ok"}`,
       style: {
         fontSize: 9
       }
-    }, d.decision), Number(d.shadow) === 1 && React.createElement("span", {
+    }, g.decision), Number(d.shadow) === 1 && React.createElement("span", {
       className: "mc-pill mc-pill-warn",
       style: {
         fontSize: 9
       }
-    }, "SHADOW"), React.createElement("span", {
+    }, "SHADOW"), g.count > 1 && React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono",
+      title: `${g.count} similar decisions for ${g.ticker} ${g.decision} over the last ${fmtAgo(Date.now() - g.spanMs)}`
+    }, "\xD7", g.count, g.reviewed > 0 ? React.createElement("span", {
+      className: "text-emerald-300"
+    }, " (", g.reviewed, " reviewed)") : null), React.createElement("span", {
       className: "text-[10px] mc-mute font-mono"
     }, "conf ", Number(d.confidence || 0).toFixed(2), " \xB7 edge ", Number(d.edge_score || 0).toFixed(2)), React.createElement("span", {
       className: "text-[10px] mc-mute"
-    }, fmtAgo(d.created_at))), d.trade_outcome && React.createElement("span", {
+    }, "latest ", fmtAgo(d.created_at))), d.trade_outcome && React.createElement("span", {
       className: `text-[10px] font-semibold ${d.trade_outcome === "WIN" ? "mc-pos" : d.trade_outcome === "LOSS" ? "mc-neg" : "mc-mute"}`
     }, "Outcome: ", d.trade_outcome, " ", Number.isFinite(Number(d.trade_pnl_pct)) ? `(${Number(d.trade_pnl_pct).toFixed(2)}%)` : "")), React.createElement("div", {
       className: "text-[11px] text-[#d1d5db] mb-2",
@@ -545,11 +650,13 @@ function CioDecisionReview({
         lineHeight: 1.5,
         whiteSpace: "pre-wrap"
       }
-    }, String(d.reasoning || "(no reasoning)")), React.createElement("div", {
+    }, String(d.reasoning || "(no reasoning)")), g.count > 1 && React.createElement("div", {
+      className: "text-[10px] mc-mute italic mb-2"
+    }, "Reviewing this representative call will mark all ", g.count, " ", g.ticker, " ", g.decision, " decisions in the queue with the same verdict."), React.createElement("div", {
       className: "flex items-center gap-2 mb-2 flex-wrap"
     }, React.createElement("button", {
-      onClick: () => submitReview(d.trade_id, "good"),
-      disabled: !!saving[d.trade_id],
+      onClick: () => submitReview(g, "good"),
+      disabled: !!saving[key],
       style: {
         padding: "4px 10px",
         fontSize: 11,
@@ -559,9 +666,9 @@ function CioDecisionReview({
         color: currentVerdict === "good" ? "white" : verdictMeta.good.color,
         border: `1px solid ${verdictMeta.good.color}40`
       }
-    }, "\u2713 Good call"), React.createElement("button", {
-      onClick: () => submitReview(d.trade_id, "bad"),
-      disabled: !!saving[d.trade_id],
+    }, "\u2713 Good call", g.count > 1 ? ` (×${g.count})` : ""), React.createElement("button", {
+      onClick: () => submitReview(g, "bad"),
+      disabled: !!saving[key],
       style: {
         padding: "4px 10px",
         fontSize: 11,
@@ -571,9 +678,9 @@ function CioDecisionReview({
         color: currentVerdict === "bad" ? "white" : verdictMeta.bad.color,
         border: `1px solid ${verdictMeta.bad.color}40`
       }
-    }, "\u2717 Bad call"), React.createElement("button", {
-      onClick: () => submitReview(d.trade_id, "meh"),
-      disabled: !!saving[d.trade_id],
+    }, "\u2717 Bad call", g.count > 1 ? ` (×${g.count})` : ""), React.createElement("button", {
+      onClick: () => submitReview(g, "meh"),
+      disabled: !!saving[key],
       style: {
         padding: "4px 10px",
         fontSize: 11,
@@ -583,18 +690,18 @@ function CioDecisionReview({
         color: currentVerdict === "meh" ? "#111" : verdictMeta.meh.color,
         border: `1px solid ${verdictMeta.meh.color}40`
       }
-    }, "~ Meh / inconclusive"), d.review_verdict && React.createElement("span", {
+    }, "~ Meh", g.count > 1 ? ` (×${g.count})` : ""), d.review_verdict && React.createElement("span", {
       className: "text-[10px] mc-mute italic"
-    }, "(reviewed ", fmtAgo(d.review_ts), " by ", d.review_by, ")"), savedFlash[d.trade_id] && !d.review_verdict && React.createElement("span", {
+    }, "(reviewed ", fmtAgo(d.review_ts), " by ", d.review_by, ")"), savedFlash[key] && !d.review_verdict && React.createElement("span", {
       className: "text-[10px] text-emerald-300 italic"
-    }, "saved \u2713"), reviewErr[d.trade_id] && React.createElement("span", {
+    }, "saved \u2713"), reviewErr[key] && React.createElement("span", {
       className: "text-[10px] text-red-300 italic",
-      title: reviewErr[d.trade_id]
-    }, "\u26A0 ", String(reviewErr[d.trade_id]).slice(0, 80))), React.createElement("textarea", {
-      value: draftNotes[d.trade_id] ?? d.review_notes ?? "",
+      title: reviewErr[key]
+    }, "\u26A0 ", String(reviewErr[key]).slice(0, 80))), React.createElement("textarea", {
+      value: draftNotes[key] ?? d.review_notes ?? "",
       onChange: e => setDraftNotes(n => ({
         ...n,
-        [d.trade_id]: e.target.value
+        [key]: e.target.value
       })),
       placeholder: "Optional notes \u2014 what was right or wrong about this call? (saved when you click a verdict button)",
       rows: 2,
@@ -2119,6 +2226,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780283232638:204809687
+// cache-bust:1780284039047:816124933
 
-// cache-bust:1780283232638:204809687
+// cache-bust:1780284039047:816124933
