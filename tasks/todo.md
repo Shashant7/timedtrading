@@ -22,42 +22,16 @@
 
 ### Active
 
-- [x] **Universe + cohort fix — NBIS sector mismatch, ARM/MRVL/SMCI
-      promoted to megacap_tech cohort (PR #423).** NBIS was tagged
-      Health Care in `worker/index.js` SECTOR_MAP (sector-mapping.js
-      correctly has it as Information Technology) — fixed, should
-      immediately raise NBIS investor score and surface it in AI-infra
-      theme runs. ARM, MRVL, SMCI added to default megacap_tech cohort
-      in `worker/pipeline/tt-core-entry.js` so the slope/RSI/extension
-      caps match AI-infra primary-trend behavior (was falling into the
-      cyclical "other" bucket with too-tight caps). All still
-      operator-tunable via `deep_audit_cohort_megacap_tickers`
-      model_config key without a redeploy.
-- [x] **Investor Sim-eligible filter — backfill + chip counts + tickerData
-      passthrough (PR #422).** Three fixes for the operator report that
-      clicking "Sim-eligible" emptied the lane while the dashboard
-      still showed 90 in Accumulate.
-      (1) `/timed/investor/scores` now backfills `simEligible` +
-      `_stDirD/W/M` on the read path when the underlying KV scoring
-      blob predates the field (returns `simEligible: null` to mark
-      "unknown — data not yet populated").
-      (2) Panel filter now treats `simEligible === null` as **unknown**
-      (keeps visible) instead of hard-exclude, so the lane doesn't
-      silently empty when the cron hasn't repopulated.
-      (3) Chip label shows `Sim-eligible (N+M?)` where N = strictly
-      eligible, M = unknown — so the operator always sees a number that
-      matches the lane.
-      (4) `investor.html` now passes `data` (from `/timed/all`) as
-      `tickerData` to InvestorPanel so the fallback recompute has
-      structural fields (tf_tech.D.stDir, monthly_bundle.supertrend_dir).
-- [x] **MC: Run Calibration button + stale-message cleanup (PR #422).**
-      The Last Calibration KPI in Mission Control now has a "Run ⚙"
-      button that opens `/calibration.html?auto=run` in a new tab.
-      `/timed/calibration/status` no longer claims "Waiting for next
-      half-hour cron" (the cron-based pipeline was removed in April);
-      now points operator at `POST /timed/calibration/run` and
-      `scripts/calibrate.js`. wrangler.toml comment updated to note
-      the half-hour slot is reserved/no-op.
+- [x] **Chart image in entry/trim/exit emails (PR #424).** New SVG chart
+      renderer (`worker/chart-svg.js`) + public `GET /timed/chart-image
+      ?ticker=&tf=60&bars=48&entry=X&sl=Y&tp=Z` endpoint pulls candles
+      from `ticker_candles` D1 and renders an inline SVG (~3-4KB) with
+      entry/SL/TP annotation lines, last 48 1H bars by default. Email
+      body now embeds the chart as `<img src="https://timed-trading.com
+      /timed/chart-image?...">` right under the headline — Gmail / Apple
+      Mail / Outlook proxies fetch it inline. Cached 5 min CF-side so
+      heavy email blasts don't pound D1. Empty-state SVG when candles
+      are missing so the `<img>` never breaks.
 - [x] **Investor Accumulate lane polish — tighter default + Sim-eligible
       filter.** Bumped `accumulate_strong_score_min` default 65 → 70 in
       `worker/investor.js` (the in-zone path stays permissive). Added a

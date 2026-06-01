@@ -971,6 +971,48 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ? `<div style="margin:18px 0 0"><a href="${chart_url}" style="color:${BRAND.green};text-decoration:none;font-size:12px;font-weight:600">📊 View entry/trim/exit chart</a></div>`
     : "";
 
+  // 2026-06-01 — Inline chart image. Embeds the worker's public SVG
+  // chart endpoint as an <img>, so Gmail/Apple Mail/Outlook proxies
+  // fetch + cache the rendered chart and surface it inline in the
+  // email body. Default: 1H timeframe, 48 bars (~2 trading days),
+  // with entry/SL/TP overlays when available. Skipped when
+  // BRAND.workerUrl resolves to localhost (test sends).
+  const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
+  const _chartImageParams = (() => {
+    const p = new URLSearchParams();
+    p.set("ticker", String(ticker || "").toUpperCase());
+    p.set("tf", "60");
+    p.set("bars", "48");
+    if (Number.isFinite(Number(entry))) p.set("entry", String(Number(entry)));
+    if (Number.isFinite(Number(sl)))    p.set("sl",    String(Number(sl)));
+    if (Number.isFinite(Number(tp)))    p.set("tp",    String(Number(tp)));
+    // Subtitle gives the operator context inside the rendered image
+    // itself (so the chart works as a standalone share-able snapshot).
+    const _subtitleParts = [];
+    if (isEntry) _subtitleParts.push("ENTRY");
+    else if (isExit) _subtitleParts.push("EXIT");
+    else if (isTrim) _subtitleParts.push("TRIM");
+    if (dir) _subtitleParts.push(dir);
+    if (_etTime) _subtitleParts.push(_etTime);
+    if (_subtitleParts.length) p.set("subtitle", _subtitleParts.join(" · "));
+    return p.toString();
+  })();
+  const chartImgHtml = ticker
+    ? `<div style="margin:14px 0 0">
+         <a href="${chart_url || ctaUrl}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
+           <img
+             src="${_workerUrl}/timed/chart-image?${_chartImageParams}"
+             alt="${String(ticker).toUpperCase()} 1H chart with entry / stop / take-profit"
+             width="600"
+             style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px"
+           />
+         </a>
+         <div style="margin:4px 2px 0;font-size:10px;color:${BRAND.textMuted}">
+           1H chart · last ~2 trading days · refreshes every 5 min
+         </div>
+       </div>`
+    : "";
+
   const html = emailLayout(`
     <div style="border-left:3px solid ${headlineColor};padding:0 0 0 14px;margin:0 0 8px">
       <h1 style="margin:0 0 4px;font-size:18px;font-weight:700;color:white">
@@ -981,6 +1023,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
         ${trade_id ? ` &nbsp;·&nbsp; <span style="font-family:Menlo,Monaco,monospace;font-size:10px">${String(trade_id).slice(0, 24)}</span>` : ""}
       </p>
     </div>
+    ${chartImgHtml}
     ${posSection}
     ${trimSection}
     ${setupSection}
