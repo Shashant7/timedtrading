@@ -7,8 +7,35 @@
 
 import { getKillSwitch, readUser, writeUser } from "./bridge-storage.js";
 
+// 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
+// env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
+// as an override; that escape hatch is now removed so the deferral
+// is a code-level invariant. See worker/options-auto-mirror.js
+// → NAKED_SHORT_ARCHETYPES for the matching list at the engine level.
 const SHORT_SIDES = new Set(["short", "sell_short", "sellshort"]);
 const ALLOWED_LONG_SIDES = new Set(["buy", "long", "entry", "trim", "exit", "sell"]);
+
+// 2026-06-01 — Vehicle keys that align with worker/options-auto-mirror.js.
+// Naked-short keys are NOT listed — the bridge rejects any payload that
+// names one in `vehicle`.
+const RECOGNIZED_VEHICLES = new Set([
+  "equity_long",
+  "long_call",
+  "long_put",
+  "vertical_spread",
+  "leaps",
+  "straddle",
+  "moonshot",
+]);
+const NAKED_SHORT_VEHICLES = new Set([
+  "short_call",
+  "short_put",
+  "iron_condor_naked",
+  "short_straddle",
+  "short_strangle",
+  "short_combo",
+  "covered_call_naked",
+]);
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -23,6 +50,63 @@ function resolveUserCaps(env, user) {
     max_orders_per_day: Number(overrides.max_orders_per_day) || defaultPerDay,
     max_account_pct: Number(overrides.max_account_pct) || 0.25, // never put >25% of account on one order by default
   };
+}
+
+/**
+ * 2026-06-01 — Per-vehicle prefs gate. Called from preflightOrder after
+ * the global guards pass. Reads the user's `options_prefs.vehicles[k]`
+ * map (mirrored from worker/options-auto-mirror.js) and verifies:
+ *   1. The vehicle row exists and is enabled.
+ *   2. The order's notional respects the vehicle's max_per_order_usd.
+ *
+ * Returns { ok: true } when no vehicle is specified (equity orders
+ * without a vehicle field bypass this check; they're governed by the
+ * global per-user cap instead).
+ *
+ * Returns { ok: false, reject_reason } when any per-vehicle constraint
+ * is violated.
+ *
+ * Storage shape (set via POST /bridge/user/options-prefs):
+ *   user.options_prefs = {
+ *     vehicles: {
+ *       long_call: { enabled: true, max_per_order_usd: 200, daily_cap: 2, max_loss_per_order_usd: 75 },
+ *       ...
+ *     }
+ *   }
+ * Falls back to a permissive default (enabled=false for every option
+ * vehicle, enabled=true for equity_long) so a freshly-connected user
+ * with no prefs row can still place an equity order but cannot place
+ * any option order until they opt in via Mission Control.
+ */
+export function validateVehiclePrefs(payload, user) {
+  const vehicle = payload?.vehicle ? String(payload.vehicle).trim().toLowerCase() : null;
+  if (!vehicle) return { ok: true };
+  if (!RECOGNIZED_VEHICLES.has(vehicle)) {
+    return { ok: false, reject_reason: `unknown_vehicle:${vehicle}` };
+  }
+  const prefsVehicles = user?.options_prefs?.vehicles || {};
+  // Conservative defaults when no prefs exist: every option vehicle is
+  // OFF; equity_long is ON. Mirrors VEHICLE_DEFAULTS in the engine.
+  const defaultEnabled = vehicle === "equity_long";
+  const row = prefsVehicles[vehicle];
+  const enabled = row ? !!row.enabled : defaultEnabled;
+  if (!enabled) {
+    return { ok: false, reject_reason: `vehicle_${vehicle}_disabled_by_user` };
+  }
+  // Per-vehicle notional cap (when a price is supplied).
+  const entry = Number(payload.entry || payload.price_target || 0);
+  const qty = Number(payload.qty || 0);
+  if (entry > 0 && qty > 0 && row && Number(row.max_per_order_usd) > 0) {
+    const estValue = entry * qty;
+    if (estValue > Number(row.max_per_order_usd)) {
+      return {
+        ok: false,
+        reject_reason: `vehicle_${vehicle}_notional_${estValue.toFixed(0)}_exceeds_cap_${row.max_per_order_usd}`,
+        vehicle, estimated_value: estValue, vehicle_cap: row.max_per_order_usd,
+      };
+    }
+  }
+  return { ok: true, vehicle, vehicle_row: row };
 }
 
 // Pure validator. Does not mutate KV.
@@ -41,11 +125,23 @@ export function validateOrderShape(payload, env) {
     return { ok: false, reject_reason: `invalid_ticker:${ticker}` };
   }
   const side = String(payload.side || "").trim().toLowerCase();
-  if (SHORT_SIDES.has(side) && String(env?.REJECT_SHORT_SIDES).toLowerCase() !== "false") {
-    return { ok: false, reject_reason: "short_not_supported_by_robinhood" };
+  // Naked-short equity sides — HARD reject (no env override). The previous
+  // REJECT_SHORT_SIDES=false escape hatch is intentionally removed.
+  if (SHORT_SIDES.has(side)) {
+    return { ok: false, reject_reason: "naked_short_deferred" };
   }
-  if (!ALLOWED_LONG_SIDES.has(side) && !SHORT_SIDES.has(side)) {
+  if (!ALLOWED_LONG_SIDES.has(side)) {
     return { ok: false, reject_reason: `unknown_side:${side}` };
+  }
+  // Naked-short option vehicles — also hard-rejected. The vehicle field
+  // is only populated for option archetypes coming from auto-mirror; an
+  // equity order doesn't carry a vehicle, so its absence is fine.
+  const vehicle = payload.vehicle ? String(payload.vehicle).trim().toLowerCase() : null;
+  if (vehicle && NAKED_SHORT_VEHICLES.has(vehicle)) {
+    return { ok: false, reject_reason: `naked_short_vehicle_deferred:${vehicle}` };
+  }
+  if (vehicle && !RECOGNIZED_VEHICLES.has(vehicle)) {
+    return { ok: false, reject_reason: `unknown_vehicle:${vehicle}` };
   }
   const qty = Number(payload.qty);
   if (!Number.isFinite(qty) || qty <= 0) {
@@ -85,6 +181,11 @@ export async function preflightOrder(env, payload) {
   }
 
   const caps = resolveUserCaps(env, user);
+
+  // 2026-06-01 — Per-vehicle prefs gate (option archetypes only). Equity
+  // orders without a `vehicle` field bypass this and use the global caps.
+  const vehicleCheck = validateVehiclePrefs(payload, user);
+  if (!vehicleCheck.ok) return vehicleCheck;
 
   // Per-order $ cap.
   const entry = Number(payload.entry || payload.price_target || 0);
