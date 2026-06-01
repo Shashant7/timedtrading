@@ -6,6 +6,35 @@
 
 ---
 
+## Open-position freshness alert noise — streak gate + tighter threshold [2026-06-01]
+
+Operator received `Open-position candle data stale (worst 15.9h) — DIA, GS, AA — 5=16.2min` during RTH. Three large, liquid names all stale by ~16 minutes simultaneously = brief shared-feed gap (Alpaca SIP blip, worker rate-limit, or vendor flush). The trade-update cron auto-heals on its next tick and `__candle_data_stale` pauses management until then. The alert was correct but the bar to fire was too low.
+
+### Root cause
+
+`OPEN_POS_STALE_5M_RTH_MS = 15 min` × `notifyDiscord` fires on **first** still-stale sweep:
+- A healthy 5m feed already runs ~10-12 min stale (1 missed bar + 1-3 min ingest latency).
+- A single ~5 min Alpaca blip = ~15-17 min stale = trips the threshold.
+- Auto-heal sweeps once, fails, alerts immediately.
+- Next cron tick (≤5 min later) usually self-heals and the issue is over.
+- Net: operator pages for a sub-10-min outage that already resolved.
+
+### Fix
+
+1. **5m RTH threshold 15 → 20 min** (`worker/index.js`). Absorbs one transient missed bar; 3+ missed bars (real outage) still trips at 20+ min.
+2. **Streak gate** (`worker/index.js` `ensureOpenPositionCandlesFresh`): require **≥ 2 consecutive sweeps** with the SAME `(tickers × reasons)` signature before paging. KV key `timed:freshness:open_pos_streak:<sig>` with 30 min TTL — a non-repeating set never accumulates across unrelated incidents. The 24 h dedup key (`timed:freshness:open_pos_alert:<sig>`) still applies after first fire.
+3. **Clearer reason format**: was `5=16.2min`, now `5m: 16min stale (>20min)` with newline-joined fields in the embed. Operators see threshold inline so the "is this bad?" question is self-answering.
+4. **Description rewrite**: explicitly tells operator "pause auto-clears on next successful sweep, so no action is required unless the alert recurs in 24h." Removes the panic vector of seeing "management paused" without the self-heal context.
+
+### Rule
+
+When you instrument freshness on a feed that has natural latency floor:
+- The threshold MUST be > (one_bar_period + worst_observed_ingest_delay × 1.5).
+- The pager MUST require streak ≥ 2 unless you have an SLA that demands < 1-sweep MTTD. Transient blips on shared feeds (Alpaca SIP, TwelveData) are routine; alerting on N=1 turns a healthy backstop into noise.
+- The alert text MUST tell the operator what the system already did to recover (auto-heal attempted N times) and what auto-recovery is in flight (next sweep will retry). Otherwise they assume manual intervention is required and burn cycles.
+
+---
+
 ## NBIS sector + ARM/MRVL/SMCI cohort fixes [2026-06-01]
 
 Operator reported "NBIS, ARM and others running in RTH but the engine

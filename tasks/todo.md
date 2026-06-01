@@ -22,6 +22,19 @@
 
 ### Active
 
+- [x] **Open-position freshness alert noise — streak gate + 20min
+      5m RTH threshold (PR #426).** Operator paged for
+      `5=16.2min` on DIA/GS/AA — a 5-15 min shared-feed blip that
+      self-heals on the next cron tick. Three fixes in
+      `worker/index.js`: (1) bumped `OPEN_POS_STALE_5M_RTH_MS` from
+      15 → 20 min (absorbs one missed bar; 3+ missed still trips).
+      (2) Added streak gate — KV key
+      `timed:freshness:open_pos_streak:<sig>` (30 min TTL) requires
+      ≥ 2 consecutive sweeps with the SAME `(tickers × reasons)`
+      signature before paging. (3) Rewrote reason format from
+      `5=16.2min` → `5m: 16min stale (>20min)` and embed description
+      now explicitly states "pause auto-clears on next successful
+      sweep, so no action is required unless alert recurs in 24h."
 - [x] **Chart image in entry/trim/exit emails (PR #424).** New SVG chart
       renderer (`worker/chart-svg.js`) + public `GET /timed/chart-image
       ?ticker=&tf=60&bars=48&entry=X&sl=Y&tp=Z` endpoint pulls candles
