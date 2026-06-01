@@ -726,22 +726,26 @@ function BridgeSection({
   const [status, setStatus] = useState(null);
   const [audit, setAudit] = useState([]);
   const [recent, setRecent] = useState([]);
+  const [portfolio, setPortfolio] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, a, r] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
+      const [s, a, r, p] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, {
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/recent`, {
         credentials: "include"
+      }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/portfolio`, {
+        credentials: "include"
       }).then(x => x.json()).catch(() => null)]);
       setStatus(s);
       setAudit(a?.rows || []);
       setRecent(r?.rows || []);
+      setPortfolio(p);
       setErr(s?.error || null);
     } catch (e) {
       setErr(String(e.message || e));
@@ -816,7 +820,115 @@ function BridgeSection({
     className: "mc-kpi-value"
   }, recent.length), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, "From main worker \u2192 bridge"))), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "From main worker \u2192 bridge"))), portfolio?.users?.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+  }, "Account Balance & Positions"), portfolio.users.map(u => {
+    const ok = u?.portfolio?.ok;
+    const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions : Array.isArray(u?.positions) ? u.positions : [];
+    return React.createElement("div", {
+      key: u.user_id,
+      className: "mb-4",
+      style: {
+        padding: 10,
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: 8
+      }
+    }, React.createElement("div", {
+      className: "flex items-baseline justify-between mb-2 flex-wrap gap-2"
+    }, React.createElement("div", {
+      className: "flex items-baseline gap-2 flex-wrap"
+    }, React.createElement("strong", {
+      className: "text-white text-[13px]"
+    }, u.user_id), React.createElement("span", {
+      className: "mc-pill mc-pill-ok",
+      style: {
+        fontSize: 9
+      }
+    }, (u.broker || "ibkr").toUpperCase()), !ok && React.createElement("span", {
+      className: "mc-pill mc-pill-warn",
+      style: {
+        fontSize: 9
+      }
+    }, "portfolio unavailable")), ok && React.createElement("div", {
+      className: "flex items-baseline gap-4"
+    }, Number.isFinite(Number(u.equity_usd)) && React.createElement("div", {
+      className: "text-[11px]"
+    }, React.createElement("span", {
+      className: "mc-mute"
+    }, "Equity "), React.createElement("span", {
+      className: "font-mono font-semibold text-white"
+    }, "$", Number(u.equity_usd).toLocaleString("en-US", {
+      maximumFractionDigits: 0
+    }))), Number.isFinite(Number(u.cash_usd)) && React.createElement("div", {
+      className: "text-[11px]"
+    }, React.createElement("span", {
+      className: "mc-mute"
+    }, "Cash "), React.createElement("span", {
+      className: "font-mono text-white"
+    }, "$", Number(u.cash_usd).toLocaleString("en-US", {
+      maximumFractionDigits: 0
+    }))))), ok && positions.length > 0 && React.createElement("table", {
+      className: "mc-table"
+    }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Qty"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Avg Cost"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Mkt Value"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Unrlz P&L"))), React.createElement("tbody", null, positions.map((p, i) => {
+      const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
+      const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
+      const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+      const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
+      const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+      return React.createElement("tr", {
+        key: `${u.user_id}-${sym}-${i}`
+      }, React.createElement("td", {
+        className: "font-mono"
+      }, sym), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(qty) ? qty.toLocaleString("en-US", {
+        maximumFractionDigits: 2
+      }) : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US", {
+        maximumFractionDigits: 0
+      })}` : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: `font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`
+      }, Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString("en-US", {
+        maximumFractionDigits: 0
+      })}` : "—"));
+    }))), ok && positions.length === 0 && React.createElement("div", {
+      className: "text-[11px] mc-mute italic"
+    }, "No open positions."), !ok && u?.portfolio?.error && React.createElement("div", {
+      className: "text-[11px] text-amber-300"
+    }, String(u.portfolio.error).slice(0, 240)));
+  })), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
   }, "Per-User Status"), React.createElement("table", {
     className: "mc-table mb-4"
@@ -2114,6 +2226,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780282383683:57663850
+// cache-bust:1780284039047:816124933
 
-// cache-bust:1780282383683:57663850
+// cache-bust:1780284039047:816124933

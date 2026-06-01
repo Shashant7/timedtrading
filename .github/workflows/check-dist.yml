@@ -59,10 +59,19 @@ jobs:
           # so HTML files would diff on the `?v=` line and the check would
           # generate a false-positive failure email on every PR touching
           # react-app/ — even when react-app-dist/ was perfectly rebuilt.
-          # See PR #303 for the diagnosis. The added alternation matches
-          # the `?v=<digits>` query string anywhere on the script-tag
-          # line, INCLUDING the surrounding indentation.
-          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script src="[^"]+\.compiled\.js\?v=[0-9]+"></script>[[:space:]]*$'
+          # See PR #303 for the diagnosis.
+          #
+          # 2026-06-01 — Broadened to cover non-compiled `.js` shared
+          # bundles too. PR #398 added a build-time pass that rewrites
+          # the `?v=…` on EVERY <script src="*.js"> (auth-gate.js,
+          # tt-activity-strip.js, tt-nav-extras.js, etc.) so each deploy
+          # auto-busts the cache on those files. The old pattern only
+          # matched `*.compiled.js`, so every new build produced a diff
+          # in 20+ HTML files on the auto-bumped shared-script lines
+          # — false failure on every PR touching react-app/. New
+          # pattern accepts any `.js` (with optional `.compiled.`) and
+          # optional `defer` (or other) attributes after the src.
+          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script src="[^"]+\.(compiled\.)?js\?v=[0-9]+"[^>]*></script>[[:space:]]*$'
           if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" -- react-app-dist/; then
             echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
             echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
