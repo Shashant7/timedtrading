@@ -6,6 +6,7 @@
 // { ok: false, reject_reason } and the caller logs + refuses.
 
 import { getKillSwitch, readUser, writeUser } from "./bridge-storage.js";
+import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
 // env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
@@ -53,8 +54,8 @@ function resolveUserCaps(env, user) {
 }
 
 /**
- * 2026-06-01 — Per-vehicle prefs gate. Called from preflightOrder after
- * the global guards pass. Reads the user's `options_prefs.vehicles[k]`
+ * 2026-06-01 — Per-vehicle prefs gate (PR #412). Called from preflightOrder
+ * after the global guards pass. Reads the user's `options_prefs.vehicles[k]`
  * map (mirrored from worker/options-auto-mirror.js) and verifies:
  *   1. The vehicle row exists and is enabled.
  *   2. The order's notional respects the vehicle's max_per_order_usd.
@@ -107,6 +108,188 @@ export function validateVehiclePrefs(payload, user) {
     }
   }
   return { ok: true, vehicle, vehicle_row: row };
+}
+
+// 2026-06-01 — Phase B: manifest-aware reducer.
+//
+// Reads the mirror_trade_manifest row for (user_id, trade_id,
+// broker_account_id) BEFORE running the portfolio check, and gates
+// reducing/closing actions on what the bridge actually opened.
+//
+// Decision matrix (§4.1 of tasks/2026-06-01-trade-aware-mirror-sync-design.md):
+//
+//   Open (entry / buy / add / dca_buy):
+//     - No manifest gate. Phase A writer handles row creation.
+//
+//   Reduce (trim):
+//     - manifest missing → REJECT (no_manifest_for_trade)
+//     - sync_state == 'pending' → REJECT (entry not yet confirmed)
+//     - sync_state in {rejected, mothership_orphan, mirror_suppressed,
+//       expired, untracked} → REJECT (with specific reason)
+//     - mirror_suppressed=1 → REJECT (mirror_suppressed)
+//     - sync_state in {in_sync, partial_fill, broker_orphan} → PROCEED
+//     - partial_fill + BROKER_PARTIAL_FILL_MODE='scale' → scale qty
+//
+//   Close (exit / close / sell):
+//     - manifest missing → REJECT (no_manifest_for_trade)
+//     - sync_state in {pending, rejected, mothership_orphan,
+//       mirror_suppressed, expired} → REJECT
+//     - sync_state in {in_sync, partial_fill, broker_orphan,
+//       untracked} → PROCEED (we're TRYING to close — broker_orphan
+//       included so the exit can mop up an open broker position)
+//
+// Phase A writer leaves rejected entries with sync_state='rejected'
+// + mirror_suppressed=1, so a follow-on TRIM/EXIT on a rejected
+// trade_id is correctly rejected here as 'mirror_suppressed'.
+//
+// Failure mode: if the manifest table is missing or the read throws,
+// fail-OPEN (allow the order, log a warning). The portfolio guard
+// (PR #409) is the last-line defense.
+//
+// Rollout safety: gated by env BROKER_MANIFEST_ENFORCE.
+//   'on' (default in prod once Phase A has data) → reject per matrix
+//   'log' → log decision but allow order (shadow mode)
+//   'off' → skip entirely (back-compat)
+export async function manifestAwareReducerCheck(env, payload, user) {
+  const mode = String(env?.BROKER_MANIFEST_ENFORCE || "on").toLowerCase();
+  if (mode === "off") return { ok: true, skipped: "manifest_enforce_off" };
+
+  const lifecycle = classifyOrderLifecycle(payload?.side);
+  if (lifecycle !== "reduce" && lifecycle !== "close") {
+    // Entries don't read the manifest — the writer creates the row.
+    return { ok: true, lifecycle };
+  }
+
+  const tradeId = String(payload?.trade_id || "").trim();
+  if (!tradeId) {
+    // Reducing/closing without a trade_id is fundamentally unsafe in
+    // trade-aware mirror mode — we can't map this back to a manifest
+    // row. Reject unless explicit opt-out is set.
+    if (String(env?.BROKER_MANIFEST_ALLOW_UNTAGGED_REDUCERS || "false").toLowerCase() === "true") {
+      return { ok: true, skipped: "untagged_reducer_allowed_by_env" };
+    }
+    return {
+      ok: false,
+      reject_reason: "reducer_missing_trade_id_for_manifest_lookup",
+      lifecycle,
+    };
+  }
+
+  const userId = String(payload?.user_id || user?.user_id || "").toLowerCase();
+  const brokerAccountId = String(
+    user?.rh_account_number
+      ?? user?.account_id
+      ?? user?.ibkr_account_id
+      ?? user?.broker_account_id
+      ?? "default"
+  );
+
+  let row = null;
+  try {
+    row = await readManifestRow(env, userId, tradeId, brokerAccountId);
+  } catch (e) {
+    console.warn(`[MANIFEST] reducer-check read failed for ${userId}/${tradeId}:`,
+      String(e?.message || e).slice(0, 200));
+    // Fail open in shadow / on read error so we don't lock the operator
+    // out of the platform if the D1 table is degraded.
+    return { ok: true, skipped: "manifest_read_error_fail_open" };
+  }
+
+  if (!row) {
+    // No manifest = the bridge never opened this trade.
+    if (mode === "log") {
+      console.warn(`[MANIFEST] would_reject ${payload.side} on ${payload.ticker}/${tradeId}: no_manifest_for_trade`);
+      return { ok: true, skipped: "log_mode_no_manifest" };
+    }
+    return {
+      ok: false,
+      reject_reason: "no_manifest_for_trade",
+      lifecycle,
+      details: { trade_id: tradeId, broker_account_id: brokerAccountId },
+    };
+  }
+
+  // Operator-set suppression always wins.
+  if (Number(row.mirror_suppressed) === 1) {
+    const reason = String(row.mirror_suppressed_reason || "operator_suppressed").slice(0, 200);
+    if (mode === "log") {
+      console.warn(`[MANIFEST] would_reject ${payload.side} on ${payload.ticker}/${tradeId}: mirror_suppressed (${reason})`);
+      return { ok: true, skipped: "log_mode_suppressed" };
+    }
+    return {
+      ok: false,
+      reject_reason: `mirror_suppressed:${reason}`,
+      lifecycle,
+      manifest_sync_state: row.sync_state,
+    };
+  }
+
+  const state = String(row.sync_state || "unknown");
+
+  if (lifecycle === "reduce") {
+    const PROCEED = new Set(["in_sync", "partial_fill", "broker_orphan"]);
+    const REJECT = new Set(["pending", "rejected", "mothership_orphan", "expired", "untracked", "mirror_suppressed", "reconcile_error"]);
+    if (PROCEED.has(state)) {
+      let scaledQty = null;
+      if (state === "partial_fill" && String(env?.BROKER_PARTIAL_FILL_MODE || "scale").toLowerCase() === "scale") {
+        const ratio = Number(row.model_intended_qty) > 0
+          ? Number(row.broker_filled_qty) / Number(row.model_intended_qty)
+          : 1;
+        if (ratio > 0 && ratio < 1 && Number(payload?.qty) > 0) {
+          scaledQty = Math.max(1, Math.floor(Number(payload.qty) * ratio));
+        }
+      }
+      return {
+        ok: true,
+        lifecycle,
+        manifest_sync_state: state,
+        broker_remaining_qty: Number(row.broker_remaining_qty) || null,
+        scaled_qty: scaledQty,
+      };
+    }
+    if (REJECT.has(state)) {
+      if (mode === "log") {
+        console.warn(`[MANIFEST] would_reject ${payload.side} on ${payload.ticker}/${tradeId}: sync_state=${state}`);
+        return { ok: true, skipped: `log_mode_state_${state}` };
+      }
+      return {
+        ok: false,
+        reject_reason: `reducer_blocked_by_sync_state:${state}`,
+        lifecycle, manifest_sync_state: state,
+      };
+    }
+    // Unknown state → fail open (log) so we don't surprise the operator.
+    console.warn(`[MANIFEST] unknown sync_state '${state}' for reducer ${payload.ticker}/${tradeId}; failing open`);
+    return { ok: true, skipped: `unknown_state_${state}_fail_open`, manifest_sync_state: state };
+  }
+
+  if (lifecycle === "close") {
+    const PROCEED = new Set(["in_sync", "partial_fill", "broker_orphan", "untracked"]);
+    const REJECT = new Set(["pending", "rejected", "mothership_orphan", "expired", "mirror_suppressed", "reconcile_error"]);
+    if (PROCEED.has(state)) {
+      return {
+        ok: true,
+        lifecycle,
+        manifest_sync_state: state,
+        broker_remaining_qty: Number(row.broker_remaining_qty) || null,
+      };
+    }
+    if (REJECT.has(state)) {
+      if (mode === "log") {
+        console.warn(`[MANIFEST] would_reject ${payload.side} on ${payload.ticker}/${tradeId}: sync_state=${state}`);
+        return { ok: true, skipped: `log_mode_state_${state}` };
+      }
+      return {
+        ok: false,
+        reject_reason: `closer_blocked_by_sync_state:${state}`,
+        lifecycle, manifest_sync_state: state,
+      };
+    }
+    console.warn(`[MANIFEST] unknown sync_state '${state}' for closer ${payload.ticker}/${tradeId}; failing open`);
+    return { ok: true, skipped: `unknown_state_${state}_fail_open`, manifest_sync_state: state };
+  }
+
+  return { ok: true, lifecycle };
 }
 
 // Pure validator. Does not mutate KV.
@@ -182,10 +365,20 @@ export async function preflightOrder(env, payload) {
 
   const caps = resolveUserCaps(env, user);
 
-  // 2026-06-01 — Per-vehicle prefs gate (option archetypes only). Equity
-  // orders without a `vehicle` field bypass this and use the global caps.
+  // 2026-06-01 — Per-vehicle prefs gate (PR #412 — option archetypes
+  // only). Equity orders without a `vehicle` field bypass this and use
+  // the global caps below.
   const vehicleCheck = validateVehiclePrefs(payload, user);
   if (!vehicleCheck.ok) return vehicleCheck;
+
+  // 2026-06-01 — Phase B: manifest-aware reducer. For TRIM/EXIT orders,
+  // require a matching manifest row in the right sync_state. Cheap
+  // (single SELECT, no broker call) and gates BEFORE the portfolio
+  // check so we get an early reject on naked closes that the model
+  // emitted for a position the bridge never opened. Entries (lifecycle
+  // = 'open') skip this check — Phase A's writer creates their row.
+  const manifestCheck = await manifestAwareReducerCheck(env, payload, user);
+  if (!manifestCheck.ok) return manifestCheck;
 
   // Per-order $ cap.
   const entry = Number(payload.entry || payload.price_target || 0);
@@ -220,6 +413,12 @@ export async function preflightOrder(env, payload) {
     user,
     caps,
     estimated_value: estValue,
+    // 2026-06-01 — Phase B: pass through the manifest check's findings
+    // so the caller can inspect / log them and (in Phase D's options
+    // flow) act on partial-fill scaling.
+    manifest_sync_state: manifestCheck.manifest_sync_state || null,
+    broker_remaining_qty: manifestCheck.broker_remaining_qty ?? null,
+    scaled_qty: manifestCheck.scaled_qty ?? null,
   };
 }
 

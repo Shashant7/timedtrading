@@ -31,7 +31,7 @@ import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
-  classifyOrderLifecycle,
+  classifyOrderLifecycle, markManifestModelClosed,
 } from "./bridge-manifest.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -700,16 +700,10 @@ async function handleOrderWebhook(env, ctx, payload) {
   });
   if (place.ok) {
     await bumpDailyCounter(env, sanitized.user_id);
+    const lifecycle = classifyOrderLifecycle(sanitized.side);
     // 2026-06-01 — Phase A: stamp the manifest with the entry-tracker
-    // row + order ID. Only fires for ENTRY/ADD orders (TRIM/EXIT are
-    // handled by Phase B's reducer once it ships). Best-effort: a
-    // manifest write failure does NOT undo the placed order — the
-    // reconciler will pick up the broker position on its next pass
-    // and create the row from the broker side instead.
-    if (classifyOrderLifecycle(sanitized.side) === "open" && sanitized.trade_id) {
-      // place.response.filled_qty may not be present for limit orders
-      // that haven't filled yet; track the requested qty and let the
-      // reconciler update the filled_qty when the fill confirms.
+    // row + order ID on a successful ENTRY/ADD.
+    if (lifecycle === "open" && sanitized.trade_id) {
       const filledQty = Number(place?.response?.filled_qty
         ?? place?.response?.cumulative_quantity
         ?? 0);
@@ -722,6 +716,22 @@ async function handleOrderWebhook(env, ctx, payload) {
         console.warn(`[MANIFEST] entry write skipped for ${sanitized.user_id}/${sanitized.trade_id}: ${mfRes.reason}`);
       }
     }
+    // 2026-06-01 — Phase B: on a successful EXIT, flip the manifest
+    // row's model_status to 'CLOSED' so the reconciler (Phase C) knows
+    // a follow-on broker position is now an orphan (broker_orphan)
+    // rather than a still-open trade. TRIM/SL/TP fills don't flip the
+    // top-level model_status — they just update the broker_*_order_ids
+    // arrays (Phase C does that).
+    if (lifecycle === "close" && sanitized.trade_id) {
+      const accountId = String(
+        user?.rh_account_number ?? user?.account_id
+        ?? user?.ibkr_account_id ?? user?.broker_account_id ?? "default"
+      );
+      const exitReason = sanitized?.decision_reason || sanitized?.exit_reason || "exit";
+      markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, accountId, {
+        exitReason, exitTs: Date.now(),
+      }).catch(e => console.warn("[MANIFEST] markClosed failed:", String(e?.message || e).slice(0, 160)));
+    }
   }
 
   return json({
@@ -729,6 +739,7 @@ async function handleOrderWebhook(env, ctx, payload) {
     rh_order_id: rhOrderId,
     place_status: place.response?.status,
     review_warnings: reviewWarnings,
+    manifest_sync_state: pf.manifest_sync_state || null,
     mock: !!place.mock,
     latency_ms: Date.now() - t0,
   }, 200);
