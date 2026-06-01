@@ -22,6 +22,35 @@
 
 ### Active
 
+- [x] **Options engine emits LEAPs for long-direction tickers (Investor
+      primary, Trader alternative).** New `leap_call` archetype +
+      `pickLeapExpiration()` (~540 DTE, snapped to 3rd Friday, floored at
+      365 DTE for true LEAP status) + `buildLeapCall()` baked with the full
+      stock-replacement framework (deep-ITM 0.80Δ default, PMCC follow-on
+      suggestion, T-180 day roll discipline, IV-aware entry caveat,
+      capital-efficiency floor warning, LEAP-aware liquidity tolerance).
+      `buildOptionsLadder()` always inserts a LEAP into the long-side
+      ladder for any long-direction ticker — `_investor_boost` pins it
+      primary only on Investor stage; Trader stage keeps Long Call as
+      primary with LEAP as an alternative below.
+- [x] **Right-rail Options tab: Horizon toggle (Trader / Investor LEAP).**
+      `/timed/options/ticker?mode=investor` forces `stage='investor'` +
+      `direction='LONG'` so the engine pins the LEAP as primary. The
+      in-panel toggle auto-detects from the host URL on mount
+      (investor.html → investor) and is operator-overridable. LEAP
+      metadata (roll target, PMCC suggestion, capital efficiency, IV
+      assessment) renders through the existing primary-play card + notes
+      bullet list — no further UI work was needed beyond the toggle.
+- [x] **Trader + Investor entry alerts include the recommended options play.**
+      New shared formatters `compactOptionsPlay()`, `optionsPlayDiscordField()`
+      (Discord 1024-char-safe), and `optionsPlayEmailHtml()` in
+      `worker/options-plays.js`. Trader entry path (kanban + trade-sim) and
+      Investor entry path each call `buildEntryOptionsPlay()` which routes
+      through the right mode → ladder primary, then attaches a single Discord
+      field and an `options_play` payload to `sendTradeAlertEmail()`. Email
+      renders a new "Options Play" section between Setup and Signals. Sample
+      fixtures (`/timed/admin/send-sample-emails`) now include `trade_entry`
+      (Trader long-call) and `investor_entry_leap` (Investor LEAP).
 - [ ] **Investigate CF error 1042 on broker-bridge subrequests.** Worker-to-worker
       HTTPS fetch to `tt-broker-bridge.shashant.workers.dev` returns
       404 + `error code: 1042` (Cloudflare loopback rejection). Migrate

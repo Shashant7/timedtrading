@@ -6,6 +6,143 @@
 
 ---
 
+## LEAPs as the Investor-mode options expression [2026-06-01]
+
+### Investor mode needed its own options archetype
+
+When the options engine first launched, every entry — Trader or Investor — got
+the same ladder of long calls, vertical spreads, and (when conditions aligned)
+moonshots. For Investor-mode entries that's the wrong abstraction: an Investor
+position is a multi-month-to-multi-year thesis, but the longest expiration the
+ladder ever picked was the "investor stage" 90-DTE bucket in `pickExpiration()`.
+A 90-DTE long call expressed against a "I'm bullish on AAPL for 18 months" thesis
+is a theta trap, not a leveraged share substitute.
+
+**Rule:** Map the option vehicle to the **horizon** of the underlying thesis,
+not just to the verdict mode. Investor → LEAPs (≥ 365 DTE, deep ITM, ~0.80 delta);
+Trader → short-dated singles + spreads + (when activated) moonshots.
+
+Implemented in `worker/options-plays.js`:
+
+- New `pickLeapExpiration()` snaps to the 3rd Friday of the target month
+  (~540 DTE target, never below 365 DTE).
+- New `buildLeapCall()` builder, deep-ITM (0.80Δ default), with LEAP-specific
+  metadata (`shares_equivalent`, `capital_efficiency`, "Roll target" note) so
+  the rationale reads as a stock-replacement thesis instead of a swing trade.
+- `buildOptionsLadder()` inserts the LEAP at the top of the long-side ladder
+  when `classifySetupStage(contract) === "investor"`.
+- `rankByProfile()` honors a new `_investor_boost` flag so the LEAP wins the
+  primary slot across conservative / moderate / aggressive profiles (Speculator
+  still gets the moonshot when active — that's a different user intent).
+- `PROFILE_META.preferred` updated: `leap_call` now ranks high for the
+  Conservative profile too, since LEAPs are exactly what conservative investors
+  want (defined max loss, no margin call, no forced exit on drawdown).
+
+### Entry notifications should show the equity entry AND the options play
+
+Trader entries fired Discord embeds + emails with SL/TP/setup/AI-CIO, but the
+recommended options play (the ladder primary) lived only in the in-app Today
+page. Subscribers reading the alert had to context-switch into the dashboard
+to see the option expression — friction at the moment of decision.
+
+**Rule:** When a TRADE_ENTRY fires, surface the recommended options play
+inline in the alert. One Discord field, one email section. Use the existing
+ladder primary; don't re-compute the strategy menu.
+
+Implemented:
+
+- `compactOptionsPlay(play, meta)` → normalized shape (lines, net cost, max
+  loss, max gain, breakeven, LEAP extras).
+- `optionsPlayDiscordField(compact)` → single Discord field, hard-capped at
+  1024 chars (truncates rationale at word boundary).
+- `optionsPlayEmailHtml(compact)` → HTML section for `sendTradeAlertEmail()`.
+- New helper `buildEntryOptionsPlay({ ticker, direction, price, sl, tp, mode,
+  tickerData, env })` in `worker/index.js` that owns the build → compact
+  pipeline so every entry callsite uses the same code path. Investor mode →
+  LEAP primary; Trader mode → short-dated ladder primary.
+
+Wired into Trader-entry path (kanban + trade-sim) AND Investor-entry path so
+both pipelines emit a parity-formatted Discord field + email section. Sample
+fixtures (`/timed/admin/send-sample-emails`) now exercise both `trade_entry`
+(Trader long-call) and `investor_entry_leap` (Investor LEAP) so operators can
+preview the new email format without waiting for a live signal.
+
+### Anti-pattern to avoid going forward
+
+Don't pass `null` for `sl` / `tp` into the options engine and expect it to
+fail. The engine now synthesizes ATR-based defaults (`buildEntryOptionsPlay`
+falls back to `price ± 3%` when SL/TP are missing). This was needed because
+Investor entries don't have a tight SL/TP at decision time — long-term theses
+exit on thesis change, not on a stop. The LEAP play doesn't lean heavily on
+SL/TP geometry anyway (max loss = premium, breakeven is intrinsic, exit is
+your thesis), so the defaults are safe.
+
+### Carter stock-replacement framework — fully baked into the LEAP builder
+
+The first LEAP commit only captured the headline elements (deep-ITM 0.80Δ,
+roll target in plain text, capital-efficiency note). Operator feedback
+prompted us to incorporate the full framework from Carter's *Mastering The
+Trade* — credited in code comments only, not in user-facing copy, per the
+prior rule that author names (Carter / Saty / Ripster / Newton / Huddleston)
+must not appear in the UI. The full set now includes:
+
+- **PMCC follow-on suggestion** — sells a 5% OTM, ~35 DTE call against
+  the LEAP to monetize theta once the thesis confirms. Exposed both as a
+  structured `pmcc_suggestion` field (strike, DTE target, rationale) and
+  as a plain-English bullet in `notes`. We don't auto-build the short leg;
+  it's operator guidance so the LEAP isn't "set and forget."
+- **T-180 day roll discipline** — close at T-180 days, roll to the next-
+  year LEAP cycle, never carry into the last 6 months. Exposed as a
+  `roll_target` field ('T-180_days' for healthy LEAPs,
+  'roll_now_to_longer_leap' for contracts already inside the cliff).
+- **IV-aware entry caveat** — surfaces an explicit ⚠ warning when IV
+  > 55% (expensive vol on a long-vega contract — vol crush is real) and
+  a ✓ confirmation when IV < 30% (favorable entry timing). Exposed as
+  `iv_at_entry` + `iv_assessment` fields.
+- **Capital-efficiency floor (3-5× target)** — explicit ⚠ warning when
+  efficiency drops below 2.5× (strike probably too deep ITM, or LEAP is
+  the wrong tool for this name).
+- **LEAP-aware liquidity tolerance** — separate OI / volume thresholds
+  for LEAPs (OI<25 hard, vol<5 hard) vs short-dated singles (OI<100,
+  vol<50). LEAPs trade an order of magnitude thinner because most holders
+  sit on them, and the blanket weekly-tuned thresholds were producing
+  false-positive 'illiquid' warnings on every distant AAPL/MSFT contract.
+
+### LEAPs in the right-rail Options tab — discoverability for both horizons
+
+Operator question: "I assume we would place the LEAP plays in the existing
+Options tab on the right rail."
+
+Two design wrinkles surfaced when wiring this up:
+
+1. The existing `/timed/options/ticker` route hardcoded `mode: 'trader'`
+   and derived stage from `kanban_stage` (a Trader-mode concept). LEAPs
+   never appeared in the rail because `classifySetupStage(contract)` never
+   returned `'investor'` from that input.
+2. The right-rail Options tab is one tab; it doesn't have a separate
+   "Investor Options" sub-tab. So the same component had to serve both
+   horizons.
+
+Fix:
+- Engine: ALWAYS insert a LEAP card into the long-side ladder for any
+  long-direction ticker. The `_investor_boost` flag still only fires on
+  explicit investor stage — so Trader-mode rails see Long Call as primary
+  with LEAP listed below as the long-term alternative, while Investor-
+  mode rails (via `?mode=investor`) pin the LEAP as primary.
+- Route: `/timed/options/ticker?mode=investor` forces `stage='investor'`
+  + `direction='LONG'` in the ladder input.
+- Frontend: new in-panel Horizon toggle (Trader · short-dated / Investor
+  · LEAP). Auto-detects from `window.location.pathname` (investor.html →
+  investor) and is always operator-overridable so users can preview both
+  horizons on any ticker without leaving the rail.
+
+Rule: when a backend route is sticky on a single mode but the UI hosts
+multiple modes, prefer a single ladder that emits BOTH expressions and
+flag the primary via metadata, rather than forcing the UI to choose which
+endpoint to call. Same data, two views — fewer code paths to keep in sync.
+
+---
+
 ## Mission Control polish + docs library [2026-05-30 evening]
 
 ### Frontend "click did nothing" needs INLINE feedback, not `alert()`
