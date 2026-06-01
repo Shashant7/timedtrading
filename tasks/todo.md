@@ -22,6 +22,31 @@
 
 ### Active
 
+- [x] **Investor Sim-eligible filter — backfill + chip counts + tickerData
+      passthrough.** Three fixes for the operator report that clicking
+      "Sim-eligible" emptied the lane while the dashboard still showed
+      90 in Accumulate.
+      (1) `/timed/investor/scores` now backfills `simEligible` +
+      `_stDirD/W/M` on the read path when the underlying KV scoring
+      blob predates the field (returns `simEligible: null` to mark
+      "unknown — data not yet populated").
+      (2) Panel filter now treats `simEligible === null` as **unknown**
+      (keeps visible) instead of hard-exclude, so the lane doesn't
+      silently empty when the cron hasn't repopulated.
+      (3) Chip label shows `Sim-eligible (N+M?)` where N = strictly
+      eligible, M = unknown — so the operator always sees a number that
+      matches the lane.
+      (4) `investor.html` now passes `data` (from `/timed/all`) as
+      `tickerData` to InvestorPanel so the fallback recompute has
+      structural fields (tf_tech.D.stDir, monthly_bundle.supertrend_dir).
+- [x] **MC: Run Calibration button + stale-message cleanup.** The
+      Last Calibration KPI in Mission Control now has a "Run ⚙"
+      button that opens `/calibration.html?auto=run` in a new tab.
+      `/timed/calibration/status` no longer claims "Waiting for next
+      half-hour cron" (the cron-based pipeline was removed in April);
+      now points operator at `POST /timed/calibration/run` and
+      `scripts/calibrate.js`. wrangler.toml comment updated to note
+      the half-hour slot is reserved/no-op.
 - [x] **Investor Accumulate lane polish — tighter default + Sim-eligible
       filter.** Bumped `accumulate_strong_score_min` default 65 → 70 in
       `worker/investor.js` (the in-zone path stays permissive). Added a

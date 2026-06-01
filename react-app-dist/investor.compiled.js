@@ -484,6 +484,23 @@ function InvestorApp() {
   }, [RailOverlay, applyRailOpen]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGroup, setFilterGroup] = useState(null);
+  const chipCounts = useMemo(() => {
+    let actionable = 0,
+      simEligible = 0,
+      simUnknown = 0;
+    const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
+    for (const row of list) {
+      const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+      if (stage !== "accumulate" && stage !== "reduce") continue;
+      actionable++;
+      if (row?.simEligible === true) simEligible++;else if (row?.simEligible == null) simUnknown++;
+    }
+    return {
+      actionable,
+      simEligible,
+      simUnknown
+    };
+  }, [investorScores]);
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -538,11 +555,11 @@ function InvestorApp() {
     className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
     onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
     title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
-  }, "Actionable"), h("button", {
+  }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`), h("button", {
     className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
     onClick: () => setFilterGroup("SIM_ELIGIBLE"),
-    title: "Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish"
-  }, "Sim-eligible"), h("button", {
+    title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`
+  }, `Sim-eligible${chipCounts.simEligible + chipCounts.simUnknown > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`), h("button", {
     className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
     onClick: () => setFilterGroup("SAVED"),
     title: "Your saved tickers (star icon on any card)",
@@ -554,7 +571,8 @@ function InvestorApp() {
     toggleSavedTicker: toggleSaved,
     selectedTicker: null,
     searchQuery,
-    filterGroup
+    filterGroup,
+    tickerData: data
   }) : h("div", null, h("div", {
     className: "tt-card tt-card-pad",
     style: {
@@ -603,6 +621,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780323671360:918566451
+// cache-bust:1780326848286:393009456
 
-// cache-bust:1780323671360:918566451
+// cache-bust:1780326848286:393009456

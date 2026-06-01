@@ -2213,10 +2213,27 @@ function MissionControl({
   }, "Last Calibration"), React.createElement("div", {
     className: "mc-kpi-value text-[16px]"
   }, mp.last_calibration?.days_ago != null ? `${mp.last_calibration.days_ago}d ago` : "—"), React.createElement("div", {
-    className: "mc-kpi-sub"
+    className: "mc-kpi-sub",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6
+    }
   }, mp.last_calibration?.days_ago != null && mp.last_calibration.days_ago > 14 ? React.createElement("span", {
     className: "mc-warn"
-  }, "Due (>14d)") : "Healthy"))), (() => {
+  }, "Due (>14d)") : React.createElement("span", null, "Healthy"), React.createElement("button", {
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 9,
+      padding: "2px 6px"
+    },
+    title: "Run a 14-day calibration analysis. Diagnostic by default \u2014 click 'Apply' on the next screen to commit. Heavy runs should still use scripts/calibrate.js locally.",
+    onClick: () => {
+      if (!confirm("Run calibration analysis?\n\n" + "This kicks off /timed/calibration/run with a 14-day window.\n" + "Diagnostic-only by default — no model changes are committed.\n\n" + "Review results on /calibration.html and click Apply there\n" + "to commit. For deep runs, use scripts/calibrate.js locally.")) return;
+      window.open("/calibration.html?auto=run", "_blank");
+    }
+  }, "Run \u2699")))), (() => {
     const unrealizedTotal = Number(data?.positions?.unrealized_total_usd ?? mp?.unrealized_usd) || 0;
     const realized7d = Number(trailing?.d7?.pnl_usd) || 0;
     const total7d = realized7d + unrealizedTotal;
@@ -3184,6 +3201,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780323671360:918566451
+// cache-bust:1780326848286:393009456
 
-// cache-bust:1780323671360:918566451
+// cache-bust:1780326848286:393009456

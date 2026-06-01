@@ -712,25 +712,42 @@
       // alignment matching the simulator's gate
       // (worker/index.js:36692-36698). Required: Monthly bullish AND
       // ≥2 of (D, W, M) bullish. stDir Pine convention: -1 = bullish.
+      //
       // The scoring cron pre-computes `simEligible` + `_stDirD/W/M` on
-      // each row of /timed/investor/scores (see worker/index.js
-      // investorResults[ticker] = { ..., simEligible }). We prefer the
-      // pre-computed flag; legacy/light payloads without it fall back
-      // to either the structural fields on `tickerData` or, if those
-      // are also missing, to filtering OUT (sim-eligible is meant to
-      // be the strict cohort, so unknowns are excluded).
+      // each row of /timed/investor/scores. The /scores endpoint also
+      // backfills these fields on the read path when the underlying
+      // KV blob predates the field (returns `simEligible: null` to
+      // mark "unknown — data not yet populated").
+      //
+      // Filter semantics:
+      //   - simEligible === true  → INCLUDE
+      //   - simEligible === false → EXCLUDE (gate explicitly failed)
+      //   - simEligible === null  → INCLUDE as "unknown" (operator sees
+      //     these so the lane doesn't go silently empty when the cron
+      //     hasn't re-run since the field was added — the underlying
+      //     simulator may or may not pick them up; better to surface
+      //     than to hide). Operator clears the unknown bucket by
+      //     POSTing /timed/investor/compute.
       if (filterGroup === "SIM_ELIGIBLE") {
         list = list.filter(t => {
           const stage = String(t?.stage || "").toLowerCase();
           if (stage !== "accumulate" && stage !== "reduce") return false;
-          if (typeof t?.simEligible === "boolean") return t.simEligible;
+          if (t?.simEligible === true) return true;
+          if (t?.simEligible === false) return false;
+          // null / undefined → unknown; keep visible but the panel
+          // can render an indicator.
+          // Try one more fallback before bailing — perhaps tickerData
+          // has the structural fields even if the score row didn't.
           const td = tickerData?.[t.ticker] || {};
           const dStBull = (t?._stDirD ?? td?.tf_tech?.D?.stDir) === -1;
           const wStBull = (t?._stDirW ?? td?.tf_tech?.W?.stDir) === -1;
           const mStBull = (t?._stDirM ?? td?.monthly_bundle?.supertrend_dir) === -1;
-          if (!mStBull) return false;
-          const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
-          return bullCount >= 2;
+          if (mStBull) {
+            const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
+            return bullCount >= 2;
+          }
+          // Treat as unknown — keep visible.
+          return true;
         });
       }
       if (allowedTickerSet instanceof Set) {

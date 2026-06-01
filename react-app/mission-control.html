@@ -2042,10 +2042,32 @@
                           ? `${mp.last_calibration.days_ago}d ago`
                           : "—"}
                       </div>
-                      <div className="mc-kpi-sub">
+                      <div className="mc-kpi-sub" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                         {mp.last_calibration?.days_ago != null && mp.last_calibration.days_ago > 14
-                          ? <span className="mc-warn">Due (>14d)</span>
-                          : "Healthy"}
+                          ? <span className="mc-warn">Due (&gt;14d)</span>
+                          : <span>Healthy</span>}
+                        {/* 2026-06-01 — operator-initiated calibration.
+                            POSTs /timed/calibration/run with diagnostic_only=false
+                            to actually update model_config. Defaults to a
+                            14-day window which is the same period the
+                            'Due' warning uses. Local /scripts/calibrate.js
+                            remains the preferred path for heavy runs;
+                            this button is the in-app quick-start. */}
+                        <button
+                          className="mc-btn mc-btn-ok"
+                          style={{ fontSize: 9, padding: "2px 6px" }}
+                          title="Run a 14-day calibration analysis. Diagnostic by default — click 'Apply' on the next screen to commit. Heavy runs should still use scripts/calibrate.js locally."
+                          onClick={() => {
+                            if (!confirm(
+                              "Run calibration analysis?\n\n" +
+                              "This kicks off /timed/calibration/run with a 14-day window.\n" +
+                              "Diagnostic-only by default — no model changes are committed.\n\n" +
+                              "Review results on /calibration.html and click Apply there\n" +
+                              "to commit. For deep runs, use scripts/calibrate.js locally."
+                            )) return;
+                            window.open("/calibration.html?auto=run", "_blank");
+                          }}
+                        >Run ⚙</button>
                       </div>
                     </div>
                   </div>

@@ -6,6 +6,72 @@
 
 ---
 
+## Investor engine fire schedule (operator FAQ) [2026-06-01]
+
+A second user question on the Investor Accumulate lane: "When does the
+engine fire buys? I haven't seen it actually accumulate." It does fire,
+but the timing isn't obvious from the UI. Canonical schedule:
+
+| Time (ET) | Cron expression | Action |
+|---|---|---|
+| Every hour 09:00–16:00, M–F | `0 14-21 * * 1-5` (UTC) | Recompute scores |
+| **11:00 AM, M–F** | same cron | **Primary auto-rebalance** — opens new positions + trims existing |
+| **02:00 PM, M–F** | same cron | **Catch-up auto-rebalance** — adds only (no trims), for names that crossed the threshold mid-day |
+| **04:30 PM, M–F** | `30 20 * * 1-5` (winter) / `30 21 * * 1-5` (summer) | DCA tranches into already-open positions |
+| **04:00 PM, M–F** | same hourly cron | Daily eval **only if `investor_daily_eval_enabled=1` in model_config** (default OFF) |
+
+**Two distinct buy paths** with **different gates**:
+
+| Path | Gate | Max positions |
+|---|---|---|
+| Auto-rebalance (the path that actually runs in prod today) | Score sort only; no D/W/M SuperTrend check | 20 |
+| Daily eval (off by default) | Monthly ST bullish + ≥2/3 (D, W, M) bullish | 15 |
+
+This is why the "Sim-eligible" filter feels stricter than the lane —
+it mirrors the daily-eval gate (the strict one), not auto-rebalance.
+In a healthy regime, auto-rebalance happily opens 20 of the 90+
+Accumulate candidates while the Sim-eligible count may be smaller
+because the strict SuperTrend gate excludes names that are bullish
+on weekly + monthly but bearish on daily (intraday pullbacks).
+
+**Operator manual triggers** (admin auth required):
+- `POST /timed/admin/investor-cron-debug` — runs full chain (compute + rebalance + catchup) with step-by-step diagnostics
+- `POST /timed/admin/investor-daily-eval` — runs the strict daily-eval loop on-demand
+- `POST /timed/investor/auto-rebalance` — same as the 11 AM / 2 PM crons
+- `POST /timed/investor/compute` — re-score only (good after gate / weight changes)
+
+**If buys aren't happening:** check `market_health` (cron skips at <25),
+check cron health tombstones (`investor_hourly_compute`,
+`investor_hourly_rebalance`), and check whether positions are already
+at the 20-position cap.
+
+---
+
+## Calibration is operator-triggered, not scheduled [2026-06-01]
+
+User asked "do we need to calibrate and adjust for June 1?" Worth being
+explicit:
+
+- The cron-based pipeline was **removed** in April 2026 (CPU-limit
+  overruns). The `"30 * * * *"` slot in wrangler.toml is reserved but
+  no-ops in the scheduled handler.
+- Calibration is now triggered via `POST /timed/calibration/run` or
+  via local `node scripts/calibrate.js`. Mission Control surfaces the
+  "Last Calibration" KPI; when it crosses 14 days the chip flips to
+  ⚠ Due.
+- The `/timed/calibration/status` endpoint used to say "Waiting for
+  next half-hour cron" when a request was queued. That message would
+  never resolve because the cron-based runner is gone. Fixed to point
+  the operator at the actual entry points.
+- Mission Control's KPI block now has a **Run ⚙** button next to the
+  Last Calibration days-ago chip. Clicking opens
+  `/calibration.html?auto=run` in a new tab; results are diagnostic
+  until the operator clicks Apply.
+- Monthly cadence ≠ monthly cron. Run after a regime shift, after a
+  bug fix that affects scoring/weights, or when MC turns ⚠ Due.
+
+---
+
 ## Display ≠ engine: surface the simulator's working set, not the full candidate pool [2026-06-01]
 
 ### The problem
