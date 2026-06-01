@@ -4,6 +4,8 @@
 // All per-user state lives in BRIDGE_KV under `bridge:user:{user_id}`.
 // All decisions/responses logged to BRIDGE_DB.bridge_audit.
 
+import { ensureMirrorManifestSchema } from "./bridge-manifest.js";
+
 export async function ensureBridgeSchema(env) {
   const db = env?.BRIDGE_DB;
   if (!db) return;
@@ -42,6 +44,9 @@ export async function ensureBridgeSchema(env) {
   } catch (e) {
     console.warn("[BRIDGE] schema ensure failed:", String(e?.message || e).slice(0, 200));
   }
+  // 2026-06-01 — Phase A: mirror_trade_manifest table (one row per
+  // model trade × user × broker_account). Best-effort + cached.
+  await ensureMirrorManifestSchema(env);
 }
 
 const USER_KEY = (userId) => `bridge:user:${String(userId).toLowerCase()}`;
