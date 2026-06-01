@@ -22,6 +22,20 @@
 
 ### Active
 
+- [x] **ETF stagnant-exit HTF gate (DIA 2026-06-01 audit, PR pending).**
+      Operator flagged a DIA LONG cut at +0.28% via `etf stagnant exit`
+      while the live MTF chart showed bullish Monthly + Weekly + Daily
+      and a clear 30m coil-before-break — DIA rallied minutes after the
+      cut and is currently at $511.21 (vs. our $510.67 fill). The
+      `etf_fast_cut_zero_mfe` branch fired correctly per its own logic
+      (4h elapsed + MFE<0.05%) but didn't know the trade was sitting in
+      a constructive HTF coil. Fix: optional `htfContext` parameter to
+      `checkEtfStagnantExit()` defers the cut when LONG + monthly
+      bullish + above D-EMA200 + LTF squeeze (mirror for SHORT). Other
+      branches (dead-money, pnl-negative fast-cut) unchanged so genuine
+      slow+losing trades still get cut. Smoke-tested 8 scenarios; only
+      the exact "HTF-aligned coil" pattern defers. Full investigation
+      writeup in `tasks/2026-06-01-dia-stagnant-exit-investigation.md`.
 - [x] **Screener Promotion Queue: per-ticker decision inheritance +
       Discovery Thesis in Snapshot right rail (PR pending).** Operator
       flagged: (1) "SMCI, SNOW showed up again, I thought we already

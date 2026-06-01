@@ -307,6 +307,52 @@ export function isEtfRideRunnerMode(ticker, mfePct, currentPnlPct) {
   return { active: false, reason: `etf_not_ride_runner: mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}%` };
 }
 
+/* 2026-06-01 — Higher-timeframe context gate.
+
+   Per operator audit of the DIA LONG closed at +0.28% on 2026-06-01:
+   the fast_cut_zero_mfe branch fired correctly by its own logic
+   (4h elapsed + MFE < 0.05%), but the rule didn't consider that
+   Monthly SuperTrend was bullish, Daily was above the 200 EMA, and the
+   30m TF was coiling (squeeze) — constructive consolidation, not
+   stagnation. DIA broke out immediately after the exit.
+
+   The fix: when a LONG ETF position is in HTF-bullish + actively-coiling
+   conditions (or a SHORT ETF in HTF-bearish + coiling), the fast-cut
+   defers — let the breakout resolve. The dead-money and pnl-negative
+   fast-cut paths are unchanged (those fire when the trade is BOTH slow
+   AND losing — that's genuine stagnation, not coil-before-break).
+
+   Inputs are optional. Callers that don't pass `htfContext` get the
+   original behavior (backward-compatible). htfContext shape:
+     {
+       direction:        "LONG" | "SHORT",
+       monthly_bull:     boolean, // monthly_bundle.supertrend_dir === -1
+       monthly_bear:     boolean, // monthly_bundle.supertrend_dir === 1
+       above_d_ema200:   boolean, // daily_structure.above_e200
+       below_d_ema200:   boolean,
+       squeeze_active:   boolean, // any TF sq.s === 1 or sq.c === 1
+     }
+
+   Defer rule:
+     LONG  + monthly_bull  + above_d_ema200 + squeeze_active → DEFER
+     SHORT + monthly_bear  + below_d_ema200 + squeeze_active → DEFER
+
+   Strict AND across all three so the rule still catches the common
+   "in a downtrend, stagnant and not moving" pattern that's the
+   original target. */
+function shouldDeferOnHtfContext(htfContext) {
+  if (!htfContext || typeof htfContext !== "object") return false;
+  const dir = String(htfContext.direction || "").toUpperCase();
+  const squeeze = !!htfContext.squeeze_active;
+  if (dir === "LONG") {
+    return !!(htfContext.monthly_bull && htfContext.above_d_ema200 && squeeze);
+  }
+  if (dir === "SHORT") {
+    return !!(htfContext.monthly_bear && htfContext.below_d_ema200 && squeeze);
+  }
+  return false;
+}
+
 /**
  * Should the ETF stagnant-exit fire?
  * Returns null if not an ETF, otherwise an object with {fire, reason}.
@@ -317,17 +363,21 @@ export function isEtfRideRunnerMode(ticker, mfePct, currentPnlPct) {
  * thesis was working. Mar-18 SPY SHORT cut at +0.20% pnl right before
  * price dropped another 0.7% — left meaningful profit on the table.
  *
+ * 2026-06-01 — Added optional htfContext gate so a LONG ETF in a
+ * bullish HTF + active squeeze defers the fast_cut_zero_mfe branch.
+ * See shouldDeferOnHtfContext above + the DIA 2026-06-01 audit.
+ *
  * New logic:
  *  - If currentPnlPct > 0 (any profit): DON'T fire. Let winners run, even
  *    if slow. The position can give back to a stop or a TP — that's the
  *    job of those rules, not stagnant-exit.
  *  - If currentPnlPct <= 0 AND age + MFE thresholds met: FIRE (existing).
  *  - Edge case: MFE truly near zero (< 0.05%) AND age >= fast_cut_max:
- *    fire regardless of current pnl. This catches "wrong from bar 1"
- *    where the price never even moved — even tiny profit there is just
- *    floating noise about to revert.
+ *    fire regardless of current pnl, UNLESS htfContext says the position
+ *    is in a bullish coil (LONG) or bearish coil (SHORT) — those are
+ *    constructive consolidations about to break in the trade's favor.
  */
-export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = null) {
+export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = null, htfContext = null) {
   const profile = getEtfProfile(ticker);
   if (!profile) return null;
   const stag = profile.stagnant_exit;
@@ -337,8 +387,25 @@ export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = n
 
   // Hard fast-cut: MFE essentially zero (< 0.05%) AND age >= fast_cut_max.
   // This catches "wrong from bar 1" where the price truly never moved.
-  // Fires even if pnl is currently positive (it's just noise about to revert).
+  // Fires even if pnl is currently positive (it's just noise about to revert)
+  // UNLESS the htfContext gate detects a constructive HTF coil setup
+  // (LONG in bullish HTF + squeeze, or SHORT in bearish HTF + squeeze).
   if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < 0.0005) {
+    if (shouldDeferOnHtfContext(htfContext)) {
+      const dirLower = String(htfContext?.direction || "").toLowerCase();
+      const monthlyFlag = htfContext?.direction === "SHORT"
+        ? !!htfContext.monthly_bear
+        : !!htfContext.monthly_bull;
+      const dEma200Flag = htfContext?.direction === "SHORT"
+        ? !!htfContext.below_d_ema200
+        : !!htfContext.above_d_ema200;
+      return {
+        fire: false,
+        reason: `etf_fast_cut_zero_mfe_DEFERRED_htf_coil: age=${_age.toFixed(1)}h mfe~0 ` +
+                `but ${dirLower} in HTF-aligned squeeze ` +
+                `(monthly=${monthlyFlag}, d_ema200=${dEma200Flag}, squeeze=${!!htfContext.squeeze_active})`,
+      };
+    }
     return {
       fire: true,
       reason: `etf_fast_cut_zero_mfe: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(3)}% essentially zero`,
