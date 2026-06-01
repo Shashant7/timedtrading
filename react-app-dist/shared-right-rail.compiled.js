@@ -5772,14 +5772,20 @@
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
-        if (!sym || !isHistoryTab) {
+        const isTraderTab = railTab === "SETUP";
+        const isSnapshotTab = railTab === "SNAPSHOT";
+        const isChartTab = railTab === "CHART";
+        const isInvestorTab = railTab === "INVESTOR";
+        const isOptionsTab = railTab === "OPTIONS";
+        const needsLedger = isHistoryTab || isTraderTab || isSnapshotTab || isChartTab || isInvestorTab || isOptionsTab;
+        if (!sym || !needsLedger) {
           setLedgerTrades([]);
           setLedgerTradesError(null);
           setLedgerTradesLoading(false);
           setTradeChartSelection(null);
           return;
         }
-        setTradeChartSelection(null);
+        if (isHistoryTab) setTradeChartSelection(null);
         let cancelled = false;
         const fetchLedgerTrades = async () => {
           try {
@@ -7884,7 +7890,10 @@
           }, conf.actionable_summary || `Confluence ${conf.score}/100, ${conf.layers_agreeing}/8 layers agree.`));
         })(), (() => {
           const t = effectiveTrade || trade;
-          if (!t || String(t.status || "").toUpperCase() !== "OPEN") return null;
+          if (!t) return null;
+          const _trStatus = String(t.status || "").toUpperCase();
+          const _isOpen = _trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM" || !(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED";
+          if (!_isOpen) return null;
           const dirRaw = String(t.direction || "").toUpperCase();
           const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
           const entry = Number(t.entryPrice ?? t.entry_price);
@@ -7898,6 +7907,7 @@
             currency: "USD",
             maximumFractionDigits: 2
           }).format(n) : "—";
+          const _openLabel = _trStatus === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN";
           return React.createElement(Panel, {
             title: "\uD83D\uDCCD Current Open Position",
             action: React.createElement("span", {
@@ -7911,7 +7921,7 @@
                 background: dirRaw === "SHORT" ? "rgba(248,113,113,0.10)" : "rgba(52,211,153,0.10)",
                 border: `1px solid ${dirColor}50`
               }
-            }, dirRaw, " \xB7 OPEN")
+            }, dirRaw, " \xB7 ", _openLabel)
           }, React.createElement("div", {
             style: {
               display: "grid",
@@ -12006,12 +12016,32 @@
           action: ledgerTrades.length > 0 && React.createElement("span", {
             className: "ds-chip ds-chip--sm"
           }, ledgerTrades.length, " row", ledgerTrades.length === 1 ? "" : "s")
-        }, ledgerTrades.length === 0 ? React.createElement("div", {
+        }, ledgerTradesLoading && ledgerTrades.length === 0 ? React.createElement("div", {
           style: {
             fontSize: "var(--ds-fs-body)",
             color: "var(--ds-text-muted)"
           }
-        }, "No prior trades on this ticker.") : React.createElement("div", {
+        }, "Loading trade history\u2026") : ledgerTradesError && ledgerTrades.length === 0 ? React.createElement("div", {
+          style: {
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-dn)"
+          }
+        }, "Failed to load trade history: ", String(ledgerTradesError).slice(0, 140)) : ledgerTrades.length === 0 ? React.createElement("div", {
+          style: {
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-text-muted)"
+          }
+        }, "No prior trades on this ticker.", (ticker?.has_open_position || latestTicker?.has_open_position) && React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-2)",
+            padding: "var(--ds-space-2)",
+            background: "rgba(245,194,92,0.08)",
+            border: "1px solid rgba(245,194,92,0.25)",
+            borderRadius: "var(--ds-radius-xs)",
+            color: "var(--ds-accent)",
+            fontSize: "var(--ds-fs-caption)"
+          }
+        }, "\u26A0 This ticker shows an open position but no trade row was found in the ledger. The trade row may not have been written yet (entry signal stamped but execution didn't persist). Check Mission Control \u2192 Recent Trades for the actual write status.")) : React.createElement("div", {
           style: {
             display: "flex",
             flexDirection: "column",
@@ -16848,4 +16878,4 @@
   };
 })();
 
-// cache-bust:1780353714594:687651749
+// cache-bust:1780353758068:629873068
