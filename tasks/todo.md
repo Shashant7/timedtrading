@@ -22,6 +22,23 @@
 
 ### Active
 
+- [x] **Trade-aware mirror sync Phase D — options + LEAPs + Investor + OCO.**
+      Options leg-aware reconcile via `classifyOptionsDrift()`:
+      canonical contract key `TICKER:YYYY-MM-DD:STRIKE.SS:[CP]`,
+      per-leg expected vs broker comparison, spread leg-gap escalates
+      severity to `critical`. New cadence routing: Trader equity 5min /
+      Investor equity 60min / Trader & Investor options 60min / LEAPs
+      daily — eligibility checked per-row via `_cadenceEligible()` so
+      the 5-min cron throttles itself appropriately. LEAPs within T-30
+      and other options within T-1 day get an "approaching expiration"
+      note appended (Phase E will route to user notifications + emit
+      auto-close once enabled). DCA tranche aggregation via
+      `aggregateDcaTranches()` surfaces `N/M filled, K pending` in
+      `sync_note`. New `worker-bridge/bridge-oco.js` exports
+      `orchestrateOcoForReducer()` returning a structured cancel +
+      replace plan for SL/TP orders; bridge audits the plan when
+      `BROKER_OCO_ENABLED=true` (default off — actual cancel/place
+      dispatch lands in Phase E).
 - [x] **Trade-aware mirror sync Phase C — reconciler cron.**
       New `worker-bridge/bridge-reconciler.js` with
       `reconcileUser(env, user, adapter, opts)` + top-level

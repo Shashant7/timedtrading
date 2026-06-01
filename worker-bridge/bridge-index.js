@@ -36,6 +36,7 @@ import {
 import {
   reconcileAllUsers, reconcileUser,
 } from "./bridge-reconciler.js";
+import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 
@@ -726,6 +727,31 @@ async function handleOrderWebhook(env, ctx, payload) {
     request_json: sanitized,
     latency_ms: Date.now() - t0,
   });
+
+  // 2026-06-01 — Phase D: OCO orchestration plan for reducers
+  // (TRIM/EXIT). Logs the cancel-then-replace plan in the audit so
+  // operators can see what the bridge WOULD do once BROKER_OCO_ENABLED
+  // is flipped. Actual cancel + place dispatch lands in Phase E.
+  let _ocoPlan = null;
+  try {
+    _ocoPlan = await orchestrateOcoForReducer(env, sanitized, user);
+    if (_ocoPlan && _ocoPlan.ok && (_ocoPlan.actions?.length > 0 || _ocoPlan.post_reducer_actions?.length > 0)) {
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: sanitized.user_id,
+        trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker,
+        action: "oco_plan",
+        side: sanitized.side,
+        qty: sanitized.qty,
+        status: "ok",
+        request_json: sanitized,
+        response_json: _ocoPlan,
+      });
+    }
+  } catch (e) {
+    console.warn("[OCO] plan failed:", String(e?.message || e).slice(0, 200));
+  }
 
   // 3. Review (dry-run)
   const review = await reviewOrder(env, user, sanitized);

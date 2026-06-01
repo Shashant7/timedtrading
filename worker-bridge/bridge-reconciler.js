@@ -49,6 +49,29 @@ const TOLERANCE = {
   investor_options: 0.0,
 };
 
+// 2026-06-01 — Phase D: per (mode × instrument) reconcile cadence in
+// seconds. The cron fires every 5 min (Phase C); each row is eligible
+// only when (now - sync_last_checked_at) >= cadence. Lets us scan
+// Trader equity at the cron's native pace while throttling Investor
+// to hourly and LEAPs to daily.
+const CADENCE_SEC = {
+  trader_equity: 5 * 60,
+  trader_options: 5 * 60,
+  investor_equity: 60 * 60,
+  investor_options: 60 * 60,
+  leaps: 24 * 60 * 60,
+};
+
+// 2026-06-01 — Phase D: LEAP auto-close window. When a LEAP is within
+// LEAP_AUTO_CLOSE_DAYS of expiration AND the operator has enabled the
+// auto-close behavior via env, the reconciler emits an EXIT-orphan
+// flag the operator (or the cron-driven exit dispatcher) can act on.
+// This PR sets the flag in `sync_note` but does NOT auto-send an exit
+// order — that's Phase E (with the user notification + cluster Discord
+// alert preceding the exit). Default disabled.
+const LEAP_AUTO_CLOSE_DAYS = 30;
+const NON_LEAP_OPTIONS_AUTO_CLOSE_DAYS = 1;
+
 // Cap on rows scanned per user per cycle so a runaway operator with
 // hundreds of open trades doesn't blow the cron budget. The remainder
 // rolls over to the next cycle (ORDER BY sync_last_checked_at ASC NULLS FIRST).
@@ -223,6 +246,272 @@ function _orphanSeverity(row) {
   return "warn";
 }
 
+// 2026-06-01 — Phase D: contract symbol normalizer for options leg
+// matching. Different brokers report option positions with different
+// shapes — we accept OCC-style ("AAPL  240119C00150000"), explicit
+// fields ({ticker, exp, strike, type}), or raw symbol strings, then
+// fold to a canonical key like "AAPL:2024-01-19:150.00:C".
+function _normalizeOptionContractKey(p, fallbackTicker = null) {
+  if (!p) return null;
+  // Explicit fields (cleanest path).
+  const ticker = String(
+    p.ticker ?? p.symbol ?? p.underlying ?? p.contractDesc ?? fallbackTicker ?? ""
+  ).toUpperCase();
+  const exp = String(
+    p.expiration ?? p.exp ?? p.expiry ?? ""
+  ).slice(0, 10); // YYYY-MM-DD
+  const strike = Number(p.strike ?? 0);
+  const type = String(p.type ?? p.optionType ?? p.right ?? "")
+    .toUpperCase().startsWith("P") ? "P" : "C";
+  if (ticker && exp && strike > 0) {
+    return `${ticker}:${exp}:${strike.toFixed(2)}:${type}`;
+  }
+  // OCC symbol fallback (21-char standard): TTTTTTYYMMDDXSSSSSSSS
+  // where T = ticker (1-6 chars left-padded with spaces), YYMMDD =
+  // expiration, X = C/P, S = strike × 1000 (8 digits).
+  const raw = String(p.symbol ?? p.occ_symbol ?? p.contract_symbol ?? "").trim();
+  if (raw.length >= 15) {
+    // Heuristic parse: scan from the right for the strike + flag.
+    const m = raw.match(/^([A-Z .]{1,6})\s*(\d{6})([CP])(\d{8})$/);
+    if (m) {
+      const tk = m[1].trim();
+      const yymmdd = m[2];
+      const flag = m[3];
+      const strikeRaw = Number(m[4]) / 1000;
+      const yr = "20" + yymmdd.slice(0, 2);
+      const mo = yymmdd.slice(2, 4);
+      const dy = yymmdd.slice(4, 6);
+      return `${tk}:${yr}-${mo}-${dy}:${strikeRaw.toFixed(2)}:${flag}`;
+    }
+  }
+  return null;
+}
+
+// 2026-06-01 — Phase D: index broker option positions by canonical key.
+function _indexOptionsByContract(positions) {
+  const out = new Map();
+  if (!Array.isArray(positions)) return out;
+  for (const p of positions) {
+    if (!p) continue;
+    const key = _normalizeOptionContractKey(p);
+    if (!key) continue;
+    const qty = Number(p.position ?? p.qty ?? p.quantity ?? p.size ?? 0);
+    const avg = Number(p.avgCost ?? p.avg_cost ?? p.avgPrice ?? p.avg_price ?? 0);
+    const prev = out.get(key) || { qty: 0, avgCost: 0 };
+    const newQty = prev.qty + qty;
+    const weighted = (prev.qty * prev.avgCost) + (qty * avg);
+    out.set(key, {
+      qty: newQty,
+      avgCost: newQty !== 0 ? weighted / newQty : 0,
+    });
+  }
+  return out;
+}
+
+// 2026-06-01 — Phase D: compare model_intended_legs vs broker options
+// positions. Returns one of:
+//   { kind: 'in_sync' }
+//   { kind: 'partial_fill', missing: [...], short: [...] }
+//   { kind: 'broker_orphan', extra_qty: number }
+//   { kind: 'mothership_orphan' }
+//   { kind: 'expired' }
+// Spread trades (>1 leg): ANY mismatched leg → partial_fill (operator
+// must manually unwind; never auto-trim a spread).
+export function classifyOptionsDrift(row, brokerOptionsIdx) {
+  const modelStatus = String(row.model_status || "OPEN").toUpperCase();
+  const legs = Array.isArray(row.model_intended_legs)
+    ? row.model_intended_legs
+    : (() => {
+        try { return JSON.parse(row.model_intended_legs || "[]"); }
+        catch (_) { return []; }
+      })();
+
+  // Expiration check first — overrides all other classifications.
+  const expIso = legs[0]?.expiration || row.options_structure_exp || null;
+  if (expIso) {
+    const expDate = new Date(expIso);
+    if (expDate.getTime() < Date.now() - 24 * 60 * 60 * 1000) {
+      // Past expiration by > 1 day → manifest is terminal.
+      return {
+        kind: "expired",
+        sync_state: "expired",
+        drift_detected: modelStatus !== "EXPIRED",
+        severity: "info",
+        note: `option position past expiration (${expIso})`,
+        broker_state: { positions: [] },
+      };
+    }
+  }
+
+  if (legs.length === 0) {
+    // No leg detail — fall back to "untracked" so the operator can review.
+    return {
+      kind: "untracked",
+      sync_state: "untracked",
+      drift_detected: false,
+      severity: "info",
+      note: "no model_intended_legs in manifest; cannot leg-compare",
+      broker_state: {},
+    };
+  }
+
+  // For each leg, find the matching broker position.
+  const matches = [];
+  const missing = [];
+  for (const leg of legs) {
+    const key = _normalizeOptionContractKey({
+      ticker: row.ticker,
+      expiration: leg.expiration,
+      strike: leg.strike,
+      type: leg.optionType || leg.type,
+    });
+    if (!key) {
+      missing.push({ ...leg, reason: "leg_key_unresolvable" });
+      continue;
+    }
+    const brokerPos = brokerOptionsIdx.get(key);
+    const expectedQty = Number(leg.qty) || 0;
+    // BUY → expect positive qty; SELL_TO_OPEN → expect negative qty.
+    const isShort = String(leg.action || "").toUpperCase().includes("SELL");
+    const signedExpected = isShort ? -expectedQty : expectedQty;
+    const brokerQty = Number(brokerPos?.qty) || 0;
+    matches.push({
+      leg, key, expected: signedExpected, broker_qty: brokerQty,
+      diff: brokerQty - signedExpected,
+    });
+    if (!brokerPos || Math.abs(brokerPos.qty) < Math.abs(expectedQty)) {
+      missing.push({ ...leg, key, expected: signedExpected, broker_qty: brokerQty });
+    }
+  }
+
+  if (modelStatus === "CLOSED" || modelStatus === "EXPIRED") {
+    const anyHeld = matches.some(m => Math.abs(m.broker_qty) > 0);
+    if (anyHeld) {
+      return {
+        kind: "broker_orphan",
+        sync_state: "broker_orphan",
+        drift_detected: true,
+        severity: _orphanSeverity(row),
+        note: `model_${modelStatus.toLowerCase()} but broker still holds legs`,
+        broker_state: { matches },
+      };
+    }
+    return {
+      kind: "in_sync",
+      sync_state: "in_sync",
+      drift_detected: false,
+      severity: "info",
+      note: `model_${modelStatus.toLowerCase()} + broker flat`,
+      broker_state: { matches },
+    };
+  }
+
+  // model_status OPEN
+  if (missing.length === 0) {
+    return {
+      kind: "in_sync",
+      sync_state: "in_sync",
+      drift_detected: false,
+      severity: "info",
+      note: "all legs match",
+      broker_state: { matches },
+    };
+  }
+  // Multi-leg with any missing → partial_fill (critical for spreads —
+  // uncovered legs are risk).
+  const isSpread = legs.length > 1;
+  return {
+    kind: "partial_fill",
+    sync_state: "partial_fill",
+    drift_detected: true,
+    severity: isSpread ? "critical" : "warn",
+    note: `${missing.length} of ${legs.length} leg(s) missing/short${isSpread ? " (spread leg gap is critical)" : ""}`,
+    broker_state: { matches, missing },
+  };
+}
+
+// 2026-06-01 — Phase D: aggregate filled qty across Investor DCA
+// tranches. Each tranche row = { ts, qty, broker_order_id, filled_qty,
+// avg_cost }. Returns { totalFilled, totalIntended, weightedAvgCost,
+// pendingTranches }.
+export function aggregateDcaTranches(row) {
+  const tranches = Array.isArray(row.dca_tranches)
+    ? row.dca_tranches
+    : (() => {
+        try { return JSON.parse(row.dca_tranches || "[]"); }
+        catch (_) { return []; }
+      })();
+  if (tranches.length === 0) return { totalFilled: 0, totalIntended: 0, weightedAvgCost: 0, pendingTranches: 0 };
+  let totalFilled = 0;
+  let totalIntended = 0;
+  let costSum = 0;
+  let pending = 0;
+  for (const t of tranches) {
+    const intended = Number(t.qty) || 0;
+    const filled = Number(t.filled_qty) || 0;
+    const cost = Number(t.avg_cost) || 0;
+    totalIntended += intended;
+    totalFilled += filled;
+    costSum += filled * cost;
+    if (filled < intended) pending++;
+  }
+  return {
+    totalFilled,
+    totalIntended,
+    weightedAvgCost: totalFilled > 0 ? costSum / totalFilled : 0,
+    pendingTranches: pending,
+  };
+}
+
+// 2026-06-01 — Phase D: cadence eligibility check. Returns true if the
+// row is due for re-check given its (mode × instrument).
+function _cadenceEligible(row) {
+  const last = Number(row.sync_last_checked_at) || 0;
+  if (last === 0) return true; // never checked → always eligible
+  const mode = String(row.mode || "trader").toLowerCase();
+  const inst = String(row.instrument_type || "equity").toLowerCase();
+  const isLeap = String(row.options_structure || "").toLowerCase() === "leaps";
+  const key = isLeap ? "leaps"
+    : (mode === "investor" && inst === "equity") ? "investor_equity"
+    : (mode === "investor" && inst === "options") ? "investor_options"
+    : (mode === "trader" && inst === "options") ? "trader_options"
+    : "trader_equity";
+  const cadenceSec = CADENCE_SEC[key] || CADENCE_SEC.trader_equity;
+  return (Date.now() - last) >= cadenceSec * 1000;
+}
+
+// 2026-06-01 — Phase D: check whether an options row needs the
+// "approaching expiration" warning attached to its sync_note.
+function _checkApproachingExpiration(row) {
+  const isOption = String(row.instrument_type || "").toLowerCase() === "options";
+  if (!isOption) return null;
+  const isLeap = String(row.options_structure || "").toLowerCase() === "leaps";
+  // Reader path: model_intended_legs may arrive as a JSON string (from
+  // the raw D1 SELECT in _readOpenRowsForUser) or as an array (when
+  // _expandJsonCols has already run). Handle both.
+  const legs = Array.isArray(row.model_intended_legs)
+    ? row.model_intended_legs
+    : (() => {
+        try { return JSON.parse(row.model_intended_legs || "[]"); }
+        catch (_) { return []; }
+      })();
+  const expIso = legs[0]?.expiration || null;
+  if (!expIso) return null;
+  const expDate = new Date(expIso);
+  const daysToExp = Math.floor((expDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+  const threshold = isLeap ? LEAP_AUTO_CLOSE_DAYS : NON_LEAP_OPTIONS_AUTO_CLOSE_DAYS;
+  if (daysToExp >= 0 && daysToExp <= threshold) {
+    return {
+      kind: isLeap ? "leap_approaching_expiration" : "option_approaching_expiration",
+      days_to_exp: daysToExp,
+      threshold,
+      severity: daysToExp <= 1 ? "critical" : (isLeap ? "warn" : "warn"),
+      note: `${isLeap ? "LEAP" : "Option"} expires in ${daysToExp}d (T-${threshold} threshold)`,
+    };
+  }
+  return null;
+}
+
 /**
  * Read OPEN (or never-checked) manifest rows for a user, ordered by
  * sync_last_checked_at ASC NULLS FIRST so we always make progress.
@@ -379,31 +668,66 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     };
   }
 
+  // 2026-06-01 — Phase D: cadence-filter rows BEFORE fetching positions
+  // so we skip cheap reads on rows that aren't due. Empty result = no
+  // broker fetch needed.
+  const eligible = rows.filter(_cadenceEligible);
+  if (eligible.length === 0) {
+    return {
+      user_id: userId, rows_scanned: rows.length, rows_eligible: 0,
+      rows_in_sync: 0, rows_drifting: 0, rows_auto_suppressed: 0,
+      by_state: {}, cadence_skipped: rows.length,
+    };
+  }
+  // Determine which broker fetches we need based on instrument mix.
+  const hasEquity = eligible.some(r => String(r.instrument_type || "equity").toLowerCase() === "equity");
+  const hasOptions = eligible.some(r => String(r.instrument_type || "").toLowerCase() === "options");
+
   // Fetch broker positions ONCE per user (not per row).
-  let posRes;
+  let equityRes = { ok: true, positions: [] };
+  let optionsRes = { ok: true, positions: [] };
   try {
-    posRes = typeof brokerAdapter?.getEquityPositions === "function"
-      ? await brokerAdapter.getEquityPositions(env, user)
-      : { ok: false, error: "adapter_lacks_getEquityPositions" };
+    if (hasEquity) {
+      equityRes = typeof brokerAdapter?.getEquityPositions === "function"
+        ? await brokerAdapter.getEquityPositions(env, user)
+        : { ok: false, error: "adapter_lacks_getEquityPositions" };
+    }
+    if (hasOptions) {
+      optionsRes = typeof brokerAdapter?.getOptionsPositions === "function"
+        ? await brokerAdapter.getOptionsPositions(env, user)
+        // Fallback: some adapters return options inside getPortfolio.
+        : typeof brokerAdapter?.getPortfolio === "function"
+          ? await brokerAdapter.getPortfolio(env, user).then(r => ({
+              ok: r.ok,
+              positions: Array.isArray(r?.portfolio?.options_positions)
+                ? r.portfolio.options_positions
+                : (Array.isArray(r?.options_positions) ? r.options_positions : []),
+              error: r.error,
+            }))
+          : { ok: false, error: "adapter_lacks_getOptionsPositions" };
+    }
   } catch (e) {
-    posRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    if (hasEquity && !equityRes) equityRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    if (hasOptions && !optionsRes) optionsRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
 
-  if (!posRes?.ok) {
-    // Broker fetch failed — mark every row reconcile_error so the
-    // operator can see the cluster of failures and take action.
+  // If BOTH fetches failed, treat as a full broker outage — every
+  // eligible row gets reconcile_error.
+  if ((hasEquity && !equityRes?.ok) && (hasOptions && !optionsRes?.ok)) {
     let errCount = 0;
-    for (const row of rows) {
-      if (await _persistReconcileError(env, row, posRes?.error || "broker_fetch_failed")) errCount++;
+    for (const row of eligible) {
+      if (await _persistReconcileError(env, row, equityRes?.error || optionsRes?.error || "broker_fetch_failed")) errCount++;
     }
     return {
-      user_id: userId, rows_scanned: rows.length, rows_reconcile_error: errCount,
-      fetch_error: String(posRes?.error || "unknown").slice(0, 200),
+      user_id: userId, rows_scanned: rows.length, rows_eligible: eligible.length,
+      rows_reconcile_error: errCount,
+      fetch_error: String(equityRes?.error || optionsRes?.error || "unknown").slice(0, 200),
       by_state: { reconcile_error: errCount },
     };
   }
 
-  const positionsByTicker = _indexByTicker(posRes.positions || posRes.results || []);
+  const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
+  const optionsByContract = _indexOptionsByContract(optionsRes?.positions || optionsRes?.results || []);
 
   // Per (mode × instrument) tolerance.
   function _tolerance(row) {
@@ -415,29 +739,48 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   }
 
   const stats = {
-    user_id: userId, rows_scanned: rows.length,
+    user_id: userId, rows_scanned: rows.length, rows_eligible: eligible.length,
     rows_in_sync: 0, rows_drifting: 0, rows_auto_suppressed: 0,
-    by_state: {},
+    expiration_warnings: 0,
+    by_state: {}, cadence_skipped: rows.length - eligible.length,
   };
 
-  for (const row of rows) {
-    // Phase C scope: equity only. Phase D adds options leg-aware checks.
-    if (String(row.instrument_type || "").toLowerCase() === "options") {
-      // Mark it checked-but-skipped so we don't starve it from the queue.
-      const now = Date.now();
-      try {
-        await env.BRIDGE_DB.prepare(`
-          UPDATE mirror_trade_manifest
-             SET sync_last_checked_at = ?4, sync_note = 'phase_c_skip_options', updated_at = ?4
-           WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
-        `).bind(row.user_id, row.trade_id, row.broker_account_id, now).run();
-      } catch (_) {}
-      stats.by_state["options_skipped_phase_c"] = (stats.by_state["options_skipped_phase_c"] || 0) + 1;
-      continue;
+  for (const row of eligible) {
+    const isOptions = String(row.instrument_type || "").toLowerCase() === "options";
+    const isInvestor = String(row.mode || "trader").toLowerCase() === "investor";
+
+    let classification;
+    if (isOptions) {
+      // 2026-06-01 — Phase D: leg-aware options reconciliation.
+      classification = classifyOptionsDrift(row, optionsByContract);
+    } else {
+      // Equity (Trader or Investor). For Investor DCA-tracked rows
+      // we also surface the aggregate filled / pending tranche count
+      // in sync_note so MC can render it without parsing the JSON.
+      const brokerState = positionsByTicker.get(String(row.ticker || "").toUpperCase()) || null;
+      classification = classifyDrift(row, brokerState, { tolerance: _tolerance(row) });
+      if (isInvestor && row.dca_tranches) {
+        const dca = aggregateDcaTranches(row);
+        if (dca.pendingTranches > 0) {
+          classification = {
+            ...classification,
+            note: `${classification.note} | DCA: ${dca.totalFilled}/${dca.totalIntended} filled, ${dca.pendingTranches} tranches pending`,
+          };
+        }
+      }
     }
 
-    const brokerState = positionsByTicker.get(String(row.ticker || "").toUpperCase()) || null;
-    const classification = classifyDrift(row, brokerState, { tolerance: _tolerance(row) });
+    // Append approaching-expiration warning to the sync_note.
+    const expWarn = _checkApproachingExpiration(row);
+    if (expWarn) {
+      classification = {
+        ...classification,
+        note: `${classification.note} | ${expWarn.note}`,
+        // Don't downgrade severity if already critical.
+        severity: classification.severity === "critical" ? "critical" : expWarn.severity,
+      };
+      stats.expiration_warnings++;
+    }
 
     if (opts.dryRun) {
       stats.by_state[classification.sync_state] = (stats.by_state[classification.sync_state] || 0) + 1;
