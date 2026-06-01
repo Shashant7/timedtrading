@@ -6,6 +6,53 @@
 
 ---
 
+## Naked-short deferral + per-vehicle toggle infrastructure [2026-06-01]
+
+### "Defer" must mean "code-level invariant," not "env var off by default"
+
+The first naked-short deferral was `if (SHORT_SIDES.has(side) && REJECT_SHORT_SIDES !== "false")`
+— an env-var escape hatch. That's not a deferral; that's a feature flag with
+an off-by-default. A true deferral is a code-level invariant: a hard branch
+in `validateOrderShape()` that rejects regardless of env, plus a parallel
+short-circuit in `decideAutoMirror()` (`NAKED_SHORT_ARCHETYPES`) that rejects
+the engine's primary play before consulting prefs.
+
+**Rule:** When the operator says "defer X for now, it's dangerous," remove
+every override path. Re-introduction should require a code change, a risk
+review, and an entry in `tasks/lessons.md`. Not a wrangler secret toggle.
+
+### Per-vehicle prefs need to live in two places
+
+The auto-mirror prefs (`worker/options-auto-mirror.js`) live in KV
+(`timed:options:auto-mirror:<email>`). The bridge guards
+(`worker-bridge/bridge-guards.js`) need to enforce the same per-vehicle
+caps without a KV round-trip per order (the bridge runs as a separate
+Worker; cross-worker KV reads cost latency on every order).
+
+**Fix:** Bridge enforces against the user record's `options_prefs.vehicles`
+map, written via `POST /bridge/user/options-prefs` whenever the operator
+saves from Mission Control. Engine prefs and bridge prefs are two
+mirrors of the same source of truth (`VEHICLE_DEFAULTS` in the engine).
+If they drift, the more restrictive wins — both checks must pass for an
+order to fire.
+
+**Rule:** When a check needs to run in two execution contexts (e.g. engine
++ bridge), pick ONE source of truth, mirror it explicitly, and document
+which side wins on conflict (here: both checks must pass).
+
+### "Apply small-account defaults" is a real button, not a tooltip
+
+The earlier global auto-mirror block had a "small-account defaults" hint
+in the rationale but no button. Operator ignored it. The new per-vehicle
+table has an actual "Apply small-account defaults ⚡" button that writes
+the known-safe preset (equity_long ON @ $300/order/3/day; everything
+else OFF with conservative caps). The defaults live in
+`SMALL_ACCOUNT_VEHICLE_DEFAULTS` exported from
+`worker/options-auto-mirror.js` and re-listed in the bridge for the
+`apply_small_account_defaults: true` payload shape.
+
+---
+
 ## LEAPs as the Investor-mode options expression [2026-06-01]
 
 ### Investor mode needed its own options archetype
