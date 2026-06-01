@@ -22,6 +22,24 @@
 
 ### Active
 
+- [x] **Trade-aware mirror sync Phase C — reconciler cron.**
+      New `worker-bridge/bridge-reconciler.js` with
+      `reconcileUser(env, user, adapter, opts)` + top-level
+      `reconcileAllUsers(env, userListFn, adapterForUser, opts)`.
+      `scheduled()` cron handler in bridge worker fires every 5 min
+      (configurable via wrangler.toml triggers.crons), gates on NY
+      regular-hours unless `BROKER_RECONCILE_24_7=true`. Compares
+      `manifest.broker_remaining_qty` (fallback `model_intended_qty`)
+      vs broker `getEquityPositions[ticker]` per §5.1 cadence and
+      §6 mismatch taxonomy. Drift classifications: in_sync /
+      partial_fill / broker_orphan (model CLOSED + broker holds) /
+      mothership_orphan (model OPEN + broker = 0) / reconcile_error.
+      Auto-suppress after 3+ chronic drift cycles with explicit
+      `auto_suppressed_after_N_drifts:<state>` reason. Operator
+      on-demand: `POST /bridge/reconcile` (single user or all) +
+      `POST /timed/admin/broker-bridge/reconcile` proxy. MC "Force
+      reconcile" button below the manifest table. `BROKER_RECONCILE_
+      DRY_RUN` env supports observe-only mode for the first week.
 - [x] **Trade-aware mirror sync Phase B — manifest-aware reducer.**
       `preflightOrder` now reads the `mirror_trade_manifest` BEFORE
       the portfolio check on every TRIM/EXIT. Decision matrix per

@@ -6,6 +6,65 @@
 
 ---
 
+## Trade-aware mirror sync — Phase C (reconciler cron) [2026-06-01]
+
+### Operating-hours gate at the cron level, not the row level
+
+The CF Workers cron fires at the wrangler-configured cadence regardless
+of market state. Filtering at the row level (skip checks for closed
+markets per-row) wastes cron invocations.
+
+Pattern in `scheduled()`: compute `isMarketHours` (UTC hour ∈ [13, 22]
+on weekdays) ONCE and return early when off-hours unless the operator
+flips `BROKER_RECONCILE_24_7=true`. Keeps cron cost minimal during the
+~80% of the week the market is closed.
+
+### CLOSED model + flat broker is the most common "drift" non-event
+
+First implementation classified `(model_status=CLOSED, broker_qty=0)` as
+`partial_fill` because the fallback `expected = model_intended_qty` (10)
+didn't account for the model being closed. Result: every successful
+EXIT showed up as a drift event the next cycle.
+
+Fix: handle `model_status ∈ {CLOSED, EXPIRED}` as its own branch FIRST
+in `classifyDrift()`. Two outcomes:
+- broker still holds qty > tolerance → `broker_orphan` (real drift)
+- broker also flat → `in_sync` (consistent close)
+
+**Rule:** When writing a state classifier, enumerate the terminal-state
+branches BEFORE the diff calculations. The "everything closed cleanly"
+path is the most common branch and shouldn't fall through arithmetic
+that assumes the position is still active.
+
+### Auto-suppress after N drifts is a chronic-failure circuit breaker
+
+A trade that drifts for 4 consecutive cycles (20 minutes) is almost
+certainly a real problem the reconciler can't fix on its own — broker
+position decoupled from manifest, leg-mismatched options, etc. After
+`AUTO_SUPPRESS_AFTER_DRIFT=3` drifts, the manifest row gets
+`mirror_suppressed=1` with reason `auto_suppressed_after_N_drifts:<state>`.
+
+This means follow-on TRIM/EXIT for that trade_id are rejected by Phase B
+with `mirror_suppressed:<reason>`. Operator must investigate + manually
+clear via Mission Control (Phase E adds the unsuppress UI).
+
+**Rule:** Every auto-suppress decision MUST be reversible by the
+operator AND carry a human-readable reason in the audit trail. Never
+"silently" disable a trade.
+
+### Fail-open at the row level, fail-loud at the cluster level
+
+If 1 row throws during a 100-row cycle, log the warn and continue. If
+ALL rows fail (broker_fetch_failed), mark every row reconcile_error so
+the operator sees a cluster of failures in MC.
+
+The aggregate `fetch_error` in the `reconcileUser` return surfaces the
+single underlying broker error (e.g. "IBKR session timeout") so the
+operator doesn't have to dig through per-row notes to find the root
+cause.
+
+---
+
 ## Trade-aware mirror sync — Phase B (manifest-aware reducer) [2026-06-01]
 
 ### Three-mode rollout switch is non-negotiable for behavior changes

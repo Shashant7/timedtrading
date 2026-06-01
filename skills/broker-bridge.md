@@ -10,8 +10,8 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > | Pre-1.5 (PR #409) | ✅ shipped | Portfolio-aware lock-tight guard (catches naked-short risk at the position level) |
 > | §1.5 (PR #412) | ✅ shipped | Hard naked-short deferral + per-vehicle toggle (engine + bridge + MC UI) |
 > | Phase A (PR #414) | ✅ shipped | `mirror_trade_manifest` D1 writer + Mission Control debug view |
-> | **Phase B (this PR)** | ✅ shipped | Manifest-aware reducer — `preflightOrder` reads the manifest before the portfolio check; TRIM/EXIT on a `no_manifest_for_trade` or `mirror_suppressed` trade is rejected with an explicit reason |
-> | Phase C | next | Reconciler cron (5 min RTH) + drift classification + auto-suppress + on-demand `POST /bridge/reconcile` |
+> | Phase B (PR #415) | ✅ shipped | Manifest-aware reducer — `preflightOrder` reads the manifest before the portfolio check; TRIM/EXIT on a `no_manifest_for_trade` or `mirror_suppressed` trade is rejected with an explicit reason |
+> | **Phase C (this PR)** | ✅ shipped | Reconciler cron (5 min RTH, configurable) + drift classification + auto-suppress after 3 drifts + on-demand `POST /bridge/reconcile` + MC "Force reconcile" button |
 > | Phase D | planned | Options/LEAP/Investor reconciler extensions, per-vehicle execution enforcement, OCO cancel-before-trim / SL-modify |
 > | Phase E | planned | Drift notifications (severity tiers) + MC Mirror Sync panel + Daily Owner Email cron |
 >
