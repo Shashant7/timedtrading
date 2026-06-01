@@ -100,10 +100,26 @@
       .mc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
       .mc-table th { text-align: left; font-size: 10px; font-weight: 700;
         letter-spacing: 0.08em; text-transform: uppercase; color: #6b7280;
-        padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+        padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);
+        white-space: nowrap; }
       .mc-table td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.03);
-        color: #d1d5db; font-variant-numeric: tabular-nums; }
+        color: #d1d5db; font-variant-numeric: tabular-nums; vertical-align: top; }
       .mc-table tr:hover td { background: rgba(255,255,255,0.02); }
+      /* 2026-06-01 — Mobile fix: tables with long-text columns (CIO
+         rejection reasoning, audit log reasons, etc.) were wrapping
+         the reason column into a 60-px-wide vertical strip on iPhone.
+         Wrap every mc-table in a horizontally-scrollable container
+         via this scoped overflow rule. The header row stays put,
+         the table scrolls under it on narrow screens. */
+      .mc-table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .mc-table-scroll .mc-table { min-width: max-content; }
+      .mc-table-scroll .mc-table td[data-prose] {
+        white-space: normal; min-width: 280px; max-width: 460px;
+      }
+      @media (max-width: 720px) {
+        .mc-table-scroll .mc-table td[data-prose] { min-width: 220px; max-width: 320px; }
+        .mc-table th, .mc-table td { padding: 6px 8px; font-size: 11px; }
+      }
       .mc-pill { display: inline-block; padding: 2px 7px; border-radius: 4px;
         font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
       .mc-pill-ok { color: #34d399; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.25); }
@@ -2484,6 +2500,7 @@
                   <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
                     Decision Detail — All-Time Outcomes
                   </div>
+                  <div className="mc-table-scroll">
                   <table className="mc-table">
                     <thead>
                       <tr>
@@ -2537,6 +2554,7 @@
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </>
               )}
 
@@ -2554,43 +2572,45 @@
                   <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
                     Recent CIO Rejections (latest 5)
                   </div>
-                  <table className="mc-table">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Ticker</th>
-                        <th>Dir</th>
-                        <th>Conf</th>
-                        <th>Edge</th>
-                        <th>Mode</th>
-                        <th>Reason</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cioAccuracy.recent_rejections.slice(0, 5).map((r, i) => (
-                        <tr key={`rej-${i}`}>
-                          <td className="mc-mute">{fmtAgo(r.created_at)}</td>
-                          <td><span className="font-semibold text-white">{r.ticker}</span></td>
-                          <td>
-                            <span className={String(r.direction).toUpperCase() === "LONG" ? "mc-pos" : "mc-neg"}>
-                              {r.direction}
-                            </span>
-                          </td>
-                          <td>{Number(r.confidence).toFixed(2)}</td>
-                          <td>{Number(r.edge_score).toFixed(2)}</td>
-                          <td>
-                            <span className={`mc-pill ${Number(r.shadow) === 1 ? "mc-pill-warn" : "mc-pill-ok"}`}>
-                              {Number(r.shadow) === 1 ? "SHADOW" : "ACTED"}
-                            </span>
-                          </td>
-                          <td className="text-[11px] text-[#d1d5db]" style={{ maxWidth: 460 }}>
-                            {String(r.reasoning || "").slice(0, 240)}
-                            {String(r.reasoning || "").length > 240 && "…"}
-                          </td>
+                  <div className="mc-table-scroll">
+                    <table className="mc-table">
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>Ticker</th>
+                          <th>Dir</th>
+                          <th>Conf</th>
+                          <th>Edge</th>
+                          <th>Mode</th>
+                          <th>Reason</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {cioAccuracy.recent_rejections.slice(0, 5).map((r, i) => (
+                          <tr key={`rej-${i}`}>
+                            <td className="mc-mute">{fmtAgo(r.created_at)}</td>
+                            <td><span className="font-semibold text-white">{r.ticker}</span></td>
+                            <td>
+                              <span className={String(r.direction).toUpperCase() === "LONG" ? "mc-pos" : "mc-neg"}>
+                                {r.direction}
+                              </span>
+                            </td>
+                            <td>{Number(r.confidence).toFixed(2)}</td>
+                            <td>{Number(r.edge_score).toFixed(2)}</td>
+                            <td>
+                              <span className={`mc-pill ${Number(r.shadow) === 1 ? "mc-pill-warn" : "mc-pill-ok"}`}>
+                                {Number(r.shadow) === 1 ? "SHADOW" : "ACTED"}
+                              </span>
+                            </td>
+                            <td data-prose className="text-[11px] text-[#d1d5db]">
+                              {String(r.reasoning || "").slice(0, 240)}
+                              {String(r.reasoning || "").length > 240 && "…"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               )}
 

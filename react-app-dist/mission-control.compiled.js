@@ -2483,7 +2483,9 @@ function MissionControl({
     }, cioReadiness.note));
   })(), cioAccuracy?.summary && cioAccuracy.summary.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold"
-  }, "Decision Detail \u2014 All-Time Outcomes"), React.createElement("table", {
+  }, "Decision Detail \u2014 All-Time Outcomes"), React.createElement("div", {
+    className: "mc-table-scroll"
+  }, React.createElement("table", {
     className: "mc-table"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Decision"), React.createElement("th", null, "Mode"), React.createElement("th", {
     style: {
@@ -2570,12 +2572,14 @@ function MissionControl({
       },
       className: "mc-mute"
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
-  })))), React.createElement(CioDecisionReview, {
+  }))))), React.createElement(CioDecisionReview, {
     apiBase: API_BASE,
     onReviewSaved: fetchCio
   }), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold"
-  }, "Recent CIO Rejections (latest 5)"), React.createElement("table", {
+  }, "Recent CIO Rejections (latest 5)"), React.createElement("div", {
+    className: "mc-table-scroll"
+  }, React.createElement("table", {
     className: "mc-table"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "When"), React.createElement("th", null, "Ticker"), React.createElement("th", null, "Dir"), React.createElement("th", null, "Conf"), React.createElement("th", null, "Edge"), React.createElement("th", null, "Mode"), React.createElement("th", null, "Reason"))), React.createElement("tbody", null, cioAccuracy.recent_rejections.slice(0, 5).map((r, i) => React.createElement("tr", {
     key: `rej-${i}`
@@ -2588,11 +2592,9 @@ function MissionControl({
   }, r.direction)), React.createElement("td", null, Number(r.confidence).toFixed(2)), React.createElement("td", null, Number(r.edge_score).toFixed(2)), React.createElement("td", null, React.createElement("span", {
     className: `mc-pill ${Number(r.shadow) === 1 ? "mc-pill-warn" : "mc-pill-ok"}`
   }, Number(r.shadow) === 1 ? "SHADOW" : "ACTED")), React.createElement("td", {
-    className: "text-[11px] text-[#d1d5db]",
-    style: {
-      maxWidth: 460
-    }
-  }, String(r.reasoning || "").slice(0, 240), String(r.reasoning || "").length > 240 && "…")))))), React.createElement("div", {
+    "data-prose": true,
+    className: "text-[11px] text-[#d1d5db]"
+  }, String(r.reasoning || "").slice(0, 240), String(r.reasoning || "").length > 240 && "…"))))))), React.createElement("div", {
     className: "text-[10px] mc-mute mt-4"
   }, "Backed by ", React.createElement("code", null, "GET /timed/admin/ai-cio/go-live-readiness"), " and", " ", React.createElement("code", null, "GET /timed/admin/ai-cio/accuracy"), ". Full audit doc:", " ", React.createElement("code", null, "tasks/2026-05-28-cio-shadow-to-live-audit.md"), ".")), React.createElement("div", {
     id: "bridge",
@@ -2612,6 +2614,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780284893119:896850105
+// cache-bust:1780286272072:685482157
 
-// cache-bust:1780284893119:896850105
+// cache-bust:1780286272072:685482157
