@@ -23,6 +23,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | Bridge / IBKR / Robinhood automation work | [broker-bridge.md](broker-bridge.md) |
 | New page failing to load OR blank-screen JSX bug | [frontend-build.md](frontend-build.md) |
 | Touching paywall, auth-gate, Stripe webhook, or any Pro-gated UI | [user-state-matrix.md](user-state-matrix.md) |
+| Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
 
 ## When to ADD a new skill
 
