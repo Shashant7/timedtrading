@@ -129,6 +129,67 @@ explicit:
 
 ---
 
+## Inline chart-in-email: SVG via public endpoint, not attachments [2026-06-01]
+
+Operator asked: "Is it possible to attach a chart image to the email
+so users have context for entry/trim/exit alerts?"
+
+Two paths considered:
+1. SendGrid `attachments` array with base64 PNG. Pros: fully self-
+   contained, no external dependency. Cons: server-side PNG generation
+   is heavyweight in a Worker (no canvas / no headless browser without
+   the paid Browser Rendering binding); attachments balloon email size.
+2. **Embed `<img src="https://timed-trading.com/timed/chart-image?...">`
+   in the HTML body.** Pros: zero attachment overhead; email clients
+   (Gmail, Apple Mail, Outlook 2016+) all fetch + proxy + cache the
+   image transparently; the chart updates on subsequent re-opens since
+   the URL is parameterized. Cons: needs a public endpoint that anyone
+   can hit (mild abuse surface).
+
+Chose #2.
+
+### Implementation
+
+- `worker/chart-svg.js` — pure-string SVG renderer. No deps. ~3-4KB per
+  chart. Supports entry/SL/TP overlay lines (white/red/green) and a
+  subtitle for trade context ("ENTRY · LONG · 14:22 ET").
+- `GET /timed/chart-image?ticker=AAPL&tf=60&bars=48&entry=X&sl=Y&tp=Z`
+  — public endpoint, no auth. Reads candles from `ticker_candles` D1
+  (one indexed query). Returns `image/svg+xml`. Cached via CF for
+  5 min, browser for 1 hour.
+- `sendTradeAlertEmail` in `worker/email.js` now embeds the chart as
+  `<img src="...">` immediately under the headline. The URL is
+  parameterized with the current entry/SL/TP from the alert payload
+  so each alert's image shows its own trade context.
+
+### Why SVG, not PNG
+
+Modern email clients render SVG inside `<img>` tags fine — and we ship
+the explicit `image/svg+xml` content type. Sharp at any DPI. Cheap to
+generate in a Worker (no canvas dependency). For Outlook desktop
+versions that don't render SVG, the image becomes a broken icon that
+Gmail's image proxy still substitutes — but the rest of the email
+body (text, prices, AI CIO reasoning) renders fine.
+
+### Abuse-surface mitigation
+
+- Endpoint reads only from `ticker_candles` D1 (which is already
+  populated by the price-feed cron; no upstream provider cost per
+  request).
+- CF `s-maxage=300` caches each unique URL for 5 min server-side.
+- Browser `max-age=3600` caches for 1 hour client-side.
+- Net: a viral email blast costs at most 1 D1 read + 1 SVG render
+  per unique (ticker, tf, bars, entry, sl, tp) combo per 5 minutes.
+
+### Empty-state SVG
+
+If `ticker_candles` returns 0 rows (e.g. newly-listed ticker, schema
+drift, D1 outage), the renderer returns a "Chart not available — no
+recent candles" SVG of the same dimensions. The `<img>` never
+displays a broken-image icon.
+
+---
+
 ## Display ≠ engine: surface the simulator's working set, not the full candidate pool [2026-06-01]
 
 ### The problem
