@@ -1750,7 +1750,37 @@ function BridgeSection({
         console.warn("[reconcile] error", e);
       }
     }
-  }, "\uD83D\uDD04 Force reconcile"))), !manifest.ok && manifest.error && React.createElement("div", {
+  }, "\uD83D\uDD04 Force reconcile"), React.createElement("button", {
+    className: "mc-btn",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    title: "Phase E: build today's per-user account digest (dry-run preview, no email send)",
+    onClick: async () => {
+      try {
+        const r = await fetch(`${apiBase}/timed/admin/broker-bridge/daily-digest`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            dry_run: true
+          })
+        });
+        const j = await r.json().catch(() => ({}));
+        console.log("[daily-digest preview]", j);
+        if (j?.items?.length > 0) {
+          alert(`Daily digest preview: ${j.items.length} user(s) processed. See console for subject + summary.`);
+        } else {
+          alert("Daily digest preview: no eligible users / nothing to send (see console).");
+        }
+      } catch (e) {
+        console.warn("[daily-digest] error", e);
+      }
+    }
+  }, "\uD83D\uDCE7 Preview daily digest"))), !manifest.ok && manifest.error && React.createElement("div", {
     className: "text-[11px] text-amber-300 mb-2 italic"
   }, String(manifest.error).slice(0, 240)), (manifest.rows || []).length > 0 ? React.createElement("div", {
     className: "mc-table-scroll mb-2"
@@ -1760,50 +1790,136 @@ function BridgeSection({
     style: {
       textAlign: "right"
     }
-  }, "Model Qty"), React.createElement("th", {
+  }, "Model"), React.createElement("th", {
     style: {
       textAlign: "right"
     }
-  }, "Filled"), React.createElement("th", null, "Sync"), React.createElement("th", null, "Suppr."))), React.createElement("tbody", null, manifest.rows.map((r, i) => React.createElement("tr", {
-    key: `${r.user_id}-${r.trade_id}-${r.broker_account_id}-${i}`
-  }, React.createElement("td", {
-    className: "text-[11px] mc-mute"
-  }, new Date(r.updated_at).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  })), React.createElement("td", {
-    className: "font-mono text-[10px]"
-  }, String(r.user_id || "").slice(0, 18)), React.createElement("td", {
-    className: "font-mono text-[10px]"
-  }, String(r.trade_id || "").slice(0, 20)), React.createElement("td", {
-    className: "font-mono"
-  }, r.ticker), React.createElement("td", {
-    className: "font-mono text-[10px]"
-  }, r.mode), React.createElement("td", {
-    className: "font-mono text-[10px]"
-  }, r.instrument_type, r.options_structure ? `:${r.options_structure}` : ""), React.createElement("td", {
-    style: {
-      textAlign: "right"
-    },
-    className: "font-mono"
-  }, Number(r.model_intended_qty) || "—"), React.createElement("td", {
-    style: {
-      textAlign: "right"
-    },
-    className: "font-mono"
-  }, Number(r.broker_filled_qty) || "0"), React.createElement("td", null, React.createElement("span", {
-    className: "mc-pill " + (r.sync_state === "in_sync" ? "mc-pill-ok" : r.sync_state === "rejected" || r.sync_state === "mirror_suppressed" || r.sync_state === "broker_orphan" || r.sync_state === "mothership_orphan" ? "mc-pill-warn" : ""),
-    style: {
-      fontSize: 9
-    }
-  }, r.sync_state)), React.createElement("td", {
-    className: "text-[10px]"
-  }, r.mirror_suppressed ? React.createElement("span", {
-    title: r.mirror_suppressed_reason,
-    className: "text-rose-300 cursor-help"
-  }, "\u26D4 ", String(r.mirror_suppressed_reason || "").slice(0, 22)) : "—")))))) : manifest.ok && React.createElement("div", {
+  }, "Filled"), React.createElement("th", null, "Sync"), React.createElement("th", null, "Note"), React.createElement("th", null, "Actions"))), React.createElement("tbody", null, manifest.rows.map((r, i) => {
+    const doAction = async (action, confirmMsg) => {
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      try {
+        const res = await fetch(`${apiBase}/timed/admin/broker-bridge/manifest/action`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            user_id: r.user_id,
+            trade_id: r.trade_id,
+            broker_account_id: r.broker_account_id,
+            action
+          })
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j?.ok) {
+          console.warn(`[manifest/action] ${action} failed`, j);
+          return;
+        }
+        setTimeout(refresh, 500);
+      } catch (e) {
+        console.warn(`[manifest/action] ${action} error`, e);
+      }
+    };
+    return React.createElement("tr", {
+      key: `${r.user_id}-${r.trade_id}-${r.broker_account_id}-${i}`
+    }, React.createElement("td", {
+      className: "text-[11px] mc-mute"
+    }, new Date(r.updated_at).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    })), React.createElement("td", {
+      className: "font-mono text-[10px]"
+    }, String(r.user_id || "").slice(0, 18)), React.createElement("td", {
+      className: "font-mono text-[10px]"
+    }, String(r.trade_id || "").slice(0, 20)), React.createElement("td", {
+      className: "font-mono"
+    }, r.ticker), React.createElement("td", {
+      className: "font-mono text-[10px]"
+    }, r.mode), React.createElement("td", {
+      className: "font-mono text-[10px]"
+    }, r.instrument_type, r.options_structure ? `:${r.options_structure}` : ""), React.createElement("td", {
+      style: {
+        textAlign: "right"
+      },
+      className: "font-mono"
+    }, Number(r.model_intended_qty) || "—"), React.createElement("td", {
+      style: {
+        textAlign: "right"
+      },
+      className: "font-mono"
+    }, Number(r.broker_filled_qty) || "0"), React.createElement("td", null, React.createElement("span", {
+      className: "mc-pill " + (r.sync_state === "in_sync" ? "mc-pill-ok" : r.sync_state === "rejected" || r.sync_state === "mirror_suppressed" || r.sync_state === "broker_orphan" || r.sync_state === "mothership_orphan" ? "mc-pill-warn" : ""),
+      style: {
+        fontSize: 9
+      }
+    }, r.sync_state), Number(r.sync_drift_count) > 0 && React.createElement("span", {
+      className: "text-[9px] mc-mute ml-1",
+      title: "drift cycle count"
+    }, "\xD7", r.sync_drift_count)), React.createElement("td", {
+      className: "text-[10px]",
+      style: {
+        maxWidth: 260
+      }
+    }, r.mirror_suppressed ? React.createElement("span", {
+      title: r.mirror_suppressed_reason || r.sync_note,
+      className: "text-rose-300 cursor-help"
+    }, "\u26D4 ", String(r.mirror_suppressed_reason || r.sync_note || "").slice(0, 60)) : r.sync_note ? React.createElement("span", {
+      title: r.sync_note,
+      className: "mc-mute cursor-help"
+    }, String(r.sync_note).slice(0, 60)) : "—"), React.createElement("td", {
+      className: "text-[10px]",
+      style: {
+        whiteSpace: "nowrap"
+      }
+    }, React.createElement("button", {
+      className: "mc-btn",
+      style: {
+        fontSize: 9,
+        padding: "1px 5px",
+        marginRight: 3
+      },
+      onClick: () => doAction("force_resync_from_broker"),
+      title: "Force next reconciler cycle to re-check this row immediately"
+    }, "\u21BB"), r.mirror_suppressed ? React.createElement("button", {
+      className: "mc-btn mc-btn-ok",
+      style: {
+        fontSize: 9,
+        padding: "1px 5px",
+        marginRight: 3
+      },
+      onClick: () => doAction("unsuppress", `Unsuppress mirror for ${r.ticker} (${r.trade_id})?`),
+      title: "Re-enable mirror \u2014 bridge will accept follow-on TRIM/EXIT"
+    }, "\u2713 Unsuppress") : React.createElement("button", {
+      className: "mc-btn mc-btn-warn",
+      style: {
+        fontSize: 9,
+        padding: "1px 5px",
+        marginRight: 3
+      },
+      onClick: () => doAction("suppress", `Suppress mirror for ${r.ticker} (${r.trade_id})?\n\nThe bridge will REJECT all future TRIM/EXIT for this trade until you unsuppress.`),
+      title: "Suppress mirror \u2014 bridge will reject all follow-on TRIM/EXIT"
+    }, "\u26D4 Suppress"), r.model_status === "OPEN" && React.createElement("button", {
+      className: "mc-btn",
+      style: {
+        fontSize: 9,
+        padding: "1px 5px",
+        marginRight: 3
+      },
+      onClick: () => doAction("mark_closed", `Mark ${r.ticker} (${r.trade_id}) model_status=CLOSED?\n\nUse when the model and broker are out of sync and you want the reconciler to treat any remaining broker position as broker_orphan.`),
+      title: "Force model_status=CLOSED"
+    }, "\u2715"), React.createElement("button", {
+      className: "mc-btn",
+      style: {
+        fontSize: 9,
+        padding: "1px 5px"
+      },
+      onClick: () => doAction("mark_manual", `Mark ${r.ticker} (${r.trade_id}) as user-managed?\n\nThe bridge will set sync_state=untracked and suppress the mirror — useful when the user took over the position outside TT.`),
+      title: "Mark as user-managed (untracked + suppressed)"
+    }, "\u2298")));
+  })))) : manifest.ok && React.createElement("div", {
     className: "text-[11px] mc-mute italic mb-2"
   }, "No manifest rows yet \u2014 populated on every successful ENTRY/ADD via the bridge.")), audit.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold"
@@ -3068,6 +3184,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780319816538:692433852
+// cache-bust:1780319880998:294012164
 
-// cache-bust:1780319816538:692433852
+// cache-bust:1780319880998:294012164

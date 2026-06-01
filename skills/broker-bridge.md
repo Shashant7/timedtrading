@@ -12,8 +12,8 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > | Phase A (PR #414) | ✅ shipped | `mirror_trade_manifest` D1 writer + Mission Control debug view |
 > | Phase B (PR #415) | ✅ shipped | Manifest-aware reducer — `preflightOrder` reads the manifest before the portfolio check; TRIM/EXIT on a `no_manifest_for_trade` or `mirror_suppressed` trade is rejected with an explicit reason |
 > | Phase C (PR #416) | ✅ shipped | Reconciler cron (5 min RTH, configurable) + drift classification + auto-suppress after 3 drifts + on-demand `POST /bridge/reconcile` + MC "Force reconcile" button |
-> | **Phase D (this PR)** | ✅ shipped | Options leg-aware reconciliation + cadence routing (Trader 5min / Investor 60min / LEAPs daily) + LEAP T-30 + Options T-1 day approaching-expiration warnings + DCA tranche aggregation + OCO cancel-then-replace plan (logs only; dispatch in Phase E) |
-> | Phase E | planned | Drift notifications (severity tiers) + MC Mirror Sync panel + Daily Owner Email cron |
+> | Phase D (PR #417) | ✅ shipped | Options leg-aware reconciliation + cadence routing (Trader 5min / Investor 60min / LEAPs daily) + LEAP T-30 + Options T-1 day approaching-expiration warnings + DCA tranche aggregation + OCO cancel-then-replace plan (logs only) |
+> | **Phase E (this PR)** | ✅ shipped | Drift notifications (severity tiers + dedup with escalation) + MC Mirror Sync panel with operator actions (Suppress / Unsuppress / Mark Closed / Mark Manual / Force Re-Sync) + Daily Owner Email cron at 21:30 UTC + main-worker drain via `*/5` cron |
 >
 > Full design: [`../tasks/2026-06-01-trade-aware-mirror-sync-design.md`](../tasks/2026-06-01-trade-aware-mirror-sync-design.md).
 >

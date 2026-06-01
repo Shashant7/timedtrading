@@ -1591,13 +1591,13 @@
                   </>
                 )}
 
-                {/* 2026-06-01 — Phase A: mirror_trade_manifest debug
-                    view + Phase C 'Force reconcile' button (operator
-                    can trigger an immediate sweep instead of waiting
-                    for the 5-min cron). sync_state column drives
+                {/* 2026-06-01 — Phase A/C/E: mirror_trade_manifest
+                    debug view + Force reconcile button (Phase C) +
+                    per-row operator action buttons (Phase E: Suppress
+                    / Unsuppress / Mark Closed / Mark Manual / Force
+                    Re-Sync from Broker). sync_state column drives
                     operator action (in_sync → green, pending → amber,
-                    rejected/mirror_suppressed/orphan → red). Phase C
-                    cron updates sync_state automatically. */}
+                    rejected/mirror_suppressed/orphan → red). */}
                 {manifest && (
                   <>
                     <div className="flex items-baseline justify-between mb-2 mt-3 flex-wrap gap-2">
@@ -1635,6 +1635,27 @@
                             } catch (e) { console.warn("[reconcile] error", e); }
                           }}
                         >🔄 Force reconcile</button>
+                        <button
+                          className="mc-btn"
+                          style={{ fontSize: 10, padding: "3px 8px" }}
+                          title="Phase E: build today's per-user account digest (dry-run preview, no email send)"
+                          onClick={async () => {
+                            try {
+                              const r = await fetch(`${apiBase}/timed/admin/broker-bridge/daily-digest`, {
+                                method: "POST", credentials: "include",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ dry_run: true }),
+                              });
+                              const j = await r.json().catch(() => ({}));
+                              console.log("[daily-digest preview]", j);
+                              if (j?.items?.length > 0) {
+                                alert(`Daily digest preview: ${j.items.length} user(s) processed. See console for subject + summary.`);
+                              } else {
+                                alert("Daily digest preview: no eligible users / nothing to send (see console).");
+                              }
+                            } catch (e) { console.warn("[daily-digest] error", e); }
+                          }}
+                        >📧 Preview daily digest</button>
                       </div>
                     </div>
                     {!manifest.ok && manifest.error && (
@@ -1645,9 +1666,31 @@
                     {(manifest.rows || []).length > 0 ? (
                       <div className="mc-table-scroll mb-2">
                         <table className="mc-table">
-                          <thead><tr><th>Updated</th><th>User</th><th>Trade ID</th><th>Ticker</th><th>Mode</th><th>Instrument</th><th style={{textAlign:"right"}}>Model Qty</th><th style={{textAlign:"right"}}>Filled</th><th>Sync</th><th>Suppr.</th></tr></thead>
+                          <thead><tr><th>Updated</th><th>User</th><th>Trade ID</th><th>Ticker</th><th>Mode</th><th>Instrument</th><th style={{textAlign:"right"}}>Model</th><th style={{textAlign:"right"}}>Filled</th><th>Sync</th><th>Note</th><th>Actions</th></tr></thead>
                           <tbody>
-                            {manifest.rows.map((r, i) => (
+                            {manifest.rows.map((r, i) => {
+                              const doAction = async (action, confirmMsg) => {
+                                if (confirmMsg && !confirm(confirmMsg)) return;
+                                try {
+                                  const res = await fetch(`${apiBase}/timed/admin/broker-bridge/manifest/action`, {
+                                    method: "POST", credentials: "include",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      user_id: r.user_id,
+                                      trade_id: r.trade_id,
+                                      broker_account_id: r.broker_account_id,
+                                      action,
+                                    }),
+                                  });
+                                  const j = await res.json().catch(() => ({}));
+                                  if (!res.ok || !j?.ok) {
+                                    console.warn(`[manifest/action] ${action} failed`, j);
+                                    return;
+                                  }
+                                  setTimeout(refresh, 500);
+                                } catch (e) { console.warn(`[manifest/action] ${action} error`, e); }
+                              };
+                              return (
                               <tr key={`${r.user_id}-${r.trade_id}-${r.broker_account_id}-${i}`}>
                                 <td className="text-[11px] mc-mute">
                                   {new Date(r.updated_at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}
@@ -1667,16 +1710,46 @@
                                       : r.sync_state === "rejected" || r.sync_state === "mirror_suppressed" || r.sync_state === "broker_orphan" || r.sync_state === "mothership_orphan" ? "mc-pill-warn"
                                       : "")
                                   } style={{fontSize:9}}>{r.sync_state}</span>
+                                  {Number(r.sync_drift_count) > 0 && (
+                                    <span className="text-[9px] mc-mute ml-1" title="drift cycle count">×{r.sync_drift_count}</span>
+                                  )}
                                 </td>
-                                <td className="text-[10px]">
+                                <td className="text-[10px]" style={{maxWidth: 260}}>
                                   {r.mirror_suppressed ? (
-                                    <span title={r.mirror_suppressed_reason} className="text-rose-300 cursor-help">
-                                      ⛔ {String(r.mirror_suppressed_reason || "").slice(0, 22)}
+                                    <span title={r.mirror_suppressed_reason || r.sync_note} className="text-rose-300 cursor-help">
+                                      ⛔ {String(r.mirror_suppressed_reason || r.sync_note || "").slice(0, 60)}
+                                    </span>
+                                  ) : r.sync_note ? (
+                                    <span title={r.sync_note} className="mc-mute cursor-help">
+                                      {String(r.sync_note).slice(0, 60)}
                                     </span>
                                   ) : "—"}
                                 </td>
+                                <td className="text-[10px]" style={{whiteSpace: "nowrap"}}>
+                                  <button className="mc-btn" style={{fontSize:9, padding:"1px 5px", marginRight:3}}
+                                          onClick={() => doAction("force_resync_from_broker")}
+                                          title="Force next reconciler cycle to re-check this row immediately">↻</button>
+                                  {r.mirror_suppressed ? (
+                                    <button className="mc-btn mc-btn-ok" style={{fontSize:9, padding:"1px 5px", marginRight:3}}
+                                            onClick={() => doAction("unsuppress", `Unsuppress mirror for ${r.ticker} (${r.trade_id})?`)}
+                                            title="Re-enable mirror — bridge will accept follow-on TRIM/EXIT">✓ Unsuppress</button>
+                                  ) : (
+                                    <button className="mc-btn mc-btn-warn" style={{fontSize:9, padding:"1px 5px", marginRight:3}}
+                                            onClick={() => doAction("suppress", `Suppress mirror for ${r.ticker} (${r.trade_id})?\n\nThe bridge will REJECT all future TRIM/EXIT for this trade until you unsuppress.`)}
+                                            title="Suppress mirror — bridge will reject all follow-on TRIM/EXIT">⛔ Suppress</button>
+                                  )}
+                                  {r.model_status === "OPEN" && (
+                                    <button className="mc-btn" style={{fontSize:9, padding:"1px 5px", marginRight:3}}
+                                            onClick={() => doAction("mark_closed", `Mark ${r.ticker} (${r.trade_id}) model_status=CLOSED?\n\nUse when the model and broker are out of sync and you want the reconciler to treat any remaining broker position as broker_orphan.`)}
+                                            title="Force model_status=CLOSED">✕</button>
+                                  )}
+                                  <button className="mc-btn" style={{fontSize:9, padding:"1px 5px"}}
+                                          onClick={() => doAction("mark_manual", `Mark ${r.ticker} (${r.trade_id}) as user-managed?\n\nThe bridge will set sync_state=untracked and suppress the mirror — useful when the user took over the position outside TT.`)}
+                                          title="Mark as user-managed (untracked + suppressed)">⊘</button>
+                                </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
