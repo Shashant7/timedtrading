@@ -6,6 +6,42 @@
 
 ---
 
+## ETF stagnant-exit: coil-before-break is constructive, not stagnant [2026-06-01]
+
+Operator audited a DIA LONG closed at +0.28% / $510.67 / "etf stagnant exit" while the live MTF chart showed DIA at $511.21+ with bullish Monthly + Weekly + Daily + a clear 30m coil that broke up minutes after the cut. Asked: *"was this a good exit? It looks like it had room to go higher."*
+
+Diagnosis:
+- The `etf_fast_cut_zero_mfe` branch (`worker/etf-profile.js` `checkEtfStagnantExit`) fires when `age >= 4 h` AND `MFE < 0.05 %`, regardless of current pnl. Intended target: "wrong from bar 1, the price never moved."
+- DIA was in chop $508-$509.5 for ~4 hours after entry at $509.25; MFE never cleared 0.05 %; rule fired correctly by its own logic.
+- The +0.28 % realized P&L came from the order filling at $510.67 — the rally was just starting when the exit order went out. The DECISION was made when MFE was effectively zero; the fill caught the lucky edge of the breakout.
+- DIA continued higher (currently $511.21, +0.10 % above the fill) — clearly more upside still in play.
+
+The rule didn't distinguish between two visually identical patterns:
+- *"Stuck in chop with no trend"* → cut fast (original intent)
+- *"Coiling at HTF highs in a bullish regime"* → defer; the next move is statistically up
+
+### Fix (PR pending)
+
+Added an optional `htfContext` parameter to `checkEtfStagnantExit()`. The `fast_cut_zero_mfe` branch now defers when ALL three hold:
+- LONG: `monthly_bundle.supertrend_dir === -1` (Pine bullish) AND `daily_structure.above_e200 === true` AND any LTF (30/60/1H/4H) shows `sq.s===1` or `sq.c===1`
+- SHORT: monthly bearish AND below daily 200 EMA AND LTF squeeze
+
+The call site in `worker/index.js` `processTradeSimulation` builds the htfContext from existing `tickerData` fields (no new indicator computation). Backward-compatible: callers that don't pass htfContext get the original behavior. Dead-money and pnl-negative fast-cut branches (which require `pnl <= 0` — genuine slow+losing trades) are unchanged.
+
+Smoke-tested 8 scenarios; the gate fires only on the exact "HTF-aligned coil" pattern and leaves every other case untouched. Deferred cuts are logged at console-info level (operator can see them) without paging.
+
+### Rule
+
+Mechanical exit rules that operate purely on age + MFE are blind to **regime context**. A 4-hour flat period in a bullish HTF coil and a 4-hour flat period in a downtrending chop look identical to the rule but are opposite signals to a human reading the chart. When an exit rule reaches its trigger threshold, the engine should consult at least one regime indicator before committing — at minimum, "is the trade direction aligned with the dominant timeframe trend?".
+
+Also: the rule should NEVER kill a trade in an active squeeze on its host timeframe(s). Squeezes are compression that resolves into expansion in the direction of the prior trend. Cutting just before resolution is the worst possible timing.
+
+### Display follow-up
+
+Discord embed showed `Setup: **Atl Breakdown**` for a LONG. The engine emits `tt_ath_breakout` for LONG (`worker/pipeline/tt-core-entry.js:3803`) — either the trade record stored the wrong setup_name or `prettySetupName()` title-cased an unmapped string. Investigate separately; doesn't affect exit decisions but is operator-confusing.
+
+---
+
 ## Screener Promotion Queue: per-ticker decision inheritance + reuse the thesis in Snapshot [2026-06-01]
 
 Operator on the Screener page asked two related things:
