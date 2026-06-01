@@ -35,8 +35,22 @@
       direction-correct paired name at render time. Logs warn so we
       can trace the upstream stamp bug. Trim + exit embed call sites
       pass direction. 9/9 smoke test scenarios pass.
+- [x] **Freshness monitor heals before paging + chart SVG sl=0 trap
+      (PR pending).** Two polish-phase bugs in one PR. (1) `candle_
+      freshness_60` paged for BK at 71.5h stale even though the auto-
+      heal was about to clear it. Reordered to detect → heal → re-check
+      → page only if still stale; page text now distinguishes "real
+      data problem (auto-heal attempted, still stale)" from the
+      transient case. (2) DIA exit email rendered an empty chart
+      because `sl=0` got coerced to a real annotation
+      (`Number.isFinite(Number(null))` is `true`), expanding the
+      y-axis from $0 to $539 and squeezing the actual price action
+      ($509-$511) into a tiny squiggle at the top. Three defenses:
+      email.js skips sl/tp on EXITs entirely; URL-encode requires
+      `>0`; chart-svg.js helper requires `Number.isFinite(v) && v > 0`
+      AND filters annotations >30% off the price midpoint.
 - [x] **Reliability sweep: investor compute retry + manifest stale-bridge
-      hint + toxic-ticker safety (PR pending).** Three independent
+      hint + toxic-ticker safety (PR #433).** Three independent
       polish-phase fixes in one PR. (1) Investor cron now retries
       `/timed/investor/compute` 3× with 0/8/30s backoff on 5xx/408/429
       before tombstoning — single transient 503s no longer page.

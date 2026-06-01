@@ -87,9 +87,28 @@ export function renderChartSvg(opts) {
   const candles = Array.isArray(opts?.candles) ? opts.candles.filter(c => c && Number.isFinite(Number(c.c))) : [];
   const ticker = String(opts?.ticker || "").toUpperCase();
   const tfLabel = _formatTfLabel(opts?.tf);
-  const entry = Number.isFinite(Number(opts?.entry)) ? Number(opts.entry) : null;
-  const sl = Number.isFinite(Number(opts?.sl)) ? Number(opts.sl) : null;
-  const tp = Number.isFinite(Number(opts?.tp)) ? Number(opts.tp) : null;
+  /* 2026-06-01 — Strict positive-price guard for annotations.
+
+     The DIA EXIT email rendered a flat-line chart with y-axis -25.69 to
+     539.4 and an "SL 0.00" label at the bottom-right. Bug chain:
+
+       1. Email passed sl=0 (exit has no live stop) → URL sl=0
+       2. Chart endpoint: Number("0") || null === null → sl=null
+       3. renderChartSvg: Number.isFinite(Number(null)) === Number.isFinite(0)
+          === true → sl coerced to 0
+       4. yMin/yMax expanded down to 0 → candles squeezed to ~1% of plot
+          height → visually empty chart
+
+     Fix: prices for a real equity / ETF are always > 0. Require both
+     `Number.isFinite` AND `> 0` for any annotation value. Zero or
+     negative passes as null (no annotation). */
+  const _toPositivePrice = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const entry = _toPositivePrice(opts?.entry);
+  const sl = _toPositivePrice(opts?.sl);
+  const tp = _toPositivePrice(opts?.tp);
   const subtitle = String(opts?.subtitle || "").slice(0, 80);
 
   // ── Empty-state ─────────────────────────────────────────────────────
@@ -102,13 +121,37 @@ export function renderChartSvg(opts) {
   // doesn't kiss the panel edges, and ensure annotation lines fit.
   const highs = candles.map(c => Number(c.h) || Number(c.c));
   const lows  = candles.map(c => Number(c.l) || Number(c.c));
-  let yMin = Math.min(...lows);
-  let yMax = Math.max(...highs);
-  for (const v of [entry, sl, tp]) {
-    if (Number.isFinite(v)) {
-      if (v < yMin) yMin = v;
-      if (v > yMax) yMax = v;
+  const priceMin = Math.min(...lows);
+  const priceMax = Math.max(...highs);
+  let yMin = priceMin;
+  let yMax = priceMax;
+  /* 2026-06-01 — Outlier guard on annotations. Even with the >0 filter
+     above, a stale or wrong annotation (e.g. SL from a previous trade
+     at a price that's been left far behind) can still blow up the
+     y-axis. Reject any annotation whose absolute distance from the
+     price band is more than 30% of the price midpoint — that's outside
+     the chart's useful viewing range anyway, and including it would
+     render the candles as a thin sliver. */
+  const _priceMid = (priceMin + priceMax) / 2;
+  const _maxAnnotDist = Math.max(_priceMid * 0.30, (priceMax - priceMin) * 4);
+  const _annotIncluded = [];
+  const _annotExcluded = [];
+  for (const [label, v] of [["entry", entry], ["sl", sl], ["tp", tp]]) {
+    if (v == null) continue;
+    if (Math.abs(v - _priceMid) > _maxAnnotDist) {
+      _annotExcluded.push({ label, value: v });
+      continue;
     }
+    _annotIncluded.push({ label, value: v });
+    if (v < yMin) yMin = v;
+    if (v > yMax) yMax = v;
+  }
+  if (_annotExcluded.length > 0) {
+    console.warn(
+      `[chart-svg] ${ticker} ${tfLabel} — excluded ${_annotExcluded.length} annotation(s) out of range ` +
+      `(price band $${priceMin.toFixed(2)}-$${priceMax.toFixed(2)}, mid $${_priceMid.toFixed(2)}): ` +
+      _annotExcluded.map(a => `${a.label}=$${a.value.toFixed(2)}`).join(", "),
+    );
   }
   const pad = (yMax - yMin) * 0.05 || (yMax * 0.005) || 1;
   yMin -= pad;
@@ -142,27 +185,31 @@ export function renderChartSvg(opts) {
     `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.gridLine}" stroke-width="1" stroke-dasharray="2,4" />`
   ).join("");
 
-  // ── Annotation lines (entry / SL / TP) ─────────────────────────────
+  /* ── Annotation lines (entry / SL / TP) ─────────────────────────────
+     2026-06-01 — Only draw annotations that survived the in-range
+     filter above. _annotIncluded was populated with the kept values. */
+  const _annotByLabel = {};
+  for (const a of _annotIncluded) _annotByLabel[a.label] = a.value;
   const annotations = [];
-  if (entry !== null) {
-    const y = yFor(entry).toFixed(1);
+  if (_annotByLabel.entry != null) {
+    const y = yFor(_annotByLabel.entry).toFixed(1);
     annotations.push(
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.entryLine}" stroke-width="1.2" />`,
-      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">E ${_fmtPrice(entry)}</text>`,
+      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">E ${_fmtPrice(_annotByLabel.entry)}</text>`,
     );
   }
-  if (sl !== null) {
-    const y = yFor(sl).toFixed(1);
+  if (_annotByLabel.sl != null) {
+    const y = yFor(_annotByLabel.sl).toFixed(1);
     annotations.push(
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.slLine}" stroke-width="1" stroke-dasharray="4,3" />`,
-      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.slLine}" text-anchor="end">SL ${_fmtPrice(sl)}</text>`,
+      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.slLine}" text-anchor="end">SL ${_fmtPrice(_annotByLabel.sl)}</text>`,
     );
   }
-  if (tp !== null) {
-    const y = yFor(tp).toFixed(1);
+  if (_annotByLabel.tp != null) {
+    const y = yFor(_annotByLabel.tp).toFixed(1);
     annotations.push(
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.tpLine}" stroke-width="1" stroke-dasharray="4,3" />`,
-      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.tpLine}" text-anchor="end">TP ${_fmtPrice(tp)}</text>`,
+      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.tpLine}" text-anchor="end">TP ${_fmtPrice(_annotByLabel.tp)}</text>`,
     );
   }
 

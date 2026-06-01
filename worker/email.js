@@ -983,9 +983,21 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     p.set("ticker", String(ticker || "").toUpperCase());
     p.set("tf", "60");
     p.set("bars", "48");
-    if (Number.isFinite(Number(entry))) p.set("entry", String(Number(entry)));
-    if (Number.isFinite(Number(sl)))    p.set("sl",    String(Number(sl)));
-    if (Number.isFinite(Number(tp)))    p.set("tp",    String(Number(tp)));
+    /* 2026-06-01 — Strict positive-price encode. Was passing
+       sl=0 / tp=0 / entry=0 through to the chart endpoint when the
+       trade record had a zero default; combined with the renderer's
+       finite-but-zero acceptance bug, this rendered an empty chart with
+       a flat y-axis range from $0 to actual price. Both layers now
+       defensive: caller skips ≤0 values; renderer also skips them. */
+    const _hasPositive = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
+    if (_hasPositive(entry)) p.set("entry", String(Number(entry)));
+    // 2026-06-01 — Exits have no live stop, so skip sl/tp entirely on
+    // exits. The position is closed; drawing the original stop level
+    // can dwarf the actual price action (e.g. SL was $440 on a trade
+    // that ran to $510 then exited — including SL would expand the
+    // y-axis far below the price band).
+    if (_hasPositive(sl) && !isExit) p.set("sl", String(Number(sl)));
+    if (_hasPositive(tp) && !isExit) p.set("tp", String(Number(tp)));
     // Subtitle gives the operator context inside the rendered image
     // itself (so the chart works as a standalone share-able snapshot).
     const _subtitleParts = [];
