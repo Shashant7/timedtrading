@@ -118,20 +118,23 @@ export const PROFILE_META = {
   conservative: {
     label: "Conservative",
     icon: "🛡",
-    one_liner: "Stock-only. Options reserved for income (covered calls only).",
-    preferred: ["stock_long", "stock_short", "covered_call"],
+    one_liner: "Stock-only or stock-replacement LEAPs. Long-dated, defined risk.",
+    // LEAPs are appropriate here: they behave like leveraged shares with
+    // defined max loss, ideal for the conservative investor who wants
+    // exposure without margin/forced-exit risk.
+    preferred: ["stock_long", "leap_call", "stock_short", "covered_call"],
   },
   moderate: {
     label: "Moderate",
     icon: "⚖",
-    one_liner: "Sell options for premium income. Defined risk only.",
-    preferred: ["cash_secured_put", "covered_call", "vertical_spread", "stock_long"],
+    one_liner: "Sell options for premium income, LEAPs for long-term exposure.",
+    preferred: ["leap_call", "cash_secured_put", "covered_call", "vertical_spread", "stock_long"],
   },
   aggressive: {
     label: "Aggressive",
     icon: "🎯",
-    one_liner: "Defined-risk spreads. Capped downside, leveraged upside.",
-    preferred: ["vertical_spread", "long_call", "long_put", "cash_secured_put"],
+    one_liner: "Defined-risk spreads + LEAPs. Capped downside, leveraged upside.",
+    preferred: ["vertical_spread", "leap_call", "long_call", "long_put", "cash_secured_put"],
   },
   speculator: {
     label: "Speculator",
@@ -158,6 +161,17 @@ export const ARCHETYPES = {
   moonshot_put:        { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🌙 Moonshot Put" },
   long_call:           { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Call" },
   long_put:            { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Put" },
+  // LEAPs — Long-term Equity AnticiPation Securities. By SEC/CBOE convention
+  // any option with > 12 months DTE. The Investor-mode "stock replacement"
+  // play: deep-ITM long call at ~365-540 DTE gives ~1:1 participation with
+  // a fraction of the capital (and a defined max loss). Theta is glacial,
+  // delta is high, so it behaves like leveraged shares — perfect for the
+  // Investor thesis ("I'm long-term bullish; I want exposure but not full
+  // capital tie-up"). Risk class = aggressive (not speculator) because the
+  // long DTE + high delta makes it materially less risky than short-dated
+  // OTM gambles. See tasks/2026-06-01-trade-aware-mirror-sync-design.md §2.3.
+  leap_call:           { directional: "long",    risk_class: "aggressive",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "LEAP Call (Stock Replacement)" },
+  leap_put:            { directional: "short",   risk_class: "aggressive",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "LEAP Put (Long-Term Hedge)" },
   vertical_spread:     { directional: "either",  risk_class: "aggressive",   max_loss: "defined",           max_gain: "defined",   label: "Vertical Spread" },
   cash_secured_put:    { directional: "long",    risk_class: "moderate",     max_loss: "undefined",         max_gain: "defined",   label: "Cash-Secured Short Put" },
   covered_call:        { directional: "long",    risk_class: "conservative", max_loss: "undefined",         max_gain: "defined",   label: "Covered Call" },
@@ -214,6 +228,46 @@ export function pickMoonshotExpiration(now = Date.now()) {
     iso: friday.toISOString().slice(0, 10),
     dte,
     label: `${friday.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${dte}DTE) · short-dated`,
+  };
+}
+
+/**
+ * LEAP expiration picker — long-dated, used by Investor-mode entries.
+ *
+ * LEAP definition (CBOE / SEC): any options contract with > 12 months to
+ * expiration. By convention the most liquid LEAPs are listed for the
+ * January 3rd-Friday cycle of each year (annual LEAPs) and some popular
+ * underlyings also list June + December cycles.
+ *
+ * Strategy here: target ~540 DTE (18 months), snap to the 3rd Friday of
+ * the target month. If that lands < 365 DTE (can happen if the user calls
+ * this near year-end with a January-only chain), step forward one year so
+ * we always qualify as a true LEAP. The caller is responsible for falling
+ * back to a chain-driven expiration if the snapped date does not exist on
+ * the live chain.
+ *
+ * Returns { iso, dte, label } same shape as pickExpiration / pickMoonshotExpiration.
+ */
+export function pickLeapExpiration(now = Date.now(), { targetDte = 540 } = {}) {
+  const _thirdFriday = (y, m) => {
+    const first = new Date(Date.UTC(y, m, 1));
+    const firstDow = first.getUTCDay(); // 0 = Sun, 5 = Fri
+    const firstFridayDom = 1 + ((5 - firstDow + 7) % 7);
+    const tf = new Date(Date.UTC(y, m, firstFridayDom + 14));
+    tf.setUTCHours(20, 0, 0, 0); // 4 PM ET ≈ 20:00 UTC (DST), close enough for label
+    return tf;
+  };
+  const target = new Date(now + Math.max(365, targetDte) * 86400000);
+  let tf = _thirdFriday(target.getUTCFullYear(), target.getUTCMonth());
+  let dte = Math.round((tf.getTime() - now) / 86400000);
+  if (dte < 365) {
+    tf = _thirdFriday(target.getUTCFullYear() + 1, target.getUTCMonth());
+    dte = Math.round((tf.getTime() - now) / 86400000);
+  }
+  return {
+    iso: tf.toISOString().slice(0, 10),
+    dte,
+    label: `${tf.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} (${dte}DTE · LEAP)`,
   };
 }
 
@@ -611,6 +665,99 @@ function buildLongCall(ctx) {
     notes: [
       `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay`,
       `Vega ≈ $${(prem.greeks.vega * 100 * contracts).toFixed(2)} per 1% IV change`,
+    ],
+  };
+}
+
+/**
+ * LEAP Call — long-dated, deep-ITM single call. The "stock replacement"
+ * play for Investor-mode entries: synthetic long exposure with leverage
+ * at a fraction of the capital, defined max loss, and minimal theta drag.
+ *
+ * Differs from buildLongCall:
+ *   - Forces a LEAP expiration (≥365 DTE) via pickLeapExpiration() —
+ *     ignores ctx.expiration if it's shorter than 270 DTE.
+ *   - Default delta target = 0.80 (deep ITM) instead of 0.50. This makes
+ *     the LEAP behave like 0.80× shares with 1/4 the capital outlay.
+ *   - Notes call out the multi-year horizon and "investor"-flavored
+ *     rationale (vs. the swing/intraday tone of buildLongCall).
+ *
+ * Returns the same Strategy shape as buildLongCall so the rest of the
+ * ladder (ranker, profile preview, warnings) just works.
+ */
+function buildLeapCall(ctx) {
+  const { price, tp1, sl, atrPct, contracts, chain, targetDelta = 0.80 } = ctx;
+  // Force a real LEAP expiration. Caller may have passed a short one
+  // (e.g. classifySetupStage routes Investor → 90 DTE today); override
+  // unless the caller already supplied a LEAP-grade DTE.
+  const expiration = (ctx.expiration && Number(ctx.expiration.dte) >= 270)
+    ? ctx.expiration
+    : pickLeapExpiration();
+
+  let strike, chainLeg, deltaSource = "snap_itm_deep";
+  if (chain) {
+    const picked = pickLegByDelta(chain, "C", targetDelta, price);
+    if (picked.leg) {
+      strike = Number(picked.leg.strike);
+      chainLeg = picked.leg;
+      deltaSource = picked.source;
+    }
+  }
+  if (!strike) {
+    strike = deltaToStrikeBS({ price, targetDelta, dte: expiration.dte, atrPct, type: "C" })
+          || snapStrike(price * 0.85); // deep-ITM ≈ 0.85× spot when sized
+    chainLeg = chain ? _chainLeg(chain, "C", strike) : null;
+    deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate_deep_itm";
+  }
+  const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
+  if (!prem) return null;
+  const premPerShare = prem.mid;
+  const maxLoss = premPerShare * 100 * contracts;
+  const breakeven = strike + premPerShare;
+  // For LEAP investor-style sizing, the "max gain at TP1" is misleading
+  // (1y+ horizon). Surface intrinsic value at TP plus the capital
+  // efficiency multiplier so the user sees the leverage thesis.
+  const intrinsicAtTP = Math.max(0, tp1 - strike);
+  const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
+  const sharesEquivalent = Math.round(contracts * 100 * Math.abs(prem.greeks?.delta || targetDelta));
+  const sharesCapital = Math.round(sharesEquivalent * price);
+  const leapCapital = Math.round(premPerShare * 100 * contracts);
+  const capitalEfficiency = leapCapital > 0 ? (sharesCapital / leapCapital) : null;
+  const deltaPct = (Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0);
+
+  return {
+    archetype: "leap_call",
+    label: `LEAP Call (${expiration.dte}DTE · Stock Replacement)`,
+    rationale: `Long-term bullish to $${tp1?.toFixed(2) ?? "?"}. Deep-ITM ${expiration.iso} call at $${strike} (${deltaPct}Δ) tracks ~${deltaPct}% of every $1 move with ~${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "?"} less capital than buying ${sharesEquivalent} shares outright. Max loss = premium paid; no margin call, no forced exit on drawdown.`,
+    target_delta: targetDelta,
+    actual_delta: Number(prem.greeks?.delta) || null,
+    legs: [
+      {
+        action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(prem.mid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: leapCapital,
+        side_label: "debit",
+      },
+    ],
+    strikes: { primary: strike },
+    expiration,
+    premium: prem,
+    contracts,
+    max_loss_usd: Math.round(maxLoss),
+    max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
+    max_gain_label: "Uncapped above target — held to investor thesis exit",
+    breakeven,
+    prob_profit_at_target: prem.greeks.prob_itm,
+    // LEAP-specific metadata for UI / notifications.
+    shares_equivalent: sharesEquivalent,
+    shares_capital_usd: sharesCapital,
+    capital_efficiency: capitalEfficiency != null ? Math.round(capitalEfficiency * 10) / 10 : null,
+    notes: [
+      `Synthetic long: ~${sharesEquivalent} share equivalent for $${leapCapital.toLocaleString()} (${capitalEfficiency ? capitalEfficiency.toFixed(1) + "× capital efficient" : "—"} vs ${sharesEquivalent} shares @ $${sharesCapital.toLocaleString()})`,
+      `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay (low — long DTE)`,
+      `Roll target: ${expiration.dte > 365 ? "T-180 days to next LEAP cycle" : "Hold to expiry or thesis change"}`,
     ],
   };
 }
@@ -1053,6 +1200,13 @@ function rankByProfile(strategies, profile) {
     const aMoon = a._moonshot_active ? -100 : 0;
     const bMoon = b._moonshot_active ? -100 : 0;
     if (aMoon !== bMoon) return aMoon - bMoon;
+    // Investor-stage boost — LEAP Call wins for Investor-mode entries
+    // regardless of profile. The Investor is, by definition, taking a
+    // long-term view; the LEAP is the option expression of that thesis.
+    // Speculator profile still beats this via moonshot above when active.
+    const aInv = a._investor_boost ? -50 : 0;
+    const bInv = b._investor_boost ? -50 : 0;
+    if (aInv !== bInv) return aInv - bInv;
     // Confluence boost — RIDE ⇒ long premium / FADE ⇒ spreads.
     const aBoost = a._confluence_boost ? -10 : 0;
     const bBoost = b._confluence_boost ? -10 : 0;
@@ -1178,7 +1332,28 @@ export function buildOptionsLadder(contract, opts = {}) {
     }
   }
 
+  // Investor-mode entries are long-term theses (months-to-years horizon),
+  // so when stage === "investor" we surface a LEAP Call as the headline
+  // option play. LEAPs are the natural option expression of "I'm bullish
+  // on this name for the long run, give me leverage without margin risk."
+  // The short-dated long_call below is kept in the ladder for operators
+  // who prefer the swing-trade flavor, but the LEAP is ranked first via
+  // the _investor_boost flag (see rankByProfile).
+  const _isInvestorStage = classifySetupStage(contract) === "investor";
+
   if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
+    if (_isInvestorStage) {
+      const leap = buildLeapCall({
+        ...ctxEff,
+        expiration: pickLeapExpiration(),
+        targetDelta: 0.80,
+      });
+      if (leap) {
+        leap._investor_boost = true;
+        if (verdictMode === "RIDE") leap._confluence_boost = true;
+        ladder.push(leap);
+      }
+    }
     const lc = buildLongCall(ctxEff);
     if (lc) {
       if (verdictMode === "RIDE") lc._confluence_boost = true;
@@ -1357,4 +1532,185 @@ export function selectStrategy(contract, profile = DEFAULT_RISK_PROFILE) {
     rationale: ladder.primary.rationale,
     play: ladder.primary,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Compact play formatters — shared by Trader/Investor entry notifications
+// ═══════════════════════════════════════════════════════════════════════
+//
+// When a TRADE_ENTRY fires we want the Discord embed AND the email to
+// surface the recommended options play alongside the equity entry. Both
+// surfaces are bandwidth-constrained (Discord field caps at 1024 chars;
+// email should stay scannable), so we use a single normalized shape
+// (`compactOptionsPlay`) and two thin renderers — Discord and email.
+//
+// This is the canonical compact representation; UI / app reads the full
+// strategy object (premium, greeks, warnings) instead of this summary.
+
+/**
+ * Compose the compact play summary used by entry notifications.
+ *
+ * @param {object} play  A strategy object from buildOptionsLadder().primary
+ * @param {object} [meta] Optional extras: { ticker, mode }
+ * @returns {object|null} { archetype, label, headline, lines:[], net_cost_usd,
+ *                          breakeven, max_loss_usd, max_gain_usd, legs:[...],
+ *                          ticker, mode } or null when play is missing.
+ */
+export function compactOptionsPlay(play, meta = {}) {
+  if (!play || typeof play !== "object") return null;
+  const ticker = meta?.ticker || null;
+  const mode = String(meta?.mode || "").toLowerCase() || null;
+
+  const legs = Array.isArray(play.legs) ? play.legs.map(l => {
+    if (!l) return null;
+    if (l.instrument === "STOCK" || l.instrument === "ETF") {
+      return {
+        kind: "equity",
+        action: String(l.action || "").toUpperCase(),
+        qty: Number(l.qty) || 0,
+        side_label: l.side_label || null,
+      };
+    }
+    return {
+      kind: "option",
+      action: String(l.action || "").toUpperCase(),
+      type: String(l.optionType || "").toUpperCase(),
+      strike: Number(l.strike) || null,
+      expiration: l.expiration || null,
+      qty: Number(l.qty) || 0,
+      premium_mid: l.premium_mid != null ? Number(l.premium_mid) : null,
+      leg_cost_usd: l.leg_cost_usd != null ? Number(l.leg_cost_usd) : null,
+      side_label: l.side_label || null,
+    };
+  }).filter(Boolean) : [];
+
+  // Net cost (signed): sum of debit legs minus credit legs.
+  const netCost = legs.reduce((sum, l) => {
+    if (l.kind !== "option") return sum;
+    const cost = Number(l.leg_cost_usd) || 0;
+    if (!Number.isFinite(cost)) return sum;
+    return (l.side_label === "credit") ? sum - cost : sum + cost;
+  }, 0);
+
+  const tickerPart = ticker ? `${ticker} ` : "";
+  const dteLabel = play.expiration?.label || play.expiration?.iso || null;
+  const headline = `${play.label || play.archetype || "Options Play"}${dteLabel ? ` · ${dteLabel}` : ""}`;
+
+  // One-line per leg, e.g. "BUY 2× CALL $260 exp 2027-01-15  @ $12.45 mid (–$2,490)".
+  const lines = legs.map(l => {
+    if (l.kind === "equity") return `${l.action} ${l.qty} ${ticker || "shares"}`;
+    const premPart = l.premium_mid != null ? `@ $${l.premium_mid.toFixed(2)} mid` : "";
+    const costPart = l.leg_cost_usd != null
+      ? ` (${(l.side_label === "credit" ? "+" : "–")}$${Math.abs(l.leg_cost_usd).toLocaleString()})`
+      : "";
+    const expPart = l.expiration ? ` exp ${l.expiration}` : "";
+    const sidePart = l.side_label ? ` [${l.side_label}]` : "";
+    return `${l.action} ${l.qty}× ${l.type} $${l.strike}${expPart}${sidePart}  ${premPart}${costPart}`.trim();
+  });
+
+  return {
+    ticker,
+    mode,
+    archetype: play.archetype || null,
+    label: play.label || null,
+    headline,
+    lines,
+    rationale: play.rationale || null,
+    legs,
+    net_cost_usd: Number.isFinite(netCost) ? Math.round(netCost) : null,
+    net_side: netCost >= 0 ? "debit" : "credit",
+    max_loss_usd: Number.isFinite(Number(play.max_loss_usd)) ? Math.round(Number(play.max_loss_usd)) : null,
+    max_gain_usd: Number.isFinite(Number(play.max_gain_usd)) ? Math.round(Number(play.max_gain_usd)) : null,
+    breakeven: Number.isFinite(Number(play.breakeven)) ? Number(play.breakeven) : null,
+    expiration: play.expiration || null,
+    // LEAP-specific extras (no-op for other archetypes).
+    shares_equivalent: Number.isFinite(Number(play.shares_equivalent)) ? Number(play.shares_equivalent) : null,
+    capital_efficiency: Number.isFinite(Number(play.capital_efficiency)) ? Number(play.capital_efficiency) : null,
+  };
+}
+
+/**
+ * Render a compact Discord embed field for an options play.
+ * Returns null if the play is missing or empty. Always returns a single
+ * field (`inline: false`) under Discord's 1024-char value cap.
+ *
+ * @param {object} compact  Output of compactOptionsPlay()
+ * @returns {{name:string, value:string, inline:false}|null}
+ */
+export function optionsPlayDiscordField(compact) {
+  if (!compact || !Array.isArray(compact.lines) || compact.lines.length === 0) return null;
+  const dollar = (n) => n == null ? null : `$${Math.abs(Math.round(n)).toLocaleString()}`;
+  const metricsParts = [];
+  if (compact.net_cost_usd != null) {
+    const sign = compact.net_side === "credit" ? "+" : "–";
+    metricsParts.push(`Net ${compact.net_side}: ${sign}${dollar(compact.net_cost_usd)}`);
+  }
+  if (compact.max_loss_usd != null) metricsParts.push(`Max loss: ${dollar(compact.max_loss_usd)}`);
+  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at target: ${dollar(compact.max_gain_usd)}`);
+  if (compact.breakeven != null) metricsParts.push(`Breakeven: $${compact.breakeven.toFixed(2)}`);
+  // LEAP-specific capital-efficiency hint.
+  if (compact.shares_equivalent && compact.capital_efficiency) {
+    metricsParts.push(`Synthetic: ~${compact.shares_equivalent} share-equiv · ${compact.capital_efficiency.toFixed(1)}× capital efficient`);
+  }
+
+  let value = `**${compact.headline}**\n` + compact.lines.map(l => `• ${l}`).join("\n");
+  if (metricsParts.length) value += `\n\n${metricsParts.join(" · ")}`;
+  if (compact.rationale) {
+    // Truncate rationale so we stay within Discord's 1024-char field cap.
+    const remaining = 1024 - value.length - 4;
+    if (remaining > 60) {
+      const trimmed = compact.rationale.length > remaining
+        ? compact.rationale.slice(0, remaining - 1).trimEnd() + "…"
+        : compact.rationale;
+      value += `\n\n_${trimmed}_`;
+    }
+  }
+  if (value.length > 1024) value = value.slice(0, 1020).trimEnd() + "…";
+  const isLeap = compact.archetype === "leap_call" || compact.archetype === "leap_put";
+  const icon = isLeap ? "🪜" : "🎯";
+  return {
+    name: `${icon} Options Play (${compact.mode === "investor" ? "Investor LEAP" : "Trader"})`,
+    value,
+    inline: false,
+  };
+}
+
+/**
+ * Render an HTML section for an options play in trade-alert emails.
+ * Returns null if the play is missing or empty. The caller is responsible
+ * for wrapping in the section card; we just return inner HTML.
+ *
+ * @param {object} compact  Output of compactOptionsPlay()
+ * @returns {string|null}  HTML or null
+ */
+export function optionsPlayEmailHtml(compact) {
+  if (!compact || !Array.isArray(compact.lines) || compact.lines.length === 0) return null;
+  const _esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const dollar = (n) => n == null ? null : `$${Math.abs(Math.round(n)).toLocaleString()}`;
+
+  const legsHtml = compact.lines.map(l => `<li style="margin:0 0 4px;color:rgba(255,255,255,0.85);font-size:12px;font-family:Menlo,Monaco,monospace">${_esc(l)}</li>`).join("");
+  const metricsParts = [];
+  if (compact.net_cost_usd != null) {
+    const sign = compact.net_side === "credit" ? "+" : "–";
+    metricsParts.push(`Net ${compact.net_side}: <strong style="color:white">${sign}${dollar(compact.net_cost_usd)}</strong>`);
+  }
+  if (compact.max_loss_usd != null) metricsParts.push(`Max loss: <strong style="color:#f43f5e">${dollar(compact.max_loss_usd)}</strong>`);
+  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at target: <strong style="color:#10b981">${dollar(compact.max_gain_usd)}</strong>`);
+  if (compact.breakeven != null) metricsParts.push(`Breakeven: <strong style="color:white">$${compact.breakeven.toFixed(2)}</strong>`);
+  if (compact.shares_equivalent && compact.capital_efficiency) {
+    metricsParts.push(`Synthetic: <strong style="color:white">~${compact.shares_equivalent} share-equiv</strong>, <strong style="color:white">${compact.capital_efficiency.toFixed(1)}×</strong> capital efficient`);
+  }
+  const metricsHtml = metricsParts.length
+    ? `<div style="margin:10px 0 0;color:rgba(255,255,255,0.85);font-size:12px;line-height:1.5">${metricsParts.join("<br>")}</div>`
+    : "";
+  const rationaleHtml = compact.rationale
+    ? `<div style="margin:10px 0 0;color:rgba(255,255,255,0.65);font-size:12px;line-height:1.5;font-style:italic">${_esc(compact.rationale)}</div>`
+    : "";
+
+  return `
+    <div style="margin:0 0 6px;color:white;font-size:13px;font-weight:600">${_esc(compact.headline)}</div>
+    <ul style="margin:0;padding:0 0 0 18px;list-style:none">${legsHtml}</ul>
+    ${metricsHtml}
+    ${rationaleHtml}
+  `;
 }
