@@ -126,7 +126,7 @@
       font-family: "Inter", system-ui, sans-serif;
       white-space: nowrap;
     }
-    @media (max-width: 720px) {
+    @media (max-width: 768px) {
       .tt-bn { display: block; }
       /* Push the legal footer up out of the bottom-nav's way so they don't overlap. */
       #legal-footer { bottom: 56px !important; }
@@ -238,9 +238,15 @@
     }
   }
 
+  function apiBase() {
+    if (typeof window !== "undefined" && window.TT_API_BASE) return String(window.TT_API_BASE);
+    if (typeof API_BASE !== "undefined" && API_BASE) return String(API_BASE);
+    return typeof window !== "undefined" ? window.location.origin : "";
+  }
+
   async function fetchOpenTradeCount() {
     try {
-      const r = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const r = await fetch(`${apiBase()}/timed/trades?source=positions`, {
         credentials: "include", cache: "no-store",
       });
       if (!r.ok) return null;
@@ -255,7 +261,7 @@
 
   async function fetchInvestorActionableCount() {
     try {
-      const r = await fetch(`${API_BASE}/timed/investor/scores`, {
+      const r = await fetch(`${apiBase()}/timed/investor/scores`, {
         credentials: "include", cache: "no-store",
       });
       if (!r.ok) return null;

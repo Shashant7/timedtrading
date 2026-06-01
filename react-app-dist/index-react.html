@@ -1016,7 +1016,7 @@
         .tt-mobile-bottom-nav {
           position: fixed;
           left: 0; right: 0;
-          bottom: var(--tt-legal-footer-h, 32px);
+          bottom: 0;
           display: flex !important;
           align-items: stretch;
           justify-content: space-around;
@@ -1024,8 +1024,10 @@
           border-top: 1px solid var(--ds-stroke);
           backdrop-filter: blur(14px);
           -webkit-backdrop-filter: blur(14px);
-          z-index: 50;
+          z-index: 9200;
           padding-bottom: env(safe-area-inset-bottom);
+          transform: translate3d(0, 0, 0);
+          -webkit-transform: translate3d(0, 0, 0);
         }
         .tt-mobile-bottom-nav__item {
           flex: 1;
@@ -1160,14 +1162,14 @@
       </div>
     </div>
 
-    <script src="auth-gate.js?v=1780293003387"></script>
-    <script src="shared-price-utils.js?v=1780293003387"></script>
-    <script src="ds-components.js?v=1780293003387"></script>
-    <script src="investor-panel.js?v=1780293003387"></script>
+    <script src="auth-gate.js?v=1780318178689"></script>
+    <script src="shared-price-utils.js?v=1780318178689"></script>
+    <script src="ds-components.js?v=1780318178689"></script>
+    <script src="investor-panel.js?v=1780318178689"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=1780293003387"></script>
-    <script src="ticker-spider-chart.js?v=1780293003387"></script>
-    <script src="index-react.compiled.js?v=1780293003387"></script>
+    <script src="shared-right-rail.compiled.js?v=1780318178689"></script>
+    <script src="ticker-spider-chart.js?v=1780318178689"></script>
+    <script src="index-react.compiled.js?v=1780318178689"></script>
 
     <!-- Initialize app - separate script to avoid Babel parsing issues -->
     <script>
@@ -1324,4 +1326,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1780293003387:674926737 -->
+<!-- cache-bust:1780318178689:65569815 -->
