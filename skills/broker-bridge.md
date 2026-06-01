@@ -3,16 +3,18 @@
 **WHEN to use:** Anything involving live order execution, IBKR LST / OAuth,
 the operator audit log, or the `tt-broker-bridge` worker.
 
-> **🚧 Designed but not yet implemented:** Trade-Aware Mirror Sync —
-> per-`trade_id` manifest + reconciler that keeps the mothership
-> (model state) in lockstep with each spawn (user's broker account)
-> across Trader + Investor × Shares + Options.
+> **🚧 Designed but not yet implemented (v2 design):**
+> Trade-Aware Mirror Sync — per-`trade_id` manifest + reconciler
+> keeping mothership and spawns in lockstep across Trader +
+> Investor × Shares + Options (incl. LEAPs), with per-vehicle
+> toggles, per-broker-owner daily emails, and user-modification
+> handling. **No naked shorts.** Every model action mapped to
+> explicit IBKR Client Portal API calls including OCO lifecycle.
 > Plan: [`../tasks/2026-06-01-trade-aware-mirror-sync-design.md`](../tasks/2026-06-01-trade-aware-mirror-sync-design.md).
 > Required before BYOB launches. Until it ships, the bridge has
 > the portfolio-level guard from PR #409 (catches naked-short risk)
-> but does NOT have trade-level identity (can't distinguish "the 5
-> TSLA shares from model trade ABC" from "the user's 10 manual TSLA
-> shares").
+> but does NOT have trade-level identity, OCO lifecycle awareness,
+> or per-vehicle toggles.
 
 **Architecture:**
 

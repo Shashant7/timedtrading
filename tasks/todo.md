@@ -52,20 +52,28 @@
 
 ### Planned
 
-- [ ] **Trade-Aware Mirror Sync.** Manifest table + reconciler so the
-      mothership (model trade state) stays in lockstep with each
-      spawn (user's broker account). Drift detection + user
-      notification + per-trade kill switch. Plan:
-      [2026-06-01-trade-aware-mirror-sync-design.md](2026-06-01-trade-aware-mirror-sync-design.md).
-      Builds ON the portfolio-aware guard from PR #409 with trade-
-      level identity (per `trade_id`) so a TSLA trim doesn't
-      accidentally touch user's manual TSLA shares. **Full scope:**
-      Trader + Investor × Shares + Options, with all 6 simulation
-      actions (entry / trim / update SL / TP hit / SL hit / exit)
-      mapped per cell of the matrix. **Prerequisite for BYOB** —
-      must ship before letting third-party users connect their own
-      broker. 5 phases (A→E), ~14 days total work; Phase F polish
-      is post-launch.
+- [ ] **Trade-Aware Mirror Sync (v2 design).** Manifest table +
+      reconciler keeping mothership (model trade state) in lockstep
+      with each spawn (user broker account). Drift detection +
+      user notification + per-trade kill switch + per-vehicle
+      toggles + daily owner email + user-modification handling.
+      Plan: [2026-06-01-trade-aware-mirror-sync-design.md](2026-06-01-trade-aware-mirror-sync-design.md)
+      (v2). **Scope:** Trader + Investor × Shares + Options
+      (incl. LEAPs as 2nd-most-popular vehicle), 6 simulation
+      actions mapped per cell, every action mapped to explicit
+      IBKR Client Portal API calls including OCO order lifecycle
+      (cancel-before-trim, modify-SL, TP/SL fill detection). **No
+      naked shorts** — equity SHORT, options selling-to-open,
+      cash-secured puts, covered calls all deferred to a separate
+      risk-reviewed workstream. **Per-vehicle toggles**: equity_long
+      defaults ON; every option archetype (long_call, long_put,
+      vertical_spread, leaps, straddle, moonshot) defaults OFF.
+      **Daily owner email**: per-broker-account digest (trades,
+      positions, day P&L, tomorrow's outlook). **User-mod handling**:
+      revert SL/TP changes by default, accept user-initiated closes.
+      **Prerequisite for BYOB** — must ship before third-party
+      users connect their own broker. 7 phases (A→G), ~18 days
+      total before BYOB launch; Phase G polish post-launch.
 
 - [ ] **BYOB — Bring Your Own Broker.** Multi-user broker connect flow
       (Robinhood + IBKR per-user). Plan:
