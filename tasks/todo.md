@@ -22,6 +22,21 @@
 
 ### Active
 
+- [x] **Trade-aware mirror sync Phase B — manifest-aware reducer.**
+      `preflightOrder` now reads the `mirror_trade_manifest` BEFORE
+      the portfolio check on every TRIM/EXIT. Decision matrix per
+      §4.1: PROCEED when sync_state ∈ {in_sync, partial_fill,
+      broker_orphan, untracked (close only)}; REJECT with explicit
+      `no_manifest_for_trade` / `mirror_suppressed:<reason>` /
+      `reducer_blocked_by_sync_state:<state>` /
+      `reducer_missing_trade_id_for_manifest_lookup`. Partial-fill
+      scaling supported via `BROKER_PARTIAL_FILL_MODE=scale`.
+      `markManifestModelClosed()` wired on successful EXIT.
+      Gated by `BROKER_MANIFEST_ENFORCE` env (on / log / off);
+      starts in `log` mode in prod for a week of shadow-mode
+      observation, then flips to `on`. Fail-OPEN on D1 read error
+      so a degraded manifest doesn't lock the operator out
+      (portfolio guard + reconciler are last-line defense).
 - [x] **Trade-aware mirror sync Phase A — manifest writer.**
       New `worker-bridge/bridge-manifest.js` with `mirror_trade_manifest`
       D1 table (matches §3.1 schema exactly), `writeEntryManifest()`
