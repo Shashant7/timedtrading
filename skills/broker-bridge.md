@@ -65,6 +65,8 @@ deployed as separate Cloudflare Workers.
 | `IBKR_DH_PRIME` | Bridge worker secret | **Hex prime ONLY** — NOT the full `openssl dhparam -text` output (see lessons) |
 | `IBKR_DH_GENERATOR` | Bridge worker var | Almost always `2` |
 | `IBKR_PRIVATE_KEY` | Bridge worker secret | RSA private key in PEM |
+| `BROKER_NOTIFY_DM_USER` | `worker/wrangler.toml [vars]` | `"true"` to DM users directly via the existing TT Discord bot (in addition to email) when bridge drift notifications fire. Default `"false"`. Requires the user to have linked Discord via OAuth (`users.discord_id` populated) and have DMs-from-server-members enabled. |
+| `BROKER_OPERATOR_DISCORD_WEBHOOK_URL` | Bridge worker secret (optional) | Per-channel webhook for cross-team critical-tier visibility. Operator-only side channel — the user-facing path is `BROKER_NOTIFY_DM_USER` above. |
 
 ---
 

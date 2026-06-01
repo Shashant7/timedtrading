@@ -6,6 +6,55 @@
 
 ---
 
+## Discord DM as a bonus notification channel (not a replacement) [2026-06-01]
+
+### Webhooks ≠ DMs
+
+The operator's first reaction to "alert the user" was to set up another
+Discord webhook. Webhooks can ONLY post into channels; they can't open a
+private DM. For per-user notifications (mirror-sync drift critical-tier
+alerts to the broker-account owner) we needed the **bot** API, not a
+webhook.
+
+The platform already had:
+- `DISCORD_BOT_TOKEN` — full guild bot
+- Per-user `users.discord_id` from the existing OAuth link flow
+- `discordAddMemberAndRole()` / `discordRemoveRole()` precedent
+
+…so the work was just two API calls:
+1. `POST /users/@me/channels { recipient_id: <discord_id> }` → opens
+   or returns the existing DM channel (idempotent).
+2. `POST /channels/<channel_id>/messages` with the payload (content
+   and/or embeds).
+
+New helper: `discordDmUser(env, discordUserId, payload)` in
+`worker/alerts.js`. Bounded D1 lookup (one SELECT per unique email,
+cached in-handler) on the drain side so a 50-item drain costs at most
+N D1 reads.
+
+### Discord error code 50007 = "user disabled DMs from server members"
+
+The bot can technically post to any channel it has access to, but DMs
+require the recipient to (a) share at least one guild with the bot and
+(b) have "Allow direct messages from server members" enabled. When
+that's off, Discord returns HTTP 403 with payload code `50007`.
+
+The helper surfaces this distinctly (`dms_disabled: true`) so the
+caller can drop it from the operator's "DM failed" alarm bucket —
+it's not a config bug, it's a user preference. Email is the primary
+delivery channel; DM is the bonus.
+
+### Default OFF: operator opts in per environment
+
+`BROKER_NOTIFY_DM_USER` defaults to `false`. The first deploy ships
+the helper + the drain integration, but the operator has to set the
+env flag to `true` after verifying DMs land for one test user. This
+mirrors the rollout pattern used elsewhere (manifest-enforce mode,
+OCO planning, reconciler 24/7) — never auto-enable a new
+user-visible channel.
+
+---
+
 ## Trade-aware mirror sync — Phase E (notifications + Daily Owner Email) [2026-06-01]
 
 ### Two-worker email send: bridge enqueues, main worker sends
