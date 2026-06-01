@@ -607,6 +607,25 @@
                                 >
                                   {statusMeta.label}
                                 </span>
+                                {/* 2026-06-01 — Show "IN UNIVERSE" badge so the
+                                    operator can tell at a glance which
+                                    candidates are already tracked. After the
+                                    backend dedup fix, in-universe approved
+                                    tickers stay in the Approved bucket; this
+                                    badge still helps for tickers approved
+                                    BEFORE the dedup fix shipped (in_universe
+                                    can be true even on a needs_review row from
+                                    a stale rebuild) and for cases where the
+                                    operator chose decline-then-add-elsewhere. */}
+                                {sig?.in_universe && (
+                                  <span
+                                    className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border"
+                                    title="Already in your tracked universe (timed:tickers). No action needed unless you want to re-review."
+                                    style={{ color: "#a78bfa", background: "rgba(167,139,250,0.10)", borderColor: "rgba(167,139,250,0.40)" }}
+                                  >
+                                    IN UNIVERSE
+                                  </span>
+                                )}
                               </div>
                               <div className="text-[10px] text-[#6b7280]">
                                 {Array.isArray(sig?.themes) && sig.themes.length > 0 && <>Themes: {sig.themes.join(", ")} · </>}

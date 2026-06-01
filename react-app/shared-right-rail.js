@@ -2787,6 +2787,35 @@
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
 
+        /* 2026-06-01 — Discovery Thesis fetch (Screener / Promotion Queue).
+           Operator: "the justification text is money, can we incorporate
+           that into our Snapshot Right Rail tab when, where and how
+           appropriate?"
+           Pulls the most recent promotion_queue row for the ticker (via
+           GET /timed/screener/thesis) and renders it in a "Discovery
+           Thesis" Panel between the Today and Regime Forecast panels of
+           the Snapshot tab. Fetch only on Snapshot tab open + ticker
+           change (cheap: 5-min KV cache server-side). Renders nothing if
+           the ticker has no promotion-queue record (most universe names
+           predate the queue — that's expected, not an error). */
+        const [discoveryThesis, setDiscoveryThesis] = useState(null);
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || railTab !== "SNAPSHOT") return;
+          let cancelled = false;
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, { cache: "no-store", credentials: "include" });
+              if (!r.ok) return;
+              const j = await r.json();
+              if (cancelled) return;
+              if (j?.ok && j.found) setDiscoveryThesis(j);
+              else setDiscoveryThesis(null);
+            } catch (_) { /* best-effort */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, railTab, API_BASE]);
+
         // 2026-05-30 — Strategy alignment chip (FSD playbook). Lazy-fetched
         // from /timed/strategy/ticker on ticker change. Lightweight; renders
         // only when the ticker is on/off-thesis (stance !== "neutral").
@@ -5952,6 +5981,80 @@
                           </div>
                         </Panel>
                       )}
+
+                      {/* 2026-06-01 — Discovery Thesis panel.
+                          Reuses the operator-curated screener justification
+                          text (same content rendered at /screener Promotion
+                          Queue) so every member opening this ticker sees the
+                          WHY behind it. Renders only when the ticker has a
+                          promotion_queue record (silently absent for the
+                          long-tail of universe names that predate the queue —
+                          we don't fabricate a thesis for those). */}
+                      {discoveryThesis?.found && discoveryThesis?.thesis_text && (() => {
+                        const score = Number(discoveryThesis.total_score) || 0;
+                        const status = String(discoveryThesis.status || "").toLowerCase();
+                        const statusMeta = status === "approved"     ? { label: "APPROVED",     color: "#34d399" }
+                                         : status === "ready_to_add" ? { label: "READY",        color: "#22c55e" }
+                                         : status === "needs_review" ? { label: "NEEDS REVIEW", color: "#f5c25c" }
+                                         : status === "declined"     ? { label: "DECLINED",     color: "#f87171" }
+                                         : status === "rejected"     ? { label: "REJECTED",     color: "#9ca3af" }
+                                         :                             { label: status.toUpperCase() || "—", color: "#9ca3af" };
+                        const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#f5c25c" : "#6b7280";
+                        const decidedAt = Number(discoveryThesis.decided_at) || 0;
+                        const decidedLabel = decidedAt > 0 && discoveryThesis.decided_by
+                          ? `${discoveryThesis.decided_by} · ${new Date(decidedAt).toLocaleDateString()}`
+                          : null;
+                        return (
+                          <Panel
+                            title="Discovery Thesis"
+                            action={(
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                <span
+                                  className="ds-chip ds-chip--sm"
+                                  style={{ color: statusMeta.color, background: statusMeta.color + "22", borderColor: statusMeta.color + "55" }}
+                                  title={`Promotion Queue status: ${statusMeta.label}${decidedLabel ? " — decided by " + decidedLabel : ""}`}
+                                >
+                                  {statusMeta.label}
+                                </span>
+                                <span
+                                  style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, color: scoreColor, fontWeight: 700 }}
+                                  title="Screener total score (0-100)"
+                                >
+                                  {score}<span style={{ color: "var(--ds-text-dim)", fontWeight: 400 }}>/100</span>
+                                </span>
+                              </span>
+                            )}
+                          >
+                            <div
+                              style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.55 }}
+                              dangerouslySetInnerHTML={{
+                                __html: String(discoveryThesis.thesis_text || "")
+                                  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                                  .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--ds-text)">$1</strong>'),
+                              }}
+                            />
+                            {Array.isArray(discoveryThesis.red_flags) && discoveryThesis.red_flags.length > 0 && (
+                              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {discoveryThesis.red_flags.slice(0, 5).map((f, i) => (
+                                  <span
+                                    key={i}
+                                    className="ds-chip ds-chip--sm"
+                                    style={{ color: "#fca5a5", background: "rgba(248,113,113,0.10)", borderColor: "rgba(248,113,113,0.30)" }}
+                                    title={`Red flag deduction: -${f.deduction || "?"} pts`}
+                                  >
+                                    {String(f.flag || f).replace(/_/g, " ")}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {decidedLabel && (
+                              <div style={{ marginTop: 8, fontSize: 10, color: "var(--ds-text-dim)" }}>
+                                Decision: {statusMeta.label.toLowerCase()} · {decidedLabel}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
 
                       {/* 2026-05-27 (PR #307) — Regime Forecast moved here from
                           deep inside the Technicals tab. User feedback:
