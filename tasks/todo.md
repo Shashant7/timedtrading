@@ -26,25 +26,23 @@
 - [x] **Holistic MC smoke-test skill + polish-sweep logic verdict (PR #439).**
 - [x] **Investor alerts: explicit ACTION verb + chart in email (PR #440).**
 - [x] **MC: editable modes + archetypes for options auto-mirror (PR #437).**
-- [x] **Mobile nav + day-trade card clarity + right-rail integration
-      (PR pending).** Three issues from the same operator screenshot.
-      (1) Mobile bottom nav missing — root cause was 8 pages
-      (today/active-trader/investor/portfolio/insights/learn/daily-
-      brief/bridge-audit) missing `viewport-fit=cover` in viewport
-      meta → iOS Safari returned 0 for env(safe-area-inset-bottom)
-      → nav with bottom:0 hid behind Safari's URL bar. Added
-      viewport-fit=cover to all 8 + bumped nav's min padding-bottom
-      14px as belt-and-suspenders. (2) Day-trade card strike unclear
-      — added a prominent mono-font strike line ("$760 call (spot
-      $610.50)"); switched the day-trade builder to use LIVE
-      timed:prices KV spot (was using contract.price which could be
-      stale, producing 25-30% inflated strikes); added invalidation
-      gates (strike drift >2% from spot / after-close 0DTE / low-vol
-      NEUTRAL) with `day_trade_suppressed[]` array surfacing reasons.
-      (3) Right-rail Options tab for SPY/QQQ/IWM now fetches
-      /timed/options/all and shows a dedicated DAY TRADE panel above
-      the main ladder. Plus polish-series final summary in
-      `tasks/2026-06-01-polish-sweep-final-summary.md`.
+- [x] **Mobile nav + day-trade card clarity + right-rail integration (PR #441).**
+- [x] **Setup-name upstream stamp fix + CIO lifecycle coverage thoughts
+      (PR pending).** Operator: "I also noticed there was a setup name
+      stamp issue upstream mentioned" + "My lean on AI CIO is to have
+      it on for all trade lifecycle decisions, thoughts?". (a) Upstream
+      stamp fix: `worker/index.js` `d1UpsertTrade` had a DUPLICATE of
+      the old `formatSetupName` regex fallback that never got the
+      PR #432 fix — `tt_atl_breakdown` landed in D1 as `"TT Tt Atl
+      Breakdown"`. Replaced with direct `formatSetupName()` call (single
+      source of truth) + new `_trimSetupNameForDir()` inline helper that
+      applies the SETUP_DIRECTION_PAIRS swap at WRITE time. Logs every
+      swap with trade_id + ticker + entry_path so we can identify the
+      upstream caller. 5/5 smoke-test scenarios pass. (b) CIO coverage
+      doc at `tasks/2026-06-01-ai-cio-lifecycle-coverage-thoughts.md`:
+      recommends phased rollout (Phase 1 = Investor auto-rebalance trim
+      next session; Phases 2-5 sequential) with three guardrails
+      (latency cap, monthly $ cap, differential override logging).
 - [x] **Day-trade options plays + Options-tab loading overlay (PR #436).**
 - [x] **Calibration UX polish (PR #435).** Three additions to System
       Intelligence → Analysis tab: (a) Calibration explainer card at

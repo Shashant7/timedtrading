@@ -6,6 +6,36 @@
 
 ---
 
+## Setup-name upstream stamp bug fixed at the WRITE boundary [2026-06-01]
+
+PR #432 fixed the setup-name display layer (direction-aware swap in `prettySetupName`). The display now always shows the right label even when D1 has a direction-mismatched `setup_name`. But the underlying bad data was still being written every time a new trade closed — the heal was display-only.
+
+Root cause traced to `worker/index.js` `d1UpsertTrade` line 35249. The function had a DUPLICATE of the old `formatSetupName()` regex fallback that never received the PR #432 fix:
+
+```js
+// BEFORE — duplicate of pre-#432 formatSetupName, didn't strip leading tt_
+SETUP_NAME_MAP[resolvedEntryPath] ?? "TT " + String(resolvedEntryPath)
+  .replace(/^ripster_?/i, "")
+  .replace(/_/g, " ")
+  .replace(/\b\w/g, c => c.toUpperCase())
+```
+
+So an unmapped entry path like `tt_atl_breakdown` became `"TT Tt Atl Breakdown"` and landed in D1. Subsequent reads by the embed builder pulled this stored string, the display layer stripped both prefixes back to `"Atl Breakdown"`, and a LONG trade visibly showed a SHORT-labeled setup. The display swap in #432 self-healed it, but the wrong data persisted.
+
+### Fix
+
+1. **Single source of truth**: replace the inline regex with a direct `formatSetupName()` call. PR #432 made that helper comprehensive; the write path now inherits all of it.
+2. **Direction-aware swap at WRITE time**: new inline `_trimSetupNameForDir(name, direction)` helper mirrors `SETUP_DIRECTION_PAIRS` from `prettySetupName`. If the resolved name pairs to a known opposite-side setup, swap to the direction-correct member of the pair BEFORE the D1 write.
+3. **Loud logging**: when the swap fires, the worker emits `[SETUP_NAME] WRITE-TIME swap: stored=X direction=Y → corrected=Z (trade_id=... ticker=... entry_path=...)`. This identifies the UPSTREAM caller passing the wrong setup_name so the root cause can be fixed at the source over time.
+
+### Rule
+
+Whenever you ship a display-layer self-heal for a data-integrity bug, also ship a WRITE-time guard at the persistence boundary. Display heals improve UX immediately; write-time guards stop the bad data from accumulating. Without the write-time guard, every legacy row carries the bug forward and any new consumer that doesn't apply the same heal sees the wrong data again.
+
+Logging the swap with enough context to identify the upstream caller (trade_id, ticker, entry_path) is the key to closing the loop — the display heal silences the symptom, but the warn log tells us where to fix the cause.
+
+---
+
 ## Day-trade options plays for SPY/QQQ/IWM (0/1 DTE) on the Today page [2026-06-01]
 
 Operator: *"For our SPY, QQQ, IWM predictions, is it possible to provide an options play valid for the day? straddle, call, put, spread, etc, this would be primarily for day traders who use 0 or 1 DTE. The plays can be shown on the Options Play list on the Today page in addition to other tickers. But the SPY, QQQ, IWM option play for the day should be clearly labeled as a day trade. So if there is a SPY longer-term swing trade or investor, it does not confuse."*
