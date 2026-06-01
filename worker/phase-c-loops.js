@@ -223,6 +223,30 @@ function loop2ComputePulse(trades, opts = {}) {
     else break;
   }
 
+  /* 2026-06-01 — Duration-bias-aware metrics.
+     Closed-only WR is structurally biased downward in any system that
+     cuts losers fast (small, frequent) and lets winners run (large,
+     slow). The closed window over-represents losses. Profit factor and
+     expectancy are invariant to that asymmetry:
+       profit_factor = gross_win_pct / |gross_loss_pct|
+       expectancy    = avg pnl_pct over the same window
+     A 30% WR system with 3:1 R typically prints PF ≈ 1.3 and
+     expectancy > 0 — the engine is fine; the WR is a misleading
+     headline. */
+  let grossWinPct = 0;
+  let grossLossPct = 0;
+  for (const t of last) {
+    const p = Number(t.pnl_pct) || 0;
+    if (p > 0) grossWinPct += p;
+    else if (p < 0) grossLossPct += p;
+  }
+  const profitFactor = grossLossPct < 0
+    ? grossWinPct / Math.abs(grossLossPct)
+    : (grossWinPct > 0 ? Infinity : null);
+  const expectancyPct = last.length > 0
+    ? (last.reduce((s, t) => s + (Number(t.pnl_pct) || 0), 0)) / last.length
+    : null;
+
   return {
     last10_wr: last10WR,
     last10_n: last.length,
@@ -230,11 +254,106 @@ function loop2ComputePulse(trades, opts = {}) {
     today_n: todayClosed.length,
     consec_losses: consecLoss,
     pulse_ts_ms: nowMs,
+    // 2026-06-01 — duration-bias-aware metrics (closed-trade window only;
+    // open-book metrics are computed separately in loop2ComputeOpenBookMetrics
+    // and merged in by the caller before evaluation).
+    profit_factor: Number.isFinite(profitFactor) ? Number(profitFactor.toFixed(2)) : profitFactor,
+    expectancy_pct: expectancyPct != null ? Number(expectancyPct.toFixed(3)) : null,
+    gross_win_pct: Number(grossWinPct.toFixed(2)),
+    gross_loss_pct: Number(grossLossPct.toFixed(2)),
     // Restore-aware diagnostics. Lets the evaluator + UI explain WHY a
     // pulse looks healthy even if the raw ledger row count is large.
     recent_max_age_hours: maxAgeHours,
     closed_total: closedAll.length,
     closed_recent: closed.length,
+  };
+}
+
+/**
+ * Compute open-book metrics so the breaker can see the unrealized P&L
+ * sitting in still-open positions before deciding to pause new entries.
+ *
+ * Inputs:
+ *   openTrades: [{ ticker, direction, shares, entry_price, entry_ts }, ...]
+ *               (status='OPEN' rows from the trades table)
+ *   priceMap:   { TICKER: { p: number, pc: number, dp: number, dc: number } }
+ *               (timed:prices KV shape — `p` mark, `pc` prev close)
+ *   opts.nowMs: simulated clock for backtest; defaults to Date.now()
+ *
+ * Returns:
+ *   {
+ *     open_count: int,
+ *     open_unrealized_pct: total $-weighted unrealized return on basis,
+ *     open_winners_count, open_losers_count: split at 0%,
+ *     open_today_delta_pct: today-only mark-to-market change vs prev close
+ *                           ($-weighted across the open book — this is
+ *                           the right thing to compare against
+ *                           `today_pnl_pct` from closed trades).
+ *   }
+ *
+ * Notes:
+ *   - Returns zeros (not nulls) on empty input so the evaluator can
+ *     safely add to closed metrics without null-guards everywhere.
+ *   - Direction-aware: SHORT positions invert sign.
+ *   - Tickers missing from priceMap are skipped (treated as "no mark
+ *     available"); their basis still counts toward open_count so the
+ *     operator-facing summary stays accurate. */
+function loop2ComputeOpenBookMetrics(openTrades, priceMap, /* opts = {} */) {
+  const trades = Array.isArray(openTrades) ? openTrades : [];
+  if (trades.length === 0) {
+    return {
+      open_count: 0,
+      open_basis_usd: 0,
+      open_unrealized_usd: 0,
+      open_unrealized_pct: 0,
+      open_today_delta_usd: 0,
+      open_today_delta_pct: 0,
+      open_winners_count: 0,
+      open_losers_count: 0,
+      open_marks_missing: 0,
+    };
+  }
+  const map = priceMap && typeof priceMap === "object" ? priceMap : {};
+  let basisUsd = 0;
+  let unrealUsd = 0;
+  let todayDeltaUsd = 0;
+  let winners = 0;
+  let losers = 0;
+  let marksMissing = 0;
+  for (const t of trades) {
+    const sym = String(t?.ticker || "").toUpperCase();
+    const dir = String(t?.direction || "LONG").toUpperCase().startsWith("S") ? -1 : 1;
+    const shares = Number(t?.shares) || 0;
+    const entry = Number(t?.entry_price) || 0;
+    if (!sym || shares <= 0 || entry <= 0) continue;
+    const pf = map[sym] || map[sym.toLowerCase()] || null;
+    const mark = pf ? Number(pf.p ?? pf.price) : 0;
+    const prevClose = pf ? Number(pf.pc ?? pf.prevClose) : 0;
+    const basis = entry * shares;
+    basisUsd += basis;
+    if (!(mark > 0)) { marksMissing += 1; continue; }
+    const unreal = (mark - entry) * shares * dir;
+    unrealUsd += unreal;
+    if (unreal > 0) winners += 1;
+    else if (unreal < 0) losers += 1;
+    // Today-only delta uses prev_close as the day-anchor. Falls back to
+    // mark itself (delta=0) when prev close isn't on the price row —
+    // safer to under-count than to invent a number.
+    if (prevClose > 0) {
+      const todayDelta = (mark - prevClose) * shares * dir;
+      todayDeltaUsd += todayDelta;
+    }
+  }
+  return {
+    open_count: trades.length,
+    open_basis_usd: Number(basisUsd.toFixed(2)),
+    open_unrealized_usd: Number(unrealUsd.toFixed(2)),
+    open_unrealized_pct: basisUsd > 0 ? Number(((unrealUsd / basisUsd) * 100).toFixed(2)) : 0,
+    open_today_delta_usd: Number(todayDeltaUsd.toFixed(2)),
+    open_today_delta_pct: basisUsd > 0 ? Number(((todayDeltaUsd / basisUsd) * 100).toFixed(2)) : 0,
+    open_winners_count: winners,
+    open_losers_count: losers,
+    open_marks_missing: marksMissing,
   };
 }
 
@@ -253,14 +372,81 @@ function loop2EvaluatePulse(pulse, daCfg) {
   // restore) reads as 0% WR over n=1 and trips immediately.
   const minRecentForWr = Number(daCfg?.loop2_breaker_min_recent_for_wr)
     || LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR;
-  if (pulse.last10_n >= Math.max(10, minRecentForWr) && pulse.last10_wr != null && pulse.last10_wr < wrCap) {
-    return { trip: true, reason: `wr_${(pulse.last10_wr * 100).toFixed(0)}` };
+
+  /* 2026-06-01 — Duration-bias-aware safety override.
+
+     Closed-only WR is structurally biased downward in any system that
+     cuts losers fast (tight SL) and lets winners run (multi-day holds).
+     A `wr_20=20%` headline with `today_pnl_pct=-1.15%` realised can
+     coexist with an open book sitting on +5% unrealized — pausing the
+     engine in that state is exactly wrong (it locks in the losers'
+     headline while withholding capital from the regime that's working).
+
+     Override structure: an existing closed-trade rule may match, but if
+     EITHER of these holds, we defer the trip:
+       (a) Profit factor ≥ pf_safe (default 1.3) over the same window —
+           realized economics are positive even with a low WR.
+       (b) Combined-equity today ≥ combined_safe_pct (default -0.5%) —
+           the open book's MTM offsets the realised drawdown enough that
+           the account is roughly flat or up on the day.
+
+     `pulse.open_*` may be undefined if the caller didn't run
+     loop2ComputeOpenBookMetrics — in that case we fall back to the
+     original closed-only behaviour so this remains backward-compatible.
+     `combined_today_pnl_pct` is computed inline (no behavior change on
+     pulses that don't carry open-book data). */
+  const pfSafe = Number(daCfg?.loop2_breaker_pf_safe) || 1.3;
+  const combinedSafePct = Number.isFinite(Number(daCfg?.loop2_breaker_combined_safe_pct))
+    ? Number(daCfg.loop2_breaker_combined_safe_pct)
+    : -0.5;
+  const openTodayDeltaPct = Number(pulse?.open_today_delta_pct);
+  const combinedTodayPct = Number(pulse?.today_pnl_pct || 0)
+    + (Number.isFinite(openTodayDeltaPct) ? openTodayDeltaPct : 0);
+  const pf = pulse?.profit_factor;
+  const pfHealthy = pf != null && (pf === Infinity || pf >= pfSafe);
+  const openBookKnown = Number.isFinite(openTodayDeltaPct);
+  const combinedHealthy = openBookKnown && combinedTodayPct >= combinedSafePct;
+
+  const wrTripped = pulse.last10_n >= Math.max(10, minRecentForWr) && pulse.last10_wr != null && pulse.last10_wr < wrCap;
+  const dayTripped = pulse.today_n >= 3 && pulse.today_pnl_pct < dayCap;
+  const consecTripped = pulse.consec_losses >= consecCap;
+
+  let trip = false;
+  let reason = null;
+  if (wrTripped) {
+    trip = true;
+    reason = `wr_${(pulse.last10_wr * 100).toFixed(0)}`;
+  } else if (dayTripped) {
+    trip = true;
+    reason = `today_pnl_${pulse.today_pnl_pct.toFixed(2)}`;
+  } else if (consecTripped) {
+    trip = true;
+    reason = `consec_${pulse.consec_losses}`;
   }
-  if (pulse.today_n >= 3 && pulse.today_pnl_pct < dayCap) {
-    return { trip: true, reason: `today_pnl_${pulse.today_pnl_pct.toFixed(2)}` };
+
+  if (trip && (pfHealthy || combinedHealthy)) {
+    const overrideReason = pfHealthy && combinedHealthy
+      ? `pf_${pf}_and_combined_${combinedTodayPct.toFixed(2)}pct`
+      : pfHealthy
+        ? `pf_${pf}_healthy`
+        : `combined_today_${combinedTodayPct.toFixed(2)}pct_healthy`;
+    return {
+      trip: false,
+      original_reason: reason,
+      override_reason: overrideReason,
+      duration_bias_override: true,
+      profit_factor: pf ?? null,
+      combined_today_pnl_pct: openBookKnown ? Number(combinedTodayPct.toFixed(2)) : null,
+    };
   }
-  if (pulse.consec_losses >= consecCap) {
-    return { trip: true, reason: `consec_${pulse.consec_losses}` };
+
+  if (trip) {
+    return {
+      trip: true,
+      reason,
+      profit_factor: pf ?? null,
+      combined_today_pnl_pct: openBookKnown ? Number(combinedTodayPct.toFixed(2)) : null,
+    };
   }
   return { trip: false };
 }
@@ -501,6 +687,7 @@ export {
   loop1RecordOutcome,
   // Loop 2
   loop2ComputePulse,
+  loop2ComputeOpenBookMetrics,
   loop2EvaluatePulse,
   loop2WritePulse,
   loop2ReadPause,

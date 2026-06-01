@@ -629,5 +629,58 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // Strategy enrichment is best-effort — never break CIO memory.
   }
 
+  /* ── Layer 16: Engine pulse (2026-06-01) ────────────────────────────
+     Surfaces the same duration-bias-aware view the Loop 2 breaker uses:
+     closed-trade WR + profit factor + expectancy AND the open book's
+     unrealized MTM. Without this, the CIO sees `path_performance` /
+     `ticker_history` (which look at closed trades only) and inherits
+     the same closed-WR-low-because-winners-are-still-open bias the
+     breaker has. With this layer, the LLM can reason on combined
+     equity directly and avoid "the engine is bleeding" conclusions
+     when the open book is up.
+
+     `engine_pulse` is preloaded into memoryCache by the live scoring
+     cron (worker/index.js). Empty/missing → block is omitted (the LLM
+     gets one less prior, but never wrong information). */
+  try {
+    const pulse = memoryCache?.enginePulse;
+    if (pulse && (pulse.last10_n > 0 || pulse.open_count > 0)) {
+      const todayClosed = Number(pulse.today_pnl_pct) || 0;
+      const openTodayDelta = Number(pulse.open_today_delta_pct) || 0;
+      const combinedToday = todayClosed + openTodayDelta;
+      const pf = pulse.profit_factor;
+      const pfStr = pf == null ? null
+        : (pf === Infinity ? "∞ (no losers in window)" : Number(pf).toFixed(2));
+      mem.engine_pulse = {
+        // Closed-trade headlines — biased downward when winners are
+        // still in the open book; treat as one input, not the verdict.
+        closed_wr_pct: pulse.last10_wr != null ? Math.round(pulse.last10_wr * 100) : null,
+        closed_window_n: pulse.last10_n || 0,
+        today_realized_pct: Number(todayClosed.toFixed(2)),
+        consec_losses: pulse.consec_losses || 0,
+        // Duration-bias-invariant metrics — preferred for "is the
+        // engine actually working?" reasoning.
+        profit_factor: pfStr,
+        expectancy_pct: pulse.expectancy_pct != null ? Number(pulse.expectancy_pct).toFixed(3) : null,
+        // Open-book MTM — the part hidden from closed-only stats.
+        open_count: pulse.open_count || 0,
+        open_unrealized_pct: pulse.open_count > 0 ? Number(pulse.open_unrealized_pct).toFixed(2) : null,
+        open_winners: pulse.open_winners_count || 0,
+        open_losers: pulse.open_losers_count || 0,
+        // The combined view operators care about.
+        combined_today_pct: Number(combinedToday.toFixed(2)),
+        // Breaker state so the LLM can see when entries are paused +
+        // whether the pause was overridden by the duration-bias check.
+        breaker_active: !!(pulse.trip || pulse.paused),
+        duration_bias_override: !!pulse.duration_bias_override,
+        // Operator hint — the LLM should weight PF + combined_today
+        // higher than WR for any "should we keep entering?" reasoning.
+        bias_note: "closed_wr is duration-biased downward; profit_factor + combined_today are the unbiased view",
+      };
+    }
+  } catch (_) {
+    // Engine pulse enrichment is best-effort — never break CIO memory.
+  }
+
   return mem;
 }

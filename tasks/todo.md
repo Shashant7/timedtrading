@@ -22,6 +22,26 @@
 
 ### Active
 
+- [x] **Loop 2 breaker: duration-bias-aware (PR pending).** Operator paged
+      twice for `wr_20` (Last 10 WR 20%, today -1.15%) while the open
+      book was up — classic survivorship bias. `loop2ComputePulse` now
+      also returns `profit_factor` + `expectancy_pct`; new
+      `loop2ComputeOpenBookMetrics` computes open MTM and today-delta;
+      `loop2EvaluatePulse` defers any trip when EITHER PF ≥ 1.3 OR
+      combined-today (realized + open delta) ≥ -0.5% (both knobs in
+      `model_config`). Discord alert now shows the combined view next
+      to the closed-only headline so operators see whether the trip is
+      a real regime breakdown or a closed-WR headline. Tunable: PR adds
+      `loop2_breaker_pf_safe` + `loop2_breaker_combined_safe_pct`.
+      CIO memory gains Layer 16 `engine_pulse` (same metrics + a
+      `bias_note: "closed_wr is duration-biased downward; profit_factor
+      + combined_today are the unbiased view"`). CIO system prompt
+      gains a DURATION-BIAS WARNING section telling the LLM to weight
+      PF + combined over WR and forbids citing WR alone in reasoning.
+      Backward compat: pulses without the new fields fall back to
+      closed-only legacy behavior. Smoke-tested 4 scenarios (duration-
+      bias case, real breakdown, no open-book data, low-PF + bad
+      open-book) — all behave correctly.
 - [x] **Investor cards out of sync with Discord entries (PR pending).**
       Operator screenshotted 6 fresh Discord entries (CRS, IESC, FSLR,
       WTS, ASTS, TSM LONG) at 11 AM and the matching kanban tiles
