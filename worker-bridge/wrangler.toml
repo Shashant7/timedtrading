@@ -3,13 +3,16 @@ main = "bridge-index.js"
 compatibility_date = "2026-05-29"
 compatibility_flags = ["nodejs_compat"]
 
-# 2026-06-01 — Phase C reconciler cron. Runs every 5 minutes; the
-# scheduled() handler gates on NY regular-hours so off-hours
-# invocations are cheap no-ops. Set BROKER_RECONCILE_24_7=true to
-# disable the gate (useful for Investor mode + post-market checks).
-# Set BROKER_RECONCILE_DRY_RUN=true to log without persisting.
+# 2026-06-01 — Cron triggers.
+#   "*/5 * * * *" — Phase C reconciler (every 5 min; gated to RTH)
+#   "30 21 * * *" — Phase E daily owner digest builder (4:30pm ET)
+# The scheduled() handler in bridge-index.js routes on event.cron.
+# Set BROKER_RECONCILE_24_7=true to disable the RTH gate on the
+# 5-min cron. Set BROKER_RECONCILE_DRY_RUN=true to skip persist.
+# Set DAILY_DIGEST_DRY_RUN=true to build digests without queuing
+# them for the main worker to send.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "30 21 * * *"]
 
 # 2026-05-29 — Phase 1 sidecar bridge for live broker integration.
 # Separate worker from timed-trading-ingest by design: keeps RH OAuth
@@ -62,6 +65,16 @@ BROKER_RECONCILE_DRY_RUN = "false"
 # orchestration is skipped entirely and SL/TP placement is operator-
 # managed. Full cancel/place dispatch lands in Phase E.
 BROKER_OCO_ENABLED = "false"
+
+# 2026-06-01 — Phase E daily owner digest dry-run flag.
+# When "true" the 21:30 UTC cron BUILDS digests but does NOT enqueue
+# them for the main-worker SendGrid send. Useful for first-day rollout
+# observation.
+DAILY_DIGEST_DRY_RUN = "false"
+
+# 2026-06-01 — Phase E operator Discord webhook for critical drift
+# events. Set via `wrangler secret put BROKER_OPERATOR_DISCORD_WEBHOOK_URL`
+# in production. Best-effort: missing webhook silently no-ops.
 
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
