@@ -727,13 +727,14 @@ function BridgeSection({
   const [audit, setAudit] = useState([]);
   const [recent, setRecent] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
+  const [autoMirror, setAutoMirror] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, a, r, p] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
+      const [s, a, r, p, am] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, {
         credentials: "include"
@@ -741,11 +742,14 @@ function BridgeSection({
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/portfolio`, {
         credentials: "include"
+      }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/options/auto-mirror`, {
+        credentials: "include"
       }).then(x => x.json()).catch(() => null)]);
       setStatus(s);
       setAudit(a?.rows || []);
       setRecent(r?.rows || []);
       setPortfolio(p);
+      setAutoMirror(am?.ok ? am : null);
       setErr(s?.error || null);
     } catch (e) {
       setErr(String(e.message || e));
@@ -1110,7 +1114,207 @@ function BridgeSection({
     }, "No open positions."), !ok && u?.portfolio?.error && React.createElement("div", {
       className: "text-[11px] text-amber-300"
     }, String(u.portfolio.error).slice(0, 240)));
-  })), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+  })), autoMirror?.prefs && (() => {
+    const prefs = autoMirror.prefs;
+    const todayCount = Number(autoMirror.today_count) || 0;
+    const remaining = Number(autoMirror.today_remaining) || 0;
+    const equity = Number(portfolio?.users?.[0]?.equity_usd) || 0;
+    const suggestedNotional = equity > 0 ? Math.max(50, Math.round(equity * 0.15 / 50) * 50) : prefs.max_notional_per_order_usd;
+    const suggestedLoss = equity > 0 ? Math.max(25, Math.round(equity * 0.05 / 25) * 25) : prefs.max_loss_per_order_usd;
+    const suggestedDaily = 3;
+    const isSmallAccount = equity > 0 && equity < 5000;
+    const oversized = isSmallAccount && (Number(prefs.max_notional_per_order_usd) > equity * 0.3 || Number(prefs.max_loss_per_order_usd) > equity * 0.1);
+    const saveAutoMirror = async (patch, confirmMsg) => {
+      if (busy) return;
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      setBusy(true);
+      try {
+        const r = await fetch(`${apiBase}/timed/options/auto-mirror`, {
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ...prefs,
+            ...patch
+          })
+        });
+        const j = await r.json().catch(() => null);
+        if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+        refresh();
+      } catch (e) {
+        alert(`Update threw: ${String(e?.message || e)}`);
+      } finally {
+        setBusy(false);
+      }
+    };
+    return React.createElement("div", {
+      className: "mb-4",
+      style: {
+        padding: 10,
+        background: "rgba(245,194,92,0.04)",
+        border: "1px solid rgba(245,194,92,0.18)",
+        borderRadius: 8
+      }
+    }, React.createElement("div", {
+      className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+    }, "Options Auto-Mirror", React.createElement("span", {
+      className: `mc-pill ml-2 ${prefs.enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, prefs.enabled ? "ENABLED" : "OFF"), oversized && React.createElement("span", {
+      className: "mc-pill mc-pill-warn ml-1",
+      style: {
+        fontSize: 9
+      }
+    }, "CAPS OVERSIZED")), React.createElement("div", {
+      className: "text-[12px] text-[#d1d5db] mb-3",
+      style: {
+        lineHeight: 1.5
+      }
+    }, "When ON, the model's Trader-mode entries auto-route through the broker bridge as options plays (long call / put / vertical spread by default). Independent from the equity-trading toggle above \u2014 options have their own daily / per-order / per-loss caps because tail risk is different."), React.createElement("div", {
+      className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
+    }, React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Today"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, todayCount, React.createElement("span", {
+      className: "text-[10px] mc-mute"
+    }, "/", prefs.daily_cap || 0)), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, remaining, " remaining")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Max Notional"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, "$", Number(prefs.max_notional_per_order_usd || 0).toLocaleString()), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "per order")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Max Loss"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, "$", Number(prefs.max_loss_per_order_usd || 0).toLocaleString()), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "per order")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Modes / Archetypes"), React.createElement("div", {
+      className: "mc-kpi-value text-[12px] font-mono"
+    }, (prefs.modes_allowed || []).join(",") || "—"), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, (prefs.archetypes_allowed || []).length, " archetypes"))), React.createElement("div", {
+      className: "flex items-center gap-2 mb-2 flex-wrap"
+    }, React.createElement("button", {
+      disabled: busy,
+      onClick: () => saveAutoMirror({
+        enabled: !prefs.enabled
+      }, prefs.enabled ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions." : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place ${(prefs.archetypes_allowed || []).join(" / ")} via the broker bridge, capped at:\n  ${prefs.daily_cap}/day · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order · max $${Number(prefs.max_loss_per_order_usd).toLocaleString()} loss per order`),
+      style: {
+        padding: "4px 12px",
+        fontSize: 11,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: prefs.enabled ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+        color: prefs.enabled ? "#f87171" : "#22c55e",
+        border: `1px solid ${prefs.enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`
+      }
+    }, prefs.enabled ? "Disable auto-mirror" : "Enable auto-mirror"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Max notional per order (USD)\n\nCurrent: $${prefs.max_notional_per_order_usd}\nSmall-account suggestion (15% of $${Math.round(equity).toLocaleString()}): $${suggestedNotional}`, String(prefs.max_notional_per_order_usd || 0));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          alert("Must be a positive number");
+          return;
+        }
+        saveAutoMirror({
+          max_notional_per_order_usd: n
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "Edit max notional"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Max loss per order (USD)\n\nCurrent: $${prefs.max_loss_per_order_usd}\nSmall-account suggestion (5% of $${Math.round(equity).toLocaleString()}): $${suggestedLoss}`, String(prefs.max_loss_per_order_usd || 0));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          alert("Must be a positive number");
+          return;
+        }
+        saveAutoMirror({
+          max_loss_per_order_usd: n
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "Edit max loss"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Daily cap (orders per day)\n\nCurrent: ${prefs.daily_cap}\nSmall-account suggestion: ${suggestedDaily}`, String(prefs.daily_cap || 0));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 100) {
+          alert("Must be 0-100");
+          return;
+        }
+        saveAutoMirror({
+          daily_cap: Math.round(n)
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "Edit daily cap"), isSmallAccount && oversized && React.createElement("button", {
+      disabled: busy,
+      onClick: () => saveAutoMirror({
+        max_notional_per_order_usd: suggestedNotional,
+        max_loss_per_order_usd: suggestedLoss,
+        daily_cap: suggestedDaily
+      }, `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Max loss: $${suggestedLoss}/order (~5% of equity)\n  • Daily cap: ${suggestedDaily} orders`),
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(251,191,36,0.10)",
+        color: "#fbbf24",
+        border: "1px solid rgba(251,191,36,0.28)"
+      }
+    }, "Apply small-account defaults \u26A1")), isSmallAccount && oversized && React.createElement("div", {
+      className: "text-[11px] text-amber-300 italic"
+    }, "Current options caps are oversized for a $", Math.round(equity).toLocaleString(), " account. The equity-cap layer above already enforces $300/order on equities, but options auto-mirror has its own caps that still allow up to $", Number(prefs.max_notional_per_order_usd).toLocaleString(), "notional. Tap ", React.createElement("strong", null, "Apply small-account defaults \u26A1"), " to bring them in line."));
+  })(), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
   }, "Per-User Status"), React.createElement("table", {
     className: "mc-table mb-4"
@@ -2408,6 +2612,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780284390613:272007093
+// cache-bust:1780284893119:896850105
 
-// cache-bust:1780284390613:272007093
+// cache-bust:1780284893119:896850105
