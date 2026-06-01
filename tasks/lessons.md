@@ -6,6 +6,48 @@
 
 ---
 
+## Broker Bridge — portfolio-aware lock-tight guard [2026-06-01]
+
+User caught a critical risk before it manifested: when the model
+emits a `TRIM` or `EXIT` for a ticker the user's actual broker
+account doesn't hold (because the original entry was blocked by
+daily cap / $-cap / kill switch / auto-mirror disabled at entry
+time), the bridge would happily route the sell to IBKR and either
+get rejected (best case) or **open a naked short position** (worst
+case — account violation, unbounded loss exposure).
+
+**The gap:** `preflightOrder` in `worker-bridge/bridge-guards.js`
+had every safety check we'd thought of (kill switch, user enable,
+$ cap, daily cap, ticker shape validation) EXCEPT portfolio
+awareness. Nothing actually verified the user's account state
+before placing a reducing order.
+
+**The fix:** new portfolio-awareness step in `preflightOrder`. For
+any side in `REDUCING_SIDES = {trim, exit, sell, close, sell_short,
+short, sellshort}` the bridge now calls
+`brokerAdapter.getEquityPositions(env, user)` and:
+
+- **No position** → reject with `no_open_position_for_<side>_on_<TICKER>_would_be_naked_short`
+- **Held qty < requested qty** → reject with `<side>_qty_<N>_exceeds_held_qty_<M>_on_<TICKER>` (or cap if `BROKER_POSITION_CHECK_MODE=cap`)
+- **Broker API failed** → **fail-closed**: refuse the sell with `position_lookup_failed_FAIL_CLOSED:<reason>`. Refusing a sell is far safer than placing one against unknown portfolio state.
+
+Also added a softer hint on ADDING orders that records existing
+position value into the audit payload, so the operator can spot
+unintended pyramiding.
+
+**Operator config (env var `BROKER_POSITION_CHECK_MODE`):**
+- `reject` (default, recommended)
+- `cap` — auto-cap qty for under-position; reject for no-position
+- `off` — bypass entirely (escape hatch; **never use in prod**)
+
+**Rule for future agents:** ANY new order side that reduces a
+position MUST be added to `REDUCING_SIDES`. ANY new broker
+adapter MUST implement `getEquityPositions` with the documented
+return shape (`{ ok, positions: [{symbol|ticker, qty, avgCost}] }`).
+Without both, the safety guard silently no-ops.
+
+---
+
 ## Mission Control polish + docs library [2026-05-30 evening]
 
 ### Frontend "click did nothing" needs INLINE feedback, not `alert()`

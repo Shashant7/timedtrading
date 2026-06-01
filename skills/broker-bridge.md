@@ -151,6 +151,41 @@ for context.
 - `worker/broker-bridge-client.js` (HTTP client + audit ring)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → IBKR LST entries
 
+## Portfolio-aware safety (lock-tight guard)
+
+**Critical rule (2026-06-01):** The bridge MUST reject any
+position-reducing order (sell / trim / exit / close / sell_short)
+for a ticker the user's broker account does NOT actually hold.
+Otherwise the bridge would open a naked short for a model-only
+position that never made it onto the real account (e.g. the
+original entry was blocked by daily cap, $-cap, kill switch, or
+auto-mirror disabled at entry time).
+
+Implemented in `worker-bridge/bridge-guards.js → preflightOrder`:
+
+- `REDUCING_SIDES = { trim, exit, sell, close, sell_short, short, sellshort }`
+- For any reducing-side order, the bridge calls
+  `brokerAdapter.getEquityPositions(env, user)` and looks up the
+  ticker. Three failure modes:
+  - **No position held** → reject with
+    `no_open_position_for_<side>_on_<TICKER>_would_be_naked_short`
+  - **Held qty < requested qty** → reject with
+    `<side>_qty_<N>_exceeds_held_qty_<M>_on_<TICKER>`
+    (or cap to held qty if `BROKER_POSITION_CHECK_MODE=cap`)
+  - **Broker API failed** → **fail-closed**: reject with
+    `position_lookup_failed_FAIL_CLOSED:<reason>`. Refusing a
+    sell is far safer than placing one against unknown state.
+- Modes (env var `BROKER_POSITION_CHECK_MODE`):
+  - `reject` (default) — strict
+  - `cap` — auto-cap qty to held qty for under-position case (no-position still rejects)
+  - `off` — bypass (escape hatch; never use in production)
+
+### Verifying
+
+Send a fake sell order via curl with a ticker the user doesn't
+own — should get a structured rejection in the bridge audit log
+with `reject_reason: "no_open_position_for_sell_on_XYZ_would_be_naked_short"`.
+
 ## Future: BYOB (Bring Your Own Broker)
 
 The bridge is operator-only today (one connected user — operator's

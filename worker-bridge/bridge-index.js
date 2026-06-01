@@ -458,8 +458,14 @@ async function handleOrderWebhook(env, ctx, payload) {
     decision_reason: payload?.decision_reason || null,
   };
 
-  // 1. Preflight
-  const pf = await preflightOrder(env, sanitized);
+  // 1. Preflight — now includes portfolio-awareness check that
+  //    requires brokerAdapter for getEquityPositions. We resolve
+  //    the adapter from a peek at the user record (skipping the
+  //    full reload that preflightOrder does internally — it'll
+  //    re-fetch but that's two cheap KV reads, not a perf concern).
+  const peekUser = await readUser(env, sanitized.user_id);
+  const adapter = peekUser ? brokerAdapterFor(peekUser) : null;
+  const pf = await preflightOrder(env, sanitized, adapter);
   if (!pf.ok) {
     await writeAudit(env, {
       ts: Date.now(),
