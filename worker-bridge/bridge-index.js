@@ -33,6 +33,9 @@ import {
   recentManifestRows, readManifestRow,
   classifyOrderLifecycle, markManifestModelClosed,
 } from "./bridge-manifest.js";
+import {
+  reconcileAllUsers, reconcileUser,
+} from "./bridge-reconciler.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 
@@ -512,6 +515,36 @@ export default {
         return json({ ok: true, row });
       }
 
+      // 2026-06-01 — Phase C: on-demand reconciliation. Operator-only.
+      // Body:
+      //   { user_id?: string,        // single user; if omitted, all eligible
+      //     dry_run?: boolean,       // don't persist updates
+      //     limit?: number }         // max rows per user per cycle
+      // Returns aggregate stats per user + cluster aggregate.
+      // Cron runs this every 5 min during RTH; the on-demand endpoint
+      // is for "fix it now" diagnostics from Mission Control.
+      if (method === "POST" && path === "/bridge/reconcile") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const dryRun = body?.dry_run === true;
+        const limit = Number(body?.limit) || 100;
+        const targetUserId = body?.user_id ? String(body.user_id).toLowerCase() : null;
+        if (targetUserId) {
+          const u = await readUser(env, targetUserId);
+          if (!u) return json({ ok: false, error: "user_not_found" }, 404);
+          const adapter = brokerAdapterFor(u);
+          const stats = await reconcileUser(env, u, adapter, { limit, dryRun });
+          return json({ ok: true, single_user: true, stats, dry_run: dryRun });
+        }
+        const result = await reconcileAllUsers(
+          env,
+          () => listConnectedUsers(env, 100),
+          (u) => brokerAdapterFor(u),
+          { dryRun },
+        );
+        return json(result);
+      }
+
       if (method === "POST" && path === "/bridge/enable") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
@@ -568,6 +601,46 @@ export default {
     } catch (e) {
       console.error("[BRIDGE] uncaught:", String(e?.message || e).slice(0, 500));
       return json({ ok: false, error: "internal_error", detail: String(e?.message || e).slice(0, 200) }, 500);
+    }
+  },
+
+  // 2026-06-01 — Phase C: Cloudflare Workers cron trigger.
+  // Configured in wrangler.toml as: triggers.crons = ["*/5 * * * *"].
+  // Runs every 5 minutes; we gate on NY regular-hours inside the
+  // handler so off-hours invocations are cheap no-ops (no broker
+  // fetches, no D1 writes).
+  async scheduled(event, env, ctx) {
+    const t0 = Date.now();
+    try {
+      await ensureBridgeSchema(env).catch(() => {});
+      // Operating-hours gate: skip when NY market is closed (we don't
+      // expect drift on closed markets). Operator can flip BROKER_
+      // RECONCILE_24_7=true if they want continuous sweeps (useful
+      // for Investor mode + post-market drift detection).
+      if (String(env?.BROKER_RECONCILE_24_7 || "false").toLowerCase() !== "true") {
+        const dt = new Date();
+        // 9:30am-4pm ET ≈ 13:30-21:00 UTC during DST. Use a coarse
+        // 13-22 UTC window to absorb the EDT/EST cusp + post-close
+        // (some brokers report fills with delay).
+        const hourUtc = dt.getUTCHours();
+        const dow = dt.getUTCDay();
+        const isWeekend = (dow === 0 || dow === 6);
+        const isMarketHours = !isWeekend && hourUtc >= 13 && hourUtc <= 22;
+        if (!isMarketHours) {
+          console.log(`[RECONCILER] skip off-hours (hourUtc=${hourUtc}, dow=${dow})`);
+          return;
+        }
+      }
+      const dryRun = String(env?.BROKER_RECONCILE_DRY_RUN || "false").toLowerCase() === "true";
+      const result = await reconcileAllUsers(
+        env,
+        () => listConnectedUsers(env, 100),
+        (u) => brokerAdapterFor(u),
+        { dryRun },
+      );
+      console.log(`[RECONCILER] cycle done ${JSON.stringify(result.aggregate || {})} elapsed=${Date.now() - t0}ms dry=${dryRun}`);
+    } catch (e) {
+      console.error("[RECONCILER] cron failed:", String(e?.message || e).slice(0, 500));
     }
   },
 };
