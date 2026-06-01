@@ -22,6 +22,29 @@
 
 ### Active
 
+- [x] **Investor card: Invalidation prices + LEAP (not Straddle) for
+      Investor mode (PR pending).** Operator on CRS Investor card asked
+      (1) "add price reference for Monthly ST and Weekly EMA(200) in
+      the Invalidation thesis" and (2) "the Options Play is a Long
+      Straddle — if we are accumulating LONG, why a direction-neutral
+      play?". Two fixes: (a) `worker/indicators.js` exposes new
+      `weekly_bundle` (mirror of `monthly_bundle`) with `supertrend_line`
+      + `ema200`; `worker/investor.js` `generateThesis` appends actual
+      price (`$XXX.XX`) to ST/EMA invalidation strings and ordinal
+      `(currently NNrd)` to RS-rank strings — converts
+      `"Price closes below Weekly EMA(200)"` → `"Price closes below
+      Weekly EMA(200) ($435.20)"`. (b) `worker/options-plays.js`
+      `buildOptionsLadder` was treating the trader-side
+      `confluence.mode==="WAIT"` (a short-horizon "no 1-5d direction"
+      verdict) as authority to strip all directional plays — so the
+      Investor LEAP was being suppressed and only the direction-neutral
+      Long Straddle survived for CRS. Now `suppressDirectional` is
+      gated on `!isInvestorMode`; Long Straddle is excluded entirely
+      from Investor mode regardless of vol/verdict (Investor thesis is
+      directional by definition). Trader mode keeps the existing
+      behavior (straddle still surfaces at high vol or on WAIT verdict).
+      Smoke-tested 5 scenarios across trader/investor × WAIT/RIDE/high-vol;
+      CRS Investor + WAIT now yields LEAP as primary (was straddle).
 - [x] **Loop 2 breaker: duration-bias-aware (PR pending).** Operator paged
       twice for `wr_20` (Last 10 WR 20%, today -1.15%) while the open
       book was up — classic survivorship bias. `loop2ComputePulse` now

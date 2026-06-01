@@ -6,6 +6,48 @@
 
 ---
 
+## Investor cards: Invalidation prices + LEAP-not-Straddle for Investor mode [2026-06-01]
+
+Operator on CRS Investor card asked two related questions:
+1. *"Can we add the price reference for Monthly ST and Weekly EMA 200 in the Invalidation thesis?"* — current text said "Price closes below Weekly EMA(200)" without showing the number, so you couldn't tell how much buffer the position had without cross-referencing the chart.
+2. *"The Options Play for CRS is a Long Straddle — is that right? If we are accumulating at the investor level, why would we expect a big downside move equally as a big upside move?"*
+
+Both surfaced fundamental display problems where the engine output contradicted the Investor thesis.
+
+### Bug 1 — Invalidation strings had no price levels
+
+`worker/investor.js` `generateThesis` returned bare-text invalidation strings: `"Monthly SuperTrend flips bearish"`, `"Price closes below Weekly EMA(200)"`. The price levels (which are already computed in the indicators path) weren't surfaced to the thesis output.
+
+Fix:
+- `worker/indicators.js` — added `weekly_bundle` (mirror of `monthly_bundle`) carrying `supertrend_line`, `ema200`, `supertrend_dir`, `rsi`, `px` so downstream consumers can quote weekly levels by name without re-deriving from `tf_tech`.
+- `worker/investor.js` `generateThesis` — appends actual price (`$XXX.XX`) to ST/EMA invalidation strings and `(currently NNth)` to RS-rank strings. Ordinal helper handles 11/12/13 → th, otherwise 1→st, 2→nd, 3→rd. Example transformation:
+
+  Before: `Monthly SuperTrend flips bearish` · `Price closes below Weekly EMA(200)` · `RS Rank drops below 30th percentile`
+  After:  `Monthly SuperTrend flips bearish (below $425.30)` · `Price closes below Weekly EMA(200) ($435.20)` · `RS Rank drops below 30th percentile (currently 83rd)`
+
+### Bug 2 — Investor LEAP was being suppressed; Long Straddle surfaced as PRIMARY
+
+`worker/options-plays.js` `buildOptionsLadder` set `suppressDirectional = verdictMode === "WAIT"`. When the trader-side confluence verdict was WAIT (no clear short-term direction signal — common pre-catalyst or during chop), the LONG branch (LEAP + Long Call + Spread + CSP + CC + Stock_Long) and SHORT branch were both stripped. The only play that survived was the direction-neutral Long Straddle (added by the `verdictMode === "WAIT" || direction === "" || atrPct >= 0.04` guard a few lines below).
+
+The visual contradiction: CRS card showed **INVESTOR · ACCUMULATE + ON-THESIS** badges (multi-month LONG thesis) while the Primary Play was *"Long Straddle (ATM) — Direction unclear but BIG move expected"*. Operator correctly flagged "if we're accumulating LONG, why are we showing a direction-neutral big-move-either-way play?"
+
+Root cause: the trader confluence verdict (RIDE/READY/DRIFT/FADE/WAIT) is a **short-horizon** "do we have a 1-5 day direction signal right now?" judgment. The Investor Accumulate stage is a **multi-month** thesis built on Monthly SuperTrend + Weekly EMA(200) + RS Rank. These operate on fundamentally different time horizons. The Investor stage IS the directional verdict for the long-horizon LEAP play; a trader-side WAIT shouldn't strip it.
+
+Fix:
+1. `isInvestorMode` flag derived from `contract.mode === "investor"` OR `classifySetupStage(contract) === "investor"`.
+2. `suppressDirectional = verdictMode === "WAIT" && !isInvestorMode` — trader-mode WAIT still suppresses (correct), Investor-mode WAIT no longer suppresses (correct).
+3. `allowDirectionNeutral = !isInvestorMode` — Long Straddle is now excluded from Investor mode entirely, regardless of vol or verdict. The Investor thesis is directional by definition; direction-neutral structures don't express it. Trader mode still gets the straddle when atr_pct ≥ 4% or verdict is WAIT (where direction-neutral vol expressions ARE appropriate — catalyst pending, squeeze release, no clear short-term direction).
+
+Smoke-tested 5 scenarios; CRS Investor + WAIT now yields LEAP as primary (was straddle). Trader high-vol still gets straddle in the ladder. No regressions in Trader-mode WAIT behavior.
+
+### Rule
+
+When the engine emits multiple "verdict" signals across different time horizons (trader confluence vs investor stage), each play in the ladder should respect the verdict that matches **its own horizon**, not whichever fired most recently. The LEAP is a multi-month instrument; it should consult the multi-month signal (investor stage), not the multi-day signal (trader confluence). The short-dated long call should consult the trader confluence; the LEAP should consult the investor stage. Mixing them — using a 1-5 day "WAIT" verdict to strip a 18-month LEAP — yields contradictory cards.
+
+Also: direction-neutral structures (straddle, strangle, iron condor) belong in modes where direction is genuinely unknown. They should never appear in a ladder whose host mode is directional-by-definition (Investor Accumulate is always LONG; Reduce is always close-LONG; there is no "I'm investor-accumulating but might be wrong, hedge both ways"). Operators read direction-neutral plays as "the system is hedging against itself" — that's a thesis problem we should NEVER project.
+
+---
+
 ## Loop 2 circuit breaker: closed-WR is duration-biased; equity-curve view is the unbiased one [2026-06-01]
 
 Operator received two Phase C — Engine Paused alerts in an hour (12:00 PM and 1:00 PM): `wr_20`, Last 10 WR 20%, Today P&L -1.15%, 3 consec losses. Asked the right question — *"How do we reconcile open trades that are winning against the closed trades that we took a loss on? Losses come quicker as we protect capital; winners stay open longer. This skews our thinking and possibly even how the AI CIO factors in decisions."*

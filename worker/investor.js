@@ -936,6 +936,7 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
  */
 export function generateThesis(tickerData, rsRank = 50) {
   const mb = tickerData.monthly_bundle;
+  const wb = tickerData.weekly_bundle; // 2026-06-01 — added in indicators.js
   const emaW = tickerData.ema_map?.W;
   const tfW = tickerData.tf_tech?.W;
   const ticker = tickerData.ticker || "???";
@@ -943,10 +944,24 @@ export function generateThesis(tickerData, rsRank = 50) {
   const conditions = [];
   const invalidation = [];
 
+  /* 2026-06-01 — Operator request: surface the actual price levels next to
+     each Invalidation string so the user immediately sees how much room
+     before invalidation triggers (e.g. "Monthly SuperTrend flips bearish
+     (below $425.30)" — current price $479.15 = ~11% buffer). Without the
+     numbers, the user has to mentally cross-reference the chart.
+
+     Convention: append `(below $X.XX)` for floor levels (ST, EMA200) and
+     `(currently top NN%)` for percentile gates (RS rank). Same numeric
+     format the rest of the Investor card uses. */
+  const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : null;
+
   // Monthly trend (Pine convention: -1 = bull, +1 = bear)
   if (mb?.supertrend_dir === -1) {
     conditions.push("Monthly uptrend");
-    invalidation.push("Monthly SuperTrend flips bearish");
+    const stLvl = fmtUsd(mb?.supertrend_line);
+    invalidation.push(
+      stLvl ? `Monthly SuperTrend flips bearish (below ${stLvl})` : "Monthly SuperTrend flips bearish"
+    );
   } else if (mb?.supertrend_dir === 1) {
     conditions.push("Monthly downtrend (caution)");
   }
@@ -954,22 +969,36 @@ export function generateThesis(tickerData, rsRank = 50) {
   // Weekly EMA position
   if (emaW?.structure > 0.5) {
     conditions.push("Above Weekly EMA(200)");
-    invalidation.push("Price closes below Weekly EMA(200)");
+    const wEma200 = fmtUsd(wb?.ema200);
+    invalidation.push(
+      wEma200 ? `Price closes below Weekly EMA(200) (${wEma200})` : "Price closes below Weekly EMA(200)"
+    );
   }
 
   // Weekly SuperTrend
   if (tfW?.atr?.xs === 1) {
     conditions.push("Weekly SuperTrend bullish");
-    invalidation.push("Weekly SuperTrend flips bearish");
+    const wStLvl = fmtUsd(wb?.supertrend_line);
+    invalidation.push(
+      wStLvl ? `Weekly SuperTrend flips bearish (below ${wStLvl})` : "Weekly SuperTrend flips bearish"
+    );
   }
 
   // RS Rank
+  const _ord = (n) => {
+    const r = Math.round(Number(n));
+    if (!Number.isFinite(r)) return String(n);
+    const rem100 = r % 100;
+    if (rem100 >= 11 && rem100 <= 13) return `${r}th`;
+    const rem10 = r % 10;
+    return `${r}${rem10 === 1 ? "st" : rem10 === 2 ? "nd" : rem10 === 3 ? "rd" : "th"}`;
+  };
   if (rsRank >= 75) {
     conditions.push(`RS Rank top ${100 - rsRank}%`);
-    invalidation.push("RS Rank drops below 30th percentile");
+    invalidation.push(`RS Rank drops below 30th percentile (currently ${_ord(rsRank)})`);
   } else if (rsRank >= 50) {
-    conditions.push(`RS Rank ${rsRank}th percentile`);
-    invalidation.push("RS Rank drops below 25th percentile");
+    conditions.push(`RS Rank ${_ord(rsRank)} percentile`);
+    invalidation.push(`RS Rank drops below 25th percentile (currently ${_ord(rsRank)})`);
   }
 
   // Monthly RSI
