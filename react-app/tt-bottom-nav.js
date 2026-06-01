@@ -44,25 +44,40 @@
          fine (it doesn't affect its own positioning context) — it's
          ancestor transforms that break fixed positioning. */
       z-index: 2147483000;
-      /* 2026-06-01 — Belt-and-suspenders on iOS safe-area.
-         Even with viewport-fit=cover on the page, some PWA / standalone
-         contexts return 0 for env(safe-area-inset-bottom) on iPad Safari
-         and on the first paint before viewport settles. Use 14px as the
-         floor so the nav is never flush with the bottom edge (where
-         iOS Safari's bottom URL bar / Home Indicator can hide it). */
-      padding: 8px 8px max(14px, env(safe-area-inset-bottom));
+      /* 2026-06-01 (v2) — Bumped floor 14px → 24px AND added a
+         visualViewport-driven translateY adjustment (see JS at the
+         bottom of this file). On iOS Safari (which is the primary
+         victim of this class of bug), env(safe-area-inset-bottom)
+         covers ONLY the Home Indicator (~34px on Face ID phones).
+         It does NOT include the compact bottom URL bar that Safari
+         renders below the page content — that bar is ~50-60px tall
+         and the only way to detect it is via visualViewport.height
+         being less than window.innerHeight. The JS adds an inline
+         transform on the nav element when that delta is non-zero so
+         the nav floats above the URL bar instead of disappearing
+         behind it. The 24px CSS floor below stops the nav being
+         flush with the screen edge on Android / desktop where the
+         visualViewport delta is always 0. */
+      padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(10,12,16,0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
       /* Bug 2026-05-20: iOS Safari momentum-scroll fixed-position quirk.
-         Force GPU compositing so the nav stays in its own layer. */
+         Force GPU compositing so the nav stays in its own layer.
+         The visualViewport JS below mutates this `transform` at
+         runtime — preserve translate3d(0,0,0) as the resting state. */
       transform: translate3d(0, 0, 0);
       -webkit-transform: translate3d(0, 0, 0);
       will-change: transform;
       -webkit-backface-visibility: hidden;
       backface-visibility: hidden;
+      /* Smooth out the URL-bar push when iOS Safari toggles the
+         compact bar (typical case: user scrolls up and bar appears,
+         scrolls down and bar collapses). 120ms feels native, longer
+         feels laggy. */
+      transition: transform 120ms ease-out;
     }
     .tt-bn-row {
       display: grid;
@@ -301,4 +316,62 @@
   }
   applyBadges();
   setInterval(applyBadges, 60 * 1000);
+
+  // ── iOS Safari compact URL bar — keep nav above it ──────────
+  // 2026-06-01 (v2) — Root cause of "bottom nav missing on mobile":
+  // iOS Safari's compact (collapsed) bottom URL bar is ~50-60px tall
+  // and renders BELOW the layout viewport. env(safe-area-inset-bottom)
+  // does NOT include it (that constant only covers the Home Indicator,
+  // typically ~34px). So a `position: fixed; bottom: 0;` element with
+  // only safe-area padding renders behind the URL bar and is invisible.
+  //
+  // visualViewport.height shrinks when the URL bar shows; the delta vs
+  // window.innerHeight equals the URL-bar height. We push the nav up by
+  // that delta via inline transform (the CSS keeps translate3d for GPU
+  // compositing — JS overrides it with translate3d(0, -Npx, 0) so the
+  // GPU layer is preserved). When the user scrolls down and Safari
+  // collapses the URL bar, delta returns to 0 and the nav settles back
+  // to bottom: 0. The CSS transition makes the move smooth.
+  //
+  // Browsers without visualViewport (older Android Firefox / Safari 12-)
+  // just see the CSS padding and live with the 24px floor.
+  function syncNavToVisualViewport() {
+    const navEl = document.getElementById("tt-bottom-nav");
+    if (!navEl) return;
+    const vv = window.visualViewport;
+    if (!vv) {
+      navEl.style.transform = "translate3d(0, 0, 0)";
+      return;
+    }
+    // visualViewport.height < window.innerHeight when iOS Safari
+    // shows its bottom URL bar; offsetTop accounts for any keyboard
+    // push (we want to subtract that too — a focused input shifts
+    // the visual viewport up).
+    const innerH = window.innerHeight;
+    const vvH = vv.height;
+    const vvOffsetTop = vv.offsetTop || 0;
+    const delta = Math.max(0, Math.round(innerH - vvH - vvOffsetTop));
+    // Cap at 120px as a sanity floor — anything bigger is almost
+    // certainly the on-screen keyboard, where pushing the nav up
+    // would land it in the middle of the page. Hide instead.
+    if (delta > 120) {
+      navEl.style.transform = "translate3d(0, 200%, 0)";
+    } else {
+      navEl.style.transform = `translate3d(0, -${delta}px, 0)`;
+    }
+  }
+  // Initial pass + listen to every viewport change (resize, scroll, and
+  // also a one-shot after the DOM is fully wired so we catch the
+  // post-paint viewport settle on iOS).
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncNavToVisualViewport, { passive: true });
+    window.visualViewport.addEventListener("scroll", syncNavToVisualViewport, { passive: true });
+  }
+  window.addEventListener("orientationchange", () => setTimeout(syncNavToVisualViewport, 250), { passive: true });
+  // First sync after layout settles. iOS Safari's URL bar typically
+  // animates in over ~300ms; sync at 0/150/400 so we catch every
+  // intermediate state.
+  syncNavToVisualViewport();
+  setTimeout(syncNavToVisualViewport, 150);
+  setTimeout(syncNavToVisualViewport, 400);
 })();
