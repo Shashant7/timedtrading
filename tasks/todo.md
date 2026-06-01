@@ -22,20 +22,25 @@
 
 ### Active
 
-- [x] **Day-trade options plays for SPY/QQQ/IWM + Options-tab loading
-      indicator (PR pending).** Operator request for 0/1 DTE day-trader
-      plays on the Today page, clearly labeled so they can't be confused
-      with swing/investor plays on the same ticker. Engine: new
-      `pickDayTradeExpiration()` (0DTE before 4 PM ET, else 1DTE;
-      weekend-aware), `buildDayTradePlay()` (ATM call for LONG, put for
-      SHORT, straddle for NEUTRAL high-vol ≥1.2% ATR), `DAY_TRADE_TICKERS
-      = {SPY, QQQ, IWM}` strict allow-list. Endpoint: `/timed/options/all`
-      returns new `day_trade_plays[]` array independent of `limit`. UI:
-      dedicated amber-tinted strip ABOVE the main grid with `DAY TRADE ·
-      NDTE` pill + flavor pill (CALL/PUT/STRADDLE). Plus: loading
-      overlay on the right-rail Options tab during horizon/profile
-      transitions so the operator gets explicit "switching..." feedback
-      instead of a brief flash of stale data.
+- [x] **MC: editable modes + archetypes for options auto-mirror
+      (PR pending).** Operator: "Where can the mode/archetype get
+      updated?". Previously the MODES/ARCHETYPES KPI in the Options
+      Auto-Mirror sub-card was read-only. Added two purple "Edit modes"
+      and "Edit archetypes" buttons next to the existing edit-cap
+      buttons. Modes prompt lists RIDE / READY / DRIFT / FADE with
+      operator-facing descriptions and the default (RIDE only).
+      Archetypes prompt lists every allowed option vehicle
+      (long_call/put, vertical_spread, leap_call/put, csp, cc, moonshot,
+      straddle/strangle, iron_condor — naked-shorts are EXCLUDED
+      because the engine blocks them unconditionally). Both validate
+      against the allow-list before saving via the existing PUT
+      /timed/options/auto-mirror endpoint. Note: operator confirmed
+      Account Balance is syncing properly — no fix needed there.
+- [x] **Day-trade options plays + Options-tab loading overlay (PR #436).**
+      Operator request for 0/1 DTE day-trader plays on the Today page,
+      clearly labeled so they can't be confused with swing/investor
+      plays on the same ticker. Plus loading overlay on the right-rail
+      Options tab during horizon/profile transitions.
 - [x] **Calibration UX polish (PR #435).** Three additions to System
       Intelligence → Analysis tab: (a) Calibration explainer card at
       the top — plain-language "what calibration does, where it shows

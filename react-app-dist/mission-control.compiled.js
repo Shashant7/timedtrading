@@ -1651,7 +1651,59 @@ function BridgeSection({
         color: "#67e8f9",
         border: "1px solid rgba(103,232,249,0.28)"
       }
-    }, "Edit daily cap"), isSmallAccount && oversized && React.createElement("button", {
+    }, "Edit daily cap"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const ALL_MODES = ["RIDE", "READY", "DRIFT", "FADE"];
+        const current = (prefs.modes_allowed || []).join(", ");
+        const v = prompt(`Modes allowed (comma-separated)\n\n` + `Available: ${ALL_MODES.join(", ")}\n` + `Current: ${current || "none"}\n\n` + `RIDE  — model has highest conviction (best signals aligned)\n` + `READY — leaning toward trigger but waiting for confirmation\n` + `DRIFT — chop, moderate confidence\n` + `FADE  — counter-trend (use with caution)\n\n` + `Default: RIDE only (most conservative)`, current || "RIDE");
+        if (v == null) return;
+        const parsed = String(v).split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+        const invalid = parsed.filter(m => !ALL_MODES.includes(m));
+        if (invalid.length > 0) {
+          alert(`Unknown mode(s): ${invalid.join(", ")}. Allowed: ${ALL_MODES.join(", ")}`);
+          return;
+        }
+        saveAutoMirror({
+          modes_allowed: parsed
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(167,139,250,0.10)",
+        color: "#a78bfa",
+        border: "1px solid rgba(167,139,250,0.30)"
+      }
+    }, "Edit modes"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const ALL_ARCHETYPES = ["long_call", "long_put", "vertical_spread", "leap_call", "leap_put", "cash_secured_put", "covered_call", "moonshot_call", "moonshot_put", "long_straddle", "long_strangle", "iron_condor"];
+        const current = (prefs.archetypes_allowed || []).join(", ");
+        const v = prompt(`Archetypes allowed (comma-separated)\n\n` + `Available:\n  ${ALL_ARCHETYPES.join("\n  ")}\n\n` + `Current: ${current || "none"}\n\n` + `Default: long_call, long_put, vertical_spread\n` + `(naked shorts are blocked at the engine level)`, current || "long_call, long_put, vertical_spread");
+        if (v == null) return;
+        const parsed = String(v).split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const invalid = parsed.filter(a => !ALL_ARCHETYPES.includes(a));
+        if (invalid.length > 0) {
+          alert(`Unknown archetype(s): ${invalid.join(", ")}.\n\nAllowed: ${ALL_ARCHETYPES.join(", ")}`);
+          return;
+        }
+        saveAutoMirror({
+          archetypes_allowed: parsed
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(167,139,250,0.10)",
+        color: "#a78bfa",
+        border: "1px solid rgba(167,139,250,0.30)"
+      }
+    }, "Edit archetypes"), isSmallAccount && oversized && React.createElement("button", {
       disabled: busy,
       onClick: () => saveAutoMirror({
         max_notional_per_order_usd: suggestedNotional,
@@ -3205,6 +3257,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780343090250:910252211
+// cache-bust:1780343623876:545980686
 
-// cache-bust:1780343090250:910252211
+// cache-bust:1780343623876:545980686
