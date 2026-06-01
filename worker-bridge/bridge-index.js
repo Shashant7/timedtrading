@@ -329,6 +329,49 @@ export default {
         return json({ ok: true, kill_switch: state });
       }
 
+      // 2026-06-01 — POST /bridge/user/caps
+      // Operator-only. Updates a connected user's per-order /
+      // per-day / per-account caps so the bridge respects the
+      // operator's chosen risk envelope. Used by Mission Control's
+      // 'Manage' button so the operator doesn't have to redeploy or
+      // edit env vars to change caps for a small account.
+      // Body: { user_id, max_per_order_usd?, max_orders_per_day?, max_account_pct? }
+      if (method === "POST" && path === "/bridge/user/caps") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const userId = String(body?.user_id || "").trim().toLowerCase();
+        if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
+        const user = await readUser(env, userId);
+        if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+        const current = user.user_caps || {};
+        const next = { ...current };
+        if (body.max_per_order_usd !== undefined) {
+          const v = Number(body.max_per_order_usd);
+          if (!Number.isFinite(v) || v <= 0 || v > 1_000_000) {
+            return json({ ok: false, error: "max_per_order_usd_must_be_1_to_1000000" }, 400);
+          }
+          next.max_per_order_usd = Math.round(v);
+        }
+        if (body.max_orders_per_day !== undefined) {
+          const v = Number(body.max_orders_per_day);
+          if (!Number.isFinite(v) || v < 0 || v > 100) {
+            return json({ ok: false, error: "max_orders_per_day_must_be_0_to_100" }, 400);
+          }
+          next.max_orders_per_day = Math.round(v);
+        }
+        if (body.max_account_pct !== undefined) {
+          const v = Number(body.max_account_pct);
+          if (!Number.isFinite(v) || v <= 0 || v > 1) {
+            return json({ ok: false, error: "max_account_pct_must_be_0_to_1" }, 400);
+          }
+          next.max_account_pct = v;
+        }
+        user.user_caps = next;
+        user.user_caps_updated_at = Date.now();
+        await writeUser(env, userId, user);
+        return json({ ok: true, user_id: userId, user_caps: next, updated_at: user.user_caps_updated_at });
+      }
+
       if (method === "POST" && path === "/bridge/enable") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));

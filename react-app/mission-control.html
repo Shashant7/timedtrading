@@ -736,6 +736,11 @@
         const [audit, setAudit] = useState([]);
         const [recent, setRecent] = useState([]);
         const [portfolio, setPortfolio] = useState(null);
+        // 2026-06-01 — Options auto-mirror preferences. Edited inline
+        // via the Mission Control "Options Auto-Mirror" sub-card so
+        // the operator can dial caps for a small account without
+        // hitting the PUT endpoint manually.
+        const [autoMirror, setAutoMirror] = useState(null);
         const [err, setErr] = useState(null);
         const [loading, setLoading] = useState(false);
         const [busy, setBusy] = useState(false);
@@ -743,7 +748,7 @@
         const refresh = useCallback(async () => {
           setLoading(true);
           try {
-            const [s, a, r, p] = await Promise.all([
+            const [s, a, r, p, am] = await Promise.all([
               fetch(`${apiBase}/timed/admin/broker-bridge/status`, { credentials: "include" }).then(x => x.json()).catch(() => null),
               fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, { credentials: "include" }).then(x => x.json()).catch(() => null),
               fetch(`${apiBase}/timed/admin/broker-bridge/recent`, { credentials: "include" }).then(x => x.json()).catch(() => null),
@@ -751,11 +756,17 @@
               // inline now that the Service Binding bypasses CF's
               // worker-to-worker loop detection (was: 1042 error).
               fetch(`${apiBase}/timed/admin/broker-bridge/portfolio`, { credentials: "include" }).then(x => x.json()).catch(() => null),
+              // Operator-only options auto-mirror prefs. Returns
+              // { ok, user, prefs, today_count, today_remaining } or
+              // 403 for non-operator (the .catch absorbs that —
+              // we just don't render the sub-card).
+              fetch(`${apiBase}/timed/options/auto-mirror`, { credentials: "include" }).then(x => x.json()).catch(() => null),
             ]);
             setStatus(s);
             setAudit((a?.rows || []));
             setRecent((r?.rows || []));
             setPortfolio(p);
+            setAutoMirror(am?.ok ? am : null);
             setErr(s?.error || null);
           } catch (e) {
             setErr(String(e.message || e));
@@ -845,8 +856,32 @@
                     <div className={`mc-kpi-value text-[15px] ${killOn ? "mc-warn" : "mc-pos"}`}>
                       {killOn ? "ON · all orders blocked" : "OFF"}
                     </div>
-                    <div className="mc-kpi-sub">
-                      Flip via <code>POST /bridge/killswitch</code>
+                    <div className="mc-kpi-sub" style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      <button
+                        disabled={busy}
+                        onClick={async () => {
+                          if (busy) return;
+                          if (!confirm(killOn ? "Turn OFF the kill switch? Orders will start flowing to the broker again." : "Turn ON the kill switch? ALL outgoing orders will be blocked.")) return;
+                          setBusy(true);
+                          try {
+                            const r = await fetch(`${apiBase}/timed/admin/broker-bridge/killswitch`, {
+                              method: "POST", credentials: "include",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ state: killOn ? "off" : "on" }),
+                            });
+                            const j = await r.json().catch(() => null);
+                            if (!j?.ok) alert(`Kill switch toggle failed: ${j?.error || `HTTP ${r.status}`}`);
+                            refresh();
+                          } catch (e) { alert(`Kill switch toggle threw: ${String(e?.message || e)}`); }
+                          finally { setBusy(false); }
+                        }}
+                        style={{
+                          padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                          background: killOn ? "rgba(34,197,94,0.12)" : "rgba(248,113,113,0.12)",
+                          color: killOn ? "#22c55e" : "#f87171",
+                          border: `1px solid ${killOn ? "rgba(34,197,94,0.34)" : "rgba(248,113,113,0.34)"}`,
+                        }}
+                      >{killOn ? "Turn OFF" : "Turn ON"}</button>
                     </div>
                   </div>
                   <div className="mc-kpi">
@@ -867,21 +902,43 @@
                     connected user. Surfaces real account state inline
                     instead of just the "LIVE" pill. Errors per-user
                     are captured so the operator sees them inline
-                    rather than the section silently failing. */}
+                    rather than the section silently failing.
+                    Now also includes inline management controls:
+                    enable/disable per-user, edit risk caps. The caps
+                    editor suggests small-account-appropriate defaults
+                    when the user's equity is below the platform
+                    default (e.g. $1,553 account → suggest $300/order
+                    instead of $5,000). */}
                 {portfolio?.users?.length > 0 && (
                   <>
-                    <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">Account Balance &amp; Positions</div>
+                    <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">Account Balance, Positions &amp; Controls</div>
                     {portfolio.users.map((u) => {
                       const ok = u?.portfolio?.ok;
                       const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions
                                       : Array.isArray(u?.positions) ? u.positions
                                       : [];
+                      // Find this user's row in the /status users list
+                      // to read user-side flags (enabled + caps). The
+                      // portfolio endpoint doesn't include them.
+                      const userRow = (status?.users || []).find((x) => x.user_id === u.user_id) || {};
+                      const enabled = !!userRow.broker_integration_enabled;
+                      const caps = userRow.user_caps || {};
+                      const equity = Number(u.equity_usd) || 0;
+                      // Suggested small-account defaults — clamp per-order
+                      // to 25% of equity (matches the bridge's default
+                      // max_account_pct) and per-day to 3.
+                      const suggestedPerOrder = equity > 0 ? Math.max(50, Math.round(equity * 0.25 / 50) * 50) : 300;
+                      const suggestedPerDay = 3;
                       return (
                         <div key={u.user_id} className="mb-4" style={{ padding: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
                           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
                             <div className="flex items-baseline gap-2 flex-wrap">
                               <strong className="text-white text-[13px]">{u.user_id}</strong>
                               <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{(u.broker || "ibkr").toUpperCase()}</span>
+                              {u.account_id && <span className="text-[10px] mc-mute font-mono">{u.account_id}</span>}
+                              <span className={`mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
+                                {enabled ? "LIVE TRADING" : "TRADING OFF"}
+                              </span>
                               {!ok && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>portfolio unavailable</span>}
                             </div>
                             {ok && (
@@ -899,6 +956,103 @@
                                   </div>
                                 )}
                               </div>
+                            )}
+                          </div>
+                          {/* Inline management controls */}
+                          <div className="flex items-center gap-2 mb-3 flex-wrap" style={{ paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                            <button
+                              disabled={busy || userRow.status !== "connected"}
+                              onClick={async () => {
+                                if (busy) return;
+                                const next = !enabled;
+                                if (!confirm(next
+                                  ? `Turn ON live trading for ${u.user_id}? Auto-mirror orders will be placed via the broker.`
+                                  : `Turn OFF live trading for ${u.user_id}? No new auto-mirror orders will be placed (open positions are not affected).`)) return;
+                                setBusy(true);
+                                try {
+                                  const r = await fetch(`${apiBase}/timed/admin/broker-bridge/enable`, {
+                                    method: "POST", credentials: "include",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ user_id: u.user_id, enable: next }),
+                                  });
+                                  const j = await r.json().catch(() => null);
+                                  if (!j?.ok) alert(`Toggle failed: ${j?.error || `HTTP ${r.status}`}`);
+                                  refresh();
+                                } catch (e) { alert(`Toggle threw: ${String(e?.message || e)}`); }
+                                finally { setBusy(false); }
+                              }}
+                              style={{
+                                padding: "4px 12px", fontSize: 11, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                                background: enabled ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+                                color: enabled ? "#f87171" : "#22c55e",
+                                border: `1px solid ${enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`,
+                              }}
+                            >{enabled ? "Disable live trading" : "Enable live trading"}</button>
+                            <span className="text-[10px] mc-mute">·</span>
+                            <span className="text-[10px] mc-mute font-mono">
+                              caps: max ${Number(caps.max_per_order_usd || 5000).toLocaleString()}/order · {Number(caps.max_orders_per_day || 3)}/day · {Math.round((caps.max_account_pct || 0.25) * 100)}% per trade
+                            </span>
+                            <button
+                              disabled={busy}
+                              onClick={async () => {
+                                if (busy) return;
+                                const cur = caps.max_per_order_usd || 5000;
+                                const sugg = (cur === 5000 && equity > 0 && equity < 5000)
+                                  ? ` (suggested for $${Math.round(equity).toLocaleString()} account: $${suggestedPerOrder})`
+                                  : "";
+                                const v = prompt(`Max per order (USD)${sugg}\n\nCurrent: $${cur}`, String(cur));
+                                if (v == null) return;
+                                const n = Number(v);
+                                if (!Number.isFinite(n) || n <= 0) { alert("Must be a positive number"); return; }
+                                setBusy(true);
+                                try {
+                                  const r = await fetch(`${apiBase}/timed/admin/broker-bridge/user-caps`, {
+                                    method: "POST", credentials: "include",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ user_id: u.user_id, max_per_order_usd: n }),
+                                  });
+                                  const j = await r.json().catch(() => null);
+                                  if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                  refresh();
+                                } catch (e) { alert(`Update threw: ${String(e?.message || e)}`); }
+                                finally { setBusy(false); }
+                              }}
+                              style={{
+                                padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                                background: "rgba(103,232,249,0.10)", color: "#67e8f9",
+                                border: "1px solid rgba(103,232,249,0.28)",
+                              }}
+                            >Edit caps</button>
+                            {equity > 0 && equity < 5000 && (caps.max_per_order_usd || 5000) >= 1000 && (
+                              <button
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (busy) return;
+                                  if (!confirm(`Apply small-account defaults?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max per order: $${suggestedPerOrder}\n  • Max orders/day: ${suggestedPerDay}\n  • Max % per trade: 25%`)) return;
+                                  setBusy(true);
+                                  try {
+                                    const r = await fetch(`${apiBase}/timed/admin/broker-bridge/user-caps`, {
+                                      method: "POST", credentials: "include",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        user_id: u.user_id,
+                                        max_per_order_usd: suggestedPerOrder,
+                                        max_orders_per_day: suggestedPerDay,
+                                        max_account_pct: 0.25,
+                                      }),
+                                    });
+                                    const j = await r.json().catch(() => null);
+                                    if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                    refresh();
+                                  } catch (e) { alert(`Update threw: ${String(e?.message || e)}`); }
+                                  finally { setBusy(false); }
+                                }}
+                                style={{
+                                  padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                                  background: "rgba(251,191,36,0.10)", color: "#fbbf24",
+                                  border: "1px solid rgba(251,191,36,0.28)",
+                                }}
+                              >Apply small-account defaults ⚡</button>
                             )}
                           </div>
                           {ok && positions.length > 0 && (
@@ -939,6 +1093,171 @@
                     })}
                   </>
                 )}
+
+                {/* 2026-06-01 — Options auto-mirror controls. Visible
+                    only to the operator (the GET endpoint returns 403
+                    for non-operator, so autoMirror stays null and the
+                    block doesn't render). Sister-control to the
+                    per-user equity caps above — auto-mirror has its
+                    own daily_cap / max_notional / max_loss with
+                    separate (more conservative) defaults because
+                    options trades have larger tail risk. */}
+                {autoMirror?.prefs && (() => {
+                  const prefs = autoMirror.prefs;
+                  const todayCount = Number(autoMirror.today_count) || 0;
+                  const remaining = Number(autoMirror.today_remaining) || 0;
+                  // Equity proxy: use the first portfolio user's equity
+                  // (operator typically has one connected user).
+                  const equity = Number(portfolio?.users?.[0]?.equity_usd) || 0;
+                  // Conservative small-account defaults for options:
+                  // ~15% of equity per order notional, 5% per-order
+                  // max loss, 3 orders/day.
+                  const suggestedNotional = equity > 0
+                    ? Math.max(50, Math.round((equity * 0.15) / 50) * 50)
+                    : prefs.max_notional_per_order_usd;
+                  const suggestedLoss = equity > 0
+                    ? Math.max(25, Math.round((equity * 0.05) / 25) * 25)
+                    : prefs.max_loss_per_order_usd;
+                  const suggestedDaily = 3;
+                  const isSmallAccount = equity > 0 && equity < 5000;
+                  const oversized = isSmallAccount && (
+                    Number(prefs.max_notional_per_order_usd) > equity * 0.3
+                    || Number(prefs.max_loss_per_order_usd) > equity * 0.1
+                  );
+                  const saveAutoMirror = async (patch, confirmMsg) => {
+                    if (busy) return;
+                    if (confirmMsg && !confirm(confirmMsg)) return;
+                    setBusy(true);
+                    try {
+                      const r = await fetch(`${apiBase}/timed/options/auto-mirror`, {
+                        method: "PUT", credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...prefs, ...patch }),
+                      });
+                      const j = await r.json().catch(() => null);
+                      if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                      refresh();
+                    } catch (e) { alert(`Update threw: ${String(e?.message || e)}`); }
+                    finally { setBusy(false); }
+                  };
+                  return (
+                    <div className="mb-4" style={{ padding: 10, background: "rgba(245,194,92,0.04)", border: "1px solid rgba(245,194,92,0.18)", borderRadius: 8 }}>
+                      <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
+                        Options Auto-Mirror
+                        <span className={`mc-pill ml-2 ${prefs.enabled ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
+                          {prefs.enabled ? "ENABLED" : "OFF"}
+                        </span>
+                        {oversized && <span className="mc-pill mc-pill-warn ml-1" style={{ fontSize: 9 }}>CAPS OVERSIZED</span>}
+                      </div>
+                      <div className="text-[12px] text-[#d1d5db] mb-3" style={{ lineHeight: 1.5 }}>
+                        When ON, the model's Trader-mode entries auto-route through the broker bridge as options plays
+                        (long call / put / vertical spread by default). Independent from the equity-trading toggle above —
+                        options have their own daily / per-order / per-loss caps because tail risk is different.
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Today</div>
+                          <div className="mc-kpi-value text-[15px]">{todayCount}<span className="text-[10px] mc-mute">/{prefs.daily_cap || 0}</span></div>
+                          <div className="mc-kpi-sub">{remaining} remaining</div>
+                        </div>
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Max Notional</div>
+                          <div className="mc-kpi-value text-[15px]">${Number(prefs.max_notional_per_order_usd || 0).toLocaleString()}</div>
+                          <div className="mc-kpi-sub">per order</div>
+                        </div>
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Max Loss</div>
+                          <div className="mc-kpi-value text-[15px]">${Number(prefs.max_loss_per_order_usd || 0).toLocaleString()}</div>
+                          <div className="mc-kpi-sub">per order</div>
+                        </div>
+                        <div className="mc-kpi">
+                          <div className="mc-kpi-label">Modes / Archetypes</div>
+                          <div className="mc-kpi-value text-[12px] font-mono">{(prefs.modes_allowed || []).join(",") || "—"}</div>
+                          <div className="mc-kpi-sub">{(prefs.archetypes_allowed || []).length} archetypes</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <button
+                          disabled={busy}
+                          onClick={() => saveAutoMirror(
+                            { enabled: !prefs.enabled },
+                            prefs.enabled
+                              ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions."
+                              : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place ${(prefs.archetypes_allowed || []).join(" / ")} via the broker bridge, capped at:\n  ${prefs.daily_cap}/day · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order · max $${Number(prefs.max_loss_per_order_usd).toLocaleString()} loss per order`
+                          )}
+                          style={{
+                            padding: "4px 12px", fontSize: 11, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                            background: prefs.enabled ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+                            color: prefs.enabled ? "#f87171" : "#22c55e",
+                            border: `1px solid ${prefs.enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`,
+                          }}
+                        >{prefs.enabled ? "Disable auto-mirror" : "Enable auto-mirror"}</button>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const v = prompt(`Max notional per order (USD)\n\nCurrent: $${prefs.max_notional_per_order_usd}\nSmall-account suggestion (15% of $${Math.round(equity).toLocaleString()}): $${suggestedNotional}`, String(prefs.max_notional_per_order_usd || 0));
+                            if (v == null) return;
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n <= 0) { alert("Must be a positive number"); return; }
+                            saveAutoMirror({ max_notional_per_order_usd: n });
+                          }}
+                          style={{ padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                            background: "rgba(103,232,249,0.10)", color: "#67e8f9", border: "1px solid rgba(103,232,249,0.28)" }}
+                        >Edit max notional</button>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const v = prompt(`Max loss per order (USD)\n\nCurrent: $${prefs.max_loss_per_order_usd}\nSmall-account suggestion (5% of $${Math.round(equity).toLocaleString()}): $${suggestedLoss}`, String(prefs.max_loss_per_order_usd || 0));
+                            if (v == null) return;
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n <= 0) { alert("Must be a positive number"); return; }
+                            saveAutoMirror({ max_loss_per_order_usd: n });
+                          }}
+                          style={{ padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                            background: "rgba(103,232,249,0.10)", color: "#67e8f9", border: "1px solid rgba(103,232,249,0.28)" }}
+                        >Edit max loss</button>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const v = prompt(`Daily cap (orders per day)\n\nCurrent: ${prefs.daily_cap}\nSmall-account suggestion: ${suggestedDaily}`, String(prefs.daily_cap || 0));
+                            if (v == null) return;
+                            const n = Number(v);
+                            if (!Number.isFinite(n) || n < 0 || n > 100) { alert("Must be 0-100"); return; }
+                            saveAutoMirror({ daily_cap: Math.round(n) });
+                          }}
+                          style={{ padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                            background: "rgba(103,232,249,0.10)", color: "#67e8f9", border: "1px solid rgba(103,232,249,0.28)" }}
+                        >Edit daily cap</button>
+                        {isSmallAccount && oversized && (
+                          <button
+                            disabled={busy}
+                            onClick={() => saveAutoMirror(
+                              {
+                                max_notional_per_order_usd: suggestedNotional,
+                                max_loss_per_order_usd: suggestedLoss,
+                                daily_cap: suggestedDaily,
+                              },
+                              `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Max loss: $${suggestedLoss}/order (~5% of equity)\n  • Daily cap: ${suggestedDaily} orders`,
+                            )}
+                            style={{
+                              padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                              background: "rgba(251,191,36,0.10)", color: "#fbbf24",
+                              border: "1px solid rgba(251,191,36,0.28)",
+                            }}
+                          >Apply small-account defaults ⚡</button>
+                        )}
+                      </div>
+                      {isSmallAccount && oversized && (
+                        <div className="text-[11px] text-amber-300 italic">
+                          Current options caps are oversized for a ${Math.round(equity).toLocaleString()} account. The
+                          equity-cap layer above already enforces $300/order on equities, but options auto-mirror has
+                          its own caps that still allow up to ${Number(prefs.max_notional_per_order_usd).toLocaleString()}
+                          notional. Tap <strong>Apply small-account defaults ⚡</strong> to bring them in line.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {users.length > 0 && (
                   <>
