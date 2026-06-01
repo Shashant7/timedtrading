@@ -625,6 +625,75 @@ export function createWeeklyDigestEmbed({
   };
 }
 
+/* 2026-06-01 — Investor alert action helper.
+
+   Operator: "Can we make them more apparent that it is an Investor
+   Signal to accumulate or whichever signal it is. As you can tell, it
+   seems vague on how one should react to these signals."
+
+   Derives a single-word ACTION verb that the alert title + body can
+   prominently surface, plus a plain-language one-line guide. The
+   action is computed from (type, zoneType, score, rsRank) so it stays
+   in lockstep with the engine's actual intent rather than asking the
+   user to translate "Momentum-Runner Zone Confirmed" into "ok so
+   what do I do?". */
+export function deriveInvestorAlertAction(type, data = {}) {
+  if (type === "thesis_invalidation") {
+    return {
+      verb: "REDUCE / EXIT",
+      color: "#ef4444",
+      tone: "danger",
+      one_liner: "One or more conditions that supported the investment are no longer valid. Consider trimming or closing the position based on your risk tolerance.",
+    };
+  }
+  if (type === "accumulation_zone") {
+    const z = String(data?.zoneType || "").toLowerCase();
+    const score = Number(data?.score) || 0;
+    if (z === "momentum_runner") {
+      // Trend healthy + already extended. Operator wanted clarity: this
+      // is NOT a fresh-entry buy-the-dip signal.
+      return {
+        verb: "ADD ON PULLBACK",
+        color: "#10b981",
+        tone: "info",
+        one_liner: `Trend is healthy and intact. ${data?.ticker || "Ticker"} may already be extended from a low — only add on a 1-3% pullback toward the 21 EMA, not at the current price. If you don't own it, this is a WATCH, not a fresh-entry signal.`,
+      };
+    }
+    // Default: pullback-into-zone "buy the dip" entry
+    if (score >= 70) {
+      return {
+        verb: "ACCUMULATE",
+        color: "#10b981",
+        tone: "buy",
+        one_liner: `Entered an accumulation zone with a strong investor score (${score}/100). For new entries: scale in over 2-3 tranches. For existing positions: add to the core.`,
+      };
+    }
+    return {
+      verb: "WATCH",
+      color: "#f5c25c",
+      tone: "watch",
+      one_liner: `Entered an accumulation zone but investor score is moderate (${score}/100). Worth tracking; wait for either a higher score read or stronger confirmation before adding.`,
+    };
+  }
+  if (type === "rs_breakout") {
+    return {
+      verb: "WATCH FOR ENTRY",
+      color: "#3b82f6",
+      tone: "info",
+      one_liner: `Relative strength hit a new ${data?.period || "3-month"} high vs SPY. Often a precursor to a stronger trend move, but RS alone isn't an entry trigger — wait for an accumulation-zone or pullback setup before adding.`,
+    };
+  }
+  if (type === "rebalancing") {
+    return {
+      verb: "REVIEW PORTFOLIO",
+      color: "#f59e0b",
+      tone: "info",
+      one_liner: "Portfolio composition may benefit from rebalancing based on current conditions. Review the suggestions in the dashboard before acting.",
+    };
+  }
+  return { verb: "INFO", color: "#9ca3af", tone: "info", one_liner: "" };
+}
+
 /**
  * Create investor threshold alert embeds.
  *
@@ -633,6 +702,13 @@ export function createWeeklyDigestEmbed({
  * @returns {object} Discord embed
  */
 export function createInvestorAlertEmbed(type, data) {
+  /* 2026-06-01 — Prepend `INVESTOR · <ACTION>` to the title and add an
+     Action field at the top of every embed so the reader instantly
+     knows (a) this is the Investor system, not Trader, and (b) what
+     the engine wants them to do. Operator feedback: title + body
+     used to read as "Momentum-Runner Zone Confirmed" which is
+     descriptive of the SETUP but says nothing about USER ACTION. */
+  const _action = deriveInvestorAlertAction(type, data);
   const ALERT_CONFIGS = {
     thesis_invalidation: {
       color: 0xef4444,
@@ -701,11 +777,29 @@ export function createInvestorAlertEmbed(type, data) {
   const config = ALERT_CONFIGS[type];
   if (!config) return null;
 
+  // Prepend INVESTOR · <ACTION> to the title so it's instantly clear
+  // this is an Investor-system alert (not Trader) AND what the engine
+  // wants the user to do. The base title (e.g. "Momentum-Runner Zone
+  // Confirmed") becomes the secondary line via title concatenation.
+  const _baseTitle = config.title(data);
+  const _actionTitle = `${config.emoji} INVESTOR · ${_action.verb} — ${_baseTitle.replace(/^[^:]+:\s*/, "")}`;
+
+  // Insert an Action field at the very top so the reader sees it before
+  // scrolling. Existing fields follow.
+  const _fields = [
+    {
+      name: `▶ What to do — ${_action.verb}`,
+      value: _action.one_liner,
+      inline: false,
+    },
+    ...config.fields(data),
+  ];
+
   return {
-    title: `${config.emoji} ${config.title(data)}`,
+    title: _actionTitle,
     description: config.description(data),
     color: config.color,
-    fields: config.fields(data),
+    fields: _fields,
     footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),
   };

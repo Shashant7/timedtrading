@@ -23,17 +23,14 @@
 ### Active
 
 - [x] **Discord: link-flow button + welcome email rules (PR #438).**
-      Operator: "Lets also open up Discord Access, so the UI should
-      now say link Discord and that should kick off the user add flow
-      with the welcome email to discord." Backend OAuth flow already
-      existed. (a) auth-gate.js button renamed "Discord Waitlist" →
-      "Link Discord". (b) sendDiscordWelcomeEmail() rewritten with
-      operator's community contract: "Be a good citizen" + 5 rules +
-      four-channel guide.
-- [x] **Holistic MC smoke-test skill + polish-sweep logic verdict
-      (PR pending).** Two end-of-series deliverables.
-      (a) New `skills/mc-holistic-smoke-test.md` — reusable playbook.
-      (b) New `tasks/2026-06-01-polish-sweep-logic-verdict.md`.
+- [x] **Holistic MC smoke-test skill + polish-sweep logic verdict (PR #439).**
+- [x] **Investor alerts: explicit ACTION verb + chart in email
+      (PR pending).** New `deriveInvestorAlertAction(type, data)` in
+      `worker/alerts.js` returns a single-word verb (ACCUMULATE / ADD
+      ON PULLBACK / WATCH / WATCH FOR ENTRY / REDUCE / EXIT) + one-
+      liner. Discord title prepends `INVESTOR · <ACTION> —`; "▶ What
+      to do" field at top. Email subject `[INVESTOR · <ACTION>]`,
+      colored ACTION badge near the top, Daily 60-bar chart embedded.
 - [x] **MC: editable modes + archetypes for options auto-mirror (PR #437).**
 - [x] **Day-trade options plays + Options-tab loading overlay (PR #436).**
 - [x] **Calibration UX polish (PR #435).** Three additions to System
