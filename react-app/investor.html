@@ -911,6 +911,27 @@
         const [searchQuery, setSearchQuery] = useState("");
         const [filterGroup, setFilterGroup] = useState(null);
 
+        // 2026-06-01 — Pre-compute filter-chip counts from the same
+        // /timed/investor/scores payload the panel consumes, so the
+        // chip labels always match what each filter would surface
+        // BEFORE the operator clicks it. simEligible bucketing:
+        //   true  → counted as eligible (gate passed)
+        //   false → not counted (gate explicitly failed)
+        //   null  → counted as unknown (cron hasn't repopulated since
+        //           the field was added 2026-06-01; run /compute)
+        const chipCounts = useMemo(() => {
+          let actionable = 0, simEligible = 0, simUnknown = 0;
+          const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
+          for (const row of list) {
+            const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+            if (stage !== "accumulate" && stage !== "reduce") continue;
+            actionable++;
+            if (row?.simEligible === true) simEligible++;
+            else if (row?.simEligible == null) simUnknown++;
+          }
+          return { actionable, simEligible, simUnknown };
+        }, [investorScores]);
+
         return h(React.Fragment, null,
           !panelMounted && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Investor" }),
           h("main", null,
@@ -962,19 +983,18 @@
                   className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
                   onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
                   title: "Tickers in Accumulate or Reduce — the model has an active recommendation",
-                }, "Actionable"),
-                // 2026-06-01 — "Sim-eligible only" narrows Actionable further
-                // to the subset the Investor simulator would actually act on:
-                // Monthly SuperTrend bullish AND ≥2/3 of (D, W, M)
-                // SuperTrend bullish (matches worker/index.js:36692-36698
-                // exactly). Useful when the Accumulate lane balloons in
-                // healthy regimes — operator sees the working set, not the
-                // full candidate pool.
+                }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`),
+                // 2026-06-01 — "Sim-eligible" narrows Actionable further to
+                // the subset the Investor simulator would actually act on:
+                // Monthly SuperTrend bullish AND ≥2/3 of (D, W, M) bullish
+                // (matches worker/index.js:36692-36698 exactly). Chip
+                // label format: "Sim-eligible (N+M?)" where N = strictly
+                // eligible, M = unknown (cron hasn't repopulated yet).
                 h("button", {
                   className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
                   onClick: () => setFilterGroup("SIM_ELIGIBLE"),
-                  title: "Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish",
-                }, "Sim-eligible"),
+                  title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`,
+                }, `Sim-eligible${(chipCounts.simEligible + chipCounts.simUnknown) > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`),
                 h("button", {
                   className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
                   onClick: () => setFilterGroup("SAVED"),
@@ -993,8 +1013,16 @@
                   selectedTicker: null,
                   searchQuery,
                   filterGroup,
-                  // tickerData / allowedTickerSet are optional —
-                  // InvestorPanel falls back to its own fetch.
+                  // 2026-06-01 — Pass `data` (from /timed/all) as
+                  // tickerData so the Sim-eligible filter has structural
+                  // fallback fields (tf_tech.D.stDir, tf_tech.W.stDir,
+                  // monthly_bundle.supertrend_dir) when the scoring
+                  // payload's simEligible is null (cron predates the
+                  // 2026-06-01 field write). Without this the filter
+                  // appeared to silently empty the lane.
+                  tickerData: data,
+                  // allowedTickerSet is optional — InvestorPanel falls
+                  // back to its own fetch.
                 })
               : h("div", null,
                   h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-text-dim)", marginBottom: 14 } },
