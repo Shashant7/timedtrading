@@ -22,6 +22,23 @@
 
 ### Active
 
+- [x] **Discord DM as a bonus user notification channel.**
+      New `discordDmUser(env, discordUserId, payload)` helper in
+      `worker/alerts.js` — two-step bot API flow (open DM channel →
+      post message). Wired into the bridge-notify drain handler:
+      when `BROKER_NOTIFY_DM_USER=true` and the user has linked
+      Discord (`users.discord_id` from existing OAuth), the drain
+      ALSO DMs them with the same compact embed alongside the email.
+      Lookup is bounded (one D1 SELECT per unique email, cached in
+      the drain handler). Failures (DMs disabled, no link, bot
+      issues) never block the email send. Default OFF — operator
+      opts in once they've verified DMs land. The drain response
+      reports `dm_enabled`, `dm_sent`, `dm_skipped_no_link`,
+      `dm_failed` so MC can surface DM health alongside email
+      counts. Replaces / supplements the per-environment
+      `BROKER_OPERATOR_DISCORD_WEBHOOK_URL` (operator can keep
+      using that AS WELL for cross-team visibility, but it's no
+      longer the only escalation path).
 - [x] **Trade-aware mirror sync Phase E — drift notifications + MC
       Mirror Sync panel + Daily Owner Email cron.**
       New `worker-bridge/bridge-notifications.js`:

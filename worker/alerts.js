@@ -112,6 +112,108 @@ export async function notifyDiscord(env, embed, lane = "trade") {
 }
 
 /**
+ * 2026-06-01 — Direct-message a Discord user via the TT bot (not a webhook).
+ *
+ * Why this exists: webhooks can only post into channels, not DMs. For
+ * per-user notifications (e.g. mirror-sync drift critical-tier alerts to
+ * the broker-account owner) we want the message in the user's inbox, not
+ * in a shared #ops channel. The TT bot already runs with full guild
+ * privileges (subscriber-role management) so we have the bot token; we
+ * just open a DM channel + post into it.
+ *
+ * Prerequisites for the user to actually receive the DM:
+ *   1. They've linked Discord via the existing OAuth flow (stored as
+ *      `users.discord_id` in D1).
+ *   2. They share at least one guild with the TT bot AND have "Allow
+ *      direct messages from server members" enabled (Discord default
+ *      is ON). If they've disabled it, this call returns HTTP 403
+ *      `Cannot send messages to this user` — we log + skip.
+ *   3. The bot has the `applications.commands` + `bot` scope (already
+ *      true — same scope set used for `discordAddMemberAndRole`).
+ *
+ * Two-step Discord API flow:
+ *   1. POST /users/@me/channels { recipient_id } → returns DM channel
+ *      (creates one if it doesn't exist; idempotent).
+ *   2. POST /channels/{channel_id}/messages with the payload.
+ *
+ * @param {object} env  Worker env (needs DISCORD_BOT_TOKEN)
+ * @param {string} discordUserId  The user's Discord ID from D1
+ *                                (`users.discord_id` after OAuth link)
+ * @param {object} payload  Discord message payload — must have ONE of:
+ *                          - content (plain string)
+ *                          - embeds (array of embed objects)
+ *                          May also include `components` for buttons.
+ * @returns {Promise<{ok, status, channel_id?, error?, skipped?}>}
+ */
+export async function discordDmUser(env, discordUserId, payload) {
+  const botToken = env?.DISCORD_BOT_TOKEN;
+  if (!botToken) {
+    return { ok: false, skipped: true, reason: "no_bot_token" };
+  }
+  if (!discordUserId) {
+    return { ok: false, skipped: true, reason: "no_discord_user_id" };
+  }
+  if (!payload || (typeof payload !== "object")) {
+    return { ok: false, skipped: true, reason: "empty_payload" };
+  }
+  try {
+    // Step 1 — open / look up the DM channel for this user.
+    const chanResp = await fetch("https://discord.com/api/v10/users/@me/channels", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ recipient_id: String(discordUserId) }),
+    });
+    if (!chanResp.ok) {
+      const errText = await chanResp.text().catch(() => "");
+      console.warn(`[DISCORD_DM] open channel failed for ${discordUserId}: ${chanResp.status} ${errText.slice(0, 200)}`);
+      return {
+        ok: false, status: chanResp.status,
+        error: `open_channel_${chanResp.status}: ${errText.slice(0, 200)}`,
+      };
+    }
+    const chan = await chanResp.json().catch(() => null);
+    const channelId = chan?.id;
+    if (!channelId) {
+      return { ok: false, error: "no_channel_id_in_response" };
+    }
+
+    // Step 2 — post the message.
+    const msgResp = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bot ${botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!msgResp.ok) {
+      const errText = await msgResp.text().catch(() => "");
+      // 50007 = Cannot send messages to this user (DMs disabled or
+      // not in a shared guild). Surface explicitly so the caller can
+      // fall back to email-only without alarming the operator.
+      const dmsDisabled = msgResp.status === 403 && errText.includes("50007");
+      console.warn(`[DISCORD_DM] send failed for ${discordUserId}: ${msgResp.status} ${errText.slice(0, 200)}`);
+      return {
+        ok: false, status: msgResp.status,
+        channel_id: channelId,
+        error: dmsDisabled
+          ? "dms_disabled_by_user"
+          : `send_${msgResp.status}: ${errText.slice(0, 200)}`,
+        dms_disabled: dmsDisabled,
+      };
+    }
+    console.log(`[DISCORD_DM] sent to ${discordUserId}`);
+    return { ok: true, status: msgResp.status, channel_id: channelId };
+  } catch (e) {
+    console.warn(`[DISCORD_DM] error for ${discordUserId}:`, String(e?.message || e).slice(0, 200));
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+/**
  * P0.7.154 (2026-05-14) — record a cron / system failure with a forensic
  * trail. Writes a tombstone to KV (so the operator can grep "what failed
  * recently?") and fires a Discord alert (so the operator hears about it
