@@ -9,6 +9,7 @@ answer here, and reinventing them is the #1 source of regressions.
 
 | Situation | Skill |
 |---|---|
+| **"Is everything healthy?" / weekly system check / post-deploy verification** | [mc-holistic-smoke-test.md](mc-holistic-smoke-test.md) |
 | Backfill missing daily / weekly / monthly candles for a ticker | [backfill-candles.md](backfill-candles.md) |
 | One ticker's Investor or Trader score looks stale or wrong | [rescore-ticker.md](rescore-ticker.md) |
 | You changed worker/ code and need it on production | [deploy.md](deploy.md) |
