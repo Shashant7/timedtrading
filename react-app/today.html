@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <title>Today — Timed Trading</title>
     <meta name="description" content="Your morning ingest: regime, Daily Brief, market state, macro events, top movers, and the full universe at a glance." />
@@ -2457,6 +2457,7 @@
         // operator can never confuse them with a swing/investor play.
         const [dayTradePlays, setDayTradePlays] = useState(null);
         const [dayTradeExp, setDayTradeExp] = useState(null);
+        const [dayTradeSuppressed, setDayTradeSuppressed] = useState(null);
         const [loading, setLoading] = useState(true);
         // 2026-05-30 — layout="sidebar" renders the section as a vertical
         // list (one play per row, stacked) for the TodayHero right column.
@@ -2479,6 +2480,7 @@
               if (alive && j?.ok && Array.isArray(j.day_trade_plays)) {
                 setDayTradePlays(j.day_trade_plays);
                 setDayTradeExp(j.day_trade_expiration || null);
+                setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
               }
             } catch (_) {}
             finally { if (alive) setLoading(false); }
@@ -2562,6 +2564,18 @@
                 const flavor = p.primary?._day_trade_flavor || "call";
                 const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
                 const flavorLabel = flavor === "put" ? "PUT" : flavor === "straddle" ? "STRADDLE" : "CALL";
+                /* 2026-06-01 — Strike + spot pulled to the most-prominent
+                   line of the card. Operator: "should be more clear on
+                   what the strike is". A 0DTE play's strike + spot is
+                   the single most-important fact (everything else —
+                   max loss, BE — is derived from those two). */
+                const strike = Number(p.strike || p.primary?.strikes?.primary) || null;
+                const spot = Number(p.price) || null;
+                const strikeBlurb = strike
+                  ? (flavor === "straddle"
+                      ? `$${strike} straddle (spot $${spot ? spot.toFixed(2) : "?"})`
+                      : `$${strike} ${flavorLabel.toLowerCase()} (spot $${spot ? spot.toFixed(2) : "?"})`)
+                  : (p.primary?.label || "Day-trade play");
                 return h("div", {
                   key: `dt-${p.ticker}`,
                   onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
@@ -2594,12 +2608,37 @@
                       },
                     }, flavorLabel),
                   ),
-                  h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", lineHeight: 1.4, marginBottom: 6 } },
-                    p.primary?.label || "Day-trade play"),
+                  /* Strike line — most prominent, mono font. */
+                  h("div", {
+                    style: {
+                      fontSize: 12, fontWeight: 700, color: "var(--tt-text)",
+                      fontFamily: "var(--tt-font-mono)", marginBottom: 4, letterSpacing: "0.01em",
+                    },
+                  }, strikeBlurb),
+                  h("div", { style: { fontSize: 10, color: "var(--tt-text-muted)", lineHeight: 1.4, marginBottom: 6 } },
+                    p.primary?.expiration?.label || `${p.day_trade_dte}DTE`),
                   p.primary?.max_loss_usd && h("div", { style: { fontSize: 10, color: "var(--tt-text-faint)", fontFamily: "var(--tt-font-mono)" } },
                     `Max loss $${p.primary.max_loss_usd}${p.primary.breakeven ? ` · BE $${p.primary.breakeven.toFixed(2)}` : (p.primary.breakeven_up ? ` · BE $${p.primary.breakeven_down.toFixed(2)} / $${p.primary.breakeven_up.toFixed(2)}` : "")}`),
                 );
               }),
+            ),
+            /* 2026-06-01 — Suppressed-tickers callout. When a day-trade
+               candidate gets gated out (strike drift > 2% from spot,
+               after-close 0DTE, low-vol NEUTRAL), surface the reason so
+               the operator knows we considered it and chose not to show
+               it. Prevents the "is the system broken or just quiet?"
+               ambiguity. */
+            Array.isArray(dayTradeSuppressed) && dayTradeSuppressed.length > 0 && h("div", {
+              style: {
+                marginTop: 6, padding: "6px 10px",
+                fontSize: 10, color: "var(--tt-text-faint)", fontStyle: "italic",
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)",
+                borderRadius: 6,
+              },
+              title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol.",
+            },
+              "Suppressed: ",
+              dayTradeSuppressed.map(s => `${s.ticker} (${String(s.reason).replace(/_/g, " ")})`).join(" · "),
             ),
           );
         };

@@ -44,7 +44,13 @@
          fine (it doesn't affect its own positioning context) — it's
          ancestor transforms that break fixed positioning. */
       z-index: 2147483000;
-      padding: 8px 8px max(8px, env(safe-area-inset-bottom));
+      /* 2026-06-01 — Belt-and-suspenders on iOS safe-area.
+         Even with viewport-fit=cover on the page, some PWA / standalone
+         contexts return 0 for env(safe-area-inset-bottom) on iPad Safari
+         and on the first paint before viewport settles. Use 14px as the
+         floor so the nav is never flush with the bottom edge (where
+         iOS Safari's bottom URL bar / Home Indicator can hide it). */
+      padding: 8px 8px max(14px, env(safe-area-inset-bottom));
       background: rgba(10,12,16,0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
@@ -297,4 +303,4 @@
   setInterval(applyBadges, 60 * 1000);
 })();
 
-// cache-bust:1780344151540:112817095
+// cache-bust:1780350356554:11422876

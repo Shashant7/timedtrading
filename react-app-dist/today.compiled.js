@@ -1111,6 +1111,9 @@ function OptionsPlaysOfTheDay({
   layout = "grid"
 }) {
   const [plays, setPlays] = useState(null);
+  const [dayTradePlays, setDayTradePlays] = useState(null);
+  const [dayTradeExp, setDayTradeExp] = useState(null);
+  const [dayTradeSuppressed, setDayTradeSuppressed] = useState(null);
   const [loading, setLoading] = useState(true);
   const isSidebar = layout === "sidebar";
   useEffect(() => {
@@ -1126,6 +1129,11 @@ function OptionsPlaysOfTheDay({
         if (alive && j?.ok && Array.isArray(j.plays)) {
           const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
           setPlays(actionable);
+        }
+        if (alive && j?.ok && Array.isArray(j.day_trade_plays)) {
+          setDayTradePlays(j.day_trade_plays);
+          setDayTradeExp(j.day_trade_expiration || null);
+          setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
         }
       } catch (_) {} finally {
         if (alive) setLoading(false);
@@ -1222,9 +1230,153 @@ function OptionsPlaysOfTheDay({
       }
     })))));
   }
+  const renderDayTradeStrip = () => {
+    if (!dayTradePlays || dayTradePlays.length === 0) return null;
+    const dteLabel = dayTradeExp?.dte === 0 ? "0DTE (Today)" : `${dayTradeExp?.dte ?? "?"}DTE (${dayTradeExp?.label || "Next session"})`;
+    return h("section", {
+      className: isSidebar ? "" : "tt-row",
+      style: {
+        marginBottom: isSidebar ? 12 : 18
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        justifyContent: "space-between",
+        marginBottom: 8,
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, h("div", null, h("div", {
+      className: "tt-sec-title",
+      style: {
+        color: "#f5c25c"
+      }
+    }, "DAY TRADE · INDEX ETFs"), h("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "var(--tt-text)",
+        letterSpacing: "-0.005em"
+      }
+    }, `SPY · QQQ · IWM — ${dteLabel}`)), h("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-muted)",
+        fontStyle: "italic"
+      },
+      title: "Short-dated day-trade plays for index ETFs. Separate from any swing/investor play on the same ticker."
+    }, "scalps only · manage actively")), h("div", {
+      style: isSidebar ? {
+        display: "flex",
+        flexDirection: "column",
+        gap: 8
+      } : {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+        gap: 10
+      }
+    }, dayTradePlays.map(p => {
+      const flavor = p.primary?._day_trade_flavor || "call";
+      const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
+      const flavorLabel = flavor === "put" ? "PUT" : flavor === "straddle" ? "STRADDLE" : "CALL";
+      const strike = Number(p.strike || p.primary?.strikes?.primary) || null;
+      const spot = Number(p.price) || null;
+      const strikeBlurb = strike ? flavor === "straddle" ? `$${strike} straddle (spot $${spot ? spot.toFixed(2) : "?"})` : `$${strike} ${flavorLabel.toLowerCase()} (spot $${spot ? spot.toFixed(2) : "?"})` : p.primary?.label || "Day-trade play";
+      return h("div", {
+        key: `dt-${p.ticker}`,
+        onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
+        style: {
+          padding: 10,
+          background: "linear-gradient(135deg, rgba(245,194,92,0.10), rgba(245,194,92,0.04))",
+          border: "1px solid rgba(245,194,92,0.40)",
+          borderRadius: 10,
+          cursor: "pointer",
+          position: "relative"
+        },
+        onMouseEnter: e => {
+          e.currentTarget.style.transform = "translateY(-1px)";
+        },
+        onMouseLeave: e => {
+          e.currentTarget.style.transform = "translateY(0)";
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          marginBottom: 6,
+          flexWrap: "wrap"
+        }
+      }, h("span", {
+        style: {
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--tt-text)"
+        }
+      }, p.ticker), h("span", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          padding: "2px 6px",
+          borderRadius: 4,
+          color: "#f5c25c",
+          background: "rgba(245,194,92,0.18)",
+          border: "1px solid rgba(245,194,92,0.50)",
+          letterSpacing: "0.05em"
+        },
+        title: "Day-trade play — same-day or next-day expiration. NOT a swing/investor recommendation."
+      }, `DAY TRADE · ${p.day_trade_dte}DTE`), h("span", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          padding: "2px 6px",
+          borderRadius: 4,
+          color: flavorColor,
+          background: `${flavorColor}1A`,
+          border: `1px solid ${flavorColor}50`,
+          letterSpacing: "0.05em"
+        }
+      }, flavorLabel)), h("div", {
+        style: {
+          fontSize: 12,
+          fontWeight: 700,
+          color: "var(--tt-text)",
+          fontFamily: "var(--tt-font-mono)",
+          marginBottom: 4,
+          letterSpacing: "0.01em"
+        }
+      }, strikeBlurb), h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text-muted)",
+          lineHeight: 1.4,
+          marginBottom: 6
+        }
+      }, p.primary?.expiration?.label || `${p.day_trade_dte}DTE`), p.primary?.max_loss_usd && h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text-faint)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, `Max loss $${p.primary.max_loss_usd}${p.primary.breakeven ? ` · BE $${p.primary.breakeven.toFixed(2)}` : p.primary.breakeven_up ? ` · BE $${p.primary.breakeven_down.toFixed(2)} / $${p.primary.breakeven_up.toFixed(2)}` : ""}`));
+    })), Array.isArray(dayTradeSuppressed) && dayTradeSuppressed.length > 0 && h("div", {
+      style: {
+        marginTop: 6,
+        padding: "6px 10px",
+        fontSize: 10,
+        color: "var(--tt-text-faint)",
+        fontStyle: "italic",
+        background: "rgba(255,255,255,0.02)",
+        border: "1px solid rgba(255,255,255,0.04)",
+        borderRadius: 6
+      },
+      title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol."
+    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${String(s.reason).replace(/_/g, " ")})`).join(" · ")));
+  };
   if (!plays || plays.length === 0) {
     if (isSidebar) {
-      return h("section", null, h("div", {
+      return h(React.Fragment, null, renderDayTradeStrip(), h("section", null, h("div", {
         style: {
           display: "flex",
           alignItems: "baseline",
@@ -1249,7 +1401,10 @@ function OptionsPlaysOfTheDay({
           color: "var(--tt-text-muted)",
           lineHeight: 1.5
         }
-      }, "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually."));
+      }, "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually.")));
+    }
+    if (dayTradePlays && dayTradePlays.length > 0) {
+      return h(React.Fragment, null, renderDayTradeStrip());
     }
     return null;
   }
@@ -1284,7 +1439,7 @@ function OptionsPlaysOfTheDay({
     gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
     gap: 10
   };
-  return h("section", {
+  return h(React.Fragment, null, renderDayTradeStrip(), h("section", {
     className: isSidebar ? "" : "tt-row",
     style: {
       marginBottom: isSidebar ? 0 : 24
@@ -1430,7 +1585,7 @@ function OptionsPlaysOfTheDay({
         fontFamily: "var(--tt-font-mono)"
       }
     }, p.confluence_score || 0, "/100"), " · ", p.setup_grade || "—"));
-  })));
+  }))));
 }
 function OpenPositionsPreview({
   onSelectTicker
@@ -4617,6 +4772,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780344151540:112817095
+// cache-bust:1780350356554:11422876
 
-// cache-bust:1780344151540:112817095
+// cache-bust:1780350356554:11422876
