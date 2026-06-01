@@ -6,6 +6,47 @@
 
 ---
 
+## Loop 2 circuit breaker: closed-WR is duration-biased; equity-curve view is the unbiased one [2026-06-01]
+
+Operator received two Phase C — Engine Paused alerts in an hour (12:00 PM and 1:00 PM): `wr_20`, Last 10 WR 20%, Today P&L -1.15%, 3 consec losses. Asked the right question — *"How do we reconcile open trades that are winning against the closed trades that we took a loss on? Losses come quicker as we protect capital; winners stay open longer. This skews our thinking and possibly even how the AI CIO factors in decisions."*
+
+He's diagnosed it exactly. This is **survivorship + duration-asymmetry bias** — a structural property of any system that:
+- Cuts losers fast (tight SL → small, frequent closed-trade outcomes)
+- Lets winners run (multi-day holds → winners are still OPEN, invisible to the closed-trade window)
+
+`worker/phase-c-loops.js` `loop2ComputePulse` looked ONLY at `status in (WIN, LOSS, FLAT)` rows. It used a 10-trade rolling WR and today's realized P&L as triggers — both metrics that over-represent losses in any healthy let-winners-run regime. So `wr_20` could fire while the open book was sitting on +5% unrealized and the combined account was actually up on the day.
+
+### Fix (all in PR pending)
+
+**1. Duration-bias-invariant metrics.** `loop2ComputePulse` now also returns `profit_factor` (gross_win / |gross_loss| over the same window) and `expectancy_pct` (avg P&L per trade). Profit factor is invariant to WR asymmetry: a 25% WR with 3:1 R prints PF ≈ 1.0+ and the engine is healthy by definition.
+
+**2. Open-book MTM.** New `loop2ComputeOpenBookMetrics(openTrades, priceMap)` returns `open_count`, `open_basis_usd`, `open_unrealized_usd/pct`, `open_today_delta_usd/pct`, `open_winners_count`, `open_losers_count`. Wired into the cron — closed pulse and open-book metrics computed in parallel, merged into a single `pulse` object before evaluation.
+
+**3. Combined-equity safety override** in `loop2EvaluatePulse`. The closed-trade rules still match the same way — but if EITHER (a) `profit_factor >= loop2_breaker_pf_safe` (default 1.3) OR (b) `combined_today_pnl_pct >= loop2_breaker_combined_safe_pct` (default -0.5%) holds, the trip is deferred with `duration_bias_override:true`. The original trip reason is preserved on the eval result for observability, and the cron logs `loop 2 trip deferred — wr_20 would have fired but pf_1.75_and_combined_4.91pct`.
+
+**4. Enriched Discord alert** when the breaker actually trips. Was 3 fields (WR, today P&L, consec losses) — now 6 fields plus a description block:
+- Closed-only: Last 10 WR, Today P&L (closed), Consec Losses
+- Unbiased: Profit Factor (10), Open Book MTM (count + unrealized %), Combined Today (realized + open delta)
+- Description explicitly tells the operator "if both PF and combined look healthy, this trip may be a closed-WR headline; tune `loop2_breaker_pf_safe` / `loop2_breaker_combined_safe_pct`".
+
+**5. CIO memory: Layer 16 — `engine_pulse`.** Preloaded into `memoryCache.enginePulse` by the live scoring cron (one KV read per cycle). `buildCIOMemory` emits an `engine_pulse` block with closed metrics, PF, expectancy, open-book MTM, combined-today, breaker state, and a literal `bias_note` field: `"closed_wr is duration-biased downward; profit_factor + combined_today are the unbiased view"`.
+
+**6. CIO system prompt: ENGINE PULSE section with DURATION-BIAS WARNING.** Tells the LLM to weight PF + combined_today over closed_wr, explicitly forbids citing closed_wr without also citing PF or combined_today ("citing WR alone is exactly the bias this section exists to prevent"), and explains how to handle `duration_bias_override:true` (proceed as normal — the system already accounted for the asymmetry). Evaluation order now includes `ENGINE PULSE (PF + combined_today)` between STRATEGY STANCE and MACRO TILT.
+
+### Rule
+
+For any closed-trade ledger metric used as an engine-pause / sizing-cut signal:
+- The metric MUST be paired with an open-book view OR a duration-bias-invariant metric (profit factor, expectancy). Closed WR alone is a misleading proxy in any "let winners run" system.
+- The breaker MUST have a "real-equity-is-fine" override before tripping. Without it, the breaker fires loudest exactly when capital should be deployed (the regime is working but the closed window hasn't caught up).
+- Any alert that pauses the engine MUST surface the combined account view in the same message. Operators reading "Last 10 WR 20%" without the open book context will read "system is bleeding" even when the account is up.
+- The CIO MUST receive the same view the breaker uses. Asymmetric information between engine and reasoning agent = the LLM rationalizes losses that the engine has already accepted.
+
+### Backward compatibility
+
+The override is gated on the presence of new pulse fields (`profit_factor`, `open_today_delta_pct`). Pulses from older cron runs or replay paths that don't pre-compute open-book metrics fall back to the original closed-only behavior. Two new `model_config` knobs (`loop2_breaker_pf_safe`, `loop2_breaker_combined_safe_pct`) let operators tune the override aggressiveness without a redeploy.
+
+---
+
 ## Investor cards out of sync with Discord entries — three independent bugs [2026-06-01]
 
 Operator screenshotted Discord firing 6 fresh `Investor New Entry: CRS/IESC/FSLR/WTS/ASTS/TSM LONG` alerts at 11:00 AM and the Investor kanban tiles for those same tickers showing **no OWNED chip, no POS strip**. Also asked why "cards say COR HOLD but don't have positions". Three distinct bugs collapsed into the same operator complaint.

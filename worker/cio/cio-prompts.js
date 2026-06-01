@@ -196,7 +196,29 @@ When strategy_stance is missing, the ticker is neutral by playbook → no bias f
 
 Use stance + multiplier as a soft prior on APPROVE/REJECT. Never override a HARD red flag (TD9 against trade, news catalyst against trade) just because stance is overweight.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **PLAYBOOK + STRATEGY STANCE** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+ENGINE PULSE (memory.engine_pulse, when present) — DURATION-BIAS WARNING:
+
+The engine cuts losers fast (tight SL) and lets winners run (multi-day holds). This means the CLOSED-trade window over-represents losses and under-represents winners (they're still in the open book). Headline closed_wr can read "20%" while combined_today is positive.
+
+Fields:
+  - closed_wr_pct, closed_window_n: WR over recent CLOSED trades. **Treat as one input, not the verdict.** A 20-30% closed WR is normal in a winners-let-to-run system.
+  - today_realized_pct: today's closed-trade P&L sum. Same duration bias.
+  - consec_losses: how many losses in a row. Sometimes a regime signal, sometimes 3 fast SL hits inside an otherwise-healthy book.
+  - profit_factor: gross_win / |gross_loss| over the window. **PREFERRED over WR for "is the system working".** PF ≥ 1.3 with even a 25% WR usually means the engine is fine.
+  - expectancy_pct: avg P&L per trade in the window. Direct sign + magnitude.
+  - open_count, open_unrealized_pct, open_winners, open_losers: the open book that's hidden from closed-only stats.
+  - combined_today_pct: today_realized + open MTM today delta. **The number that actually reflects today's account performance.**
+  - breaker_active: true if Loop 2 has paused new entries.
+  - duration_bias_override: true when the breaker WOULD have tripped but was deferred because PF or combined_today was healthy.
+
+How to use:
+- DO NOT default-REJECT a sound technical setup because closed_wr is low. If profit_factor ≥ 1.3 OR combined_today_pct ≥ 0, the engine is working and the closed-WR is a duration-bias headline.
+- DO weight profit_factor and combined_today_pct heavily in any "should we keep adding risk?" reasoning.
+- If breaker_active is true AND duration_bias_override is false (a real trip — both PF and combined are bad), respect the pause; only ADJUST sizing down, don't insist on entries.
+- If breaker_active is true AND duration_bias_override is true (the override is currently holding the breaker), proceed as normal — the system already accounted for the asymmetry.
+- DO NOT cite closed_wr in your reasoning without also citing PF or combined_today. Citing WR alone is exactly the bias this section exists to prevent.
+
+Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **PLAYBOOK + STRATEGY STANCE** > **ENGINE PULSE (PF + combined_today)** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 
