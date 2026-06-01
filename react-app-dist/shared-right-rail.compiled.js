@@ -1619,13 +1619,55 @@
       const contract = data.contract || {};
       const primary = data.primary;
       const ladder = (data.ladder || []).slice(0, 6);
+      const _loadingOverlay = loading && data && h("div", {
+        style: {
+          position: "absolute",
+          inset: 0,
+          background: "rgba(11, 14, 17, 0.55)",
+          backdropFilter: "blur(1px)",
+          zIndex: 5,
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "center",
+          paddingTop: 20,
+          pointerEvents: "none",
+          borderRadius: "var(--ds-radius-lg, 12px)"
+        },
+        "aria-busy": "true"
+      }, h("div", {
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "6px 14px",
+          borderRadius: 999,
+          background: "rgba(245,194,92,0.18)",
+          border: "1px solid rgba(245,194,92,0.55)",
+          color: "#f5c25c",
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: "0.04em",
+          fontFamily: "var(--tt-font-mono)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.35)"
+        }
+      }, h("span", {
+        style: {
+          width: 10,
+          height: 10,
+          borderRadius: "50%",
+          border: "2px solid rgba(245,194,92,0.4)",
+          borderTopColor: "#f5c25c",
+          animation: "spin 0.7s linear infinite"
+        }
+      }), "LOADING · ", String(horizon || "trader").toUpperCase(), " · ", String(profile || "speculator").toUpperCase()));
       return h("div", {
         style: {
           display: "flex",
           flexDirection: "column",
-          gap: "var(--ds-space-3)"
+          gap: "var(--ds-space-3)",
+          position: "relative"
         }
-      }, h(Panel, {
+      }, _loadingOverlay, h(Panel, {
         title: "📡 Root-Strategy Verdict",
         color: modeMeta.color,
         action: h("span", {
@@ -16677,4 +16719,4 @@
   };
 })();
 
-// cache-bust:1780341414358:574931498
+// cache-bust:1780343090250:910252211

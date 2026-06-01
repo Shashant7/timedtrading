@@ -271,6 +271,68 @@ export function pickLeapExpiration(now = Date.now(), { targetDte = 540 } = {}) {
   };
 }
 
+/* 2026-06-01 — Day-trade expiration picker for SPY / QQQ / IWM.
+
+   Operator request: "For our SPY, QQQ, IWM predictions, is it possible
+   to provide an options play valid for the day? straddle, call, put,
+   spread, etc, this would be primarily for day traders who use 0 or
+   1 DTE."
+
+   Index ETFs (and SPX) have DAILY expirations Monday-Friday — the only
+   listings on the US tape with this cadence. Day traders typically run
+   0DTE (same-day expiry, max gamma + max theta) or 1DTE (next-trading-
+   day expiry, slightly more cushion). This picker:
+
+     - Before US market close (roughly < 4 PM ET): returns TODAY's
+       expiration as 0DTE.
+     - After close: returns the NEXT trading day's expiration as 1DTE.
+       Skips weekends (no expirations).
+     - Caller can force 1DTE via `{ forceTomorrow: true }` for the
+       conservative variant (avoids the final-hour theta cliff). */
+export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false } = {}) {
+  const _isWeekend = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
+  const _nextTradingDay = (d) => {
+    const next = new Date(d.getTime() + 86400000);
+    while (_isWeekend(next)) next.setUTCDate(next.getUTCDate() + 1);
+    return next;
+  };
+  const nowDt = new Date(now);
+  // 4 PM ET = ~20:00 UTC during EDT, 21:00 during EST. Use 20:30 as a
+  // robust cutoff that covers both.
+  const _afterClose = nowDt.getUTCHours() >= 20 && (nowDt.getUTCHours() > 20 || nowDt.getUTCMinutes() >= 30);
+
+  let expiry;
+  if (_isWeekend(nowDt)) {
+    // Weekend: target Monday (next trading day after Friday).
+    expiry = _nextTradingDay(nowDt);
+    while (_isWeekend(expiry)) expiry = _nextTradingDay(expiry);
+  } else if (forceTomorrow || _afterClose) {
+    expiry = _nextTradingDay(nowDt);
+  } else {
+    expiry = new Date(nowDt);
+  }
+  // Set to 4 PM ET (close to the actual expiration timestamp for the chain).
+  expiry.setUTCHours(20, 0, 0, 0);
+  const dte = Math.max(0, Math.round((expiry.getTime() - now) / 86400000));
+  return {
+    iso: expiry.toISOString().slice(0, 10),
+    dte,
+    label: dte === 0
+      ? `Today ${expiry.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (0DTE)`
+      : `${expiry.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${dte}DTE)`,
+  };
+}
+
+/* 2026-06-01 — Set of tickers that get day-trade options play coverage.
+   Strict allow-list. The day-trade builder assumes daily listed-options
+   cadence + deep liquidity at every strike — only SPY/QQQ/IWM clear
+   that bar on the US tape today. SPX could be added later but trades
+   cash-settled European-style which changes the management story. */
+export const DAY_TRADE_TICKERS = new Set(["SPY", "QQQ", "IWM"]);
+export function isDayTradeTicker(ticker) {
+  return DAY_TRADE_TICKERS.has(String(ticker || "").toUpperCase());
+}
+
 /**
  * Detect "underlying already in motion" — the moonshot ignition condition.
  * The fused TT call has identified BOTH direction AND moment; the move is
@@ -1165,6 +1227,142 @@ function buildLeveragedETF(ctx) {
       `For longer holds, use options or the underlying directly`,
       letf.theme ? `Mapped via theme: ${letf.theme}` : null,
     ].filter(Boolean),
+  };
+}
+
+/* 2026-06-01 — Build a single day-trade options play for SPY/QQQ/IWM.
+
+   Returns one of three structures depending on the day's directional
+   signal:
+     - LONG  bias (verdict RIDE/READY long, OR direction LONG) → ATM call
+     - SHORT bias (verdict RIDE/READY short, OR direction SHORT) → ATM put
+     - NEUTRAL high-vol (no clear direction, atrPct >= 0.012)    → ATM straddle
+
+   Conservative defaults that match retail day-trader expectations:
+     - 1 contract sizing (operator can scale via the per-vehicle cap
+       in Mission Control)
+     - ATM strike (max gamma, max sensitivity to intraday move)
+     - 0DTE if before market close, 1DTE otherwise (pickDayTradeExpiration)
+     - Max loss = premium paid (always defined; never undefined)
+
+   Returns null if the ticker isn't on the day-trade allow-list. */
+export function buildDayTradePlay(ctx) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return null;
+  const price = Number(ctx?.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  const direction = String(ctx?.direction || "").toUpperCase();
+  const verdictMode = ctx?.verdict?.mode || "UNKNOWN";
+  const verdictSide = ctx?.verdict?.side || direction;
+  const atrPct = Number(ctx?.atrPct) || 0.012;
+  const expiration = ctx?.expiration || pickDayTradeExpiration();
+  const chain = ctx?.chain || null;
+
+  // Decide flavor.
+  let flavor;
+  if (verdictMode === "WAIT" || direction === "" || direction === "NEUTRAL") {
+    // No clear direction: straddle only if vol is meaningfully high.
+    // Daily ETF vol < 1.2% usually means a chop day — skip the play
+    // entirely rather than show a marginal straddle.
+    if (atrPct < 0.012) {
+      return null;
+    }
+    flavor = "straddle";
+  } else if (verdictSide === "SHORT" || direction === "SHORT") {
+    flavor = "put";
+  } else {
+    flavor = "call";
+  }
+
+  const strike = snapStrike(price);
+  const contracts = 1; // intentional minimum; operator scales via MC
+  const _dteForBs = Math.max(expiration.dte, 0.5); // BS estimator needs > 0
+
+  if (flavor === "call" || flavor === "put") {
+    const optType = flavor === "call" ? "C" : "P";
+    const chainLeg = chain ? _chainLeg(chain, optType, strike) : null;
+    const prem = estimatePremium({ price, strike, dte: _dteForBs, atrPct, type: optType, chainLeg });
+    if (!prem) return null;
+    const premMid = prem.mid;
+    const maxLoss = premMid * 100 * contracts;
+    const breakeven = flavor === "call" ? strike + premMid : strike - premMid;
+    return {
+      archetype: flavor === "call" ? "day_trade_call" : "day_trade_put",
+      label: flavor === "call"
+        ? `Day-Trade Call (ATM · ${expiration.label})`
+        : `Day-Trade Put (ATM · ${expiration.label})`,
+      rationale: flavor === "call"
+        ? `Bullish day-trade on ${ticker}: ATM call at $${strike} expiring ${expiration.label}. Max convexity to today's move; max loss = premium paid. Manage actively — theta accelerates inside the final 2 hours.`
+        : `Bearish day-trade on ${ticker}: ATM put at $${strike} expiring ${expiration.label}. Max convexity to today's downside; max loss = premium paid. Manage actively — theta accelerates inside the final 2 hours.`,
+      legs: [{
+        action: "BUY",
+        optionType: flavor === "call" ? "CALL" : "PUT",
+        strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(premMid?.toFixed(2)) || null,
+        premium_bid: prem.bid != null ? Number(Number(prem.bid).toFixed(2)) : null,
+        premium_ask: prem.ask != null ? Number(Number(prem.ask).toFixed(2)) : null,
+        leg_cost_usd: Math.round(premMid * 100 * contracts),
+        side_label: "debit",
+      }],
+      strikes: { primary: strike },
+      expiration,
+      premium: prem,
+      contracts,
+      max_loss_usd: Math.round(maxLoss),
+      max_gain_label: flavor === "call" ? "Uncapped above strike + premium" : "Capped at strike − premium (intrinsic ceiling)",
+      breakeven,
+      notes: [
+        `Same-day or next-day expiration (${expiration.dte}DTE) — theta is the dominant risk; treat as scalp, not swing`,
+        `Best windows: 9:45-11 AM ET (post-open trend), 2:30-3:45 PM ET (close-of-day push); avoid 12-1:30 PM lunch chop`,
+        `Sizing capped at ${contracts} contract — scale via Mission Control "Day Trade" cap when comfortable`,
+      ],
+      _day_trade: true,
+      _day_trade_flavor: flavor,
+    };
+  }
+
+  // Straddle — direction-neutral day-trade play.
+  const callLeg = chain ? _chainLeg(chain, "C", strike) : null;
+  const putLeg = chain ? _chainLeg(chain, "P", strike) : null;
+  const callPrem = estimatePremium({ price, strike, dte: _dteForBs, atrPct, type: "C", chainLeg: callLeg });
+  const putPrem = estimatePremium({ price, strike, dte: _dteForBs, atrPct, type: "P", chainLeg: putLeg });
+  if (!callPrem || !putPrem) return null;
+  const totalPrem = callPrem.mid + putPrem.mid;
+  const maxLoss = totalPrem * 100 * contracts;
+  return {
+    archetype: "day_trade_straddle",
+    label: `Day-Trade Straddle (ATM · ${expiration.label})`,
+    rationale: `No clear direction on ${ticker} but vol elevated (${(atrPct * 100).toFixed(2)}% ATR). Buy ATM call + put expiring ${expiration.label} — profits from a move > $${totalPrem.toFixed(2)} in either direction. Max loss = total premium ($${Math.round(maxLoss)}). Watch first 30 min: if range is < breakeven, close half before lunch chop and re-evaluate.`,
+    legs: [
+      {
+        action: "BUY", optionType: "CALL", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(callPrem.mid?.toFixed(2)) || null,
+        leg_cost_usd: Math.round(callPrem.mid * 100 * contracts),
+        side_label: "debit",
+      },
+      {
+        action: "BUY", optionType: "PUT", strike, expiration: expiration.iso, qty: contracts,
+        premium_mid: Number(putPrem.mid?.toFixed(2)) || null,
+        leg_cost_usd: Math.round(putPrem.mid * 100 * contracts),
+        side_label: "debit",
+      },
+    ],
+    strikes: { primary: strike },
+    expiration,
+    premium: { mid: totalPrem, source: callPrem.source, call_mid: callPrem.mid, put_mid: putPrem.mid },
+    contracts,
+    max_loss_usd: Math.round(maxLoss),
+    breakeven_up: strike + totalPrem,
+    breakeven_down: strike - totalPrem,
+    max_gain_label: "Uncapped in either direction",
+    notes: [
+      `Needs ≥ ${((totalPrem / price) * 100).toFixed(2)}% intraday move from $${price.toFixed(2)} to break even`,
+      `0DTE straddles burn ~10% theta/hour after 12 PM ET — exit aggressively if neither side is working by lunch`,
+      `Sizing capped at ${contracts} pair — scale via Mission Control "Day Trade" cap when comfortable`,
+    ],
+    _day_trade: true,
+    _day_trade_flavor: "straddle",
   };
 }
 

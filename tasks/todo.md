@@ -22,7 +22,21 @@
 
 ### Active
 
-- [x] **Calibration UX polish (PR pending).** Three additions to System
+- [x] **Day-trade options plays for SPY/QQQ/IWM + Options-tab loading
+      indicator (PR pending).** Operator request for 0/1 DTE day-trader
+      plays on the Today page, clearly labeled so they can't be confused
+      with swing/investor plays on the same ticker. Engine: new
+      `pickDayTradeExpiration()` (0DTE before 4 PM ET, else 1DTE;
+      weekend-aware), `buildDayTradePlay()` (ATM call for LONG, put for
+      SHORT, straddle for NEUTRAL high-vol ≥1.2% ATR), `DAY_TRADE_TICKERS
+      = {SPY, QQQ, IWM}` strict allow-list. Endpoint: `/timed/options/all`
+      returns new `day_trade_plays[]` array independent of `limit`. UI:
+      dedicated amber-tinted strip ABOVE the main grid with `DAY TRADE ·
+      NDTE` pill + flavor pill (CALL/PUT/STRADDLE). Plus: loading
+      overlay on the right-rail Options tab during horizon/profile
+      transitions so the operator gets explicit "switching..." feedback
+      instead of a brief flash of stale data.
+- [x] **Calibration UX polish (PR #435).** Three additions to System
       Intelligence → Analysis tab: (a) Calibration explainer card at
       the top — plain-language "what calibration does, where it shows
       up, how to use this page" with a right-aligned freshness chip
