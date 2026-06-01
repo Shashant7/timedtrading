@@ -60,6 +60,41 @@
   </style>
 </head>
 <body>
+  <style>
+    /* Switch-account step styling */
+    .switch-card { max-width: 380px; padding: 28px 24px 24px; text-align: left; }
+    .switch-card h1 { font-size: 18px; font-weight: 600; margin-bottom: 6px; text-align: center; }
+    .switch-card .lead { font-size: 13px; color: #9ca3af; line-height: 1.55; text-align: center; margin-bottom: 22px; }
+    .switch-step { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; }
+    .switch-step + .switch-step { border-top: 1px solid rgba(255,255,255,0.06); }
+    .switch-step-num {
+      flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(0,200,83,0.12); color: #34d399;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+    }
+    .switch-step-body { flex: 1; min-width: 0; }
+    .switch-step-title { font-size: 13.5px; font-weight: 600; color: #e5e7eb; margin-bottom: 4px; }
+    .switch-step-desc { font-size: 12px; color: #9ca3af; line-height: 1.5; margin-bottom: 10px; }
+    .switch-step .step-cta {
+      display: inline-block; padding: 8px 14px; border-radius: 8px;
+      font-size: 12.5px; font-weight: 600; text-decoration: none;
+      transition: background 0.15s;
+    }
+    .switch-step .step-cta.primary {
+      background: rgba(0,200,83,0.12); color: #34d399;
+      border: 1px solid rgba(0,200,83,0.28);
+    }
+    .switch-step .step-cta.primary:hover { background: rgba(0,200,83,0.20); }
+    .switch-step .step-cta.muted {
+      background: transparent; color: #67e8f9;
+      border: 1px solid rgba(103,232,249,0.28);
+    }
+    .switch-step .step-cta.muted:hover { background: rgba(103,232,249,0.10); }
+    .switch-card .footer-links { margin-top: 18px; display: flex; justify-content: center; gap: 16px; }
+    .switch-card .footer-links a { font-size: 12px; color: #6b7280; text-decoration: underline; }
+  </style>
+
   <!-- Phase 1: Signing out spinner -->
   <div class="card" id="signing-out">
     <div class="spinner"></div>
@@ -82,25 +117,44 @@
     </div>
   </div>
 
-  <!-- Phase 3: Manual-switch fallback (shown if we couldn't bounce to Google)  -->
-  <div class="card success" id="manual-switch" style="display:none">
-    <div class="check">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="20 6 9 17 4 12" />
-      </svg>
-    </div>
-    <h1>One more step</h1>
-    <p>
-      To switch to a different Google account, click below to sign out of Google
-      (opens in a new tab). After you sign out (or pick a different account on
-      Google's page), come back here and tap <strong>Sign In Again</strong>.
+  <!-- Phase 3: Switch-account step card -->
+  <div class="card success switch-card" id="switch-card" style="display:none">
+    <h1>Switch Google account</h1>
+    <p class="lead">
+      Two quick steps. The first opens Google in a new tab.
     </p>
-    <div class="links">
-      <a href="https://accounts.google.com/Logout"
-         target="_blank" rel="noopener noreferrer"
-         class="primary">Sign out of Google &rarr;</a>
-      <a href="/today.html" class="secondary">Sign In Again</a>
-      <a href="/splash.html" class="secondary">Back to Home</a>
+
+    <div class="switch-step">
+      <div class="switch-step-num">1</div>
+      <div class="switch-step-body">
+        <div class="switch-step-title">Sign out of Google (or pick a different account)</div>
+        <div class="switch-step-desc">
+          We can't sign you out of Google for you &mdash; that has to happen
+          on Google's site. Tap below to open Google's sign-out page in a
+          new tab. Once you've signed out (or chosen a different account),
+          close that tab and come back here.
+        </div>
+        <a id="open-google-logout"
+           href="https://accounts.google.com/Logout"
+           target="_blank" rel="noopener noreferrer"
+           class="step-cta primary">Open Google sign-out &rarr;</a>
+      </div>
+    </div>
+
+    <div class="switch-step">
+      <div class="switch-step-num">2</div>
+      <div class="switch-step-body">
+        <div class="switch-step-title">Come back and sign in</div>
+        <div class="switch-step-desc">
+          After step&nbsp;1, tap below. Google will show the account picker
+          and let you pick any Google account on this device.
+        </div>
+        <a href="/today.html" class="step-cta muted">Sign In</a>
+      </div>
+    </div>
+
+    <div class="footer-links">
+      <a href="/splash.html">Back to home</a>
     </div>
   </div>
 
@@ -110,27 +164,35 @@
   <script>
     (function() {
       var urlParams = new URLSearchParams(window.location.search);
-      // 2026-06-01 — ?switch=1 means "I want to sign in as a different
-      // account." The previous implementation (PR #396/397) tried to
-      // clear the Google session via a hidden iframe pointed at
-      // accounts.google.com/Logout. That silently failed because
-      // Google sets x-frame-options: SAMEORIGIN on its logout page —
-      // the iframe never loaded, the Google session was never cleared,
-      // and the next CF Access sign-in silently re-authenticated the
-      // same account.
+      // 2026-06-01 — Third revision of the switch-account flow.
       //
-      // The only way to actually clear Google's session is a top-level
-      // navigation to accounts.google.com/Logout. After that, Google
-      // either auto-redirects to a provided `continue` URL (rare for
-      // third-party domains) or shows its own "you've been signed out"
-      // page. EITHER WAY the Google session is cleared, so when the
-      // user returns and clicks Sign In, CF Access redirects to Google
-      // and Google now shows the account picker (no active session).
+      // History:
+      //   PR #396/397 — Hidden iframe to accounts.google.com/Logout.
+      //     SILENTLY BROKEN: Google sets x-frame-options: SAMEORIGIN,
+      //     so the iframe never loaded and the Google session was
+      //     never cleared.
+      //   PR #399 — Top-level navigation to accounts.google.com/Logout
+      //     ?continue=<our_url>. BROKE WITH 400: Google rejects the
+      //     `continue` parameter when it points to a non-Google
+      //     third-party domain ("400 — The server cannot process the
+      //     request because it is malformed").
       //
-      // 2026-06-01 — ?switched=1 is set after we come back from the
-      // Google logout round-trip (or skipped to the manual fallback).
+      // This revision: don't try to control Google's logout flow at
+      // all. We CAN'T (Google won't let us cross-origin frame their
+      // logout AND won't accept a third-party continue URL). What we
+      // CAN do reliably:
+      //   1. Clear OUR session (local + CF Access).
+      //   2. Open Google's logout page in a NEW TAB so the user can
+      //      manually sign out (or pick a different account) there.
+      //   3. Tell the user clearly to come back and tap Sign In.
+      //   4. On Sign In, CF Access redirects to Google, and because
+      //      the Google session is now cleared, Google shows the
+      //      account picker.
+      //
+      // This is unambiguous, error-proof, and works across every
+      // browser including iOS Safari (where top-level redirects to
+      // third-party logout URLs have additional quirks).
       var isSwitchAccount = urlParams.has("switch");
-      var isSwitchedReturned = urlParams.has("switched");
 
       // Phase 0: Clear app + client-side cookies (synchronous).
       try { localStorage.removeItem("timed_auth_session"); } catch(_) {}
@@ -142,81 +204,29 @@
       } catch(_) {}
       try { sessionStorage.setItem("tt_logout", "1"); } catch(_) {}
 
-      // Phase 1: CF Access logout via iframe (this DOES work — same
-      // origin, no x-frame-options block). Kick it off in the
-      // background regardless of mode.
+      // Phase 1: CF Access logout via iframe (same-origin, this works).
       var cfIframe = document.getElementById("cf-logout");
       var cfDone = false;
       cfIframe.onload  = function() { cfDone = true; };
       cfIframe.onerror = function() { cfDone = true; };
       cfIframe.src = window.location.origin + "/cdn-cgi/access/logout";
 
-      function waitForCf(cb) {
+      function whenCfDone(cb) {
         var start = Date.now();
         (function poll() {
-          if (cfDone || (Date.now() - start) > 1500) { cb(); return; }
+          if (cfDone || (Date.now() - start) > 2000) { cb(); return; }
           setTimeout(poll, 100);
         })();
       }
 
-      if (isSwitchAccount && !isSwitchedReturned) {
-        // Switch-account branch: update the spinner copy so the user
-        // knows what's happening, then top-level redirect to Google
-        // Logout with a `continue` parameter pointing back to our
-        // /logout.html?switched=1 page. Google will sign the user
-        // out of all Google services; depending on Google's policy
-        // it may auto-redirect back to us OR show its own "signed
-        // out" page (in which case the user clicks the link to
-        // return).
-        document.getElementById("signing-h1").textContent = "Signing out of Google...";
-        document.getElementById("signing-p").textContent =
-          "You'll bounce through Google's sign-out page so we can clear the Google session.";
-
-        waitForCf(function() {
-          var returnUrl = window.location.origin + "/logout.html?switched=1";
-          // Google's Logout URL accepts `continue` for the
-          // post-logout redirect. For non-Google domains Google may
-          // show an interstitial before redirecting; the manual
-          // fallback below handles the case where Google doesn't
-          // bounce back automatically.
-          window.location.href = "https://accounts.google.com/Logout?continue=" +
-            encodeURIComponent(returnUrl);
-        });
-        return;
-      }
-
-      if (isSwitchedReturned) {
-        // We're back from the Google logout round-trip. CF + Google
-        // sessions are now both cleared. Show the "click Sign In to
-        // choose any account" card.
-        waitForCf(function() {
-          document.getElementById("signing-out").style.display = "none";
-          var card = document.getElementById("signed-out");
-          card.style.display = "block";
-          card.querySelector("h1").textContent = "Pick a different account";
-          card.querySelector("p").textContent =
-            "Both sessions are cleared. The next sign-in will let you choose any Google account.";
-          card.querySelector(".primary").textContent = "Choose Account";
-        });
-        return;
-      }
-
-      // Plain sign-out flow: show the in-app "signed out" card.
-      waitForCf(function() {
+      whenCfDone(function() {
         document.getElementById("signing-out").style.display = "none";
-        document.getElementById("signed-out").style.display = "block";
+        if (isSwitchAccount) {
+          document.getElementById("switch-card").style.display = "block";
+        } else {
+          document.getElementById("signed-out").style.display = "block";
+        }
       });
-
-      // Safety: if Google takes longer than 5s to redirect us back
-      // (or doesn't redirect at all), show the manual-switch
-      // fallback card so the user always has a way forward.
-      if (isSwitchAccount && !isSwitchedReturned) {
-        setTimeout(function() {
-          if (document.location.search.indexOf("switched=1") !== -1) return;
-          document.getElementById("signing-out").style.display = "none";
-          document.getElementById("manual-switch").style.display = "block";
-        }, 8000);
-      }
     })();
   </script>
 </body>
