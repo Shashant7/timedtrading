@@ -1330,7 +1330,13 @@ const ROUTES = [
   ["POST", "/timed/admin/model-resolve", "POST /timed/admin/model-resolve"],
   ["POST", "/timed/admin/model-retro", "POST /timed/admin/model-retro"],
   ["POST", "/timed/admin/model-approve", "POST /timed/admin/model-approve"],
-  ["GET", "/timed/admin/ai-cio/decisions", "GET /timed/admin/ai-cio/decisions"],
+  // 2026-06-01 — Removed duplicate registration of
+  // ["GET", "/timed/admin/ai-cio/decisions", ...] — the canonical
+  // one lives further down at line ~1357 (review-aware version).
+  // Two registrations weren't strictly broken (routing matched
+  // both to the same key) but the stale duplicate paired with a
+  // stale handler that ran instead of the review-aware one. See
+  // the long-form comment at the old handler's old location.
   ["GET", "/timed/admin/ai-cio/accuracy", "GET /timed/admin/ai-cio/accuracy"],
   // 2026-05-28 — Operator-facing go-live readiness dashboard.
   // Returns the current values for each shadow→live gate so the
@@ -54653,46 +54659,34 @@ export default {
         }
       }
 
-      // GET /timed/admin/ai-cio/decisions — List all AI CIO decisions
-      // ?shadow=1 → only shadow-mode rows; ?shadow=0 → only acted-upon rows; omit → all
-      if (routeKey === "GET /timed/admin/ai-cio/decisions") {
-        const authFail = await requireKeyOrAdmin(req, env);
-        if (authFail) return authFail;
-        const db = env?.DB;
-        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
-        try {
-          const limit = Math.min(500, Number(url.searchParams.get("limit")) || 100);
-          const shadowParam = url.searchParams.get("shadow");
-          let query = `SELECT * FROM ai_cio_decisions`;
-          const binds = [];
-          if (shadowParam === "1" || shadowParam === "0") {
-            query += ` WHERE shadow = ?${binds.length + 1}`;
-            binds.push(Number(shadowParam));
-          }
-          query += ` ORDER BY created_at DESC LIMIT ?${binds.length + 1}`;
-          binds.push(limit);
-          const { results } = await db.prepare(query).bind(...binds).all();
-          // Read effective config (whether CIO is enabled + shadow mode is on right now)
-          let _cfgEnabled = false, _cfgShadow = true;
-          try {
-            const { results: cfgRows } = await db.prepare(
-              `SELECT config_key, config_value FROM model_config WHERE config_key IN ('ai_cio_enabled','ai_cio_shadow_mode')`
-            ).all();
-            for (const r of (cfgRows || [])) {
-              const v = r.config_value;
-              if (r.config_key === "ai_cio_enabled") _cfgEnabled = String(v) === "true" || v === "1" || v === 1 || v === true;
-              if (r.config_key === "ai_cio_shadow_mode") _cfgShadow = String(v) === "true" || v === "1" || v === 1 || v === true;
-            }
-          } catch (_) {}
-          return sendJSON({
-            ok: true,
-            decisions: results || [],
-            config: { ai_cio_enabled: _cfgEnabled, ai_cio_shadow_mode: _cfgShadow },
-          }, 200, corsHeaders(env, req));
-        } catch (e) {
-          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
-        }
-      }
+      // 2026-06-01 — REMOVED stale duplicate handler for
+      // `GET /timed/admin/ai-cio/decisions`.
+      //
+      // There were TWO handlers in the if/else chain for the same
+      // routeKey. The first one (this one) was the older
+      // shadow-mode-filter version that:
+      //   - did NOT support ?unreviewed=1
+      //   - did NOT join ai_cio_decision_reviews → no review_verdict
+      //   - did NOT return review_stats_14d (counts)
+      // Since the dispatcher is an if-chain, the FIRST match wins
+      // and the second handler (which has all the review-aware
+      // logic Mission Control's Decision Review UI needs) was
+      // dead code.
+      //
+      // User-visible symptom (Jun 1 2026): clicking ✓ Good call /
+      // ✗ Bad call / ~ Meh on the Decision Review card did NOT:
+      //   (a) update the REVIEWED 0/20 / GOOD / BAD / MEH counts
+      //       (because stats was undefined in the response)
+      //   (b) move on to the next card (because the reviewed card
+      //       came back in the list — no `unreviewed=1` filter)
+      // Deleting this stale handler lets the review-aware handler
+      // below (~line 55147) take effect.
+      //
+      // The `?shadow=` filter the old handler exposed has no
+      // callers (verified via grep) — only `cio-drift-monitor.py`
+      // and Mission Control hit this endpoint, neither uses ?shadow.
+      // If a future caller needs that filter back, add it to the
+      // review-aware handler instead of restoring this duplicate.
 
       // GET /timed/admin/ai-cio/accuracy — AI CIO accuracy report
       // ?shadow=1 → only shadow rows; ?shadow=0 → only acted-upon rows; omit → both groups returned
