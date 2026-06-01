@@ -37,6 +37,9 @@ import {
   reconcileAllUsers, reconcileUser,
 } from "./bridge-reconciler.js";
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
+import {
+  drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
+} from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 
@@ -516,6 +519,102 @@ export default {
         return json({ ok: true, row });
       }
 
+      // 2026-06-01 — Phase E: operator action endpoints for the MC
+      // "Mirror Sync — Per-User" panel. Each one mutates a single
+      // manifest row. All operator-only.
+      if (method === "POST" && path === "/bridge/manifest/action") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const action = String(body?.action || "").toLowerCase();
+        const userId = String(body?.user_id || "").toLowerCase();
+        const tradeId = String(body?.trade_id || "");
+        const accountId = String(body?.broker_account_id || "default");
+        if (!userId || !tradeId) return json({ ok: false, error: "user_id_and_trade_id_required" }, 400);
+
+        const validActions = new Set(["suppress", "unsuppress", "mark_manual", "mark_closed", "force_resync_from_broker"]);
+        if (!validActions.has(action)) return json({ ok: false, error: `invalid_action:${action}` }, 400);
+
+        const db = env?.BRIDGE_DB;
+        if (!db) return json({ ok: false, error: "no_db" }, 500);
+        const now = Date.now();
+        const reasonText = String(body?.reason || `operator_${action}`).slice(0, 200);
+        try {
+          if (action === "suppress") {
+            await db.prepare(`UPDATE mirror_trade_manifest SET mirror_suppressed=1, mirror_suppressed_at=?4, mirror_suppressed_reason=?5, sync_note=?5, updated_at=?4 WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3`)
+              .bind(userId, tradeId, accountId, now, reasonText).run();
+          } else if (action === "unsuppress") {
+            await db.prepare(`UPDATE mirror_trade_manifest SET mirror_suppressed=0, mirror_suppressed_at=NULL, mirror_suppressed_reason=NULL, sync_drift_count=0, sync_note='operator_unsuppressed', updated_at=?4 WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3`)
+              .bind(userId, tradeId, accountId, now).run();
+          } else if (action === "mark_manual") {
+            await db.prepare(`UPDATE mirror_trade_manifest SET sync_state='untracked', mirror_suppressed=1, mirror_suppressed_at=?4, mirror_suppressed_reason=?5, sync_note=?5, updated_at=?4 WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3`)
+              .bind(userId, tradeId, accountId, now, `operator_marked_manual:${reasonText}`.slice(0, 200)).run();
+          } else if (action === "mark_closed") {
+            await db.prepare(`UPDATE mirror_trade_manifest SET model_status='CLOSED', model_exit_ts=?4, model_exit_reason=?5, sync_note=?5, updated_at=?4 WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3`)
+              .bind(userId, tradeId, accountId, now, `operator_marked_closed:${reasonText}`.slice(0, 200)).run();
+          } else if (action === "force_resync_from_broker") {
+            // Bumps sync_last_checked_at backwards so the next reconciler
+            // cycle treats this row as eligible regardless of cadence.
+            await db.prepare(`UPDATE mirror_trade_manifest SET sync_last_checked_at=0, sync_note='operator_forced_resync', updated_at=?4 WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3`)
+              .bind(userId, tradeId, accountId, now).run();
+          }
+          return json({ ok: true, action, user_id: userId, trade_id: tradeId, updated_at: now });
+        } catch (e) {
+          return json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500);
+        }
+      }
+
+      // 2026-06-01 — Phase E: drain the bridge notify queue. Returns
+      // queued user-email payloads. The MAIN worker calls this from
+      // its own cron and sends via SendGrid. Operator-only.
+      if (method === "POST" && path === "/bridge/notify/drain") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const limit = Number(body?.limit) || 200;
+        const items = await drainNotifyQueue(env, { limit });
+        return json({ ok: true, count: items.length, items });
+      }
+
+      // 2026-06-01 — Phase E: daily owner digest preview/build. Returns
+      // the digest payload for one user (or all). Caller (main worker
+      // cron at 21:30 UTC) renders + sends via SendGrid.
+      if (method === "POST" && path === "/bridge/notify/daily-digest") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const dryRun = body?.dry_run === true;
+        const targetUserId = body?.user_id ? String(body.user_id).toLowerCase() : null;
+        const users = targetUserId
+          ? [await readUser(env, targetUserId)].filter(Boolean)
+          : await listConnectedUsers(env, 100);
+        const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);
+        const out = [];
+        for (const u of eligible) {
+          try {
+            const adapter = brokerAdapterFor(u);
+            const digest = await buildDailyOwnerDigest(env, u, adapter);
+            if (!digest) { out.push({ user_id: u.user_id, status: "no_digest" }); continue; }
+            if (digest.skip) { out.push({ user_id: u.user_id, status: "skipped", reason: digest.reason }); continue; }
+            const email = renderDailyOwnerDigestEmail(digest);
+            out.push({
+              user_id: u.user_id,
+              user_email: digest.user_email,
+              status: dryRun ? "rendered_only" : "ready_to_send",
+              subject: email?.subject,
+              digest_summary: {
+                executed_count: digest.executed.length,
+                rejected_count: digest.rejected_count,
+                day_pnl: digest.day_pnl,
+                positions_count: digest.positions.length,
+                options_count: digest.options_positions.length,
+              },
+              email: dryRun ? null : email,
+            });
+          } catch (e) {
+            out.push({ user_id: u.user_id, status: "error", error: String(e?.message || e).slice(0, 200) });
+          }
+        }
+        return json({ ok: true, dry_run: dryRun, users_processed: out.length, items: out });
+      }
+
       // 2026-06-01 — Phase C: on-demand reconciliation. Operator-only.
       // Body:
       //   { user_id?: string,        // single user; if omitted, all eligible
@@ -605,24 +704,64 @@ export default {
     }
   },
 
-  // 2026-06-01 — Phase C: Cloudflare Workers cron trigger.
-  // Configured in wrangler.toml as: triggers.crons = ["*/5 * * * *"].
-  // Runs every 5 minutes; we gate on NY regular-hours inside the
-  // handler so off-hours invocations are cheap no-ops (no broker
-  // fetches, no D1 writes).
+  // 2026-06-01 — Cron triggers (Phase C reconciler + Phase E daily digest).
+  // Configured in wrangler.toml as: triggers.crons = ["*/5 * * * *", "30 21 * * *"]
+  //
+  // The handler routes on event.cron:
+  //   "*/5 * * * *" → reconciler (gates on RTH)
+  //   "30 21 * * *" → daily owner digest builder (4:30pm ET / 21:30 UTC)
+  //
+  // Daily digest only BUILDS the payloads on the bridge; the main worker
+  // drains the result via POST /bridge/notify/daily-digest and sends
+  // via SendGrid (it owns the SENDGRID_API_KEY secret).
   async scheduled(event, env, ctx) {
     const t0 = Date.now();
+    const cron = String(event?.cron || "*/5 * * * *");
     try {
       await ensureBridgeSchema(env).catch(() => {});
+
+      // ── Daily Owner Digest cron (21:30 UTC) ─────────────────────────
+      if (cron === "30 21 * * *") {
+        const dryRun = String(env?.DAILY_DIGEST_DRY_RUN || "false").toLowerCase() === "true";
+        const users = await listConnectedUsers(env, 100);
+        const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);
+        let prepared = 0, skipped = 0, errored = 0;
+        for (const u of eligible) {
+          try {
+            const adapter = brokerAdapterFor(u);
+            const digest = await buildDailyOwnerDigest(env, u, adapter);
+            if (!digest || digest.skip) { skipped++; continue; }
+            // Stash rendered email in the notify queue for the main
+            // worker's cron to pick up.
+            const email = renderDailyOwnerDigestEmail(digest);
+            if (!email) { skipped++; continue; }
+            const queueKey = `bridge:notify:daily:${u.user_id}:${new Date().toISOString().slice(0, 10)}`;
+            await env.BRIDGE_KV.put(queueKey, JSON.stringify({
+              user_id: u.user_id,
+              user_email: digest.user_email,
+              kind: "daily_owner_digest",
+              ts: Date.now(),
+              dry_run: dryRun,
+              content: email,
+              digest_summary: digest,
+            }), { expirationTtl: 7 * 86400 });
+            prepared++;
+          } catch (e) {
+            errored++;
+            console.warn(`[DAILY_DIGEST] user ${u?.user_id} failed:`, String(e?.message || e).slice(0, 200));
+          }
+        }
+        console.log(`[DAILY_DIGEST] prepared=${prepared} skipped=${skipped} errored=${errored} elapsed=${Date.now() - t0}ms`);
+        return;
+      }
+
+      // ── 5-min reconciler cron (Phase C) ────────────────────────────
       // Operating-hours gate: skip when NY market is closed (we don't
       // expect drift on closed markets). Operator can flip BROKER_
       // RECONCILE_24_7=true if they want continuous sweeps (useful
       // for Investor mode + post-market drift detection).
       if (String(env?.BROKER_RECONCILE_24_7 || "false").toLowerCase() !== "true") {
         const dt = new Date();
-        // 9:30am-4pm ET ≈ 13:30-21:00 UTC during DST. Use a coarse
-        // 13-22 UTC window to absorb the EDT/EST cusp + post-close
-        // (some brokers report fills with delay).
         const hourUtc = dt.getUTCHours();
         const dow = dt.getUTCDay();
         const isWeekend = (dow === 0 || dow === 6);
@@ -641,7 +780,7 @@ export default {
       );
       console.log(`[RECONCILER] cycle done ${JSON.stringify(result.aggregate || {})} elapsed=${Date.now() - t0}ms dry=${dryRun}`);
     } catch (e) {
-      console.error("[RECONCILER] cron failed:", String(e?.message || e).slice(0, 500));
+      console.error("[BRIDGE_CRON] failed:", String(e?.message || e).slice(0, 500));
     }
   },
 };

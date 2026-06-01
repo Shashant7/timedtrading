@@ -22,6 +22,29 @@
 
 ### Active
 
+- [x] **Trade-aware mirror sync Phase E — drift notifications + MC
+      Mirror Sync panel + Daily Owner Email cron.**
+      New `worker-bridge/bridge-notifications.js`:
+      `shouldDispatchDriftNotification()` (severity-tier dedup with
+      escalation escape hatch), `buildDriftEmailContent()` /
+      `postOperatorDiscord()` / `emitDriftNotification()` (queue +
+      stamp manifest), `buildDailyOwnerDigest()` /
+      `renderDailyOwnerDigestEmail()`, `drainNotifyQueue()`.
+      Reconciler now calls `emitDriftNotification()` on warn/critical
+      drift; bridge enqueues to `BRIDGE_KV` `bridge:notify:queue:*`,
+      main worker `*/5` cron drains via
+      `POST /timed/admin/broker-bridge/notify/drain { send: true }`
+      and forwards through `sendEmail()`. New bridge cron
+      `30 21 * * *` (21:30 UTC = 4:30pm ET) builds daily digests.
+      New operator endpoints: `POST /bridge/manifest/action` with
+      actions `suppress|unsuppress|mark_manual|mark_closed|
+      force_resync_from_broker`; `POST /bridge/notify/drain`;
+      `POST /bridge/notify/daily-digest`. Matching proxy routes
+      on the main worker. MC manifest table extended with per-row
+      action buttons (↻ resync, ⛔ Suppress / ✓ Unsuppress, ✕
+      Mark Closed, ⊘ Mark Manual) + "📧 Preview daily digest"
+      button in the section header. All operator actions include
+      consequence text in their confirm dialogs.
 - [x] **Trade-aware mirror sync Phase D — options + LEAPs + Investor + OCO.**
       Options leg-aware reconcile via `classifyOptionsDrift()`:
       canonical contract key `TICKER:YYYY-MM-DD:STRIKE.SS:[CP]`,

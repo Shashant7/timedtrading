@@ -40,6 +40,7 @@
 //     per process; subsequent rows continue.
 
 import { ensureMirrorManifestSchema } from "./bridge-manifest.js";
+import { emitDriftNotification } from "./bridge-notifications.js";
 
 const TOLERANCE = {
   trader_equity: 0.01,
@@ -794,6 +795,24 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       stats.rows_drifting++;
       const newDrift = (Number(row.sync_drift_count) || 0) + 1;
       if (newDrift > AUTO_SUPPRESS_AFTER_DRIFT) stats.rows_auto_suppressed++;
+      // 2026-06-01 — Phase E: emit a drift notification (severity-aware
+      // dedup). Best-effort: a failed notification dispatch never
+      // blocks the reconcile cycle. critical → operator Discord +
+      // user email queued; warn → user email queued; info → daily
+      // digest (no immediate dispatch).
+      const sev = classification.severity || "warn";
+      if (sev === "warn" || sev === "critical") {
+        try {
+          const dispatchRes = await emitDriftNotification(env, row, sev);
+          if (dispatchRes?.dispatched) {
+            stats.notifications_dispatched = (stats.notifications_dispatched || 0) + 1;
+          } else {
+            stats.notifications_dedup = (stats.notifications_dedup || 0) + 1;
+          }
+        } catch (e) {
+          console.warn("[NOTIFY] emit failed:", String(e?.message || e).slice(0, 200));
+        }
+      }
     } else {
       stats.rows_in_sync++;
     }

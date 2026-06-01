@@ -6,6 +6,64 @@
 
 ---
 
+## Trade-aware mirror sync — Phase E (notifications + Daily Owner Email) [2026-06-01]
+
+### Two-worker email send: bridge enqueues, main worker sends
+
+The bridge worker doesn't carry `SENDGRID_API_KEY` (separation-of-secrets
++ HMAC isolation). It enqueues notification payloads in `BRIDGE_KV`
+under `bridge:notify:queue:*` keys; the main worker's `*/5` cron calls
+`POST /timed/admin/broker-bridge/notify/drain { send: true }` to drain
++ send via the main worker's existing `sendEmail` helper.
+
+**Rule:** When you have two workers with different secret surfaces,
+move the cross-worker work to a queue + drain pattern. Don't try to
+propagate the secret to the second worker.
+
+### Severity tier dedup needs an escalation escape hatch
+
+`shouldDispatchDriftNotification()` dedups `warn` events to once per
+trade per day. But if a `warn` upgrades to `critical` mid-day (e.g.
+broker_orphan ages past 24h), we want the critical email to fire
+regardless. The dedup map check has a special case:
+- `critical` → always dispatch (no dedup window)
+- `warn` after a recent `critical` → suppress (downgrade)
+- `warn` after a recent `warn` → dedup
+
+**Rule:** Dedup state should always allow upgrades. Treat severity as a
+ratchet — once a trade has fired critical, subsequent warns are
+informational at best.
+
+### Operator action buttons must explain consequences in the confirm dialog
+
+`Suppress`, `Mark Manual`, `Mark Closed` are powerful: they affect
+whether the bridge accepts follow-on TRIM/EXIT for the trade. A simple
+"Are you sure?" confirm hides the consequences. Each action's confirm
+message now spells out what changes:
+
+- Suppress: "The bridge will REJECT all future TRIM/EXIT until you unsuppress."
+- Mark Manual: "Sets sync_state=untracked and suppresses the mirror —
+  useful when the user took over the position outside TT."
+- Mark Closed: "Use when the model and broker are out of sync and you
+  want the reconciler to treat any remaining broker position as
+  broker_orphan."
+
+**Rule:** Confirm dialogs for state-changing buttons must describe
+exactly what the next reconciler cycle / bridge call will do. "Are
+you sure?" is operator-hostile.
+
+### Daily owner email "skip-if-quiet" defaults to ON
+
+Sending an account-summary email on a day where the user had zero
+broker activity AND no open positions is noise. The digest builder
+returns `{ skip: true, reason: 'quiet_day' }` in that case unless the
+user has set `daily_digest_always_send=true` on their record.
+
+Default is OPT-IN-to-noisy, not opt-out — operator confirmed users
+prefer fewer empty emails over a "did the system run?" reassurance.
+
+---
+
 ## Trade-aware mirror sync — Phase D (options + LEAPs + Investor) [2026-06-01]
 
 ### Contract-symbol normalization is the entire game for options matching
