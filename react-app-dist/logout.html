@@ -153,6 +153,43 @@
       </div>
     </div>
 
+    <!-- 2026-06-01 — Troubleshooting block for the CF Access team-
+         session edge case. Even after we top-level-clear the app
+         cookie via /cdn-cgi/access/logout, Cloudflare Access keeps a
+         team-level session (24h default) that silently re-issues the
+         app cookie on the next visit WITHOUT going through Google.
+         There's no public endpoint to clear the team session from
+         our origin — the only deterministic fix from the user's
+         side is to either:
+           a) Use an Incognito / Private Browsing window (clean state)
+           b) Manually clear cookies for timed-trading.com
+         The proper long-term fix is operator-side: configure the CF
+         Access app with a 0-second session (forces re-auth on every
+         visit) OR add `prompt=select_account` to the Google IdP
+         OAuth params (forces the picker on every sign-in). See
+         skills/user-state-matrix.md for the operator runbook. -->
+    <details class="troubleshoot" style="margin-top:24px;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:12px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px;">
+        <span style="display:inline-flex;width:18px;height:18px;border-radius:50%;background:rgba(251,191,36,0.12);color:#fbbf24;align-items:center;justify-content:center;font-size:12px;font-weight:700;">?</span>
+        Still signing in as the same account?
+      </summary>
+      <div style="margin-top:10px;padding:12px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.18);border-radius:8px;font-size:12px;color:#d1d5db;line-height:1.6;">
+        <p style="margin:0 0 8px;">
+          Cloudflare keeps a 24-hour session for our domain that survives
+          our sign-out. Until it expires, it can silently re-sign you in
+          as the same account. To force a clean state:
+        </p>
+        <ul style="margin:0 0 0 18px;padding:0;">
+          <li><strong>Open this site in a Private / Incognito window</strong> &mdash; cleanest, no manual steps.</li>
+          <li>OR clear cookies for <code style="color:#fbbf24;">timed-trading.com</code> in your browser settings, then sign in normally.</li>
+        </ul>
+        <p style="margin:10px 0 0;font-size:11px;color:#9ca3af;">
+          We've reported this to the team to fix at the Cloudflare Access
+          configuration level so this troubleshooting won't be needed.
+        </p>
+      </div>
+    </details>
+
     <div class="footer-links">
       <a href="/splash.html">Back to home</a>
     </div>
@@ -230,4 +267,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1780273651677:796073514 -->
+<!-- cache-bust:1780274577452:346057843 -->
