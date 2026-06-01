@@ -22,20 +22,20 @@
 
 ### Active
 
-- [x] **Naked-short deferral hardened + per-vehicle auto-mirror toggles.**
-      Engine: `NAKED_SHORT_ARCHETYPES` short-circuit in
-      `decideAutoMirror()` before prefs are read. `VEHICLE_DEFAULTS`
-      structure (equity_long ON; long_call / long_put / vertical_spread
-      / leaps / straddle / moonshot all OFF) with per-vehicle
-      `enabled / daily_cap / max_per_order_usd / max_loss_per_order_usd`.
-      Per-vehicle daily counters via `checkAndBumpVehicleCounter()`.
-      Bridge: `validateOrderShape` HARD-rejects short equity sides + any
-      `vehicle` key in `NAKED_SHORT_VEHICLES` (no env override).
-      `validateVehiclePrefs()` enforces per-user enable + cap.
-      `POST /bridge/user/options-prefs` + `apply_small_account_defaults`
-      preset. MC: new `VehicleTogglesCard` per connected user — 7-row
-      editable table with "Apply small-account defaults" button. Naked-
-      short vehicles intentionally absent from the UI.
+- [x] **Trade-aware mirror sync Phase A — manifest writer.**
+      New `worker-bridge/bridge-manifest.js` with `mirror_trade_manifest`
+      D1 table (matches §3.1 schema exactly), `writeEntryManifest()`
+      writer (called on every successful place after preflight),
+      `writeRejectedEntry()` (called when preflight rejects an entry so
+      Phase B can return `mirror_suppressed` on follow-on TRIM/EXIT),
+      `recentManifestRows()` + `readManifestRow()` for inspector use.
+      `ensureMirrorManifestSchema()` runs via `ensureBridgeSchema()` —
+      idempotent + in-process cached. New `GET /bridge/manifest` +
+      `GET /timed/admin/broker-bridge/manifest` operator-only endpoints.
+      Mission Control renders a per-sync_state count strip + 50-row
+      scrolling table with ⛔ icons on suppressed rows. Writer is
+      best-effort — a manifest write failure does NOT undo a placed
+      order; the reconciler (Phase C) reconstructs from the broker side.
 - [x] **Options engine emits LEAPs for long-direction tickers (Investor
       primary, Trader alternative).** New `leap_call` archetype +
       `pickLeapExpiration()` (~540 DTE, snapped to 3rd Friday, floored at

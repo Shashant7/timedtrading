@@ -6,50 +6,65 @@
 
 ---
 
-## Naked-short deferral + per-vehicle toggle infrastructure [2026-06-01]
+## Trade-aware mirror sync — Phase A (manifest writer) [2026-06-01]
 
-### "Defer" must mean "code-level invariant," not "env var off by default"
+### Writer must NEVER block the order flow
 
-The first naked-short deferral was `if (SHORT_SIDES.has(side) && REJECT_SHORT_SIDES !== "false")`
-— an env-var escape hatch. That's not a deferral; that's a feature flag with
-an off-by-default. A true deferral is a code-level invariant: a hard branch
-in `validateOrderShape()` that rejects regardless of env, plus a parallel
-short-circuit in `decideAutoMirror()` (`NAKED_SHORT_ARCHETYPES`) that rejects
-the engine's primary play before consulting prefs.
+The bridge's primary job is to place the order on the broker; the manifest
+is a side-effect log that downstream phases (B reducer / C reconciler)
+consume. Three rules:
 
-**Rule:** When the operator says "defer X for now, it's dangerous," remove
-every override path. Re-introduction should require a code change, a risk
-review, and an entry in `tasks/lessons.md`. Not a wrangler secret toggle.
+1. `writeEntryManifest()` returns `{ ok, action, reason? }` instead of
+   throwing — caller pattern is fire-and-forget after the place succeeds.
+2. A missing manifest row is recoverable: Phase C's reconciler can
+   reconstruct from the broker side by scanning positions.
+3. Schema ensure is cached in-process (`_schemaReady`) so we don't
+   issue 7 DDL statements on every order.
 
-### Per-vehicle prefs need to live in two places
+### `?N` numbered parameter binding is D1-only
 
-The auto-mirror prefs (`worker/options-auto-mirror.js`) live in KV
-(`timed:options:auto-mirror:<email>`). The bridge guards
-(`worker-bridge/bridge-guards.js`) need to enforce the same per-vehicle
-caps without a KV round-trip per order (the bridge runs as a separate
-Worker; cross-worker KV reads cost latency on every order).
+D1 supports SQLite's `?1, ?2, ...` numbered placeholders with positional
+bind args. `better-sqlite3` (used for local testing) does NOT — it
+requires either bare `?` placeholders or named binding. The test mock
+rewrites `?N → ?` and re-maps the bind array via an indexMap so the
+production SQL works unchanged on D1 and through the mock.
 
-**Fix:** Bridge enforces against the user record's `options_prefs.vehicles`
-map, written via `POST /bridge/user/options-prefs` whenever the operator
-saves from Mission Control. Engine prefs and bridge prefs are two
-mirrors of the same source of truth (`VEHICLE_DEFAULTS` in the engine).
-If they drift, the more restrictive wins — both checks must pass for an
-order to fire.
+**Rule:** when writing SQL that must work on D1, use `?N` numbered
+placeholders + positional `bind(...)`. For local tests with
+`better-sqlite3`, supply a mock that does the rewrite.
 
-**Rule:** When a check needs to run in two execution contexts (e.g. engine
-+ bridge), pick ONE source of truth, mirror it explicitly, and document
-which side wins on conflict (here: both checks must pass).
+### Idempotent INSERT via `ON CONFLICT DO NOTHING` + manual fallback
 
-### "Apply small-account defaults" is a real button, not a tooltip
+A second ENTRY emit for the same `(user_id, trade_id, broker_account_id)`
+should not double-count or fail. Pattern:
 
-The earlier global auto-mirror block had a "small-account defaults" hint
-in the rationale but no button. Operator ignored it. The new per-vehicle
-table has an actual "Apply small-account defaults ⚡" button that writes
-the known-safe preset (equity_long ON @ $300/order/3/day; everything
-else OFF with conservative caps). The defaults live in
-`SMALL_ACCOUNT_VEHICLE_DEFAULTS` exported from
-`worker/options-auto-mirror.js` and re-listed in the bridge for the
-`apply_small_account_defaults: true` payload shape.
+```sql
+INSERT INTO mirror_trade_manifest (...) VALUES (...)
+ON CONFLICT(user_id, trade_id, broker_account_id) DO NOTHING
+```
+
+Then check `result.meta.changes`:
+- `> 0` → row was new (insert path)
+- `=== 0` → row existed (update path: SELECT existing, merge order tracker,
+  UPDATE)
+
+This avoids the need for `INSERT OR REPLACE` (which loses the existing
+`broker_entry_order_ids` JSON history) and keeps the JSON merging
+explicit at the application layer.
+
+### MC debug view first, behavior changes later
+
+Phase A is intentionally writer-only. The new "Mirror Trade Manifest"
+section in Mission Control's Bridge panel surfaces:
+- Per-`sync_state` counts as pill chips at the top (in_sync / pending /
+  rejected / mirror_suppressed / etc.)
+- A 50-row scrolling table showing what the model emitted vs what the
+  broker filled (`model_intended_qty` vs `broker_filled_qty`)
+- ⛔ icon + tooltip for any row with `mirror_suppressed=1`
+
+Operator can verify the writer is populating rows by watching the table
+grow on each ENTRY/ADD. Once we're comfortable it's stable, Phase B
+ships the reducer that consults this same table to gate TRIM/EXIT.
 
 ---
 

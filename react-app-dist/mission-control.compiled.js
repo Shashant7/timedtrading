@@ -1038,6 +1038,7 @@ function BridgeSection({
   const [audit, setAudit] = useState([]);
   const [recent, setRecent] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
+  const [manifest, setManifest] = useState(null);
   const [autoMirror, setAutoMirror] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -1045,7 +1046,7 @@ function BridgeSection({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, a, r, p, am] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
+      const [s, a, r, p, am, mf] = await Promise.all([fetch(`${apiBase}/timed/admin/broker-bridge/status`, {
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/audit?limit=25`, {
         credentials: "include"
@@ -1055,12 +1056,15 @@ function BridgeSection({
         credentials: "include"
       }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/options/auto-mirror`, {
         credentials: "include"
+      }).then(x => x.json()).catch(() => null), fetch(`${apiBase}/timed/admin/broker-bridge/manifest?limit=50`, {
+        credentials: "include"
       }).then(x => x.json()).catch(() => null)]);
       setStatus(s);
       setAudit(a?.rows || []);
       setRecent(r?.rows || []);
       setPortfolio(p);
       setAutoMirror(am?.ok ? am : null);
+      setManifest(mf);
       setErr(s?.error || null);
     } catch (e) {
       setErr(String(e.message || e));
@@ -1703,7 +1707,74 @@ function BridgeSection({
     day: "numeric",
     hour: "numeric",
     minute: "2-digit"
-  }) : "—")))))), audit.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+  }) : "—")))))), manifest && React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "flex items-baseline justify-between mb-2 mt-3"
+  }, React.createElement("div", {
+    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
+  }, "Mirror Trade Manifest (", (manifest.rows || []).length, (manifest.rows || []).length === 50 ? "+" : "", ")"), React.createElement("div", {
+    className: "text-[10px] mc-mute flex gap-2 flex-wrap"
+  }, Object.entries(manifest.counts || {}).map(([k, v]) => React.createElement("span", {
+    key: k,
+    className: "mc-pill " + (k === "in_sync" ? "mc-pill-ok" : k === "rejected" || k === "mirror_suppressed" || k === "broker_orphan" || k === "mothership_orphan" ? "mc-pill-warn" : ""),
+    style: {
+      fontSize: 9
+    }
+  }, k, ": ", v)))), !manifest.ok && manifest.error && React.createElement("div", {
+    className: "text-[11px] text-amber-300 mb-2 italic"
+  }, String(manifest.error).slice(0, 240)), (manifest.rows || []).length > 0 ? React.createElement("div", {
+    className: "mc-table-scroll mb-2"
+  }, React.createElement("table", {
+    className: "mc-table"
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Updated"), React.createElement("th", null, "User"), React.createElement("th", null, "Trade ID"), React.createElement("th", null, "Ticker"), React.createElement("th", null, "Mode"), React.createElement("th", null, "Instrument"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Model Qty"), React.createElement("th", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Filled"), React.createElement("th", null, "Sync"), React.createElement("th", null, "Suppr."))), React.createElement("tbody", null, manifest.rows.map((r, i) => React.createElement("tr", {
+    key: `${r.user_id}-${r.trade_id}-${r.broker_account_id}-${i}`
+  }, React.createElement("td", {
+    className: "text-[11px] mc-mute"
+  }, new Date(r.updated_at).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  })), React.createElement("td", {
+    className: "font-mono text-[10px]"
+  }, String(r.user_id || "").slice(0, 18)), React.createElement("td", {
+    className: "font-mono text-[10px]"
+  }, String(r.trade_id || "").slice(0, 20)), React.createElement("td", {
+    className: "font-mono"
+  }, r.ticker), React.createElement("td", {
+    className: "font-mono text-[10px]"
+  }, r.mode), React.createElement("td", {
+    className: "font-mono text-[10px]"
+  }, r.instrument_type, r.options_structure ? `:${r.options_structure}` : ""), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    },
+    className: "font-mono"
+  }, Number(r.model_intended_qty) || "—"), React.createElement("td", {
+    style: {
+      textAlign: "right"
+    },
+    className: "font-mono"
+  }, Number(r.broker_filled_qty) || "0"), React.createElement("td", null, React.createElement("span", {
+    className: "mc-pill " + (r.sync_state === "in_sync" ? "mc-pill-ok" : r.sync_state === "rejected" || r.sync_state === "mirror_suppressed" || r.sync_state === "broker_orphan" || r.sync_state === "mothership_orphan" ? "mc-pill-warn" : ""),
+    style: {
+      fontSize: 9
+    }
+  }, r.sync_state)), React.createElement("td", {
+    className: "text-[10px]"
+  }, r.mirror_suppressed ? React.createElement("span", {
+    title: r.mirror_suppressed_reason,
+    className: "text-rose-300 cursor-help"
+  }, "\u26D4 ", String(r.mirror_suppressed_reason || "").slice(0, 22)) : "—")))))) : manifest.ok && React.createElement("div", {
+    className: "text-[11px] mc-mute italic mb-2"
+  }, "No manifest rows yet \u2014 populated on every successful ENTRY/ADD via the bridge.")), audit.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold"
   }, "Recent Audit Log (", audit.length, ")"), React.createElement("table", {
     className: "mc-table mb-2"
@@ -2966,6 +3037,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780318178689:65569815
+// cache-bust:1780319677104:181508586
 
-// cache-bust:1780318178689:65569815
+// cache-bust:1780319677104:181508586

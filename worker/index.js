@@ -1535,6 +1535,7 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/user-caps",        "POST /timed/admin/broker-bridge/user-caps"],
   ["GET",  "/timed/admin/broker-bridge/options-prefs",    "GET /timed/admin/broker-bridge/options-prefs"],
   ["POST", "/timed/admin/broker-bridge/options-prefs",    "POST /timed/admin/broker-bridge/options-prefs"],
+  ["GET",  "/timed/admin/broker-bridge/manifest",         "GET /timed/admin/broker-bridge/manifest"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -69081,7 +69082,7 @@ export default {
             headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
       }
 
-      // 2026-06-01 — Per-vehicle options auto-mirror prefs (PR #1 of
+      // 2026-06-01 — Per-vehicle options auto-mirror prefs (PR #412 of
       // the trade-aware-sync sequence). Backed by /bridge/user/options-
       // prefs on the bridge. Mission Control renders the editable
       // 7-row toggle table from /bridge/status (which now includes
@@ -69103,6 +69104,40 @@ export default {
         return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
           { status: 200,
             headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
+      }
+
+      // 2026-06-01 — Phase A: mirror_trade_manifest read-only debug view.
+      // Operator-only. Proxies through to /bridge/manifest. Mission
+      // Control renders the result as a table so the operator can
+      // verify the manifest writer is populating rows after each
+      // ENTRY/ADD. Phase B (separate PR) will surface a 'mirror_
+      // suppressed' state from this same source.
+      if (routeKey === "GET /timed/admin/broker-bridge/manifest") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const qs = new URLSearchParams();
+        const userId = url.searchParams.get("user_id");
+        const limit = url.searchParams.get("limit");
+        const sinceMs = url.searchParams.get("since_ms");
+        if (userId) qs.set("user_id", userId);
+        if (limit) qs.set("limit", limit);
+        if (sinceMs) qs.set("since_ms", sinceMs);
+        const result = await _callBridge("/bridge/manifest", qs.toString() ? `?${qs.toString()}` : "");
+        if (result.kind === "ok") {
+          return new Response(result.body, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport, ...corsHeaders(env, req) },
+          });
+        }
+        if (result.kind === "key_missing" || result.kind === "url_missing") {
+          return sendJSON({ ok: false, error: result.body, error_kind: result.kind, rows: [], counts: {} }, 200, corsHeaders(env, req));
+        }
+        return sendJSON({
+          ok: false,
+          error: `bridge_${result.kind}_${result.status}: ${String(result.body).slice(0, 200)}`,
+          error_kind: result.status === 401 ? "key_missing" : "unreachable",
+          rows: [], counts: {},
+        }, 200, corsHeaders(env, req));
       }
 
       // 2026-06-01 — GET /timed/admin/broker-bridge/portfolio
