@@ -757,20 +757,66 @@ export async function rebuildPromotionQueue(env, opts = {}) {
     }
   }
 
-  // 6. Persist to D1. INSERT OR REPLACE per candidate_id (ticker:YYYY-MM-DD).
+  /* 6. Persist to D1. INSERT OR REPLACE per candidate_id (ticker:YYYY-MM-DD).
+
+     2026-06-01 — Per-ticker decision inheritance.
+
+     Operator reported: "SMCI, SNOW showed up again, but I thought we
+     already added those last time we used screener." Root cause: the
+     candidate_id was `${ticker}:${YYYY-MM-DD}`, so EACH day creates a
+     new row keyed by date. The existing "preserve decision" logic only
+     matched the same-day candidate_id — SMCI approved 2026-05-29 had no
+     row at SMCI:2026-06-01, so today's rebuild created a fresh
+     needs_review/ready_to_add row.
+
+     Fix: before inserting today's row, look up the MOST RECENT row for
+     this ticker (any candidate_id) where status is `approved` or
+     `declined`. If found, inherit that decision (preserve `decided_by`
+     + `decided_at`, override status with the prior decision). Result:
+     a ticker the operator already decided on stays decided forever
+     (unless the operator explicitly re-decides on today's row, which
+     they can do from the Approved/Declined tabs).
+
+     Also: previously-approved tickers that ARE in the universe now stay
+     in the "approved" bucket so the needs_review / ready_to_add tabs
+     don't keep showing them. */
   const todayKey = new Date().toISOString().slice(0, 10);
   let written = 0;
   for (const r of scoredResults) {
     const candidateId = `${r.ticker}:${todayKey}`;
     try {
-      // Preserve operator decisions if they already approved/declined.
+      // Preserve operator decisions for THIS candidate_id (same-day re-run).
       const existing = await db.prepare(
         `SELECT status, decided_by, decided_at FROM discovery_promotion_queue WHERE candidate_id = ?1`,
       ).bind(candidateId).first();
-      const finalStatus = (existing?.status === "approved" || existing?.status === "declined")
-        ? existing.status : r.status;
-      const decidedBy = existing?.decided_by || (r.status === "ready_to_add" ? null : null);
-      const decidedAt = existing?.decided_at || null;
+
+      // Also look up the most recent prior decision for this ticker across
+      // ALL candidate_ids — that's the source-of-truth for cross-day
+      // dedup. Single-row LIMIT 1 ordered by decided_at DESC; both indexes
+      // (idx_promotion_ticker, idx_promotion_created) are already present.
+      const priorDecision = await db.prepare(
+        `SELECT status, decided_by, decided_at
+           FROM discovery_promotion_queue
+          WHERE ticker = ?1
+            AND status IN ('approved', 'declined')
+            AND decided_at IS NOT NULL
+          ORDER BY decided_at DESC
+          LIMIT 1`,
+      ).bind(r.ticker).first().catch(() => null);
+
+      let finalStatus = r.status;
+      let decidedBy = null;
+      let decidedAt = null;
+
+      if (existing?.status === "approved" || existing?.status === "declined") {
+        finalStatus = existing.status;
+        decidedBy = existing.decided_by;
+        decidedAt = existing.decided_at;
+      } else if (priorDecision?.status === "approved" || priorDecision?.status === "declined") {
+        finalStatus = priorDecision.status;
+        decidedBy = priorDecision.decided_by;
+        decidedAt = priorDecision.decided_at;
+      }
 
       await db.prepare(`
         INSERT OR REPLACE INTO discovery_promotion_queue
@@ -859,6 +905,55 @@ export async function loadPromotionQueueRows(env, opts = {}) {
 }
 
 function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }
+
+/* 2026-06-01 — Per-ticker thesis lookup for the right-rail Snapshot tab.
+
+   Operator request: "the justification text is money, can we incorporate
+   that into our Snapshot Right Rail tab when, where and how appropriate?"
+
+   Returns the most recent promotion-queue row for a ticker (regardless of
+   decision status — even APPROVED/DECLINED rows carry the same scoring
+   payload + thesis). One D1 read; no KV cache needed at this layer
+   because the route handler in worker/index.js layers a short cache. */
+export async function loadThesisForTicker(env, ticker) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error: "no_db" };
+  const sym = String(ticker || "").trim().toUpperCase();
+  if (!sym) return { ok: false, error: "ticker_required" };
+  try {
+    const row = await db.prepare(
+      `SELECT candidate_id, ticker, first_seen_at, last_seen_at, appearances_7d,
+              total_score, status, thesis_text, red_flags_json, components_json,
+              signals_json, decided_by, decided_at, created_at, updated_at
+         FROM discovery_promotion_queue
+        WHERE ticker = ?1
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+    ).bind(sym).first();
+    if (!row) return { ok: true, ticker: sym, found: false };
+    return {
+      ok: true,
+      ticker: sym,
+      found: true,
+      candidate_id: row.candidate_id,
+      first_seen_at: row.first_seen_at,
+      last_seen_at: row.last_seen_at,
+      appearances_7d: row.appearances_7d,
+      total_score: row.total_score,
+      status: row.status,
+      thesis_text: row.thesis_text || null,
+      red_flags: tryParseJSON(row.red_flags_json) || [],
+      components: tryParseJSON(row.components_json) || {},
+      signals: tryParseJSON(row.signals_json) || {},
+      decided_by: row.decided_by,
+      decided_at: row.decided_at,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 300) };
+  }
+}
 
 // Operator decision on a queue row. Returns updated row.
 //

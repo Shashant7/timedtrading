@@ -22,6 +22,25 @@
 
 ### Active
 
+- [x] **Screener Promotion Queue: per-ticker decision inheritance +
+      Discovery Thesis in Snapshot right rail (PR pending).** Operator
+      flagged: (1) "SMCI, SNOW showed up again, I thought we already
+      added those" and (2) "the justification text is money, can we
+      incorporate that into Snapshot Right Rail?". Two fixes: (a)
+      `worker/discovery/promotion-queue.js` `rebuildPromotionQueue` now
+      looks up the most recent decision for each ticker across ALL
+      candidate_ids before creating today's row — `approved`/`declined`
+      decisions inherit forward so a previously-decided ticker stays
+      decided. Smoke-tested prior-approved/declined/new-ticker paths.
+      `IN UNIVERSE` badge added to `react-app/screener.html` cards for
+      visual confirmation. (b) New `loadThesisForTicker()` helper +
+      `GET /timed/screener/thesis?ticker=SYM` endpoint (CF Access, 5-min
+      KV cache). New Discovery Thesis Panel in
+      `react-app/shared-right-rail.js` Snapshot tab — sits between
+      Today and Regime Forecast, shows status chip + score in header,
+      thesis paragraph in body, red flags as inline chips. Silently
+      absent for tickers without a promotion-queue record (legacy
+      universe names — don't fabricate).
 - [x] **Investor card: Invalidation prices + LEAP (not Straddle) for
       Investor mode (PR pending).** Operator on CRS Investor card asked
       (1) "add price reference for Monthly ST and Weekly EMA(200) in

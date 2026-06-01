@@ -4024,6 +4024,27 @@
       const [predictionContract, setPredictionContract] = useState(null);
       const [predictionContractLoading, setPredictionContractLoading] = useState(false);
       const [predictionContractError, setPredictionContractError] = useState(null);
+      const [discoveryThesis, setDiscoveryThesis] = useState(null);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym || railTab !== "SNAPSHOT") return;
+        let cancelled = false;
+        (async () => {
+          try {
+            const r = await fetch(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!r.ok) return;
+            const j = await r.json();
+            if (cancelled) return;
+            if (j?.ok && j.found) setDiscoveryThesis(j);else setDiscoveryThesis(null);
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, railTab, API_BASE]);
       const [strategyAlignment, setStrategyAlignment] = useState(null);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -6907,7 +6928,94 @@
         }, String(ticker.state).replace(/_/g, " ")), ticker?.kanban_stage && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           title: "Active management stage"
-        }, String(ticker.kanban_stage).replace(/_/g, " ")))), ticker?.regime_forecast?.p_next && (() => {
+        }, String(ticker.kanban_stage).replace(/_/g, " ")))), discoveryThesis?.found && discoveryThesis?.thesis_text && (() => {
+          const score = Number(discoveryThesis.total_score) || 0;
+          const status = String(discoveryThesis.status || "").toLowerCase();
+          const statusMeta = status === "approved" ? {
+            label: "APPROVED",
+            color: "#34d399"
+          } : status === "ready_to_add" ? {
+            label: "READY",
+            color: "#22c55e"
+          } : status === "needs_review" ? {
+            label: "NEEDS REVIEW",
+            color: "#f5c25c"
+          } : status === "declined" ? {
+            label: "DECLINED",
+            color: "#f87171"
+          } : status === "rejected" ? {
+            label: "REJECTED",
+            color: "#9ca3af"
+          } : {
+            label: status.toUpperCase() || "—",
+            color: "#9ca3af"
+          };
+          const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#f5c25c" : "#6b7280";
+          const decidedAt = Number(discoveryThesis.decided_at) || 0;
+          const decidedLabel = decidedAt > 0 && discoveryThesis.decided_by ? `${discoveryThesis.decided_by} · ${new Date(decidedAt).toLocaleDateString()}` : null;
+          return React.createElement(Panel, {
+            title: "Discovery Thesis",
+            action: React.createElement("span", {
+              style: {
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6
+              }
+            }, React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                color: statusMeta.color,
+                background: statusMeta.color + "22",
+                borderColor: statusMeta.color + "55"
+              },
+              title: `Promotion Queue status: ${statusMeta.label}${decidedLabel ? " — decided by " + decidedLabel : ""}`
+            }, statusMeta.label), React.createElement("span", {
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 11,
+                color: scoreColor,
+                fontWeight: 700
+              },
+              title: "Screener total score (0-100)"
+            }, score, React.createElement("span", {
+              style: {
+                color: "var(--ds-text-dim)",
+                fontWeight: 400
+              }
+            }, "/100")))
+          }, React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.55
+            },
+            dangerouslySetInnerHTML: {
+              __html: String(discoveryThesis.thesis_text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--ds-text)">$1</strong>')
+            }
+          }), Array.isArray(discoveryThesis.red_flags) && discoveryThesis.red_flags.length > 0 && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6
+            }
+          }, discoveryThesis.red_flags.slice(0, 5).map((f, i) => React.createElement("span", {
+            key: i,
+            className: "ds-chip ds-chip--sm",
+            style: {
+              color: "#fca5a5",
+              background: "rgba(248,113,113,0.10)",
+              borderColor: "rgba(248,113,113,0.30)"
+            },
+            title: `Red flag deduction: -${f.deduction || "?"} pts`
+          }, String(f.flag || f).replace(/_/g, " ")))), decidedLabel && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              fontSize: 10,
+              color: "var(--ds-text-dim)"
+            }
+          }, "Decision: ", statusMeta.label.toLowerCase(), " \xB7 ", decidedLabel));
+        })(), ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
           const runLen = Number(ticker._regime_run_length) || 0;
@@ -16569,4 +16677,4 @@
   };
 })();
 
-// cache-bust:1780333242222:588084236
+// cache-bust:1780336958604:877766580

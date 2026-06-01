@@ -6,6 +6,37 @@
 
 ---
 
+## Screener Promotion Queue: per-ticker decision inheritance + reuse the thesis in Snapshot [2026-06-01]
+
+Operator on the Screener page asked two related things:
+1. *"I noticed SMCI, SNOW showed up again, but I thought we already added those last time we used screener."*
+2. *"The justification text is money, can we incorporate that into our Snapshot Right Rail tab when, where and how appropriate?"*
+
+### Bug — decisions didn't persist across days
+
+`worker/discovery/promotion-queue.js` `rebuildPromotionQueue` keyed each row by `candidate_id = ${ticker}:${YYYY-MM-DD}`. The existing "preserve decision" logic only matched the SAME-day candidate_id — so SMCI approved on `2026-05-29` had no row at `SMCI:2026-06-01` when today's rebuild ran, and a fresh `needs_review` row was created for it. The operator had to re-decide on the same tickers every day.
+
+Fix: before inserting today's row, look up the MOST RECENT row for this ticker (any `candidate_id`) where `status IN ('approved', 'declined')` AND `decided_at IS NOT NULL`. If found, inherit that decision (`status` + `decided_by` + `decided_at`) so today's row is born already-decided. The operator can still manually re-decide from the Approved/Declined tabs if they change their mind. Two indexes (`idx_promotion_ticker`, `idx_promotion_created`) already exist, so the lookup is cheap. Smoke-tested 3 scenarios: prior-approved → stays approved, prior-declined → stays declined, brand-new ticker → fresh needs_review.
+
+Also added an `IN UNIVERSE` purple badge on the screener card UI (`react-app/screener.html`) so even when an older approved row is visible the operator can see at a glance "this ticker is already tracked, no action needed."
+
+### Reuse — Discovery Thesis in the Snapshot tab
+
+The operator-curated thesis text in the queue is genuinely high-value editorial (sector + market cap, sustained appearances, theme alignment, news catalyst, insider activity, social buzz, macro, peer validation, active playbook stance, red flags, score). Members opening a ticker in the right rail had no access to it — only the operator viewing `/screener` saw the WHY behind any tracked ticker.
+
+Three additions made this a member-visible signal:
+1. New helper `loadThesisForTicker(env, ticker)` in `worker/discovery/promotion-queue.js` returns the most recent promotion-queue row for a ticker (regardless of decision status — approved/declined rows still carry the scoring payload).
+2. New endpoint `GET /timed/screener/thesis?ticker=SYM` in `worker/index.js` — CF Access only (any signed-in user, not admin-gated), 5-min KV cache, returns the helper's payload.
+3. New `Discovery Thesis` Panel in `react-app/shared-right-rail.js` Snapshot tab — sits between the Today panel and Regime Forecast. Shows the status chip (APPROVED / READY / NEEDS REVIEW / etc.) + score in the header `action` slot, the full thesis paragraph as the body, and any red flags as inline chips. Silently absent when the ticker has no promotion-queue record (most legacy universe names predate the queue — that's expected, not an error). Fetched lazily on Snapshot tab open + ticker change.
+
+### Rule
+
+When operator-curated editorial content (like the screener thesis) exists in one place, surface it everywhere a member encounters that ticker — the cost of fetch + render is minor; the win is they understand the WHY rather than seeing a bare price + chart. Gate the surface only on what's appropriate (CF Access here, not admin) and avoid fabricating content for records that don't exist (silently omit, never invent).
+
+Per-day primary keys (`X:DATE` patterns) are a foot-gun for "decision inheritance" semantics. If the operator's intent is "I've decided on this ticker", the dedup key must be the ticker, not the (ticker, day) pair. Per-day rows are still useful for auditability — but the decision logic must scan across days.
+
+---
+
 ## Investor cards: Invalidation prices + LEAP-not-Straddle for Investor mode [2026-06-01]
 
 Operator on CRS Investor card asked two related questions:

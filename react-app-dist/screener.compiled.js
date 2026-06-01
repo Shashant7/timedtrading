@@ -771,7 +771,15 @@ function App({
         background: statusMeta.bg,
         borderColor: statusMeta.color + "55"
       }
-    }, statusMeta.label)), React.createElement("div", {
+    }, statusMeta.label), sig?.in_universe && React.createElement("span", {
+      className: "text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border",
+      title: "Already in your tracked universe (timed:tickers). No action needed unless you want to re-review.",
+      style: {
+        color: "#a78bfa",
+        background: "rgba(167,139,250,0.10)",
+        borderColor: "rgba(167,139,250,0.40)"
+      }
+    }, "IN UNIVERSE")), React.createElement("div", {
       className: "text-[10px] text-[#6b7280]"
     }, Array.isArray(sig?.themes) && sig.themes.length > 0 && React.createElement(React.Fragment, null, "Themes: ", sig.themes.join(", "), " \xB7 "), Array.isArray(sig?.scan_types) && sig.scan_types.length > 0 && React.createElement(React.Fragment, null, "Scans: ", sig.scan_types.join(", "), " \xB7 "), "Appearances 7d: ", row.appearances_7d || 0, row.decided_by && React.createElement(React.Fragment, null, " \xB7 Decided by ", row.decided_by, " ", row.decided_at ? new Date(Number(row.decided_at)).toLocaleString() : ""))), React.createElement("div", {
       className: "flex items-baseline gap-2 shrink-0"
@@ -1039,6 +1047,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780333242222:588084236
+// cache-bust:1780336958604:877766580
 
-// cache-bust:1780333242222:588084236
+// cache-bust:1780336958604:877766580
