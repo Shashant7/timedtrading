@@ -2053,8 +2053,17 @@ export function evaluateEntry(ctx) {
       //   2. several names (AVGO, AMD, PLTR, NBIS, CRWD, ORCL, MU, ASML, GOOG)
       //      fell into the default "other" cohort which has tighter slope/RSI
       //      caps tuned for cyclicals.
+      //
+      // 2026-06-01 — operator reported NBIS/ARM running in RTH but engine
+      // not picking them. ARM was missing from this list and falling into
+      // the cyclical "other" cohort (too-tight slope/RSI). ARM is now in
+      // (AI-infra mega-cap chip designer — same regime profile as AVGO).
+      // Also added MRVL + SMCI for similar reasons (AI-infra cohort
+      // members; same primary-trend behavior). The list can still be
+      // operator-tuned via deep_audit_cohort_megacap_tickers without
+      // a redeploy.
       daCfg.deep_audit_cohort_megacap_tickers
-        || "AAPL,MSFT,GOOGL,GOOG,AMZN,META,NVDA,TSLA,AVGO,AMD,PLTR,NBIS,CRWD,ORCL,MU,ASML",
+        || "AAPL,MSFT,GOOGL,GOOG,AMZN,META,NVDA,TSLA,AVGO,AMD,ARM,MRVL,SMCI,PLTR,NBIS,CRWD,ORCL,MU,ASML",
     );
     const industrialSet = deepAuditTickerSet(
       daCfg.deep_audit_cohort_industrial_tickers || "ETN,FIX,IESC,MTZ,PH,SWK",

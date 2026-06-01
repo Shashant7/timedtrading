@@ -6,6 +6,63 @@
 
 ---
 
+## NBIS sector + ARM/MRVL/SMCI cohort fixes [2026-06-01]
+
+Operator reported "NBIS, ARM and others running in RTH but the engine
+didn't pick them up". Two independent bugs:
+
+### Bug 1: NBIS sector mismatch
+
+`worker/index.js` SECTOR_MAP had `NBIS: "Health Care"` (probably from
+an early data-source quirk where Nebius Group was misclassified). But
+`worker/sector-mapping.js` correctly has it as Information Technology
+(AI infra / cloud compute). The inline map wins for scoring, so:
+
+- Sector rotation tilt scored NBIS under Health Care defensives.
+- Theme alignment (AI infra cohort) missed it.
+- Investor score was systematically lower than peers like AVGO.
+- Accumulate lane gate (score ≥ 70) excluded it more often than not.
+
+Fixed: NBIS → Information Technology in inline SECTOR_MAP. Matches
+sector-mapping.js. Should immediately bump NBIS investor score by
+~5-8pts and surface it in the AI-infra theme runs.
+
+**Rule:** SECTOR_MAP in `worker/index.js` is authoritative for
+scoring but `worker/sector-mapping.js` is the canonical reference.
+Audit them periodically for drift. The file comment at line ~39430
+notes a few documented mismatches — that list should be empty.
+
+### Bug 2: ARM (and MRVL, SMCI) not in megacap_tech cohort
+
+The trader entry pipeline's cohort overlay (`worker/pipeline/tt-core-entry.js`
+~line 2057) routes tickers into one of four cohorts: index_etf,
+megacap_tech, industrial, speculative — with the rest falling to a
+default "other" bucket tuned for cyclicals (tight slope/RSI caps).
+
+ARM (AI-infra chip designer, same regime profile as AVGO) was in
+`other` and getting rejected for "too extended above E48" or "slope
+too steep" during May/June's tech-led tape — same failure mode the
+May 17 calibration addressed for NBIS/PLTR/AVGO. MRVL and SMCI had
+the same issue.
+
+Fixed: added ARM, MRVL, SMCI to the default megacap_tech list. The
+list is still operator-tunable via `deep_audit_cohort_megacap_tickers`
+in model_config (so additional names can be promoted without a redeploy).
+
+**Rule:** When operator reports a momentum name missing from the
+queue, first check whether it's in the megacap cohort. If not, check
+its sector tag in BOTH SECTOR_MAP locations. Most "missing momentum
+name" reports trace to one of these two bugs.
+
+### How to diagnose missing-ticker reports going forward
+
+1. **Is the ticker in the universe?** `grep -nE "^\s*${TICKER}:" worker/index.js worker/sector-mapping.js` — should show 2 hits with the SAME sector.
+2. **Is it in the right cohort?** Check `deep_audit_cohort_*_tickers` model_config keys (or the defaults in `tt-core-entry.js`).
+3. **What's its investor score?** `GET /timed/investor/ticker?ticker=X` shows components + reason for current stage.
+4. **Why was the entry rejected?** Check `bridge_audit` table for trader entries (`SELECT ts, action, side, reject_reason FROM bridge_audit WHERE ticker=X ORDER BY ts DESC LIMIT 20`).
+
+---
+
 ## Investor engine fire schedule (operator FAQ) [2026-06-01]
 
 A second user question on the Investor Accumulate lane: "When does the

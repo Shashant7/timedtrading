@@ -22,10 +22,21 @@
 
 ### Active
 
+- [x] **Universe + cohort fix — NBIS sector mismatch, ARM/MRVL/SMCI
+      promoted to megacap_tech cohort (PR #423).** NBIS was tagged
+      Health Care in `worker/index.js` SECTOR_MAP (sector-mapping.js
+      correctly has it as Information Technology) — fixed, should
+      immediately raise NBIS investor score and surface it in AI-infra
+      theme runs. ARM, MRVL, SMCI added to default megacap_tech cohort
+      in `worker/pipeline/tt-core-entry.js` so the slope/RSI/extension
+      caps match AI-infra primary-trend behavior (was falling into the
+      cyclical "other" bucket with too-tight caps). All still
+      operator-tunable via `deep_audit_cohort_megacap_tickers`
+      model_config key without a redeploy.
 - [x] **Investor Sim-eligible filter — backfill + chip counts + tickerData
-      passthrough.** Three fixes for the operator report that clicking
-      "Sim-eligible" emptied the lane while the dashboard still showed
-      90 in Accumulate.
+      passthrough (PR #422).** Three fixes for the operator report that
+      clicking "Sim-eligible" emptied the lane while the dashboard
+      still showed 90 in Accumulate.
       (1) `/timed/investor/scores` now backfills `simEligible` +
       `_stDirD/W/M` on the read path when the underlying KV scoring
       blob predates the field (returns `simEligible: null` to mark
@@ -39,8 +50,8 @@
       (4) `investor.html` now passes `data` (from `/timed/all`) as
       `tickerData` to InvestorPanel so the fallback recompute has
       structural fields (tf_tech.D.stDir, monthly_bundle.supertrend_dir).
-- [x] **MC: Run Calibration button + stale-message cleanup.** The
-      Last Calibration KPI in Mission Control now has a "Run ⚙"
+- [x] **MC: Run Calibration button + stale-message cleanup (PR #422).**
+      The Last Calibration KPI in Mission Control now has a "Run ⚙"
       button that opens `/calibration.html?auto=run` in a new tab.
       `/timed/calibration/status` no longer claims "Waiting for next
       half-hour cron" (the cron-based pipeline was removed in April);
