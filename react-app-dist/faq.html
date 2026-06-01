@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FAQ — Timed Trading</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
-  <meta name="description" content="Frequently asked questions about Timed Trading — scoring, the Kanban board, subscriptions, and more." />
+  <meta name="description" content="Frequently asked questions about Timed Trading — the AI CIO, Active Strategy, Options + LEAPs, Daily Brief, Discord + email alerts, Founding-member pricing, and more." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -302,7 +302,7 @@
         <a href="/proof.html">Proof</a>
         <a href="/splash.html#pricing">Pricing</a>
         <a href="/faq.html" class="active">FAQ</a>
-        <a href="/index-react.html" class="btn-signin">Sign In</a>
+        <a href="/today.html" class="btn-signin">Sign In</a>
       </div>
     </div>
   </nav>
@@ -316,9 +316,9 @@
 
     <div class="faq-content">
 
-      <!-- ── General ── -->
+      <!-- ── Getting started ── -->
       <div class="faq-section">
-        <h2>General</h2>
+        <h2>Getting started</h2>
 
         <div class="faq-item open">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
@@ -326,32 +326,30 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Timed Trading is a scoring and timing system for traders and longer-horizon investors. It watches a curated set of tickers positioned to outperform the current market, scores them across multiple timeframes, and provides explicit levels for support, resistance, stop-losses, and targets &mdash; along with precise timing on when to act.</p>
-            <p>The same scoring engine powers <strong>two modes</strong>:</p>
+            <p>Timed Trading is a scoring and timing system that watches a curated set of US stocks, ETFs, and crypto, then surfaces explicit entries, stops, take-profit targets, and lifecycle actions with clear <em>reasoning</em> for each move. Every signal is reviewed by an AI <strong>Chief Investment Officer</strong> before it lands as a tradeable action.</p>
+            <p>The same engine drives two horizons against one universe:</p>
             <ul>
-              <li><strong>Active Trader</strong> &mdash; multi-timeframe entries with stop / take-profit levels, trailing stops, and trims. Daily Brief gives a pre-market game plan and an evening recap.</li>
-              <li><strong>Investor (Trend-Hold)</strong> &mdash; longer-horizon accumulation. Stocks flow through Watch &rarr; Accumulate &rarr; Core Hold &rarr; Reduce &rarr; Exit, with one decision per day. Built for discipline without daily screen time.</li>
+              <li><strong>Active Trader</strong> &mdash; multi-timeframe entries with stop-losses, take-profit ladders, trims, and trailing logic. LONG and SHORT. Held days to weeks.</li>
+              <li><strong>Investor (Trend-Hold)</strong> &mdash; LONG-only accumulation expressed in shares or LEAPs. One decision per ticker per day. Held weeks to months.</li>
             </ul>
-            <p>The goal is simple: stop guessing and start acting with a system.</p>
+            <p>Read the full walkthrough on the <a href="/learn.html">How it works</a> page, or jump to the live trade ledger at <a href="/proof.html">/proof.html</a>.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How has the system performed?
+            What does "the system loop" actually do?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Active Trader strategy backtest covers <strong>Jul 2025 &ndash; May 2026 (203 trading days)</strong>. Headline results from a $100,000 starting account:</p>
+            <p>Four steps, repeated every five minutes during market hours:</p>
             <ul>
-              <li><strong>+40.0% total return</strong> ($100k &rarr; $140k)</li>
-              <li><strong>4.62 Sharpe ratio</strong> (annualized risk-adjusted return)</li>
-              <li><strong>&minus;2.7% max drawdown</strong> (peak-to-trough)</li>
-              <li><strong>52.2% win rate</strong> across 588 closed trades (307W / 281L)</li>
-              <li>~3 trades per day on average</li>
+              <li><strong>Universe.</strong> A curated <em>TT Selected</em> list rotates with the cycle. Subscribers can add their own tickers; backfill plus 8-timeframe scoring runs automatically.</li>
+              <li><strong>Scoring.</strong> Each ticker is scored 0&ndash;100 across eight timeframes (5-minute through monthly), then assigned a conviction tier, R-multiple, rank, and dual Trader/Investor classification.</li>
+              <li><strong>Decision.</strong> Setups are routed through kanban lanes (Watch &rarr; Setup &rarr; Enter &rarr; Hold &rarr; Defend &rarr; Trim &rarr; Exit for Active Trader; Accumulate / Core Hold / Watch / Reduce for Investor). Each entry candidate is reviewed by the AI CIO and either approved or blocked with a recorded reason.</li>
+              <li><strong>Management.</strong> Once a trade is live, the lane drives the management: SL hit, TP1 trim, runner trail, full exit. Every transition is logged in the trade ledger.</li>
             </ul>
-            <p>The Investor (Trend-Hold) strategy is intentionally more conservative: <strong>+8.4% return</strong>, 1.01 Sharpe, &minus;2.4% max drawdown over the same window, with one decision per day per ticker.</p>
-            <p>A 52% win rate combined with disciplined risk &mdash; average winner larger than average loser, max drawdown inside &minus;3% &mdash; is what produces a Sharpe above 4. <strong>Past performance is simulated and does not guarantee future results.</strong> Every trade is logged with full reasoning on the Trades page so you can review the model&rsquo;s decisions.</p>
+            <p>The mental shift Timed Trading asks for: <em>stop reading charts; start reading lanes.</em></p>
           </div>
         </div>
 
@@ -361,212 +359,202 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p><strong>No.</strong> Timed Trading is not a registered investment advisor. All scores, signals, and levels are algorithmic outputs &mdash; not personal investment recommendations. The system is designed to provide structure and timing, but every trading decision is ultimately made by the individual. Always do your own research and consult a licensed financial advisor. See the <a href="/terms.html">Terms of Use</a> for the full disclaimer.</p>
+            <p><strong>No.</strong> Timed Trading is not a registered investment advisor. Scores, signals, and levels are algorithmic outputs &mdash; not personal investment recommendations. Every trading decision is the user's own. See the <a href="/terms.html">Terms of Use</a> for the full disclaimer.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What markets and tickers are covered?
+            How does someone get started?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The system tracks a curated universe of tickers that are rotated periodically to match the current market environment. Coverage includes:</p>
+            <p>The fastest path is three pages:</p>
             <ul>
-              <li><strong>US Stocks &amp; ETFs</strong> &mdash; Large-caps (AAPL, MSFT, NVDA, etc.), sector ETFs (XLF, XLE, XLK), and high-potential names across all 11 GICS sectors.</li>
-              <li><strong>Crypto</strong> &mdash; Bitcoin (BTCUSD) and Ethereum (ETHUSD).</li>
+              <li><a href="/learn.html">How it works</a> &mdash; the 10-minute conceptual overview.</li>
+              <li><a href="/proof.html">Proof</a> &mdash; the live simulated trade ledger with every entry and exit.</li>
+              <li><a href="/splash.html#pricing">Pricing</a> &mdash; a 14-day free trial, then $60/month as a Founding member.</li>
             </ul>
-            <p>The universe isn't fixed at a static number. Tickers are added and removed based on where the strongest opportunities are forming, drawing from momentum screens and sector rotation analysis.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How is the ticker universe selected?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>Tickers are selected based on a combination of sector rotation signals, relative strength, momentum profiles, and volume characteristics. The system draws from curated screening processes to identify names that are positioned to outperform. The universe is not static &mdash; it rotates periodically as market conditions shift, so the focus stays on what matters now.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How does adding or removing tickers work?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>The ticker universe is actively managed. The system periodically evaluates which names offer the best opportunities based on sector rotation, relative strength, and momentum characteristics. Tickers that no longer meet the criteria are rotated out, and new names with stronger setups are rotated in.</p>
-            <p>As a subscriber, you can also request tickers to be added through the watchlist feature. When a ticker is added, the system automatically backfills its historical data, begins scoring it across all 8 timeframes, and includes it in the model&rsquo;s evaluation. You can focus on specific names while the system handles the analysis.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How does the system adapt to market conditions?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>The model is not static &mdash; it reads the market environment and adjusts how aggressively it trades. It monitors:</p>
-            <ul>
-              <li><strong>Market regime</strong> &mdash; Is the broad market trending, transitioning, or choppy? The system detects this from SPY, VIX, and sector rotation data, then adjusts position sizing and entry thresholds accordingly.</li>
-              <li><strong>Volatility</strong> &mdash; When fear spikes (VIX elevated), the model tightens its criteria and reduces exposure. In calm markets, it can be more aggressive with higher conviction setups.</li>
-              <li><strong>Sector rotation</strong> &mdash; The system tracks whether offensive sectors (tech, consumer discretionary) or defensive sectors (utilities, staples, healthcare) are leading. This helps determine the overall risk appetite of the market.</li>
-            </ul>
-            <p>The result is a system that trades more carefully during uncertainty and more decisively when conditions are favorable &mdash; without requiring the user to make those judgment calls manually.</p>
+            <p>The home of the app after sign-in is <a href="/today.html">/today.html</a> &mdash; the daily brief, top options plays, and what the model is watching today.</p>
           </div>
         </div>
       </div>
 
-      <!-- ── Using the System ── -->
+      <!-- ── The Active Strategy + Universe ── -->
       <div class="faq-section">
-        <h2>Using the System</h2>
+        <h2>The Active Strategy &amp; TT Universe</h2>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How should I use the system day-to-day?
+            What is the Active Strategy playbook?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>It depends on which mode you're using.</p>
-            <p><strong>Active Trader (intraday / multi-day):</strong></p>
+            <p>The Active Strategy is the system's editorial macro view of <em>what is likely to happen next</em> in the current market regime: the dominant phase, scenario probabilities, sector tilts, tier-1 themes, and the risks to watch. Think of it as the Fundstrat-style playbook.</p>
+            <p>It feeds four downstream surfaces:</p>
             <ul>
-              <li><strong>Morning</strong> &mdash; Read the Daily Brief for the pre-market game plan: top setups, sector themes, overnight news, and the current Kanban state. Check the Active Trader board for tickers in the Enter lane.</li>
-              <li><strong>During the day</strong> &mdash; The system scores continuously. Watch for moves from Setup &rarr; Enter (new opportunities) or from Hold &rarr; Defend / Trim / Exit (positions that need attention). Push notifications and Discord alerts surface the moment-of-action items.</li>
-              <li><strong>Evening</strong> &mdash; Review the Evening Brief recap. Skim the Trades page Performance Overview for the day's P&amp;L, win-rate, and any trades that hit their thesis or invalidated.</li>
+              <li>The AI CIO uses it as macro context when approving or blocking entries.</li>
+              <li>The Daily Brief opens with the playbook's current scenario weights.</li>
+              <li>Discovery scoring tilts towards tier-1 themes and away from risk-off names.</li>
+              <li>The Right Rail tags every ticker as <strong>ON-THESIS</strong> or <strong>OFF-THESIS</strong> against the current playbook.</li>
             </ul>
-            <p><strong>Investor (Trend-Hold):</strong></p>
-            <ul>
-              <li><strong>Once a day</strong> is enough &mdash; the engine makes at most one decision per ticker per session. Check the Investor view in the morning for any new BUYs, trims, or exits, and the Investor Performance Overview for portfolio-level health.</li>
-            </ul>
-            <p>The system does the heavy lifting &mdash; scanning, scoring, sizing, and alerting. Your job is to review, decide, and act when the signals align with your own conviction.</p>
+            <p>It's not a buy list. It's the lens the rest of the engine looks through.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What is the simulated portfolio?
+            What's the TT Universe?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The system runs a paper-trading portfolio that executes trades based on its own signals &mdash; entering, trimming, and exiting positions automatically. No real money is involved.</p>
-            <p>This simulated portfolio serves two purposes:</p>
-            <ul>
-              <li><strong>Track record</strong> &mdash; It provides a transparent, auditable history of every trade the system has taken, including entry/exit levels, P&amp;L, and win rates.</li>
-              <li><strong>Signal validation</strong> &mdash; By putting its own signals to the test in real-time, the system demonstrates conviction. You can see exactly how the model performs before deciding to follow any given signal.</li>
-            </ul>
-            <p>You can view the full trade history, equity curve, and performance metrics on the Trades page.</p>
+            <p>The <strong>TT Selected</strong> list is the system's curated working universe: ~30&ndash;60 US stocks &amp; ETFs across all 11 GICS sectors, plus BTCUSD and ETHUSD. It rotates with cycles &mdash; tickers are added, removed, boosted, or lowered based on momentum, sector rotation, ETF rebalances, and the <em>Upticks</em> promotion queue.</p>
+            <p>Every change generates a universe-change alert with rationale so subscribers can see <em>why</em> a name entered or left.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Can subscribers add their own tickers?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. Subscribers can add their own tickers from any page with a search box; the engine kicks off a backfill (8 timeframes, weekly + monthly history) and starts scoring the new name on the next cron tick. There's a soft cap to keep performance snappy &mdash; user-added tickers get the same scoring treatment as TT Selected.</p>
           </div>
         </div>
       </div>
 
-      <!-- ── Scoring & Signals ── -->
+      <!-- ── Daily Brief, AI CIO, and Modes ── -->
       <div class="faq-section">
-        <h2>Scoring &amp; Signals</h2>
+        <h2>Daily Brief, AI CIO &amp; Two Modes</h2>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How does the scoring system work?
+            What's in the Daily Brief?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Each ticker receives a composite score (0&ndash;100) computed across 8 timeframes &mdash; from 5-minute bars up to monthly charts. The engine evaluates trend direction, momentum strength, volume profile, and risk/reward ratios. Higher scores indicate stronger conviction setups. Scores refresh every 5 minutes during market hours.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What do the action labels mean (Setup, Enter, Hold, Defend, Trim, Exit)?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>Tickers flow through a pipeline based on their scoring trajectory:</p>
+            <p>The Daily Brief is the pre-market orientation document. Each morning it covers:</p>
             <ul>
-              <li><strong>Setup</strong> &mdash; Building a case. Early signs of a potential move are forming.</li>
-              <li><strong>Enter</strong> &mdash; Time to act. Score and conditions align for a new position.</li>
-              <li><strong>Hold</strong> &mdash; The trade thesis is intact. Stay the course.</li>
-              <li><strong>Defend</strong> &mdash; Caution. The trade is under pressure &mdash; tighten stops or reduce exposure.</li>
-              <li><strong>Trim</strong> &mdash; Take partial profits. Momentum is fading but the trend may continue.</li>
-              <li><strong>Exit</strong> &mdash; Close the position. The thesis is invalidated.</li>
+              <li>The current market regime + Active Strategy scenario weights.</li>
+              <li>SPY / QQQ levels, ATR ranges, and overnight catalysts.</li>
+              <li>Open-position guidance from the model (which trades to defend, which to trim).</li>
+              <li>Setups forming &mdash; what to watch the open for.</li>
+              <li>The ES-style narrative: how the session is likely to play out from the open to close.</li>
             </ul>
+            <p>An Evening Brief publishes after the close with a session recap and overnight setup watch.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How do I read the Active Trader board?
+            What is the AI CIO and why does it matter?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Active Trader dashboard arranges tickers into swim-lanes by their current action phase (Setup, Enter, Hold, etc.). Within each lane, cards are sorted by score &mdash; the strongest setups appear first. Each card shows the ticker symbol, score, direction (LONG/SHORT), and price. Click any card to open the detail view with a full chart, technical breakdown, and precise levels.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What is the Daily Brief?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>The Daily Brief is a pre-market summary generated each trading day. It highlights top-scoring setups, sector rotations, and notable changes from the previous session. Think of it as a game plan for the day &mdash; everything needed to walk in prepared.</p>
-          </div>
-        </div>
-
-        <div class="faq-item">
-          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What is Investor (Trend-Hold) mode?
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <div class="faq-a">
-            <p>Investor mode is the longer-horizon counterpart to Active Trader. Same scoring engine, slower decision cadence, and a different stage model:</p>
+            <p>The AI Chief Investment Officer is an agent-in-the-loop validation layer. Before any Active Trader entry goes live, the CIO reviews the proposed trade against:</p>
             <ul>
-              <li><strong>Watch</strong> &mdash; the engine sees a candidate but conviction isn't there yet.</li>
-              <li><strong>Accumulate</strong> &mdash; opening or building a position (typically 5&ndash;7% allocation).</li>
-              <li><strong>Core Hold</strong> &mdash; full conviction. Add on dips.</li>
-              <li><strong>Reduce</strong> &mdash; trim partial exposure as score weakens.</li>
-              <li><strong>Exit</strong> &mdash; close the position.</li>
+              <li>Current regime + Active Strategy alignment.</li>
+              <li>Recent performance of the setup family (Pullback &middot; Continuation &middot; Reversal &middot; etc.).</li>
+              <li>Concentration limits across open positions.</li>
+              <li>Calendar events (earnings, macro, dividends).</li>
+              <li>The 8-layer Root Strategy confluence verdict (RIDE / READY / DRIFT / FADE).</li>
             </ul>
-            <p>Investor mode makes <strong>one decision per day per ticker</strong>, uses trailing-stop discipline, and is built for people who want exposure without daily screen time. The Investor Dashboard view shows portfolio health, sector allocation, market breadth, and the full lot history with explicit BUY / SELL records.</p>
+            <p>The CIO returns one of <strong>APPROVE</strong>, <strong>ADJUST</strong>, or <strong>BLOCK</strong> with a recorded reason. Blocked setups stay in the Setup lane with the reason visible to the operator. Every decision is auditable in Insights &rarr; AI CIO Decisions.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What's on the Trades page?
+            How are Active Trader and Investor mode different?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Trades page is the system's full audit trail. It has dedicated columns for both modes side-by-side (Active Trader on the left, Investor on the right), each with:</p>
+            <p>Same scoring engine, different cadence and horizon.</p>
             <ul>
-              <li><strong>Equity curve</strong> from inception to today</li>
-              <li><strong>Headline metrics</strong> &mdash; account value, total P&amp;L, open P&amp;L, closed-trade count, W/L breakdown</li>
-              <li><strong>Open positions</strong> with live unrealized P&amp;L</li>
-              <li><strong>Trade / Lot history</strong> &mdash; every entry, exit, trim, with the model's reason for each action</li>
+              <li><strong>Active Trader</strong> &mdash; 1&ndash;10 day swings, LONG <em>and</em> SHORT. Trade-managed by lane: Watch &rarr; Setup &rarr; Enter / Just Entered &rarr; Hold &rarr; Defend &rarr; Trim &rarr; Exit. Position bar on every card shows SL / Entry / TP1.</li>
+              <li><strong>Investor</strong> &mdash; weeks to months, <strong>LONG-only</strong>. Four action lanes (Accumulate, Core Hold, Watch, Reduce) and three research lanes (On Watch, Low Conviction, Avoid). One decision per ticker per day. Expressed as shares or as a deep-ITM LEAP option play.</li>
             </ul>
-            <p>Beneath those columns, two <strong>Performance Overview</strong> panels (one per mode) roll up the numbers into Sharpe, Max DD, win rate, monthly P&amp;L table, setup breakdown, and a P&amp;L calendar heatmap. Click any trade row to open a Trade Review with the chart, levels, and the original reasoning.</p>
+            <p>The Right Rail of every ticker shows <strong>both</strong> the Trader and Investor bias at once, so an operator can see "this looks long for the swing AND core-hold for the long term."</p>
           </div>
         </div>
       </div>
 
-      <!-- ── Subscription ── -->
+      <!-- ── Options & LEAPs ── -->
       <div class="faq-section">
-        <h2>Subscription &amp; Billing</h2>
+        <h2>Options &amp; LEAPs</h2>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What is the Founder's Charter?
+            Does the system suggest options plays?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>We're still in our founder phase &mdash; the platform is live and real, but we're building rapidly and shipping features weekly. <strong>Charter members lock today's $60/mo rate for life</strong>, even when standard pricing rises as the product matures.</p>
-            <p>Charter benefits:</p>
-            <ul>
-              <li><strong>$60/mo locked for life</strong> &mdash; never raised on you, even when standard pricing reaches $99+</li>
-              <li><strong>Charter Member badge</strong> in the app</li>
-              <li><strong>Direct line to the team</strong> &mdash; feature requests, bug reports, roadmap input</li>
-              <li><strong>Early access</strong> to new features as they ship</li>
-            </ul>
-            <p>Charter pricing is a limited-window offer. Once we exit founder phase, standard pricing applies to new signups &mdash; charter members keep their locked rate.</p>
+            <p>Yes. Every long-direction ticker carries an <strong>Options</strong> tab in the Right Rail with a strategy ladder ranked for the configured risk profile: Long Call, Vertical Spread, LEAP, Moonshot (when confluence + momentum activate), Cash-Secured Put, Covered Call, and a plain stock fallback. Each play shows strikes, expiration, premium, max loss, max gain at target, and breakeven.</p>
+            <p>The Today page also surfaces the day's top "Options Plays" as a sidebar so subscribers can browse the highest-conviction expressions across the universe.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What about LEAPs for Investor positions?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>LEAPs are the natural option expression of an Investor thesis. The engine emits a deep-ITM (~0.80 delta) LEAP roughly 18 months out as the headline play for any Investor-stage entry. The rationale follows the stock-replacement framework: synthetic long exposure at a fraction of the capital, defined max loss, no margin call, no forced exit on drawdown. Each LEAP card includes a roll target (T-180 days), a poor-man's covered call suggestion, an IV-at-entry caveat, and a capital-efficiency assessment.</p>
+            <p>Trader-mode tickers also list the LEAP in the ladder as a "long-term thesis alternative" below the short-dated primary. The Right Rail has a Horizon toggle so subscribers can preview either expression on any ticker.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Does an entry alert include the recommended options play?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. Every TRADE_ENTRY notification &mdash; Trader or Investor, Discord or email &mdash; surfaces the recommended options play alongside the equity entry. The Discord embed shows a single field with the headline, per-leg detail, net debit/credit, max loss, breakeven, and the play's rationale (truncated to fit Discord's 1,024-char per-field cap). The email renders a matching "Options Play" section between Setup and Signals, with the LEAP-specific share-equivalent + capital-efficiency hint inline when the entry is an Investor LEAP.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Performance & Proof ── -->
+      <div class="faq-section">
+        <h2>Performance &amp; Proof</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            How has the system performed?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Live, public, and updated automatically: <a href="/proof.html">timed-trading.com/proof</a>.</p>
+            <p>The proof page pulls real-time figures from the simulated trade ledger &mdash; equity curve, Sharpe, max drawdown, win rate, average winner vs average loser, every closed trade with reasoning. No screenshots, no cherry-picking.</p>
+            <p><strong>Past performance is simulated.</strong> The ledger is paper-traded against the model's signals; it is not a guarantee of future returns, and live execution introduces slippage, fills, and broker behavior that the simulation doesn't model. The transparency is the point: every trade can be reviewed.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What's the simulated trade ledger?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>A paper-traded portfolio that executes the model's signals as they fire &mdash; entries, trims, take-profits, stop-losses, exits. The ledger lives at the Portfolio page (subscriber view) and at <a href="/proof.html">/proof.html</a> (public view), and it's the record of how the system actually behaves over time. Both Active Trader and Investor modes maintain their own ledger.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Pricing & Subscription ── -->
+      <div class="faq-section">
+        <h2>Pricing &amp; Subscription</h2>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            What does the subscription cost?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p><strong>$60 per month</strong> as a Founding member, locked for life while the subscription stays active. Standard pricing moves to $99+ once Founding spots close. A 14-day free trial comes with a payment method on file; no charge until the trial ends. Single tier &mdash; full platform, no feature gates. Annual billing is not offered today.</p>
           </div>
         </div>
 
@@ -576,14 +564,20 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Full access to the platform with a 14-day free trial. No feature gates. The subscription includes:</p>
+            <p>The entire platform:</p>
             <ul>
-              <li>Curated ticker universe, scored across 8 timeframes every 5 minutes</li>
-              <li>Active Trader dashboard with the full trade pipeline (Setup &rarr; Exit)</li>
-              <li>Investor Dashboard with simulated portfolio, sector heatmap, and market health</li>
-              <li>AI-powered Daily Brief &mdash; pre-market and evening summaries</li>
-              <li>Right Rail detail view with charts, technicals, and precise levels</li>
-              <li>Bubble Chart for a visual read on relative strength across the universe</li>
+              <li>The Today, Active Trader, Investor, Portfolio, and Insights pages.</li>
+              <li>8-timeframe scoring across the TT Universe + every user-added ticker.</li>
+              <li>Active Trader kanban with 7 lanes (Watch &rarr; Setup &rarr; Enter &rarr; Hold &rarr; Defend &rarr; Trim &rarr; Exit).</li>
+              <li>Investor Action Board (Accumulate, Core Hold, Watch, Reduce) + Research lanes (On Watch, Low Conviction, Avoid).</li>
+              <li>AI CIO Decision Review on every entry.</li>
+              <li>Active Strategy playbook + ON/OFF-THESIS chips on every ticker.</li>
+              <li>Daily Brief (morning + evening) + email delivery.</li>
+              <li>Right Rail with dual Trader/Investor bias, position bar, Saved list, full chart.</li>
+              <li>Options engine + LEAPs + Horizon toggle.</li>
+              <li>Top "Options Plays" sidebar on Today.</li>
+              <li>Discord community + entry alerts (Discord + email, with options play attached).</li>
+              <li>Pro notification bell with live alert feed.</li>
             </ul>
           </div>
         </div>
@@ -594,44 +588,58 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>New subscribers get a <strong>14-day free trial with full access</strong> to both Active Trader and Investor modes. A payment method is required at sign-up so the subscription can roll over automatically when the trial ends, but <strong>no charge is made during the trial period</strong>. After 14 days the Charter subscription is $60/month, billed monthly &mdash; <strong>locked at that rate for the life of your subscription</strong>.</p>
-            <p>Cancel anytime before the trial ends and you won't be charged.</p>
+            <p>14 days of full access to every feature in both modes. A payment method is captured at signup but not charged during the trial. At day 14 the Founding member rate ($60/month) kicks in, locked for life while the subscription stays active. Cancel any time before the trial ends and there's no charge.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            What happens to my price if I cancel and re-subscribe?
+            What if the subscription is canceled and then resumed?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>The Charter rate is locked <strong>as long as your subscription stays active</strong>. If you cancel, your seat releases. If you re-subscribe later, you'll be billed at whatever the then-current rate is. This is the same standard most lock-in offers use.</p>
-            <p>To keep your locked rate, don't cancel &mdash; just pause if you need a break (reach out to support).</p>
+            <p>The Founding member lock applies only while the subscription is active. Canceling releases the seat; resubscribing later means the then-current public rate. Cancellation is self-serve via Account &rarr; Manage Subscription (Stripe billing portal). Access continues through the end of the current billing period.</p>
           </div>
         </div>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            How do I cancel my subscription?
+            How does sign-out work if the account was previously removed?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Cancel anytime from the account menu &mdash; click the profile icon and select "Manage Subscription" to open the billing portal. Access continues until the end of the current billing period. For any issues, reach out to <a href="mailto:support@timed-trading.com">support@timed-trading.com</a>.</p>
+            <p>Re-login on an admin-removed email auto-reactivates the account to <em>active</em> with tier <em>free</em>, which routes through the Start Trial flow &mdash; same as a brand-new user. Blocked accounts get a dedicated "Account suspended" screen rather than a sign-in loop. To switch Google accounts inside a session, use Sign Out &rarr; Switch account from the user menu; the flow clears both the Cloudflare Access cookie and prompts a Google account chooser.</p>
           </div>
         </div>
       </div>
 
-      <!-- ── Technical ── -->
+      <!-- ── Alerts, Community, Technical ── -->
       <div class="faq-section">
-        <h2>Technical</h2>
+        <h2>Alerts, Community &amp; Technical</h2>
 
         <div class="faq-item">
           <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
-            Do you support mobile?
+            How does the system notify subscribers?
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Yes. Timed Trading works in any modern mobile browser (Safari, Chrome, Firefox). The interface adapts to smaller screens. For the best experience on mobile, landscape mode works well for the Kanban view, and portrait for the card list.</p>
+            <p>Three channels:</p>
+            <ul>
+              <li><strong>Discord community</strong> &mdash; entry / trim / exit alerts with full reasoning, AI CIO verdict, and the recommended options play.</li>
+              <li><strong>Email</strong> &mdash; trade alerts (entry / trim / exit) and the Daily Brief (morning + evening). Each alert mirrors the Discord content.</li>
+              <li><strong>In-app notification bell</strong> (Pro-gated) &mdash; live alert feed visible in the top nav while a subscriber is on the site.</li>
+            </ul>
+            <p>Frequency and channels are configurable in Account &rarr; Email Preferences.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Does Timed Trading auto-execute trades on a broker account?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Not yet for subscriber-facing accounts. The platform runs the simulated ledger publicly; live broker mirroring is currently operator-only via the IBKR auto-mirror with manifest-aware drift detection and per-vehicle toggles. <strong>Bring-Your-Own-Broker (BYOB)</strong> for subscribers &mdash; Robinhood + IBKR with per-user OAuth, risk caps, and a manifest sync layer &mdash; is on the roadmap behind the operator-side proof-out.</p>
           </div>
         </div>
 
@@ -641,7 +649,17 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           <div class="faq-a">
-            <p>Market data is powered by <a href="https://twelvedata.com" target="_blank" rel="noopener">Twelve Data</a>, which provides real-time and historical price data for stocks, ETFs, and crypto. All scores and signals are computed from this data by the Timed Trading engine.</p>
+            <p><strong>Twelve Data</strong> provides real-time and historical quotes for stocks, ETFs, and crypto, plus the candle history backing the scoring engine. <strong>Alpaca</strong> provides the options chain (greeks, IV, open interest) and execution-side data for the operator broker bridge. Scores, signals, and lifecycle decisions are computed entirely by the Timed Trading engine on top of those feeds.</p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <button class="faq-q" onclick="this.parentElement.classList.toggle('open')">
+            Does the system work on mobile?
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="faq-a">
+            <p>Yes. Every journey page is responsive. On phones, the Active Trader and Investor kanban lanes stack into vertical strips, the top header + activity strip stay sticky, and the bottom navigation gives one-tap access between Today / Active Trader / Investor / Portfolio / Insights. There is no native iOS or Android app today; the mobile browser experience is the canonical mobile UX.</p>
           </div>
         </div>
       </div>
@@ -649,7 +667,7 @@
       <!-- ── Contact CTA ── -->
       <div class="contact-cta">
         <h3>Still have questions?</h3>
-        <p>Reach out and we'll get back to you as soon as possible.</p>
+        <p>Reach out and we'll get back as soon as possible.</p>
         <a href="mailto:support@timed-trading.com">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
           support@timed-trading.com
@@ -688,4 +706,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1780319880998:294012164 -->
+<!-- cache-bust:1780320301254:882740402 -->
