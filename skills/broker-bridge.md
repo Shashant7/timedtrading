@@ -150,3 +150,12 @@ for context.
 - `worker/options-auto-mirror.js` (dispatch policy)
 - `worker/broker-bridge-client.js` (HTTP client + audit ring)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → IBKR LST entries
+
+## Future: BYOB (Bring Your Own Broker)
+
+The bridge is operator-only today (one connected user — operator's
+own IBKR via env vars). Going multi-user (Pro users connect their
+own broker) is a planned product expansion. Architecture is mostly
+there — see [`../tasks/2026-06-01-byob-broker-connect-plan.md`](../tasks/2026-06-01-byob-broker-connect-plan.md)
+for the 4-phase rollout (Connect-Broker UI → Robinhood OAuth →
+IBKR per-user wizard → compliance + observability).
