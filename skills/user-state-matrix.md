@@ -93,39 +93,37 @@ const isPro =
 
 ---
 
-## ⚠️ Known issue: CF Access team session survives our logout
+## CF Access policy session duration (resolved 2026-06-01)
 
-**Symptom:** user signs out via "Switch account", picks a different Google account, returns to TT — and is silently re-signed-in as the previous account.
+**Current config:** the `Allow users` policy on the Timed Trading Access app has **Policy session duration = 12 hours**. This was lowered from `24 hours` after the user reported the "Switch account flow keeps signing me in as the previous account" bug.
 
-**Why:** Cloudflare Access maintains a TEAM-LEVEL session (24h default lifetime) that persists across app-level `/cdn-cgi/access/logout` calls. There's no public endpoint to clear the team session from outside the CF Dashboard. Even after our top-level logout, CF Access uses the team session to silently re-issue the app cookie on the next visit, WITHOUT going through Google.
+**The bug:** Cloudflare Access maintains a TEAM-LEVEL session that persists across app-level `/cdn-cgi/access/logout` calls. There's no public endpoint to clear the team session from outside the CF Dashboard. With the default 24h policy session, our app-cookie clear would be silently undone by the team session re-issuing the app cookie WITHOUT going through Google.
 
-**User workaround (in-app guidance is on `/logout.html?switch=1`):**
-- Use an Incognito / Private Browsing window for the new account, OR
-- Manually clear cookies for `timed-trading.com` in browser settings.
+**Why 12 hours fixes it:** the policy session duration is the upper bound on how long the team-cached identity can survive. After 12h, CF Access MUST re-authenticate via the IdP. Combined with our switch-account flow (which clears the app cookie immediately AND prompts the user to sign out of Google), the team session can't be older than the policy duration, so worst-case waiting time is bounded.
 
-**Permanent fix — operator action required (Cloudflare Dashboard):**
+**UX impact:** essentially zero. Re-auth in 12h windows is silent for a user with an active Google session (which is the normal case — Google sessions persist for weeks). Users see at most a ~200ms invisible redirect through Google. Comparable to the auto-relog cadence of Robinhood/E*TRADE/Schwab.
 
-Pick ONE of these in the Cloudflare Zero Trust dashboard. The first is the cleanest:
+### How to find the setting
 
-1. **Force account picker on every sign-in** *(recommended)*
-   - **Zero Trust → Settings → Authentication → Login methods**
-   - Edit the Google IdP
-   - Under **OAuth scopes & params**, add:
-     - **Authentication parameter**: `prompt`
-     - **Authentication value**: `select_account`
-   - Save. Now every CF Access sign-in via Google will show the account picker, regardless of any cached session.
+- **Cloudflare Dashboard → Zero Trust → Access controls → Policies**
+- Click the **Allow users** policy
+- Right-hand panel → **Policy session duration**
+- Note: this OVERRIDES the application-level Session Duration. Per-app value is ignored when policy value is set.
 
-2. **Shorten the CF Access app session** *(blunter)*
-   - **Zero Trust → Access → Applications → Timed Trading (or whatever app name)**
-   - Set **Session duration** to `15 minutes` (or even `No duration` to force re-auth on every visit).
-   - Trade-off: users have to re-auth more often. Combined with option 1, the picker shows every time.
+### If a future operator wants longer sessions back
 
-3. **Enable per-IdP "Always re-prompt"** *(if available in your CF plan)*
-   - Some plans expose a toggle for "Always re-authenticate" on the IdP configuration.
+You can raise the policy session duration back up if you ALSO add `prompt=select_account` to the Google IdP, which forces the account picker on every CF Access auth regardless of cached session. To find that:
 
-Either #1 alone OR #2 alone resolves the user-reported issue. Doing both is fine.
+- **Cloudflare Dashboard → Zero Trust → Team & Resources → Login methods** (or via direct URL `https://one.dash.cloudflare.com/<account_id>/access/authentication`)
+- Edit the **Google** IdP
+- Add OAuth param: `prompt` = `select_account`
+- Save
 
-**Document this in the operator runbook** (`docs/2026-05-26-operator-runbook.md`) when this fix is applied so the next operator knows it was a conscious decision.
+With that combination, you can set policy session duration to `1 week` or `1 month` and switching accounts still works perfectly.
+
+### Mirror config on the Admin Pages app
+
+The second app — **Timed Trading - Admin Pages** with the **Admin Only** policy — should mirror the same policy session duration so admins also benefit from the switch-account flow. If you haven't yet, set it there too.
 
 ## Source
 
