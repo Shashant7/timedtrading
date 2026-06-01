@@ -6,6 +6,71 @@
 
 ---
 
+## Trade-aware mirror sync — Phase D (options + LEAPs + Investor) [2026-06-01]
+
+### Contract-symbol normalization is the entire game for options matching
+
+Different brokers return option positions with entirely different field
+shapes — explicit (`{ticker, exp, strike, type}`), OCC strings
+(`"AAPL  240119C00150000"`), or hybrid. Naive ticker-only matching
+falsely classified the wrong strike's position as a leg fill.
+
+Fix: `_normalizeOptionContractKey()` folds all variants into a canonical
+`TICKER:YYYY-MM-DD:STRIKE.SS:[CP]` key. The reconciler builds a Map
+keyed by that string and looks up each leg by composing the key from
+the manifest's `model_intended_legs`.
+
+**Rule:** When matching across heterogeneous external API shapes,
+define ONE canonical key + adapters that fold every input into it.
+Don't pattern-match field names per-row.
+
+### Spread leg gap is critical, not warn
+
+A vertical spread is a defined-risk structure: long leg + short leg
+together. If only the long leg fills (or only the short leg), the
+position is naked — uncovered short call = unbounded loss; uncovered
+long call = simple debit position with no premium offset.
+
+The reconciler distinguishes single-leg `partial_fill` (warn) from
+multi-leg spread `partial_fill` (critical) based on
+`legs.length > 1`. Phase E will route the critical-severity ones
+straight to operator Discord + email instead of the daily digest.
+
+**Rule:** Severity is structural, not numeric. A 50% fill on a
+single-leg call is a manageable scaling problem; a 50% fill on a
+spread is an uncovered-leg crisis.
+
+### Cadence routing — let the row's mode × instrument decide its own rate
+
+Trader equity reconciles every 5 min (fast). Investor equity every
+60 min (the position is months-long; 5 min adds nothing). LEAPs
+daily (theta is glacial; bigger checks are cheaper). The cron itself
+still fires every 5 min; per-row eligibility filtering inside
+`reconcileUser()` is what throttles each row.
+
+The cadence map (`CADENCE_SEC`) is exported so Phase E's MC panel
+can render "next check in Xm" per row.
+
+**Rule:** Don't fight the cron — let the rows decide when they're
+due. Per-row eligibility is cheap (one timestamp diff) and avoids
+the brittleness of cron-per-(mode × instrument).
+
+### OCO planning before execution — log first, dispatch later
+
+Phase D includes OCO cancel-then-replace ORCHESTRATION (returns a
+structured plan: cancel SL order ID, cancel TP order IDs, then
+re-place SL for reduced qty) but does NOT yet execute the cancel
+or replace calls. The bridge audit logs the plan whenever
+`BROKER_OCO_ENABLED=true` so the operator can see what WOULD happen
+on a TRIM before the dispatch ships in Phase E.
+
+This separation lets us prove the planning is correct on production
+data without risking accidental cancel-replace dispatches. Standard
+two-phase rollout pattern: log the plan, observe for a week, then
+flip the dispatch switch.
+
+---
+
 ## Trade-aware mirror sync — Phase C (reconciler cron) [2026-06-01]
 
 ### Operating-hours gate at the cron level, not the row level

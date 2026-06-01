@@ -56,6 +56,13 @@ BROKER_RECONCILE_24_7 = "false"
 # updates to the manifest. Default false (live reconciliation).
 BROKER_RECONCILE_DRY_RUN = "false"
 
+# 2026-06-01 — Phase D OCO (One-Cancels-Other) order lifecycle.
+# When "true" the bridge plans + logs the SL/TP cancel-then-replace
+# orchestration for TRIM/EXIT reducers. When "false" (default) the
+# orchestration is skipped entirely and SL/TP placement is operator-
+# managed. Full cancel/place dispatch lands in Phase E.
+BROKER_OCO_ENABLED = "false"
+
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
 
