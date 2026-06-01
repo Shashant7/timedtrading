@@ -32,6 +32,61 @@
       Mail / Outlook proxies fetch it inline. Cached 5 min CF-side so
       heavy email blasts don't pound D1. Empty-state SVG when candles
       are missing so the `<img>` never breaks.
+- [x] **AI CIO ↔ Active Strategy wiring + freshness Monday-morning
+      false-positive fix (PR #425).** Audit found CIO only saw per-ticker
+      `strategy_stance` when a ticker actively matched a theme — and
+      even then, the system prompt had no guidance on how to use it.
+      The full editorial brief was Daily-Brief-only. Three fixes:
+      (1) `getStrategyBrief()` injected at the top of every CIO entry
+      + lifecycle prompt — same brief Daily Brief uses, so the two
+      surfaces stay in lockstep. (2) `strategy_stance` is now ALWAYS
+      added to memory (even for neutral stance / no theme match) so
+      ~60% of the universe stops getting silently omitted from
+      playbook context. New `on_thesis` boolean for fast LLM branching.
+      (3) New ACTIVE STRATEGY PLAYBOOK + STRATEGY STANCE sections in
+      the CIO system prompt explaining how to use overweight/under-
+      weight + tier-1 themes + active risks as soft priors. Evaluation
+      order elevates these above MACRO TILT and PDZ. Also: freshness
+      monitor's 60m staleness threshold is now weekend-aware (72h on
+      Monday 9 AM check; 24h Tue-Fri) — previously fired
+      "candle_freshness_60: BRK-B 65.5h" every Monday because the
+      first Monday bar hadn't completed yet.
+- [x] **Universe + cohort fix — NBIS sector mismatch, ARM/MRVL/SMCI
+      promoted to megacap_tech cohort (PR #423).** NBIS was tagged
+      Health Care in `worker/index.js` SECTOR_MAP (sector-mapping.js
+      correctly has it as Information Technology) — fixed, should
+      immediately raise NBIS investor score and surface it in AI-infra
+      theme runs. ARM, MRVL, SMCI added to default megacap_tech cohort
+      in `worker/pipeline/tt-core-entry.js` so the slope/RSI/extension
+      caps match AI-infra primary-trend behavior (was falling into the
+      cyclical "other" bucket with too-tight caps). All still
+      operator-tunable via `deep_audit_cohort_megacap_tickers`
+      model_config key without a redeploy.
+- [x] **Investor Sim-eligible filter — backfill + chip counts + tickerData
+      passthrough (PR #422).** Three fixes for the operator report that
+      clicking "Sim-eligible" emptied the lane while the dashboard
+      still showed 90 in Accumulate.
+      (1) `/timed/investor/scores` now backfills `simEligible` +
+      `_stDirD/W/M` on the read path when the underlying KV scoring
+      blob predates the field (returns `simEligible: null` to mark
+      "unknown — data not yet populated").
+      (2) Panel filter now treats `simEligible === null` as **unknown**
+      (keeps visible) instead of hard-exclude, so the lane doesn't
+      silently empty when the cron hasn't repopulated.
+      (3) Chip label shows `Sim-eligible (N+M?)` where N = strictly
+      eligible, M = unknown — so the operator always sees a number that
+      matches the lane.
+      (4) `investor.html` now passes `data` (from `/timed/all`) as
+      `tickerData` to InvestorPanel so the fallback recompute has
+      structural fields (tf_tech.D.stDir, monthly_bundle.supertrend_dir).
+- [x] **MC: Run Calibration button + stale-message cleanup (PR #422).**
+      The Last Calibration KPI in Mission Control now has a "Run ⚙"
+      button that opens `/calibration.html?auto=run` in a new tab.
+      `/timed/calibration/status` no longer claims "Waiting for next
+      half-hour cron" (the cron-based pipeline was removed in April);
+      now points operator at `POST /timed/calibration/run` and
+      `scripts/calibrate.js`. wrangler.toml comment updated to note
+      the half-hour slot is reserved/no-op.
 - [x] **Investor Accumulate lane polish — tighter default + Sim-eligible
       filter.** Bumped `accumulate_strong_score_min` default 65 → 70 in
       `worker/investor.js` (the in-zone path stays permissive). Added a

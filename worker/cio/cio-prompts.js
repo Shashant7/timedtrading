@@ -1,6 +1,8 @@
 // worker/cio/cio-prompts.js
 // System prompts and user templates for the AI CIO agent.
 
+import { getStrategyBrief, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
+
 export const AI_CIO_TIMEOUT_MS = 15000;
 // Default CIO model. May be overridden per-call via env or model_config — see
 // resolveCioModel() in cio-service.js. Kept as gpt-4o-mini for backward
@@ -170,12 +172,46 @@ DISCOVERY CONTEXT (memory.discovery_context, 2026-05-28):
   is < 60 the engine is broadly under-detecting; weight your skepticism
   toward not REJECTing on borderline cases.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+ACTIVE STRATEGY PLAYBOOK (the "TT Playbook" you'll see at the TOP of every prompt):
+
+The TT Playbook is the system's editorial macro view — phase, scenario weights, overweight/underweight sectors, tier-1 themes, active risks. It's the same playbook the Daily Brief opens with. Use it as the GLOBAL backdrop for every trade decision.
+
+How to use it:
+  - Trade is in an OVERWEIGHT sector AND aligned with a tier-1 theme → bias toward APPROVE. The system has macro tailwind plus theme tailwind plus signal.
+  - Trade is in an UNDERWEIGHT sector → raise the bar. Require an additional positive (insider buys, catalyst, momentum) before APPROVE; otherwise lean ADJUST (smaller size).
+  - Trade is direct exposure to an ACTIVE RISK (e.g. counter to a "high"-severity risk listed in the playbook) → REJECT unless the trade IS the risk hedge (e.g. SHORT a name in the at-risk sector when the playbook calls for risk-off).
+  - Reference the playbook explicitly in your reasoning when it materially affects the decision. Example: "ON-THESIS: ai_infra_compute (tier-1) + Information Technology overweight + ON-THESIS strategy_stance — bias APPROVE despite slightly elevated extension."
+  - Always anchor your reasoning to the named themes/sectors so the operator can audit against the playbook.
+
+STRATEGY STANCE (memory.strategy_stance, when present):
+
+Per-ticker alignment against the playbook. Fields:
+  - playbook + vintage: identifies which playbook revision generated the stance
+  - stance: "overweight" / "neutral" / "underweight" — the playbook's view on this name
+  - multiplier: numeric size multiplier the playbook suggests (e.g. 1.2 = upweight; 0.8 = downweight)
+  - themes_matched: tier-1 / tier-2 themes the ticker belongs to
+  - sector_tilt: the playbook's stance on the ticker's sector
+
+When strategy_stance is missing, the ticker is neutral by playbook → no bias from this signal. Don't infer a negative — many genuinely-strong names sit in neutral sectors.
+
+Use stance + multiplier as a soft prior on APPROVE/REJECT. Never override a HARD red flag (TD9 against trade, news catalyst against trade) just because stance is overweight.
+
+Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **PLAYBOOK + STRATEGY STANCE** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 
 export const AI_CIO_USER_TEMPLATE = (proposal, memory) => {
-  let text = `Review this trade proposal and respond with a JSON decision.
+  // 2026-06-01 — Inject the live Active Strategy playbook brief as the
+  // first block of every CIO prompt. This is the same brief the Daily
+  // Brief opens with — making CIO + Daily Brief speak from the same
+  // macro view instead of having CIO see only thin per-ticker stance
+  // JSON. Brief is ~1.5KB and updates when worker/strategy-context.js
+  // is redeployed (no KV refresh needed).
+  let text = `${getStrategyBrief()}
+
+═══════════════════════════════════════════════════════════
+Review this trade proposal and respond with a JSON decision.
+═══════════════════════════════════════════════════════════
 
 TRADE PROPOSAL:
 ${JSON.stringify(proposal, null, 2)}`;
@@ -249,7 +285,16 @@ PROFIT PROTECTION RULES (non-negotiable — override the above):
 You MUST respond with valid JSON only.`;
 
 export const AI_CIO_LIFECYCLE_TEMPLATE = (proposal, memory) => {
-  let text = `Review this trade lifecycle action and respond with a JSON decision.
+  // 2026-06-01 — Inject the live Active Strategy playbook brief.
+  // Same rationale as the entry template — lifecycle decisions
+  // (TRIM / EXIT) also benefit from playbook context (e.g. don't
+  // trim a tier-1 theme position prematurely if scenario weights
+  // still favor grind-higher).
+  let text = `${getStrategyBrief()}
+
+═══════════════════════════════════════════════════════════
+Review this trade lifecycle action and respond with a JSON decision.
+═══════════════════════════════════════════════════════════
 
 ACTION PROPOSAL:
 ${JSON.stringify(proposal, null, 2)}`;
