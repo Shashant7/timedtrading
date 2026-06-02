@@ -5964,6 +5964,220 @@ function RunsTab({
     className: "text-slate-500"
   }, "Snapshot: ", variantData.rule_snapshot_meta.ready ? "Ready" : "—", " \xB7 ", variantData.rule_snapshot_meta.source || "—"))))));
 }
+function DiscoveryRecommendationsPanel({
+  recommendations
+}) {
+  const [appliedIds, setAppliedIds] = useState(new Set());
+  const [busyId, setBusyId] = useState(null);
+  const [errById, setErrById] = useState({});
+  const [successById, setSuccessById] = useState({});
+  if (!Array.isArray(recommendations) || recommendations.length === 0) return null;
+  const apply = async rec => {
+    setBusyId(rec.id);
+    setErrById(m => ({
+      ...m,
+      [rec.id]: null
+    }));
+    try {
+      const r = await fetch(`/timed/admin/discovery/apply?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          recommendation_id: rec.id
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) {
+        setAppliedIds(s => new Set([...s, rec.id]));
+        setSuccessById(m => ({
+          ...m,
+          [rec.id]: j.note || "Applied"
+        }));
+      } else {
+        setErrById(m => ({
+          ...m,
+          [rec.id]: j?.error || "apply_failed"
+        }));
+      }
+    } catch (e) {
+      setErrById(m => ({
+        ...m,
+        [rec.id]: String(e?.message || e).slice(0, 160)
+      }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+  const tierLabel = t => t === 1 ? "AUTO" : t === 2 ? "APPROVE" : "INFO";
+  const tierColor = t => t === 1 ? "#10b981" : t === 2 ? "#f59e0b" : "#64748b";
+  const confColor = c => c === "high" ? "#10b981" : c === "medium" ? "#f59e0b" : "#94a3b8";
+  return React.createElement("div", {
+    className: "card p-4"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-meta)",
+      color: "var(--ds-text-muted)",
+      textTransform: "uppercase",
+      letterSpacing: "0.12em"
+    }
+  }, "Next Actions"), React.createElement("div", {
+    style: {
+      fontSize: "var(--ds-fs-h3)",
+      fontWeight: 600,
+      color: "var(--ds-text-display)",
+      marginTop: 4
+    }
+  }, "How to convert misses into captures")), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--ds-text-faint)"
+    }
+  }, recommendations.length, " recommendation", recommendations.length === 1 ? "" : "s")), React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, recommendations.map(rec => {
+    const applied = appliedIds.has(rec.id);
+    const err = errById[rec.id];
+    const success = successById[rec.id];
+    const busy = busyId === rec.id;
+    return React.createElement("div", {
+      key: rec.id,
+      style: {
+        padding: "10px 12px",
+        background: rec.tier === 3 ? "rgba(255,255,255,0.02)" : "rgba(245,158,11,0.05)",
+        border: `1px solid ${rec.tier === 3 ? "rgba(255,255,255,0.05)" : "rgba(245,158,11,0.15)"}`,
+        borderRadius: 8
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 12
+      }
+    }, React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        padding: "2px 6px",
+        borderRadius: 3,
+        color: "#fff",
+        background: tierColor(rec.tier)
+      }
+    }, tierLabel(rec.tier)), rec.confidence && React.createElement("span", {
+      style: {
+        fontSize: 9,
+        color: confColor(rec.confidence),
+        fontWeight: 600
+      }
+    }, rec.confidence.toUpperCase(), " CONF"), React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: "#fff"
+      }
+    }, rec.title)), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.7)",
+        marginTop: 6,
+        lineHeight: 1.5
+      }
+    }, rec.rationale), rec.knob_path && rec.current_value != null && rec.suggested_value != null && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.55)",
+        marginTop: 6,
+        fontFamily: "Menlo, Monaco, monospace"
+      }
+    }, React.createElement("code", {
+      style: {
+        color: "#fbbf24"
+      }
+    }, rec.knob_path), ": ", React.createElement("span", {
+      style: {
+        color: "#94a3b8"
+      }
+    }, rec.current_value), " \u2192 ", React.createElement("span", {
+      style: {
+        color: "#10b981"
+      }
+    }, rec.suggested_value), rec.expected_captures != null && rec.expected_captures > 0 && React.createElement("span", {
+      style: {
+        marginLeft: 8,
+        color: "#34d399"
+      }
+    }, "\xB7 est. +", rec.expected_captures, " captures"), rec.expected_impact && React.createElement("span", {
+      style: {
+        marginLeft: 8,
+        color: "#34d399"
+      }
+    }, "\xB7 ", rec.expected_impact)), Array.isArray(rec.example_tickers) && rec.example_tickers.length > 0 && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.45)",
+        marginTop: 4
+      }
+    }, "Examples: ", rec.example_tickers.join(", ")), err && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "#fca5a5",
+        marginTop: 6
+      }
+    }, "Error: ", err), success && React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "#10b981",
+        marginTop: 6
+      }
+    }, success)), rec.type === "knob_change" && React.createElement("button", {
+      onClick: () => apply(rec),
+      disabled: busy || applied,
+      style: {
+        padding: "6px 12px",
+        fontSize: 11,
+        fontWeight: 600,
+        borderRadius: 6,
+        background: applied ? "#10b981" : busy ? "#475569" : "#1d4ed8",
+        color: "#fff",
+        border: "none",
+        whiteSpace: "nowrap",
+        cursor: busy || applied ? "default" : "pointer"
+      }
+    }, applied ? "Applied" : busy ? "Applying…" : "Apply")));
+  })), React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 11,
+      color: "var(--ds-text-faint)"
+    }
+  }, "Each Apply writes to ", React.createElement("code", {
+    style: {
+      color: "#94a3b8"
+    }
+  }, "model_config"), " with a ", `<=`, "30% delta cap. Env-var knobs (UPPER_CASE) require a worker redeploy to take effect; lowercase knobs take effect on the next scoring cycle. Action log is in Mission Control \u2192 AI COO card."));
+}
 function DiscoveryRunNowButton() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshErr, setRefreshErr] = useState(null);
@@ -6213,7 +6427,9 @@ function MoveDiscoveryTab({
     style: {
       fontFamily: "var(--tt-font-mono)"
     }
-  }, "diagnose-missed-moves.js --upload")))))), React.createElement("div", {
+  }, "diagnose-missed-moves.js --upload")))))), React.createElement(DiscoveryRecommendationsPanel, {
+    recommendations: report?.recommendations || []
+  }), React.createElement("div", {
     className: "flex gap-1 border-b border-white/[0.06] overflow-x-auto"
   }, [{
     id: "overview",
@@ -7644,6 +7860,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1780411768913:968779823
+// cache-bust:1780412604537:704631375
 
-// cache-bust:1780411768913:968779823
+// cache-bust:1780412604537:704631375
