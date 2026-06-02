@@ -18,6 +18,58 @@
   // VAPID public key for Web Push notifications
   window.__TIMED_VAPID_PUBLIC_KEY = "BA9AZ2w5_qm9sSSSwV-pYn1-mBvMd9oFTdA1Rc-LPW-wZDgpXe273vNzENhqHcV-WV-7j1EiRdWU1aUXR_Jb7OA";
 
+  // ── Mobile bottom-nav self-injector ───────────────────────────────────
+  // 2026-06-01 (v3) — Operator reported "still missing the mobile tab nav
+  // bar" for the third time. Root cause was that tt-bottom-nav.js was only
+  // included via <script> tag on 8 of ~20 user-facing pages. The main
+  // trades dashboard (index-react.html) plus screener / simulation /
+  // mission-control / faq / system-intelligence / etc. all loaded
+  // auth-gate.js (this file) but NOT tt-bottom-nav.js, so the mobile nav
+  // never rendered there.
+  //
+  // Bootstrap fix: auth-gate.js is the one script on EVERY user-facing
+  // page. So we self-inject tt-bottom-nav.js here. Idempotent: the nav
+  // script itself short-circuits if its own DOM nodes already exist, so
+  // multiple injections collapse to one.
+  //
+  // Cache-bust pulled from the auth-gate's own URL so a single deploy
+  // bump propagates everywhere without touching each page's script tag.
+  (function ensureBottomNav() {
+    try {
+      // Skip in non-browser contexts (SSR, tests).
+      if (typeof document === "undefined" || typeof window === "undefined") return;
+      // Skip when an existing tag is already on the page — the page-
+      // level include wins (it has the canonical cache-bust).
+      const existing = document.querySelector('script[src*="tt-bottom-nav.js"]');
+      if (existing) return;
+      // Skip when the nav DOM is already present (extremely unlikely but
+      // belt-and-suspenders against double-load).
+      if (document.getElementById("tt-bottom-nav")) return;
+      // We inject on EVERY viewport — the script handles its own
+      // @media gating to display:block on mobile only. Injecting on
+      // desktop is a no-op (the nav stays display:none) but means the
+      // script is already in cache if the user rotates / resizes to
+      // mobile width.
+      const s = document.createElement("script");
+      // Derive cache-bust from this very auth-gate script's URL so a
+      // single deploy bump cascades. Falls back to a fixed marker so
+      // the script always loads even if the lookup fails.
+      let cb = "20260601-ios-urlbar";
+      try {
+        const me = document.currentScript || document.querySelector('script[src*="auth-gate.js"]');
+        const m = me?.src?.match(/[?&]v=([^&]+)/);
+        if (m && m[1]) cb = m[1];
+      } catch (_) {}
+      s.src = `tt-bottom-nav.js?v=${encodeURIComponent(cb)}`;
+      s.defer = true;
+      s.dataset.injectedBy = "auth-gate-bootstrap";
+      (document.head || document.documentElement).appendChild(s);
+    } catch (e) {
+      // Never block auth on a nav-injection error.
+      try { console.warn("[auth-gate] bottom-nav inject failed:", String(e?.message || e).slice(0, 120)); } catch (_) {}
+    }
+  })();
+
   const { useState, useEffect, useCallback } = React;
 
   const STORAGE_KEY = "timed_auth_session";
