@@ -543,6 +543,32 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
     summary: result.summary,
   });
 
+  /* 2026-06-02 — Surface discovery recommendations as individual
+     tier-2 (operator approval) audit-log entries so the operator
+     sees them in the MC AI COO card alongside calibration/screener
+     actions. The Discovery page is the primary UI for applying them
+     (1-click Apply), but logging here gives the daily-digest path
+     visibility too. */
+  try {
+    const recs = result.recommendations || [];
+    const actionable = recs.filter((r) => r?.type === "knob_change");
+    for (const rec of actionable.slice(0, 5)) {
+      await recordAction(env, {
+        tier: rec.tier === 1 ? "tier1" : rec.tier === 2 ? "tier2" : "tier3",
+        kind: "discovery_recommendation",
+        target: rec.knob_path || rec.id,
+        applied: false, // never auto-applied; operator decides on the Discovery page
+        reason: `${rec.title} (${rec.confidence || "?"} conf): ${(rec.rationale || "").slice(0, 200)}`,
+        recommendation_id: rec.id,
+        current_value: rec.current_value,
+        suggested_value: rec.suggested_value,
+        expected_captures: rec.expected_captures,
+      });
+    }
+  } catch (e) {
+    console.warn("[COO discovery] failed to record recommendations:", String(e?.message || e).slice(0, 120));
+  }
+
   // Findings trigger surface notification (Tier 3 info-only — operator
   // decides whether to act on calibration knobs).
   const captureFloor = Number(env?.COO_DISCOVERY_CAPTURE_FLOOR) || 5;

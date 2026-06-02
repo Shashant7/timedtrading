@@ -70,7 +70,16 @@ function makeKv() {
   const store = new Map();
   return {
     _store: store,
-    async get(k) { return store.get(k) ?? null; },
+    /* CF KV's get supports a second `type` arg ("json", "text", etc).
+       Mirror the "json" branch so callers reading
+       KV.get(key, "json") get parsed objects, not raw strings. */
+    async get(k, type) {
+      const v = store.get(k) ?? null;
+      if (type === "json" && typeof v === "string") {
+        try { return JSON.parse(v); } catch { return null; }
+      }
+      return v;
+    },
     async put(k, v) { store.set(k, v); },
   };
 }
@@ -274,6 +283,63 @@ describe("runMoveDiscovery", () => {
     expect(result.summary.candles_scanned).toBe(2);
     // BAD has only 1 valid candle → filtered out (needs >= 20).
     expect(result.summary.tickers_scanned).toBe(0);
+  });
+
+  it("attaches a recommendations[] array to every run", async () => {
+    const candles = flatHistory("RECS1", 30, 100, {
+      startDayIdx: 24, endDayIdx: 29, endPrice: 130,
+    });
+    const db = makeDb({ "ticker_candles": candles, "trades": [] });
+    const kv = makeKv();
+    /* Seed the universe so the recommendations engine has a real
+       in/out-of-universe split. */
+    await kv.put("timed:tickers", JSON.stringify(["AAPL", "RECS1"]));
+    const env = makeEnv({ db, kv });
+    const result = await runMoveDiscovery(env);
+    expect(result.ok).toBe(true);
+    /* The full report is on KV; the return envelope summary doesn't
+       include the recs[] but the report on KV does. Read it. */
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    expect(Array.isArray(stored.recommendations)).toBe(true);
+    /* The 'info_summary' recommendation is always present. */
+    expect(stored.recommendations.some((r) => r.id === "info_summary")).toBe(true);
+  });
+
+  it("recommends lowering screener threshold when many missed moves are out-of-universe", async () => {
+    /* Build a scenario: 10 tickers with big moves, NONE in universe. */
+    const allCandles = [];
+    for (let i = 0; i < 10; i++) {
+      const ticker = `OOU${i}`;
+      allCandles.push(...flatHistory(ticker, 30, 100, {
+        startDayIdx: 24, endDayIdx: 29, endPrice: 130,
+      }));
+    }
+    const db = makeDb({ "ticker_candles": allCandles, "trades": [] });
+    const kv = makeKv();
+    await kv.put("timed:tickers", JSON.stringify([])); // empty universe
+    const env = makeEnv({ db, kv });
+    await runMoveDiscovery(env);
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    expect(stored.recommendations.some((r) => r.id === "lower_screener_threshold")).toBe(true);
+  });
+
+  it("recommends lowering accumulate score when many missed moves are in-universe", async () => {
+    const allCandles = [];
+    const tickers = [];
+    for (let i = 0; i < 15; i++) {
+      const ticker = `INU${i}`;
+      tickers.push(ticker);
+      allCandles.push(...flatHistory(ticker, 30, 100, {
+        startDayIdx: 24, endDayIdx: 29, endPrice: 130,
+      }));
+    }
+    const db = makeDb({ "ticker_candles": allCandles, "trades": [] });
+    const kv = makeKv();
+    await kv.put("timed:tickers", JSON.stringify(tickers)); // all in universe
+    const env = makeEnv({ db, kv });
+    await runMoveDiscovery(env);
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    expect(stored.recommendations.some((r) => r.id === "lower_investor_accumulate_strong_score")).toBe(true);
   });
 
   it("normalizes ts in candle rows when DB returns seconds instead of ms", async () => {
