@@ -650,6 +650,32 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
       return { stage: "watch", reason: investorScore < 65 ? "score_declining" : "rs_rank_moderate" };
     }
 
+    // 2026-06-01 — Owned-position exhaustion gate.
+    // Same exhaustion-warning roll-up that detectAccumulationZone uses
+    // for new entries. If 2+ exhaustion signals fire on an OWNED
+    // position, downgrade to 'watch' so the auto-rebalance stops
+    // adding (the 'add-to-existing' path requires accumulate/core_hold).
+    // We do NOT auto-trim — the existing per-signal downgrades above
+    // and below this block already handle the cases that warrant a
+    // trim (CHOPPY+loss, weekly ST flip, RS rank<20 + low score).
+    // Exhaustion-only = "stop adding, keep watching" which is exactly
+    // what the 'watch' stage means.
+    const _ownExhaustion = [];
+    if (Number(tfD?.td?.setup_count ?? tfD?.td?.tv_count) >= 7) _ownExhaustion.push("daily_td9_at_7+");
+    if (Number(tfW?.td?.setup_count ?? tfW?.td?.tv_count) >= 7) _ownExhaustion.push("weekly_td9_at_7+");
+    const _ownPhaseD = Number(tfD?.phase?.v);
+    if (_ownPhaseD >= 130 || String(tfD?.phase?.z || "").toUpperCase() === "EXTREME") _ownExhaustion.push("daily_phase_extreme");
+    const _ownPhaseW = Number(tfW?.phase?.v);
+    if (_ownPhaseW >= 130 || String(tfW?.phase?.z || "").toUpperCase() === "EXTREME") _ownExhaustion.push("weekly_phase_extreme");
+    if (Number(mb?.rsi) >= 80) _ownExhaustion.push("monthly_rsi_80+");
+    if (Number(tfW?.rsi?.r5) >= 85) _ownExhaustion.push("weekly_rsi_85+");
+    if (_ownExhaustion.length >= 2) {
+      return {
+        stage: "watch",
+        reason: `exhaustion_detected:${_ownExhaustion.slice(0, 4).join("|")}`,
+      };
+    }
+
     // Signal-based downgrades for core_hold positions
     const _stgDivWBear = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
     if (_stgDivWBear?.bear?.active) {
@@ -675,6 +701,24 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   }
 
   // ── Without position ──
+
+  // 2026-06-01 — Exhausted momentum-runner short-circuit.
+  // detectAccumulationZone() flags `momentum_runner_exhausted` when 2+
+  // exhaustion signals fire alongside an otherwise-passing trend
+  // checklist (TD9 setup at 7+, Phase EXTREME, monthly RSI > 80,
+  // bearish RSI divergence, RS rank < 30, 1m RS < -3%). For these
+  // names the trend is "still up" but the setup is "do not add" — we
+  // route them to 'watch' so they appear in the Investor UI's "Hold
+  // & Watch" lane (visible, but the auto-rebalance does not initiate
+  // a starter position). The exhaustionWarnings array surfaces in the
+  // stageReason so the operator + thesis email can show WHY this isn't
+  // an accumulate.
+  if (accumZone?.zoneType === "momentum_runner_exhausted") {
+    return {
+      stage: "watch",
+      reason: `exhaustion_detected:${(accumZone.exhaustionWarnings || []).slice(0, 4).join("|")}`,
+    };
+  }
 
   // Accumulate: in accumulation zone + decent score + market health okay
   if (
@@ -807,6 +851,75 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
       mrSignals.length >= cfg.accum_zone_momentum_runner_min_signals &&
       mrConfidence >= cfg.accum_zone_momentum_runner_min_confidence
     ) {
+      // 2026-06-01 — EXHAUSTION GATES on momentum_runner.
+      //
+      // Operator caught MU (~$1035, 10x in 12 months) being classified as
+      // "ACCUMULATE / momentum_runner" while EVERY defensive indicator was
+      // flashing red: Daily AND Weekly TD9 setup_count at 7 (sell signal
+      // 2 bars away), Phase EXTREME on both D and W, Monthly RSI 89.9,
+      // RS rank 25 (bottom quartile), 1m RS -4.87% (deteriorating),
+      // momentumHealth -8 (negative). The thesis text literally said
+      // "buyers may be near exhaustion · Institutional distribution
+      // detected — caution warranted" — but the stage was still
+      // "ACCUMULATE" because the 6-of-6 trend-up checklist didn't look at
+      // any of the exhaustion signals.
+      //
+      // Count exhaustion signals. Each one is independently meaningful;
+      // 2+ firing simultaneously is a strong "DO NOT ADD" signal even if
+      // the uptrend is still intact. We don't reject the zone outright
+      // (the position can still be HELD); we DOWNGRADE the zoneType to
+      // 'momentum_runner_exhausted' which classifyInvestorStage maps to
+      // 'watch' (hold-but-don't-add) instead of 'accumulate'.
+      const exhaustionWarnings = [];
+      // 1. TD9 setup count >= 7 on Daily — sell signal within 2 bars
+      const _tdD = tfD?.td?.setup_count ?? tfD?.td?.tv_count ?? tickerData?.td_sequential?.D?.bearish_prep_count;
+      if (Number(_tdD) >= 7) exhaustionWarnings.push(`daily_td9_at_${Number(_tdD)}`);
+      // 2. TD9 setup count >= 7 on Weekly — same on a higher TF
+      const _tdW = tfW?.td?.setup_count ?? tfW?.td?.tv_count ?? tickerData?.td_sequential?.W?.bearish_prep_count;
+      if (Number(_tdW) >= 7) exhaustionWarnings.push(`weekly_td9_at_${Number(_tdW)}`);
+      // 3. Daily Phase EXTREME (>= 130 or zone === 'EXTREME')
+      const _phaseD = Number(tfD?.phase?.v ?? tickerData?.phase_pct);
+      const _phaseDZ = String(tfD?.phase?.z || "").toUpperCase();
+      if (_phaseDZ === "EXTREME" || _phaseD >= 130) exhaustionWarnings.push(`daily_phase_extreme_${Math.round(_phaseD || 0)}`);
+      // 4. Weekly Phase EXTREME
+      const _phaseW = Number(tfW?.phase?.v);
+      const _phaseWZ = String(tfW?.phase?.z || "").toUpperCase();
+      if (_phaseWZ === "EXTREME" || _phaseW >= 130) exhaustionWarnings.push(`weekly_phase_extreme_${Math.round(_phaseW || 0)}`);
+      // 5. Monthly RSI > 80 — extremely rare and historically marks tops
+      const _mRsi = Number(mb?.rsi);
+      if (_mRsi >= 80) exhaustionWarnings.push(`monthly_rsi_${_mRsi.toFixed(0)}`);
+      // 6. Weekly RSI > 85 — very overbought on the timeframe that matters most
+      if (Number.isFinite(wRsi5) && wRsi5 >= 85) exhaustionWarnings.push(`weekly_rsi_${wRsi5.toFixed(0)}`);
+      // 7. Bearish divergence on Daily or Weekly
+      const _divD = tickerData?.rsi_divergence?.D?.bear?.active || tfD?.rsiDiv?.bear?.active;
+      const _divW = tickerData?.rsi_divergence?.W?.bear?.active || tfW?.rsiDiv?.bear?.active;
+      if (_divD) exhaustionWarnings.push("daily_bearish_rsi_divergence");
+      if (_divW) exhaustionWarnings.push("weekly_bearish_rsi_divergence");
+      // 8. RS rank below 30 — relative strength deteriorating despite price rally
+      //    (price up but lagging the broader market = momentum hiding distribution)
+      const _rsRank = Number(tickerData?.__rsRank ?? tickerData?.rsRank);
+      if (Number.isFinite(_rsRank) && _rsRank < 30) exhaustionWarnings.push(`rs_rank_${Math.round(_rsRank)}_below_30`);
+      // 9. Negative 1-month RS — short-window relative strength is bearish
+      const _rs1m = Number(tickerData?.rs?.rs1m);
+      if (Number.isFinite(_rs1m) && _rs1m < -3) exhaustionWarnings.push(`rs_1m_${_rs1m.toFixed(1)}pct`);
+
+      // Threshold: 2+ exhaustion signals → downgrade to 'momentum_runner_exhausted'.
+      // Tunable via deep_audit_investor_accum_zone_exhaustion_min for ops who want
+      // to widen the filter.
+      const exhaustionMin = Number(cfg.accum_zone_exhaustion_min ?? 2);
+      if (exhaustionWarnings.length >= exhaustionMin) {
+        return {
+          inZone: true,
+          zoneType: "momentum_runner_exhausted",
+          // Confidence penalty: each exhaustion signal subtracts 10 pts so
+          // a clearly exhausted setup falls below the watch threshold too
+          // (and classifyInvestorStage drops it from any accumulate lane).
+          confidence: Math.max(0, Math.min(100, mrConfidence - 10 * exhaustionWarnings.length)),
+          signals: [...mrSignals, ...mrBonus],
+          exhaustionWarnings,
+        };
+      }
+
       // Momentum-runner zone qualifies. Return early — this profile is
       // structurally different from the oversold-bounce profile below;
       // mixing the two would dilute confidence semantics.
