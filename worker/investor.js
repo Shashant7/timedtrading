@@ -657,25 +657,15 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
       return { stage: "watch", reason: investorScore < 65 ? "score_declining" : "rs_rank_moderate" };
     }
 
-    // 2026-06-01 — Owned-position exhaustion gate.
-    // Same exhaustion-warning roll-up that detectAccumulationZone uses
-    // for new entries. If 2+ exhaustion signals fire on an OWNED
-    // position, downgrade to 'watch' so the auto-rebalance stops
-    // adding (the 'add-to-existing' path requires accumulate/core_hold).
-    // We do NOT auto-trim — the existing per-signal downgrades above
-    // and below this block already handle the cases that warrant a
-    // trim (CHOPPY+loss, weekly ST flip, RS rank<20 + low score).
-    // Exhaustion-only = "stop adding, keep watching" which is exactly
-    // what the 'watch' stage means.
-    const _ownExhaustion = [];
-    if (Number(tfD?.td?.setup_count ?? tfD?.td?.tv_count) >= 7) _ownExhaustion.push("daily_td9_at_7+");
-    if (Number(tfW?.td?.setup_count ?? tfW?.td?.tv_count) >= 7) _ownExhaustion.push("weekly_td9_at_7+");
-    const _ownPhaseD = Number(tfD?.phase?.v);
-    if (_ownPhaseD >= 130 || String(tfD?.phase?.z || "").toUpperCase() === "EXTREME") _ownExhaustion.push("daily_phase_extreme");
-    const _ownPhaseW = Number(tfW?.phase?.v);
-    if (_ownPhaseW >= 130 || String(tfW?.phase?.z || "").toUpperCase() === "EXTREME") _ownExhaustion.push("weekly_phase_extreme");
-    if (Number(mb?.rsi) >= 80) _ownExhaustion.push("monthly_rsi_80+");
-    if (Number(tfW?.rsi?.r5) >= 85) _ownExhaustion.push("weekly_rsi_85+");
+    // 2026-06-01 — Owned-position exhaustion gate. Uses the shared
+    // detectExhaustionWarnings() helper so the no-position branch +
+    // owned-position branch + Trader-engine SL tightening all see the
+    // same 9-signal logic. If 2+ exhaustion signals fire, downgrade
+    // to 'watch' so the auto-rebalance stops adding. We do NOT
+    // auto-trim from here — that lives in the auto-rebalance trim
+    // sweep (worker/index.js) which calls cioReviewRebalanceTrim
+    // before pulling the trigger.
+    const _ownExhaustion = detectExhaustionWarnings(tickerData);
     if (_ownExhaustion.length >= 2) {
       return {
         stage: "watch",
@@ -771,6 +761,69 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Detect exhaustion warnings on a ticker. Each warning is independently
+ * meaningful; 2+ firing simultaneously is a strong "trend stretched,
+ * mean-reversion imminent" signal even when the trend direction itself
+ * is still up.
+ *
+ * Used by:
+ *   • detectAccumulationZone (this file) — to downgrade momentum_runner
+ *     to momentum_runner_exhausted so blowoff tops don't get an
+ *     ACCUMULATE green light.
+ *   • classifyInvestorStage (this file, with-position branch) — to
+ *     route owned positions into 'watch' so the auto-rebalance stops
+ *     adding to a stretched name.
+ *   • worker/index.js processTradeSimulation (Trader entry path) — to
+ *     TIGHTEN the SL multiplier when a Trader entry fires on an
+ *     exhausted name (smaller risk per trade, quicker exit on cracks).
+ *
+ * Pure function on tickerData; no side effects, no external calls.
+ *
+ * @param {object} tickerData - assembled ticker payload
+ * @returns {string[]} array of warning identifiers; empty when no exhaustion.
+ */
+export function detectExhaustionWarnings(tickerData) {
+  if (!tickerData || typeof tickerData !== "object") return [];
+  const mb = tickerData.monthly_bundle;
+  const tfD = tickerData.tf_tech?.D;
+  const tfW = tickerData.tf_tech?.W;
+  const out = [];
+
+  // 1. TD9 setup count >= 7 on Daily — sell signal within 2 bars
+  const _tdD = tfD?.td?.setup_count ?? tfD?.td?.tv_count ?? tickerData?.td_sequential?.D?.bearish_prep_count;
+  if (Number(_tdD) >= 7) out.push(`daily_td9_at_${Number(_tdD)}`);
+  // 2. TD9 setup count >= 7 on Weekly — same on a higher TF
+  const _tdW = tfW?.td?.setup_count ?? tfW?.td?.tv_count ?? tickerData?.td_sequential?.W?.bearish_prep_count;
+  if (Number(_tdW) >= 7) out.push(`weekly_td9_at_${Number(_tdW)}`);
+  // 3. Daily Phase EXTREME (>= 130 or zone === 'EXTREME')
+  const _phaseD = Number(tfD?.phase?.v ?? tickerData?.phase_pct);
+  const _phaseDZ = String(tfD?.phase?.z || "").toUpperCase();
+  if (_phaseDZ === "EXTREME" || _phaseD >= 130) out.push(`daily_phase_extreme_${Math.round(_phaseD || 0)}`);
+  // 4. Weekly Phase EXTREME
+  const _phaseW = Number(tfW?.phase?.v);
+  const _phaseWZ = String(tfW?.phase?.z || "").toUpperCase();
+  if (_phaseWZ === "EXTREME" || _phaseW >= 130) out.push(`weekly_phase_extreme_${Math.round(_phaseW || 0)}`);
+  // 5. Monthly RSI > 80 — extremely rare and historically marks tops
+  const _mRsi = Number(mb?.rsi);
+  if (_mRsi >= 80) out.push(`monthly_rsi_${_mRsi.toFixed(0)}`);
+  // 6. Weekly RSI > 85 — very overbought on the timeframe that matters most
+  const _wRsi5 = Number(tfW?.rsi?.r5);
+  if (Number.isFinite(_wRsi5) && _wRsi5 >= 85) out.push(`weekly_rsi_${_wRsi5.toFixed(0)}`);
+  // 7. Bearish divergence on Daily or Weekly
+  if (tickerData?.rsi_divergence?.D?.bear?.active || tfD?.rsiDiv?.bear?.active) out.push("daily_bearish_rsi_divergence");
+  if (tickerData?.rsi_divergence?.W?.bear?.active || tfW?.rsiDiv?.bear?.active) out.push("weekly_bearish_rsi_divergence");
+  // 8. RS rank below 30 — relative strength deteriorating despite price rally
+  //    (price up but lagging the broader market = momentum hiding distribution)
+  const _rsRank = Number(tickerData?.__rsRank ?? tickerData?.rsRank);
+  if (Number.isFinite(_rsRank) && _rsRank < 30) out.push(`rs_rank_${Math.round(_rsRank)}_below_30`);
+  // 9. Negative 1-month RS — short-window relative strength is bearish
+  const _rs1m = Number(tickerData?.rs?.rs1m);
+  if (Number.isFinite(_rs1m) && _rs1m < -3) out.push(`rs_1m_${_rs1m.toFixed(1)}pct`);
+
+  return out;
+}
+
+/**
  * Detect if a ticker is in an accumulation zone (good buy zone for investors).
  *
  * @param {object} tickerData - assembled ticker payload
@@ -858,61 +911,11 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
       mrSignals.length >= cfg.accum_zone_momentum_runner_min_signals &&
       mrConfidence >= cfg.accum_zone_momentum_runner_min_confidence
     ) {
-      // 2026-06-01 — EXHAUSTION GATES on momentum_runner.
-      //
-      // Operator caught MU (~$1035, 10x in 12 months) being classified as
-      // "ACCUMULATE / momentum_runner" while EVERY defensive indicator was
-      // flashing red: Daily AND Weekly TD9 setup_count at 7 (sell signal
-      // 2 bars away), Phase EXTREME on both D and W, Monthly RSI 89.9,
-      // RS rank 25 (bottom quartile), 1m RS -4.87% (deteriorating),
-      // momentumHealth -8 (negative). The thesis text literally said
-      // "buyers may be near exhaustion · Institutional distribution
-      // detected — caution warranted" — but the stage was still
-      // "ACCUMULATE" because the 6-of-6 trend-up checklist didn't look at
-      // any of the exhaustion signals.
-      //
-      // Count exhaustion signals. Each one is independently meaningful;
-      // 2+ firing simultaneously is a strong "DO NOT ADD" signal even if
-      // the uptrend is still intact. We don't reject the zone outright
-      // (the position can still be HELD); we DOWNGRADE the zoneType to
-      // 'momentum_runner_exhausted' which classifyInvestorStage maps to
-      // 'watch' (hold-but-don't-add) instead of 'accumulate'.
-      const exhaustionWarnings = [];
-      // 1. TD9 setup count >= 7 on Daily — sell signal within 2 bars
-      const _tdD = tfD?.td?.setup_count ?? tfD?.td?.tv_count ?? tickerData?.td_sequential?.D?.bearish_prep_count;
-      if (Number(_tdD) >= 7) exhaustionWarnings.push(`daily_td9_at_${Number(_tdD)}`);
-      // 2. TD9 setup count >= 7 on Weekly — same on a higher TF
-      const _tdW = tfW?.td?.setup_count ?? tfW?.td?.tv_count ?? tickerData?.td_sequential?.W?.bearish_prep_count;
-      if (Number(_tdW) >= 7) exhaustionWarnings.push(`weekly_td9_at_${Number(_tdW)}`);
-      // 3. Daily Phase EXTREME (>= 130 or zone === 'EXTREME')
-      const _phaseD = Number(tfD?.phase?.v ?? tickerData?.phase_pct);
-      const _phaseDZ = String(tfD?.phase?.z || "").toUpperCase();
-      if (_phaseDZ === "EXTREME" || _phaseD >= 130) exhaustionWarnings.push(`daily_phase_extreme_${Math.round(_phaseD || 0)}`);
-      // 4. Weekly Phase EXTREME
-      const _phaseW = Number(tfW?.phase?.v);
-      const _phaseWZ = String(tfW?.phase?.z || "").toUpperCase();
-      if (_phaseWZ === "EXTREME" || _phaseW >= 130) exhaustionWarnings.push(`weekly_phase_extreme_${Math.round(_phaseW || 0)}`);
-      // 5. Monthly RSI > 80 — extremely rare and historically marks tops
-      const _mRsi = Number(mb?.rsi);
-      if (_mRsi >= 80) exhaustionWarnings.push(`monthly_rsi_${_mRsi.toFixed(0)}`);
-      // 6. Weekly RSI > 85 — very overbought on the timeframe that matters most
-      if (Number.isFinite(wRsi5) && wRsi5 >= 85) exhaustionWarnings.push(`weekly_rsi_${wRsi5.toFixed(0)}`);
-      // 7. Bearish divergence on Daily or Weekly
-      const _divD = tickerData?.rsi_divergence?.D?.bear?.active || tfD?.rsiDiv?.bear?.active;
-      const _divW = tickerData?.rsi_divergence?.W?.bear?.active || tfW?.rsiDiv?.bear?.active;
-      if (_divD) exhaustionWarnings.push("daily_bearish_rsi_divergence");
-      if (_divW) exhaustionWarnings.push("weekly_bearish_rsi_divergence");
-      // 8. RS rank below 30 — relative strength deteriorating despite price rally
-      //    (price up but lagging the broader market = momentum hiding distribution)
-      const _rsRank = Number(tickerData?.__rsRank ?? tickerData?.rsRank);
-      if (Number.isFinite(_rsRank) && _rsRank < 30) exhaustionWarnings.push(`rs_rank_${Math.round(_rsRank)}_below_30`);
-      // 9. Negative 1-month RS — short-window relative strength is bearish
-      const _rs1m = Number(tickerData?.rs?.rs1m);
-      if (Number.isFinite(_rs1m) && _rs1m < -3) exhaustionWarnings.push(`rs_1m_${_rs1m.toFixed(1)}pct`);
-
-      // Threshold: 2+ exhaustion signals → downgrade to 'momentum_runner_exhausted'.
-      // Tunable via deep_audit_investor_accum_zone_exhaustion_min for ops who want
-      // to widen the filter.
+      // 2026-06-01 — EXHAUSTION GATES on momentum_runner. See lessons.md.
+      // Uses the shared detectExhaustionWarnings() helper exported below
+      // so the Trader-entry path (worker/index.js) sees the same 9-signal
+      // logic when deciding whether to tighten SL on a "popping off" name.
+      const exhaustionWarnings = detectExhaustionWarnings(tickerData);
       const exhaustionMin = Number(cfg.accum_zone_exhaustion_min ?? 2);
       if (exhaustionWarnings.length >= exhaustionMin) {
         return {
