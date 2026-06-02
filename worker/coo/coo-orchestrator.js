@@ -119,11 +119,13 @@ export async function getRecentCooActions(env, days = 7) {
 export async function runCooCalibrationCycle(env, options = {}) {
   const t0 = Date.now();
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
-  const adminKey = env?.TIMED_TRADING_API_KEY;
+  // The worker's admin key env var is TIMED_API_KEY (see worker/api.js
+  // requireKeyOr401). Fall back to other names for forward-compat.
+  const adminKey = env?.TIMED_API_KEY || env?.TIMED_INGEST_API_KEY || env?.TIMED_TRADING_API_KEY;
   const tier1Enabled = String(env?.COO_AUTO_APPLY_TIER1 || "false").toLowerCase() === "true";
 
   if (!adminKey) {
-    await recordAction(env, { tier: "tier3", kind: "calibration", target: "cycle", applied: false, reason: "no admin key configured" });
+    await recordAction(env, { tier: "tier3", kind: "calibration", target: "cycle", applied: false, reason: "no admin key configured (set TIMED_API_KEY env var)" });
     return { ok: false, error: "no_admin_key" };
   }
 
@@ -245,7 +247,7 @@ export async function runSelfHealing(env, options = {}) {
   }
 
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
-  const adminKey = env?.TIMED_TRADING_API_KEY;
+  const adminKey = env?.TIMED_API_KEY || env?.TIMED_INGEST_API_KEY || env?.TIMED_TRADING_API_KEY;
   if (!adminKey) {
     return { healed, skipped: [{ reason: "no_admin_key" }], elapsed_ms: Date.now() - t0 };
   }
