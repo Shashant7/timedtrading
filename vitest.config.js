@@ -18,6 +18,11 @@ export default {
   test: {
     include: ["worker/**/*.test.js", "scripts/**/*.test.js", "tests/**/*.test.js"],
     environment: "node",
+    environmentMatchGlobs: [
+      // React component tests need a DOM (jsdom). All other tests run
+      // in the lighter node environment. See react-hooks-discovery.test.js.
+      ["tests/react-*.test.js", "jsdom"],
+    ],
     globals: true,
     testTimeout: 20000,
     reporters: ["default"],
