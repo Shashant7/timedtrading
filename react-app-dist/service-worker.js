@@ -74,4 +74,4 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// cache-bust:1780384420802:464389231
+// cache-bust:1780384575981:878784439
