@@ -902,6 +902,14 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     // worker/options-plays.js for the shape. Trader entries surface a
     // short-dated long-call/spread; Investor entries surface a LEAP.
     options_play,
+    // 2026-06-02 — Exhausted-momentum context. Stamped by worker/index.js
+    // when the entry fired on a ticker flagged with >=2 of the 9
+    // exhaustion signals (TD9 7+, Phase EXTREME, monthly/weekly RSI
+    // overbought, RS deteriorating, bearish divergence). The engine
+    // automatically tightened SL to 1.5×ATR + pulled TPs 25% closer; the
+    // email renders an amber banner so the user sees the trade is on a
+    // stretched setup and the SL/TP block is intentionally tighter.
+    exhaustion,
   } = alert;
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
@@ -1014,6 +1022,34 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     whySection = _section("Why We Trimmed", humanizeEmailTrimReason(trim_reason));
   }
 
+  // 2026-06-02 — EXHAUSTED MOMENTUM banner (entry alerts only).
+  // Surfaces above the AI CIO section so the user sees the engine
+  // auto-tightened SL/TP BEFORE they read the CIO reasoning. Amber
+  // styling matches the Discord embed's ⚠️ field for parity.
+  let exhaustionSection = "";
+  if (isEntry && exhaustion && Array.isArray(exhaustion.warnings) && exhaustion.warnings.length > 0) {
+    const _adjPieces = [];
+    if (exhaustion.sl_tightened) _adjPieces.push("SL → 1.5× ATR cap");
+    if (exhaustion.tps_tightened) _adjPieces.push("TPs pulled 25% closer");
+    const _adjLine = _adjPieces.length
+      ? `<div style="margin:0 0 8px;color:#f59e0b;font-size:13px;font-weight:600">Engine auto-adjusted: ${_adjPieces.join(" · ")}</div>`
+      : "";
+    const _warningList = exhaustion.warnings.slice(0, 9)
+      .map(w => `<li style="margin:2px 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:${BRAND.textSecondary}">${String(w).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</li>`)
+      .join("");
+    exhaustionSection = _section(`⚠️ Exhausted Momentum · ${exhaustion.warnings.length} warning${exhaustion.warnings.length === 1 ? "" : "s"}`, `
+      <div style="border-left:3px solid #f59e0b;padding:4px 0 4px 12px;margin:0 0 4px">
+        ${_adjLine}
+        <div style="color:${BRAND.textSecondary};font-size:12px;margin:0 0 6px">
+          This setup is firing on a stretched trend. The engine tightened the SL and pulled
+          the take-profit targets closer than typical to lock in faster and stop out earlier
+          if the move cracks.
+        </div>
+        <ul style="margin:6px 0 0;padding:0 0 0 18px;list-style:disc">${_warningList}</ul>
+      </div>
+    `);
+  }
+
   // AI CIO (full reasoning, no truncation)
   let cioSection = "";
   if (cio && cio.decision) {
@@ -1118,6 +1154,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ${optionsPlaySection}
     ${signalsSection}
     ${whySection}
+    ${exhaustionSection}
     ${cioSection}
     ${chartLinkHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">

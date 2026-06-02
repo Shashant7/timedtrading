@@ -6890,6 +6890,59 @@
                                 {_trimPct > 0 && <> · Trimmed <strong style={{ color: "var(--ds-accent)" }}>{Math.round(_trimPct)}%</strong></>}
                               </div>
                             )}
+
+                            {/* 2026-06-02 — Exhausted-momentum banner.
+                                When the ticker is currently flagged as
+                                momentum_runner_exhausted by the Investor
+                                classifier (>=2 of the 9 exhaustion signals
+                                firing), surface the warnings INSIDE the
+                                Position panel so the operator sees
+                                "you're holding a stretched runner — the
+                                engine will trim on next rebalance" without
+                                leaving the Trader tab. Reads from the
+                                same accumZone.exhaustionWarnings field
+                                that the auto-rebalance exhaustion-trim
+                                loop uses, so the operator + the engine
+                                see exactly the same signal set. */}
+                            {(() => {
+                              const _exhAZ = ticker?.accumZone || latestTicker?.accumZone;
+                              const _exhW = Array.isArray(_exhAZ?.exhaustionWarnings) ? _exhAZ.exhaustionWarnings : [];
+                              if (_exhW.length === 0) return null;
+                              return (
+                                <div style={{
+                                  marginTop: 10, padding: "8px 10px",
+                                  background: "rgba(245,158,11,0.08)",
+                                  border: "1px solid rgba(245,158,11,0.32)",
+                                  borderRadius: "var(--ds-radius-xs)",
+                                  fontSize: "var(--ds-fs-meta)",
+                                }}>
+                                  <div style={{ color: "#f59e0b", fontWeight: 700, marginBottom: 4, letterSpacing: "0.02em" }}>
+                                    ⚠️ EXHAUSTED MOMENTUM · {_exhW.length} warning{_exhW.length === 1 ? "" : "s"}
+                                  </div>
+                                  <div style={{ color: "var(--ds-text-muted)", marginBottom: 6 }}>
+                                    Auto-rebalance will trim 20% on next cycle (20h cooldown after each trim).
+                                  </div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                    {_exhW.slice(0, 6).map((w, i) => (
+                                      <span key={`exh-${i}`} style={{
+                                        fontFamily: "var(--tt-font-mono)",
+                                        fontSize: 10,
+                                        padding: "1px 6px",
+                                        background: "rgba(245,158,11,0.12)",
+                                        color: "#f59e0b",
+                                        borderRadius: 3,
+                                        border: "1px solid rgba(245,158,11,0.22)",
+                                      }}>{String(w)}</span>
+                                    ))}
+                                    {_exhW.length > 6 && (
+                                      <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                        +{_exhW.length - 6} more
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </Panel>
                         );
                       })()}
@@ -14499,4 +14552,4 @@
   };
 })();
 
-// cache-bust:1780378160255:973727557
+// cache-bust:1780379200493:129425692
