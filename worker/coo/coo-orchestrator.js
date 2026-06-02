@@ -485,6 +485,120 @@ export async function runScreenerAutoPromote(env, options = {}) {
   return { promoted, vetoed, skipped, dry_run: dryRun, elapsed_ms: Date.now() - t0 };
 }
 
+// ── Move Discovery integration ────────────────────────────────────────
+
+/**
+ * Run the worker-native move discovery, persist to KV, and surface
+ * actionable findings (missed-pattern alerts, churn alerts) to the
+ * operator. Discovery used to be a CLI-only ritual that went 3+
+ * months without refresh; this puts it on autopilot.
+ *
+ * Findings drive notifications when:
+ *   • capture_rate falls below COO_DISCOVERY_CAPTURE_FLOOR (default 5%)
+ *   • churn_rate exceeds COO_DISCOVERY_CHURN_CEIL (default 5%)
+ *   • a single ticker churned ≥ 3 times in window
+ *
+ * Returns the discovery summary so it lands in the daily cycle log.
+ */
+export async function runMoveDiscoveryCycle(env, options = {}) {
+  const t0 = Date.now();
+  const masterEnabled = String(env?.COO_ENABLED || "false").toLowerCase() === "true";
+  const discoveryEnabled = String(env?.COO_DISCOVERY_ENABLED || "true").toLowerCase() === "true";
+  if (!masterEnabled || !discoveryEnabled) {
+    return { ok: false, skipped: true, reason: "coo_or_discovery_disabled", elapsed_ms: Date.now() - t0 };
+  }
+
+  let result;
+  try {
+    const MoveDiscovery = await import("../discovery/move-discovery.js");
+    result = await MoveDiscovery.runMoveDiscovery(env, {
+      windowDays: Number(env?.COO_DISCOVERY_WINDOW_DAYS) || 60,
+      minAtr: Number(env?.COO_DISCOVERY_MIN_ATR) || 3,
+    });
+  } catch (e) {
+    return { ok: false, error: `discovery_import_failed: ${String(e?.message || e).slice(0, 120)}`, elapsed_ms: Date.now() - t0 };
+  }
+
+  if (!result?.ok) {
+    return { ok: false, error: result?.error || "discovery_failed", elapsed_ms: Date.now() - t0 };
+  }
+
+  await recordAction(env, {
+    tier: "tier3", kind: "move_discovery_scan", target: "universe",
+    applied: true,
+    reason: `scanned ${result.summary?.tickers_scanned || 0} tickers, ${result.summary?.total_moves || 0} moves, capture ${result.summary?.capture_rate || 0}%, missed ${result.summary?.missed || 0}, churned ${result.summary?.churned || 0}`,
+    summary: result.summary,
+  });
+
+  // Findings trigger surface notification (Tier 3 info-only — operator
+  // decides whether to act on calibration knobs).
+  const captureFloor = Number(env?.COO_DISCOVERY_CAPTURE_FLOOR) || 5;
+  const churnCeiling = Number(env?.COO_DISCOVERY_CHURN_CEIL) || 5;
+  const captureRate = Number(result.summary?.capture_rate) || 0;
+  const churnRate = Number(result.summary?.churn_rate) || 0;
+  const alerts = [];
+  if (captureRate < captureFloor && (result.summary?.total_moves || 0) > 20) {
+    alerts.push(`Capture rate ${captureRate}% < floor ${captureFloor}% (${result.summary.missed} missed of ${result.summary.total_moves})`);
+  }
+  if (churnRate > churnCeiling) {
+    alerts.push(`Churn rate ${churnRate}% > ceiling ${churnCeiling}% (${result.summary.churned} churned)`);
+  }
+  // Repeated-churn tickers (per-ticker churn ≥ 3 in window).
+  // result.churning is summarized per-ticker; pick worst offenders.
+  // The full report on KV has the per-ticker list under `churning`.
+
+  if (alerts.length > 0) {
+    await _notifyDiscoveryAlert(env, alerts, result.summary, result.missed_signals);
+    await recordAction(env, {
+      tier: "tier2", kind: "move_discovery_alert", target: "universe",
+      applied: false, reason: alerts.join(" · "),
+      summary: result.summary,
+    });
+  }
+
+  return {
+    ok: true,
+    elapsed_ms: Date.now() - t0,
+    discovery_elapsed_ms: result.elapsed_ms,
+    summary: result.summary,
+    alerts,
+  };
+}
+
+async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals) {
+  const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
+  if (!webhook) return;
+  try {
+    const lines = [];
+    lines.push("**Discovery flagged the following:**");
+    for (const a of alerts) lines.push(`• ${a}`);
+    if (summary) {
+      lines.push("");
+      lines.push(`Window summary: ${summary.total_moves} moves over ${summary.tickers_scanned} tickers · ${summary.full_capture} full · ${summary.partial_capture} partial · ${summary.missed} missed · ${summary.churned} churned`);
+    }
+    if (missedSignals?.top_missed?.length > 0) {
+      lines.push("");
+      lines.push(`Biggest misses: ${missedSignals.top_missed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`).join(", ")}`);
+    }
+    lines.push("");
+    lines.push("Review in System Intelligence → Discovery tab. Operator can use Calibration → Run Analysis to propose knob changes targeting these patterns.");
+    await fetch(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embeds: [{
+          title: "AI COO · Move Discovery Alert",
+          description: lines.join("\n"),
+          color: 0xf59e0b,
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    }).catch((e) => console.warn("[COO discovery] webhook failed:", String(e?.message || e).slice(0, 120)));
+  } catch (e) {
+    console.warn("[COO discovery] notify failed:", String(e?.message || e).slice(0, 120));
+  }
+}
+
 async function _notifyScreenerPromotions(env, promoted, vetoed) {
   const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
   if (!webhook) return;
@@ -568,6 +682,17 @@ export async function runCooDailyCycle(env, options = {}) {
     summary.screener_promote = await runScreenerAutoPromote(env, options);
   } catch (e) {
     summary.screener_promote = { error: String(e?.message || e).slice(0, 200) };
+  }
+
+  // 4. Move Discovery scan — what did we miss / churn / capture?
+  //    Persists to KV timed:move-discovery (which the system-
+  //    intelligence Discovery tab reads). Surfaces missed-pattern
+  //    findings so the operator can see WHY a move was missed and
+  //    later, calibration can act on the pattern signal.
+  try {
+    summary.move_discovery = await runMoveDiscoveryCycle(env, options);
+  } catch (e) {
+    summary.move_discovery = { error: String(e?.message || e).slice(0, 200) };
   }
 
   summary.elapsed_ms = Date.now() - t0;

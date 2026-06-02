@@ -512,6 +512,48 @@
           }
           return m;
         }, [scores]);
+        /* 2026-06-02 — Per-ticker Investor "action" derived from
+           Investor stage + position-owned + stageReason.
+
+           Operator bug report: the bubble for MU showed an EXIT badge
+           when it should have shown DEFEND. Root cause: the shared
+           BubbleChart used the Trader kanban field (`_effectiveKanban
+           Stage` / `kanban_stage`) regardless of whether it was being
+           rendered on the Trader page or the Investor page. For an
+           owned-but-exhausted Investor position (MU = +profit but
+           Monthly RSI 89 + TD9 setup count 7), the Trader engine
+           outputs `exit` (no Trader entry valid), so the bubble
+           rendered EXIT. The right view is the Investor action:
+           DEFEND (owned + exhausted, protect the gain).
+
+           Fix: derive a single per-ticker action keyed off the
+           Investor stage + ownership + exhaustion reason, surface
+           it on the ticker as `_investorAction`, and let the bubble
+           chart prefer this when present. */
+        const investorActionBySym = useMemo(() => {
+          const m = new Map();
+          for (const [sym, row] of scoreBySym.entries()) {
+            const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+            const reason = String(row?.stageReason || row?.stage_reason || "").toLowerCase();
+            const owned = !!(row?.position?.owned);
+            const exhausted = reason.includes("exhaustion") || reason.includes("exhausted");
+            const bearDiv = reason.includes("bearish_divergence");
+            const ichWeak = reason.includes("ichimoku");
+            const chopLoss = reason.includes("choppy_regime");
+            let action = null;
+            if (stage === "accumulate") action = "ACCUMULATE";
+            else if (stage === "core_hold" || stage === "hold") action = "HOLD";
+            else if (stage === "reduce" || stage === "trim") action = "REDUCE";
+            else if (stage === "exited") action = "EXITED";
+            else if (stage === "watch") {
+              if (owned && (exhausted || bearDiv || ichWeak || chopLoss)) action = "DEFEND";
+              else if (owned) action = "HOLD";
+              else action = "WATCH";
+            }
+            if (action) m.set(sym, action);
+          }
+          return m;
+        }, [scoreBySym]);
 
         const visible = useMemo(() => {
           if (!data) return [];
@@ -567,8 +609,22 @@
               if (stage && stage !== "null") return true;
               return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
             });
-          return arr.slice(0, 250);
-        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym]);
+          /* 2026-06-02 — Attach Investor-side action + stage so the
+             shared BubbleChart renders the Investor badge (ACCUMULATE
+             / HOLD / DEFEND / REDUCE / WATCH) instead of the Trader
+             kanban lane. See investorActionBySym above. */
+          return arr.slice(0, 250).map((t) => {
+            const sym = String(t?.ticker || "").toUpperCase();
+            const action = investorActionBySym.get(sym) || null;
+            const stage = stageBySym.get(sym) || null;
+            const scoreRow = scoreBySym.get(sym) || null;
+            return action || stage ? { ...t,
+              _investorAction: action,
+              _investorStage: stage,
+              _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null,
+            } : t;
+          });
+        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym]);
 
         const rankedTickers = useMemo(() => {
           if (!getRankedTickers || !data) return [];

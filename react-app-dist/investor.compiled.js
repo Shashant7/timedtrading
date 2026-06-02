@@ -128,6 +128,24 @@ function InvBubbleMap({
     }
     return m;
   }, [scores]);
+  const investorActionBySym = useMemo(() => {
+    const m = new Map();
+    for (const [sym, row] of scoreBySym.entries()) {
+      const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+      const reason = String(row?.stageReason || row?.stage_reason || "").toLowerCase();
+      const owned = !!row?.position?.owned;
+      const exhausted = reason.includes("exhaustion") || reason.includes("exhausted");
+      const bearDiv = reason.includes("bearish_divergence");
+      const ichWeak = reason.includes("ichimoku");
+      const chopLoss = reason.includes("choppy_regime");
+      let action = null;
+      if (stage === "accumulate") action = "ACCUMULATE";else if (stage === "core_hold" || stage === "hold") action = "HOLD";else if (stage === "reduce" || stage === "trim") action = "REDUCE";else if (stage === "exited") action = "EXITED";else if (stage === "watch") {
+        if (owned && (exhausted || bearDiv || ichWeak || chopLoss)) action = "DEFEND";else if (owned) action = "HOLD";else action = "WATCH";
+      }
+      if (action) m.set(sym, action);
+    }
+    return m;
+  }, [scoreBySym]);
   const visible = useMemo(() => {
     if (!data) return [];
     const q = String(searchQuery || "").trim().toUpperCase();
@@ -165,8 +183,19 @@ function InvBubbleMap({
       if (stage && stage !== "null") return true;
       return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
     });
-    return arr.slice(0, 250);
-  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym]);
+    return arr.slice(0, 250).map(t => {
+      const sym = String(t?.ticker || "").toUpperCase();
+      const action = investorActionBySym.get(sym) || null;
+      const stage = stageBySym.get(sym) || null;
+      const scoreRow = scoreBySym.get(sym) || null;
+      return action || stage ? {
+        ...t,
+        _investorAction: action,
+        _investorStage: stage,
+        _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null
+      } : t;
+    });
+  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -621,6 +650,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780386186862:346288809
+// cache-bust:1780387122734:621164997
 
-// cache-bust:1780386186862:346288809
+// cache-bust:1780387122734:621164997

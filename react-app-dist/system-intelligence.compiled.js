@@ -6010,14 +6010,49 @@ function MoveDiscoveryTab({
       className: "card p-4 text-sm text-rose-300"
     }, "Move discovery unavailable: ", error);
   }
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshErr, setRefreshErr] = useState(null);
+  const triggerRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshErr(null);
+    try {
+      const r = await fetch(`/timed/admin/discovery/run?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) {
+        setRefreshErr(j?.error || "refresh_failed");
+        return;
+      }
+      window.location.reload();
+    } catch (e) {
+      setRefreshErr(String(e?.message || e).slice(0, 160));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
   if (!report) {
     return React.createElement("div", {
       className: "card p-4 text-sm text-slate-400"
-    }, "No move discovery report is loaded yet. Run ", React.createElement("code", {
-      className: "text-slate-200"
-    }, "USE_D1=1 node scripts/discover-moves.js --upload"), " and ", React.createElement("code", {
-      className: "text-slate-200"
-    }, "USE_D1=1 node scripts/diagnose-missed-moves.js --upload"), ".");
+    }, React.createElement("div", null, "No move discovery report yet. The COO runs Discovery daily at 22:00 UTC."), React.createElement("div", {
+      className: "mt-2 flex items-center gap-2"
+    }, React.createElement("button", {
+      onClick: triggerRefresh,
+      disabled: refreshing,
+      className: "px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
+    }, refreshing ? "Scanning…" : "Run Discovery Now"), refreshErr && React.createElement("span", {
+      className: "text-rose-300 text-xs"
+    }, refreshErr)), React.createElement("div", {
+      className: "mt-2 text-[11px] text-slate-500"
+    }, "For deep historical diagnostic reports, the CLI still works:", React.createElement("code", {
+      className: "ml-1 text-slate-300"
+    }, "USE_D1=1 node scripts/discover-moves.js --upload"), "."));
   }
   const generatedMs = report?.generated ? new Date(report.generated).getTime() : 0;
   const isStale = generatedMs > 0 && Date.now() - generatedMs > 7 * 24 * 3600 * 1000;
@@ -6061,17 +6096,37 @@ function MoveDiscoveryTab({
     }
   }, "\xB7 stale")), React.createElement("div", {
     style: {
-      fontSize: "var(--ds-fs-caption)",
-      color: "var(--ds-text-faint)",
-      marginTop: 2
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 6,
+      justifyContent: "flex-end"
     }
-  }, React.createElement("span", {
-    title: "USE_D1=1 node scripts/discover-moves.js --upload && USE_D1=1 node scripts/diagnose-missed-moves.js --upload"
-  }, "Refresh: run ", React.createElement("code", {
+  }, React.createElement("button", {
+    onClick: triggerRefresh,
+    disabled: refreshing,
     style: {
-      fontFamily: "var(--tt-font-mono)"
+      padding: "4px 10px",
+      fontSize: 11,
+      fontWeight: 600,
+      borderRadius: 6,
+      background: refreshing ? "#475569" : "#059669",
+      color: "#fff",
+      border: "none",
+      cursor: refreshing ? "default" : "pointer"
     }
-  }, "discover-moves.js --upload"))))), React.createElement("div", {
+  }, refreshing ? "Scanning…" : "Run Discovery Now"), React.createElement("span", {
+    style: {
+      fontSize: "var(--ds-fs-caption)",
+      color: "var(--ds-text-faint)"
+    }
+  }, "Auto-refresh: daily 22:00 UTC (AI COO)")), refreshErr && React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#fca5a5",
+      marginTop: 4
+    }
+  }, refreshErr))), React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-5 gap-3"
   }, React.createElement("a", {
     className: "si-kpi",
@@ -7589,6 +7644,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1780386186862:346288809
+// cache-bust:1780387122734:621164997
 
-// cache-bust:1780386186862:346288809
+// cache-bust:1780387122734:621164997
