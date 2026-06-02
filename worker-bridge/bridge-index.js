@@ -797,6 +797,21 @@ export default {
         (u) => brokerAdapterFor(u),
         { dryRun },
       );
+      // 2026-06-02 — Reconciler heartbeat for the main worker's
+      // sanity-sweep broker_reconciler_freshness check. Both workers
+      // share the same KV namespace (env.BRIDGE_KV here ≡ env.KV_TIMED
+      // on the main worker) so the main worker can read this key
+      // directly. Best-effort; if KV is unavailable the reconciler
+      // still ran successfully — we just lose the heartbeat for this
+      // tick.
+      try {
+        const kv = env?.BRIDGE_KV || env?.KV_TIMED;
+        if (kv) {
+          await kv.put("bridge:reconciler:last_run", String(Date.now()), { expirationTtl: 24 * 3600 });
+        }
+      } catch (hbErr) {
+        console.warn("[RECONCILER_HEARTBEAT] write failed:", String(hbErr?.message || hbErr).slice(0, 120));
+      }
       console.log(`[RECONCILER] cycle done ${JSON.stringify(result.aggregate || {})} elapsed=${Date.now() - t0}ms dry=${dryRun}`);
     } catch (e) {
       console.error("[BRIDGE_CRON] failed:", String(e?.message || e).slice(0, 500));

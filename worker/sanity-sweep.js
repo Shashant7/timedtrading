@@ -409,10 +409,13 @@ const checkCandleFreshnessOpen = timed(async function checkCandleFreshnessOpen(e
   const anomalies = [];
   try {
     if (!env?.DB) return envelope("candle_freshness_open", "Candle freshness on open positions", [], "no D1", null);
-    const { results } = await env.DB.prepare(
+    // Candles live in D1 (ticker_candles table), NOT KV. Use the same
+    // shape as /timed/admin/candle-freshness so the source of truth is
+    // identical.
+    const { results: openRows } = await env.DB.prepare(
       "SELECT DISTINCT ticker FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 100"
     ).all().catch(() => ({ results: [] }));
-    const openTickers = (results || []).map(r => String(r.ticker || "").toUpperCase()).filter(Boolean);
+    const openTickers = (openRows || []).map(r => String(r.ticker || "").toUpperCase()).filter(Boolean);
     if (openTickers.length === 0) {
       return envelope("candle_freshness_open", "Candle freshness on open positions",
         [], "no open positions to check", null);
@@ -420,28 +423,28 @@ const checkCandleFreshnessOpen = timed(async function checkCandleFreshnessOpen(e
     const now = Date.now();
     const isWeekend = [0, 6].includes(new Date().getUTCDay());
     // Daily candles: stale if >48h on weekday; >96h on weekend.
-    const staleD = isWeekend ? 96 * 3600000 : 48 * 3600000;
+    const staleThresholdMs = isWeekend ? 96 * 3600000 : 48 * 3600000;
+    // Single query: latest D candle ts per open ticker.
+    const placeholders = openTickers.slice(0, 30).map(() => "?").join(",");
+    const { results: candleRows } = await env.DB.prepare(
+      `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' AND ticker IN (${placeholders}) GROUP BY ticker`
+    ).bind(...openTickers.slice(0, 30)).all().catch(() => ({ results: [] }));
+    const tickerToTs = new Map((candleRows || []).map(r => [String(r.ticker || "").toUpperCase(), Number(r.max_ts) || 0]));
     let staleCount = 0;
     const staleNames = [];
     for (const sym of openTickers.slice(0, 30)) {
-      const candleRaw = await env.KV_TIMED.get(`candles:${sym}:D`).catch(() => null);
-      if (!candleRaw) {
-        staleCount++; staleNames.push(`${sym}(missing)`); continue;
+      const lastTs = tickerToTs.get(sym) || 0;
+      if (lastTs === 0) { staleNames.push(`${sym}(no candles)`); staleCount++; continue; }
+      const ageMs = now - lastTs;
+      if (ageMs > staleThresholdMs) {
+        const hoursStale = (ageMs / 3600000).toFixed(1);
+        staleNames.push(`${sym}(${hoursStale}h)`);
+        staleCount++;
       }
-      try {
-        const candles = JSON.parse(candleRaw);
-        const lastBar = Array.isArray(candles) ? candles[candles.length - 1] : null;
-        const lastTs = Number(lastBar?.t) || Number(lastBar?.time) || 0;
-        if (lastTs > 0 && (now - lastTs) > staleD) {
-          const hoursStale = ((now - lastTs) / 3600000).toFixed(1);
-          staleNames.push(`${sym}(${hoursStale}h)`);
-          staleCount++;
-        }
-      } catch (_) { /* skip parse errors */ }
     }
     if (staleCount > 0) {
       anomalies.push({
-        detail: `${staleCount} of ${Math.min(30, openTickers.length)} open positions have stale daily candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? "..." : ""}`,
+        detail: `${staleCount} of ${Math.min(30, openTickers.length)} open positions have stale daily candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? `...+${staleCount - 5}` : ""}`,
         severity: staleCount >= 5 ? "fail" : "warn",
       });
     }
