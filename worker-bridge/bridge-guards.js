@@ -371,6 +371,46 @@ export async function preflightOrder(env, payload) {
   const vehicleCheck = validateVehiclePrefs(payload, user);
   if (!vehicleCheck.ok) return vehicleCheck;
 
+  // 2026-06-01 — Account-size scaling for INVESTOR mode.
+  // The model sizes positions against $INVESTOR_CAPITAL ($100k notional
+  // in worker/index.js auto-rebalance). Real users have whatever the
+  // broker reports. Scale qty by user_equity / model_capital BEFORE the
+  // per-order / cash / concentration caps below (those then act as a
+  // safety floor — if even the scaled qty exceeds a cap, scale-to-fit
+  // rounds it down further).
+  //
+  // Trader mode is NOT mode-scaled here: the model sizes Trader trades
+  // per-trade against a configured risk budget (varies by setup), so
+  // the absolute share count is already an honest single-trade size.
+  // Trader still goes through the per-order / cash / concentration
+  // caps below, which together act as the account-fit guardrails.
+  if (String(payload?.mode || "").toLowerCase() === "investor") {
+    const modelCapital = Number(payload?.model_capital_usd) || 100000;
+    const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
+    if (Number.isFinite(liveEquity) && liveEquity > 0 && modelCapital > 0 && liveEquity < modelCapital) {
+      const ratio = liveEquity / modelCapital;
+      const modelQty = Number(payload?.qty) || 0;
+      // Fractional shares are common on Robinhood + IBKR Fractional, so
+      // we preserve up to 4dp. Round-half-down to avoid over-allocation.
+      const scaledQty = Math.max(0, Math.floor(modelQty * ratio * 10000) / 10000);
+      if (scaledQty > 0 && scaledQty < modelQty) {
+        console.log(`[BRIDGE_SCALE] ${userId}/${payload.ticker} investor: equity-scaled qty ${modelQty}→${scaledQty} (ratio=${ratio.toFixed(3)} = $${liveEquity.toFixed(0)} / $${modelCapital.toFixed(0)})`);
+        payload.qty = scaledQty;
+      } else if (scaledQty === 0) {
+        // User equity is so small that 1 share of the model's allocation
+        // works out to literally zero. Reject with a clear message rather
+        // than silently no-op'ing.
+        return {
+          ok: false,
+          reject_reason: `account_too_small_for_investor_mirror_${liveEquity.toFixed(0)}_lt_${(modelCapital / Math.max(1, modelQty)).toFixed(0)}`,
+          equity_usd: liveEquity,
+          model_capital_usd: modelCapital,
+          model_qty: modelQty,
+        };
+      }
+    }
+  }
+
   // 2026-06-01 — Phase B: manifest-aware reducer. For TRIM/EXIT orders,
   // require a matching manifest row in the right sync_state. Cheap
   // (single SELECT, no broker call) and gates BEFORE the portfolio
@@ -381,16 +421,161 @@ export async function preflightOrder(env, payload) {
   if (!manifestCheck.ok) return manifestCheck;
 
   // Per-order $ cap.
-  const entry = Number(payload.entry || payload.price_target || 0);
-  const qty = Number(payload.qty || 0);
-  const estValue = entry > 0 ? entry * qty : null;
+  // 2026-06-01 — Scale-to-fit instead of reject. The model sizes against
+  // a $100k notional simulator account; real users have whatever equity
+  // their broker shows. When the model says "buy 100 shares of DIA"
+  // ($48k notional) and the user's per-order cap is $5k, the previous
+  // behavior was to REJECT — the user got nothing while the model
+  // showed a winning trade. The operator's explicit ask: "mirror the
+  // model actions per mode for an account when the account has enabled
+  // it and can support the position, of course scaled for it."
+  //
+  // New behavior: round qty DOWN to fit the cap. Two side-effects to be
+  // aware of:
+  //   1. The caller's payload.qty is replaced with the scaled value
+  //      before review/place so downstream audit + order placement
+  //      sees the actual broker qty.
+  //   2. `scaled_qty` (already returned for manifest-aware partial
+  //      fills) and a new `scaling.original_qty` field surface both
+  //      numbers so the operator can audit "model wanted 100 / bridge
+  //      sent 10" via the audit log.
+  //
+  // Only enabled for LONG sides (buy / long / entry / trim / exit / sell).
+  // The naked-short guards above already hard-reject short_*. Disable
+  // via env BROKER_SCALE_TO_FIT=false if the operator ever needs
+  // hard-rejection back for a debugging session.
+  let entry = Number(payload.entry || payload.price_target || 0);
+  let qty = Number(payload.qty || 0);
+  let estValue = entry > 0 ? entry * qty : null;
+  let scalingMeta = null;
   if (estValue != null && estValue > caps.max_per_order_usd) {
-    return {
-      ok: false,
-      reject_reason: `order_exceeds_cap_${estValue.toFixed(0)}_gt_${caps.max_per_order_usd}`,
-      estimated_value: estValue,
-      cap: caps.max_per_order_usd,
+    const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
+    if (!scaleToFit) {
+      return {
+        ok: false,
+        reject_reason: `order_exceeds_cap_${estValue.toFixed(0)}_gt_${caps.max_per_order_usd}`,
+        estimated_value: estValue,
+        cap: caps.max_per_order_usd,
+      };
+    }
+    const maxQtyByCap = Math.floor(caps.max_per_order_usd / entry);
+    if (maxQtyByCap < 1) {
+      // Even one share/contract doesn't fit. Genuinely too large.
+      return {
+        ok: false,
+        reject_reason: `order_too_large_min_unit_${entry.toFixed(2)}_gt_cap_${caps.max_per_order_usd}`,
+        estimated_value: estValue,
+        cap: caps.max_per_order_usd,
+        min_unit_usd: entry,
+      };
+    }
+    scalingMeta = {
+      original_qty: qty,
+      original_value: estValue,
+      scaled_qty: maxQtyByCap,
+      reason: "cap_per_order",
+      cap_usd: caps.max_per_order_usd,
+      scale_ratio: Math.round((maxQtyByCap / qty) * 1000) / 1000,
     };
+    qty = maxQtyByCap;
+    estValue = entry * qty;
+    payload.qty = qty;
+    console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: scaled qty ${scalingMeta.original_qty}→${qty} (${scalingMeta.original_value.toFixed(0)} > cap ${caps.max_per_order_usd})`);
+  }
+
+  // Cash-availability preflight ("can support the position").
+  // 2026-06-01 — If the user record carries a fresh cash balance
+  // (mirrored from the broker portfolio sync), use it as a hard ceiling
+  // BEFORE we hit the broker. Avoids the broker rejecting with
+  // "insufficient buying power" 200ms later. Scale-to-fit again here so
+  // a user with $200 cash + a cap of $5k still gets 0 shares if entry
+  // > $200, but gets the right fractional / floor count if it fits.
+  const liveCash = Number(user?.cash_usd || user?.portfolio?.cash_usd);
+  if (Number.isFinite(liveCash) && liveCash > 0 && estValue != null && estValue > liveCash) {
+    const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
+    if (!scaleToFit) {
+      return {
+        ok: false,
+        reject_reason: `insufficient_cash_${liveCash.toFixed(0)}_lt_${estValue.toFixed(0)}`,
+        estimated_value: estValue,
+        cash_usd: liveCash,
+      };
+    }
+    // Reserve a 2% buffer for fees / slippage so the broker doesn't
+    // reject the place call for a few cents.
+    const usableCash = liveCash * 0.98;
+    const maxQtyByCash = Math.floor(usableCash / entry);
+    if (maxQtyByCash < 1) {
+      return {
+        ok: false,
+        reject_reason: `insufficient_cash_for_one_unit_${liveCash.toFixed(0)}_lt_${entry.toFixed(2)}`,
+        cash_usd: liveCash,
+        unit_usd: entry,
+      };
+    }
+    const originalQty = scalingMeta?.original_qty ?? qty;
+    const originalValue = scalingMeta?.original_value ?? estValue;
+    scalingMeta = {
+      original_qty: originalQty,
+      original_value: originalValue,
+      scaled_qty: maxQtyByCash,
+      reason: scalingMeta ? `${scalingMeta.reason}+cash_buffer` : "cash_buffer",
+      cap_usd: scalingMeta?.cap_usd || null,
+      cash_usd: liveCash,
+      scale_ratio: Math.round((maxQtyByCash / originalQty) * 1000) / 1000,
+    };
+    qty = maxQtyByCash;
+    estValue = entry * qty;
+    payload.qty = qty;
+    console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: cash-scaled qty ${originalQty}→${qty} (cash $${liveCash.toFixed(0)} vs $${originalValue.toFixed(0)} order)`);
+  }
+
+  // Account-concentration cap (max_account_pct). Default 25%.
+  // 2026-06-01 — Previously defined in resolveUserCaps but never
+  // enforced. Reads live equity (mirrored from broker portfolio sync);
+  // skipped silently if equity isn't in the user record. Scale-to-fit
+  // applies the same way.
+  const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
+  if (Number.isFinite(liveEquity) && liveEquity > 0 && estValue != null) {
+    const maxAccountUsd = liveEquity * Number(caps.max_account_pct);
+    if (maxAccountUsd > 0 && estValue > maxAccountUsd) {
+      const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
+      if (!scaleToFit) {
+        return {
+          ok: false,
+          reject_reason: `exceeds_account_concentration_${estValue.toFixed(0)}_gt_${maxAccountUsd.toFixed(0)}_${Math.round(caps.max_account_pct * 100)}pct`,
+          estimated_value: estValue,
+          equity_usd: liveEquity,
+          max_account_pct: caps.max_account_pct,
+        };
+      }
+      const maxQtyByConc = Math.floor(maxAccountUsd / entry);
+      if (maxQtyByConc < 1) {
+        return {
+          ok: false,
+          reject_reason: `concentration_too_small_for_one_unit_${maxAccountUsd.toFixed(0)}_lt_${entry.toFixed(2)}`,
+          equity_usd: liveEquity,
+          max_account_pct: caps.max_account_pct,
+        };
+      }
+      const originalQty = scalingMeta?.original_qty ?? qty;
+      const originalValue = scalingMeta?.original_value ?? estValue;
+      scalingMeta = {
+        original_qty: originalQty,
+        original_value: originalValue,
+        scaled_qty: maxQtyByConc,
+        reason: scalingMeta ? `${scalingMeta.reason}+concentration` : "concentration",
+        cap_usd: scalingMeta?.cap_usd || null,
+        cash_usd: scalingMeta?.cash_usd || null,
+        equity_usd: liveEquity,
+        max_account_pct: caps.max_account_pct,
+        scale_ratio: Math.round((maxQtyByConc / originalQty) * 1000) / 1000,
+      };
+      qty = maxQtyByConc;
+      estValue = entry * qty;
+      payload.qty = qty;
+      console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: concentration-scaled qty ${originalQty}→${qty} (>${Math.round(caps.max_account_pct * 100)}% of $${liveEquity.toFixed(0)} equity)`);
+    }
   }
 
   // Daily order counter (only counts ENTRY/TRIM/EXIT placements, not reviews).
@@ -418,7 +603,14 @@ export async function preflightOrder(env, payload) {
     // flow) act on partial-fill scaling.
     manifest_sync_state: manifestCheck.manifest_sync_state || null,
     broker_remaining_qty: manifestCheck.broker_remaining_qty ?? null,
-    scaled_qty: manifestCheck.scaled_qty ?? null,
+    // Manifest partial-fill scaling OR the new account-fit scaling
+    // (cap_per_order / cash_buffer / concentration). Both surface as
+    // scaled_qty so the audit log + response body don't double-track.
+    scaled_qty: scalingMeta?.scaled_qty ?? manifestCheck.scaled_qty ?? null,
+    // 2026-06-01 — Surface scaling details for the audit log + caller
+    // (Mission Control, ring buffer, daily digest). null when the
+    // model's original qty fit all the caps unchanged.
+    scaling: scalingMeta,
   };
 }
 

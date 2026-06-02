@@ -13,4 +13,4 @@ export default defineConfig({
   },
 });
 
-// cache-bust:1780357279728:23516721
+// cache-bust:1780358519840:36441287

@@ -305,6 +305,25 @@ export default {
               summary.cash_usd = Number.isFinite(cash) ? cash : null;
               summary.buying_power_usd = Number.isFinite(buyingPower) ? buyingPower : null;
               if (acctId) summary.account_id = acctId;
+              // 2026-06-01 — Persist equity + cash + buying power onto
+              // the user record so preflightOrder (bridge-guards.js) can
+              // use them for account-fit scaling without an extra
+              // broker round-trip per order. The /bridge/portfolio call
+              // is operator-driven (~every 30s while MC is open) so this
+              // keeps user.equity_usd / cash_usd reasonably fresh.
+              try {
+                const { writeUser, readUser } = await import("./bridge-storage.js");
+                const fresh = await readUser(env, userId);
+                if (fresh) {
+                  if (Number.isFinite(equity)) fresh.equity_usd = equity;
+                  if (Number.isFinite(cash))   fresh.cash_usd = cash;
+                  if (Number.isFinite(buyingPower)) fresh.buying_power_usd = buyingPower;
+                  fresh.portfolio_synced_at = Date.now();
+                  await writeUser(env, userId, fresh);
+                }
+              } catch (e) {
+                console.warn(`[BRIDGE] failed to persist portfolio snapshot for ${userId}: ${String(e?.message || e).slice(0, 200)}`);
+              }
             }
           } catch (e) {
             summary.portfolio = { ok: false, error: String(e?.message || e).slice(0, 200) };
@@ -849,6 +868,15 @@ async function handleOrderWebhook(env, ctx, payload) {
   const user = pf.user;
   const estValue = pf.estimated_value;
 
+  // 2026-06-01 — Account-fit scaling: preflightOrder may have rounded
+  // sanitized.qty down to fit caps + cash + concentration. Pick up the
+  // scaled value here so review/place see the actual broker qty (not
+  // the model's $100k-notional original). pf.scaling carries the
+  // before/after for audit + response.
+  if (pf.scaling?.scaled_qty != null && pf.scaling.scaled_qty !== sanitized.qty) {
+    sanitized.qty = pf.scaling.scaled_qty;
+  }
+
   // 2. Audit: order_in
   await writeAudit(env, {
     ts: Date.now(),
@@ -863,7 +891,7 @@ async function handleOrderWebhook(env, ctx, payload) {
     tp: sanitized.tp,
     estimated_value: estValue,
     status: "ok",
-    request_json: sanitized,
+    request_json: { ...sanitized, scaling: pf.scaling || null },
     latency_ms: Date.now() - t0,
   });
 
@@ -978,6 +1006,10 @@ async function handleOrderWebhook(env, ctx, payload) {
     place_status: place.response?.status,
     review_warnings: reviewWarnings,
     manifest_sync_state: pf.manifest_sync_state || null,
+    // 2026-06-01 — surface scaling so the caller can see "model wanted
+    // 100, bridge sent 7" with the reason (cap_per_order / cash_buffer
+    // / concentration). null when no scaling was applied.
+    scaling: pf.scaling || null,
     mock: !!place.mock,
     latency_ms: Date.now() - t0,
   }, 200);
