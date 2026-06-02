@@ -20,7 +20,7 @@ export default {
     environment: "node",
     environmentMatchGlobs: [
       // React component tests need a DOM (jsdom). All other tests run
-      // in the lighter node environment. See react-hooks-discovery.test.js.
+      // in the lighter node environment. See react-*.test.js files.
       ["tests/react-*.test.js", "jsdom"],
     ],
     globals: true,
