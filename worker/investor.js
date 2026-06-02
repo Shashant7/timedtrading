@@ -584,6 +584,13 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   const { rsRank = 50, marketHealth = 50, accumZone = null, cfg = DEFAULT_INVESTOR_CONFIG } = opts;
   const mb = tickerData.monthly_bundle;
   const wStDir = tickerData.tf_tech?.W?.atr?.xs;
+  // 2026-06-01 — Surface tf_tech.D / tf_tech.W at function scope so the
+  // exhaustion gate (added below for momentum_runner downgrade) can read
+  // TD9 setup_count + Phase zone + RSI without a separate optional-chain
+  // dance at every reference. Previously caused 'tfD is not defined'
+  // ReferenceError that aborted the entire /timed/investor/compute run.
+  const tfD = tickerData.tf_tech?.D;
+  const tfW = tickerData.tf_tech?.W;
 
   // If position is closed or monthly trend invalidated
   if (existingPosition?.status === "CLOSED") {
