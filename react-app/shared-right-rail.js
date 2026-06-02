@@ -6754,6 +6754,7 @@
                           || (!(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED");
                         if (!_isOpen) return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
+                        const isLong = dirRaw !== "SHORT";
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
                         const entry = Number(t.entryPrice ?? t.entry_price);
                         const shares = Number(t.shares || t.qty || t.size);
@@ -6762,7 +6763,50 @@
                           ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
                           : null;
                         const sl = Number(t.sl ?? ticker?.sl);
-                        const tp = Number(t.tp ?? ticker?.tp);
+
+                        // 2026-06-01 — TP resolution fix.
+                        // Operator on MU: position panel showed "TAKE PROFIT
+                        // $832.29" while the TRADE PLAN below showed TP2 $1120
+                        // / TP3 $1170. Root cause: `t.tp` carries the ORIGINAL
+                        // TP1 from trade entry; after TP1 hits the ladder
+                        // advances but `t.tp` doesn't update. So a long-running
+                        // winner shows a stale TP that's already been trimmed.
+                        //
+                        // Pick the next UN-HIT TP from tpArray instead. For a
+                        // LONG, that's the first TP whose price is ABOVE the
+                        // current live price; for SHORT, the first BELOW.
+                        // Falls back to t.tp only when tpArray is missing.
+                        const _tpArray = Array.isArray(t.tpArray) ? t.tpArray : [];
+                        const _nextTp = (() => {
+                          if (!livePx || livePx <= 0) return null;
+                          for (let i = 0; i < _tpArray.length; i++) {
+                            const tpRow = _tpArray[i] || {};
+                            const px = Number(tpRow.price ?? tpRow);
+                            if (!Number.isFinite(px) || px <= 0) continue;
+                            const tier = String(tpRow.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`));
+                            const desc = tpRow.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+                            const isAhead = isLong ? px > livePx : px < livePx;
+                            if (isAhead) return { px, tier, desc, index: i };
+                          }
+                          return null;
+                        })();
+                        const tp = _nextTp ? _nextTp.px : Number(t.tp ?? ticker?.tp);
+
+                        // 2026-06-01 — SL lock-in annotation.
+                        // When a trailing stop has been ratcheted past entry
+                        // (LONG: SL > entry; SHORT: SL < entry), the SL is
+                        // protecting profit, not capping a max loss. Show the
+                        // lock-in pct so the operator understands the SL is
+                        // a profit-protection trail, not the original risk
+                        // anchor that was set at trade entry.
+                        const _slLockedInPct = (() => {
+                          if (!(entry > 0) || !(sl > 0)) return null;
+                          const diff = isLong ? sl - entry : entry - sl;
+                          if (diff <= 0) return null; // SL still below entry = original risk
+                          return (diff / entry) * 100;
+                        })();
+                        const _trimPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0) * 100;
+
                         const fmtUsdLocal = (n) => Number.isFinite(n)
                           ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
                           : "—";
@@ -6794,15 +6838,29 @@
                                 </div>
                               </div>
                               <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>STOP LOSS</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#f87171", marginTop: 2 }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                                  {_slLockedInPct != null ? "TRAILING SL · LOCKED IN" : "STOP LOSS"}
+                                </div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _slLockedInPct != null ? "#34d399" : "#f87171", marginTop: 2 }}>
                                   {fmtUsdLocal(sl)}
+                                  {_slLockedInPct != null && (
+                                    <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: "#34d399" }}>
+                                      +{_slLockedInPct.toFixed(1)}%
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TAKE PROFIT</div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
+                                  {_nextTp ? `NEXT TP · ${_nextTp.tier} ${_nextTp.desc.toUpperCase()}` : "TAKE PROFIT"}
+                                </div>
                                 <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "#34d399", marginTop: 2 }}>
                                   {fmtUsdLocal(tp)}
+                                  {_nextTp && livePx > 0 && (
+                                    <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>
+                                      +{(((_nextTp.px - livePx) / livePx) * (isLong ? 1 : -1) * 100).toFixed(1)}%
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div>
@@ -6829,6 +6887,7 @@
                                 Entered {new Date(Number(t.entry_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                                 {t.rank != null && <> · Rank <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rank)}</strong></>}
                                 {t.rr != null && <> · R:R <strong style={{ color: "var(--ds-text-body)" }}>{Number(t.rr).toFixed(2)}</strong></>}
+                                {_trimPct > 0 && <> · Trimmed <strong style={{ color: "var(--ds-accent)" }}>{Math.round(_trimPct)}%</strong></>}
                               </div>
                             )}
                           </Panel>

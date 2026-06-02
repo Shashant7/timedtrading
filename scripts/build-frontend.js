@@ -62,6 +62,52 @@ function copyStaticTree(srcDir, destDir, prefix = "") {
 
     ensureDir(path.dirname(destPath));
     fs.copyFileSync(srcPath, destPath);
+
+    // 2026-06-01 — Parse-check every .js file we copy to dist so silent
+    // browser-side SyntaxErrors can't ship again. Background: PR #413's
+    // tt-bottom-nav.js had inner backticks inside a CSS template literal
+    // that terminated the literal early and threw SyntaxError on every
+    // page load in every browser for ~2 weeks. babel/esbuild accepted
+    // the file (more forgiving parser) so the bug wasn't caught by the
+    // existing transpile step. new Function(src) uses the V8 parser
+    // (same family as browsers) and would have caught it instantly.
+    // Skip non-.js files; skip .compiled.js outputs (they're generated
+    // by the babel transform we already trust); skip .min/.bundle files
+    // (which often legitimately contain non-standard parser tokens).
+    // 2026-06-01 — Files that are babel-input sources (contain JSX, get
+    // transpiled to .compiled.js outputs). Loading these directly via
+    // <script> would fail in any browser; they're never linked from
+    // html, only their .compiled.js outputs are. Skip the parse check.
+    const BABEL_INPUT_SOURCES = new Set([
+      "shared-right-rail.js",
+      "shared-bubble-chart.js",
+      "investor-panel.js",   // contains JSX
+    ]);
+
+    if (entry.name.endsWith(".js")
+        && !entry.name.endsWith(".compiled.js")
+        && !entry.name.endsWith(".min.js")
+        && !entry.name.endsWith(".bundle.js")
+        && entry.name !== "_worker.js"               // CF Pages worker — runs ESM server-side
+        && !entry.name.startsWith("_")               // underscore-prefixed = framework internal
+        && !BABEL_INPUT_SOURCES.has(entry.name)) {
+      try {
+        const src = fs.readFileSync(srcPath, "utf8");
+        // Skip files that are clearly ES modules (import/export at top
+        // level). Those run as <script type="module"> in the browser
+        // and the module parser handles them correctly there. Our
+        // classic-script parse-check only matters for files loaded
+        // via <script> (no type=module).
+        const looksLikeEsm = /^\s*(?:import\s|export\s|export\s*\{)/m.test(src);
+        if (looksLikeEsm) continue;
+        new Function(src);
+      } catch (e) {
+        // Fail the build LOUDLY. The previous silent ship cost the
+        // operator 3+ session round-trips diagnosing missing UI.
+        const line = e.lineNumber || (e.stack || "").match(/<anonymous>:(\d+)/)?.[1] || "?";
+        fail(`PARSE ERROR in ${relativePosix(repoRoot, srcPath)} (~line ${line}): ${e.message}\n  This script would silently fail to load in every browser. Fix before deploy.`);
+      }
+    }
   }
 }
 
