@@ -1042,6 +1042,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780384977605:845729517
+// cache-bust:1780384987260:384130047
 
-// cache-bust:1780384977605:845729517
+// cache-bust:1780384987260:384130047
