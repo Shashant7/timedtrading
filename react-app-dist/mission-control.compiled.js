@@ -390,6 +390,133 @@ function CooStatusCard({
     }, a.reason));
   })));
 }
+function ScreenerPromotionsCard({
+  apiBase
+}) {
+  const [actions, setActions] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState(null);
+  const [toast, setToast] = useState(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/coo/actions?days=14&kind=screener_promote&_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const j = await r.json();
+      if (j?.ok) setActions(j.actions || []);else setErr(j?.error || "fetch failed");
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  const undo = useCallback(async a => {
+    if (!a?.candidate_id || !a?.target) return;
+    setBusyId(a.candidate_id);
+    setErr(null);
+    setToast(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/discovery/promotion-queue/decide?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          candidate_id: a.candidate_id,
+          decision: "decline",
+          decided_by: "operator_undo_via_mc"
+        })
+      });
+      const j = await r.json();
+      if (j?.ok) {
+        setToast(`Removed ${a.target} from universe`);
+        setTimeout(() => setToast(null), 3500);
+        await load();
+      } else {
+        setErr(j?.error || "undo failed");
+      }
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setBusyId(null);
+    }
+  }, [apiBase, load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const promoted = (actions || []).filter(a => a.applied && a.kind === "screener_promote");
+  const vetoed = (actions || []).filter(a => !a.applied && a.tier === "tier2" && a.kind === "screener_promote");
+  const recentPromoted = promoted.slice(0, 8);
+  const recentVetoed = vetoed.slice(0, 4);
+  return React.createElement("div", {
+    className: "mc-card"
+  }, React.createElement("div", {
+    className: "mc-card-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-xs mc-mute uppercase tracking-wider"
+  }, "AI COO \xB7 Screener Promotions"), React.createElement("div", {
+    className: "num-md text-white"
+  }, promoted.length, " promoted ", React.createElement("span", {
+    className: "text-slate-400 text-base"
+  }, "\xB7 ", vetoed.length, " CIO-vetoed")), React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "Last 14 days \xB7 score \u2265 70 \xB7 max 3/day")), React.createElement("button", {
+    onClick: load,
+    disabled: loading,
+    className: "px-2 py-1 text-[10px] font-semibold rounded bg-slate-700 text-white hover:bg-slate-600 disabled:opacity-50"
+  }, loading ? "..." : "Refresh")), err && React.createElement("div", {
+    className: "mt-2 text-[11px] text-rose-400"
+  }, err), toast && React.createElement("div", {
+    className: "mt-2 text-[11px] text-emerald-400"
+  }, toast), recentPromoted.length === 0 && !loading && React.createElement("div", {
+    className: "mt-3 text-[11px] mc-mute"
+  }, "No auto-promotions yet. COO runs daily at 22:00 UTC and only acts on candidates with score \u2265 70, no red flags, and no CIO veto."), recentPromoted.length > 0 && React.createElement("div", {
+    className: "mt-3",
+    style: {
+      maxHeight: 260,
+      overflowY: "auto"
+    }
+  }, recentPromoted.map(a => {
+    const ageH = a.ts ? (Date.now() - a.ts) / 3600000 : null;
+    const withinUndoWindow = ageH != null && ageH < 24;
+    return React.createElement("div", {
+      key: `scr-${a.candidate_id || a.target}-${a.ts}`,
+      className: "border border-slate-800 rounded mb-1 px-2 py-1.5 text-[11px] flex items-center justify-between gap-2"
+    }, React.createElement("div", {
+      className: "min-w-0 flex-1"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2"
+    }, React.createElement("span", {
+      className: "text-emerald-400 font-mono font-semibold"
+    }, a.target), a.total_score != null && React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono"
+    }, "score ", a.total_score), ageH != null && React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono"
+    }, ageH < 1 ? `${Math.round(ageH * 60)}m` : `${Math.round(ageH)}h`, " ago")), a.reason && React.createElement("div", {
+      className: "text-[10px] mc-mute truncate mt-0.5"
+    }, a.reason)), React.createElement("button", {
+      onClick: () => undo(a),
+      disabled: busyId === a.candidate_id || !withinUndoWindow,
+      title: withinUndoWindow ? "Decline this promotion, removes from universe" : "Undo window expired (24h)",
+      className: "px-2 py-1 text-[10px] font-semibold rounded " + (withinUndoWindow ? "bg-rose-600 text-white hover:bg-rose-500" : "bg-slate-800 text-slate-500 cursor-not-allowed")
+    }, busyId === a.candidate_id ? "..." : withinUndoWindow ? "Undo" : "Past 24h"));
+  })), recentVetoed.length > 0 && React.createElement("div", {
+    className: "mt-3 border-t border-slate-800 pt-2"
+  }, React.createElement("div", {
+    className: "text-[10px] mc-mute uppercase tracking-wider mb-1"
+  }, "CIO Vetoes"), recentVetoed.map((a, i) => React.createElement("div", {
+    key: `scr-veto-${i}`,
+    className: "text-[11px] mc-mute truncate"
+  }, React.createElement("span", {
+    className: "font-mono text-amber-400"
+  }, a.target), a.reason && React.createElement(React.Fragment, null, " \u2014 ", a.reason)))));
+}
 function SanitySweepCard({
   apiBase
 }) {
@@ -3615,6 +3742,8 @@ function MissionControl({
     apiBase: API_BASE
   }), React.createElement(CooStatusCard, {
     apiBase: API_BASE
+  }), React.createElement(ScreenerPromotionsCard, {
+    apiBase: API_BASE
   }), React.createElement(CioLifecycleStatsCard, {
     apiBase: API_BASE
   }), React.createElement(CioDecisionReview, {
@@ -3659,6 +3788,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780384987260:384130047
+// cache-bust:1780386186862:346288809
 
-// cache-bust:1780384987260:384130047
+// cache-bust:1780386186862:346288809
