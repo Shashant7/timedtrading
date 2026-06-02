@@ -512,27 +512,35 @@ const checkPortfolioReconcile = timed(async function checkPortfolioReconcile(env
   const anomalies = [];
   try {
     if (!env?.DB) return envelope("portfolio_reconcile", "Investor portfolio reconciliation", [], "no D1", null);
-    // Sum investor_positions cost_basis. Compare against last
-    // account_ledger balance entry for mode=investor. If they don't
-    // add up (cash + positions vs total), something's drifted.
+    // Reconciliation math:
+    //   cash + positions_cost_basis = initial_capital + realized_pnl
+    // (Realized P&L from SELL trims goes back into cash. Unrealized P&L
+    // doesn't change either side — positions stay at cost basis.)
+    //
+    // 2026-06-02 — Earlier version used `total - expected` which flagged
+    // ANY profitable account as drifted. Now subtract realized_pnl
+    // from the expected side so the check only fires when the math
+    // doesn't actually balance.
     const posSum = await env.DB.prepare(
       "SELECT COALESCE(SUM(cost_basis), 0) AS total FROM investor_positions WHERE status = 'OPEN'"
     ).first().catch(() => ({ total: 0 }));
-    const lastLedger = await env.DB.prepare(
-      "SELECT balance FROM account_ledger WHERE mode = 'investor' ORDER BY ts DESC LIMIT 1"
-    ).first().catch(() => ({ balance: 0 }));
+    const ledgerSum = await env.DB.prepare(
+      "SELECT COALESCE(SUM(cash_delta), 0) AS s, COALESCE(SUM(realized_pnl), 0) AS pnl FROM account_ledger WHERE mode = 'investor'"
+    ).first().catch(() => ({ s: 0, pnl: 0 }));
+    const initial = 100000;
     const positionsValue = Number(posSum?.total) || 0;
-    const cash = Number(lastLedger?.balance) || 0;
-    const total = positionsValue + cash;
-    const expected = 100000; // INVESTOR_CAPITAL constant
-    // Allow ±5% drift for unrealized P&L (positions are at cost basis,
-    // not mark — so total can exceed initial if positions gained value
-    // before realized).
-    const driftPct = expected > 0 ? ((total - expected) / expected) * 100 : 0;
-    if (Math.abs(driftPct) > 25) {
+    const cash = initial + (Number(ledgerSum?.s) || 0); // race-free derived cash
+    const realizedPnl = Number(ledgerSum?.pnl) || 0;
+    const accounted = positionsValue + cash;
+    const expected = initial + realizedPnl; // cash + positions should equal this
+    const drift = accounted - expected;
+    const driftPct = expected > 0 ? (drift / expected) * 100 : 0;
+    // Tolerance: $50 absolute OR 2% relative, whichever is larger.
+    const tolerance = Math.max(50, Math.abs(expected) * 0.02);
+    if (Math.abs(drift) > tolerance) {
       anomalies.push({
-        detail: `investor cash $${cash.toFixed(0)} + positions cost-basis $${positionsValue.toFixed(0)} = $${total.toFixed(0)} (${driftPct >= 0 ? "+" : ""}${driftPct.toFixed(1)}% vs $${expected} initial)`,
-        severity: Math.abs(driftPct) > 50 ? "fail" : "warn",
+        detail: `cash $${cash.toFixed(0)} + positions $${positionsValue.toFixed(0)} = $${accounted.toFixed(0)}, expected $${expected.toFixed(0)} (initial $${initial} + realized $${realizedPnl.toFixed(0)}) — drift $${drift.toFixed(0)} (${driftPct >= 0 ? "+" : ""}${driftPct.toFixed(1)}%)`,
+        severity: Math.abs(driftPct) > 5 ? "fail" : "warn",
       });
     }
   } catch (e) {
@@ -542,8 +550,8 @@ const checkPortfolioReconcile = timed(async function checkPortfolioReconcile(env
     "portfolio_reconcile",
     "Investor cash + positions reconciliation",
     anomalies,
-    "If drift >25%, check account_ledger for missing/duplicate entries. Most likely cause: a position close didn't write a ledger entry, OR a manual seeding bypassed the ledger.",
-    "would have caught: investor cash/position drift if the ledger ever de-syncs from the position table"
+    "If drift fires, run POST /timed/admin/ledger/repair?mode=investor&dryRun=true to diagnose, then dryRun=false to back-fill missing entries + rebuild the balance column from cumulative cash_delta.",
+    "would have caught: -27% investor drift caused by silent EXIT ledger insert failures + race-prone balance column (2026-06-02; repair endpoint shipped, 6 entries back-filled, 176 balance rows recomputed)"
   );
 });
 
