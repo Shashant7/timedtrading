@@ -873,6 +873,248 @@ function UniverseChanges({
     }, `+${e.reweighted.length - 8} more`)));
   })())))));
 }
+function StretchedNamesPanel({
+  apiBase
+}) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetch(`${apiBase}/timed/investor/scores`, {
+      credentials: "include"
+    }).then(r => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`)).then(j => {
+      if (!alive) return;
+      const tickers = j.tickers || j.scores || [];
+      const stretched = tickers.filter(t => {
+        const az = t.accumZone || {};
+        const exh = az.exhaustionWarnings || [];
+        return az.zoneType === "momentum_runner_exhausted" || exh.length >= 2;
+      }).map(t => ({
+        ticker: t.ticker,
+        stage: t.stage,
+        stageReason: t.stageReason,
+        score: t.score,
+        rsRank: t.rsRank,
+        price: t.price,
+        dailyChgPct: t.dailyChgPct,
+        exhaustionWarnings: t.accumZone?.exhaustionWarnings || [],
+        sector: t.sector,
+        position: t.position || null
+      })).sort((a, b) => b.exhaustionWarnings.length - a.exhaustionWarnings.length);
+      setData(stretched);
+      setErr(null);
+    }).catch(e => alive && setErr(String(e?.message || e).slice(0, 200))).finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [apiBase]);
+  if (loading && !data) return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "sk",
+    style: {
+      height: 200,
+      borderRadius: 12
+    }
+  }));
+  if (err) return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      color: "var(--tt-dn-soft)"
+    }
+  }, "Stretched names panel: " + err));
+  if (!data || data.length === 0) {
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-card tt-card-pad"
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 10,
+        marginBottom: 6,
+        flexWrap: "wrap"
+      }
+    }, h("span", {
+      style: {
+        fontSize: 18
+      }
+    }, "⚠️"), h("h3", {
+      style: {
+        margin: 0
+      }
+    }, "Stretched Names"), h("span", {
+      className: "ds-chip ds-chip--sm ds-chip--up",
+      style: {
+        marginLeft: "auto"
+      }
+    }, "0 flagged · clean")), h("div", {
+      style: {
+        color: "var(--tt-text-2)",
+        fontSize: 13
+      }
+    }, "No tickers currently flagged as exhausted-momentum. Universe trends look continuation-healthy.")));
+  }
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 10,
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, h("span", {
+    style: {
+      fontSize: 18
+    }
+  }, "⚠️"), h("h3", {
+    style: {
+      margin: 0
+    }
+  }, "Stretched Names"), h("span", {
+    className: "ds-chip ds-chip--sm ds-chip--accent",
+    style: {
+      marginLeft: "auto"
+    }
+  }, `${data.length} flagged`)), h("div", {
+    style: {
+      color: "var(--tt-text-2)",
+      fontSize: 12,
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Names where the trend is still up but ≥ 2 exhaustion signals are firing simultaneously (TD9 setup count 7+, Phase EXTREME, monthly/weekly RSI overbought, RS deteriorating, bearish divergence). ", "Auto-rebalance will NOT add to these. Owned positions trigger a 20% lock-in trim on the next cycle (with 20h cooldown)."), h("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, h("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12
+    }
+  }, h("thead", null, h("tr", {
+    style: {
+      color: "var(--tt-text-3)",
+      textAlign: "left"
+    }
+  }, h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)"
+    }
+  }, "Ticker"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)"
+    }
+  }, "Stage"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)",
+      textAlign: "right"
+    }
+  }, "Score"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)",
+      textAlign: "right"
+    }
+  }, "RS%"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)",
+      textAlign: "right"
+    }
+  }, "Today"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)",
+      textAlign: "right"
+    }
+  }, "Warn"), h("th", {
+    style: {
+      padding: "6px 8px",
+      borderBottom: "1px solid var(--tt-border-1)"
+    }
+  }, "Signals firing"))), h("tbody", null, ...data.map((t, i) => h("tr", {
+    key: `stretch-${i}`,
+    style: {
+      borderBottom: "1px solid var(--tt-border-1)"
+    }
+  }, h("td", {
+    style: {
+      padding: "6px 8px"
+    }
+  }, h("a", {
+    href: `/today.html?ticker=${t.ticker}`,
+    style: {
+      color: "var(--tt-text-0)",
+      textDecoration: "none",
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 600
+    }
+  }, t.ticker), t.position?.owned && h("span", {
+    className: "ds-chip ds-chip--sm",
+    style: {
+      marginLeft: 6,
+      fontSize: 9,
+      color: "#34d399",
+      borderColor: "rgba(52,211,153,0.30)",
+      background: "rgba(52,211,153,0.10)"
+    }
+  }, "OWNED")), h("td", {
+    style: {
+      padding: "6px 8px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      color: t.stage === "watch" ? "#f59e0b" : "var(--tt-text-2)"
+    }
+  }, String(t.stage || "?").toUpperCase()), h("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, t.score ?? "—"), h("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, t.rsRank ?? "—"), h("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontFamily: "var(--tt-font-mono)",
+      color: (t.dailyChgPct || 0) >= 0 ? "#34d399" : "#f87171"
+    }
+  }, t.dailyChgPct != null ? `${t.dailyChgPct >= 0 ? "+" : ""}${Number(t.dailyChgPct).toFixed(1)}%` : "—"), h("td", {
+    style: {
+      padding: "6px 8px",
+      textAlign: "right",
+      fontFamily: "var(--tt-font-mono)",
+      color: t.exhaustionWarnings.length >= 4 ? "#f87171" : "#f59e0b",
+      fontWeight: 700
+    }
+  }, t.exhaustionWarnings.length), h("td", {
+    style: {
+      padding: "6px 8px",
+      color: "var(--tt-text-3)",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10
+    }
+  }, t.exhaustionWarnings.slice(0, 3).join(", ") + (t.exhaustionWarnings.length > 3 ? ` +${t.exhaustionWarnings.length - 3}` : "")))))))));
+}
 function ActiveStrategyPanel({
   data
 }) {
@@ -1215,6 +1457,8 @@ function InsightsApp() {
     allMeta,
     summary,
     history
+  }), h(StretchedNamesPanel, {
+    apiBase: API_BASE
   }), h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1271,6 +1515,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780379786084:853064426
+// cache-bust:1780380941511:343171770
 
-// cache-bust:1780379786084:853064426
+// cache-bust:1780380941511:343171770

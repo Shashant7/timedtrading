@@ -274,6 +274,157 @@ function StatusGrid({
     href: "#retro"
   }));
 }
+function SanitySweepCard({
+  apiBase
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [expanded, setExpanded] = useState(new Set());
+  const loadCached = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/sanity-sweep/latest?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok && j?.error) setErr(j.error);else setData(j);
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  const runNow = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/sanity-sweep?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store"
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok && j?.error) setErr(j.error);else setData(j);
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  useEffect(() => {
+    loadCached();
+  }, [loadCached]);
+  const summary = data?.summary || {
+    ok_count: 0,
+    warn_count: 0,
+    fail_count: 0
+  };
+  const statusColor = summary.fail_count > 0 ? "#f87171" : summary.warn_count > 0 ? "#f59e0b" : "#34d399";
+  const statusText = summary.fail_count > 0 ? "FAIL" : summary.warn_count > 0 ? "WARN" : "ALL GREEN";
+  const ageMin = data?.ts ? Math.round((Date.now() - data.ts) / 60000) : null;
+  const toggleExpand = id => {
+    const s = new Set(expanded);
+    if (s.has(id)) s.delete(id);else s.add(id);
+    setExpanded(s);
+  };
+  return React.createElement("div", {
+    className: "mc-card"
+  }, React.createElement("div", {
+    className: "mc-card-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-xs mc-mute uppercase tracking-wider"
+  }, "Sanity Sweep \xB7 Coma-Test"), React.createElement("div", {
+    className: "num-md",
+    style: {
+      color: statusColor
+    }
+  }, statusText), ageMin != null && React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "Last sweep ", ageMin, "m ago \xB7 ", data?.kind || "full", " \xB7 ", data?.elapsed_ms || "?", "ms")), React.createElement("div", {
+    className: "flex gap-1"
+  }, React.createElement("button", {
+    onClick: loadCached,
+    disabled: loading,
+    className: "px-2 py-1 text-[10px] font-semibold rounded bg-slate-700 text-slate-200 hover:bg-slate-600 disabled:opacity-50"
+  }, "\u21BB Cached"), React.createElement("button", {
+    onClick: runNow,
+    disabled: loading,
+    className: "px-2 py-1 text-[10px] font-semibold rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+  }, loading ? "..." : "Run Now"))), err && React.createElement("div", {
+    className: "mt-2 text-[11px] text-rose-400"
+  }, err), React.createElement("div", {
+    className: "mt-3 grid grid-cols-3 gap-2 text-[11px]"
+  }, React.createElement("div", {
+    className: "bg-slate-900/40 border border-slate-700 rounded px-3 py-2 text-center"
+  }, React.createElement("div", {
+    className: "num-md text-emerald-400"
+  }, summary.ok_count), React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "passing")), React.createElement("div", {
+    className: "bg-slate-900/40 border border-slate-700 rounded px-3 py-2 text-center"
+  }, React.createElement("div", {
+    className: "num-md text-amber-400"
+  }, summary.warn_count), React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "warnings")), React.createElement("div", {
+    className: "bg-slate-900/40 border border-slate-700 rounded px-3 py-2 text-center"
+  }, React.createElement("div", {
+    className: "num-md text-rose-400"
+  }, summary.fail_count), React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "failing"))), data?.checks && React.createElement("div", {
+    className: "mt-3",
+    style: {
+      maxHeight: 320,
+      overflowY: "auto"
+    }
+  }, data.checks.map(c => {
+    const isOk = c.status === "ok";
+    const isOpen = expanded.has(c.id);
+    const color = c.status === "fail" ? "#f87171" : c.status === "warn" ? "#f59e0b" : "#34d399";
+    return React.createElement("div", {
+      key: c.id,
+      className: "border border-slate-800 rounded mb-1 overflow-hidden"
+    }, React.createElement("div", {
+      className: "flex items-center justify-between cursor-pointer px-2 py-1.5",
+      onClick: () => toggleExpand(c.id),
+      style: {
+        background: isOpen ? "rgba(255,255,255,0.03)" : "transparent"
+      }
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 min-w-0 flex-1"
+    }, React.createElement("span", {
+      style: {
+        color,
+        fontSize: 12,
+        fontWeight: 700,
+        minWidth: 36
+      }
+    }, c.status.toUpperCase()), React.createElement("span", {
+      className: "text-[11px] text-slate-200 truncate"
+    }, c.label), c.anomalies?.length > 0 && React.createElement("span", {
+      className: "text-[10px] mc-mute"
+    }, "\xB7 ", c.anomalies.length, " anomal", c.anomalies.length === 1 ? "y" : "ies")), React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono"
+    }, c.latency_ms || 0, "ms")), isOpen && React.createElement("div", {
+      className: "px-3 py-2 text-[11px] text-slate-300 border-t border-slate-800"
+    }, !isOk && c.anomalies?.map((a, i) => React.createElement("div", {
+      key: `a-${i}`,
+      className: "mb-1.5"
+    }, a.ticker && React.createElement("span", {
+      className: "font-mono text-amber-300 mr-1"
+    }, a.ticker), React.createElement("span", null, a.detail))), c.remediation && React.createElement("div", {
+      className: "text-[10px] mc-mute mt-1.5 pt-1.5 border-t border-slate-800/50"
+    }, React.createElement("strong", null, "Remediation:"), " ", c.remediation), c.bug_history && React.createElement("div", {
+      className: "text-[10px] text-slate-500 mt-1 italic"
+    }, "Guards: ", c.bug_history)));
+  })), React.createElement("div", {
+    className: "text-[10px] mc-mute mt-2"
+  }, "Hourly full sweep + every 15min fast sweep. Discord alerts on any FAIL or 3+ warns."));
+}
 function CioLifecycleStatsCard({
   apiBase
 }) {
@@ -3344,7 +3495,9 @@ function MissionControl({
       },
       className: "mc-mute"
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
-  }))))), React.createElement(CioLifecycleStatsCard, {
+  }))))), React.createElement(SanitySweepCard, {
+    apiBase: API_BASE
+  }), React.createElement(CioLifecycleStatsCard, {
     apiBase: API_BASE
   }), React.createElement(CioDecisionReview, {
     apiBase: API_BASE,
@@ -3388,6 +3541,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780379786084:853064426
+// cache-bust:1780380941511:343171770
 
-// cache-bust:1780379786084:853064426
+// cache-bust:1780380941511:343171770

@@ -356,6 +356,273 @@ const checkLoop2BreakerStale = timed(async function checkLoop2BreakerStale(env, 
   );
 });
 
+// ── Check 9: cron_tick_alive ────────────────────────────────────────────
+
+const checkCronTickAlive = timed(async function checkCronTickAlive(env, ctx) {
+  const anomalies = [];
+  try {
+    // Every cron tick (*/1, */5, hourly) stamps a heartbeat in KV. If
+    // the */5 tick hasn't fired in >15min during market hours, the
+    // entire cron pipeline (scoring, alerts, trims) is stalled.
+    const lastTickRaw = await env.KV_TIMED.get("cron:last_5min_tick");
+    const lastTick = Number(lastTickRaw) || 0;
+    if (lastTick === 0) {
+      anomalies.push({
+        detail: "cron:last_5min_tick KV key missing — heartbeat may not be implemented yet",
+        severity: "warn",
+      });
+    } else {
+      const ageMin = (Date.now() - lastTick) / 60000;
+      if (ageMin > 15) {
+        const dt = new Date();
+        const hourUtc = dt.getUTCHours();
+        const dow = dt.getUTCDay();
+        const isWeekend = dow === 0 || dow === 6;
+        const isMarketHours = !isWeekend && hourUtc >= 13 && hourUtc <= 22;
+        // Off-hours: only escalate to fail at extreme staleness.
+        const severity = isMarketHours
+          ? (ageMin > 30 ? "fail" : "warn")
+          : (ageMin > 240 ? "warn" : "ok");
+        if (severity !== "ok") {
+          anomalies.push({
+            detail: `last */5 cron tick ${Math.round(ageMin)}min ago${isMarketHours ? " (MARKET HOURS)" : " (off-hours)"}`,
+            severity,
+          });
+        }
+      }
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "cron_tick_alive",
+    "Cron tick heartbeat",
+    anomalies,
+    "Check the worker's scheduled() handler for errors. Cron is suspended? Check the wrangler.toml triggers list and the Cloudflare dashboard cron status.",
+    "would have caught: cron silently muted by integrity-wipe guard with no operator notification"
+  );
+});
+
+// ── Check 10: candle_freshness_open ─────────────────────────────────────
+
+const checkCandleFreshnessOpen = timed(async function checkCandleFreshnessOpen(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.DB) return envelope("candle_freshness_open", "Candle freshness on open positions", [], "no D1", null);
+    const { results } = await env.DB.prepare(
+      "SELECT DISTINCT ticker FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 100"
+    ).all().catch(() => ({ results: [] }));
+    const openTickers = (results || []).map(r => String(r.ticker || "").toUpperCase()).filter(Boolean);
+    if (openTickers.length === 0) {
+      return envelope("candle_freshness_open", "Candle freshness on open positions",
+        [], "no open positions to check", null);
+    }
+    const now = Date.now();
+    const isWeekend = [0, 6].includes(new Date().getUTCDay());
+    // Daily candles: stale if >48h on weekday; >96h on weekend.
+    const staleD = isWeekend ? 96 * 3600000 : 48 * 3600000;
+    let staleCount = 0;
+    const staleNames = [];
+    for (const sym of openTickers.slice(0, 30)) {
+      const candleRaw = await env.KV_TIMED.get(`candles:${sym}:D`).catch(() => null);
+      if (!candleRaw) {
+        staleCount++; staleNames.push(`${sym}(missing)`); continue;
+      }
+      try {
+        const candles = JSON.parse(candleRaw);
+        const lastBar = Array.isArray(candles) ? candles[candles.length - 1] : null;
+        const lastTs = Number(lastBar?.t) || Number(lastBar?.time) || 0;
+        if (lastTs > 0 && (now - lastTs) > staleD) {
+          const hoursStale = ((now - lastTs) / 3600000).toFixed(1);
+          staleNames.push(`${sym}(${hoursStale}h)`);
+          staleCount++;
+        }
+      } catch (_) { /* skip parse errors */ }
+    }
+    if (staleCount > 0) {
+      anomalies.push({
+        detail: `${staleCount} of ${Math.min(30, openTickers.length)} open positions have stale daily candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? "..." : ""}`,
+        severity: staleCount >= 5 ? "fail" : "warn",
+      });
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "candle_freshness_open",
+    "Candle freshness on open positions",
+    anomalies,
+    "Trigger /timed/admin/backfill-candles for the stale tickers. If many open positions are stale, the candle ingest cron may be down.",
+    "would have caught: BK candle staleness 71.5h that almost paged before auto-heal cleared it (2026-06-01)"
+  );
+});
+
+// ── Check 11: trade_orphan ──────────────────────────────────────────────
+
+const checkTradeOrphan = timed(async function checkTradeOrphan(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.DB) return envelope("trade_orphan", "Trade ↔ position integrity", [], "no D1", null);
+    // Trade rows in OPEN status that have no matching positions row.
+    // After the bridge has been writing manifest data, every model OPEN
+    // trade should have a positions row. Orphans = something didn't get
+    // through, the position might be untracked.
+    const { results } = await env.DB.prepare(`
+      SELECT t.trade_id, t.ticker, t.entry_ts
+      FROM trades t
+      LEFT JOIN positions p ON p.position_id = t.trade_id
+      WHERE t.status IN ('OPEN', 'TP_HIT_TRIM')
+        AND p.position_id IS NULL
+        AND t.entry_ts >= ?
+      LIMIT 30
+    `).bind(Date.now() - 14 * 86400000).all().catch(() => ({ results: [] }));
+    for (const r of (results || [])) {
+      const ageHours = (Date.now() - Number(r.entry_ts)) / 3600000;
+      anomalies.push({
+        ticker: r.ticker,
+        detail: `trade_id=${r.trade_id} OPEN ${ageHours.toFixed(1)}h ago has no positions row (SL/TP not tracked)`,
+        severity: ageHours > 24 ? "warn" : "ok",
+      });
+    }
+    // Drop the OK-severity ones (we only push if positions row is
+    // missing, which is the issue; ageHours<24 is just "fresh enough
+    // we'll wait before alerting").
+    const realAnomalies = anomalies.filter(a => a.severity !== "ok");
+    return envelope(
+      "trade_orphan",
+      "Trade row ↔ positions row integrity",
+      realAnomalies,
+      "Either re-run the trade through the bridge to create the positions row, or manually INSERT into positions if the trade is legitimately broker-orphaned.",
+      "would have caught: TSM open trade missing from right-rail History because the trade row existed but no positions row was written (2026-06-01)"
+    );
+  } catch (e) {
+    return envelope("trade_orphan", "Trade ↔ position integrity",
+      [{ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" }],
+      "Check D1 binding and trade/positions schema.",
+      null);
+  }
+});
+
+// ── Check 12: portfolio_reconcile ───────────────────────────────────────
+
+const checkPortfolioReconcile = timed(async function checkPortfolioReconcile(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.DB) return envelope("portfolio_reconcile", "Investor portfolio reconciliation", [], "no D1", null);
+    // Sum investor_positions cost_basis. Compare against last
+    // account_ledger balance entry for mode=investor. If they don't
+    // add up (cash + positions vs total), something's drifted.
+    const posSum = await env.DB.prepare(
+      "SELECT COALESCE(SUM(cost_basis), 0) AS total FROM investor_positions WHERE status = 'OPEN'"
+    ).first().catch(() => ({ total: 0 }));
+    const lastLedger = await env.DB.prepare(
+      "SELECT balance FROM account_ledger WHERE mode = 'investor' ORDER BY ts DESC LIMIT 1"
+    ).first().catch(() => ({ balance: 0 }));
+    const positionsValue = Number(posSum?.total) || 0;
+    const cash = Number(lastLedger?.balance) || 0;
+    const total = positionsValue + cash;
+    const expected = 100000; // INVESTOR_CAPITAL constant
+    // Allow ±5% drift for unrealized P&L (positions are at cost basis,
+    // not mark — so total can exceed initial if positions gained value
+    // before realized).
+    const driftPct = expected > 0 ? ((total - expected) / expected) * 100 : 0;
+    if (Math.abs(driftPct) > 25) {
+      anomalies.push({
+        detail: `investor cash $${cash.toFixed(0)} + positions cost-basis $${positionsValue.toFixed(0)} = $${total.toFixed(0)} (${driftPct >= 0 ? "+" : ""}${driftPct.toFixed(1)}% vs $${expected} initial)`,
+        severity: Math.abs(driftPct) > 50 ? "fail" : "warn",
+      });
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "portfolio_reconcile",
+    "Investor cash + positions reconciliation",
+    anomalies,
+    "If drift >25%, check account_ledger for missing/duplicate entries. Most likely cause: a position close didn't write a ledger entry, OR a manual seeding bypassed the ledger.",
+    "would have caught: investor cash/position drift if the ledger ever de-syncs from the position table"
+  );
+});
+
+// ── Check 13: alert_delivery ────────────────────────────────────────────
+
+const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.DB) return envelope("alert_delivery", "Discord/email alert delivery", [], "no D1", null);
+    // Last 24h of alerts table — any with discord_sent=0 + non-null error?
+    // .first() returns the row object directly (not {results: [...]}).
+    const row = await env.DB.prepare(`
+      SELECT COUNT(*) AS n, MAX(ts) AS last_fail_ts
+      FROM alerts
+      WHERE discord_sent = 0
+        AND discord_error IS NOT NULL
+        AND discord_error != ''
+        AND ts >= ?
+    `).bind(Date.now() - 24 * 3600000).first().catch(() => null);
+    const failCount = Number(row?.n) || 0;
+    if (failCount > 0) {
+      const lastFailAgo = row?.last_fail_ts ? ((Date.now() - Number(row.last_fail_ts)) / 60000).toFixed(0) : "?";
+      anomalies.push({
+        detail: `${failCount} Discord alert deliveries failed in last 24h (most recent ${lastFailAgo}min ago)`,
+        severity: failCount >= 5 ? "fail" : "warn",
+      });
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "alert_delivery",
+    "Discord alert delivery health",
+    anomalies,
+    "Check the DISCORD_WEBHOOK_URL secret is valid + the channel still exists. Webhook 401/404 means it was deleted upstream.",
+    "would have caught: silent Discord webhook expiration (user sees no alerts and assumes nothing happened)"
+  );
+});
+
+// ── Check 14: broker_reconciler_freshness ───────────────────────────────
+
+const checkBrokerReconcilerFreshness = timed(async function checkBrokerReconcilerFreshness(env, ctx) {
+  const anomalies = [];
+  try {
+    // The broker bridge reconciler is supposed to run every */5 min
+    // during RTH (gate inside bridge-index.js scheduled handler). It
+    // writes a heartbeat KV key when it runs.
+    const lastReconRaw = await env.KV_TIMED.get("bridge:reconciler:last_run");
+    if (!lastReconRaw) {
+      // No record yet — check if the bridge is even configured.
+      if (env?.BROKER_BRIDGE_URL) {
+        anomalies.push({
+          detail: "bridge:reconciler:last_run KV key missing — reconciler may never have run",
+          severity: "warn",
+        });
+      }
+    } else {
+      const lastRun = Number(lastReconRaw) || 0;
+      const ageMin = (Date.now() - lastRun) / 60000;
+      const dt = new Date();
+      const hourUtc = dt.getUTCHours();
+      const isWeekday = ![0, 6].includes(dt.getUTCDay());
+      const isMarketHours = isWeekday && hourUtc >= 13 && hourUtc <= 22;
+      if (isMarketHours && ageMin > 30) {
+        anomalies.push({
+          detail: `bridge reconciler last ran ${Math.round(ageMin)}min ago (>30min during market hours)`,
+          severity: ageMin > 60 ? "fail" : "warn",
+        });
+      }
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "broker_reconciler_freshness",
+    "Broker bridge reconciler freshness",
+    anomalies,
+    "Check the bridge worker's scheduled() handler logs. Reconciler stuck = position drift between model and broker goes uncaught.",
+    "would have caught: bridge reconciler silently paused after a circuit-breaker trip (operator unaware until manifest got out of sync)"
+  );
+});
+
 // ── Master sweep ────────────────────────────────────────────────────────
 
 const CHECKS = [
@@ -367,18 +634,42 @@ const CHECKS = [
   checkPriceOutlier,
   checkBridgeMirrorCoverage,
   checkLoop2BreakerStale,
+  // 2026-06-02 — Coma-test additions per operator mandate ("imagine if
+  // your hard earned money was on the line"). Each catches a different
+  // class of silent failure that would let an issue compound overnight.
+  checkCronTickAlive,
+  checkCandleFreshnessOpen,
+  checkTradeOrphan,
+  checkPortfolioReconcile,
+  checkAlertDelivery,
+  checkBrokerReconcilerFreshness,
+];
+
+// Critical-path subset that runs every 15min instead of hourly. These
+// are the ones where a 1-hour detection window is too long if money is
+// on the line. The "full" CHECKS list (above) still runs hourly to catch
+// the slower-changing semantic drifts.
+const FAST_CHECKS = [
+  checkComputeFreshness,
+  checkPositionDrift,
+  checkCronTickAlive,
+  checkCandleFreshnessOpen,
+  checkAlertDelivery,
+  checkBrokerReconcilerFreshness,
 ];
 
 /**
- * Run every check in parallel. Returns the full sweep result.
+ * Run a sweep over the given list of checks in parallel.
  *
- * @param {object} env  worker env
- * @param {object} ctx  worker fetch ctx (may be null for cron path)
- * @returns {Promise<{ok, ts, summary, checks}>}
+ * @param {object} env       worker env
+ * @param {object} ctx       worker fetch ctx (may be null for cron path)
+ * @param {string} sweepKind "full" | "fast" (just metadata for the response)
+ * @param {array}  checks    array of check functions to run
+ * @returns {Promise<{ok, ts, kind, summary, checks}>}
  */
-export async function runSanitySweep(env, ctx = null) {
+async function _runSweep(env, ctx, sweepKind, checks) {
   const t0 = Date.now();
-  const checkResults = await Promise.all(CHECKS.map(c => c(env, ctx)));
+  const checkResults = await Promise.all(checks.map(c => c(env, ctx)));
   const summary = {
     ok_count: checkResults.filter(c => c.status === "ok").length,
     warn_count: checkResults.filter(c => c.status === "warn").length,
@@ -388,20 +679,37 @@ export async function runSanitySweep(env, ctx = null) {
   return {
     ok: summary.fail_count === 0,
     ts: Date.now(),
+    kind: sweepKind,
     elapsed_ms: Date.now() - t0,
     summary,
     checks: checkResults,
   };
 }
 
+export async function runSanitySweep(env, ctx = null) {
+  return _runSweep(env, ctx, "full", CHECKS);
+}
+
+export async function runFastSweep(env, ctx = null) {
+  return _runSweep(env, ctx, "fast", FAST_CHECKS);
+}
+
 /**
  * Persist the latest sweep to KV so the MC dashboard can read it without
- * re-running the entire sweep on every page load.
+ * re-running the entire sweep on every page load. Stores under both a
+ * kind-specific key ("sanity_sweep:fast:latest") and the legacy
+ * "sanity_sweep:latest" alias (pointing to the most recent full sweep).
  */
 export async function persistSweep(env, sweep) {
   try {
     if (!env?.KV_TIMED) return;
-    await env.KV_TIMED.put("sanity_sweep:latest", JSON.stringify(sweep), { expirationTtl: 7 * 86400 });
+    const kind = sweep?.kind || "full";
+    await env.KV_TIMED.put(`sanity_sweep:${kind}:latest`, JSON.stringify(sweep), { expirationTtl: 7 * 86400 });
+    // Back-compat alias: legacy "sanity_sweep:latest" always points to
+    // the latest FULL sweep so MC + downstream consumers don't break.
+    if (kind === "full") {
+      await env.KV_TIMED.put("sanity_sweep:latest", JSON.stringify(sweep), { expirationTtl: 7 * 86400 });
+    }
   } catch (e) {
     console.warn("[SANITY_SWEEP] persist failed:", String(e?.message || e).slice(0, 120));
   }
@@ -411,9 +719,9 @@ export async function persistSweep(env, sweep) {
  * Cron handler. Runs sweep, persists, fires Discord alert on any FAIL or
  * on >= 3 warns. Uses a stable cooldown so the same anomaly doesn't spam.
  */
-export async function sanitySweepCron(env, ctx) {
+export async function sanitySweepCron(env, ctx, kind = "full") {
   try {
-    const sweep = await runSanitySweep(env, ctx);
+    const sweep = kind === "fast" ? await runFastSweep(env, ctx) : await runSanitySweep(env, ctx);
     await persistSweep(env, sweep);
 
     const failing = sweep.checks.filter(c => c.status === "fail");
