@@ -7895,13 +7895,40 @@
           const _isOpen = _trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM" || !(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED";
           if (!_isOpen) return null;
           const dirRaw = String(t.direction || "").toUpperCase();
+          const isLong = dirRaw !== "SHORT";
           const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
           const entry = Number(t.entryPrice ?? t.entry_price);
           const shares = Number(t.shares || t.qty || t.size);
           const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
           const unrealizedPct = entry > 0 && livePx > 0 ? (dirRaw === "SHORT" ? entry - livePx : livePx - entry) / entry * 100 : null;
           const sl = Number(t.sl ?? ticker?.sl);
-          const tp = Number(t.tp ?? ticker?.tp);
+          const _tpArray = Array.isArray(t.tpArray) ? t.tpArray : [];
+          const _nextTp = (() => {
+            if (!livePx || livePx <= 0) return null;
+            for (let i = 0; i < _tpArray.length; i++) {
+              const tpRow = _tpArray[i] || {};
+              const px = Number(tpRow.price ?? tpRow);
+              if (!Number.isFinite(px) || px <= 0) continue;
+              const tier = String(tpRow.tier || (i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`));
+              const desc = tpRow.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner");
+              const isAhead = isLong ? px > livePx : px < livePx;
+              if (isAhead) return {
+                px,
+                tier,
+                desc,
+                index: i
+              };
+            }
+            return null;
+          })();
+          const tp = _nextTp ? _nextTp.px : Number(t.tp ?? ticker?.tp);
+          const _slLockedInPct = (() => {
+            if (!(entry > 0) || !(sl > 0)) return null;
+            const diff = isLong ? sl - entry : entry - sl;
+            if (diff <= 0) return null;
+            return diff / entry * 100;
+          })();
+          const _trimPct = Number(t.trimmedPct ?? t.trimmed_pct ?? 0) * 100;
           const fmtUsdLocal = n => Number.isFinite(n) ? new Intl.NumberFormat("en-US", {
             style: "currency",
             currency: "USD",
@@ -7963,28 +7990,42 @@
               color: "var(--ds-text-faint)",
               letterSpacing: "0.05em"
             }
-          }, "STOP LOSS"), React.createElement("div", {
+          }, _slLockedInPct != null ? "TRAILING SL · LOCKED IN" : "STOP LOSS"), React.createElement("div", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: "var(--ds-fs-body)",
-              color: "#f87171",
+              color: _slLockedInPct != null ? "#34d399" : "#f87171",
               marginTop: 2
             }
-          }, fmtUsdLocal(sl))), React.createElement("div", null, React.createElement("div", {
+          }, fmtUsdLocal(sl), _slLockedInPct != null && React.createElement("span", {
+            style: {
+              marginLeft: 6,
+              fontSize: 10,
+              fontWeight: 600,
+              color: "#34d399"
+            }
+          }, "+", _slLockedInPct.toFixed(1), "%"))), React.createElement("div", null, React.createElement("div", {
             style: {
               fontSize: 9,
               fontWeight: 700,
               color: "var(--ds-text-faint)",
               letterSpacing: "0.05em"
             }
-          }, "TAKE PROFIT"), React.createElement("div", {
+          }, _nextTp ? `NEXT TP · ${_nextTp.tier} ${_nextTp.desc.toUpperCase()}` : "TAKE PROFIT"), React.createElement("div", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: "var(--ds-fs-body)",
               color: "#34d399",
               marginTop: 2
             }
-          }, fmtUsdLocal(tp))), React.createElement("div", null, React.createElement("div", {
+          }, fmtUsdLocal(tp), _nextTp && livePx > 0 && React.createElement("span", {
+            style: {
+              marginLeft: 6,
+              fontSize: 10,
+              fontWeight: 600,
+              color: "var(--ds-text-muted)"
+            }
+          }, "+", ((_nextTp.px - livePx) / livePx * (isLong ? 1 : -1) * 100).toFixed(1), "%"))), React.createElement("div", null, React.createElement("div", {
             style: {
               fontSize: 9,
               fontWeight: 700,
@@ -8033,7 +8074,11 @@
             style: {
               color: "var(--ds-text-body)"
             }
-          }, Number(t.rr).toFixed(2)))));
+          }, Number(t.rr).toFixed(2))), _trimPct > 0 && React.createElement(React.Fragment, null, " \xB7 Trimmed ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-accent)"
+            }
+          }, Math.round(_trimPct), "%"))));
         })(), (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
@@ -16878,4 +16923,4 @@
   };
 })();
 
-// cache-bust:1780362281497:85410380
+// cache-bust:1780362440856:875655146
