@@ -8078,7 +8078,55 @@
             style: {
               color: "var(--ds-accent)"
             }
-          }, Math.round(_trimPct), "%"))));
+          }, Math.round(_trimPct), "%"))), (() => {
+            const _exhAZ = ticker?.accumZone || latestTicker?.accumZone;
+            const _exhW = Array.isArray(_exhAZ?.exhaustionWarnings) ? _exhAZ.exhaustionWarnings : [];
+            if (_exhW.length === 0) return null;
+            return React.createElement("div", {
+              style: {
+                marginTop: 10,
+                padding: "8px 10px",
+                background: "rgba(245,158,11,0.08)",
+                border: "1px solid rgba(245,158,11,0.32)",
+                borderRadius: "var(--ds-radius-xs)",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, React.createElement("div", {
+              style: {
+                color: "#f59e0b",
+                fontWeight: 700,
+                marginBottom: 4,
+                letterSpacing: "0.02em"
+              }
+            }, "\u26A0\uFE0F EXHAUSTED MOMENTUM \xB7 ", _exhW.length, " warning", _exhW.length === 1 ? "" : "s"), React.createElement("div", {
+              style: {
+                color: "var(--ds-text-muted)",
+                marginBottom: 6
+              }
+            }, "Auto-rebalance will trim 20% on next cycle (20h cooldown after each trim)."), React.createElement("div", {
+              style: {
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4
+              }
+            }, _exhW.slice(0, 6).map((w, i) => React.createElement("span", {
+              key: `exh-${i}`,
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 10,
+                padding: "1px 6px",
+                background: "rgba(245,158,11,0.12)",
+                color: "#f59e0b",
+                borderRadius: 3,
+                border: "1px solid rgba(245,158,11,0.22)"
+              }
+            }, String(w))), _exhW.length > 6 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)"
+              }
+            }, "+", _exhW.length - 6, " more")));
+          })());
         })(), (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
@@ -16923,4 +16971,4 @@
   };
 })();
 
-// cache-bust:1780378160255:973727557
+// cache-bust:1780379200493:129425692
