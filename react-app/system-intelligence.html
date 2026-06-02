@@ -4626,48 +4626,22 @@ function RunsTab({ isAdmin }) {
   );
 }
 
-function MoveDiscoveryTab({ report, loading, error }) {
-  const [subtab, setSubtab] = useState("overview");
-  const [search, setSearch] = useState("");
-  const [captureFilter, setCaptureFilter] = useState("ALL");
-  const [selectedMove, setSelectedMove] = useState(null);
-
-  const summary = report?.summary || {};
-  const diagnosis = report?.diagnosis || {};
-  const breakdownEntries = Object.entries(diagnosis?.breakdown || {})
-    .map(([key, count]) => ({ key, count: Number(count) || 0 }))
-    .filter(item => item.count > 0)
-    .sort((a, b) => b.count - a.count);
-  const coverageEntries = Object.entries(diagnosis?.coverage_breakdown || {})
-    .map(([key, count]) => ({ key, count: Number(count) || 0 }))
-    .filter(item => item.count > 0)
-    .sort((a, b) => b.count - a.count);
-  const totalDiagnosed = Number(diagnosis?.total_diagnosed) || breakdownEntries.reduce((sum, item) => sum + item.count, 0);
-  const totalNoTrail = Number(diagnosis?.breakdown?.no_trail_data) || 0;
-  const shouldHaveEntered = Array.isArray(diagnosis?.should_have_entered) ? diagnosis.should_have_entered : [];
-  const filteredMoves = useMemo(() => {
-    let rows = Array.isArray(report?.moves) ? report.moves : [];
-    if (captureFilter !== "ALL") rows = rows.filter((move) => move.capture === captureFilter);
-    if (search.trim()) {
-      const needle = search.trim().toUpperCase();
-      rows = rows.filter((move) => String(move.ticker || "").toUpperCase().includes(needle));
-    }
-    return rows.slice().sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
-  }, [report, captureFilter, search]);
-
-  /* 2026-06-02 — Worker-native Discovery refresh.
-
-     CRITICAL: All hook calls MUST be declared BEFORE any conditional
-     early-return. The original placement of these useState/useCallback
-     hooks after the `if (loading) return ...` early-return below
-     violated the Rules of Hooks: when the report finished loading
-     and the component re-rendered, the hook count differed from the
-     first render and React crashed the page on the Discovery tab.
-     Always declare all hooks up-front. */
+/* 2026-06-02 — Run-now button factored out so MoveDiscoveryTab proper
+   doesn't have a state hook (`refreshing`) that's only used on one
+   of the three render branches. That earlier shape kept tripping
+   React error #310 (rendered more/fewer hooks than previous render)
+   regardless of where the hooks were declared, because conditional
+   rendering of children with their own hooks was being conflated
+   with the parent's hook list under the minified bundle. Now the
+   parent owns ONLY the filter state used on the success branch,
+   and the empty/error branches mount a leaf component with its own
+   isolated hook scope. */
+function DiscoveryRunNowButton() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshErr, setRefreshErr] = useState(null);
-  const triggerRefresh = useCallback(async () => {
-    setRefreshing(true); setRefreshErr(null);
+  const onClick = async () => {
+    setRefreshing(true);
+    setRefreshErr(null);
     try {
       const r = await fetch(`/timed/admin/discovery/run?_t=${Date.now()}`, {
         method: "POST", credentials: "include", cache: "no-store",
@@ -4682,8 +4656,44 @@ function MoveDiscoveryTab({ report, loading, error }) {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  };
+  return (
+    <>
+      <button onClick={onClick} disabled={refreshing}
+              style={{padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:6,
+                      background: refreshing ? "#475569" : "#059669", color:"#fff", border:"none", cursor: refreshing ? "default" : "pointer"}}>
+        {refreshing ? "Scanning…" : "Run Discovery Now"}
+      </button>
+      {refreshErr && <span style={{marginLeft:8,fontSize:11,color:"#fca5a5"}}>{refreshErr}</span>}
+    </>
+  );
+}
 
+function MoveDiscoveryTab({ report, loading, error }) {
+  /* This component renders THREE distinct branches (loading / empty /
+     filled). Hooks must be safe across all three. Approach: hold only
+     the hooks needed for the filled branch here; the empty branch
+     delegates its own state to DiscoveryRunNowButton (separate
+     component scope). The filtering hooks are unused on the
+     loading/error/empty branches but always called, so the hook
+     count is stable. */
+  const [subtab, setSubtab] = useState("overview");
+  const [search, setSearch] = useState("");
+  const [captureFilter, setCaptureFilter] = useState("ALL");
+  const [selectedMove, setSelectedMove] = useState(null);
+  const filteredMoves = useMemo(() => {
+    if (!report) return [];
+    let rows = Array.isArray(report?.moves) ? report.moves : [];
+    if (captureFilter !== "ALL") rows = rows.filter((move) => move.capture === captureFilter);
+    if (search.trim()) {
+      const needle = search.trim().toUpperCase();
+      rows = rows.filter((move) => String(move.ticker || "").toUpperCase().includes(needle));
+    }
+    return rows.slice().sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
+  }, [report, captureFilter, search]);
+
+  /* The hooks above run on EVERY render regardless of which branch
+     we take. The branches below are pure JSX, no further hooks. */
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -4693,7 +4703,12 @@ function MoveDiscoveryTab({ report, loading, error }) {
   }
 
   if (error) {
-    return <div className="card p-4 text-sm text-rose-300">Move discovery unavailable: {error}</div>;
+    return (
+      <div className="card p-4 text-sm text-rose-300">
+        <div>Move discovery unavailable: {error}</div>
+        <div className="mt-2"><DiscoveryRunNowButton /></div>
+      </div>
+    );
   }
 
   if (!report) {
@@ -4701,11 +4716,7 @@ function MoveDiscoveryTab({ report, loading, error }) {
       <div className="card p-4 text-sm text-slate-400">
         <div>No move discovery report yet. The COO runs Discovery daily at 22:00 UTC.</div>
         <div className="mt-2 flex items-center gap-2">
-          <button onClick={triggerRefresh} disabled={refreshing}
-                  className="px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">
-            {refreshing ? "Scanning…" : "Run Discovery Now"}
-          </button>
-          {refreshErr && <span className="text-rose-300 text-xs">{refreshErr}</span>}
+          <DiscoveryRunNowButton />
         </div>
         <div className="mt-2 text-[11px] text-slate-500">
           For deep historical diagnostic reports, the CLI still works:
@@ -4714,6 +4725,20 @@ function MoveDiscoveryTab({ report, loading, error }) {
       </div>
     );
   }
+
+  const summary = report?.summary || {};
+  const diagnosis = report?.diagnosis || {};
+  const breakdownEntries = Object.entries(diagnosis?.breakdown || {})
+    .map(([key, count]) => ({ key, count: Number(count) || 0 }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const coverageEntries = Object.entries(diagnosis?.coverage_breakdown || {})
+    .map(([key, count]) => ({ key, count: Number(count) || 0 }))
+    .filter(item => item.count > 0)
+    .sort((a, b) => b.count - a.count);
+  const totalDiagnosed = Number(diagnosis?.total_diagnosed) || breakdownEntries.reduce((sum, item) => sum + item.count, 0);
+  const totalNoTrail = Number(diagnosis?.breakdown?.no_trail_data) || 0;
+  const shouldHaveEntered = Array.isArray(diagnosis?.should_have_entered) ? diagnosis.should_have_entered : [];
 
   // P3 — actionable Move Discovery. Each KPI links to either Trade Autopsy
   // (filtered to that capture state) or a calibration knob. Diagnosis
@@ -4743,16 +4768,11 @@ function MoveDiscoveryTab({ report, loading, error }) {
             {isStale && <span style={{marginLeft:6, color:"var(--ds-accent)"}}>· stale</span>}
           </div>
           <div style={{display:"flex", alignItems:"center", gap:8, marginTop:6, justifyContent:"flex-end"}}>
-            <button onClick={triggerRefresh} disabled={refreshing}
-                    style={{padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:6,
-                            background: refreshing ? "#475569" : "#059669", color:"#fff", border:"none", cursor: refreshing ? "default" : "pointer"}}>
-              {refreshing ? "Scanning…" : "Run Discovery Now"}
-            </button>
+            <DiscoveryRunNowButton />
             <span style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)"}}>
               Auto-refresh: daily 22:00 UTC (AI COO)
             </span>
           </div>
-          {refreshErr && <div style={{fontSize:11, color:"#fca5a5", marginTop:4}}>{refreshErr}</div>}
         </div>
       </div>
 

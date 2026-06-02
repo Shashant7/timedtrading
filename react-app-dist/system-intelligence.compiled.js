@@ -5964,55 +5964,10 @@ function RunsTab({
     className: "text-slate-500"
   }, "Snapshot: ", variantData.rule_snapshot_meta.ready ? "Ready" : "—", " \xB7 ", variantData.rule_snapshot_meta.source || "—"))))));
 }
-function MoveDiscoveryTab({
-  report,
-  loading,
-  error
-}) {
-  const [subtab, setSubtab] = useState("overview");
-  const [search, setSearch] = useState("");
-  const [captureFilter, setCaptureFilter] = useState("ALL");
-  const [selectedMove, setSelectedMove] = useState(null);
-  const summary = report?.summary || {};
-  const diagnosis = report?.diagnosis || {};
-  const breakdownEntries = Object.entries(diagnosis?.breakdown || {}).map(([key, count]) => ({
-    key,
-    count: Number(count) || 0
-  })).filter(item => item.count > 0).sort((a, b) => b.count - a.count);
-  const coverageEntries = Object.entries(diagnosis?.coverage_breakdown || {}).map(([key, count]) => ({
-    key,
-    count: Number(count) || 0
-  })).filter(item => item.count > 0).sort((a, b) => b.count - a.count);
-  const totalDiagnosed = Number(diagnosis?.total_diagnosed) || breakdownEntries.reduce((sum, item) => sum + item.count, 0);
-  const totalNoTrail = Number(diagnosis?.breakdown?.no_trail_data) || 0;
-  const shouldHaveEntered = Array.isArray(diagnosis?.should_have_entered) ? diagnosis.should_have_entered : [];
-  const filteredMoves = useMemo(() => {
-    let rows = Array.isArray(report?.moves) ? report.moves : [];
-    if (captureFilter !== "ALL") rows = rows.filter(move => move.capture === captureFilter);
-    if (search.trim()) {
-      const needle = search.trim().toUpperCase();
-      rows = rows.filter(move => String(move.ticker || "").toUpperCase().includes(needle));
-    }
-    return rows.slice().sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
-  }, [report, captureFilter, search]);
-  if (loading) {
-    return React.createElement("div", {
-      className: "flex items-center justify-center py-20"
-    }, React.createElement("div", {
-      className: "w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full",
-      style: {
-        animation: "spin 0.7s linear infinite"
-      }
-    }));
-  }
-  if (error) {
-    return React.createElement("div", {
-      className: "card p-4 text-sm text-rose-300"
-    }, "Move discovery unavailable: ", error);
-  }
+function DiscoveryRunNowButton() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshErr, setRefreshErr] = useState(null);
-  const triggerRefresh = useCallback(async () => {
+  const onClick = async () => {
     setRefreshing(true);
     setRefreshErr(null);
     try {
@@ -6036,24 +5991,88 @@ function MoveDiscoveryTab({
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  };
+  return React.createElement(React.Fragment, null, React.createElement("button", {
+    onClick: onClick,
+    disabled: refreshing,
+    style: {
+      padding: "4px 10px",
+      fontSize: 11,
+      fontWeight: 600,
+      borderRadius: 6,
+      background: refreshing ? "#475569" : "#059669",
+      color: "#fff",
+      border: "none",
+      cursor: refreshing ? "default" : "pointer"
+    }
+  }, refreshing ? "Scanning…" : "Run Discovery Now"), refreshErr && React.createElement("span", {
+    style: {
+      marginLeft: 8,
+      fontSize: 11,
+      color: "#fca5a5"
+    }
+  }, refreshErr));
+}
+function MoveDiscoveryTab({
+  report,
+  loading,
+  error
+}) {
+  const [subtab, setSubtab] = useState("overview");
+  const [search, setSearch] = useState("");
+  const [captureFilter, setCaptureFilter] = useState("ALL");
+  const [selectedMove, setSelectedMove] = useState(null);
+  const filteredMoves = useMemo(() => {
+    if (!report) return [];
+    let rows = Array.isArray(report?.moves) ? report.moves : [];
+    if (captureFilter !== "ALL") rows = rows.filter(move => move.capture === captureFilter);
+    if (search.trim()) {
+      const needle = search.trim().toUpperCase();
+      rows = rows.filter(move => String(move.ticker || "").toUpperCase().includes(needle));
+    }
+    return rows.slice().sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
+  }, [report, captureFilter, search]);
+  if (loading) {
+    return React.createElement("div", {
+      className: "flex items-center justify-center py-20"
+    }, React.createElement("div", {
+      className: "w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full",
+      style: {
+        animation: "spin 0.7s linear infinite"
+      }
+    }));
+  }
+  if (error) {
+    return React.createElement("div", {
+      className: "card p-4 text-sm text-rose-300"
+    }, React.createElement("div", null, "Move discovery unavailable: ", error), React.createElement("div", {
+      className: "mt-2"
+    }, React.createElement(DiscoveryRunNowButton, null)));
+  }
   if (!report) {
     return React.createElement("div", {
       className: "card p-4 text-sm text-slate-400"
     }, React.createElement("div", null, "No move discovery report yet. The COO runs Discovery daily at 22:00 UTC."), React.createElement("div", {
       className: "mt-2 flex items-center gap-2"
-    }, React.createElement("button", {
-      onClick: triggerRefresh,
-      disabled: refreshing,
-      className: "px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50"
-    }, refreshing ? "Scanning…" : "Run Discovery Now"), refreshErr && React.createElement("span", {
-      className: "text-rose-300 text-xs"
-    }, refreshErr)), React.createElement("div", {
+    }, React.createElement(DiscoveryRunNowButton, null)), React.createElement("div", {
       className: "mt-2 text-[11px] text-slate-500"
     }, "For deep historical diagnostic reports, the CLI still works:", React.createElement("code", {
       className: "ml-1 text-slate-300"
     }, "USE_D1=1 node scripts/discover-moves.js --upload"), "."));
   }
+  const summary = report?.summary || {};
+  const diagnosis = report?.diagnosis || {};
+  const breakdownEntries = Object.entries(diagnosis?.breakdown || {}).map(([key, count]) => ({
+    key,
+    count: Number(count) || 0
+  })).filter(item => item.count > 0).sort((a, b) => b.count - a.count);
+  const coverageEntries = Object.entries(diagnosis?.coverage_breakdown || {}).map(([key, count]) => ({
+    key,
+    count: Number(count) || 0
+  })).filter(item => item.count > 0).sort((a, b) => b.count - a.count);
+  const totalDiagnosed = Number(diagnosis?.total_diagnosed) || breakdownEntries.reduce((sum, item) => sum + item.count, 0);
+  const totalNoTrail = Number(diagnosis?.breakdown?.no_trail_data) || 0;
+  const shouldHaveEntered = Array.isArray(diagnosis?.should_have_entered) ? diagnosis.should_have_entered : [];
   const generatedMs = report?.generated ? new Date(report.generated).getTime() : 0;
   const isStale = generatedMs > 0 && Date.now() - generatedMs > 7 * 24 * 3600 * 1000;
   const tipFor = k => ({
@@ -6102,31 +6121,12 @@ function MoveDiscoveryTab({
       marginTop: 6,
       justifyContent: "flex-end"
     }
-  }, React.createElement("button", {
-    onClick: triggerRefresh,
-    disabled: refreshing,
-    style: {
-      padding: "4px 10px",
-      fontSize: 11,
-      fontWeight: 600,
-      borderRadius: 6,
-      background: refreshing ? "#475569" : "#059669",
-      color: "#fff",
-      border: "none",
-      cursor: refreshing ? "default" : "pointer"
-    }
-  }, refreshing ? "Scanning…" : "Run Discovery Now"), React.createElement("span", {
+  }, React.createElement(DiscoveryRunNowButton, null), React.createElement("span", {
     style: {
       fontSize: "var(--ds-fs-caption)",
       color: "var(--ds-text-faint)"
     }
-  }, "Auto-refresh: daily 22:00 UTC (AI COO)")), refreshErr && React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "#fca5a5",
-      marginTop: 4
-    }
-  }, refreshErr))), React.createElement("div", {
+  }, "Auto-refresh: daily 22:00 UTC (AI COO)")))), React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-5 gap-3"
   }, React.createElement("a", {
     className: "si-kpi",
@@ -7644,6 +7644,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1780400016765:565821794
+// cache-bust:1780411655803:699761427
 
-// cache-bust:1780400016765:565821794
+// cache-bust:1780411655803:699761427
