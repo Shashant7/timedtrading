@@ -56,6 +56,11 @@
 // All three default OFF so the first deploy is observation-only.
 // Operator flips them on after reviewing the dry-run logs.
 
+/* Static imports — see Tests note in runMoveDiscoveryCycle. Always
+   use top-level imports for worker modules; dynamic imports inside
+   handlers occasionally fail to resolve under esbuild + wrangler. */
+import { runMoveDiscovery } from "../discovery/move-discovery.js";
+
 const COO_KV_PREFIX = "coo:actions";
 
 // ── Audit log helpers ─────────────────────────────────────────────────
@@ -376,9 +381,14 @@ export async function runScreenerAutoPromote(env, options = {}) {
   const dailyMax = Number(env?.COO_SCREENER_DAILY_MAX) || 3;
 
   try {
-    // 1. Load needs_review candidates.
+    /* 1. Load needs_review candidates.
+       NOTE: the function is `loadPromotionQueueRows` (returns
+       { ok, count, rows }), NOT `listPromotionQueue` (which was the
+       name in an earlier draft and would have thrown at runtime).
+       Caught by worker/coo/coo-orchestrator.test.js — keep that
+       test passing if you rename anything here. */
     const PromotionQueue = await import("../discovery/promotion-queue.js");
-    const list = await PromotionQueue.listPromotionQueue(env, { status: "needs_review", limit: 50 });
+    const list = await PromotionQueue.loadPromotionQueueRows(env, { status: "needs_review", limit: 50 });
     const candidates = (list?.rows || []).filter(c =>
       Number(c.total_score) >= minScore && (!c.red_flags || c.red_flags.length === 0)
     );
@@ -510,13 +520,16 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
 
   let result;
   try {
-    const MoveDiscovery = await import("../discovery/move-discovery.js");
-    result = await MoveDiscovery.runMoveDiscovery(env, {
+    /* Use the top-level import (see top of file) instead of dynamic
+       import — dynamic imports inside async handlers can intermittently
+       fail to bundle in Cloudflare Workers under certain wrangler/
+       esbuild combinations. Static imports always bundle correctly. */
+    result = await runMoveDiscovery(env, {
       windowDays: Number(env?.COO_DISCOVERY_WINDOW_DAYS) || 60,
       minAtr: Number(env?.COO_DISCOVERY_MIN_ATR) || 3,
     });
   } catch (e) {
-    return { ok: false, error: `discovery_import_failed: ${String(e?.message || e).slice(0, 120)}`, elapsed_ms: Date.now() - t0 };
+    return { ok: false, error: `discovery_threw: ${String(e?.message || e).slice(0, 200)}`, elapsed_ms: Date.now() - t0 };
   }
 
   if (!result?.ok) {
