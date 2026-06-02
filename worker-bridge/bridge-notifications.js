@@ -305,6 +305,32 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
     openTrades = r?.results || [];
   } catch (_) {}
 
+  // 6. 2026-06-02 — Sanity-sweep summary. The main worker persists the
+  // latest sweep to KV under "sanity_sweep:latest" (and "sanity_sweep:
+  // fast:latest"). The bridge KV is the same namespace, so we can read
+  // it directly. Renders in the digest as "System: 13/14 checks ok ·
+  // 1 warn · 0 fail" with any failing/warning check names listed.
+  let sanitySummary = null;
+  try {
+    const kv = env?.BRIDGE_KV || env?.KV_TIMED;
+    if (kv) {
+      const raw = await kv.get("sanity_sweep:latest");
+      if (raw) {
+        const sweep = JSON.parse(raw);
+        const failing = (sweep.checks || []).filter(c => c.status === "fail");
+        const warning = (sweep.checks || []).filter(c => c.status === "warn");
+        sanitySummary = {
+          ok_count: sweep.summary?.ok_count || 0,
+          warn_count: sweep.summary?.warn_count || 0,
+          fail_count: sweep.summary?.fail_count || 0,
+          age_minutes: sweep.ts ? Math.round((Date.now() - sweep.ts) / 60000) : null,
+          failing_checks: failing.map(c => ({ id: c.id, label: c.label, anomaly: (c.anomalies?.[0]?.detail || "").slice(0, 200) })),
+          warning_checks: warning.map(c => ({ id: c.id, label: c.label, anomaly: (c.anomalies?.[0]?.detail || "").slice(0, 200) })),
+        };
+      }
+    }
+  } catch (_) { /* sanity summary is best-effort; never block the digest */ }
+
   return {
     skip: false,
     user_id: userId,
@@ -319,6 +345,7 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
     equity_end: equityEnd,
     open_trades: openTrades,
     audit_total: audit.length,
+    sanity_summary: sanitySummary,
     generated_at: Date.now(),
   };
 }
@@ -390,6 +417,17 @@ export function renderDailyOwnerDigestEmail(digest) {
     "═══════════════════════════════════════════════",
     ...(watchLines.length > 0 ? watchLines : ["  (no open mirror trades)"]),
     "",
+    // 2026-06-02 — Sanity-sweep summary so the operator/user wakes up
+    // knowing the system is green (or knows exactly what's red).
+    ...(digest.sanity_summary ? [
+      "═══════════════════════════════════════════════",
+      "SYSTEM HEALTH (sanity sweep)",
+      "═══════════════════════════════════════════════",
+      `  ${digest.sanity_summary.ok_count} checks ok · ${digest.sanity_summary.warn_count} warn · ${digest.sanity_summary.fail_count} fail${digest.sanity_summary.age_minutes != null ? ` (sweep ${digest.sanity_summary.age_minutes}min old)` : ""}`,
+      ...(digest.sanity_summary.failing_checks || []).map(c => `  ⛔ ${c.label} — ${c.anomaly}`),
+      ...(digest.sanity_summary.warning_checks || []).slice(0, 4).map(c => `  ⚠️ ${c.label} — ${c.anomaly}`),
+      "",
+    ] : []),
     "═══════════════════════════════════════════════",
     "QUICK LINKS",
     "═══════════════════════════════════════════════",
