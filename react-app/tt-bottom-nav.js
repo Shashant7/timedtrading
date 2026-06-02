@@ -30,19 +30,29 @@
       right: 0;
       /* 2026-05-31 — User report: bottom nav was appearing mid-page on
          iOS Safari instead of pinned to the viewport. Root cause was
-         the PaywallScreen wrapper using `transform: translate3d` (and
-         some legacy callers using `transform: translateZ(0)` to force
+         the PaywallScreen wrapper using transform translate3d (and
+         some legacy callers using transform translateZ(0) to force
          GPU layers) — when ANY ancestor of a position:fixed element
          has a transform, filter, or perspective, the fixed element's
          containing block becomes that ancestor instead of the
          viewport. So the nav appeared at the bottom of the paywall
          card, not the bottom of the screen.
 
-         Re-parent the nav DIRECTLY under <body> via document.body
+         Re-parent the nav DIRECTLY under body via document.body
          .appendChild() (already in code below) AND bump z-index so
          it always wins. The translate3d inside the nav itself is
          fine (it doesn't affect its own positioning context) — it's
-         ancestor transforms that break fixed positioning. */
+         ancestor transforms that break fixed positioning.
+
+         2026-06-01 (v3) — CRITICAL: removed inline backticks around
+         transform keywords (was 'transform: translate3d' etc with
+         backticks). Those backticks were INSIDE the outer JS template
+         literal that defines this CSS, so they terminated the literal
+         early and the entire script body after this point was parsed
+         as bare JavaScript identifiers — guaranteed SyntaxError on
+         every load. The script silently never ran in any browser for
+         ~2 weeks. Never use backticks inside a template literal's CSS
+         body, even in comments. */
       z-index: 2147483000;
       /* 2026-06-01 (v2) — Bumped floor 14px → 24px AND added a
          visualViewport-driven translateY adjustment (see JS at the
@@ -66,7 +76,7 @@
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
       /* Bug 2026-05-20: iOS Safari momentum-scroll fixed-position quirk.
          Force GPU compositing so the nav stays in its own layer.
-         The visualViewport JS below mutates this `transform` at
+         The visualViewport JS below mutates this transform property at
          runtime — preserve translate3d(0,0,0) as the resting state. */
       transform: translate3d(0, 0, 0);
       -webkit-transform: translate3d(0, 0, 0);
@@ -193,6 +203,20 @@
   nav.id = "tt-bottom-nav";
   nav.className = "tt-bn";
   nav.setAttribute("aria-label", "Primary mobile navigation");
+  // 2026-06-01 (v3) — Diagnostic attributes so the next "where's the
+  // nav?" report can be triaged in 5 seconds via DevTools instead of a
+  // round-trip:
+  //   data-tt-bn-mounted   — proves the script ran + appendChild fired
+  //   data-tt-bn-built-at  — script vintage (lines up with cache-bust)
+  //   data-tt-bn-state     — updated by syncNavToVisualViewport:
+  //                          "settled"            no URL bar push
+  //                          "url-bar-<N>px"      pushed N px up
+  //                          "keyboard"           hidden (keyboard open)
+  // Devtools (Mobile Safari Inspector):
+  //   document.getElementById("tt-bottom-nav").dataset
+  nav.dataset.ttBnMounted = "1";
+  nav.dataset.ttBnBuiltAt = "2026-06-01-v3";
+  nav.dataset.ttBnState = "init";
 
   const row = document.createElement("div");
   row.className = "tt-bn-row";
@@ -351,13 +375,27 @@
     const vvH = vv.height;
     const vvOffsetTop = vv.offsetTop || 0;
     const delta = Math.max(0, Math.round(innerH - vvH - vvOffsetTop));
-    // Cap at 120px as a sanity floor — anything bigger is almost
-    // certainly the on-screen keyboard, where pushing the nav up
-    // would land it in the middle of the page. Hide instead.
-    if (delta > 120) {
+
+    // 2026-06-01 (v3) — User report: nav still hidden on today.html with
+    // iOS Safari URL bar EXPANDED. Root cause: the previous "delta > 120
+    // = keyboard" sanity floor was too aggressive. On iPhone Pro Max
+    // with the fully-expanded bottom URL bar (refresh / back / forward
+    // visible), delta = ~175px — well past the 120 threshold, so the
+    // nav was getting hidden as a false-positive "keyboard open".
+    //
+    // New keyboard detection: keyboards take 35%+ of the screen height
+    // (typical iOS keyboard ≈ 340px / 932px = 36%). URL bars never take
+    // more than ~15% (88px / 932px). Use a height-ratio check that's
+    // much harder to misfire on URL-bar transitions.
+    const isKeyboardOpen = vvH > 0 && vvH < innerH * 0.65;
+    if (isKeyboardOpen) {
+      // Hide the nav while the keyboard is up — pushing it would land
+      // mid-page and overlap content the user is typing into.
       navEl.style.transform = "translate3d(0, 200%, 0)";
+      navEl.dataset.ttBnState = "keyboard";
     } else {
       navEl.style.transform = `translate3d(0, -${delta}px, 0)`;
+      navEl.dataset.ttBnState = delta > 0 ? `url-bar-${delta}px` : "settled";
     }
   }
   // Initial pass + listen to every viewport change (resize, scroll, and
