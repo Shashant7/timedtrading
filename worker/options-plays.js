@@ -328,7 +328,12 @@ export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false
    cadence + deep liquidity at every strike — only SPY/QQQ/IWM clear
    that bar on the US tape today. SPX could be added later but trades
    cash-settled European-style which changes the management story. */
-export const DAY_TRADE_TICKERS = new Set(["SPY", "QQQ", "IWM"]);
+// 2026-06-01 — DIA added per operator request after a profitable manual
+// 510C day-trade. DIA's options chain has daily expiries + ATM liquidity
+// on par with SPY/QQQ/IWM at every major broker (IBKR, Robinhood, RH).
+// All four index ETFs share the same regime (S&P / DJIA / Nasdaq /
+// Russell) so day-trade signals on any of them are first-class.
+export const DAY_TRADE_TICKERS = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 export function isDayTradeTicker(ticker) {
   return DAY_TRADE_TICKERS.has(String(ticker || "").toUpperCase());
 }

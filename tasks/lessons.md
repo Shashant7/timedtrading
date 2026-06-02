@@ -6,6 +6,54 @@
 
 ---
 
+## Broker bridge: mirror model actions per mode, scaled to the account [2026-06-01]
+
+Operator: *"I want you to map back and mirror the model actions per mode for an account when the account has enabled it and can support the position, of course scaled for it."*
+
+### Architecture (per-mode pipelines, single bridge)
+
+| Mode | Source | Sizing input | Vehicle |
+|---|---|---|---|
+| **Trader** (intraday + swing) | `processTradeSimulation` → entry path | per-trade risk budget (already absolute size) | `equity_long` (and option archetypes when auto-mirror is wired) |
+| **Investor** (weeks-months) | `/timed/investor/auto-rebalance` → open / add / trim | % of $100k model notional | `equity_long` |
+
+Both modes call the same `forwardOrderToBridge()` (worker/broker-bridge-client.js). The mode flows through as a `mode: "trader" \| "investor"` field on the payload; the bridge picks the right scaling rules.
+
+### Scaling rules (all in `worker-bridge/bridge-guards.js` `preflightOrder`)
+
+Cascading scale-to-fit. Each step rounds qty DOWN; the next step then sees the smaller qty:
+
+1. **Investor account-size scaling** (Investor mode only): `scaled_qty = floor(model_qty × user_equity / model_capital × 10⁴) / 10⁴`. Trader mode skips this — Trader sizes are already per-trade-honest.
+2. **Per-order $ cap** (`user_caps.max_per_order_usd`): `floor(cap / entry_price)`.
+3. **Cash-availability** (`user.cash_usd × 0.98` buffer): `floor(usable_cash / entry_price)`.
+4. **Account concentration** (`user_caps.max_account_pct`, default 25 % of equity): `floor(equity × pct / entry_price)`.
+
+Each step that fires logs `[BRIDGE_SCALE]` + reason + before/after. All scaling appears on the response as `scaling: { original_qty, scaled_qty, reason, scale_ratio, equity_usd, cash_usd, cap_usd }` so Mission Control / audit log / ring buffer surface "model wanted 100, bridge sent 7 — concentration capped".
+
+### Hard rejects (no scale-to-fit)
+
+| Condition | Reject reason |
+|---|---|
+| `min_unit_usd > cap` (one share doesn't fit) | `order_too_large_min_unit_X_gt_cap_Y` |
+| `min_unit_usd > cash` (one share won't clear) | `insufficient_cash_for_one_unit_X_lt_Y` |
+| Investor mirror with user equity so small the scaled qty rounds to 0 | `account_too_small_for_investor_mirror_X_lt_Y` |
+| Naked-short side or vehicle | `naked_short_deferred` (hard invariant, no env override) |
+
+### Operator toggles (env vars; flippable without redeploy if mirrored into `model_config`)
+
+- `BROKER_BRIDGE_URL` / `BROKER_BRIDGE_HMAC_KEY` — required for ANY bridge call
+- `BROKER_INVESTOR_MIRROR_ENABLED` — default `false`; Investor entries / adds / trims fire only when `true`
+- `BROKER_SCALE_TO_FIT` — default `true`; flip to `false` to restore the legacy hard-rejection behavior (debugging only)
+- `BROKER_KILL_SWITCH` — global hard stop on every bridge order
+
+### Rule
+
+When auto-routing model decisions to live broker accounts, **scale-to-fit always beats reject-and-skip** for an operator-level mirror. The operator's intent is "I want to participate in this signal at the size my account allows" — a rejection on cap means the user got nothing while the model showed a winning trade. Round qty DOWN to fit, surface the scaling delta in the audit log + UI, and reserve hard-rejects for the cases where even one share doesn't fit.
+
+Investor scaling deserves an extra wrinkle: the model uses a fixed $100k notional simulator. Real accounts are smaller, so EVERY investor order needs a `model_capital_usd` field on the payload + `user.equity_usd` on the user record so the bridge can compute the right ratio. The Trader path skips this because Trader sizing is already absolute.
+
+---
+
 ## CIO "all in" for lifecycle decisions — gate pattern, not direct wiring [2026-06-01]
 
 Operator: *"Let's try going all in and trim down as needed. We have pretty much low number of users, so better now to learn what needs to be refined than later."*
