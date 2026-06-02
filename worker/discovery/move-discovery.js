@@ -63,11 +63,19 @@ export async function runMoveDiscovery(env, opts = {}) {
   const windowDays = Math.max(20, Math.min(120, Number(opts.windowDays) || DEFAULT_WINDOW_DAYS));
   const minAtr = Math.max(2, Math.min(5, Number(opts.minAtr) || MIN_ATR_MULT));
   const sinceTsMs = Date.now() - windowDays * 86400000;
-  const sinceTsSec = Math.floor(sinceTsMs / 1000);
 
-  /* 1) Load daily candles in the window. Use a single ranged query
-        and chunk in memory; the worker D1 ms budget is fine for ~50k
-        rows of (ticker, ts, o, h, l, c, v). */
+  /* 1) Load daily candles in the window.
+
+     CRITICAL: `ticker_candles.ts` is stored in MILLISECONDS (see
+     worker/index.js line 31537 + the table's existing query
+     patterns). An earlier version of this function bound a SECONDS
+     value (`Math.floor(sinceTsMs/1000)`) which caused EVERY row
+     across the full table to match the WHERE clause — the resulting
+     payload OOMed the worker and crashed the request. Always bind
+     ms. Unit test discovery.bindsMillisecondTimestamp asserts this.
+
+     Use a single ranged query; the worker CPU + D1 row budget is
+     fine for ~60 days * ~300 tickers = ~18k rows. */
   let candleRows = [];
   try {
     const rows = await db.prepare(
@@ -75,20 +83,25 @@ export async function runMoveDiscovery(env, opts = {}) {
          FROM ticker_candles
         WHERE tf = 'D' AND ts >= ?1
         ORDER BY ticker, ts`,
-    ).bind(sinceTsSec).all().catch(() => ({ results: [] }));
-    candleRows = rows?.results || [];
+    ).bind(sinceTsMs).all();
+    candleRows = (rows && rows.results) || [];
   } catch (e) {
-    return { ok: false, error: `candle_query_failed: ${String(e?.message || e).slice(0, 120)}`, elapsed_ms: Date.now() - t0 };
+    return { ok: false, error: `candle_query_failed: ${String(e?.message || e).slice(0, 200)}`, elapsed_ms: Date.now() - t0 };
   }
 
   const byTicker = {};
   for (const c of candleRows) {
     const ts = Number(c.ts);
+    // Defensive: accept either ms or seconds (legacy rows). Discard
+    // anything older than the window after normalization.
     const tsMs = ts > 1e12 ? ts : ts * 1000;
     if (tsMs < sinceTsMs) continue;
     const t = String(c.ticker).toUpperCase();
+    if (!t) continue;
+    const o = Number(c.o), h = Number(c.h), l = Number(c.l), close = Number(c.c);
+    if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(close)) continue;
     (byTicker[t] = byTicker[t] || []).push({
-      ts: tsMs, o: Number(c.o), h: Number(c.h), l: Number(c.l), c: Number(c.c), v: Number(c.v || 0),
+      ts: tsMs, o, h, l, c: close, v: Number(c.v || 0),
     });
   }
   for (const t of Object.keys(byTicker)) byTicker[t].sort((a, b) => a.ts - b.ts);
@@ -108,7 +121,9 @@ export async function runMoveDiscovery(env, opts = {}) {
     tickers = tickers.slice(0, MAX_TICKERS);
   }
 
-  /* 2) Load closed trades in the window. */
+  /* 2) Load closed trades in the window. `trades.entry_ts` is stored
+        in MILLISECONDS (see worker/index.js line 28751 backfill query
+        which binds `new Date(...).getTime()`). Same fix as above. */
   let trades = [];
   try {
     const rows = await db.prepare(
@@ -118,19 +133,25 @@ export async function runMoveDiscovery(env, opts = {}) {
         WHERE status IN ('WIN','LOSS','FLAT')
           AND entry_ts >= ?1
         ORDER BY ticker, entry_ts`,
-    ).bind(sinceTsSec).all().catch(() => ({ results: [] }));
-    trades = rows?.results || [];
+    ).bind(sinceTsMs).all();
+    trades = (rows && rows.results) || [];
   } catch (e) {
+    /* Trade query failure is non-fatal — Discovery still produces
+       useful "missed" stats even with zero trades, because every
+       move with no matching trade becomes a MISS. */
     trades = [];
   }
   const tradesByTicker = {};
   for (const t of trades) {
     const sym = String(t.ticker || "").toUpperCase();
     if (!sym) continue;
+    const entry = Number(t.entry_ts);
+    const exit = Number(t.exit_ts);
+    if (!Number.isFinite(entry)) continue;
     (tradesByTicker[sym] = tradesByTicker[sym] || []).push({
       ...t,
-      entry_ts: Number(t.entry_ts) > 1e12 ? Number(t.entry_ts) : Number(t.entry_ts) * 1000,
-      exit_ts: Number(t.exit_ts) > 1e12 ? Number(t.exit_ts) : Number(t.exit_ts) * 1000,
+      entry_ts: entry > 1e12 ? entry : entry * 1000,
+      exit_ts: Number.isFinite(exit) ? (exit > 1e12 ? exit : exit * 1000) : null,
       entry_price: Number(t.entry_price),
       exit_price: Number(t.exit_price),
       pnl_pct: Number(t.pnl_pct) || 0,
