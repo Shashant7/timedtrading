@@ -4655,23 +4655,15 @@ function MoveDiscoveryTab({ report, loading, error }) {
     return rows.slice().sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
   }, [report, captureFilter, search]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
-      </div>
-    );
-  }
-
-  if (error) {
-    return <div className="card p-4 text-sm text-rose-300">Move discovery unavailable: {error}</div>;
-  }
-
   /* 2026-06-02 — Worker-native Discovery refresh.
-     Discovery used to require the operator to SSH/curl and run the CLI.
-     Now the COO runs it daily, and this button lets the operator force
-     a refresh from the dashboard. Persists straight to KV and the
-     parent reloads on success. */
+
+     CRITICAL: All hook calls MUST be declared BEFORE any conditional
+     early-return. The original placement of these useState/useCallback
+     hooks after the `if (loading) return ...` early-return below
+     violated the Rules of Hooks: when the report finished loading
+     and the component re-rendered, the hook count differed from the
+     first render and React crashed the page on the Discovery tab.
+     Always declare all hooks up-front. */
   const [refreshing, setRefreshing] = useState(false);
   const [refreshErr, setRefreshErr] = useState(null);
   const triggerRefresh = useCallback(async () => {
@@ -4691,6 +4683,18 @@ function MoveDiscoveryTab({ report, loading, error }) {
       setRefreshing(false);
     }
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-6 h-6 border-2 border-white/20 border-t-emerald-500 rounded-full" style={{animation:"spin 0.7s linear infinite"}} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return <div className="card p-4 text-sm text-rose-300">Move discovery unavailable: {error}</div>;
+  }
 
   if (!report) {
     return (
