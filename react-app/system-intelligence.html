@@ -4643,13 +4643,34 @@ function RunsTab({ isAdmin }) {
 
    Apply POSTs to /timed/admin/discovery/apply which validates the
    knob, enforces ≤30% delta, then writes to model_config. */
-function DiscoveryRecommendationsPanel({ recommendations }) {
+function DiscoveryRecommendationsPanel({ recommendations, reportGeneratedMs }) {
   const [appliedIds, setAppliedIds] = useState(new Set());
   const [busyId, setBusyId] = useState(null);
   const [errById, setErrById] = useState({});
   const [successById, setSuccessById] = useState({});
 
-  if (!Array.isArray(recommendations) || recommendations.length === 0) return null;
+  /* 2026-06-02 — Instead of returning null when there are no recs
+     (which made the panel disappear silently), render a helpful
+     "Why am I not seeing recs?" hint. The Discovery report on KV
+     may have been generated BEFORE the recommendations engine
+     shipped, so the operator needs to click "Run Discovery Now"
+     to refresh. */
+  if (!Array.isArray(recommendations) || recommendations.length === 0) {
+    const reportAge = reportGeneratedMs ? Math.round((Date.now() - reportGeneratedMs) / 60000) : null;
+    return (
+      <div className="card p-4" style={{borderLeft:"3px solid #f59e0b"}}>
+        <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", textTransform:"uppercase", letterSpacing:"0.12em"}}>
+          Next Actions
+        </div>
+        <div style={{fontSize:13, color:"#fcd34d", marginTop:8}}>
+          No recommendations on this report.
+        </div>
+        <div style={{fontSize:11, color:"rgba(255,255,255,0.7)", marginTop:6, lineHeight:1.6}}>
+          The recommendations engine shipped 2026-06-02. {reportAge != null ? `This report is ${reportAge}m old — it may pre-date the engine.` : ""} Click <strong>Run Discovery Now</strong> (top right) to regenerate a report with actionable recs, then refresh this page.
+        </div>
+      </div>
+    );
+  }
 
   const apply = async (rec) => {
     setBusyId(rec.id);
@@ -4808,6 +4829,45 @@ function DiscoveryRunNowButton() {
   );
 }
 
+/* 2026-06-02 — Run-diagnosis button. Operator question: "How do we
+   run the diagnosis directly through System Intelligence?" — this
+   POSTs to /timed/admin/discovery/diagnose which joins each missed
+   move against trail_5m_facts and writes the result back to the
+   Discovery report on KV. On success, page reloads so the "Miss
+   Buckets" tab + "Diagnosis Coverage" tile populate. */
+function DiscoveryRunDiagnosisButton() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const onClick = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/timed/admin/discovery/diagnose?_t=${Date.now()}`, {
+        method: "POST", credentials: "include", cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) { setErr(j?.error || "diagnosis_failed"); return; }
+      window.location.reload();
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 160));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <button onClick={onClick} disabled={busy}
+              style={{padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:6,
+                      background: busy ? "#475569" : "#1d4ed8", color:"#fff", border:"none", cursor: busy ? "default" : "pointer"}}>
+        {busy ? "Diagnosing…" : "Run Diagnosis"}
+      </button>
+      {err && <span style={{marginLeft:8,fontSize:11,color:"#fca5a5"}}>{err}</span>}
+    </>
+  );
+}
+
 function MoveDiscoveryTab({ report, loading, error }) {
   /* This component renders THREE distinct branches (loading / empty /
      filled). Hooks must be safe across all three. Approach: hold only
@@ -4908,9 +4968,10 @@ function MoveDiscoveryTab({ report, loading, error }) {
           </div>
           <div style={{display:"flex", alignItems:"center", gap:8, marginTop:6, justifyContent:"flex-end"}}>
             <DiscoveryRunNowButton />
-            <span style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)"}}>
-              Auto-refresh: daily 22:00 UTC (AI COO)
-            </span>
+            <DiscoveryRunDiagnosisButton />
+          </div>
+          <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)", marginTop:4, textAlign:"right"}}>
+            Auto-refresh: daily 22:00 UTC (AI COO)
           </div>
         </div>
       </div>
@@ -4947,9 +5008,7 @@ function MoveDiscoveryTab({ report, loading, error }) {
             <>
               <div className="si-kpi__value si-kpi__value--accent" style={{fontSize:"18px"}}>Not run</div>
               <div className="si-kpi__sub">
-                <span title="USE_D1=1 node scripts/diagnose-missed-moves.js --upload">
-                  Run <code style={{fontFamily:"var(--tt-font-mono)"}}>diagnose-missed-moves.js --upload</code>
-                </span>
+                Click <strong style={{color:"#93c5fd"}}>Run Diagnosis</strong> (top right)
               </div>
             </>
           )}
@@ -4966,7 +5025,9 @@ function MoveDiscoveryTab({ report, loading, error }) {
           render as context. The Apply button POSTs to
           /timed/admin/discovery/apply which validates and writes to
           model_config. */}
-      <DiscoveryRecommendationsPanel recommendations={report?.recommendations || []} />
+      <DiscoveryRecommendationsPanel
+        recommendations={report?.recommendations || []}
+        reportGeneratedMs={report?.generated ? new Date(report.generated).getTime() : null} />
 
       <div className="flex gap-1 border-b border-white/[0.06] overflow-x-auto">
         {[
@@ -5025,11 +5086,9 @@ function MoveDiscoveryTab({ report, loading, error }) {
                   }).join(", ") || "None yet"}</div>
                   <div><span className="text-amber-300 font-medium">Churn cost:</span> {summary.total_missed_upside_from_churn || 0}% missed upside</div>
                   <div><span className="text-sky-300 font-medium">Primary action:</span> {action}</div>
-                  <div className="flex flex-wrap gap-2 mt-2">
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
                     {totalDiagnosed === 0 ? (
-                      <span className="si-action si-action--primary" title="USE_D1=1 node scripts/diagnose-missed-moves.js --upload" style={{cursor:"help"}}>
-                        Run diagnosis (CLI)
-                      </span>
+                      <DiscoveryRunDiagnosisButton />
                     ) : (
                       <a className="si-action si-action--primary" href={ctaHref}>{ctaLabel}</a>
                     )}

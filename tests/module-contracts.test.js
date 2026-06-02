@@ -36,6 +36,11 @@ describe("module contracts", () => {
     expect(typeof mod.runMoveDiscovery).toBe("function");
   });
 
+  it("worker/discovery/diagnose-missed.js exposes runDiagnosis", async () => {
+    const mod = await import("../worker/discovery/diagnose-missed.js");
+    expect(typeof mod.runDiagnosis).toBe("function");
+  });
+
   it("worker/coo/coo-orchestrator.js exposes the surface the worker imports", async () => {
     const mod = await import("../worker/coo/coo-orchestrator.js");
     for (const fn of [
