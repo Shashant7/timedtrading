@@ -952,16 +952,43 @@ export function generateThesis(tickerData, rsRank = 50) {
 
      Convention: append `(below $X.XX)` for floor levels (ST, EMA200) and
      `(currently top NN%)` for percentile gates (RS rank). Same numeric
-     format the rest of the Investor card uses. */
+     format the rest of the Investor card uses.
+
+     2026-06-01 (v2) — Distance sanity check.
+     Operator: "MU invalidation at 395... is that valid?" (MU @ $1035,
+     Monthly ST at $393 = 62% drawdown to trigger). For parabolic stocks
+     where price has rallied faster than the trail indicators can catch
+     up, the long-horizon ST levels become mathematically correct but
+     practically useless as invalidation anchors. A 62% drawdown floor
+     is not a "risk plan", it's "we accept a 62% loss before changing
+     our mind".
+
+     Rule: if a trail level is > 25% below current price, tag it with
+     "(extreme distance — N% drawdown to trigger)" so the operator sees
+     the trail is too far to act on. The condition stays in the invalid-
+     ation list so the historical thesis is intact, but the user
+     instantly sees the risk-anchor isn't useful and should fall back
+     to a closer level (Weekly EMA21, ATR-based trail, or a per-trade
+     stop). */
   const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : null;
+  const livePx = Number(tickerData?._live_price || tickerData?.price) || 0;
+  const EXTREME_DD_PCT = 25; // % drawdown threshold beyond which a level is "extreme"
+  const annotateDistance = (label, level) => {
+    const lvl = Number(level);
+    if (!(livePx > 0) || !Number.isFinite(lvl) || lvl <= 0) return label;
+    const ddPct = ((livePx - lvl) / livePx) * 100;
+    if (ddPct >= EXTREME_DD_PCT) {
+      return `${label} — extreme distance, ${ddPct.toFixed(0)}% drawdown to trigger`;
+    }
+    return label;
+  };
 
   // Monthly trend (Pine convention: -1 = bull, +1 = bear)
   if (mb?.supertrend_dir === -1) {
     conditions.push("Monthly uptrend");
     const stLvl = fmtUsd(mb?.supertrend_line);
-    invalidation.push(
-      stLvl ? `Monthly SuperTrend flips bearish (below ${stLvl})` : "Monthly SuperTrend flips bearish"
-    );
+    const base = stLvl ? `Monthly SuperTrend flips bearish (below ${stLvl})` : "Monthly SuperTrend flips bearish";
+    invalidation.push(annotateDistance(base, mb?.supertrend_line));
   } else if (mb?.supertrend_dir === 1) {
     conditions.push("Monthly downtrend (caution)");
   }
@@ -970,18 +997,38 @@ export function generateThesis(tickerData, rsRank = 50) {
   if (emaW?.structure > 0.5) {
     conditions.push("Above Weekly EMA(200)");
     const wEma200 = fmtUsd(wb?.ema200);
-    invalidation.push(
-      wEma200 ? `Price closes below Weekly EMA(200) (${wEma200})` : "Price closes below Weekly EMA(200)"
-    );
+    const base = wEma200 ? `Price closes below Weekly EMA(200) (${wEma200})` : "Price closes below Weekly EMA(200)";
+    invalidation.push(annotateDistance(base, wb?.ema200));
   }
 
   // Weekly SuperTrend
   if (tfW?.atr?.xs === 1) {
     conditions.push("Weekly SuperTrend bullish");
     const wStLvl = fmtUsd(wb?.supertrend_line);
-    invalidation.push(
-      wStLvl ? `Weekly SuperTrend flips bearish (below ${wStLvl})` : "Weekly SuperTrend flips bearish"
-    );
+    const base = wStLvl ? `Weekly SuperTrend flips bearish (below ${wStLvl})` : "Weekly SuperTrend flips bearish";
+    invalidation.push(annotateDistance(base, wb?.supertrend_line));
+  }
+
+  // 2026-06-01 (v2) — Parabolic-mover fallback risk anchor.
+  // When EVERY long-horizon trail is > EXTREME_DD_PCT below price, the
+  // operator has no useful invalidation level. Add a fallback line that
+  // points to a tighter, more actionable risk anchor:
+  //   • If the ticker has an EMA21 weekly level → use that
+  //   • Otherwise fall back to a fixed-percentage stop (price × 0.85)
+  //     so the user gets *some* practical risk number, not just the
+  //     "extreme distance" warnings on every level.
+  const _allLevels = [mb?.supertrend_line, wb?.supertrend_line, wb?.ema200].filter(n => Number.isFinite(Number(n)) && Number(n) > 0);
+  const _allExtreme = _allLevels.length > 0 && livePx > 0
+    && _allLevels.every(lvl => ((livePx - Number(lvl)) / livePx) * 100 >= EXTREME_DD_PCT);
+  if (_allExtreme) {
+    const _ema21W = Number(tickerData?.tf_tech?.W?.ema?.ema21 || tickerData?.ema_map?.W?.ema21);
+    if (Number.isFinite(_ema21W) && _ema21W > 0 && _ema21W < livePx) {
+      const ddPct = ((livePx - _ema21W) / livePx) * 100;
+      invalidation.push(`Practical risk anchor: Weekly EMA(21) at ${fmtUsd(_ema21W)} (${ddPct.toFixed(0)}% drawdown — closer than the long-horizon trails)`);
+    } else {
+      const stopFloor = livePx * 0.85; // 15% trailing stop as a coarse fallback
+      invalidation.push(`Practical risk anchor: 15% trailing stop at ${fmtUsd(stopFloor)} — long-horizon trails haven't caught up after parabolic move`);
+    }
   }
 
   // RS Rank
