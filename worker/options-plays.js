@@ -522,6 +522,73 @@ function impliedVolFromATR(atrPct) {
   return Math.max(0.15, Math.min(2.0, annualized));
 }
 
+/* 2026-06-02 — Estimate the option's premium when the underlying
+   later reaches `targetPrice`, after `holdDays` of time decay.
+
+   Used by single-leg builders (calls, puts, LEAPs) to project the
+   option's value at the trade's TP and SL — the live exit points
+   the operator actually uses. Reports "Max gain at target: $0"
+   when intrinsic < premium is technically correct for hold-to-
+   expiration but misleading because we never hold to expiration:
+   the live trade exits at TP or SL with whatever the option is
+   worth at that moment.
+
+   Method:
+     1. Compute remaining DTE after holdDays.
+     2. Re-price the option via blackScholes() with S=targetPrice,
+        T=remainingDte/365, sigma=ATR-derived IV (same proxy used
+        elsewhere). Prefer ivOverride from the chain when known so
+        we don't undercount IV crush in trader timeframes.
+     3. Return { price, pl_per_contract, total_pl_usd } for the
+        scenario.
+
+   holdDays heuristic: rough number of ATR moves needed to cover
+   the distance. Caller can override with explicit holdDays. */
+export function estimateOptionAtTargetPrice({
+  currentPrice,
+  targetPrice,
+  strike,
+  type,
+  currentDte,
+  premiumPaid,
+  contracts = 1,
+  atrPct,
+  ivOverride,
+  holdDays = null,
+}) {
+  if (!(currentPrice > 0 && targetPrice > 0 && strike > 0 && currentDte > 0 && premiumPaid > 0)) {
+    return null;
+  }
+  // Estimate hold days as the number of ATR moves to cover distance.
+  let resolvedHoldDays = holdDays;
+  if (resolvedHoldDays == null) {
+    const distancePct = Math.abs(targetPrice - currentPrice) / currentPrice;
+    const dailyAtrPct = (atrPct > 0 && atrPct < 1) ? atrPct : 0.015;
+    resolvedHoldDays = Math.max(1, Math.ceil(distancePct / dailyAtrPct));
+    // Cap at 60% of DTE — past that we're hold-to-expiration territory.
+    resolvedHoldDays = Math.min(resolvedHoldDays, Math.floor(currentDte * 0.6));
+    resolvedHoldDays = Math.max(1, resolvedHoldDays);
+  }
+  const remainingDte = Math.max(1, currentDte - resolvedHoldDays);
+  const sigma = Number.isFinite(ivOverride) && ivOverride > 0
+    ? ivOverride
+    : impliedVolFromATR(atrPct);
+  const T = remainingDte / 365;
+  const bs = blackScholes({ S: targetPrice, K: strike, T, sigma, type });
+  if (!bs) return null;
+  const estPrem = bs.price;
+  const plPerContract = (estPrem - premiumPaid) * 100;
+  const totalPl = plPerContract * contracts;
+  return {
+    est_premium: Math.round(estPrem * 100) / 100,
+    hold_days: resolvedHoldDays,
+    remaining_dte: remainingDte,
+    pl_per_contract: Math.round(plPerContract),
+    total_pl_usd: Math.round(totalPl),
+    total_value_usd: Math.round(estPrem * 100 * contracts),
+  };
+}
+
 // Convenience wrapper used by builders below.
 // Prefers real chain data when `chainLeg` is supplied (v2 — real bid/ask/IV/OI).
 // Falls back to Black-Scholes + ATR-implied vol when chainLeg is null (v1).
@@ -699,6 +766,21 @@ function buildLongCall(ctx) {
   // Max gain at TP1 — intrinsic value at target.
   const intrinsicAtTP = Math.max(0, tp1 - strike);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
+  /* 2026-06-02 — Live-trade exit projections. The user never holds
+     to expiration; the trade exits at TP or SL with whatever the
+     option is worth THEN. Project both via BS at reduced DTE. */
+  const ivUsed = Number(prem.iv_used) || null;
+  const estAtTp = (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
+    currentPrice: price, targetPrice: tp1, strike, type: "C",
+    currentDte: expiration.dte, premiumPaid: premPerShare,
+    contracts, atrPct, ivOverride: ivUsed,
+  }) : null;
+  const estAtSl = (Number.isFinite(sl) && sl > 0) ? estimateOptionAtTargetPrice({
+    currentPrice: price, targetPrice: sl, strike, type: "C",
+    currentDte: expiration.dte, premiumPaid: premPerShare,
+    contracts, atrPct, ivOverride: ivUsed,
+  }) : null;
+  const targetClearsBreakeven = Number.isFinite(tp1) ? tp1 > breakeven : null;
   const deltaLabel = targetDelta >= 0.65 ? "Deep ITM (Stock Replacement)"
                     : targetDelta >= 0.40 ? "ATM"
                     : targetDelta >= 0.25 ? "OTM"
@@ -728,6 +810,9 @@ function buildLongCall(ctx) {
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
     max_gain_label: "Uncapped above target",
     breakeven,
+    target_clears_breakeven: targetClearsBreakeven,
+    est_at_tp: estAtTp,
+    est_at_sl: estAtSl,
     prob_profit_at_target: prem.greeks.prob_itm,
     notes: [
       `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay`,
@@ -856,6 +941,16 @@ function buildLeapCall(ctx) {
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
     max_gain_label: "Uncapped above target — held to thesis exit or T-180 roll",
     breakeven,
+    target_clears_breakeven: Number.isFinite(tp1) ? tp1 > breakeven : null,
+    /* LEAPs are held for months → the user actually approximates the
+       hold-to-expiration scenario. Still surface est_at_tp so the
+       UI/email can show the projection; the est_at_sl is less
+       relevant for LEAPs (no hard stop) but reported for symmetry. */
+    est_at_tp: (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
+      currentPrice: price, targetPrice: tp1, strike, type: "C",
+      currentDte: expiration.dte, premiumPaid: premPerShare,
+      contracts, atrPct, ivOverride: Number(prem.iv_used) || null,
+    }) : null,
     prob_profit_at_target: prem.greeks.prob_itm,
     // LEAP-specific metadata for UI / notifications.
     shares_equivalent: sharesEquivalent,
@@ -927,6 +1022,17 @@ function buildLongPut(ctx) {
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
     max_gain_label: "Uncapped below target",
     breakeven,
+    target_clears_breakeven: Number.isFinite(tp1) ? tp1 < breakeven : null,
+    est_at_tp: (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
+      currentPrice: price, targetPrice: tp1, strike, type: "P",
+      currentDte: expiration.dte, premiumPaid: premPerShare,
+      contracts, atrPct, ivOverride: Number(prem.iv_used) || null,
+    }) : null,
+    est_at_sl: (Number.isFinite(sl) && sl > 0) ? estimateOptionAtTargetPrice({
+      currentPrice: price, targetPrice: sl, strike, type: "P",
+      currentDte: expiration.dte, premiumPaid: premPerShare,
+      contracts, atrPct, ivOverride: Number(prem.iv_used) || null,
+    }) : null,
     prob_profit_at_target: prem.greeks.prob_itm,
     notes: [
       `Theta ≈ $${Math.abs(prem.greeks.theta * 100 * contracts).toFixed(2)}/day decay`,
@@ -1903,10 +2009,22 @@ export function compactOptionsPlay(play, meta = {}) {
     legs,
     net_cost_usd: Number.isFinite(netCost) ? Math.round(netCost) : null,
     net_side: netCost >= 0 ? "debit" : "credit",
-    max_loss_usd: Number.isFinite(Number(play.max_loss_usd)) ? Math.round(Number(play.max_loss_usd)) : null,
-    max_gain_usd: Number.isFinite(Number(play.max_gain_usd)) ? Math.round(Number(play.max_gain_usd)) : null,
-    breakeven: Number.isFinite(Number(play.breakeven)) ? Number(play.breakeven) : null,
+    max_loss_usd: (play.max_loss_usd != null && Number.isFinite(Number(play.max_loss_usd))) ? Math.round(Number(play.max_loss_usd)) : null,
+    /* 2026-06-02 — CRITICAL: must check `!= null` BEFORE Number(...).
+       Number(null) === 0, so the prior code converted nulls to 0 and
+       the Discord embed surfaced "Max gain at target: $0" even when
+       the builder explicitly returned null because TP < breakeven.
+       Caused operator confusion on the SPY long-call alert. */
+    max_gain_usd: (play.max_gain_usd != null && Number.isFinite(Number(play.max_gain_usd))) ? Math.round(Number(play.max_gain_usd)) : null,
+    breakeven: (play.breakeven != null && Number.isFinite(Number(play.breakeven))) ? Number(play.breakeven) : null,
     expiration: play.expiration || null,
+    /* Live-trade exit projections — what the option is actually
+       worth when the underlying trade hits TP or SL. Use these
+       instead of the misleading "Max gain at target" for single-
+       leg long calls/puts. See estimateOptionAtTargetPrice. */
+    target_clears_breakeven: play.target_clears_breakeven ?? null,
+    est_at_tp: play.est_at_tp || null,
+    est_at_sl: play.est_at_sl || null,
     // LEAP-specific extras (no-op for other archetypes).
     shares_equivalent: Number.isFinite(Number(play.shares_equivalent)) ? Number(play.shares_equivalent) : null,
     capital_efficiency: Number.isFinite(Number(play.capital_efficiency)) ? Number(play.capital_efficiency) : null,
@@ -1924,20 +2042,42 @@ export function compactOptionsPlay(play, meta = {}) {
 export function optionsPlayDiscordField(compact) {
   if (!compact || !Array.isArray(compact.lines) || compact.lines.length === 0) return null;
   const dollar = (n) => n == null ? null : `$${Math.abs(Math.round(n)).toLocaleString()}`;
+  const signedDollar = (n) => n == null ? null : `${n >= 0 ? "+" : "-"}$${Math.abs(Math.round(n)).toLocaleString()}`;
   const metricsParts = [];
   if (compact.net_cost_usd != null) {
     const sign = compact.net_side === "credit" ? "+" : "–";
     metricsParts.push(`Net ${compact.net_side}: ${sign}${dollar(compact.net_cost_usd)}`);
   }
-  if (compact.max_loss_usd != null) metricsParts.push(`Max loss: ${dollar(compact.max_loss_usd)}`);
-  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at target: ${dollar(compact.max_gain_usd)}`);
   if (compact.breakeven != null) metricsParts.push(`Breakeven: $${compact.breakeven.toFixed(2)}`);
+  /* 2026-06-02 — Live-trade exit projections take priority over the
+     hold-to-expiration "Max gain at target" because the user never
+     holds to expiration. Operator feedback: "we would look to exit
+     with profit or at our stop loss. The option premium is unknown
+     at those junctures but I doubt we let this go to zero or not
+     take profit." */
+  const liveExitParts = [];
+  if (compact.est_at_tp && compact.est_at_tp.total_pl_usd != null) {
+    liveExitParts.push(`If TP hit (~${compact.est_at_tp.hold_days}d): est. P&L ${signedDollar(compact.est_at_tp.total_pl_usd)} (premium ≈ $${compact.est_at_tp.est_premium.toFixed(2)})`);
+  }
+  if (compact.est_at_sl && compact.est_at_sl.total_pl_usd != null) {
+    liveExitParts.push(`If SL hit (~${compact.est_at_sl.hold_days}d): est. P&L ${signedDollar(compact.est_at_sl.total_pl_usd)} (premium ≈ $${compact.est_at_sl.est_premium.toFixed(2)})`);
+  }
+  /* "Max loss" now qualified as expiration-only (the actual exit happens
+     at TP or SL, where the option still has time value). */
+  if (compact.max_loss_usd != null) metricsParts.push(`Max loss (if held to exp): ${dollar(compact.max_loss_usd)}`);
+  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at expiration: ${dollar(compact.max_gain_usd)}`);
   // LEAP-specific capital-efficiency hint.
   if (compact.shares_equivalent && compact.capital_efficiency) {
     metricsParts.push(`Synthetic: ~${compact.shares_equivalent} share-equiv · ${compact.capital_efficiency.toFixed(1)}× capital efficient`);
   }
 
   let value = `**${compact.headline}**\n` + compact.lines.map(l => `• ${l}`).join("\n");
+  if (liveExitParts.length) value += `\n\n📍 **Live exit projections**\n` + liveExitParts.map(l => `• ${l}`).join("\n");
+  /* Warn loudly when the TP is below the option breakeven — that's
+     a sign the chosen strike is too far OTM for this trade plan. */
+  if (compact.target_clears_breakeven === false) {
+    value += `\n\n⚠️ TP below breakeven — consider deeper-ITM strike or smaller premium`;
+  }
   if (metricsParts.length) value += `\n\n${metricsParts.join(" · ")}`;
   if (compact.rationale) {
     // Truncate rationale so we stay within Discord's 1024-char field cap.
@@ -1974,19 +2114,41 @@ export function optionsPlayEmailHtml(compact) {
 
   const legsHtml = compact.lines.map(l => `<li style="margin:0 0 4px;color:rgba(255,255,255,0.85);font-size:12px;font-family:Menlo,Monaco,monospace">${_esc(l)}</li>`).join("");
   const metricsParts = [];
+  const signedDollar = (n) => n == null ? null : `${n >= 0 ? "+" : "-"}$${Math.abs(Math.round(n)).toLocaleString()}`;
   if (compact.net_cost_usd != null) {
     const sign = compact.net_side === "credit" ? "+" : "–";
     metricsParts.push(`Net ${compact.net_side}: <strong style="color:white">${sign}${dollar(compact.net_cost_usd)}</strong>`);
   }
-  if (compact.max_loss_usd != null) metricsParts.push(`Max loss: <strong style="color:#f43f5e">${dollar(compact.max_loss_usd)}</strong>`);
-  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at target: <strong style="color:#10b981">${dollar(compact.max_gain_usd)}</strong>`);
   if (compact.breakeven != null) metricsParts.push(`Breakeven: <strong style="color:white">$${compact.breakeven.toFixed(2)}</strong>`);
+  if (compact.max_loss_usd != null) metricsParts.push(`Max loss (if held to exp): <strong style="color:#f43f5e">${dollar(compact.max_loss_usd)}</strong>`);
+  if (compact.max_gain_usd != null) metricsParts.push(`Max gain at expiration: <strong style="color:#10b981">${dollar(compact.max_gain_usd)}</strong>`);
   if (compact.shares_equivalent && compact.capital_efficiency) {
     metricsParts.push(`Synthetic: <strong style="color:white">~${compact.shares_equivalent} share-equiv</strong>, <strong style="color:white">${compact.capital_efficiency.toFixed(1)}×</strong> capital efficient`);
   }
   const metricsHtml = metricsParts.length
     ? `<div style="margin:10px 0 0;color:rgba(255,255,255,0.85);font-size:12px;line-height:1.5">${metricsParts.join("<br>")}</div>`
     : "";
+
+  /* 2026-06-02 — Live-trade exit projections (BS at reduced DTE for
+     the moment the underlying hits TP/SL). Shows up before the
+     hold-to-expiration metrics because that's how the user actually
+     exits the trade. */
+  const liveExitParts = [];
+  if (compact.est_at_tp && compact.est_at_tp.total_pl_usd != null) {
+    const plColor = compact.est_at_tp.total_pl_usd >= 0 ? "#10b981" : "#f43f5e";
+    liveExitParts.push(`If TP hit (~${compact.est_at_tp.hold_days}d): est. P&L <strong style="color:${plColor}">${signedDollar(compact.est_at_tp.total_pl_usd)}</strong> &middot; premium ≈ $${compact.est_at_tp.est_premium.toFixed(2)}`);
+  }
+  if (compact.est_at_sl && compact.est_at_sl.total_pl_usd != null) {
+    const plColor = compact.est_at_sl.total_pl_usd >= 0 ? "#10b981" : "#f43f5e";
+    liveExitParts.push(`If SL hit (~${compact.est_at_sl.hold_days}d): est. P&L <strong style="color:${plColor}">${signedDollar(compact.est_at_sl.total_pl_usd)}</strong> &middot; premium ≈ $${compact.est_at_sl.est_premium.toFixed(2)}`);
+  }
+  const liveExitHtml = liveExitParts.length
+    ? `<div style="margin:10px 0 0;padding:8px 10px;background:rgba(56,189,248,0.08);border-left:3px solid #38bdf8;border-radius:4px"><div style="color:#38bdf8;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;margin-bottom:4px">Live Exit Projections</div><div style="color:rgba(255,255,255,0.85);font-size:12px;line-height:1.6">${liveExitParts.join("<br>")}</div></div>`
+    : "";
+  const warnHtml = compact.target_clears_breakeven === false
+    ? `<div style="margin:8px 0 0;padding:6px 10px;background:rgba(251,191,36,0.10);border-left:3px solid #fbbf24;color:#fcd34d;font-size:12px">⚠️ TP below breakeven — consider deeper-ITM strike or smaller premium</div>`
+    : "";
+
   const rationaleHtml = compact.rationale
     ? `<div style="margin:10px 0 0;color:rgba(255,255,255,0.65);font-size:12px;line-height:1.5;font-style:italic">${_esc(compact.rationale)}</div>`
     : "";
@@ -1994,6 +2156,8 @@ export function optionsPlayEmailHtml(compact) {
   return `
     <div style="margin:0 0 6px;color:white;font-size:13px;font-weight:600">${_esc(compact.headline)}</div>
     <ul style="margin:0;padding:0 0 0 18px;list-style:none">${legsHtml}</ul>
+    ${liveExitHtml}
+    ${warnHtml}
     ${metricsHtml}
     ${rationaleHtml}
   `;
