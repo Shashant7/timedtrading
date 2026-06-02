@@ -105,6 +105,17 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# ── AI COO (Chief Operating Officer) — self-learning + self-healing ──
+# Turned on 2026-06-02. See worker/coo/coo-orchestrator.js. Tier-1
+# changes are bounded by the calibration apply BOUNDS/blendVal so
+# this can't make destructive moves. Operator gets Discord notification
+# on every auto-promote with a 24h undo window via MC.
+COO_ENABLED = "true"
+COO_AUTO_APPLY_TIER1 = "true"          # auto-apply tier-1 calibration deltas
+COO_SELF_HEAL = "true"                 # ledger repair / candle backfill on sanity-sweep fails
+COO_SCREENER_AUTO_PROMOTE = "true"     # auto-approve high-conviction screener candidates
+COO_SCREENER_AUTO_SCORE = "70"         # min total_score to auto-promote
+COO_SCREENER_DAILY_MAX = "3"           # max universe adds per cycle (safety cap)
 # ── Broker Bridge (Phase 1, 2026-05-29) ──
 # Bridge worker deployed separately at this URL. See [env.production.vars]
 # for full notes. The matching secret BROKER_BRIDGE_OPERATOR_KEY must be
@@ -288,6 +299,13 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# ── AI COO — mirror of top-level [vars] block (2026-06-02) ──
+COO_ENABLED = "true"
+COO_AUTO_APPLY_TIER1 = "true"
+COO_SELF_HEAL = "true"
+COO_SCREENER_AUTO_PROMOTE = "true"
+COO_SCREENER_AUTO_SCORE = "70"
+COO_SCREENER_DAILY_MAX = "3"
 # ── Broker Bridge (Phase 1, 2026-05-29) ──
 # The bridge worker (`worker-bridge/`) is deployed separately at this URL.
 # Mission Control proxies its /bridge/status, /bridge/audit, /bridge/recent

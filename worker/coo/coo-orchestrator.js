@@ -340,6 +340,185 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
   return { ok: results.some(r => r.ok), results };
 }
 
+// ── Screener auto-promotion ───────────────────────────────────────────
+
+/**
+ * Walk the discovery_promotion_queue, auto-approve high-conviction
+ * candidates. Operator mandate: "I just want to be informed and have a
+ * way to provide feedback."
+ *
+ * Approach:
+ *   • COO owns the decision (universe management = operations)
+ *   • Each candidate gets a CIO consult — CIO can VETO (REJECT) per ticker
+ *   • Operator is informed via Discord/email + MC card
+ *   • Operator has 24h to flip approve→decline (which removes the ticker
+ *     from the universe again, see decideOnCandidate decline path)
+ *
+ * Auto-approve criteria (all gates must pass):
+ *   1. status === "needs_review"
+ *   2. total_score >= COO_SCREENER_AUTO_SCORE (default 70)
+ *   3. red_flags is empty
+ *   4. CIO consult returns APPROVE or ADJUST (REJECT vetoes)
+ *   5. Daily cap: max COO_SCREENER_DAILY_MAX promotions per cycle
+ *      (default 3 — never more than 3 new universe adds per day)
+ *
+ * Returns { promoted: [], vetoed: [], skipped: [], elapsed_ms }
+ */
+export async function runScreenerAutoPromote(env, options = {}) {
+  const t0 = Date.now();
+  const promoted = [];
+  const vetoed = [];
+  const skipped = [];
+  const masterEnabled = String(env?.COO_ENABLED || "false").toLowerCase() === "true";
+  const screenerEnabled = String(env?.COO_SCREENER_AUTO_PROMOTE || "false").toLowerCase() === "true";
+  const dryRun = !screenerEnabled || !masterEnabled || !!options.dryRun;
+  const minScore = Number(env?.COO_SCREENER_AUTO_SCORE) || 70;
+  const dailyMax = Number(env?.COO_SCREENER_DAILY_MAX) || 3;
+
+  try {
+    // 1. Load needs_review candidates.
+    const PromotionQueue = await import("../discovery/promotion-queue.js");
+    const list = await PromotionQueue.listPromotionQueue(env, { status: "needs_review", limit: 50 });
+    const candidates = (list?.rows || []).filter(c =>
+      Number(c.total_score) >= minScore && (!c.red_flags || c.red_flags.length === 0)
+    );
+    if (candidates.length === 0) {
+      return { promoted, vetoed, skipped: [{ reason: "no_eligible_candidates", min_score: minScore }], elapsed_ms: Date.now() - t0 };
+    }
+
+    // 2. For each, run CIO consult + (if dry-run=false) approve.
+    const PromotionDecide = PromotionQueue.decideOnCandidate;
+    const { cioReviewEntrySkip } = await import("../cio/cio-lifecycle-gate.js");
+    for (const c of candidates) {
+      if (promoted.length >= dailyMax) {
+        skipped.push({ ticker: c.ticker, reason: `daily_cap_${dailyMax}_reached` });
+        continue;
+      }
+      // CIO consult — uses the entry-skip-review gate but inverted: we're
+      // asking "should we SKIP this promotion?" CIO returning OVERRIDE
+      // means it'd promote despite Loop 2 (= positive signal here);
+      // CIO returning APPROVE/PROCEED is also fine. Only HARD REJECT
+      // (cio_decision === REJECT) is a veto.
+      let cioOk = true;
+      let cioReasoning = "no_cio_consult";
+      try {
+        const cioRes = await cioReviewEntrySkip(env, {
+          sym: c.ticker,
+          direction: "LONG", // screener candidates are always assumed long
+          proposal: { ticker: c.ticker, total_score: c.total_score, thesis: c.thesis_text },
+          memory: {},
+          bucket: "screener_auto_promote",
+        });
+        // If CIO outright REJECTed (gate returns allow=false AND cio_decision=REJECT),
+        // veto the promotion. Otherwise proceed.
+        if (cioRes?.gate?.cio_decision === "REJECT") {
+          cioOk = false;
+          cioReasoning = String(cioRes?.reasoning || "cio_rejected").slice(0, 200);
+        } else {
+          cioReasoning = String(cioRes?.reasoning || "cio_no_objection").slice(0, 200);
+        }
+      } catch (e) {
+        // CIO failure shouldn't block; just note it.
+        cioReasoning = `cio_unavailable: ${String(e?.message || e).slice(0, 100)}`;
+      }
+
+      if (!cioOk) {
+        vetoed.push({
+          ticker: c.ticker, candidate_id: c.candidate_id,
+          total_score: c.total_score, cio_reasoning: cioReasoning,
+        });
+        await recordAction(env, {
+          tier: "tier2", kind: "screener_promote", target: c.ticker,
+          applied: false, reason: `CIO veto: ${cioReasoning}`,
+          candidate_id: c.candidate_id, total_score: c.total_score,
+        });
+        continue;
+      }
+
+      // Actually promote (or dry-run log).
+      if (dryRun) {
+        promoted.push({
+          ticker: c.ticker, candidate_id: c.candidate_id,
+          total_score: c.total_score, dry_run: true, cio_reasoning: cioReasoning,
+        });
+        await recordAction(env, {
+          tier: "tier1", kind: "screener_promote", target: c.ticker,
+          applied: false, dry_run: true,
+          reason: `would promote (score ${c.total_score}, CIO: ${cioReasoning.slice(0, 80)})`,
+          candidate_id: c.candidate_id, total_score: c.total_score,
+        });
+      } else {
+        const decideRes = await PromotionDecide(env, {
+          candidate_id: c.candidate_id,
+          decision: "approve",
+          decided_by: `ai_coo_auto`,
+        });
+        if (decideRes?.ok) {
+          promoted.push({
+            ticker: c.ticker, candidate_id: c.candidate_id,
+            total_score: c.total_score, universe_added: !!decideRes.universe_added,
+            cio_reasoning: cioReasoning,
+          });
+          await recordAction(env, {
+            tier: "tier1", kind: "screener_promote", target: c.ticker,
+            applied: true, reason: `promoted (score ${c.total_score}, CIO: ${cioReasoning.slice(0, 80)})`,
+            candidate_id: c.candidate_id, total_score: c.total_score,
+            universe_added: !!decideRes.universe_added,
+          });
+        } else {
+          skipped.push({
+            ticker: c.ticker, candidate_id: c.candidate_id,
+            reason: `decide_failed: ${decideRes?.error || "unknown"}`,
+          });
+        }
+      }
+    }
+
+    // 3. Discord notification + audit (only when something was promoted).
+    if (promoted.length > 0 && !dryRun) {
+      await _notifyScreenerPromotions(env, promoted, vetoed);
+    }
+  } catch (e) {
+    console.error("[COO screener_auto_promote] threw:", String(e?.message || e).slice(0, 200));
+    return { promoted, vetoed, skipped: [{ reason: `error: ${String(e?.message || e).slice(0, 200)}` }], elapsed_ms: Date.now() - t0 };
+  }
+  return { promoted, vetoed, skipped, dry_run: dryRun, elapsed_ms: Date.now() - t0 };
+}
+
+async function _notifyScreenerPromotions(env, promoted, vetoed) {
+  const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
+  if (!webhook) return;
+  try {
+    const lines = [];
+    lines.push(`✅ **${promoted.length} ticker${promoted.length === 1 ? "" : "s"} auto-promoted to universe**`);
+    lines.push("");
+    for (const p of promoted) {
+      lines.push(`• \`${p.ticker}\` — score ${p.total_score}${p.cio_reasoning ? ` · CIO: ${p.cio_reasoning.slice(0, 60)}` : ""}`);
+    }
+    if (vetoed.length > 0) {
+      lines.push("");
+      lines.push(`🚫 CIO vetoed: ${vetoed.map(v => `\`${v.ticker}\``).join(", ")}`);
+    }
+    lines.push("");
+    lines.push(`To reverse any promotion within 24h: Mission Control → Screener Promotions card → click "Undo" on the row.`);
+
+    await fetch(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embeds: [{
+          title: "AI COO · Screener Auto-Promote",
+          description: lines.join("\n"),
+          color: 0x34d399,
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    }).catch(e => console.warn("[COO screener] webhook failed:", String(e?.message || e).slice(0, 120)));
+  } catch (e) {
+    console.warn("[COO screener] notify failed:", String(e?.message || e).slice(0, 120));
+  }
+}
+
 // ── Master orchestrator ───────────────────────────────────────────────
 
 /**
@@ -366,6 +545,7 @@ export async function runCooDailyCycle(env, options = {}) {
     elapsed_ms: 0,
     calibration: null,
     self_healing: null,
+    screener_promote: null,
     error: null,
   };
 
@@ -381,6 +561,13 @@ export async function runCooDailyCycle(env, options = {}) {
     summary.self_healing = await runSelfHealing(env, options);
   } catch (e) {
     summary.self_healing = { error: String(e?.message || e).slice(0, 200) };
+  }
+
+  // 3. Screener auto-promote cycle (CIO-consulted, daily-capped).
+  try {
+    summary.screener_promote = await runScreenerAutoPromote(env, options);
+  } catch (e) {
+    summary.screener_promote = { error: String(e?.message || e).slice(0, 200) };
   }
 
   summary.elapsed_ms = Date.now() - t0;
