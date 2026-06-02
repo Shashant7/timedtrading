@@ -29367,13 +29367,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 34.0661
+        "sql_duration_ms": 32.4427
       },
-      "duration": 34.0661,
+      "duration": 32.4427,
       "changes": 0,
-      "last_row_id": 49207649,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 3717222400,
+      "size_after": 3700604928,
       "rows_read": 3262,
       "rows_written": 0,
       "total_attempts": 1
