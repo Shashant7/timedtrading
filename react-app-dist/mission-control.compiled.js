@@ -274,6 +274,122 @@ function StatusGrid({
     href: "#retro"
   }));
 }
+function CooStatusCard({
+  apiBase
+}) {
+  const [actions, setActions] = useState(null);
+  const [lastCycle, setLastCycle] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [err, setErr] = useState(null);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const [a, c] = await Promise.all([fetch(`${apiBase}/timed/admin/coo/actions?days=7&_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      }).then(r => r.json()), fetch(`${apiBase}/timed/admin/coo/last-cycle?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      }).then(r => r.json())]);
+      if (a?.ok) setActions(a);
+      if (c?.ok) setLastCycle(c.cycle);
+      if (!a?.ok) setErr(a?.error || "actions fetch failed");
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+  const runNow = useCallback(async () => {
+    setRunning(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/coo/run?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          force: true
+        })
+      });
+      const j = await r.json();
+      if (!j?.ok && j?.error) setErr(j.error);
+      await load();
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 120));
+    } finally {
+      setRunning(false);
+    }
+  }, [apiBase, load]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const recent = (actions?.actions || []).slice(0, 12);
+  const cycleAge = lastCycle?.started_at ? Math.round((Date.now() - lastCycle.started_at) / 60000) : null;
+  const calOk = lastCycle?.calibration?.ok;
+  const calDry = lastCycle?.calibration?.dry_run;
+  const calApplied = (lastCycle?.calibration?.applied || []).length;
+  return React.createElement("div", {
+    className: "mc-card"
+  }, React.createElement("div", {
+    className: "mc-card-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-xs mc-mute uppercase tracking-wider"
+  }, "AI COO \xB7 Self-Learning"), React.createElement("div", {
+    className: "num-md text-white"
+  }, calOk == null ? "—" : calOk ? calDry ? "DRY-RUN" : "ACTIVE" : "FAILED"), cycleAge != null && React.createElement("div", {
+    className: "text-[10px] mc-mute"
+  }, "Last cycle ", cycleAge, "m ago \xB7 ", calApplied, " keys applied")), React.createElement("button", {
+    onClick: runNow,
+    disabled: running,
+    className: "px-2 py-1 text-[10px] font-semibold rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
+  }, running ? "..." : "Run Now")), err && React.createElement("div", {
+    className: "mt-2 text-[11px] text-rose-400"
+  }, err), React.createElement("div", {
+    className: "mt-2 text-[10px] mc-mute leading-relaxed"
+  }, "Daily cron at 22:00 UTC. Flip ", React.createElement("span", {
+    className: "font-mono"
+  }, "COO_ENABLED=true"), " to enable, then ", React.createElement("span", {
+    className: "font-mono"
+  }, "COO_AUTO_APPLY_TIER1=true"), " after reviewing 7+ days of dry-run logs."), recent.length > 0 && React.createElement("div", {
+    className: "mt-3",
+    style: {
+      maxHeight: 280,
+      overflowY: "auto"
+    }
+  }, recent.map((a, i) => {
+    const tierColor = a.tier === "tier1" ? "#34d399" : a.tier === "tier2" ? "#f59e0b" : "#9ca3af";
+    const ageM = a.ts ? Math.round((Date.now() - a.ts) / 60000) : null;
+    return React.createElement("div", {
+      key: `coo-${i}`,
+      className: "border border-slate-800 rounded mb-1 px-2 py-1.5 text-[11px]"
+    }, React.createElement("div", {
+      className: "flex items-center justify-between gap-2"
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 min-w-0 flex-1"
+    }, React.createElement("span", {
+      style: {
+        color: tierColor,
+        fontWeight: 700,
+        fontSize: 9,
+        minWidth: 34
+      }
+    }, (a.tier || "?").toUpperCase()), React.createElement("span", {
+      className: "text-slate-200 truncate"
+    }, a.kind, "/", a.target || "?"), React.createElement("span", {
+      className: `text-[9px] ${a.applied ? "text-emerald-400" : "text-slate-400"} font-mono`
+    }, a.applied ? "DID" : a.dry_run ? "DRY" : "SKIP")), ageM != null && React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono"
+    }, ageM, "m")), a.reason && React.createElement("div", {
+      className: "text-[10px] mc-mute mt-0.5 truncate"
+    }, a.reason));
+  })));
+}
 function SanitySweepCard({
   apiBase
 }) {
@@ -3497,6 +3613,8 @@ function MissionControl({
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
   }))))), React.createElement(SanitySweepCard, {
     apiBase: API_BASE
+  }), React.createElement(CooStatusCard, {
+    apiBase: API_BASE
   }), React.createElement(CioLifecycleStatsCard, {
     apiBase: API_BASE
   }), React.createElement(CioDecisionReview, {
@@ -3541,6 +3659,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780384683806:252317477
+// cache-bust:1780384977605:845729517
 
-// cache-bust:1780384683806:252317477
+// cache-bust:1780384977605:845729517
