@@ -589,7 +589,8 @@
       maxRadius: 28
     });
     const ks = String(ticker?._effectiveKanbanStage || ticker?.kanban_stage || "").toLowerCase();
-    const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
+    const investorAction = String(ticker?._investorAction || "").toUpperCase();
+    const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks) || ["ACCUMULATE", "REDUCE", "DEFEND"].includes(investorAction);
     const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
     const move = getMoveStatusInfo(ticker);
     const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
@@ -614,6 +615,50 @@
     const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
     const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
     const stageIconData = (() => {
+      if (investorAction) {
+        if (investorAction === "ACCUMULATE") return {
+          icon: "➕",
+          fill: "#22c55e",
+          bg: "rgba(34,197,94,0.22)",
+          border: "#22c55e",
+          label: "ACCUMULATE"
+        };
+        if (investorAction === "HOLD") return {
+          icon: "⊙",
+          fill: "#38bdf8",
+          bg: "rgba(56,189,248,0.18)",
+          border: "#38bdf8",
+          label: "HOLD"
+        };
+        if (investorAction === "DEFEND") return {
+          icon: "🛡",
+          fill: "#fb923c",
+          bg: "rgba(251,146,60,0.22)",
+          border: "#fb923c",
+          label: "DEFEND"
+        };
+        if (investorAction === "REDUCE") return {
+          icon: "✂",
+          fill: "#facc15",
+          bg: "rgba(250,204,21,0.22)",
+          border: "#facc15",
+          label: "REDUCE"
+        };
+        if (investorAction === "WATCH") return {
+          icon: "👁",
+          fill: "#94a3b8",
+          bg: "rgba(148,163,184,0.18)",
+          border: "#94a3b8",
+          label: "WATCH"
+        };
+        if (investorAction === "EXITED") return {
+          icon: "✕",
+          fill: "#64748b",
+          bg: "rgba(100,116,139,0.18)",
+          border: "#64748b",
+          label: "EXITED"
+        };
+      }
       if (ks === "in_review" || ks === "enter_now" || ks === "enter") return {
         icon: "🔍",
         fill: "#f59e0b",
@@ -2601,4 +2646,4 @@
   };
 })();
 
-// cache-bust:1780386186862:346288809
+// cache-bust:1780387122734:621164997

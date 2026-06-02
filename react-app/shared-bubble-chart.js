@@ -807,7 +807,14 @@
       );
 
       const ks = String(ticker?._effectiveKanbanStage || ticker?.kanban_stage || "").toLowerCase();
-      const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks);
+      /* 2026-06-02 — Investor pages pass an `_investorAction` field
+         derived from the Investor classifier (ACCUMULATE / HOLD /
+         DEFEND / REDUCE / WATCH / EXITED). When present, prefer it
+         over the Trader kanban stage so the badge matches the page
+         context. */
+      const investorAction = String(ticker?._investorAction || "").toUpperCase();
+      const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks)
+        || ["ACCUMULATE", "REDUCE", "DEFEND"].includes(investorAction);
       const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
 
       const move = getMoveStatusInfo(ticker);
@@ -874,6 +881,17 @@
       const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
 
       const stageIconData = (() => {
+        /* 2026-06-02 — Investor pages: prefer _investorAction over the
+           Trader kanban stage. MU bug: was showing 'EXIT' from Trader
+           kanban when the Investor action is DEFEND (owned + exhausted). */
+        if (investorAction) {
+          if (investorAction === "ACCUMULATE") return { icon: "➕", fill: "#22c55e", bg: "rgba(34,197,94,0.22)", border: "#22c55e", label: "ACCUMULATE" };
+          if (investorAction === "HOLD")       return { icon: "⊙", fill: "#38bdf8", bg: "rgba(56,189,248,0.18)", border: "#38bdf8", label: "HOLD" };
+          if (investorAction === "DEFEND")     return { icon: "🛡", fill: "#fb923c", bg: "rgba(251,146,60,0.22)", border: "#fb923c", label: "DEFEND" };
+          if (investorAction === "REDUCE")     return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.22)", border: "#facc15", label: "REDUCE" };
+          if (investorAction === "WATCH")      return { icon: "👁", fill: "#94a3b8", bg: "rgba(148,163,184,0.18)", border: "#94a3b8", label: "WATCH" };
+          if (investorAction === "EXITED")     return { icon: "✕", fill: "#64748b", bg: "rgba(100,116,139,0.18)", border: "#64748b", label: "EXITED" };
+        }
         if (ks === "in_review" || ks === "enter_now" || ks === "enter") return { icon: "🔍", fill: "#f59e0b", bg: "rgba(245,158,11,0.25)", border: "#f59e0b", label: "REVIEW" };
         if (ks === "just_entered" || ks === "just_flipped") return { icon: "✅", fill: "#00e676", bg: "rgba(0,230,118,0.25)", border: "#00e676", label: "INITIATED" };
         if (ks === "trim") return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.2)", border: "#facc15", label: "TRIM" };

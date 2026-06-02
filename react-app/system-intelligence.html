@@ -4667,10 +4667,46 @@ function MoveDiscoveryTab({ report, loading, error }) {
     return <div className="card p-4 text-sm text-rose-300">Move discovery unavailable: {error}</div>;
   }
 
+  /* 2026-06-02 — Worker-native Discovery refresh.
+     Discovery used to require the operator to SSH/curl and run the CLI.
+     Now the COO runs it daily, and this button lets the operator force
+     a refresh from the dashboard. Persists straight to KV and the
+     parent reloads on success. */
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshErr, setRefreshErr] = useState(null);
+  const triggerRefresh = useCallback(async () => {
+    setRefreshing(true); setRefreshErr(null);
+    try {
+      const r = await fetch(`/timed/admin/discovery/run?_t=${Date.now()}`, {
+        method: "POST", credentials: "include", cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) { setRefreshErr(j?.error || "refresh_failed"); return; }
+      window.location.reload();
+    } catch (e) {
+      setRefreshErr(String(e?.message || e).slice(0, 160));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   if (!report) {
     return (
       <div className="card p-4 text-sm text-slate-400">
-        No move discovery report is loaded yet. Run <code className="text-slate-200">USE_D1=1 node scripts/discover-moves.js --upload</code> and <code className="text-slate-200">USE_D1=1 node scripts/diagnose-missed-moves.js --upload</code>.
+        <div>No move discovery report yet. The COO runs Discovery daily at 22:00 UTC.</div>
+        <div className="mt-2 flex items-center gap-2">
+          <button onClick={triggerRefresh} disabled={refreshing}
+                  className="px-3 py-1.5 text-xs font-semibold rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50">
+            {refreshing ? "Scanning…" : "Run Discovery Now"}
+          </button>
+          {refreshErr && <span className="text-rose-300 text-xs">{refreshErr}</span>}
+        </div>
+        <div className="mt-2 text-[11px] text-slate-500">
+          For deep historical diagnostic reports, the CLI still works:
+          <code className="ml-1 text-slate-300">USE_D1=1 node scripts/discover-moves.js --upload</code>.
+        </div>
       </div>
     );
   }
@@ -4702,11 +4738,17 @@ function MoveDiscoveryTab({ report, loading, error }) {
             {report?.generated ? `Generated ${new Date(report.generated).toLocaleString()}` : "No generation time"}
             {isStale && <span style={{marginLeft:6, color:"var(--ds-accent)"}}>· stale</span>}
           </div>
-          <div style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)", marginTop:2}}>
-            <span title="USE_D1=1 node scripts/discover-moves.js --upload && USE_D1=1 node scripts/diagnose-missed-moves.js --upload">
-              Refresh: run <code style={{fontFamily:"var(--tt-font-mono)"}}>discover-moves.js --upload</code>
+          <div style={{display:"flex", alignItems:"center", gap:8, marginTop:6, justifyContent:"flex-end"}}>
+            <button onClick={triggerRefresh} disabled={refreshing}
+                    style={{padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:6,
+                            background: refreshing ? "#475569" : "#059669", color:"#fff", border:"none", cursor: refreshing ? "default" : "pointer"}}>
+              {refreshing ? "Scanning…" : "Run Discovery Now"}
+            </button>
+            <span style={{fontSize:"var(--ds-fs-caption)", color:"var(--ds-text-faint)"}}>
+              Auto-refresh: daily 22:00 UTC (AI COO)
             </span>
           </div>
+          {refreshErr && <div style={{fontSize:11, color:"#fca5a5", marginTop:4}}>{refreshErr}</div>}
         </div>
       </div>
 
