@@ -71,6 +71,41 @@ function dateStr(ts) { return new Date(ts > 1e12 ? ts : ts * 1000).toISOString()
 
    The UI surfaces these as a "Next Actions" panel on the Discovery
    page; the COO logs them as tier-2 actions in the audit trail. */
+/* 2026-06-02 — Per-knob safety envelope. Every recommendation runs
+   through these gates before being emitted:
+     • cooldown_days     — skip if the knob was touched within this many days
+     • hardcoded_default — baseline value the engine considers "neutral"
+     • min_value         — never recommend below this
+     • max_pct_from_default — total drift from default this engine can suggest
+
+   Operator quote: "I applied one that reduced investor score from 70
+   to 65. Now I see another recommendation to once again relax it to
+   60. Can you vet these? I don't want to create regression."
+
+   Without these gates, the engine would recursively lower thresholds
+   on every scan because new data hasn't accumulated yet. */
+const KNOB_SAFETY = {
+  deep_audit_investor_accumulate_strong_score_min: {
+    cooldown_days: 14,
+    hardcoded_default: 70,
+    min_value: 55,
+    max_pct_from_default: 25,
+  },
+  deep_audit_trail_atr_mult: {
+    cooldown_days: 14,
+    hardcoded_default: 2.0,
+    min_value: 1.0,
+    max_value: 4.0,
+    max_pct_from_default: 50,
+  },
+  COO_SCREENER_AUTO_SCORE: {
+    cooldown_days: 7,
+    hardcoded_default: 70,
+    min_value: 60,
+    max_pct_from_default: 20,
+  },
+};
+
 async function buildRecommendations({
   env, missedDetails, inUnivMissed, outUnivMissed,
   churnDetails, capturedFull, capturedPartial, missedCount, churned, totalMoves,
@@ -78,57 +113,150 @@ async function buildRecommendations({
   const recs = [];
   if (totalMoves === 0) return recs;
 
-  /* Read current knob values from model_config so the recommendations
-     are framed as deltas from the live config, not hardcoded defaults. */
+  /* Read current knob value AND last-updated timestamp + updater so we
+     can enforce cooldown and report change history in the rationale. */
   async function readKnob(key, defaultVal) {
     try {
       const db = env?.DB;
-      if (!db) return defaultVal;
-      const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = ?1`)
+      if (!db) return { value: defaultVal, updated_at: 0, updated_by: null };
+      const row = await db.prepare(`SELECT config_value, updated_at, updated_by FROM model_config WHERE config_key = ?1`)
         .bind(key).first().catch(() => null);
-      if (!row) return defaultVal;
+      if (!row) return { value: defaultVal, updated_at: 0, updated_by: null };
       const num = Number(row.config_value);
-      return Number.isFinite(num) ? num : defaultVal;
-    } catch { return defaultVal; }
+      return {
+        value: Number.isFinite(num) ? num : defaultVal,
+        updated_at: Number(row.updated_at) || 0,
+        updated_by: row.updated_by || null,
+      };
+    } catch { return { value: defaultVal, updated_at: 0, updated_by: null }; }
+  }
+
+  /* Apply the safety envelope to a proposed knob change.
+     Returns { suggested_value, blocked, blockedReason, vetting_note }.
+     If blocked, the recommendation should be downgraded to info-only. */
+  function vetSuggestion(knobPath, currentValue, naiveSuggestion, lastUpdatedAt, lastUpdatedBy) {
+    const safety = KNOB_SAFETY[knobPath];
+    if (!safety) {
+      // No safety envelope defined — pass through with a warning note.
+      return { suggested_value: naiveSuggestion, blocked: false, vetting_note: "no_safety_envelope_defined" };
+    }
+    const ageDays = lastUpdatedAt > 0 ? (Date.now() - lastUpdatedAt) / 86400000 : null;
+    /* Cooldown: if knob was recently changed (especially by the
+       recommendation engine itself), skip a follow-up until enough
+       time has passed for the change to show in the next Discovery
+       scan window. */
+    if (ageDays != null && ageDays < safety.cooldown_days) {
+      return {
+        suggested_value: currentValue,
+        blocked: true,
+        blockedReason: "cooldown",
+        vetting_note: `Last changed ${Math.round(ageDays * 10) / 10}d ago by ${lastUpdatedBy || "unknown"} — cooldown ${safety.cooldown_days}d to let new data accumulate`,
+      };
+    }
+    /* Hard floor + max drift from default. */
+    let safe = naiveSuggestion;
+    if (Number.isFinite(safety.min_value)) safe = Math.max(safe, safety.min_value);
+    if (Number.isFinite(safety.max_value)) safe = Math.min(safe, safety.max_value);
+    if (Number.isFinite(safety.max_pct_from_default)) {
+      const limit = safety.hardcoded_default * (1 - safety.max_pct_from_default / 100);
+      if (safe < limit) {
+        return {
+          suggested_value: currentValue,
+          blocked: true,
+          blockedReason: "max_drift_from_default",
+          vetting_note: `Already at ${currentValue} vs default ${safety.hardcoded_default} (${Math.round((1 - currentValue / safety.hardcoded_default) * 100)}% below). Max drift this engine will suggest is ${safety.max_pct_from_default}%.`,
+        };
+      }
+    }
+    /* If our adjustment brought the suggestion to current value
+       (or above), no change worth recommending. */
+    if (safe >= currentValue) {
+      return {
+        suggested_value: currentValue,
+        blocked: true,
+        blockedReason: "no_room_below_floor",
+        vetting_note: `Naive suggestion ${naiveSuggestion} clamps to ${safe} (floor ${safety.min_value}), which is not below current ${currentValue}.`,
+      };
+    }
+    const note = [];
+    if (ageDays != null) note.push(`last changed ${Math.round(ageDays * 10) / 10}d ago`);
+    note.push(`floor ${safety.min_value}`);
+    note.push(`default ${safety.hardcoded_default}`);
+    return { suggested_value: safe, blocked: false, vetting_note: note.join(" · ") };
   }
 
   /* Rec A — Lots of OUT-OF-UNIVERSE missed moves. Tells us the
      screener bar is too high or the cadence too slow. */
   if (outUnivMissed.length >= 5 && outUnivMissed.length / Math.max(1, missedCount) >= 0.20) {
     const bigOut = outUnivMissed.filter((m) => Math.abs(m.move_pct) >= 8).length;
-    recs.push({
-      id: "lower_screener_threshold",
-      tier: 2,
-      type: "knob_change",
-      title: `Lower screener auto-promote threshold (${outUnivMissed.length} misses outside universe)`,
-      rationale: `${outUnivMissed.length} missed moves happened on tickers not in our universe. ${bigOut} of them were ≥8% — major opportunity cost. Lowering the COO's auto-promote score floor would surface candidate tickers earlier.`,
-      knob_path: "COO_SCREENER_AUTO_SCORE",
-      current_value: Number(env?.COO_SCREENER_AUTO_SCORE) || 70,
-      suggested_value: Math.max(60, (Number(env?.COO_SCREENER_AUTO_SCORE) || 70) - 5),
-      expected_captures: Math.round(outUnivMissed.length * 0.35),
-      confidence: outUnivMissed.length >= 20 ? "high" : "medium",
-      example_tickers: outUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
-    });
+    const knob = "COO_SCREENER_AUTO_SCORE";
+    const curInfo = { value: Number(env?.[knob]) || 70, updated_at: 0, updated_by: null };
+    const dbInfo = await readKnob(knob, curInfo.value);
+    if (dbInfo.updated_at > 0) { curInfo.value = dbInfo.value; curInfo.updated_at = dbInfo.updated_at; curInfo.updated_by = dbInfo.updated_by; }
+    const naive = Math.max(60, curInfo.value - 5);
+    const vet = vetSuggestion(knob, curInfo.value, naive, curInfo.updated_at, curInfo.updated_by);
+    if (vet.blocked) {
+      recs.push({
+        id: "lower_screener_threshold",
+        tier: 3,
+        type: "info",
+        title: `Screener threshold change blocked — ${vet.blockedReason}`,
+        rationale: `${outUnivMissed.length} missed moves outside universe (${bigOut} ≥8%). VETO: ${vet.vetting_note}. Wait for the next scan window for fresh evidence.`,
+        knob_path: knob,
+        current_value: curInfo.value,
+        confidence: "high",
+      });
+    } else {
+      recs.push({
+        id: "lower_screener_threshold",
+        tier: 2,
+        type: "knob_change",
+        title: `Lower screener auto-promote threshold (${outUnivMissed.length} misses outside universe)`,
+        rationale: `${outUnivMissed.length} missed moves happened on tickers not in our universe. ${bigOut} of them were ≥8% — major opportunity cost. ${vet.vetting_note}.`,
+        knob_path: knob,
+        current_value: curInfo.value,
+        suggested_value: vet.suggested_value,
+        expected_captures: Math.round(outUnivMissed.length * 0.35),
+        confidence: outUnivMissed.length >= 20 ? "high" : "medium",
+        example_tickers: outUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
+      });
+    }
   }
 
   /* Rec B — Lots of IN-UNIVERSE missed moves. The ticker WAS being
      watched but no entry fired. Likely score threshold too strict. */
   if (inUnivMissed.length >= 10) {
     const big = inUnivMissed.filter((m) => Math.abs(m.move_pct) >= 8).length;
-    const cur = await readKnob("deep_audit_investor_accumulate_strong_score_min", 70);
-    recs.push({
-      id: "lower_investor_accumulate_strong_score",
-      tier: 2,
-      type: "knob_change",
-      title: `Relax investor accumulate score floor ${cur} → ${Math.max(60, cur - 5)}`,
-      rationale: `${inUnivMissed.length} missed moves were on tickers already in our universe — we watched them but didn't enter. ${big} were ≥8% moves. The accumulate score threshold is likely too strict for the current regime.`,
-      knob_path: "deep_audit_investor_accumulate_strong_score_min",
-      current_value: cur,
-      suggested_value: Math.max(60, cur - 5),
-      expected_captures: Math.round(inUnivMissed.length * 0.40),
-      confidence: inUnivMissed.length >= 25 ? "high" : "medium",
-      example_tickers: inUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
-    });
+    const knob = "deep_audit_investor_accumulate_strong_score_min";
+    const info = await readKnob(knob, 70);
+    const naive = info.value - 5;
+    const vet = vetSuggestion(knob, info.value, naive, info.updated_at, info.updated_by);
+    if (vet.blocked) {
+      recs.push({
+        id: "lower_investor_accumulate_strong_score",
+        tier: 3,
+        type: "info",
+        title: `Accumulate score change blocked — ${vet.blockedReason}`,
+        rationale: `${inUnivMissed.length} in-universe missed moves (${big} ≥8%). VETO: ${vet.vetting_note}. The current knob value ${info.value} is being held — wait for next scan window.`,
+        knob_path: knob,
+        current_value: info.value,
+        confidence: "high",
+      });
+    } else {
+      recs.push({
+        id: "lower_investor_accumulate_strong_score",
+        tier: 2,
+        type: "knob_change",
+        title: `Relax investor accumulate score floor ${info.value} → ${vet.suggested_value}`,
+        rationale: `${inUnivMissed.length} missed moves were on tickers already in our universe — we watched them but didn't enter. ${big} were ≥8% moves. ${vet.vetting_note}.`,
+        knob_path: knob,
+        current_value: info.value,
+        suggested_value: vet.suggested_value,
+        expected_captures: Math.round(inUnivMissed.length * 0.40),
+        confidence: inUnivMissed.length >= 25 ? "high" : "medium",
+        example_tickers: inUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
+      });
+    }
   }
 
   /* Rec C — High churn rate. We're entering AND exiting within the
@@ -136,20 +264,45 @@ async function buildRecommendations({
      trailing-stop or TP1 distance. */
   if (churned >= 3 && churnDetails.length > 0) {
     const totalMissedUpside = churnDetails.reduce((s, c) => s + (c.missed_upside || 0), 0);
-    recs.push({
-      id: "widen_trailing_stop",
-      tier: 2,
-      type: "knob_change",
-      title: `Widen trailing stop to reduce ${churned} churn events`,
-      rationale: `${churned} moves were entered AND exited prematurely — leaving ~${rnd(totalMissedUpside)}% combined upside on the table. The trailing-stop multiplier may be too tight for the current regime.`,
-      knob_path: "deep_audit_trail_atr_mult",
-      current_value: await readKnob("deep_audit_trail_atr_mult", 2.0),
-      suggested_value: await readKnob("deep_audit_trail_atr_mult", 2.0) + 0.5,
-      expected_captures: 0,
-      expected_impact: `+${rnd(totalMissedUpside * 0.5)}% reclaimed upside`,
-      confidence: churned >= 8 ? "high" : "medium",
-      example_tickers: churnDetails.slice(0, 5).map((c) => `${c.ticker} (${c.trade_count} trades, ${c.missed_upside}% missed)`),
-    });
+    const knob = "deep_audit_trail_atr_mult";
+    const info = await readKnob(knob, 2.0);
+    const naive = info.value + 0.5;
+    const vet = vetSuggestion(knob, info.value, naive, info.updated_at, info.updated_by);
+    // For widening (going UP), the vetSuggestion's "below" logic doesn't apply.
+    // Treat blocked=true if cooldown only; let widen go through otherwise.
+    if (vet.blocked && vet.blockedReason === "cooldown") {
+      recs.push({
+        id: "widen_trailing_stop",
+        tier: 3,
+        type: "info",
+        title: `Trailing-stop change blocked — cooldown`,
+        rationale: `${churned} churn events. VETO: ${vet.vetting_note}.`,
+        knob_path: knob,
+        current_value: info.value,
+        confidence: "high",
+      });
+    } else {
+      /* For widening, recompute suggested as a clamped UP move. */
+      const safety = KNOB_SAFETY[knob];
+      let suggested = info.value + 0.5;
+      if (safety?.max_value) suggested = Math.min(suggested, safety.max_value);
+      if (suggested > info.value) {
+        recs.push({
+          id: "widen_trailing_stop",
+          tier: 2,
+          type: "knob_change",
+          title: `Widen trailing stop to reduce ${churned} churn events`,
+          rationale: `${churned} moves were entered AND exited prematurely — leaving ~${rnd(totalMissedUpside)}% combined upside on the table. The trailing-stop multiplier may be too tight for the current regime.`,
+          knob_path: knob,
+          current_value: info.value,
+          suggested_value: suggested,
+          expected_captures: 0,
+          expected_impact: `+${rnd(totalMissedUpside * 0.5)}% reclaimed upside`,
+          confidence: churned >= 8 ? "high" : "medium",
+          example_tickers: churnDetails.slice(0, 5).map((c) => `${c.ticker} (${c.trade_count} trades, ${c.missed_upside}% missed)`),
+        });
+      }
+    }
   }
 
   /* Rec D — Capture rate is critically low. Suggest running

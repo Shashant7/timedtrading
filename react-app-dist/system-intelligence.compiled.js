@@ -5965,13 +5965,42 @@ function RunsTab({
   }, "Snapshot: ", variantData.rule_snapshot_meta.ready ? "Ready" : "—", " \xB7 ", variantData.rule_snapshot_meta.source || "—"))))));
 }
 function DiscoveryRecommendationsPanel({
-  recommendations
+  recommendations,
+  reportGeneratedMs
 }) {
   const [appliedIds, setAppliedIds] = useState(new Set());
   const [busyId, setBusyId] = useState(null);
   const [errById, setErrById] = useState({});
   const [successById, setSuccessById] = useState({});
-  if (!Array.isArray(recommendations) || recommendations.length === 0) return null;
+  if (!Array.isArray(recommendations) || recommendations.length === 0) {
+    const reportAge = reportGeneratedMs ? Math.round((Date.now() - reportGeneratedMs) / 60000) : null;
+    return React.createElement("div", {
+      className: "card p-4",
+      style: {
+        borderLeft: "3px solid #f59e0b"
+      }
+    }, React.createElement("div", {
+      style: {
+        fontSize: "var(--ds-fs-meta)",
+        color: "var(--ds-text-muted)",
+        textTransform: "uppercase",
+        letterSpacing: "0.12em"
+      }
+    }, "Next Actions"), React.createElement("div", {
+      style: {
+        fontSize: 13,
+        color: "#fcd34d",
+        marginTop: 8
+      }
+    }, "No recommendations on this report."), React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.7)",
+        marginTop: 6,
+        lineHeight: 1.6
+      }
+    }, "The recommendations engine shipped 2026-06-02. ", reportAge != null ? `This report is ${reportAge}m old — it may pre-date the engine.` : "", " Click ", React.createElement("strong", null, "Run Discovery Now"), " (top right) to regenerate a report with actionable recs, then refresh this page."));
+  }
   const apply = async rec => {
     setBusyId(rec.id);
     setErrById(m => ({
@@ -6227,6 +6256,55 @@ function DiscoveryRunNowButton() {
     }
   }, refreshErr));
 }
+function DiscoveryRunDiagnosisButton() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const onClick = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`/timed/admin/discovery/diagnose?_t=${Date.now()}`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!j?.ok) {
+        setErr(j?.error || "diagnosis_failed");
+        return;
+      }
+      window.location.reload();
+    } catch (e) {
+      setErr(String(e?.message || e).slice(0, 160));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return React.createElement(React.Fragment, null, React.createElement("button", {
+    onClick: onClick,
+    disabled: busy,
+    style: {
+      padding: "4px 10px",
+      fontSize: 11,
+      fontWeight: 600,
+      borderRadius: 6,
+      background: busy ? "#475569" : "#1d4ed8",
+      color: "#fff",
+      border: "none",
+      cursor: busy ? "default" : "pointer"
+    }
+  }, busy ? "Diagnosing…" : "Run Diagnosis"), err && React.createElement("span", {
+    style: {
+      marginLeft: 8,
+      fontSize: 11,
+      color: "#fca5a5"
+    }
+  }, err));
+}
 function MoveDiscoveryTab({
   report,
   loading,
@@ -6335,12 +6413,14 @@ function MoveDiscoveryTab({
       marginTop: 6,
       justifyContent: "flex-end"
     }
-  }, React.createElement(DiscoveryRunNowButton, null), React.createElement("span", {
+  }, React.createElement(DiscoveryRunNowButton, null), React.createElement(DiscoveryRunDiagnosisButton, null)), React.createElement("div", {
     style: {
       fontSize: "var(--ds-fs-caption)",
-      color: "var(--ds-text-faint)"
+      color: "var(--ds-text-faint)",
+      marginTop: 4,
+      textAlign: "right"
     }
-  }, "Auto-refresh: daily 22:00 UTC (AI COO)")))), React.createElement("div", {
+  }, "Auto-refresh: daily 22:00 UTC (AI COO)"))), React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-5 gap-3"
   }, React.createElement("a", {
     className: "si-kpi",
@@ -6421,14 +6501,13 @@ function MoveDiscoveryTab({
     }
   }, "Not run"), React.createElement("div", {
     className: "si-kpi__sub"
-  }, React.createElement("span", {
-    title: "USE_D1=1 node scripts/diagnose-missed-moves.js --upload"
-  }, "Run ", React.createElement("code", {
+  }, "Click ", React.createElement("strong", {
     style: {
-      fontFamily: "var(--tt-font-mono)"
+      color: "#93c5fd"
     }
-  }, "diagnose-missed-moves.js --upload")))))), React.createElement(DiscoveryRecommendationsPanel, {
-    recommendations: report?.recommendations || []
+  }, "Run Diagnosis"), " (top right)")))), React.createElement(DiscoveryRecommendationsPanel, {
+    recommendations: report?.recommendations || [],
+    reportGeneratedMs: report?.generated ? new Date(report.generated).getTime() : null
   }), React.createElement("div", {
     className: "flex gap-1 border-b border-white/[0.06] overflow-x-auto"
   }, [{
@@ -6530,14 +6609,8 @@ function MoveDiscoveryTab({
     }, "Churn cost:"), " ", summary.total_missed_upside_from_churn || 0, "% missed upside"), React.createElement("div", null, React.createElement("span", {
       className: "text-sky-300 font-medium"
     }, "Primary action:"), " ", action), React.createElement("div", {
-      className: "flex flex-wrap gap-2 mt-2"
-    }, totalDiagnosed === 0 ? React.createElement("span", {
-      className: "si-action si-action--primary",
-      title: "USE_D1=1 node scripts/diagnose-missed-moves.js --upload",
-      style: {
-        cursor: "help"
-      }
-    }, "Run diagnosis (CLI)") : React.createElement("a", {
+      className: "flex flex-wrap items-center gap-2 mt-2"
+    }, totalDiagnosed === 0 ? React.createElement(DiscoveryRunDiagnosisButton, null) : React.createElement("a", {
       className: "si-action si-action--primary",
       href: ctaHref
     }, ctaLabel), React.createElement("a", {
@@ -7860,6 +7933,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1780412604537:704631375
+// cache-bust:1780413421131:561881055
 
-// cache-bust:1780412604537:704631375
+// cache-bust:1780413421131:561881055

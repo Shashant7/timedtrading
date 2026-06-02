@@ -34,20 +34,36 @@ import { runMoveDiscovery } from "./move-discovery.js";
 function makeStmt(rowsByQuery) {
   /* A minimal mock of a D1 PreparedStatement that records its bind
      args and returns canned rows. The first .bind() arg is captured
-     onto a shared `_lastBind` object. */
+     onto a shared `_lastBind` object. Supports both .all() and
+     .first() — the latter returns rows[0] (mirroring D1's contract). */
   let boundParams = [];
+  function lookup(sql) {
+    const handler = Object.entries(rowsByQuery).find(([substr]) => sql.includes(substr));
+    if (!handler) return [];
+    const [, value] = handler;
+    if (typeof value === "function") {
+      const r = value(boundParams);
+      if (r && Array.isArray(r.results)) return r.results;
+      return Array.isArray(r) ? r : [];
+    }
+    if (value instanceof Error) throw value;
+    return value || [];
+  }
   const stmt = {
     _lastSql: "",
     bind(...args) { boundParams = args; return stmt; },
     async all() {
       const sql = stmt._lastSql;
       stmt._capturedBind = boundParams;
-      const handler = Object.entries(rowsByQuery).find(([substr]) => sql.includes(substr));
-      if (!handler) return { results: [] };
-      const [, value] = handler;
-      if (typeof value === "function") return value(boundParams);
-      if (value instanceof Error) throw value;
-      return { results: value || [] };
+      try { return { results: lookup(sql) }; }
+      catch (e) { throw e; }
+    },
+    async first() {
+      const sql = stmt._lastSql;
+      try {
+        const rows = lookup(sql);
+        return rows[0] ?? null;
+      } catch (e) { throw e; }
     },
   };
   return stmt;
@@ -339,7 +355,79 @@ describe("runMoveDiscovery", () => {
     const env = makeEnv({ db, kv });
     await runMoveDiscovery(env);
     const stored = JSON.parse(kv._store.get("timed:move-discovery"));
-    expect(stored.recommendations.some((r) => r.id === "lower_investor_accumulate_strong_score")).toBe(true);
+    const rec = stored.recommendations.find((r) => r.id === "lower_investor_accumulate_strong_score");
+    expect(rec).toBeDefined();
+    expect(rec.type).toBe("knob_change");
+  });
+
+  it("BLOCKS the accumulate-score rec when knob was changed within the cooldown window", async () => {
+    /* 2026-06-02 — regression test for the operator's complaint:
+       "I applied one that reduced investor score from 70 to 65.
+       Now I see another recommendation to once again relax it to
+       60. Can you vet these?"
+       Build the same in-universe-misses scenario, but mock the
+       model_config row so updated_at is 2 days ago. The rec must
+       downgrade to tier 3 info-only with blockedReason=cooldown. */
+    const allCandles = [];
+    const tickers = [];
+    for (let i = 0; i < 15; i++) {
+      const ticker = `CD${i}`;
+      tickers.push(ticker);
+      allCandles.push(...flatHistory(ticker, 30, 100, {
+        startDayIdx: 24, endDayIdx: 29, endPrice: 130,
+      }));
+    }
+    const twoDaysAgo = Date.now() - 2 * 86400000;
+    const db = makeDb({
+      "ticker_candles": allCandles,
+      "trades": [],
+      /* The handler is matched by substring on the SQL. The model_config
+         lookup for `deep_audit_investor_accumulate_strong_score_min`
+         returns {config_value, updated_at, updated_by}. */
+      "config_value": [{
+        config_value: "65",
+        updated_at: twoDaysAgo,
+        updated_by: "discovery_recommendation",
+      }],
+    });
+    const kv = makeKv();
+    await kv.put("timed:tickers", JSON.stringify(tickers));
+    const env = makeEnv({ db, kv });
+    await runMoveDiscovery(env);
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    const rec = stored.recommendations.find((r) => r.id === "lower_investor_accumulate_strong_score");
+    expect(rec).toBeDefined();
+    expect(rec.tier).toBe(3);
+    expect(rec.type).toBe("info");
+    expect(String(rec.title)).toMatch(/blocked.*cooldown/i);
+  });
+
+  it("BLOCKS the accumulate-score rec when knob is already at the hard floor", async () => {
+    const allCandles = [];
+    const tickers = [];
+    for (let i = 0; i < 15; i++) {
+      const ticker = `HF${i}`;
+      tickers.push(ticker);
+      allCandles.push(...flatHistory(ticker, 30, 100, {
+        startDayIdx: 24, endDayIdx: 29, endPrice: 130,
+      }));
+    }
+    const oldEnough = Date.now() - 60 * 86400000; // past cooldown
+    const db = makeDb({
+      "ticker_candles": allCandles,
+      "trades": [],
+      "config_value": [{ config_value: "55", updated_at: oldEnough, updated_by: "operator" }],
+    });
+    const kv = makeKv();
+    await kv.put("timed:tickers", JSON.stringify(tickers));
+    const env = makeEnv({ db, kv });
+    await runMoveDiscovery(env);
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    const rec = stored.recommendations.find((r) => r.id === "lower_investor_accumulate_strong_score");
+    expect(rec).toBeDefined();
+    // Naive suggestion: 55 - 5 = 50, but hard floor is 55 → blocked.
+    expect(rec.tier).toBe(3);
+    expect(rec.type).toBe("info");
   });
 
   it("normalizes ts in candle rows when DB returns seconds instead of ms", async () => {
