@@ -891,9 +891,24 @@
               return;
             }
           }
-          // Not authenticated
+          /* 2026-06-02 — Not authenticated. CRITICAL: must clear the
+             React `user` state in addition to localStorage. Operator
+             bug report: "When the access token expires, I see the
+             sign in screen but then I see the switch user screen
+             and then the signed out screen and then finally signed
+             in." Root cause: when verifyAuth() ran in the background
+             and got 401, it cleared localStorage via clearSession()
+             but the React user state still held the cached user
+             object. So handleLogin() saw `!!user = true` and routed
+             through CASE A (switch-account flow) instead of CASE B
+             (fresh SSO) — sending the user through the entire
+             logout-clear-cookies-show-switch-card detour before
+             finally re-signing them in. Setting user=null here
+             makes handleLogin see we're truly logged out and route
+             straight to fresh SSO. */
           clearSession();
           clearBootstrap();
+          setUser(null);
           setServerVerified(false);
           if (showError) {
             setError(
@@ -910,7 +925,10 @@
             setUser(cached);
             setState("authenticated");
           } else {
+            // Same fix as above — clear React user state too.
             clearBootstrap();
+            setUser(null);
+            setServerVerified(false);
             if (showError) {
               setError("Unable to connect. Please check your network and retry.");
             }
@@ -995,36 +1013,35 @@
       return () => { cancelled = true; };
     }, [user, apiBase, verifyAuth]);
 
+    const [signingIn, setSigningIn] = useState(false);
     const handleLogin = useCallback(() => {
-      // 2026-06-01 — Reworked to use the same proven top-level
-      // /cdn-cgi/access/logout flow as logout.html.
-      //
-      // Background:
-      //   The previous implementation used a hidden iframe to
-      //   /cdn-cgi/access/logout to clear the CF Access cookie.
-      //   User-confirmed broken (Jun 1 2026 report): even after
-      //   signing out of all Google accounts AND signing into a
-      //   different one, CF Access still recognized them as the
-      //   previous account. Root cause: iOS Safari third-party
-      //   cookie isolation + CF Bot Mitigation challenge on the
-      //   iframe means the Set-Cookie response is dropped and the
-      //   CF cookie persists.
-      //
-      // CASE A (already authenticated — wants to switch account):
-      //   Route through /logout.html?switch=1, which now does a
-      //   top-level /cdn-cgi/access/logout?returnTo=... so the
-      //   browser actually processes the cookie-clear response.
-      //
-      // CASE B (NOT authenticated yet — fresh login):
-      //   Straight to the protected URL, let CF Access drive SSO.
-      //   (The old iframe pre-step did nothing useful for this
-      //   case — there was no cookie to clear.)
-      const isLoggedIn = !!user;
+      /* 2026-06-01 — Reworked to use the same proven top-level
+         /cdn-cgi/access/logout flow as logout.html.
+
+         CASE A (already authenticated — wants to switch account):
+           Route through /logout.html?switch=1 which top-level
+           navigates to CF Access logout, then renders the manual
+           Google-sign-out card.
+
+         CASE B (NOT authenticated — fresh login):
+           Straight to the protected URL, let CF Access drive SSO.
+
+         2026-06-02 — Bug fix: must require BOTH `user` set AND
+         `serverVerified=true` to consider this a switch-account
+         scenario. Without the serverVerified gate, a stale
+         localStorage cache after token expiry would mis-route
+         through CASE A — sending the operator through the
+         switch-account screen → signed-out screen → signed-in
+         flash chain instead of a clean re-SSO. With this gate,
+         when the server says we're not signed in, we take CASE B
+         regardless of whatever React still holds in `user`. */
+      const isReallyLoggedIn = !!user && serverVerified;
+      setSigningIn(true);
       clearSession();
 
-      // Attempt client-side cookie deletion (best-effort — the CF
-      // cookie is HttpOnly so this is a no-op for it, but clears
-      // any non-HttpOnly cookies we may have set).
+      /* Attempt client-side cookie deletion (best-effort — the CF
+         cookie is HttpOnly so this is a no-op for it, but clears
+         any non-HttpOnly cookies we may have set). */
       try {
         const d = window.location.hostname;
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
@@ -1032,18 +1049,13 @@
         document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
       } catch (_) {}
 
-      if (isLoggedIn) {
-        // CASE A: go through the switch-account flow that
-        // top-level-navigates to CF Access logout, then bounces
-        // back to render the manual Google-sign-out card.
+      if (isReallyLoggedIn) {
         window.location.href = "/logout.html?switch=1";
         return;
       }
 
-      // CASE B: not currently signed in. Go straight to the
-      // protected URL, let CF Access drive SSO.
       window.location.href = "/today.html?_auth=" + Date.now();
-    }, [user]);
+    }, [user, serverVerified]);
 
     // Set user role on body for CSS-based admin gating of nav links
     // Expose _ttIsPro and _ttMemberTickers for freemium gating
@@ -1153,13 +1165,14 @@
     }
 
     if (state === "unauthenticated") {
-      // Show login screen so user can trigger Cloudflare Access SSO.
-      // Previously this redirected to splash.html, but that caused a redirect
-      // loop: splash → dashboard → unauthenticated → splash → ...
+      /* Show login screen so user can trigger Cloudflare Access SSO.
+         loading=true while the SSO redirect chain runs so the user
+         sees "Authenticating..." instead of an active button that
+         looks unresponsive. */
       return React.createElement(LoginScreen, {
         onRetry: handleLogin,
         error: error,
-        loading: false,
+        loading: signingIn,
       });
     }
 
