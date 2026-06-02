@@ -55,6 +55,134 @@ function rnd(v, dp = 2) { return Math.round(v * Math.pow(10, dp)) / Math.pow(10,
 function pct(n, d) { return d > 0 ? rnd(n / d * 100, 1) : 0; }
 function dateStr(ts) { return new Date(ts > 1e12 ? ts : ts * 1000).toISOString().slice(0, 10); }
 
+/* 2026-06-02 — Convert Discovery findings into actionable recommendations.
+
+   Operator question: "It seems like a dead end? What can happen next?
+   How can we use this info to improve?"
+
+   This is the bridge from "we missed 540 moves" → "here's the knob
+   to turn to catch the next batch of similar moves." Each
+   recommendation:
+     • Targets a specific miss bucket (out-of-universe, in-universe
+       low-score, churn, etc.)
+     • Names the model_config knob to change + current + suggested
+     • Estimates expected captures (rough heuristic, NOT a backtest)
+     • Confidence + tier (1=auto, 2=operator approval, 3=info)
+
+   The UI surfaces these as a "Next Actions" panel on the Discovery
+   page; the COO logs them as tier-2 actions in the audit trail. */
+async function buildRecommendations({
+  env, missedDetails, inUnivMissed, outUnivMissed,
+  churnDetails, capturedFull, capturedPartial, missedCount, churned, totalMoves,
+}) {
+  const recs = [];
+  if (totalMoves === 0) return recs;
+
+  /* Read current knob values from model_config so the recommendations
+     are framed as deltas from the live config, not hardcoded defaults. */
+  async function readKnob(key, defaultVal) {
+    try {
+      const db = env?.DB;
+      if (!db) return defaultVal;
+      const row = await db.prepare(`SELECT config_value FROM model_config WHERE config_key = ?1`)
+        .bind(key).first().catch(() => null);
+      if (!row) return defaultVal;
+      const num = Number(row.config_value);
+      return Number.isFinite(num) ? num : defaultVal;
+    } catch { return defaultVal; }
+  }
+
+  /* Rec A — Lots of OUT-OF-UNIVERSE missed moves. Tells us the
+     screener bar is too high or the cadence too slow. */
+  if (outUnivMissed.length >= 5 && outUnivMissed.length / Math.max(1, missedCount) >= 0.20) {
+    const bigOut = outUnivMissed.filter((m) => Math.abs(m.move_pct) >= 8).length;
+    recs.push({
+      id: "lower_screener_threshold",
+      tier: 2,
+      type: "knob_change",
+      title: `Lower screener auto-promote threshold (${outUnivMissed.length} misses outside universe)`,
+      rationale: `${outUnivMissed.length} missed moves happened on tickers not in our universe. ${bigOut} of them were ≥8% — major opportunity cost. Lowering the COO's auto-promote score floor would surface candidate tickers earlier.`,
+      knob_path: "COO_SCREENER_AUTO_SCORE",
+      current_value: Number(env?.COO_SCREENER_AUTO_SCORE) || 70,
+      suggested_value: Math.max(60, (Number(env?.COO_SCREENER_AUTO_SCORE) || 70) - 5),
+      expected_captures: Math.round(outUnivMissed.length * 0.35),
+      confidence: outUnivMissed.length >= 20 ? "high" : "medium",
+      example_tickers: outUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
+    });
+  }
+
+  /* Rec B — Lots of IN-UNIVERSE missed moves. The ticker WAS being
+     watched but no entry fired. Likely score threshold too strict. */
+  if (inUnivMissed.length >= 10) {
+    const big = inUnivMissed.filter((m) => Math.abs(m.move_pct) >= 8).length;
+    const cur = await readKnob("deep_audit_investor_accumulate_strong_score_min", 70);
+    recs.push({
+      id: "lower_investor_accumulate_strong_score",
+      tier: 2,
+      type: "knob_change",
+      title: `Relax investor accumulate score floor ${cur} → ${Math.max(60, cur - 5)}`,
+      rationale: `${inUnivMissed.length} missed moves were on tickers already in our universe — we watched them but didn't enter. ${big} were ≥8% moves. The accumulate score threshold is likely too strict for the current regime.`,
+      knob_path: "deep_audit_investor_accumulate_strong_score_min",
+      current_value: cur,
+      suggested_value: Math.max(60, cur - 5),
+      expected_captures: Math.round(inUnivMissed.length * 0.40),
+      confidence: inUnivMissed.length >= 25 ? "high" : "medium",
+      example_tickers: inUnivMissed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`),
+    });
+  }
+
+  /* Rec C — High churn rate. We're entering AND exiting within the
+     same move, leaving upside on the table. Recommend widening
+     trailing-stop or TP1 distance. */
+  if (churned >= 3 && churnDetails.length > 0) {
+    const totalMissedUpside = churnDetails.reduce((s, c) => s + (c.missed_upside || 0), 0);
+    recs.push({
+      id: "widen_trailing_stop",
+      tier: 2,
+      type: "knob_change",
+      title: `Widen trailing stop to reduce ${churned} churn events`,
+      rationale: `${churned} moves were entered AND exited prematurely — leaving ~${rnd(totalMissedUpside)}% combined upside on the table. The trailing-stop multiplier may be too tight for the current regime.`,
+      knob_path: "deep_audit_trail_atr_mult",
+      current_value: await readKnob("deep_audit_trail_atr_mult", 2.0),
+      suggested_value: await readKnob("deep_audit_trail_atr_mult", 2.0) + 0.5,
+      expected_captures: 0,
+      expected_impact: `+${rnd(totalMissedUpside * 0.5)}% reclaimed upside`,
+      confidence: churned >= 8 ? "high" : "medium",
+      example_tickers: churnDetails.slice(0, 5).map((c) => `${c.ticker} (${c.trade_count} trades, ${c.missed_upside}% missed)`),
+    });
+  }
+
+  /* Rec D — Capture rate is critically low. Suggest running
+     calibration analysis. Tier 1 (auto-runnable) since calibration
+     is bounded. */
+  const captureRate = pct(capturedFull + capturedPartial, totalMoves);
+  if (captureRate < 5 && totalMoves >= 50) {
+    recs.push({
+      id: "run_calibration_analysis",
+      tier: 1,
+      type: "action",
+      title: `Run calibration analysis — capture rate ${captureRate}% is below floor`,
+      rationale: `Only ${capturedFull + capturedPartial} of ${totalMoves} moves were captured. Calibration will analyze recent trade autopsies and propose parameter nudges. Auto-applicable (tier 1).`,
+      action_endpoint: "/timed/calibration/run-analysis",
+      expected_impact: "tier-1 deltas applied automatically; tier-2 surfaced for review",
+      confidence: "high",
+    });
+  }
+
+  /* Rec E — Information-only summary always present (so the panel
+     never looks empty). */
+  recs.push({
+    id: "info_summary",
+    tier: 3,
+    type: "info",
+    title: `Window summary: ${missedCount} missed · ${capturedFull + capturedPartial} captured · ${churned} churned`,
+    rationale: `${inUnivMissed.length} of the misses were in-universe (engine gap); ${outUnivMissed.length} were out-of-universe (screener gap). Top 3 missed: ${missedDetails.slice(0, 3).map((m) => `${m.ticker} ${m.move_pct}%`).join(", ") || "(none)"}.`,
+    confidence: "high",
+  });
+
+  return recs;
+}
+
 export async function runMoveDiscovery(env, opts = {}) {
   const t0 = Date.now();
   const db = env?.DB;
@@ -289,6 +417,44 @@ export async function runMoveDiscovery(env, opts = {}) {
   }
 
   const totalMoves = moves.length;
+  /* 7) Universe membership classification — for each missed move,
+        was the ticker actually in our universe (timed:tickers KV)
+        at scan time? Misses on out-of-universe tickers are a
+        screener problem (lower screener threshold or run more
+        often); misses on in-universe tickers are an engine /
+        score-threshold problem. Different fixes. */
+  let universeSet = new Set();
+  try {
+    const KV = env?.KV_TIMED;
+    if (KV) {
+      const list = (await KV.get("timed:tickers", "json")) || [];
+      if (Array.isArray(list)) universeSet = new Set(list.map((t) => String(t).toUpperCase()));
+    }
+  } catch (_) { /* universe unknown — skip classification */ }
+  const inUnivMissed = missedDetails.filter((m) => universeSet.has(m.ticker));
+  const outUnivMissed = missedDetails.filter((m) => !universeSet.has(m.ticker));
+
+  /* 8) Recommendations — turn discovery findings into concrete,
+        applicable knob changes. Each recommendation includes:
+        { id, title, rationale, knob_path, current_value,
+          suggested_value, expected_captures, confidence, tier }
+        Tier 2 = operator approval required (these are aggressive
+        changes; we won't auto-apply). The Discovery UI surfaces
+        these with a 1-click Apply that POSTs to
+        /timed/admin/discovery/apply. */
+  const recommendations = await buildRecommendations({
+    env,
+    missedDetails,
+    inUnivMissed,
+    outUnivMissed,
+    churnDetails,
+    capturedFull: fullCapture,
+    capturedPartial: partialCapture,
+    missedCount,
+    churned,
+    totalMoves,
+  });
+
   const report = {
     generated: new Date().toISOString(),
     source: "worker_coo",
@@ -304,12 +470,15 @@ export async function runMoveDiscovery(env, opts = {}) {
       full_capture: fullCapture,
       partial_capture: partialCapture,
       missed: missedCount,
+      missed_in_universe: inUnivMissed.length,
+      missed_out_of_universe: outUnivMissed.length,
       churned,
       capture_rate: pct(fullCapture + partialCapture, totalMoves),
       missed_rate: pct(missedCount, totalMoves),
       churn_rate: pct(churned, totalMoves),
       total_missed_upside_from_churn: rnd(churnDetails.reduce((s, c) => s + c.missed_upside, 0)),
     },
+    recommendations,
     missed_signals: {
       total_missed: missedCount,
       up_missed: missedByDir.UP,
@@ -353,5 +522,6 @@ export async function runMoveDiscovery(env, opts = {}) {
     summary: report.summary,
     missed_signals: report.missed_signals,
     churning_count: churnDetails.length,
+    recommendations: report.recommendations,
   };
 }

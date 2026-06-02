@@ -4626,6 +4626,145 @@ function RunsTab({ isAdmin }) {
   );
 }
 
+/* 2026-06-02 — Discovery → Action loop.
+
+   Before: the Discovery dashboard told the operator "you missed 540
+   moves" and offered a CLI command. Pure dead-end.
+
+   After: the worker-side runMoveDiscovery() now emits a
+   recommendations[] array with concrete knob changes (lower screener
+   threshold, lower investor accumulate score, widen trailing stop,
+   etc.) — each with current_value, suggested_value, expected_captures,
+   and a tier. This panel surfaces them with a 1-click Apply button.
+
+   tier=1 → auto-runnable action (e.g. run calibration analysis)
+   tier=2 → knob change requires operator approval (Apply button)
+   tier=3 → informational only
+
+   Apply POSTs to /timed/admin/discovery/apply which validates the
+   knob, enforces ≤30% delta, then writes to model_config. */
+function DiscoveryRecommendationsPanel({ recommendations }) {
+  const [appliedIds, setAppliedIds] = useState(new Set());
+  const [busyId, setBusyId] = useState(null);
+  const [errById, setErrById] = useState({});
+  const [successById, setSuccessById] = useState({});
+
+  if (!Array.isArray(recommendations) || recommendations.length === 0) return null;
+
+  const apply = async (rec) => {
+    setBusyId(rec.id);
+    setErrById((m) => ({ ...m, [rec.id]: null }));
+    try {
+      const r = await fetch(`/timed/admin/discovery/apply?_t=${Date.now()}`, {
+        method: "POST", credentials: "include", cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recommendation_id: rec.id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j?.ok) {
+        setAppliedIds((s) => new Set([...s, rec.id]));
+        setSuccessById((m) => ({ ...m, [rec.id]: j.note || "Applied" }));
+      } else {
+        setErrById((m) => ({ ...m, [rec.id]: j?.error || "apply_failed" }));
+      }
+    } catch (e) {
+      setErrById((m) => ({ ...m, [rec.id]: String(e?.message || e).slice(0, 160) }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const tierLabel = (t) => t === 1 ? "AUTO" : t === 2 ? "APPROVE" : "INFO";
+  const tierColor = (t) => t === 1 ? "#10b981" : t === 2 ? "#f59e0b" : "#64748b";
+  const confColor = (c) => c === "high" ? "#10b981" : c === "medium" ? "#f59e0b" : "#94a3b8";
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div style={{fontSize:"var(--ds-fs-meta)", color:"var(--ds-text-muted)", textTransform:"uppercase", letterSpacing:"0.12em"}}>
+            Next Actions
+          </div>
+          <div style={{fontSize:"var(--ds-fs-h3)", fontWeight:600, color:"var(--ds-text-display)", marginTop:4}}>
+            How to convert misses into captures
+          </div>
+        </div>
+        <div style={{fontSize:11, color:"var(--ds-text-faint)"}}>{recommendations.length} recommendation{recommendations.length === 1 ? "" : "s"}</div>
+      </div>
+      <div style={{display:"flex", flexDirection:"column", gap:8}}>
+        {recommendations.map((rec) => {
+          const applied = appliedIds.has(rec.id);
+          const err = errById[rec.id];
+          const success = successById[rec.id];
+          const busy = busyId === rec.id;
+          return (
+            <div key={rec.id} style={{
+              padding:"10px 12px",
+              background: rec.tier === 3 ? "rgba(255,255,255,0.02)" : "rgba(245,158,11,0.05)",
+              border: `1px solid ${rec.tier === 3 ? "rgba(255,255,255,0.05)" : "rgba(245,158,11,0.15)"}`,
+              borderRadius: 8,
+            }}>
+              <div style={{display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12}}>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{display:"flex", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+                    <span style={{fontSize:9, fontWeight:700, padding:"2px 6px", borderRadius:3, color:"#fff", background:tierColor(rec.tier)}}>
+                      {tierLabel(rec.tier)}
+                    </span>
+                    {rec.confidence && (
+                      <span style={{fontSize:9, color:confColor(rec.confidence), fontWeight:600}}>
+                        {rec.confidence.toUpperCase()} CONF
+                      </span>
+                    )}
+                    <span style={{fontSize:13, fontWeight:600, color:"#fff"}}>{rec.title}</span>
+                  </div>
+                  <div style={{fontSize:11, color:"rgba(255,255,255,0.7)", marginTop:6, lineHeight:1.5}}>
+                    {rec.rationale}
+                  </div>
+                  {(rec.knob_path && rec.current_value != null && rec.suggested_value != null) && (
+                    <div style={{fontSize:11, color:"rgba(255,255,255,0.55)", marginTop:6, fontFamily:"Menlo, Monaco, monospace"}}>
+                      <code style={{color:"#fbbf24"}}>{rec.knob_path}</code>: <span style={{color:"#94a3b8"}}>{rec.current_value}</span> → <span style={{color:"#10b981"}}>{rec.suggested_value}</span>
+                      {rec.expected_captures != null && rec.expected_captures > 0 && (
+                        <span style={{marginLeft:8, color:"#34d399"}}>· est. +{rec.expected_captures} captures</span>
+                      )}
+                      {rec.expected_impact && (
+                        <span style={{marginLeft:8, color:"#34d399"}}>· {rec.expected_impact}</span>
+                      )}
+                    </div>
+                  )}
+                  {Array.isArray(rec.example_tickers) && rec.example_tickers.length > 0 && (
+                    <div style={{fontSize:11, color:"rgba(255,255,255,0.45)", marginTop:4}}>
+                      Examples: {rec.example_tickers.join(", ")}
+                    </div>
+                  )}
+                  {err && <div style={{fontSize:11, color:"#fca5a5", marginTop:6}}>Error: {err}</div>}
+                  {success && <div style={{fontSize:11, color:"#10b981", marginTop:6}}>{success}</div>}
+                </div>
+                {rec.type === "knob_change" && (
+                  <button
+                    onClick={() => apply(rec)}
+                    disabled={busy || applied}
+                    style={{
+                      padding:"6px 12px",
+                      fontSize:11, fontWeight:600, borderRadius:6,
+                      background: applied ? "#10b981" : busy ? "#475569" : "#1d4ed8",
+                      color:"#fff", border:"none", whiteSpace:"nowrap",
+                      cursor: (busy || applied) ? "default" : "pointer",
+                    }}>
+                    {applied ? "Applied" : busy ? "Applying…" : "Apply"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{marginTop:10, fontSize:11, color:"var(--ds-text-faint)"}}>
+        Each Apply writes to <code style={{color:"#94a3b8"}}>model_config</code> with a {`<=`}30% delta cap. Env-var knobs (UPPER_CASE) require a worker redeploy to take effect; lowercase knobs take effect on the next scoring cycle. Action log is in Mission Control → AI COO card.
+      </div>
+    </div>
+  );
+}
+
 /* 2026-06-02 — Run-now button factored out so MoveDiscoveryTab proper
    doesn't have a state hook (`refreshing`) that's only used on one
    of the three render branches. That earlier shape kept tripping
@@ -4816,6 +4955,18 @@ function MoveDiscoveryTab({ report, loading, error }) {
           )}
         </div>
       </div>
+
+      {/* 2026-06-02 — Next Actions panel.
+
+          Operator question: "It seems like a dead end. What can happen
+          next? How can we use this info to improve?" — surface concrete,
+          1-click-applicable knob changes derived from the miss buckets
+          + churn count. Tier-2 changes (knob_change) require operator
+          confirmation; tier-1 (action) are auto-runnable; tier-3 (info)
+          render as context. The Apply button POSTs to
+          /timed/admin/discovery/apply which validates and writes to
+          model_config. */}
+      <DiscoveryRecommendationsPanel recommendations={report?.recommendations || []} />
 
       <div className="flex gap-1 border-b border-white/[0.06] overflow-x-auto">
         {[
