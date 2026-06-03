@@ -2980,6 +2980,12 @@
         const [predictionContract, setPredictionContract] = useState(null);
         const [predictionContractLoading, setPredictionContractLoading] = useState(false);
         const [predictionContractError, setPredictionContractError] = useState(null);
+        // 2026-06-03 — Parallel investor-mode contract fetched once per
+        // ticker so the Snapshot tab can render BOTH the Trader Model
+        // verdict AND the Investor Model verdict side-by-side without
+        // making the user navigate to the Investor tab to see what the
+        // long-horizon model thinks.
+        const [investorPrediction, setInvestorPrediction] = useState(null);
 
         /* 2026-06-01 — Discovery Thesis fetch (Screener / Promotion Queue).
            Operator: "the justification text is money, can we incorporate
@@ -4502,6 +4508,28 @@
           return () => { cancelled = true; };
         }, [_predictionMode, tickerSymbol]);
 
+        // 2026-06-03 — Parallel investor-mode prediction fetch. Runs on
+        // ticker change regardless of which tab is open, so the
+        // Snapshot tab's Investor Model card has data immediately. Best-
+        // effort: a failure here never breaks the Trader Model card.
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) { setInvestorPrediction(null); return; }
+          let cancelled = false;
+          (async () => {
+            try {
+              const qs = new URLSearchParams({ ticker: sym, mode: "investor" });
+              const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { cache: "no-store" });
+              if (!res.ok) return;
+              const json = await res.json();
+              if (!cancelled) setInvestorPrediction(json?.contract || null);
+            } catch (_) {
+              if (!cancelled) setInvestorPrediction(null);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol]);
+
         // 2026-05-28 — Lazy-fetch the AI CIO verdict for the active trade
         // when the Setup tab is open. Mirrors the Catalysts-tab pattern:
         // only fires when needed, cached per trade_id, never re-fetched
@@ -5490,12 +5518,16 @@
                         const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
                         const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
                         const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
-                        if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
-                        // Only require a non-trivial % change (not a
-                        // price-vs-v2Price delta — that one was the
-                        // root of the flicker since v2Price could
-                        // momentarily equal ahPrice).
-                        if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
+                        // 2026-06-03 — Operator wanted to SEE the chip
+                        // outside RTH even when AH is quiet (so the
+                        // monitoring is visible). If we have no AH price
+                        // AT ALL, fall back to RTH close as a "AH quiet"
+                        // placeholder. The stale-drift guard below still
+                        // catches cross-session pollution like CRDO
+                        // 226.30 → -7% day.
+                        const _haveAhPrice = Number.isFinite(ahPrice) && ahPrice > 0;
+                        const _ahQuiet = !_haveAhPrice
+                          || (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05);
                         // 2026-06-03 — Stale-EXT guard. TwelveData's
                         // extended_price field is cached server-side
                         // and doesn't always refresh after a big RTH
@@ -5516,32 +5548,38 @@
                         // direction-disagreement check: hide if
                         // drift > 4% AND (drift > 6% OR EXT direction
                         // disagrees with today's RTH direction).
+                        let _ahStaleDrift = false;
                         try {
-                          const _rthClose = Number(v2Price);
-                          if (Number.isFinite(_rthClose) && _rthClose > 0) {
-                            const _driftPct = ((ahPrice - _rthClose) / _rthClose) * 100;
-                            const _absDrift = Math.abs(_driftPct);
-                            const _todayPct = Number(v2DayPct);
-                            // Direction disagreement: today's RTH move
-                            // and the implied EXT move from RTH close
-                            // point opposite ways with non-trivial
-                            // magnitudes on both sides.
-                            const _dirDisagree = Number.isFinite(_todayPct)
-                              && Math.abs(_todayPct) > 1.5
-                              && Math.sign(_todayPct) !== Math.sign(_driftPct);
-                            if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
-                              // Stale — hide quietly. The data team can
-                              // re-enable later by tightening the
-                              // worker's _ahStale check or pruning the
-                              // raw extended_* fields server-side.
-                              return null;
+                          if (_haveAhPrice) {
+                            const _rthClose = Number(v2Price);
+                            if (Number.isFinite(_rthClose) && _rthClose > 0) {
+                              const _driftPct = ((ahPrice - _rthClose) / _rthClose) * 100;
+                              const _absDrift = Math.abs(_driftPct);
+                              const _todayPct = Number(v2DayPct);
+                              const _dirDisagree = Number.isFinite(_todayPct)
+                                && Math.abs(_todayPct) > 1.5
+                                && Math.sign(_todayPct) !== Math.sign(_driftPct);
+                              if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
+                                _ahStaleDrift = true; // mark, don't render
+                              }
                             }
                           }
                         } catch (_) {}
-                        const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
+                        // When AH price is stale OR missing, render a "AH quiet"
+                        // placeholder using RTH close so the user sees the
+                        // monitoring is active. Real AH activity (when it
+                        // happens) replaces the placeholder on the next tick.
+                        const _displayAhPrice = (!_ahStaleDrift && _haveAhPrice) ? ahPrice : Number(v2Price);
+                        const _displayAhPct = (!_ahStaleDrift && _haveAhPrice && Number.isFinite(ahPct) && Math.abs(ahPct) >= 0.05) ? ahPct : 0;
+                        const _displayAhChg = (!_ahStaleDrift && _haveAhPrice && Number.isFinite(ahChg)) ? ahChg : 0;
+                        const _showQuietBadge = _ahStaleDrift || !_haveAhPrice || (Number.isFinite(ahPct) && Math.abs(ahPct) < 0.05);
+                        if (!Number.isFinite(_displayAhPrice) || _displayAhPrice <= 0) return null;
+                        const dir = _showQuietBadge ? "flat" : (!Number.isFinite(_displayAhPct) ? "flat" : _displayAhPct >= 0 ? "up" : "dn");
                         return (
                           <div
-                            title="Extended-hours quote (pre-market / after-hours)"
+                            title={_showQuietBadge
+                              ? "After-hours quiet — no fresh AH movement yet (or the upstream quote was flagged stale and filtered)."
+                              : "Extended-hours quote (pre-market / after-hours)"}
                             style={{
                               display: "inline-flex",
                               alignItems: "baseline",
@@ -5555,16 +5593,20 @@
                             }}
                           >
                             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", color: "var(--ds-text-faint)" }}>EXT</span>
-                            <span style={{ color: "var(--ds-text-body)", fontWeight: 600 }}>${ahPrice.toFixed(2)}</span>
-                            {Number.isFinite(ahPct) && (
-                              <span style={{ color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)", fontWeight: 700 }}>
-                                {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
-                              </span>
-                            )}
-                            {Number.isFinite(ahChg) && Math.abs(ahChg) > 0.001 && (
-                              <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em" }}>
-                                ({ahChg >= 0 ? "+" : "−"}${Math.abs(ahChg).toFixed(2)})
-                              </span>
+                            <span style={{ color: "var(--ds-text-body)", fontWeight: 600 }}>${_displayAhPrice.toFixed(2)}</span>
+                            {_showQuietBadge ? (
+                              <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em", fontStyle: "italic" }}>quiet</span>
+                            ) : (
+                              <>
+                                <span style={{ color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)", fontWeight: 700 }}>
+                                  {_displayAhPct >= 0 ? "+" : ""}{_displayAhPct.toFixed(2)}%
+                                </span>
+                                {Number.isFinite(_displayAhChg) && Math.abs(_displayAhChg) > 0.001 && (
+                                  <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em" }}>
+                                    ({_displayAhChg >= 0 ? "+" : "−"}${Math.abs(_displayAhChg).toFixed(2)})
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                         );
@@ -6348,6 +6390,102 @@
                         );
                       })()}
 
+                      {/* ── INVESTOR MODEL CARD (2026-06-03) ─────────────────
+                          The investor lane's MODEL guidance for this
+                          ticker (separate from the actual investor
+                          portfolio holding card above — that card is
+                          about what we OWN; this card is about what the
+                          model SAYS regardless of ownership).
+
+                          Sourced from the parallel investorPrediction
+                          contract (fetched on ticker change). When the
+                          investor contract is unavailable (cold start /
+                          API error / no model output), this card is
+                          silently omitted. */}
+                      {investorPrediction && (() => {
+                        const ip = investorPrediction;
+                        const ipDir = String(ip?.direction || "").toUpperCase();
+                        const ipAction = String(ip?.action_label || "").toUpperCase();
+                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+                        const ipStop = Number(ip?.risk?.stop_loss);
+                        const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
+                        const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
+                        const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
+                        const ipReason = String(ip?.why_now || "").trim();
+                        // Plain-English mapping for the action label.
+                        const ipActionLine = (() => {
+                          const a = ipAction.toLowerCase();
+                          if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
+                          if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";
+                          if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return "Accumulate — add to position on weakness.";
+                          if (a.includes("trim") || a.includes("reduc")) return "Reduce on strength — taking profits.";
+                          if (a.includes("sell") || a.includes("exit") || a.includes("close")) return "Exit recommended — close or trim aggressively.";
+                          if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
+                          if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
+                          if (ipAction) return ipAction;
+                          return ipDir === "LONG"  ? "Constructive — investor lane leans long over weeks/months."
+                              :  ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker."
+                              :  "Neutral — investor lane has no strong directional view.";
+                        })();
+                        const ipColor = ipDir === "LONG"  ? "#34d399"
+                                      : ipDir === "SHORT" ? "#fb7185"
+                                      : "#9ca3af";
+                        return (
+                          <div style={{
+                            padding: "12px 14px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: "rgba(99,102,241,0.05)",
+                            border: "1px solid rgba(99,102,241,0.25)",
+                            borderRadius: 12,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
+                                letterSpacing: "0.06em",
+                              }}>🧭 INVESTOR MODEL</span>
+                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>long-horizon weeks-to-months view</span>
+                              {ipDir && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: ipColor,
+                                  background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
+                                  letterSpacing: "0.05em",
+                                  marginLeft: "auto",
+                                }}>{ipDir}</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8, fontWeight: 600 }}>
+                              {ipActionLine}
+                            </div>
+                            {ipThesis && (
+                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: ipReason || ipTp1 || ipStop ? 8 : 0 }}>
+                                {ipThesis}
+                              </div>
+                            )}
+                            {ipReason && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: ipTp1 || ipStop ? 8 : 0 }}>
+                                <span style={{ color: "var(--ds-text-faint)", fontWeight: 700 }}>Why now:</span> {ipReason}
+                              </div>
+                            )}
+                            {(ipTp1 || ipStop) && (
+                              <div style={{
+                                display: "flex", gap: 12, flexWrap: "wrap",
+                                paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.04)",
+                                fontSize: 11, color: "var(--ds-text-muted)",
+                              }}>
+                                {ipTp1 && (
+                                  <span>{ipTp1Label}: <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>${ipTp1.toFixed(2)}</strong></span>
+                                )}
+                                {ipStop && (
+                                  <span>Invalidates: <strong style={{ color: "#fb7185", fontFamily: "var(--tt-font-mono)" }}>${ipStop.toFixed(2)}</strong></span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* ── HERO VERDICT CARD (2026-06-03) ────────────────────
                           The first thing a user sees on a ticker. Answers
                           three questions in plain language:
@@ -6634,8 +6772,18 @@
                                          :                             { label: status.toUpperCase() || "—", color: "#9ca3af" };
                         const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#f5c25c" : "#6b7280";
                         const decidedAt = Number(discoveryThesis.decided_at) || 0;
-                        const decidedLabel = decidedAt > 0 && discoveryThesis.decided_by
-                          ? `${discoveryThesis.decided_by} · ${new Date(decidedAt).toLocaleDateString()}`
+                        // 2026-06-03 — Operator: 'the decision approved has my email
+                        // on it, let's remove that from the UI'. Strip
+                        // anything that looks like an email; keep the date.
+                        const _strippedDecider = String(discoveryThesis.decided_by || "")
+                          .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "")
+                          .replace(/\s+/g, " ")
+                          .replace(/^[·\s-]+|[·\s-]+$/g, "")
+                          .trim();
+                        const decidedLabel = decidedAt > 0
+                          ? (_strippedDecider
+                              ? `${_strippedDecider} · ${new Date(decidedAt).toLocaleDateString()}`
+                              : new Date(decidedAt).toLocaleDateString())
                           : null;
                         return (
                           <Panel
@@ -9755,6 +9903,66 @@
                               ({C.fsd_intel.diagnostics.pubs_total} pubs scanned ·{" "}
                               {C.fsd_intel.diagnostics.tags_total} tickers tagged universe-wide.)
                             </span>
+                          </div>
+                        )}
+                        {/* 2026-06-03 — When the FSD intel is empty AND
+                            the pipeline appears empty too (pubs_total == 0),
+                            give the operator visible diagnostics + a
+                            one-click manual trigger so they can SEE that
+                            something is happening (vs. silent "no panel"). */}
+                        {C.fsd_intel && C.fsd_intel.count === 0
+                          && (C.fsd_intel.diagnostics?.pubs_total === 0
+                              || C.fsd_intel.diagnostics?.pubs_total == null)
+                          && !C.fsd_intel.diagnostics?.heal_kicked && (
+                          <div style={{
+                            padding: "10px 12px",
+                            background: "rgba(245,158,11,0.06)",
+                            border: "1px solid rgba(245,158,11,0.30)",
+                            borderRadius: "var(--ds-radius-md)",
+                            fontSize: 12, lineHeight: 1.45,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: "#fbbf24", background: "rgba(245,158,11,0.12)", padding: "1px 6px", borderRadius: 4, letterSpacing: "0.05em" }}>📡 FSD PIPELINE EMPTY</span>
+                            </div>
+                            <div style={{ color: "var(--ds-text-body)", marginBottom: 8 }}>
+                              No FSD publications have been ingested into the DB yet (pipeline cold-start). FSD ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now.
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>
+                              Pipeline diagnostic: pubs_total={C.fsd_intel.diagnostics?.pubs_total ?? "?"} ·
+                              tags_total={C.fsd_intel.diagnostics?.tags_total ?? "?"} ·
+                              heal_reason={C.fsd_intel.diagnostics?.heal_reason || "—"}
+                            </div>
+                            {typeof window !== "undefined" && window._ttIsAdmin && (
+                              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                                <button
+                                  className="ds-chip ds-chip--sm"
+                                  style={{ cursor: "pointer", background: "rgba(245,158,11,0.18)", borderColor: "rgba(245,158,11,0.50)", color: "#fbbf24" }}
+                                  title="POST /timed/admin/cro/cycle — runs the full FSD ingest + extract + apply + tag + rewrite + synthesis pipeline"
+                                  onClick={async () => {
+                                    const btn = event?.currentTarget;
+                                    if (btn) btn.textContent = "Running…";
+                                    try {
+                                      const r = await fetch(`${API_BASE}/timed/admin/cro/cycle`, {
+                                        method: "POST",
+                                        credentials: "include",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ force: true }),
+                                      });
+                                      const j = await r.json().catch(() => null);
+                                      if (btn) btn.textContent = r.ok ? "Triggered — refresh in ~30s" : `Error ${r.status}`;
+                                      console.log("[FSD inline trigger] result:", j);
+                                    } catch (e) {
+                                      if (btn) btn.textContent = "Error";
+                                      console.error(e);
+                                    }
+                                  }}>Force CRO cycle now</button>
+                                <button
+                                  className="ds-chip ds-chip--sm"
+                                  style={{ cursor: "pointer", background: "rgba(103,232,249,0.08)", borderColor: "rgba(103,232,249,0.40)", color: "#67e8f9" }}
+                                  title="GET /timed/admin/data-feed-health — verify TD WebSocket + REST snapshot freshness in one read"
+                                  onClick={() => window.open(`${API_BASE}/timed/admin/data-feed-health`, "_blank")}>Data feed health</button>
+                              </div>
+                            )}
                           </div>
                         )}
                         {C.fsd_intel?.count > 0 && (() => {
@@ -15333,4 +15541,4 @@
   };
 })();
 
-// cache-bust:1780520982576:305029959
+// cache-bust:1780523140122:29085904
