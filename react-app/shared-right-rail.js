@@ -2912,6 +2912,57 @@
           return candidate;
         }, [trade, ledgerTrades, tickerSymbol]);
 
+        // 2026-06-03 — Mode-aware effectiveTrade variants. The original
+        // memo above picks any open trade for the ticker — which means an
+        // investor holding leaks into the Trader tab (and into the
+        // Snapshot hero verdict card, producing nonsense like "HOLDING
+        // [SHORT]" when the user is actually long-investor + short-trader
+        // on the same ticker). Operator report (2026-06-03):
+        //   • Snapshot hero card flickering between HOLDING/WATCH +
+        //     LONG/SHORT depending on what just rendered.
+        //   • Trader tab "ENTRY DECISION" card showing the investor
+        //     entry ("Setup: Investor Buy Reduce").
+        //
+        // Split the resolver: TRADER-mode trades only for the Trader
+        // tab + the trader-side hero verdict; INVESTOR-mode trades only
+        // for the Snapshot's Investor Portfolio card. Legacy callers
+        // that pass `trade` as a prop still get exactly that trade
+        // via `effectiveTrade` for back-compat.
+        const effectiveTraderTrade = useMemo(() => {
+          if (trade && trade._source_mode !== "investor") return trade;
+          if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+          const symUp = tickerSymbol.toUpperCase();
+          if (!symUp) return null;
+          let candidate = null;
+          for (const t of ledgerTrades) {
+            if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+            if (t?._source_mode === "investor") continue;
+            const st = String(t?.status || "").toUpperCase();
+            if (st === "WIN" || st === "LOSS") continue;
+            if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+              candidate = t;
+            }
+          }
+          return candidate;
+        }, [trade, ledgerTrades, tickerSymbol]);
+        const effectiveInvestorTrade = useMemo(() => {
+          if (trade && trade._source_mode === "investor") return trade;
+          if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+          const symUp = tickerSymbol.toUpperCase();
+          if (!symUp) return null;
+          let candidate = null;
+          for (const t of ledgerTrades) {
+            if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+            if (t?._source_mode !== "investor") continue;
+            const st = String(t?.status || "").toUpperCase();
+            if (st === "WIN" || st === "LOSS") continue;
+            if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+              candidate = t;
+            }
+          }
+          return candidate;
+        }, [trade, ledgerTrades, tickerSymbol]);
+
         const [bubbleJourney, setBubbleJourney] = useState([]);
         const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
         const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
@@ -6162,6 +6213,99 @@
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
                     <>
+                      {/* ── INVESTOR PORTFOLIO CARD (2026-06-03) ──────────────
+                          Shown when the Investor lane has an active holding
+                          on this ticker. Renders BEFORE the Trader hero
+                          verdict so the user sees both POVs cleanly
+                          separated instead of one ambiguous card.
+                          Drives off effectiveInvestorTrade which filters
+                          to _source_mode === "investor" only. */}
+                      {effectiveInvestorTrade && (() => {
+                        const it = effectiveInvestorTrade;
+                        const dir = String(it?.direction || "LONG").toUpperCase();
+                        const isLong = dir !== "SHORT";
+                        const entry = Number(it?.entryPrice ?? it?.entry_price);
+                        const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const pnlPct = (entry > 0 && live > 0)
+                          ? ((isLong ? (live - entry) : (entry - live)) / entry) * 100
+                          : null;
+                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+                        const entryWhen = (() => {
+                          const t = Number(it?.entry_ts);
+                          if (!Number.isFinite(t)) return null;
+                          try {
+                            return new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                          } catch (_) { return null; }
+                        })();
+                        const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
+                        // Translate the internal setup name into a plain-English action
+                        // the user understands ("Buy Reduce" → accumulate-on-dips, etc.)
+                        const setupAction = (() => {
+                          const s = setupRaw.toLowerCase();
+                          if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce"))
+                            return "Accumulate on dips, trim into strength";
+                          if (s.includes("hold") && !s.includes("watch"))
+                            return "Hold — no add, no trim. Let the thesis play out.";
+                          if (s.includes("trim") || s.includes("reduce") || s.includes("sell"))
+                            return "Reduce on strength — taking profits";
+                          if (s.includes("watch") || s.includes("monitor"))
+                            return "Monitor — no position change recommended";
+                          if (s.includes("add") || s.includes("accumulate"))
+                            return "Accumulate — add to position on weakness";
+                          if (s.includes("close") || s.includes("exit"))
+                            return "Exit recommended — close the position";
+                          return setupRaw ? setupRaw.replace(/_/g, " ") : "Holding";
+                        })();
+                        return (
+                          <div style={{
+                            padding: "14px 14px 12px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: "rgba(59,130,246,0.06)",
+                            border: "1px solid rgba(59,130,246,0.30)",
+                            borderRadius: 12,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: "#93c5fd", background: "rgba(59,130,246,0.12)",
+                                  letterSpacing: "0.06em",
+                                }}>📂 INVESTOR PORTFOLIO</span>
+                                <span style={{
+                                  fontSize: 13, fontWeight: 800, color: "#93c5fd",
+                                  letterSpacing: "0.02em",
+                                }}>HOLDING {dir}</span>
+                              </div>
+                              {pnlPct != null && (
+                                <span style={{
+                                  fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor,
+                                }}>{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8 }}>
+                              Entry {entry > 0 ? `$${entry.toFixed(2)}` : "—"}
+                              {live > 0 ? <> → <span style={{ color: pnlColor }}>${live.toFixed(2)}</span></> : null}
+                              {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
+                            </div>
+                            <div style={{ marginTop: 4 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>
+                                INVESTOR ACTION
+                              </div>
+                              <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.4 }}>
+                                {setupAction}
+                              </div>
+                            </div>
+                            <div style={{
+                              marginTop: 10, paddingTop: 8,
+                              borderTop: "1px solid rgba(255,255,255,0.04)",
+                              fontSize: 10, color: "var(--ds-text-faint)",
+                            }}>
+                              The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running.
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* ── HERO VERDICT CARD (2026-06-03) ────────────────────
                           The first thing a user sees on a ticker. Answers
                           three questions in plain language:
@@ -6189,21 +6333,36 @@
                         const pcAction = String(predictionContract?.action_label || "").toUpperCase();
                         const isLong = pcDir === "LONG";
                         const isShort = pcDir === "SHORT";
-                        const tradeOpen = !!(effectiveTrade && String(effectiveTrade?.status || "").toUpperCase() === "OPEN");
+                        // 2026-06-03 — Use TRADER trade only. Investor holdings
+                        // get their own card above this one; mixing them
+                        // produced the "HOLDING [SHORT]" nonsense the
+                        // operator reported.
+                        const traderTrade = effectiveTraderTrade;
+                        const tradeOpen = !!(traderTrade && (() => {
+                          const s = String(traderTrade?.status || "").toUpperCase();
+                          return s === "OPEN" || s === "TP_HIT_TRIM"
+                            || (!(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
+                        })());
 
                         // VERDICT resolution. Order matters — most actionable wins.
+                        // 2026-06-03 — Trade-management verdicts (HOLDING / TRIM
+                        // / DEFEND / EXIT) require an ACTUAL trader trade open
+                        // (tradeOpen = derived from effectiveTraderTrade ONLY).
+                        // Without one, the kanban_stage value can come from
+                        // the investor lane (e.g. "hold" because the investor
+                        // portfolio holds the ticker) — surfacing that as a
+                        // trader-side HOLDING was the source of the operator-
+                        // reported "HOLDING [SHORT]" flicker. Now those stages
+                        // only matter when a real trader trade exists.
                         const verdict = (() => {
-                          if (stage === "trim") return { word: "TRIM", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Take partial profits at the next target. Keep the runner alive.", urgency: "now" };
-                          if (stage === "defend") return { word: "DEFEND", color: "#fb7185", bg: "rgba(244,63,94,0.10)", line: "Tighten the stop. Setup is at risk.", urgency: "now" };
-                          if (stage === "exit") {
-                            if (tradeOpen) return { word: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.10)", line: "Close the position. The model's edge is gone.", urgency: "now" };
-                            return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "Model has no edge here right now. Do not enter.", urgency: "none" };
+                          if (tradeOpen) {
+                            if (stage === "trim") return { word: "TRIM", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Take partial profits at the next target. Keep the runner alive.", urgency: "now" };
+                            if (stage === "defend") return { word: "DEFEND", color: "#fb7185", bg: "rgba(244,63,94,0.10)", line: "Tighten the stop. Setup is at risk.", urgency: "now" };
+                            if (stage === "exit") return { word: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.10)", line: "Close the position. The model's edge is gone.", urgency: "now" };
+                            return { word: "HOLDING", color: "#67e8f9", bg: "rgba(103,232,249,0.08)", line: "Trader position is active. Watch the stop + targets below.", urgency: "monitor" };
                           }
                           if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
                             return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
-                          }
-                          if (stage === "hold" || stage === "active" || stage === "just_entered" || tradeOpen) {
-                            return { word: "HOLDING", color: "#67e8f9", bg: "rgba(103,232,249,0.08)", line: "Position is active. Watch the stop + targets below.", urgency: "monitor" };
                           }
                           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
                             return { word: "WATCH", color: "#f5c25c", bg: "rgba(245,194,92,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
@@ -6289,6 +6448,15 @@
                             border: `1px solid ${verdict.color}55`,
                             borderRadius: 12,
                           }}>
+                            {/* Mode label so user knows which POV they're reading */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                color: "#fcd34d", background: "rgba(252,211,77,0.10)",
+                                letterSpacing: "0.06em",
+                              }}>🎯 TRADER MODEL</span>
+                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>short-term tactical view</span>
+                            </div>
                             {/* Verdict word + direction chip + current price */}
                             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
                               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
@@ -7736,7 +7904,14 @@
                           the rail without bouncing to Discord. Only renders
                           when an active trade exists for this ticker. */}
                       {(() => {
-                        const _t = effectiveTrade;
+                        // 2026-06-03 — Trader tab ENTRY DECISION must NOT
+                        // render investor positions. Operator screenshot:
+                        // 'ENTRY DECISION ACTIVE / LONG Entry \$299.99 ·
+                        // filled Apr 6 at 4:00 PM ET / SETUP: Investor Buy
+                        // Reduce' was the investor entry bleeding through.
+                        // Switched from effectiveTrade → effectiveTraderTrade
+                        // (filters out _source_mode === "investor").
+                        const _t = effectiveTraderTrade;
                         if (!_t) return null;
                         const _status = String(_t?.status || "").toUpperCase();
                         const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" ||
