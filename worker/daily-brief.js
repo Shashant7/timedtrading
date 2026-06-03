@@ -4617,10 +4617,29 @@ Write 2-4 tight paragraphs (300-500 words total):
 - Be concise, be specific, be a veteran technician.`;
 
 
-function buildIntradayPrompt(data) {
+async function buildIntradayPrompt(data, env) {
   const lines = [];
   lines.push(`## Intraday Flash — ${data.today} at ${data.currentTimeET}`);
   lines.push("");
+
+  // 2026-06-03 — Inject Active Playbook + CRO research note + CTO
+  // probabilistic levels at the TOP of the intraday flash prompt so
+  // the 11 AM / 2 PM ET pulses lean on the same editorial + research
+  // context the morning + evening briefs do. Operator confirmed this
+  // is desired: FSD updates should influence intraday pulses, not just
+  // the day-bookend briefs.
+  try {
+    const brief = await getStrategyBriefAsync(env);
+    if (brief) { lines.push(brief); lines.push(""); }
+  } catch (_) {}
+  try {
+    const cro = await getCROBriefAddendum(env);
+    if (cro) { lines.push(cro); lines.push(""); }
+  } catch (_) {}
+  try {
+    const cto = await getCTOBriefAddendum(env);
+    if (cto) { lines.push(cto); lines.push(""); }
+  } catch (_) {}
 
   // Cross-asset prices (crude, gold, VIX, yields, dollar, sectors)
   if (data.priceFeedCrossRef) {
@@ -4799,7 +4818,7 @@ export async function generateIntradayBrief(env, opts = {}) {
       }
     } catch (_) {}
 
-    const prompt = buildIntradayPrompt(data);
+    const prompt = await buildIntradayPrompt(data, env);
     const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 50) {
       // P0.7.154 (2026-05-14) — persist a stub so silent intraday-flash
