@@ -2043,6 +2043,235 @@ function MarketState({
     onSelectTicker
   }))));
 }
+function ResearchDeskExcerpt() {
+  const [cro, setCro] = useState(null);
+  const [cto, setCto] = useState(null);
+  const [sum, setSum] = useState(null);
+  const [strat, setStrat] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const fetchJson = (relPath, ttlMs) => {
+      const url = `${API_BASE}${relPath}`;
+      const _ttl = ttlMs || 5 * 60 * 1000;
+      if (typeof window !== "undefined" && window.TTFetchCache) {
+        return window.TTFetchCache.get(url, {
+          ttlMs: _ttl,
+          maxAgeMs: 30 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        });
+      }
+      return fetch(url, {
+        credentials: "include"
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+    };
+    Promise.all([fetchJson("/timed/cro/latest"), fetchJson("/timed/cto/universe"), fetchJson("/timed/cro/last-summary"), fetchJson("/timed/strategy")]).then(arr => {
+      if (!alive) return;
+      setCro(arr[0]);
+      setCto(arr[1]);
+      setSum(arr[2]);
+      setStrat(arr[3]);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const haveAny = !!(cro || cto || sum || strat);
+  if (!haveAny) return null;
+  const croOk = cro && cro.ok && cro.verdict;
+  const ctoOk = cto && cto.ok && Number.isFinite(Number(cto.tickers_processed));
+  const ctoHeadlines = ctoOk && Array.isArray(cto.headlines) ? cto.headlines.slice(0, 3) : [];
+  const sumOk = sum && sum.ok && sum.finished_at;
+  const cycleAgeMin = sumOk ? Math.round((Date.now() - sum.finished_at) / 60000) : null;
+  const cycleAgeStr = cycleAgeMin == null ? null : cycleAgeMin < 60 ? `${cycleAgeMin}m ago` : `${(cycleAgeMin / 60).toFixed(1)}h ago`;
+  const stratVintage = strat && strat.vintage || null;
+  const tacticalSignals = strat && strat.tactical && Array.isArray(strat.tactical.signals) ? strat.tactical.signals.length : 0;
+  const verdictText = croOk ? (cro.verdict || "").length > 260 ? (cro.verdict || "").slice(0, 258) + "…" : cro.verdict || "" : null;
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "RESEARCH DESK"), h("div", {
+    className: "tt-sec-h"
+  }, "AI CRO + CTO — what the research stack is saying"), h("div", {
+    className: "tt-sec-sub"
+  }, "Synthesized from Fundstrat Direct intel, macro snapshot, cross-asset rotation and per-ticker Markov-biased probabilistic levels. ", h("a", {
+    href: "/research-desk",
+    style: {
+      color: "var(--tt-accent, #67e8f9)",
+      textDecoration: "underline"
+    }
+  }, "Open the full Research Desk →")), h("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(3, 1fr)",
+      gap: 12
+    }
+  }, h("a", {
+    href: "/research-desk",
+    className: "tt-card tt-card-pad",
+    style: {
+      display: "block",
+      textDecoration: "none",
+      color: "inherit"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      marginBottom: 8
+    }
+  }, h("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "var(--tt-text-dim)"
+    }
+  }, "🧠 CRO VERDICT"), croOk ? h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, cro.as_of_date || "") : h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)"
+    }
+  }, "not yet")), croOk ? h("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text)",
+      lineHeight: 1.5
+    }
+  }, verdictText) : h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, "No daily synthesis yet. The CRO cycle fires nightly at 22:00 UTC and hourly during US business hours."), stratVintage && h("div", {
+    style: {
+      marginTop: 10,
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, `Playbook ${stratVintage}${tacticalSignals ? ` · ${tacticalSignals} tactical signals` : ""}`)), h("a", {
+    href: "/research-desk",
+    className: "tt-card tt-card-pad",
+    style: {
+      display: "block",
+      textDecoration: "none",
+      color: "inherit"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      marginBottom: 8
+    }
+  }, h("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "var(--tt-text-dim)"
+    }
+  }, "📐 CTO LEVELS"), ctoOk ? h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `${cto.tickers_ok}/${cto.tickers_processed}`) : h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)"
+    }
+  }, "no rollup")), ctoHeadlines.length > 0 ? h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, ctoHeadlines.map((line, i) => h("div", {
+    key: i,
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text)",
+      lineHeight: 1.45,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, "• ", line))) : h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, "No high-conviction universe headlines yet. Empirical hit-rates × Markov regime forecast power per-ticker level scores (≥60% adj prob surfaces here).")), h("a", {
+    href: "/research-desk",
+    className: "tt-card tt-card-pad",
+    style: {
+      display: "block",
+      textDecoration: "none",
+      color: "inherit"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      marginBottom: 8
+    }
+  }, h("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "var(--tt-text-dim)"
+    }
+  }, "⚙️ PIPELINE"), sumOk ? h("span", {
+    style: {
+      fontSize: 10,
+      color: sum.ok ? "var(--tt-up-soft, #34d399)" : "var(--tt-warn, #fbbf24)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, sum.ok ? "OK" : "DEGRADED") : h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-muted)"
+    }
+  }, "cold start")), sumOk ? h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4,
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.45
+    }
+  }, h("div", null, `Last cycle: ${cycleAgeStr}${sum.elapsed_ms ? ` (${Math.round(sum.elapsed_ms / 1000)}s)` : ""}`), sum.cto && h("div", null, `CTO: ${sum.cto.tickers_ok}/${sum.cto.tickers_processed} tickers`), sum.fsd_ingestion && h("div", null, sum.fsd_ingestion.skipped ? `FSD: skipped (${sum.fsd_ingestion.skipped})` : `FSD: ${sum.fsd_ingestion.ingested || 0} ingested`), sum.applies_count > 0 && h("div", {
+    style: {
+      color: "var(--tt-up-soft, #34d399)"
+    }
+  }, `${sum.applies_count} proposal${sum.applies_count === 1 ? "" : "s"} auto-applied`), Array.isArray(sum.errors) && sum.errors.length > 0 && h("div", {
+    style: {
+      color: "var(--tt-warn, #fbbf24)",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, `${sum.errors.length} error${sum.errors.length === 1 ? "" : "s"}`)) : h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, "No cron tombstone yet. The first CRO/CTO cycle writes this snapshot when it completes. Click through to the Research Desk to force-run via admin actions."))));
+}
 function MacroStrip({
   brief
 }) {
@@ -4772,6 +5001,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780527994371:686725917
+// cache-bust:1780529198873:179117049
 
-// cache-bust:1780527994371:686725917
+// cache-bust:1780529198873:179117049
