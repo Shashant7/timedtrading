@@ -6162,6 +6162,216 @@
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
                     <>
+                      {/* ── HERO VERDICT CARD (2026-06-03) ────────────────────
+                          The first thing a user sees on a ticker. Answers
+                          three questions in plain language:
+                            1. WHAT does the model want? (BUY / WATCH / HOLD /
+                               TRIM / DEFEND / EXIT / NO TRADE)
+                            2. WHY in one sentence
+                            3. WHAT TO WATCH for the next decision (entry
+                               trigger or exit signal) — with specific price
+                               levels pulled from predictionContract.
+
+                          Replaces the "I have to read 4 dense panels to know
+                          what to do" experience reported on CRDO. The
+                          existing Today/Discovery/Regime/Model Guidance
+                          panels stay below for the user who wants the
+                          underlying detail. */}
+                      {(() => {
+                        const formatPx = (n) => {
+                          const x = Number(n);
+                          if (!Number.isFinite(x)) return "—";
+                          return `$${x.toFixed(2)}`;
+                        };
+                        // ── Resolve the verdict + verb ─────────────────────
+                        const stage = String(ticker?.kanban_stage || "").toLowerCase();
+                        const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                        const pcAction = String(predictionContract?.action_label || "").toUpperCase();
+                        const isLong = pcDir === "LONG";
+                        const isShort = pcDir === "SHORT";
+                        const tradeOpen = !!(effectiveTrade && String(effectiveTrade?.status || "").toUpperCase() === "OPEN");
+
+                        // VERDICT resolution. Order matters — most actionable wins.
+                        const verdict = (() => {
+                          if (stage === "trim") return { word: "TRIM", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Take partial profits at the next target. Keep the runner alive.", urgency: "now" };
+                          if (stage === "defend") return { word: "DEFEND", color: "#fb7185", bg: "rgba(244,63,94,0.10)", line: "Tighten the stop. Setup is at risk.", urgency: "now" };
+                          if (stage === "exit") {
+                            if (tradeOpen) return { word: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.10)", line: "Close the position. The model's edge is gone.", urgency: "now" };
+                            return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "Model has no edge here right now. Do not enter.", urgency: "none" };
+                          }
+                          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+                            return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
+                          }
+                          if (stage === "hold" || stage === "active" || stage === "just_entered" || tradeOpen) {
+                            return { word: "HOLDING", color: "#67e8f9", bg: "rgba(103,232,249,0.08)", line: "Position is active. Watch the stop + targets below.", urgency: "monitor" };
+                          }
+                          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
+                            return { word: "WATCH", color: "#f5c25c", bg: "rgba(245,194,92,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                          }
+                          if (pcDir) {
+                            return { word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG", color: pcDir === "SHORT" ? "#fb7185" : "#34d399", bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`, urgency: "context" };
+                          }
+                          return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
+                        })();
+
+                        // ── Pull specific levels from predictionContract ────
+                        const stopPx = Number(predictionContract?.risk?.stop_loss);
+                        const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
+                        const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
+
+                        // ── Build entry/exit triggers list ─────────────────
+                        const triggers = [];
+                        if (verdict.urgency === "watch") {
+                          // WATCH state — what should the user wait for to ENTER?
+                          if (tp1 && livePx) {
+                            if (isLong && livePx < tp1) {
+                              triggers.push({ tone: "go", text: `Reclaim ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms` });
+                            } else if (isShort && livePx > tp1) {
+                              triggers.push({ tone: "go", text: `Break below ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms` });
+                            }
+                          }
+                          if (stopPx && livePx) {
+                            const side = isLong ? "Hold above" : "Hold below";
+                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact` });
+                          }
+                        } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
+                          // ACTIVE / MANAGEMENT — what targets matter?
+                          if (livePx && targets.length > 0) {
+                            const nextTp = targets.find((t) => {
+                              const px = Number(t?.price);
+                              if (!Number.isFinite(px)) return false;
+                              return isLong ? px > livePx : px < livePx;
+                            });
+                            if (nextTp) {
+                              triggers.push({ tone: "go", text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${((Math.abs(Number(nextTp.price) - livePx) / livePx) * 100).toFixed(2)}% away)` });
+                            }
+                          }
+                          if (stopPx && livePx) {
+                            const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
+                            const distance = isLong ? ((livePx - stopPx) / livePx) * 100 : ((stopPx - livePx) / livePx) * 100;
+                            triggers.push({ tone: "neutral", text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.` });
+                          }
+                        } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
+                          if (tp1) triggers.push({ tone: "neutral", text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.` });
+                          if (stopPx) triggers.push({ tone: "neutral", text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.` });
+                        }
+
+                        // ── Invalidators ── derived inline (the Model
+                        // Guidance panel below uses the same logic). We
+                        // can't reference its arrays directly because
+                        // it's a sibling IIFE rendered AFTER this one.
+                        const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+                        const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+                        const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
+                        const heroWatchFor = [];
+                        for (const s of heroSupporting.slice(0, 8)) {
+                          const txt = String(s || "").trim();
+                          if (!txt) continue;
+                          if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
+                        }
+                        const invalidators = [];
+                        for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
+                        for (const w of heroWatchFor.slice(0, 2)) {
+                          if (invalidators.length < 4) invalidators.push(String(w));
+                        }
+
+                        // ── R:R + conviction strip ─────────────────────────
+                        const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
+                        const entryQ = predictionContract?.entry_quality || null;
+
+                        return (
+                          <div style={{
+                            padding: "14px 14px 12px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: verdict.bg,
+                            border: `1px solid ${verdict.color}55`,
+                            borderRadius: 12,
+                          }}>
+                            {/* Verdict word + direction chip + current price */}
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                <span style={{
+                                  fontSize: 18, fontWeight: 800, color: verdict.color,
+                                  letterSpacing: "0.02em", lineHeight: 1,
+                                }}>{verdict.word}</span>
+                                {pcDir && (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                    color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+                                    background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                                    letterSpacing: "0.05em",
+                                  }}>{pcDir}</span>
+                                )}
+                              </div>
+                              {livePx && (
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
+                                  ${livePx.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            {/* One-line WHY */}
+                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 10 : 0 }}>
+                              {verdict.line}
+                            </div>
+                            {/* Entry / management triggers */}
+                            {triggers.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                <div style={{
+                                  fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)",
+                                  letterSpacing: "0.06em", marginBottom: 5,
+                                }}>
+                                  {verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"}
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {triggers.map((tr, i) => (
+                                    <div key={`tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
+                                      <span style={{
+                                        color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
+                                        flexShrink: 0, marginTop: 1,
+                                      }}>{tr.tone === "go" ? "→" : "·"}</span>
+                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Invalidation list */}
+                            {invalidators.length > 0 && verdict.urgency !== "none" && (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={{
+                                  fontSize: 10, fontWeight: 700, color: "var(--ds-dn)",
+                                  letterSpacing: "0.06em", marginBottom: 5,
+                                }}>INVALIDATES IF</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {invalidators.map((inv, i) => (
+                                    <div key={`inv-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.4, color: "var(--ds-text-muted)" }}>
+                                      <span style={{ color: "var(--ds-dn)", flexShrink: 0, marginTop: 1 }}>✗</span>
+                                      <span>{String(inv)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Footer stats strip */}
+                            {(rr || entryQ || v2Rank != null || v2Conv != null) && (
+                              <div style={{
+                                marginTop: 10, paddingTop: 8,
+                                borderTop: "1px solid rgba(255,255,255,0.04)",
+                                display: "flex", flexWrap: "wrap", gap: 10,
+                                fontSize: 11, color: "var(--ds-text-muted)",
+                              }}>
+                                {rr && <span>R:R <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Number(rr).toFixed(2)}</strong></span>}
+                                {entryQ != null && <span>Entry quality <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(Number(entryQ))}/100</strong></span>}
+                                {v2Rank != null && <span>Rank <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>R{v2Rank}</strong></span>}
+                                {v2Conv != null && <span>Conviction <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(v2Conv)}/100</strong></span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* Today panel — at-a-glance regime + state + stage */}
                       {(ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && (
                         <Panel title="Today">
@@ -6764,14 +6974,84 @@
                           Uses effectiveTrade (resolved active trade
                           from ledgerTrades when prop is null). */}
                       {(() => {
-                        const t = effectiveTrade || trade;
-                        if (!t) return null;
-                        // 2026-06-01 — Broaden the open-trade check to match
-                        // tradeIsOpen() logic used by the Risk & Targets panel
-                        // and the v2 header. TSM showed PROPOSED on the Trader
-                        // tab because (a) ledgerTrades wasn't fetched here
-                        // (fixed above) and (b) the OPEN-only check missed
-                        // TP_HIT_TRIM rows. Mirror the canonical isOpen logic.
+                        // 2026-06-03 — Trader tab should NOT render an Investor
+                        // open position as a 'CURRENT OPEN POSITION' card. GOOGL
+                        // case: ledgerTrades returned an Investor trade
+                        // ($5000 notional, Apr-6 entry, multi-month hold) and
+                        // we rendered it on the Trader tab as if it were an
+                        // intraday trader position — confusing for the user
+                        // who saw a TRADER · SHORT chip in the header but a
+                        // LONG · OPEN body. Filter to trader-mode trades only;
+                        // if the only open trade is an investor holding, drop
+                        // a small pointer to the Investor tab instead of
+                        // rendering the position card.
+                        const candidates = (() => {
+                          const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
+                          // Trader-mode trades for this ticker that are OPEN.
+                          const traderOpen = arr.filter((x) =>
+                            String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
+                            && (x?._source_mode === "trader" || !x?._source_mode)
+                            && (() => {
+                              const s = String(x?.status || "").toUpperCase();
+                              return s === "OPEN" || s === "TP_HIT_TRIM"
+                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
+                            })()
+                          );
+                          if (traderOpen.length > 0) return { kind: "trader", t: traderOpen[0] };
+                          // No trader open — is there an investor holding?
+                          const investorOpen = arr.find((x) =>
+                            String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
+                            && x?._source_mode === "investor"
+                            && (() => {
+                              const s = String(x?.status || "").toUpperCase();
+                              return s === "OPEN" || s === "TP_HIT_TRIM"
+                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
+                            })()
+                          );
+                          if (investorOpen) return { kind: "investor", t: investorOpen };
+                          // Fall back to the prop trade ONLY if it's not an
+                          // investor mode entry (legacy callers might pass
+                          // a trader trade directly via the `trade` prop).
+                          const fallback = effectiveTrade || trade;
+                          if (fallback && fallback._source_mode !== "investor") {
+                            return { kind: "trader", t: fallback };
+                          }
+                          return null;
+                        })();
+                        if (!candidates) return null;
+                        if (candidates.kind === "investor") {
+                          // Investor holding present — render a small pointer
+                          // instead of the Trader open-position card.
+                          return (
+                            <div style={{
+                              padding: "10px 12px",
+                              marginBottom: "var(--ds-space-3)",
+                              background: "rgba(96,165,250,0.06)",
+                              border: "1px solid rgba(96,165,250,0.25)",
+                              borderRadius: "var(--ds-radius-md)",
+                              fontSize: 12,
+                              color: "var(--ds-text-body)",
+                              lineHeight: 1.5,
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                  color: "#93c5fd", background: "rgba(59,130,246,0.10)", letterSpacing: "0.05em",
+                                }}>INVESTOR HOLDING</span>
+                                <span style={{ fontSize: 11, color: "var(--ds-text-muted)" }}>open on this ticker</span>
+                              </div>
+                              <div>
+                                The Investor lane has an active position on {tickerSymbol}. Trader-lane plan + R:R below
+                                are independent of it. Switch to the <button
+                                  type="button"
+                                  onClick={() => setRailTab("INVESTOR")}
+                                  style={{ display: "inline", background: "transparent", border: 0, padding: 0, color: "#93c5fd", cursor: "pointer", textDecoration: "underline", fontSize: 12 }}
+                                >Investor tab</button> to manage the holding.
+                              </div>
+                            </div>
+                          );
+                        }
+                        const t = candidates.t;
                         const _trStatus = String(t.status || "").toUpperCase();
                         const _isOpen = _trStatus === "OPEN"
                           || _trStatus === "TP_HIT_TRIM"
@@ -14761,4 +15041,4 @@
   };
 })();
 
-// cache-bust:1780509710814:285010715
+// cache-bust:1780512893347:163743322
