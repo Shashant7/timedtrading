@@ -124,7 +124,7 @@ function CRONoteCard({
       className: "card"
     }, h("h2", null, "🧠 CRO Daily Research Note"), h("div", {
       className: "muted"
-    }, "No note has been produced yet. The cron fires at 22:00 UTC daily; ", "an admin can kick it now via the Actions panel."));
+    }, "No note for today yet. The synthesis fires nightly at 22:00 UTC after CTO + rotation + FSD ingestion complete. ", "FSD ingestion ALSO runs hourly during US business hours (13-21 UTC Mon-Fri) so daily-strategy publications land within ~1h of release. ", "Click \"Kick full CRO/CTO cycle\" in Admin Actions below to populate immediately."));
   }
   const n = cro.body;
   const verdict = n.verdict || "(no verdict)";
@@ -219,7 +219,7 @@ function CTOUniverseCard({
       className: "card"
     }, h("h2", null, "📐 CTO Probabilistic Levels"), h("div", {
       className: "muted"
-    }, "No universe rollup yet. Admin can kick it via Actions panel."));
+    }, "No universe rollup yet. Runs nightly at 22:00 UTC, refreshes hourly during US business hours. ", "Click \"Refresh CTO universe\" in Admin Actions to populate immediately."));
   }
   const r = cto.body;
   const headlines = Array.isArray(r.headlines) ? r.headlines : [];
@@ -334,6 +334,7 @@ function PublicationsCard({
       className: "muted"
     }, "Visible to admin only."));
   }
+  const noData = pubs.length === 0 && proposals.length === 0;
   return h("div", {
     className: "card"
   }, h("h2", null, "📚 Recent Publications + Proposals (admin)"), h("div", {
@@ -341,7 +342,42 @@ function PublicationsCard({
     style: {
       marginBottom: 8
     }
-  }, "Each per-row action is a one-click human button paired with its admin endpoint. The AI CIO can call the same endpoints directly to act autonomously (each button shows the endpoint as a tooltip)."), h("h3", null, "Publications"), pubs.length === 0 ? h("div", {
+  }, "Each per-row action is a one-click human button paired with its admin endpoint. The AI CIO can call the same endpoints directly to act autonomously (each button shows the endpoint as a tooltip)."), noData && h("div", {
+    style: {
+      background: "rgba(245,158,11,0.06)",
+      border: "1px solid rgba(245,158,11,0.30)",
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 10
+    }
+  }, h("div", {
+    style: {
+      color: "#fbbf24",
+      fontWeight: 700,
+      marginBottom: 6
+    }
+  }, "No publications ingested yet"), h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 10
+    }
+  }, "The system is configured but the daily cron (22:00 UTC) hasn't fired yet today. " + "Use \"Pull from FSD now\" below to populate the table immediately, or " + "\"Probe FSD login\" first if the credentials may have drifted."), h("div", {
+    className: "row"
+  }, h("button", {
+    className: "btn btn-go",
+    title: "POST /timed/admin/cro/fsd/ingest",
+    onClick: () => onAction("fsd_ingest_inline", "POST", "/timed/admin/cro/fsd/ingest", {})
+  }, "Pull from FSD now"), h("button", {
+    className: "btn",
+    title: "POST /timed/admin/cro/fsd/probe",
+    onClick: () => onAction("fsd_probe_inline", "POST", "/timed/admin/cro/fsd/probe", {})
+  }, "Probe FSD login"), h("button", {
+    className: "btn",
+    title: "POST /timed/admin/cro/cycle — runs everything: CTO + rotation + FSD + extract + apply + synthesis",
+    onClick: () => onAction("cycle_inline", "POST", "/timed/admin/cro/cycle", {
+      force: true
+    })
+  }, "Kick full cycle (force)"))), h("h3", null, "Publications"), pubs.length === 0 ? h("div", {
     className: "muted"
   }, "None yet.") : h("table", {
     className: "table"
@@ -592,7 +628,19 @@ function App() {
     fetched_at: Date.now()
   });
   const [lastAction, setLastAction] = useState(null);
-  const isAdmin = typeof window !== "undefined" && window._ttIsAdmin;
+  const [isAdmin, setIsAdmin] = useState(typeof window !== "undefined" && (window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true"));
+  useEffect(() => {
+    const onAuth = () => {
+      const v = window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
+      setIsAdmin(v);
+    };
+    window.addEventListener("tt-auth-bootstrap-updated", onAuth);
+    const t = setTimeout(onAuth, 1500);
+    return () => {
+      window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
+      clearTimeout(t);
+    };
+  }, []);
   const load = useCallback(async () => {
     const [cro, cto, strategy, override, pubs, proposals, rotation] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
       body: null
@@ -705,6 +753,6 @@ function App() {
   }, h(AICIOActionsCard)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780491377064:268799849
+// cache-bust:1780492945749:238863080
 
-// cache-bust:1780491377064:268799849
+// cache-bust:1780492945749:238863080
