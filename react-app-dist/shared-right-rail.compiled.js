@@ -7103,7 +7103,325 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
+        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (() => {
+          const formatPx = n => {
+            const x = Number(n);
+            if (!Number.isFinite(x)) return "—";
+            return `$${x.toFixed(2)}`;
+          };
+          const stage = String(ticker?.kanban_stage || "").toLowerCase();
+          const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const pcAction = String(predictionContract?.action_label || "").toUpperCase();
+          const isLong = pcDir === "LONG";
+          const isShort = pcDir === "SHORT";
+          const tradeOpen = !!(effectiveTrade && String(effectiveTrade?.status || "").toUpperCase() === "OPEN");
+          const verdict = (() => {
+            if (stage === "trim") return {
+              word: "TRIM",
+              color: "#f59e0b",
+              bg: "rgba(245,158,11,0.10)",
+              line: "Take partial profits at the next target. Keep the runner alive.",
+              urgency: "now"
+            };
+            if (stage === "defend") return {
+              word: "DEFEND",
+              color: "#fb7185",
+              bg: "rgba(244,63,94,0.10)",
+              line: "Tighten the stop. Setup is at risk.",
+              urgency: "now"
+            };
+            if (stage === "exit") {
+              if (tradeOpen) return {
+                word: "EXIT",
+                color: "#f87171",
+                bg: "rgba(248,113,113,0.10)",
+                line: "Close the position. The model's edge is gone.",
+                urgency: "now"
+              };
+              return {
+                word: "NO TRADE",
+                color: "#9ca3af",
+                bg: "rgba(255,255,255,0.04)",
+                line: "Model has no edge here right now. Do not enter.",
+                urgency: "none"
+              };
+            }
+            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+              return {
+                word: isShort ? "SHORT NOW" : "BUY NOW",
+                color: isShort ? "#fb7185" : "#34d399",
+                bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`,
+                urgency: "now"
+              };
+            }
+            if (stage === "hold" || stage === "active" || stage === "just_entered" || tradeOpen) {
+              return {
+                word: "HOLDING",
+                color: "#67e8f9",
+                bg: "rgba(103,232,249,0.08)",
+                line: "Position is active. Watch the stop + targets below.",
+                urgency: "monitor"
+              };
+            }
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
+              return {
+                word: "WATCH",
+                color: "#f5c25c",
+                bg: "rgba(245,194,92,0.10)",
+                line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
+                urgency: "watch"
+              };
+            }
+            if (pcDir) {
+              return {
+                word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG",
+                color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+                bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
+                line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`,
+                urgency: "context"
+              };
+            }
+            return {
+              word: "NO TRADE",
+              color: "#9ca3af",
+              bg: "rgba(255,255,255,0.04)",
+              line: "No directional edge from the model right now.",
+              urgency: "none"
+            };
+          })();
+          const stopPx = Number(predictionContract?.risk?.stop_loss);
+          const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+          const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+          const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
+          const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
+          const triggers = [];
+          if (verdict.urgency === "watch") {
+            if (tp1 && livePx) {
+              if (isLong && livePx < tp1) {
+                triggers.push({
+                  tone: "go",
+                  text: `Reclaim ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms`
+                });
+              } else if (isShort && livePx > tp1) {
+                triggers.push({
+                  tone: "go",
+                  text: `Break below ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms`
+                });
+              }
+            }
+            if (stopPx && livePx) {
+              const side = isLong ? "Hold above" : "Hold below";
+              triggers.push({
+                tone: "go",
+                text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact`
+              });
+            }
+          } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
+            if (livePx && targets.length > 0) {
+              const nextTp = targets.find(t => {
+                const px = Number(t?.price);
+                if (!Number.isFinite(px)) return false;
+                return isLong ? px > livePx : px < livePx;
+              });
+              if (nextTp) {
+                triggers.push({
+                  tone: "go",
+                  text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${(Math.abs(Number(nextTp.price) - livePx) / livePx * 100).toFixed(2)}% away)`
+                });
+              }
+            }
+            if (stopPx && livePx) {
+              const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
+              const distance = isLong ? (livePx - stopPx) / livePx * 100 : (stopPx - livePx) / livePx * 100;
+              triggers.push({
+                tone: "neutral",
+                text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.`
+              });
+            }
+          } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
+            if (tp1) triggers.push({
+              tone: "neutral",
+              text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.`
+            });
+            if (stopPx) triggers.push({
+              tone: "neutral",
+              text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.`
+            });
+          }
+          const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+          const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+          const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
+          const heroWatchFor = [];
+          for (const s of heroSupporting.slice(0, 8)) {
+            const txt = String(s || "").trim();
+            if (!txt) continue;
+            if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
+          }
+          const invalidators = [];
+          for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
+          for (const w of heroWatchFor.slice(0, 2)) {
+            if (invalidators.length < 4) invalidators.push(String(w));
+          }
+          const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
+          const entryQ = predictionContract?.entry_quality || null;
+          return React.createElement("div", {
+            style: {
+              padding: "14px 14px 12px",
+              marginBottom: "var(--ds-space-3)",
+              background: verdict.bg,
+              border: `1px solid ${verdict.color}55`,
+              borderRadius: 12
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 18,
+              fontWeight: 800,
+              color: verdict.color,
+              letterSpacing: "0.02em",
+              lineHeight: 1
+            }
+          }, verdict.word), pcDir && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+              background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+              letterSpacing: "0.05em"
+            }
+          }, pcDir)), livePx && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              fontWeight: 600
+            }
+          }, "$", livePx.toFixed(2))), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.45,
+              marginBottom: triggers.length > 0 ? 10 : 0
+            }
+          }, verdict.line), triggers.length > 0 && React.createElement("div", {
+            style: {
+              marginTop: 4
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 5
+            }
+          }, verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 4
+            }
+          }, triggers.map((tr, i) => React.createElement("div", {
+            key: `tr-${i}`,
+            style: {
+              display: "flex",
+              gap: 8,
+              fontSize: 12,
+              lineHeight: 1.45
+            }
+          }, React.createElement("span", {
+            style: {
+              color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
+              flexShrink: 0,
+              marginTop: 1
+            }
+          }, tr.tone === "go" ? "→" : "·"), React.createElement("span", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, tr.text))))), invalidators.length > 0 && verdict.urgency !== "none" && React.createElement("div", {
+            style: {
+              marginTop: 10
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-dn)",
+              letterSpacing: "0.06em",
+              marginBottom: 5
+            }
+          }, "INVALIDATES IF"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 4
+            }
+          }, invalidators.map((inv, i) => React.createElement("div", {
+            key: `inv-${i}`,
+            style: {
+              display: "flex",
+              gap: 8,
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: "var(--ds-text-muted)"
+            }
+          }, React.createElement("span", {
+            style: {
+              color: "var(--ds-dn)",
+              flexShrink: 0,
+              marginTop: 1
+            }
+          }, "\u2717"), React.createElement("span", null, String(inv)))))), (rr || entryQ || v2Rank != null || v2Conv != null) && React.createElement("div", {
+            style: {
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.04)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              fontSize: 11,
+              color: "var(--ds-text-muted)"
+            }
+          }, rr && React.createElement("span", null, "R:R ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Number(rr).toFixed(2))), entryQ != null && React.createElement("span", null, "Entry quality ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Math.round(Number(entryQ)), "/100")), v2Rank != null && React.createElement("span", null, "Rank ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "R", v2Rank)), v2Conv != null && React.createElement("span", null, "Conviction ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Math.round(v2Conv), "/100"))));
+        })(), (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
           style: {
@@ -7904,8 +8222,84 @@
             }
           }, conf.actionable_summary || `Confluence ${conf.score}/100, ${conf.layers_agreeing}/8 layers agree.`));
         })(), (() => {
-          const t = effectiveTrade || trade;
-          if (!t) return null;
+          const candidates = (() => {
+            const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
+            const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && (() => {
+              const s = String(x?.status || "").toUpperCase();
+              return s === "OPEN" || s === "TP_HIT_TRIM" || !(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
+            })());
+            if (traderOpen.length > 0) return {
+              kind: "trader",
+              t: traderOpen[0]
+            };
+            const investorOpen = arr.find(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && x?._source_mode === "investor" && (() => {
+              const s = String(x?.status || "").toUpperCase();
+              return s === "OPEN" || s === "TP_HIT_TRIM" || !(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
+            })());
+            if (investorOpen) return {
+              kind: "investor",
+              t: investorOpen
+            };
+            const fallback = effectiveTrade || trade;
+            if (fallback && fallback._source_mode !== "investor") {
+              return {
+                kind: "trader",
+                t: fallback
+              };
+            }
+            return null;
+          })();
+          if (!candidates) return null;
+          if (candidates.kind === "investor") {
+            return React.createElement("div", {
+              style: {
+                padding: "10px 12px",
+                marginBottom: "var(--ds-space-3)",
+                background: "rgba(96,165,250,0.06)",
+                border: "1px solid rgba(96,165,250,0.25)",
+                borderRadius: "var(--ds-radius-md)",
+                fontSize: 12,
+                color: "var(--ds-text-body)",
+                lineHeight: 1.5
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color: "#93c5fd",
+                background: "rgba(59,130,246,0.10)",
+                letterSpacing: "0.05em"
+              }
+            }, "INVESTOR HOLDING"), React.createElement("span", {
+              style: {
+                fontSize: 11,
+                color: "var(--ds-text-muted)"
+              }
+            }, "open on this ticker")), React.createElement("div", null, "The Investor lane has an active position on ", tickerSymbol, ". Trader-lane plan + R:R below are independent of it. Switch to the ", React.createElement("button", {
+              type: "button",
+              onClick: () => setRailTab("INVESTOR"),
+              style: {
+                display: "inline",
+                background: "transparent",
+                border: 0,
+                padding: 0,
+                color: "#93c5fd",
+                cursor: "pointer",
+                textDecoration: "underline",
+                fontSize: 12
+              }
+            }, "Investor tab"), " to manage the holding."));
+          }
+          const t = candidates.t;
           const _trStatus = String(t.status || "").toUpperCase();
           const _isOpen = _trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM" || !(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED";
           if (!_isOpen) return null;
@@ -17158,4 +17552,4 @@
   };
 })();
 
-// cache-bust:1780509710814:285010715
+// cache-bust:1780512893347:163743322
