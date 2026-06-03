@@ -5472,7 +5472,6 @@
           setCatalystsLoading(false);
           return;
         }
-        if (railTab !== "CATALYSTS") return;
         const cached = catalystsCacheRef.current.get(sym);
         if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
           setCatalysts(cached.data);
@@ -5483,7 +5482,7 @@
         let cancelled = false;
         (async () => {
           try {
-            setCatalystsLoading(true);
+            if (railTab === "CATALYSTS") setCatalystsLoading(true);
             setCatalystsError(null);
             const apiKey = typeof window !== "undefined" && window._ttApiKey ? window._ttApiKey : "";
             const qs = new URLSearchParams({
@@ -6585,6 +6584,9 @@
           }, (() => {
             const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Trader"], ["INVESTOR", "Investor"], ["OPTIONS", "Options"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
             const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
+            const _fsdLatest = catalysts?.fsd_intel?.latest_published_at || catalysts?.fsd_intel?.publications?.[0]?.published_at || null;
+            const _fsdSeen = typeof window !== "undefined" && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`) || null;
+            const _catalystsHasNew = !!(_fsdLatest && (!_fsdSeen || String(_fsdLatest) > String(_fsdSeen)));
             return tabs.map(([key, label]) => React.createElement("button", {
               key: key,
               className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
@@ -6594,12 +6596,25 @@
                 justifyContent: "center",
                 padding: "6px 12px",
                 scrollSnapAlign: "start",
+                position: "relative",
                 ...(key === "CHART" ? {
                   color: "#34d399",
                   fontWeight: 700
                 } : {})
               }
-            }, React.createElement("span", null, label)));
+            }, React.createElement("span", null, label), key === "CATALYSTS" && _catalystsHasNew && React.createElement("span", {
+              title: "New FSD intel \u2014 open to view",
+              style: {
+                position: "absolute",
+                top: 4,
+                right: 4,
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "#a855f7",
+                boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 6px rgba(168,85,247,0.7)"
+              }
+            })));
           })()));
         })(), React.createElement("div", {
           className: "tt-rail-area-left-pane"
@@ -11306,13 +11321,166 @@
               }
             }, label);
           };
+          const formatFsdExcerpt = (excerpt, mainTicker) => {
+            if (!excerpt) return "";
+            let t = String(excerpt).replace(/\s+/g, " ").trim();
+            t = t.replace(/^[A-Z][a-zA-Z .']{3,30},\s*[A-Z]{2,5}\s*[–-]\s*/, "");
+            const len = 360;
+            if (t.length > len) t = t.slice(0, len).trimEnd() + "…";
+            return t;
+          };
           return React.createElement("div", {
             style: {
               display: "flex",
               flexDirection: "column",
               gap: "var(--ds-space-3)"
             }
-          }, React.createElement(Panel, {
+          }, C.fsd_intel?.count > 0 && (() => {
+            try {
+              const latest = C.fsd_intel.latest_published_at || C.fsd_intel.publications[0] && C.fsd_intel.publications[0].published_at || null;
+              if (latest && typeof window !== "undefined") {
+                window.localStorage.setItem(`tt-cat-seen-fsd:${tickerSymbol}`, String(latest));
+              }
+            } catch (_) {}
+            return React.createElement(Panel, {
+              title: "\uD83D\uDCE1 FSD Intel",
+              action: React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, C.fsd_intel.count, " mention", C.fsd_intel.count === 1 ? "" : "s", " \xB7 ", C.fsd_intel.lookback_days, "d")
+            }, React.createElement("div", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-faint)",
+                marginBottom: 6,
+                letterSpacing: "0.05em"
+              }
+            }, "EDITORIAL RESEARCH \u2014 POSTS MENTIONING ", tickerSymbol), React.createElement("div", {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 8
+              }
+            }, C.fsd_intel.publications.slice(0, 4).map((p, i) => {
+              const isFlash = String(p.pub_id || "").includes("fsi-alert") || String(p.title || "").length < 30 || String(p.title || "").startsWith("Mark");
+              const hasRewrite = !!p.tt_summary_body;
+              return React.createElement("div", {
+                key: `fsd-${i}`,
+                style: {
+                  padding: "8px 10px",
+                  background: "rgba(168,85,247,0.05)",
+                  border: "1px solid rgba(168,85,247,0.18)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "center",
+                  marginBottom: 4,
+                  flexWrap: "wrap"
+                }
+              }, React.createElement("span", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "1px 6px",
+                  borderRadius: 4,
+                  color: isFlash ? "#fbbf24" : "#a78bfa",
+                  background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                  letterSpacing: "0.05em"
+                }
+              }, isFlash ? "FLASH" : "RESEARCH"), React.createElement("span", {
+                style: {
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)"
+                }
+              }, fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)), p.applied_at && React.createElement("span", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  color: "#34d399",
+                  background: "rgba(52,211,153,0.10)"
+                }
+              }, "APPLIED"), hasRewrite && React.createElement("span", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  color: "#67e8f9",
+                  background: "rgba(103,232,249,0.08)"
+                },
+                title: "TT-voice summary (paraphrased from source)"
+              }, "TT")), React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-body)",
+                  color: "var(--ds-text-body)",
+                  fontWeight: 600,
+                  lineHeight: 1.4,
+                  marginBottom: 4
+                }
+              }, p.tt_summary_title || !isFlash && p.title || ""), React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-meta)",
+                  color: "var(--ds-text-body)",
+                  lineHeight: 1.45
+                }
+              }, p.tt_summary_body || formatFsdExcerpt(p.excerpt, tickerSymbol)), Array.isArray(p.tt_key_points) && p.tt_key_points.length > 0 && React.createElement("div", {
+                style: {
+                  display: "flex",
+                  gap: 4,
+                  flexWrap: "wrap",
+                  marginTop: 6
+                }
+              }, p.tt_key_points.slice(0, 6).map((kp, j) => {
+                const dirColor = kp.direction === "long" ? "#34d399" : kp.direction === "short" ? "#f87171" : "var(--ds-text-muted)";
+                const kindBg = kp.kind === "support" || kp.kind === "target" ? "rgba(52,211,153,0.08)" : kp.kind === "resistance" || kp.kind === "stop" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)";
+                return React.createElement("span", {
+                  key: `kp-${j}`,
+                  title: kp.note || "",
+                  style: {
+                    fontSize: 10,
+                    padding: "2px 7px",
+                    borderRadius: 999,
+                    background: kindBg,
+                    color: dirColor,
+                    fontWeight: 600,
+                    border: "1px solid rgba(255,255,255,0.06)"
+                  }
+                }, kp.ticker ? `${kp.ticker} ` : "", String(kp.kind || "").toUpperCase(), kp.level ? ` ${kp.level}` : "", kp.horizon ? ` · ${kp.horizon}` : "");
+              })), p.tt_cta && React.createElement("div", {
+                style: {
+                  marginTop: 6,
+                  fontSize: 11,
+                  color: "var(--ds-text-faint)",
+                  fontStyle: "italic",
+                  lineHeight: 1.4
+                }
+              }, "\u2192 ", p.tt_cta), React.createElement("div", {
+                style: {
+                  marginTop: 6,
+                  fontSize: 9,
+                  color: "var(--ds-text-muted)"
+                }
+              }, p.attribution || "Source: Fundstrat Direct", p.source_url && React.createElement(React.Fragment, null, " · ", React.createElement("a", {
+                href: p.source_url,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                style: {
+                  color: "var(--ds-text-muted)",
+                  textDecoration: "underline"
+                }
+              }, "read original \u2192"))));
+            })), React.createElement("div", {
+              style: {
+                marginTop: 8,
+                fontSize: 9,
+                color: "var(--ds-text-faint)"
+              }
+            }, "TT summaries are paraphrased for compliance. Original research \xA9 Fundstrat Direct \u2014 link above to read in full."));
+          })(), React.createElement(Panel, {
             title: "\uD83D\uDD25 News Catalysts",
             action: C.news?.count > 0 && React.createElement("span", {
               className: "ds-chip ds-chip--sm"
@@ -12695,10 +12863,13 @@
       }].map(t => {
         const active = railTab === t.k;
         const locked = t.proOnly && !window._ttIsPro;
+        const _fsdLatest2 = catalysts?.fsd_intel?.latest_published_at || catalysts?.fsd_intel?.publications?.[0]?.published_at || null;
+        const _fsdSeen2 = typeof window !== "undefined" && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`) || null;
+        const _hasNew2 = t.k === "CATALYSTS" && !!(_fsdLatest2 && (!_fsdSeen2 || String(_fsdLatest2) > String(_fsdSeen2)));
         return React.createElement("button", {
           key: `rail-tab-${t.k}`,
           onClick: () => setRailTab(t.k),
-          className: `px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
+          className: `px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 relative ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
         }, t.label, locked && React.createElement("svg", {
           className: "w-3 h-3 text-amber-400/60",
           fill: "currentColor",
@@ -12707,7 +12878,19 @@
           fillRule: "evenodd",
           d: "M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z",
           clipRule: "evenodd"
-        })));
+        })), _hasNew2 && React.createElement("span", {
+          title: "New FSD intel",
+          style: {
+            position: "absolute",
+            top: 2,
+            right: 2,
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#a855f7",
+            boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 5px rgba(168,85,247,0.7)"
+          }
+        }));
       }))), React.createElement("div", {
         className: "p-6 pt-4"
       }, !window._ttIsPro && railTab !== "ANALYSIS" && railTab !== "INVESTOR" && railTab !== "TECHNICALS" ? React.createElement("div", {
@@ -16971,4 +17154,4 @@
   };
 })();
 
-// cache-bust:1780492945749:238863080
+// cache-bust:1780506190562:19114811

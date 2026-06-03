@@ -24,6 +24,8 @@ import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled } from 
 import { runRotationSnapshot } from "./rotation-engine.js";
 import { runCRODaily, ensureCRODailyNoteSchema } from "./cro-service.js";
 import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
+import { rewritePendingPublications, ensureRewriteSchema } from "./fsd-rewriter.js";
+import { backfillCashtagsForExistingPublications } from "./fsd-ingestion.js";
 
 // ── Public entry point: run the whole CRO/CTO cycle ──────────────────────────
 export async function runCROFullCycle(env, { force = false } = {}) {
@@ -38,6 +40,8 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     extractions: [],
     applies: [],
     cro_daily: { ok: false },
+    cashtag_backfill: { ok: false, skipped: "not_run" },
+    rewrite_pending: { ok: false, skipped: "not_run" },
     errors: [],
   };
 
@@ -136,6 +140,48 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     }
   } catch (e) {
     summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  // 4b. One-time cashtag backfill — covers any pre-existing publications
+  // that were ingested before per-ticker tagging shipped. KV lock keeps
+  // this from re-running once successful; the cron path becomes a no-op
+  // until the operator flips the lock OR the backfill block returns >0
+  // new tags (in which case we leave it eligible for the next round of
+  // pubs that need retagging).
+  try {
+    const LOCK_KEY = "cro:cashtag_backfill:done";
+    const done = await env?.KV?.get(LOCK_KEY);
+    if (!done) {
+      const r = await backfillCashtagsForExistingPublications(env, { limit: 100 });
+      summary.cashtag_backfill = {
+        ok: !!r.ok,
+        considered: r.pubs_processed || 0,
+        tags_written: r.total_tags_written || 0,
+      };
+      // Lock for 7d; orchestrator re-runs after that to catch any newly-ingested
+      // pubs that somehow slipped through the per-ingest tagging path.
+      if (r.ok) await env.KV.put(LOCK_KEY, String(Date.now()), { expirationTtl: 7 * 24 * 3600 });
+    } else {
+      summary.cashtag_backfill = { ok: true, skipped: "kv_locked" };
+    }
+  } catch (e) {
+    summary.errors.push(`cashtag_backfill_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  // 4c. TT-voice rewrite for any publications without a rewrite yet.
+  // Runs LATE in the cycle so it doesn't slow ingest + apply; the
+  // Catalysts tab falls back to raw excerpt when rewrite hasn't run yet.
+  try {
+    await ensureRewriteSchema(env);
+    const r = await rewritePendingPublications(env, { limit: 8 });
+    summary.rewrite_pending = {
+      ok: !!r.ok,
+      considered: r.considered || 0,
+      rewrote_ok: r.rewrote_ok || 0,
+      errors: r.errors || 0,
+    };
+  } catch (e) {
+    summary.errors.push(`rewrite_pending_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
   // 5. CRO daily synthesis. Runs after all inputs are refreshed.

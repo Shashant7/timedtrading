@@ -29,9 +29,23 @@ export const DEFAULT_FSD_CONFIG = {
   // ── Scrape mode ── "wp_rest" (current, default) | "html" (legacy) ──
   scrape_mode: "wp_rest",
   // ── WP REST settings (used in wp_rest mode) ──
+  // 2026-06-03 — FSD exposes MULTIPLE custom post types via WP REST:
+  //   - /wp/v2/posts            — long-form notes (Daily Technical Strategy,
+  //                                Market Update, Earnings Daily, First Word, ...)
+  //   - /wp/v2/fsi-alert        — FlashInsights (short tactical alerts from
+  //                                Mark Newton + the technical desk, multiple
+  //                                per day during US sessions)
+  //   - /wp/v2/fsi-alert-crypto — FlashInsights specific to crypto desk
+  // Listing hits all three concurrently and merges by date DESC. Per-type
+  // counts are config-tunable so the operator can throttle if needed.
   wp_rest_list_path: "/wp-json/wp/v2/posts",
   wp_rest_list_query: "_fields=id,title,link,date,categories,excerpt",
-  wp_rest_post_path: "/wp-json/wp/v2/posts",  // suffixed with /:id at fetch time
+  wp_rest_post_types: [
+    { path: "/wp-json/wp/v2/posts",            label: "post",        per_page: 12 },
+    { path: "/wp-json/wp/v2/fsi-alert",        label: "fsi-alert",   per_page: 12 },
+    { path: "/wp-json/wp/v2/fsi-alert-crypto", label: "fsi-alert-crypto", per_page: 6 },
+  ],
+  wp_rest_post_path: "/wp-json/wp/v2/posts",  // legacy single-type fetch path
   wp_rest_post_query: "_fields=id,title,link,date,categories,content,excerpt",
   // ── Legacy login fields (used in html mode only) ──
   login_page_path: "/login",
@@ -297,36 +311,71 @@ export async function listFSDPublications(env, { limit = 20 } = {}) {
 }
 
 async function listViaWPRest(env, cfg, limit) {
-  const baseQuery = (cfg.wp_rest_list_query || "").replace(/(^|[?&])per_page=\d+/g, "");
-  const cleanQuery = baseQuery.replace(/^&+|&+$/g, "");
-  const url = urlJoin(cfg.base_url, cfg.wp_rest_list_path)
-    + "?per_page=" + Math.min(50, Math.max(1, limit))
-    + (cleanQuery ? "&" + cleanQuery : "");
-  try {
-    const { signal, done: req } = withTimeout(
-      fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-      FETCH_TIMEOUT_MS,
-    );
-    const resp = await Object.assign(req, { signal });
-    if (!resp.ok) {
-      return { ok: false, error_kind: "list_http_error", hint: `GET ${url} -> ${resp.status}` };
+  // Multi-type fetch. Each type runs in parallel; results merge by date DESC,
+  // truncated to `limit`. Per-type failures are reported in `meta.errors[]`
+  // but don't fail the whole list — partial results are still returned.
+  const types = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
+    ? cfg.wp_rest_post_types
+    : [{ path: cfg.wp_rest_list_path, label: "post", per_page: limit }];
+  const baseQuery = (cfg.wp_rest_list_query || "").replace(/(^|[?&])per_page=\d+/g, "").replace(/^&+|&+$/g, "");
+
+  const fetches = types.map(async (t) => {
+    const perPage = Math.min(50, Math.max(1, t.per_page || limit));
+    const url = urlJoin(cfg.base_url, t.path) + "?per_page=" + perPage + (baseQuery ? "&" + baseQuery : "");
+    try {
+      const { signal, done: req } = withTimeout(
+        fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
+        FETCH_TIMEOUT_MS,
+      );
+      const resp = await Object.assign(req, { signal });
+      if (!resp.ok) return { ok: false, label: t.label, error: `HTTP ${resp.status}`, url };
+      const json = await resp.json().catch(() => null);
+      if (!Array.isArray(json)) return { ok: false, label: t.label, error: "non-array response", url };
+      const posts = json.map((post) => ({
+        id: String(post.id),
+        post_type: t.label,
+        post_type_path: t.path,
+        title: wpField(post.title).slice(0, 300),
+        source_url: String(post.link || ""),
+        published_at: post.date || post.date_gmt || null,
+        categories: Array.isArray(post.categories) ? post.categories : null,
+        excerpt: wpField(post.excerpt).slice(0, 500) || null,
+      }));
+      return { ok: true, label: t.label, posts };
+    } catch (e) {
+      return { ok: false, label: t.label, error: String(e?.message || e).slice(0, 200), url };
     }
-    const json = await resp.json().catch(() => null);
-    if (!Array.isArray(json)) {
-      return { ok: false, error_kind: "list_parse_failed", hint: "WP REST response was not an array — site shape may have changed" };
-    }
-    const publications = json.slice(0, limit).map((post) => ({
-      id: String(post.id),
-      title: wpField(post.title).slice(0, 300),
-      source_url: String(post.link || ""),
-      published_at: post.date || post.date_gmt || null,
-      categories: Array.isArray(post.categories) ? post.categories : null,
-      excerpt: wpField(post.excerpt).slice(0, 500) || null,
-    }));
-    return { ok: true, publications, scrape_mode: "wp_rest", source_url: url };
-  } catch (e) {
-    return { ok: false, error_kind: "list_exception", hint: String(e?.message || e).slice(0, 200) };
+  });
+
+  const results = await Promise.all(fetches);
+  const errors = results.filter((r) => !r.ok).map((r) => `${r.label}: ${r.error}`);
+  const allPosts = results.filter((r) => r.ok).flatMap((r) => r.posts);
+
+  if (allPosts.length === 0) {
+    return {
+      ok: false,
+      error_kind: errors.length > 0 ? "list_http_error" : "list_empty",
+      hint: errors.length > 0 ? errors.join("; ").slice(0, 400) : "no posts returned from any WP post-type",
+    };
   }
+
+  // De-dup by id (across post types, just in case) + sort by date DESC.
+  const seen = new Set();
+  const deduped = [];
+  for (const p of allPosts) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    deduped.push(p);
+  }
+  deduped.sort((a, b) => String(b.published_at || "").localeCompare(String(a.published_at || "")));
+
+  return {
+    ok: true,
+    publications: deduped.slice(0, limit),
+    scrape_mode: "wp_rest",
+    post_types_attempted: types.map((t) => t.label),
+    partial_errors: errors.length > 0 ? errors : null,
+  };
 }
 
 async function listViaHTML(env, cfg, limit) {
@@ -401,39 +450,49 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
       }
     }
     if (postId) {
-      const url = urlJoin(cfg.base_url, cfg.wp_rest_post_path) + "/" + encodeURIComponent(postId)
-        + "?" + (cfg.wp_rest_post_query || "");
-      try {
-        const { signal, done: req } = withTimeout(
-          fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-          FETCH_TIMEOUT_MS,
-        );
-        const resp = await Object.assign(req, { signal });
-        if (!resp.ok) {
-          return { ok: false, error_kind: "wp_post_http_error", hint: `GET wp/posts/${postId} -> ${resp.status}` };
-        }
-        const post = await resp.json().catch(() => null);
-        if (!post || !post.id) {
-          return { ok: false, error_kind: "wp_post_parse_failed", hint: "response not a WP post" };
-        }
-        const title = wpField(post.title);
-        const excerpt = wpField(post.excerpt);
-        const content = wpField(post.content);
-        const fullText = [title, excerpt, content].filter(Boolean).join("\n\n");
-        return {
-          ok: true,
-          content_type: "text/html",
-          body_bytes_len: fullText.length,
-          body_text: fullText,
-          body_bytes: null,
-          pdf_url: null,
-          source_kind: "wp_rest_post",
-          post_id: post.id,
-          post_link: post.link || null,
-        };
-      } catch (e) {
-        return { ok: false, error_kind: "wp_post_exception", hint: String(e?.message || e).slice(0, 200) };
+      // Try each configured post-type path until one returns the post.
+      // /wp/v2/posts holds long-form notes; /wp/v2/fsi-alert holds
+      // FlashInsights; etc. Iterate so a numeric id resolves regardless
+      // of which post-type it lives under.
+      const candidatePaths = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
+        ? cfg.wp_rest_post_types.map((t) => t.path)
+        : [cfg.wp_rest_post_path];
+      let post = null;
+      let lastStatus = null;
+      for (const candidatePath of candidatePaths) {
+        try {
+          const url = urlJoin(cfg.base_url, candidatePath) + "/" + encodeURIComponent(postId)
+            + "?" + (cfg.wp_rest_post_query || "");
+          const { signal, done: req } = withTimeout(
+            fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
+            FETCH_TIMEOUT_MS,
+          );
+          const resp = await Object.assign(req, { signal });
+          lastStatus = resp.status;
+          if (resp.ok) {
+            const p = await resp.json().catch(() => null);
+            if (p && p.id) { post = p; break; }
+          }
+        } catch (_) { /* try next type */ }
       }
+      if (!post) {
+        return { ok: false, error_kind: "wp_post_http_error", hint: `wp/posts/${postId} across ${candidatePaths.length} type(s) -> last status ${lastStatus}` };
+      }
+      const title = wpField(post.title);
+      const excerpt = wpField(post.excerpt);
+      const content = wpField(post.content);
+      const fullText = [title, excerpt, content].filter(Boolean).join("\n\n");
+      return {
+        ok: true,
+        content_type: "text/html",
+        body_bytes_len: fullText.length,
+        body_text: fullText,
+        body_bytes: null,
+        pdf_url: null,
+        source_kind: "wp_rest_post",
+        post_id: post.id,
+        post_link: post.link || null,
+      };
     }
     // If we couldn't resolve a post id, fall through to legacy login.
   }
