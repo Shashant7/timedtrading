@@ -9459,12 +9459,65 @@
                       }}>
 
                         {/* ── 0. FSD Intel (FlashInsights + long-form mentions) ────────── */}
-                        {/* 2026-06-03 — Renders TT-voice rewrite (tt_summary_title +
-                           tt_summary_body + tt_key_points chips) when available,
+                        {/* 2026-06-03 — Renders TT-voice rewrite when available,
                            falls back to raw FSD excerpt when the rewriter hasn't
-                           processed the pub yet. Marks the latest published_at as
-                           "seen" in localStorage when the Catalysts tab is open
-                           so the tab-strip unread dot clears on view. */}
+                           processed the pub yet. Marks latest published_at as
+                           "seen" in localStorage when the tab is open so the
+                           tab-strip unread dot clears on view.
+
+                           When count === 0 BUT a backend self-heal was kicked,
+                           renders a "syncing" state so the user sees feedback
+                           that data is being fetched in background (instead of
+                           the panel silently disappearing). */}
+                        {C.fsd_intel && C.fsd_intel.count === 0 && C.fsd_intel.diagnostics?.heal_kicked && (
+                          <div style={{
+                            padding: "10px 12px",
+                            background: "rgba(103,232,249,0.05)",
+                            border: "1px solid rgba(103,232,249,0.25)",
+                            borderRadius: "var(--ds-radius-md)",
+                            fontSize: 12,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                              <span style={{
+                                fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                color: "#67e8f9", background: "rgba(103,232,249,0.10)", letterSpacing: "0.05em",
+                              }}>📡 FSD SYNCING</span>
+                              <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                {C.fsd_intel.diagnostics.heal_kind === "full_cycle"
+                                  ? "first-time ingest"
+                                  : "tagging existing publications"}
+                              </span>
+                            </div>
+                            <div style={{ color: "var(--ds-text-body)", lineHeight: 1.45 }}>
+                              No FSD coverage shows yet for {tickerSymbol}. A background sync just kicked
+                              ({C.fsd_intel.diagnostics.heal_reason || "auto"}).
+                              Hard-refresh in 30-60 seconds — the panel will populate with TT-voice
+                              summaries + key-level chips from any FSD pub mentioning {tickerSymbol}.
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 10, color: "var(--ds-text-faint)" }}>
+                              Pipeline state: {C.fsd_intel.diagnostics.pubs_total} pubs ingested ·{" "}
+                              {C.fsd_intel.diagnostics.tags_total} tickers tagged across all pubs
+                            </div>
+                          </div>
+                        )}
+                        {C.fsd_intel && C.fsd_intel.count === 0 && !C.fsd_intel.diagnostics?.heal_kicked
+                          && C.fsd_intel.diagnostics?.pubs_total > 0 && (
+                          <div style={{
+                            padding: "10px 12px",
+                            background: "rgba(255,255,255,0.02)",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                            borderRadius: "var(--ds-radius-md)",
+                            fontSize: 11,
+                            color: "var(--ds-text-muted)",
+                          }}>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>📡 FSD INTEL</span>
+                            <span style={{ marginLeft: 6 }}>
+                              No FSD publications mention {tickerSymbol} in the last 14 days.
+                              ({C.fsd_intel.diagnostics.pubs_total} pubs scanned ·{" "}
+                              {C.fsd_intel.diagnostics.tags_total} tickers tagged universe-wide.)
+                            </span>
+                          </div>
+                        )}
                         {C.fsd_intel?.count > 0 && (() => {
                           // Mark this ticker's catalyst feed as "seen" — runs once
                           // per render when the user is viewing the Catalysts tab.

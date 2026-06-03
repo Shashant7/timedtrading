@@ -11732,7 +11732,68 @@
                 overflowY: "visible",
                 WebkitOverflowScrolling: "touch"
               }
-            }, C.fsd_intel?.count > 0 && (() => {
+            }, C.fsd_intel && C.fsd_intel.count === 0 && C.fsd_intel.diagnostics?.heal_kicked && React.createElement("div", {
+              style: {
+                padding: "10px 12px",
+                background: "rgba(103,232,249,0.05)",
+                border: "1px solid rgba(103,232,249,0.25)",
+                borderRadius: "var(--ds-radius-md)",
+                fontSize: 12
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color: "#67e8f9",
+                background: "rgba(103,232,249,0.10)",
+                letterSpacing: "0.05em"
+              }
+            }, "\uD83D\uDCE1 FSD SYNCING"), React.createElement("span", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)"
+              }
+            }, C.fsd_intel.diagnostics.heal_kind === "full_cycle" ? "first-time ingest" : "tagging existing publications")), React.createElement("div", {
+              style: {
+                color: "var(--ds-text-body)",
+                lineHeight: 1.45
+              }
+            }, "No FSD coverage shows yet for ", tickerSymbol, ". A background sync just kicked (", C.fsd_intel.diagnostics.heal_reason || "auto", "). Hard-refresh in 30-60 seconds \u2014 the panel will populate with TT-voice summaries + key-level chips from any FSD pub mentioning ", tickerSymbol, "."), React.createElement("div", {
+              style: {
+                marginTop: 6,
+                fontSize: 10,
+                color: "var(--ds-text-faint)"
+              }
+            }, "Pipeline state: ", C.fsd_intel.diagnostics.pubs_total, " pubs ingested \xB7", " ", C.fsd_intel.diagnostics.tags_total, " tickers tagged across all pubs")), C.fsd_intel && C.fsd_intel.count === 0 && !C.fsd_intel.diagnostics?.heal_kicked && C.fsd_intel.diagnostics?.pubs_total > 0 && React.createElement("div", {
+              style: {
+                padding: "10px 12px",
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "var(--ds-radius-md)",
+                fontSize: 11,
+                color: "var(--ds-text-muted)"
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "\uD83D\uDCE1 FSD INTEL"), React.createElement("span", {
+              style: {
+                marginLeft: 6
+              }
+            }, "No FSD publications mention ", tickerSymbol, " in the last 14 days. (", C.fsd_intel.diagnostics.pubs_total, " pubs scanned \xB7", " ", C.fsd_intel.diagnostics.tags_total, " tickers tagged universe-wide.)")), C.fsd_intel?.count > 0 && (() => {
               try {
                 const latest = C.fsd_intel.latest_published_at || C.fsd_intel.publications[0] && C.fsd_intel.publications[0].published_at || null;
                 if (latest && typeof window !== "undefined") {
@@ -17552,4 +17613,4 @@
   };
 })();
 
-// cache-bust:1780512893347:163743322
+// cache-bust:1780514536243:901933505
