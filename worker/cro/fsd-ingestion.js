@@ -443,6 +443,21 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   });
   if (text) await recordPublicationText(env, pub.id, text);
 
+  // 2026-06-03 — Per-pub Discord notification for FlashInsights that
+  // mention an active-universe ticker. Skips long-form posts (those go
+  // through the daily synthesis-summary Discord) and skips pubs without
+  // any tracked ticker. Best-effort: alert errors never block ingest.
+  try {
+    const isFlash = String(pub.id || "").length <= 8 // numeric WP id; long-form has same shape, fall back to source_url
+                  || (pub.source_url && /fsi-alert/i.test(pub.source_url))
+                  || (pub.post_type && /fsi-alert/i.test(pub.post_type));
+    // Use the same source_url heuristic — fsi-alert pubs have a flash-style URL.
+    const sourceLooksFlash = pub.source_url && (/flashinsight|fsi-alert|\/flash\//i.test(pub.source_url));
+    if (isFlash && sourceLooksFlash) {
+      await maybeNotifyDiscordForFlashInsight(env, pub.id);
+    }
+  } catch (_) { /* alerts never block ingest */ }
+
   return {
     ok: true,
     pub_id: pub.id,
@@ -450,6 +465,84 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     pdf_url: fetched.pdf_url || null,
     content_type: fetched.content_type || null,
   };
+}
+
+// ── Discord notification for new FlashInsights ──────────────────────────────
+/**
+ * Fires a Discord system-lane embed when a newly-ingested FlashInsight
+ * mentions at least one ticker the desk tracks (open positions OR
+ * recent screener candidates OR a hardcoded index list). Falls back to
+ * silent skip when no active-universe ticker is mentioned (avoids
+ * alert fatigue from purely macro FlashInsights).
+ *
+ * Resolves the rewrite synchronously when possible — Discord renders
+ * better with TT-voice than raw FSD prose.
+ */
+async function maybeNotifyDiscordForFlashInsight(env, pubId) {
+  // Pull the just-tagged tickers for this pub.
+  const tagRows = await env.DB.prepare(
+    `SELECT ticker FROM ${PUBLICATION_TICKERS_TABLE} WHERE pub_id = ? ORDER BY position ASC LIMIT 10`,
+  ).bind(pubId).all().catch(() => ({ results: [] }));
+  const tickers = (tagRows?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+  if (tickers.length === 0) return;
+
+  // Resolve active-universe set: open positions + screener candidates +
+  // common index ETFs we always care about.
+  const active = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP", "MAGS"]);
+  try {
+    const open = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all();
+    for (const r of (open?.results || [])) active.add(String(r.ticker || "").toUpperCase());
+  } catch (_) {}
+  try {
+    const raw = await env.KV.get("timed:screener:candidates");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const c of (parsed?.candidates || []).slice(0, 30)) {
+        if (c?.ticker) active.add(String(c.ticker).toUpperCase());
+      }
+    }
+  } catch (_) {}
+
+  const matched = tickers.filter((t) => active.has(t));
+  if (matched.length === 0) return; // No relevant ticker — silent.
+
+  // Resolve title + rewrite for the Discord embed.
+  const meta = await env.DB.prepare(
+    `SELECT title, source_url FROM ${PUBLICATIONS_TABLE} WHERE pub_id = ?`,
+  ).bind(pubId).first().catch(() => null);
+
+  let summary_title = meta?.title || "FSD FlashInsight";
+  let summary_body = null;
+  try {
+    const { rewriteFSDPublication } = await import("./fsd-rewriter.js");
+    const rw = await rewriteFSDPublication(env, pubId);
+    if (rw.ok) {
+      summary_title = rw.tt_summary_title || summary_title;
+      summary_body = rw.tt_summary_body || null;
+    }
+  } catch (_) {}
+  if (!summary_body) {
+    // Fall back to the raw excerpt.
+    const tx = await loadPublicationText(env, pubId);
+    if (tx?.text_excerpt) summary_body = String(tx.text_excerpt).slice(0, 500);
+  }
+
+  try {
+    const { notifyDiscord } = await import("../alerts.js");
+    await notifyDiscord(env, {
+      title: `📡 FSD FlashInsight — ${matched.slice(0, 3).join(", ")}${matched.length > 3 ? ` +${matched.length - 3}` : ""}`,
+      description: summary_title.slice(0, 220),
+      color: 0xa855f7,
+      fields: [
+        { name: "Mentioned (active universe)", value: matched.map((t) => `\`${t}\``).join(" "), inline: false },
+        ...(summary_body ? [{ name: "TT summary", value: summary_body.slice(0, 900), inline: false }] : []),
+        ...(meta?.source_url ? [{ name: "Source", value: `[Read on fundstratdirect.com](${meta.source_url})`, inline: false }] : []),
+        { name: "View in app", value: `Open the ticker's right-rail → Catalysts tab (📡 FSD Intel panel)`, inline: false },
+      ],
+      footer: { text: `pub_id=${pubId} · auto-routed by CRO ingestion` },
+      timestamp: new Date().toISOString(),
+    }, "system");
+  } catch (_) {}
 }
 
 // ── Cron entry point: list then ingest anything new ───────────────────────────
