@@ -670,6 +670,100 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // Strategy enrichment is best-effort — never break CIO memory.
   }
 
+  // ── Layer 15c: CRO research note (2026-06-03) ─────────────────────────────
+  // The Chief Research Officer agent produces a daily synthesis note
+  // (worker/cro/cro-service.js) that composes FSD intel + cross-asset
+  // macro + rotation engine + correlation/breadth + discovery layer into
+  // a single verdict + observations payload. The note is preloaded into
+  // memoryCache.croNote by the scoring cron so this layer stays
+  // synchronous (sync buildCIOMemory has many callers).
+  //
+  // Surfaces ONLY the per-ticker-relevant slice (verdict + 3 most
+  // relevant observations + any drift flag that references this ticker's
+  // sector or themes). Keeps the prompt budget tight: ~400 chars typical.
+  //
+  // Empty / missing → block omitted (LLM gets one less prior, never wrong
+  // information). Falls back gracefully when no note has been produced
+  // yet (e.g. first deploy / CRO synthesis cron hasn't fired).
+  try {
+    const note = memoryCache?.croNote;
+    if (note && note.verdict) {
+      const tickerSector = mem.strategy_stance?.sector || null;
+      const tickerThemes = (mem.strategy_stance?.themes_matched || []).map((m) => m.theme);
+      // Pick observations that name our sector / themes, otherwise the
+      // first three. The verdict is always included.
+      const relevant = [];
+      for (const o of (note.observations || [])) {
+        if (!o?.text) continue;
+        const text = String(o.text);
+        const hitsSector = tickerSector && text.toLowerCase().includes(tickerSector.toLowerCase());
+        const hitsTheme = tickerThemes.some((t) => text.toLowerCase().includes(String(t).toLowerCase()));
+        if (hitsSector || hitsTheme) relevant.unshift(o);
+        else relevant.push(o);
+      }
+      const drifts = (note.notable_drifts || []).filter((d) => {
+        const s = JSON.stringify(d).toLowerCase();
+        return (tickerSector && s.includes(tickerSector.toLowerCase()))
+          || tickerThemes.some((t) => s.includes(String(t).toLowerCase()));
+      });
+      mem.cro_research_note = {
+        as_of_date: note.as_of_date,
+        verdict: String(note.verdict).slice(0, 600),
+        relevant_observations: relevant.slice(0, 3).map((o) => ({
+          section: o.section, text: String(o.text).slice(0, 200), source: o.source,
+        })),
+        drifts: drifts.slice(0, 2).map((d) => ({
+          claim: String(d.claim).slice(0, 200),
+          drift_from: String(d.drift_from || "").slice(0, 200),
+        })),
+        note: "Research desk view. Informs CONTEXT, not the trade decision; the engine + structural playbook still own the call.",
+      };
+    }
+  } catch (_) {
+    // CRO note enrichment is best-effort — never break CIO memory.
+  }
+
+  // ── Layer 15d: CTO probabilistic levels (2026-06-03) ─────────────────────
+  // The Chief Technical Officer agent emits per-ticker probability-bearing
+  // levels (Fibonacci retracements/extensions, ATR ladder, daily pivots)
+  // each weighted by EMPIRICAL HIT RATE from the ticker's own daily-candle
+  // history AND biased by Markov regime forecast. This is the data-science
+  // substrate the LLM uses when it needs to answer "what's the realistic
+  // upside target here?" without leaning on memorized industry rules of
+  // thumb.
+  //
+  // memoryCache.ctoLevels carries the universe-wide rollup; per-ticker
+  // detail lives in KV (timed:cto:ticker:SYM) and is fetched lazily via
+  // the admin endpoint. Here we surface ONLY this ticker's top upside +
+  // downside picks if present — keeps the prompt budget at ~200 chars.
+  try {
+    const rollup = memoryCache?.ctoLevels;
+    if (rollup && Array.isArray(rollup.results)) {
+      const tickerRow = rollup.results.find((r) => r?.ticker === String(sym).toUpperCase());
+      if (tickerRow && tickerRow.ok && (tickerRow.top_upside?.length || tickerRow.top_downside?.length)) {
+        mem.cto_levels = {
+          as_of: new Date(rollup.computed_at || 0).toISOString().slice(0, 10),
+          narrative: tickerRow.narrative || null,
+          top_upside: (tickerRow.top_upside || []).slice(0, 1).map((l) => ({
+            label: l.label, price: l.price, distance_pct: l.distance_pct,
+            adj_prob: l.regime_adjusted_prob, raw_hit_rate: l.raw_hit_rate,
+            samples: l.samples, confidence: l.confidence,
+            golden_gate: !!l.golden_gate,
+          })),
+          top_downside: (tickerRow.top_downside || []).slice(0, 1).map((l) => ({
+            label: l.label, price: l.price, distance_pct: l.distance_pct,
+            adj_prob: l.regime_adjusted_prob, raw_hit_rate: l.raw_hit_rate,
+            samples: l.samples, confidence: l.confidence,
+            golden_gate: !!l.golden_gate,
+          })),
+          note: "Data-science targets — empirical hit-rate × Markov bias. Use for sizing TPs and gauging risk:reward — never replaces the engine's setup-derived targets.",
+        };
+      }
+    }
+  } catch (_) {
+    // CTO enrichment is best-effort — never break CIO memory.
+  }
+
   /* ── Layer 16: Engine pulse (2026-06-01) ────────────────────────────
      Surfaces the same duration-bias-aware view the Loop 2 breaker uses:
      closed-trade WR + profit factor + expectancy AND the open book's

@@ -704,7 +704,132 @@ export function getTacticalSignals() {
     signals: TACTICAL_SIGNALS,
     by_tier1_theme: byTheme,
     by_pair: byPair,
+    override_applied: false,
   };
+}
+
+// ── Async overlay helpers (CRO KV-override aware) ─────────────────────────────
+//
+// 2026-06-03 — Phase 4 of the AI CRO automation. Reads the CRO tactical
+// override blob written by worker/cro/cro-apply.js from KV
+// (`cro:tactical_overrides`). When present, the override REPLACES the
+// in-code TACTICAL_SIGNALS and overrides the tactical vintage/title/source.
+// The structural sector/theme tilts (stances + multipliers) stay
+// unchanged — those still require a Year-Ahead-deck-style structural
+// proposal flow.
+//
+// The async variants exist so callers that have an `env` (CIO memory,
+// Daily Brief, /timed/strategy endpoint) automatically pick up the
+// override. The sync `getTacticalSignals()` + `getStrategyBrief()` stay
+// for the dozens of in-code consumers that don't have env access —
+// they keep the in-code fallback so a missing KV / cold isolate /
+// non-worker context never breaks.
+
+const CRO_OVERRIDE_KV_KEY = "cro:tactical_overrides";
+
+async function loadCROOverride(env) {
+  if (!env || !env.KV) return null;
+  try {
+    const raw = await env.KV.get(CRO_OVERRIDE_KV_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) { return null; }
+}
+
+/**
+ * Async variant of getTacticalSignals() — KV-override aware. Falls back to
+ * the in-code TACTICAL_SIGNALS when no override exists or env is missing.
+ */
+export async function getTacticalSignalsAsync(env) {
+  const override = await loadCROOverride(env);
+  if (!override) return getTacticalSignals();
+
+  const signals = Array.isArray(override.tactical_signals) && override.tactical_signals.length > 0
+    ? override.tactical_signals
+    : TACTICAL_SIGNALS;
+  const byTheme = {};
+  const byPair = {};
+  for (const s of signals) {
+    for (const t of (s.affected_tier1_themes || [])) {
+      if (!byTheme[t]) byTheme[t] = [];
+      byTheme[t].push(s.signal);
+    }
+    if (s.pair) byPair[s.pair] = s.signal;
+  }
+  return {
+    vintage: override.tactical_vintage || STRATEGY_TACTICAL_VINTAGE,
+    source: override.source || STRATEGY_TACTICAL_SOURCE,
+    title: override.tactical_title || STRATEGY_TACTICAL_TITLE,
+    signals,
+    by_tier1_theme: byTheme,
+    by_pair: byPair,
+    override_applied: true,
+    override_proposal_id: override.proposal_id || null,
+    override_pub_id: override.pub_id || null,
+    override_applied_at: override.applied_at || null,
+  };
+}
+
+/**
+ * Async variant of getStrategyBrief() — same output structure as the sync
+ * version, but TACTICAL_SIGNALS + tactical vintage/title come from the
+ * KV override blob when one is active. Also surfaces theme/sector
+ * tactical_notes from the override blob inline so the LLM sees the
+ * "what changed today" context next to the structural stance.
+ */
+export async function getStrategyBriefAsync(env) {
+  const tact = await getTacticalSignalsAsync(env);
+  const override = await loadCROOverride(env);
+  // Build the same brief shape, but swap the tactical block.
+  const overweightSectors = Object.entries(SECTOR_TILTS)
+    .filter(([, v]) => v.stance === "overweight")
+    .map(([k, v]) => `${k} (${v.rationale_short})`);
+  const underweightSectors = Object.entries(SECTOR_TILTS)
+    .filter(([, v]) => v.stance === "underweight")
+    .map(([k, v]) => `${k} (${v.rationale_short})`);
+  const tier1Themes = Object.entries(THEME_TILTS)
+    .filter(([, v]) => v.tier === "tier_1" && v.stance === "overweight")
+    .map(([k, v]) => {
+      const overrideNote = (override?.theme_notes || []).find((n) => n.theme === k);
+      const suffix = overrideNote ? ` [CRO: ${overrideNote.tactical_note}]` : "";
+      return `${k} — ${v.playbook}${suffix}`;
+    });
+  const baseRisks = ACTIVE_RISKS.map(r => `${r.name} (${r.severity}): ${r.note}`);
+  const overrideRisks = (override?.active_risks_add || []).map(r => `${r.name} (${r.severity}, CRO): ${r.note}`);
+  const risks = baseRisks.concat(overrideRisks);
+  const tacticalLines = (tact.signals || []).map(s => {
+    const themes = (s.affected_tier1_themes || []).slice(0, 3).join(", ");
+    const themeNote = themes ? ` [themes: ${themes}]` : "";
+    return `• ${s.signal} (${s.horizon}, ${s.pair} → ${s.direction})${themeNote}: ${s.playbook_action}`;
+  });
+  const overrideHeader = tact.override_applied
+    ? `Tactical overlay (CRO auto-applied from proposal ${tact.override_proposal_id} on ${new Date(tact.override_applied_at || 0).toISOString().slice(0,10)})`
+    : `Tactical overlay (${STRATEGY_TACTICAL_SOURCE})`;
+  const overlayLine = (override?.tactical_overlay) || STRATEGY_PHASE.tactical_overlay || "";
+
+  return [
+    `## TT Active Strategy — ${STRATEGY_TITLE}`,
+    `Source: ${STRATEGY_SOURCE}. Vintage: ${STRATEGY_VINTAGE}.`,
+    ``,
+    `Headline: ${STRATEGY_HEADLINE}`,
+    ``,
+    `Phase: ${STRATEGY_PHASE.label}.`,
+    `S&P targets: base ${STRATEGY_PHASE.spx_targets.base_case}, aspirational ${STRATEGY_PHASE.spx_targets.aspirational}, long-horizon ${STRATEGY_PHASE.spx_targets.long_horizon_2030} (2030).`,
+    `Scenario weights: grind-higher ${(STRATEGY_PHASE.scenario_weights.grind_higher_to_target * 100).toFixed(0)}%, round-trip ${(STRATEGY_PHASE.scenario_weights.round_trip_then_rally * 100).toFixed(0)}%, bear-retest ${(STRATEGY_PHASE.scenario_weights.bear_case_retest_lows * 100).toFixed(0)}%.`,
+    `${overrideHeader}: ${overlayLine}`,
+    ``,
+    `OVERWEIGHT sectors: ${overweightSectors.join("; ")}.`,
+    `UNDERWEIGHT sectors: ${underweightSectors.join("; ")}.`,
+    ``,
+    `TIER-1 THEMES (buy dips): ${tier1Themes.join(" | ")}.`,
+    ``,
+    `TACTICAL SIGNALS (short-term rotation overlay — vintage ${tact.vintage}, source: ${tact.source}${tact.override_applied ? "; CRO auto-applied" : ""}):`,
+    ...tacticalLines,
+    ``,
+    `ACTIVE RISKS: ${risks.join(" | ")}.`,
+    ``,
+    `USE THIS to bias commentary toward on-thesis names, flag off-thesis trades, and explain WHY a sector is leading/lagging in plain English. Treat TACTICAL SIGNALS as timing overlays on top of the structural sector/theme tilts — they refine WHEN to lean into a theme, never override the structural stance.`,
+  ].join("\n");
 }
 
 /**
