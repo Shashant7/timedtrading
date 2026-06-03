@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Research Desk — Timed Trading</title>
+    <meta name="description" content="AI CRO + CTO Research Desk: today's editorial verdict, probabilistic levels, FSD intel, and rotation reads." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260603-cro" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-bottom-nav.js?v=20260601-ios-urlbar" defer></script>
+    <script src="tt-nav-extras.js?v=20260517e" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.025);
+        --tt-bg-elev: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.06);
+        --tt-border-hi: rgba(255,255,255,0.12);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #9ca3af;
+        --tt-text-dim: #6b7280;
+        --tt-up: #22c55e;
+        --tt-dn: #f43f5e;
+        --tt-amber: #f59e0b;
+        --tt-blue: #3b82f6;
+        --tt-purple: #a855f7;
+        --tt-font: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      body { background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); margin: 0; }
+      main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 80px; }
+      h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { font-size: 16px; margin: 0 0 12px; color: var(--tt-text); }
+      h3 { font-size: 13px; margin: 0 0 8px; color: var(--tt-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      .card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; padding: 18px; }
+      .card + .card { margin-top: 14px; }
+      .grid-2 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+      @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--tt-border-hi); background: var(--tt-bg-elev); color: var(--tt-text-muted); }
+      .chip-on { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+      .chip-warn { color: #f59e0b; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+      .chip-blue { color: #93c5fd; border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.08); }
+      .chip-pur { color: #d8b4fe; border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.08); }
+      .chip-dn { color: #fb7185; border-color: rgba(244,63,94,0.4); background: rgba(244,63,94,0.08); }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .muted { color: var(--tt-text-muted); font-size: 12px; }
+      .dim { color: var(--tt-text-dim); font-size: 11px; }
+      .topnav { background: rgba(10,10,15,0.95); border-bottom: 1px solid var(--tt-border); }
+      .nav-row { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 18px; }
+      .nav-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--tt-text); text-decoration: none; font-weight: 700; }
+      .nav-links { display: flex; gap: 14px; margin-left: 12px; }
+      .nav-link { color: var(--tt-text-muted); text-decoration: none; font-size: 14px; font-weight: 600; padding: 6px 0; }
+      .nav-link.active { color: var(--tt-text); }
+      .nav-link:hover { color: var(--tt-text); }
+      .verdict {
+        background: linear-gradient(135deg, rgba(168,85,247,0.06), rgba(59,130,246,0.04));
+        border: 1px solid rgba(168,85,247,0.25);
+        border-radius: 12px;
+        padding: 18px;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+      .obs-row { display: grid; grid-template-columns: 140px 1fr 100px; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--tt-border); align-items: start; font-size: 13px; }
+      .obs-row:last-child { border-bottom: 0; }
+      .obs-section { color: var(--tt-text-muted); font-weight: 600; font-size: 12px; }
+      .obs-source { color: var(--tt-text-dim); font-size: 11px; text-align: right; }
+      .sig-line { padding: 8px 12px; background: var(--tt-bg-elev); border-radius: 8px; margin-bottom: 6px; font-size: 12px; line-height: 1.5; }
+      .sig-line .pair { font-weight: 700; color: #67e8f9; }
+      .sig-line .dir { color: var(--tt-text-muted); }
+      .lvl-row { display: grid; grid-template-columns: 80px 1fr 70px 80px; gap: 8px; padding: 6px 0; font-size: 12px; align-items: center; }
+      .lvl-label { font-weight: 600; }
+      .lvl-prob { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+      .markdown { font-size: 13px; line-height: 1.6; color: var(--tt-text); }
+      .markdown h1, .markdown h2, .markdown h3 { color: var(--tt-text); margin: 12px 0 6px; text-transform: none; letter-spacing: 0; font-size: 14px; }
+      .markdown ul { margin: 6px 0; padding-left: 20px; }
+      .markdown li { margin: 3px 0; }
+      .markdown p { margin: 6px 0; }
+      .markdown code { background: var(--tt-bg-elev); padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+      .btn {
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border-hi); color: var(--tt-text);
+        padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+        transition: background 120ms;
+      }
+      .btn:hover { background: rgba(255,255,255,0.08); }
+      .btn-danger { color: #fb7185; border-color: rgba(244,63,94,0.4); }
+      .btn-danger:hover { background: rgba(244,63,94,0.08); }
+      .btn-go { color: #34d399; border-color: rgba(52,211,153,0.4); }
+      .btn-go:hover { background: rgba(52,211,153,0.08); }
+      .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .table th { text-align: left; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--tt-border); color: var(--tt-text-muted); }
+      .table td { padding: 8px 6px; border-bottom: 1px solid var(--tt-border); }
+      .table tr:last-child td { border-bottom: 0; }
+      .tabular { font-variant-numeric: tabular-nums; }
+      .ok { color: #34d399; }
+      .err { color: #fb7185; }
+      .warn { color: #fbbf24; }
+      .json-pre {
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 8px;
+        padding: 12px; font-size: 11px; font-family: 'SF Mono', Menlo, Consolas, monospace;
+        overflow-x: auto; color: var(--tt-text-muted); max-height: 360px;
+      }
+      .spinner {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-text-muted);
+        border-radius: 50%; animation: spin 700ms linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <nav class="topnav">
+      <div class="nav-row">
+        <a href="/today.html" class="nav-brand">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+          Timed Trading
+        </a>
+        <div class="nav-links">
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
+          <a href="/investor.html" class="nav-link">Investor</a>
+          <a href="/portfolio.html" class="nav-link">Portfolio</a>
+          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/research-desk.html" class="nav-link active">Research Desk</a>
+        </div>
+      </div>
+    </nav>
+
+    <div id="root">
+      <main>
+        <div class="card" style="text-align:center;color:var(--tt-text-muted)">Loading Research Desk…</div>
+      </main>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback } = React;
+      const h = React.createElement;
+      const API_BASE = "";
+
+      const fmtDate = (ts) => {
+        if (!ts) return "—";
+        const d = new Date(ts);
+        return d.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+      };
+      const fmtAgo = (ts) => {
+        if (!ts) return "—";
+        const diff = Math.max(0, Date.now() - Number(ts));
+        const m = Math.floor(diff / 60000);
+        if (m < 1) return "just now";
+        if (m < 60) return `${m}m ago`;
+        const hr = Math.floor(m / 60);
+        if (hr < 24) return `${hr}h ago`;
+        return `${Math.floor(hr / 24)}d ago`;
+      };
+      const pct = (n, d = 0) => Number.isFinite(n) ? `${(n * 100).toFixed(d)}%` : "—";
+
+      async function jget(path) {
+        try {
+          const r = await fetch(`${API_BASE}${path}`, { credentials: "include", cache: "no-store" });
+          const json = await r.json().catch(() => null);
+          return { status: r.status, ok: r.ok, body: json };
+        } catch (e) {
+          return { status: 0, ok: false, body: null, error: String(e?.message || e) };
+        }
+      }
+      async function jpost(path, body) {
+        try {
+          const r = await fetch(`${API_BASE}${path}`, {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body || {}),
+          });
+          const json = await r.json().catch(() => null);
+          return { status: r.status, ok: r.ok, body: json };
+        } catch (e) {
+          return { status: 0, ok: false, body: null, error: String(e?.message || e) };
+        }
+      }
+
+      function StatusBanner({ data }) {
+        const cro = data?.cro;
+        const cto = data?.cto;
+        const strat = data?.strategy;
+        const override = data?.override?.body;
+        const overrideActive = !!(override?.active);
+        return h("div", { className: "card", style: { marginBottom: 14 } },
+          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
+            h("h1", null, "Research Desk"),
+            h("div", { className: "muted" }, "Live · refreshes every 5 min · admin actions visible to admins only")
+          ),
+          h("div", { className: "row" },
+            h("span", { className: `chip ${strat?.body?.vintage ? "chip-on" : "chip-warn"}` },
+              `Playbook ${strat?.body?.vintage || "?"}`),
+            h("span", { className: `chip ${strat?.body?.tactical?.vintage ? "chip-on" : "chip-warn"}` },
+              `Tactical ${strat?.body?.tactical?.vintage || "?"} · ${(strat?.body?.tactical?.signals || []).length} signals`),
+            overrideActive
+              ? h("span", { className: "chip chip-pur" }, `CRO override active: ${override?.blob?.proposal_id || "?"}`)
+              : h("span", { className: "chip" }, "No CRO override"),
+            cro?.ok
+              ? h("span", { className: "chip chip-blue" }, `CRO note ${cro?.body?.as_of_date || ""}`)
+              : h("span", { className: "chip chip-warn" }, "No CRO note yet (cron fires 22:00 UTC)"),
+            cto?.ok
+              ? h("span", { className: "chip chip-blue" }, `CTO universe ${cto?.body?.tickers_ok || 0}/${cto?.body?.tickers_processed || 0} tickers`)
+              : h("span", { className: "chip chip-warn" }, "No CTO rollup yet"),
+            h("span", { className: "chip" }, `Refreshed ${fmtAgo(data?.fetched_at)}`)
+          )
+        );
+      }
+
+      function CRONoteCard({ data }) {
+        const cro = data?.cro;
+        if (!cro || !cro.ok || !cro.body) {
+          return h("div", { className: "card" },
+            h("h2", null, "🧠 CRO Daily Research Note"),
+            h("div", { className: "muted" },
+              "No note has been produced yet. The cron fires at 22:00 UTC daily; ",
+              "an admin can kick it now via the Actions panel.")
+          );
+        }
+        const n = cro.body;
+        const verdict = n.verdict || "(no verdict)";
+        const obs = Array.isArray(n.observations) ? n.observations : [];
+        const drifts = Array.isArray(n.notable_drifts) ? n.notable_drifts : [];
+        const indicators = Array.isArray(n.early_indicators) ? n.early_indicators : [];
+        const gaps = Array.isArray(n.data_gaps) ? n.data_gaps : [];
+        const md = n.full_note_md ? marked.parse(n.full_note_md) : "";
+        return h("div", { className: "card" },
+          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
+            h("h2", null, "🧠 CRO Daily Research Note"),
+            h("div", { className: "dim" },
+              `${n.as_of_date} · ${n.model_used || ""} · ${fmtAgo(n.produced_at)}`)
+          ),
+          h("div", { className: "verdict" }, verdict),
+          obs.length > 0 && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "Observations (cited)"),
+            obs.map((o, i) => h("div", { key: i, className: "obs-row" },
+              h("div", { className: "obs-section" }, o.section),
+              h("div", null, o.text),
+              h("div", { className: "obs-source" }, o.source)
+            ))
+          ),
+          indicators.length > 0 && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "Early indicators"),
+            indicators.slice(0, 6).map((e, i) => h("div", { key: i, className: "sig-line" },
+              h("span", { className: "pair" }, e.indicator || ""),
+              " — ",
+              h("span", { className: "dir" }, e.implication || ""),
+              e.source && h("span", { className: "dim", style: { marginLeft: 8 } }, `[${e.source}]`)
+            ))
+          ),
+          drifts.length > 0 && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "⚠️ Notable drifts vs playbook"),
+            drifts.map((d, i) => h("div", { key: i, className: "sig-line", style: { borderLeft: "3px solid #f59e0b", paddingLeft: 12 } },
+              h("div", null, h("strong", null, "Observation: "), d.claim),
+              d.drift_from && h("div", { className: "muted", style: { marginTop: 4 } },
+                h("strong", null, "Conflicts with: "), d.drift_from),
+              d.evidence && h("div", { className: "dim", style: { marginTop: 2 } }, `Evidence: ${d.evidence}`)
+            ))
+          ),
+          gaps.length > 0 && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "Data gaps"),
+            h("div", { className: "muted" }, gaps.join(" · "))
+          ),
+          md && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "Full note"),
+            h("div", { className: "markdown", dangerouslySetInnerHTML: { __html: md } })
+          )
+        );
+      }
+
+      function CTOUniverseCard({ data }) {
+        const cto = data?.cto;
+        if (!cto || !cto.ok || !cto.body) {
+          return h("div", { className: "card" },
+            h("h2", null, "📐 CTO Probabilistic Levels"),
+            h("div", { className: "muted" }, "No universe rollup yet. Admin can kick it via Actions panel.")
+          );
+        }
+        const r = cto.body;
+        const headlines = Array.isArray(r.headlines) ? r.headlines : [];
+        const top = Array.isArray(r.results) ? r.results.filter((x) => x.ok).slice(0, 12) : [];
+        return h("div", { className: "card" },
+          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
+            h("h2", null, "📐 CTO Probabilistic Levels"),
+            h("div", { className: "dim" }, `${r.tickers_ok}/${r.tickers_processed} tickers · ${fmtAgo(r.computed_at)}`)
+          ),
+          headlines.length > 0 && h("div", null,
+            h("h3", null, "Universe headlines"),
+            headlines.slice(0, 10).map((line, i) => h("div", { key: i, className: "sig-line" }, line))
+          ),
+          top.length > 0 && h("div", { style: { marginTop: 16 } },
+            h("h3", null, "Top per-ticker reads"),
+            h("table", { className: "table" },
+              h("thead", null,
+                h("tr", null,
+                  h("th", null, "Ticker"),
+                  h("th", null, "Narrative"))),
+              h("tbody", null,
+                top.map((row, i) => h("tr", { key: i },
+                  h("td", null,
+                    h("a", { href: `#cto-${row.ticker}`, onClick: (e) => { e.preventDefault(); window.open(`/timed/cto/ticker?ticker=${row.ticker}`, "_blank"); } }, row.ticker)),
+                  h("td", { className: "muted" }, row.narrative || "—")
+                ))
+              )
+            )
+          ),
+          h("div", { className: "dim", style: { marginTop: 8 } },
+            "Each level = empirical hit-rate from this ticker's own 504-bar history × Markov regime forecast. Click ticker for full level table.")
+        );
+      }
+
+      function OverrideCard({ data, onClear, isAdmin }) {
+        const o = data?.override?.body;
+        const active = !!(o?.active);
+        if (!active) {
+          return h("div", { className: "card" },
+            h("h2", null, "🎚 Active CRO Tactical Override"),
+            h("div", { className: "muted" }, "No override applied — the system is reading the in-code TACTICAL_SIGNALS unchanged."),
+            o?.history?.length > 0 && h("div", { style: { marginTop: 10 } },
+              h("h3", null, "Recent apply / clear history"),
+              o.history.slice(0, 6).map((h2, i) => h("div", { key: i, className: "dim" },
+                h2.applied_at ? `Applied ${fmtAgo(h2.applied_at)} — ${h2.proposal_id || ""}` : `Cleared ${fmtAgo(h2.cleared_at)} — ${h2.reason || ""}`
+              ))
+            )
+          );
+        }
+        const blob = o.blob || {};
+        const sigs = Array.isArray(blob.tactical_signals) ? blob.tactical_signals : [];
+        return h("div", { className: "card" },
+          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
+            h("h2", null, "🎚 Active CRO Tactical Override"),
+            isAdmin && h("button", { className: "btn btn-danger", onClick: onClear },
+              "Revert (KV delete)")
+          ),
+          h("div", { className: "muted", style: { marginBottom: 10 } },
+            `Proposal `, h("code", null, blob.proposal_id || "?"), ` from pub `, h("code", null, blob.pub_id || "?"),
+            ` · applied ${fmtAgo(blob.applied_at)}`),
+          blob.tactical_overlay && h("div", { className: "verdict" }, blob.tactical_overlay),
+          sigs.length > 0 && h("div", { style: { marginTop: 12 } },
+            h("h3", null, `Tactical signals (${sigs.length})`),
+            sigs.map((s, i) => h("div", { key: i, className: "sig-line" },
+              h("span", { className: "pair" }, s.pair || s.signal),
+              " → ",
+              h("span", { className: "dir" }, s.direction || ""),
+              " · ",
+              h("span", { className: "dim" }, s.horizon || ""),
+              s.playbook_action && h("div", { style: { marginTop: 4 } }, s.playbook_action)
+            ))
+          )
+        );
+      }
+
+      function PublicationsCard({ data, isAdmin, onRefresh }) {
+        const pubs = data?.pubs?.body?.publications || [];
+        const proposals = data?.proposals?.body?.proposals || [];
+        if (!isAdmin) {
+          return h("div", { className: "card" },
+            h("h2", null, "📚 Recent Publications + Proposals"),
+            h("div", { className: "muted" }, "Visible to admin only.")
+          );
+        }
+        return h("div", { className: "card" },
+          h("h2", null, "📚 Recent Publications + Proposals (admin)"),
+          h("h3", null, "Publications"),
+          pubs.length === 0
+            ? h("div", { className: "muted" }, "None yet.")
+            : h("table", { className: "table" },
+                h("thead", null,
+                  h("tr", null,
+                    h("th", null, "Pub id"),
+                    h("th", null, "Title"),
+                    h("th", null, "Fetched"),
+                    h("th", null, "Extract"),
+                    h("th", null, "Applied"))),
+                h("tbody", null,
+                  pubs.slice(0, 10).map((p, i) => h("tr", { key: i },
+                    h("td", null, h("code", null, (p.pub_id || "").slice(0, 24))),
+                    h("td", { className: "muted" }, (p.title || "").slice(0, 60)),
+                    h("td", { className: "tabular dim" }, fmtAgo(p.fetched_at)),
+                    h("td", null, p.extracted_at ? h("span", { className: "ok" }, "✓") : h("span", { className: "dim" }, "—")),
+                    h("td", null, p.applied_at ? h("span", { className: "ok" }, "✓") : h("span", { className: "dim" }, "—"))
+                  ))
+                )
+              ),
+          h("h3", { style: { marginTop: 12 } }, "Recent proposals"),
+          proposals.length === 0
+            ? h("div", { className: "muted" }, "None yet.")
+            : h("table", { className: "table" },
+                h("thead", null,
+                  h("tr", null,
+                    h("th", null, "Proposal id"),
+                    h("th", null, "Pub"),
+                    h("th", null, "Class"),
+                    h("th", null, "Status"),
+                    h("th", null, "Created"))),
+                h("tbody", null,
+                  proposals.slice(0, 10).map((p, i) => h("tr", { key: i },
+                    h("td", null, h("code", null, (p.proposal_id || "").slice(0, 24))),
+                    h("td", { className: "dim" }, (p.pub_id || "").slice(0, 20)),
+                    h("td", null, h("span", { className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue" }, p.classification)),
+                    h("td", null, h("span", { className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "warn" }, p.status)),
+                    h("td", { className: "tabular dim" }, fmtAgo(p.created_at))
+                  ))
+                )
+              )
+        );
+      }
+
+      function RotationCard({ data }) {
+        const r = data?.rotation?.body;
+        if (!r || !r.ok) {
+          return h("div", { className: "card" },
+            h("h2", null, "🔄 Rotation Engine"),
+            h("div", { className: "muted" }, "No snapshot yet.")
+          );
+        }
+        const headlines = r.headlines || [];
+        const rsPairs = (r.rs_pairs || []).filter((p) => p.ok).slice(0, 10);
+        return h("div", { className: "card" },
+          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
+            h("h2", null, "🔄 Rotation Engine"),
+            h("div", { className: "dim" }, `${r.universe_size} ticker universe · ${fmtAgo(r.computed_at)}`)
+          ),
+          headlines.length > 0 && h("div", null,
+            h("h3", null, "Headlines"),
+            headlines.slice(0, 8).map((line, i) => h("div", { key: i, className: "sig-line" }, line))
+          ),
+          rsPairs.length > 0 && h("div", { style: { marginTop: 12 } },
+            h("h3", null, "Relative-strength pairs (top 10 by movement)"),
+            h("table", { className: "table" },
+              h("thead", null,
+                h("tr", null,
+                  h("th", null, "Pair"),
+                  h("th", null, "Trend"),
+                  h("th", null, "20d ROC"),
+                  h("th", null, "TD Setup"))),
+              h("tbody", null,
+                rsPairs.map((p, i) => h("tr", { key: i },
+                  h("td", null, `${p.numer}/${p.denom}`),
+                  h("td", null, h("span", { className: `chip ${p.trend_state.includes("up") ? "chip-on" : p.trend_state.includes("down") ? "chip-dn" : ""}` }, p.trend_state)),
+                  h("td", { className: "tabular" }, `${p.roc_20d_pct >= 0 ? "+" : ""}${p.roc_20d_pct.toFixed(1)}%`),
+                  h("td", { className: "dim" }, p.td_setup_state === "none" ? "—" : `${p.td_setup_state.replace(/_/g, " ")} (${p.td_setup_count})`)
+                ))
+              )
+            )
+          )
+        );
+      }
+
+      function ActionsCard({ isAdmin, onAction, lastAction }) {
+        if (!isAdmin) return null;
+        return h("div", { className: "card" },
+          h("h2", null, "⚙️ Admin Actions"),
+          h("div", { className: "muted", style: { marginBottom: 12 } },
+            "These call admin endpoints and may take 10-60 seconds each. " +
+            "Refresh the page after they complete."),
+          h("div", { className: "row" },
+            h("button", { className: "btn btn-go", onClick: () => onAction("cycle", "POST", "/timed/admin/cro/cycle", {}) },
+              "Kick full CRO/CTO cycle"),
+            h("button", { className: "btn", onClick: () => onAction("synth", "POST", "/timed/admin/cro/synthesize", { force: true }) },
+              "Synthesize CRO note now"),
+            h("button", { className: "btn", onClick: () => onAction("cto", "POST", "/timed/admin/cto/universe/refresh", {}) },
+              "Refresh CTO universe"),
+            h("button", { className: "btn", onClick: () => onAction("rotation", "POST", "/timed/admin/cro/rotation/refresh", {}) },
+              "Refresh rotation engine"),
+            h("button", { className: "btn", onClick: () => onAction("fsd_probe", "POST", "/timed/admin/cro/fsd/probe", {}) },
+              "Probe FSD login"),
+            h("button", { className: "btn", onClick: () => onAction("fsd_ingest", "POST", "/timed/admin/cro/fsd/ingest", {}) },
+              "Pull from FSD now")
+          ),
+          lastAction && h("div", { style: { marginTop: 14 } },
+            h("h3", null, `Last action: ${lastAction.kind}`),
+            h("div", { className: "muted" },
+              `Status ${lastAction.status} · `,
+              lastAction.body?.ok ? h("span", { className: "ok" }, "ok") : h("span", { className: "err" }, "failed"),
+              lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""
+            ),
+            h("pre", { className: "json-pre" }, JSON.stringify(lastAction.body, null, 2).slice(0, 4000))
+          )
+        );
+      }
+
+      function App() {
+        const [data, setData] = useState({ loading: true, fetched_at: Date.now() });
+        const [lastAction, setLastAction] = useState(null);
+        const isAdmin = typeof window !== "undefined" && window._ttIsAdmin;
+
+        const load = useCallback(async () => {
+          const [cro, cto, strategy, override, pubs, proposals, rotation] = await Promise.all([
+            jget("/timed/cro/latest"),
+            jget("/timed/cto/universe"),
+            jget("/timed/strategy"),
+            isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({ body: null }),
+            isAdmin ? jget("/timed/admin/cro/publications?limit=15") : Promise.resolve({ body: null }),
+            isAdmin ? jget("/timed/admin/cro/proposals?limit=15") : Promise.resolve({ body: null }),
+            isAdmin ? jget("/timed/admin/cro/rotation/snapshot") : Promise.resolve({ body: null }),
+          ]);
+          setData({ loading: false, fetched_at: Date.now(), cro, cto, strategy, override, pubs, proposals, rotation });
+        }, [isAdmin]);
+
+        useEffect(() => {
+          load();
+          const id = setInterval(load, 5 * 60 * 1000);
+          return () => clearInterval(id);
+        }, [load]);
+
+        const onClearOverride = async () => {
+          if (!confirm("Revert the active CRO tactical override (single KV delete)?")) return;
+          const r = await jpost("/timed/admin/cro/override/clear", { reason: "operator_ui_clear" });
+          setLastAction({ kind: "override_clear", status: r.status, body: r.body });
+          load();
+        };
+
+        const onAction = async (kind, method, path, body) => {
+          setLastAction({ kind, status: "running", body: { ok: null, message: "Running…" } });
+          const r = method === "POST" ? await jpost(path, body) : await jget(path);
+          setLastAction({ kind, status: r.status, body: r.body });
+          // Reload data after a few seconds to give the backend time to write to KV.
+          setTimeout(load, 3000);
+        };
+
+        if (data.loading) {
+          return h("main", null,
+            h("div", { className: "card", style: { textAlign: "center" } },
+              h("div", { className: "spinner" }),
+              h("div", { style: { marginTop: 10, color: "var(--tt-text-muted)" } }, "Loading Research Desk…")
+            )
+          );
+        }
+
+        return h("main", null,
+          h(StatusBanner, { data }),
+          h("div", { className: "grid-2" },
+            h(CRONoteCard, { data }),
+            h("div", null,
+              h(CTOUniverseCard, { data }),
+              h(RotationCard, { data })
+            )
+          ),
+          h("div", { style: { marginTop: 14 } },
+            h(OverrideCard, { data, onClear: onClearOverride, isAdmin })
+          ),
+          h("div", { style: { marginTop: 14 } },
+            h(PublicationsCard, { data, isAdmin })
+          ),
+          h("div", { style: { marginTop: 14 } },
+            h(ActionsCard, { isAdmin, onAction, lastAction })
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+    </script>
+  </body>
+</html>
