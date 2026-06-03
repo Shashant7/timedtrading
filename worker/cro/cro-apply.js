@@ -139,29 +139,61 @@ export async function applyProposal(env, proposalId, { autoApproved = false, dec
   await markProposalApplied(env, proposalId, { apply_kind: "kv_override" });
   await markPublicationApplied(env, row.pub_id);
 
+  // Best-effort Discord notify on system lane so the operator sees
+  // what changed near-real-time. Never blocks; never throws.
+  try {
+    const { notifyDiscord } = await import("../alerts.js");
+    const sigCount = (blob.tactical_signals || []).length;
+    const signalLines = (blob.tactical_signals || []).slice(0, 4).map((s) => `• \`${s.signal}\` (${s.pair} → ${s.direction})`).join("\n");
+    await notifyDiscord(env, {
+      title: `${autoApproved ? "[CRO auto-applied]" : "[CRO operator-applied]"} new tactical overlay`,
+      description: blob.tactical_title || "Tactical overlay refreshed",
+      color: autoApproved ? 0x2ecc71 : 0x3498db,
+      fields: [
+        { name: "Proposal", value: `${proposalId}`, inline: true },
+        { name: "Publication", value: `${row.pub_id || "manual"}`, inline: true },
+        { name: "Tactical vintage", value: `${blob.tactical_vintage || "(n/a)"}`, inline: true },
+        { name: `${sigCount} signal${sigCount === 1 ? "" : "s"}`, value: signalLines || "(none — overlay clear)", inline: false },
+        { name: "Revert", value: "POST /timed/admin/cro/override/clear", inline: false },
+      ],
+      footer: { text: `decided_by=${decidedBy}` },
+      timestamp: new Date().toISOString(),
+    }, "system");
+  } catch (_) { /* alerts never block applies */ }
+
   return { ok: true, applied_blob: blob, decided_by: decidedBy, auto_approved: !!autoApproved };
 }
 
 // ── Auto-apply gate (called by the cron after extraction) ────────────────────
 /**
- * Returns true if the operator has flipped the model_config flag
- * `cro_auto_apply_tactical` to true. Reads from env._deepAuditConfig if
- * preloaded by the scoring cron; otherwise queries model_config directly.
+ * Returns true if auto-apply for tactical proposals is enabled.
+ *
+ * DEFAULTS TO TRUE — per the operator's "coma-proof" / "true autopilot"
+ * directive. Justification for fail-OPEN:
+ *   1. Extracted proposals already pass schema validation (theme + sector
+ *      keys must match the canonical playbook before persistence).
+ *   2. Reverting is a single KV.delete on cro:tactical_overrides — fully
+ *      reversible, no state pollution.
+ *   3. Structural changes (stance flips) still require explicit operator
+ *      approval via isAutoApplyStructuralEnabled (defaults FALSE).
+ *   4. Discord alerts fire on every auto-apply so the operator sees
+ *      what changed in near-real-time.
+ * Operator opt-out: set model_config row cro_auto_apply_tactical = "false".
  */
 export async function isAutoApplyEnabled(env) {
-  // Fast path — already cached.
   const cached = env?._deepAuditConfig?.cro_auto_apply_tactical;
+  if (cached === false || String(cached).toLowerCase() === "false" || String(cached) === "0") return false;
   if (cached === true || String(cached).toLowerCase() === "true") return true;
-  if (cached === false || String(cached).toLowerCase() === "false") return false;
-  if (!env?.DB) return false;
+  if (!env?.DB) return true;
   try {
     const row = await env.DB.prepare(
       `SELECT config_value FROM model_config WHERE config_key = 'cro_auto_apply_tactical'`,
     ).first();
-    if (!row) return false;
+    if (!row) return true;
     const v = row.config_value;
-    return v === true || String(v).toLowerCase() === "true" || String(v) === "1";
-  } catch (_) { return false; }
+    if (v === false || String(v).toLowerCase() === "false" || String(v) === "0") return false;
+    return true;
+  } catch (_) { return true; }
 }
 
 /**

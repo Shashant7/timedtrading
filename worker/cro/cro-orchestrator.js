@@ -153,23 +153,70 @@ export async function runCROFullCycle(env, { force = false } = {}) {
   }
 
   summary.elapsed_ms = Date.now() - t0;
+
+  // Best-effort Discord notification on critical failures. We notify if
+  // EITHER the CRO daily synthesis failed OR FSD ingestion failed with a
+  // non-skipped error. Skips (gate disabled / no credentials) are silent.
+  try {
+    const fsdHardFail = summary.fsd_ingestion && summary.fsd_ingestion.ok === false && !summary.fsd_ingestion.skipped;
+    const synthFail = summary.cro_daily && summary.cro_daily.ok === false;
+    if (fsdHardFail || synthFail || (summary.errors && summary.errors.length > 0)) {
+      const { notifyDiscord } = await import("../alerts.js");
+      const fields = [];
+      if (fsdHardFail) fields.push({ name: "FSD ingestion FAILED", value: `${summary.fsd_ingestion.error_kind || "?"}: ${(summary.fsd_ingestion.hint || "").slice(0, 200)}`, inline: false });
+      if (synthFail) fields.push({ name: "CRO synthesis FAILED", value: `${summary.cro_daily.error_kind || "?"}`, inline: false });
+      if (summary.errors && summary.errors.length > 0) fields.push({ name: `${summary.errors.length} other errors`, value: summary.errors.slice(0, 3).join("\n").slice(0, 800), inline: false });
+      fields.push({ name: "Remediation", value: "POST /timed/admin/cro/fsd/probe → tune cro:fsd:config if site changed. Or set model_config cro_fsd_ingestion_enabled = false to silence.", inline: false });
+      await notifyDiscord(env, {
+        title: "[CRO/CTO daily] cycle reported failures",
+        description: `CTO ok=${summary.cto?.ok} (${summary.cto?.tickers_ok || 0}/${summary.cto?.tickers_processed || 0}). Rotation ok=${summary.rotation?.ok}. CRO synthesis ok=${summary.cro_daily?.ok}.`,
+        color: 0xe67e22,
+        fields,
+        timestamp: new Date().toISOString(),
+      }, "system");
+    } else if (summary.applies && summary.applies.filter((a) => a.applied).length > 0) {
+      // Healthy run with applies — quiet info notification.
+      const applied = summary.applies.filter((a) => a.applied);
+      const { notifyDiscord } = await import("../alerts.js");
+      await notifyDiscord(env, {
+        title: "[CRO/CTO daily] cycle complete",
+        description: `${applied.length} proposal${applied.length === 1 ? "" : "s"} auto-applied`,
+        color: 0x2ecc71,
+        fields: [
+          { name: "CTO universe", value: `${summary.cto?.tickers_ok || 0}/${summary.cto?.tickers_processed || 0} tickers`, inline: true },
+          { name: "Rotation", value: `${summary.rotation?.headlines_count || 0} headlines`, inline: true },
+          { name: "FSD ingested", value: `${summary.fsd_ingestion?.ingested || 0}`, inline: true },
+          { name: "Auto-applied", value: applied.slice(0, 5).map((a) => `\`${a.proposal_id}\` (${a.classification})`).join("\n") || "(none)", inline: false },
+        ],
+        timestamp: new Date().toISOString(),
+      }, "system");
+    }
+  } catch (_) { /* alerts never block the cycle */ }
+
   return summary;
 }
 
 // ── Gating helpers ────────────────────────────────────────────────────────────
+// Defaults TRUE per operator's "coma-proof" directive. If the FSD scraper
+// can't reach FSD (credentials missing, login flow drift), runFSDIngestion
+// returns {ok:false, error_kind, hint} cleanly — the orchestrator surfaces
+// the failure in the cron summary + Discord alert, the rest of the cycle
+// (CTO + rotation + CRO synthesis on previously-ingested pubs) still runs.
+// Operator opt-out: set model_config row cro_fsd_ingestion_enabled = "false".
 async function isFSDIngestionEnabled(env) {
   const cached = env?._deepAuditConfig?.cro_fsd_ingestion_enabled;
+  if (cached === false || String(cached).toLowerCase() === "false" || String(cached) === "0") return false;
   if (cached === true || String(cached).toLowerCase() === "true") return true;
-  if (cached === false || String(cached).toLowerCase() === "false") return false;
-  if (!env?.DB) return false;
+  if (!env?.DB) return true;
   try {
     const row = await env.DB.prepare(
       `SELECT config_value FROM model_config WHERE config_key = 'cro_fsd_ingestion_enabled'`,
     ).first();
-    if (!row) return false;
+    if (!row) return true;
     const v = row.config_value;
-    return v === true || String(v).toLowerCase() === "true" || String(v) === "1";
-  } catch (_) { return false; }
+    if (v === false || String(v).toLowerCase() === "false" || String(v) === "0") return false;
+    return true;
+  } catch (_) { return true; }
 }
 
 // ── Probe-only entry point (operator one-click validation) ────────────────────
