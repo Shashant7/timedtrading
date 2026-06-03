@@ -5345,6 +5345,14 @@
             // user can read the regime first, then the actionable list.
             data && h(FocusRail, { data, onSelectTicker }),
             brief && h(MacroStrip, { brief }),
+            // 2026-06-03 — Research Desk excerpt. Compact 3-column
+            // panel surfacing the AI CRO daily verdict, top CTO
+            // probabilistic-level headlines, and the last cron-cycle
+            // health. Each cell deep-links to /research-desk for the
+            // full surface. Operator: "We should actually surface the
+            // Research Desk Page contents in a graceful manner in the
+            // Today page, without jamming too much stuff."
+            h(ResearchDeskExcerpt, null),
             data && h(TopMovers, {
               data,
               onSelectTicker,

@@ -60,6 +60,36 @@
     const downsampleByInterval = deps.downsampleByInterval;
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Cached fetch helper (2026-06-03)
+    // ───────────────────────────────────────────────────────────────────────
+    // Operator feedback: "every time I search and load the same ticker, it
+    // feels like every call is being re-run and the page has to render
+    // and construct all over again. every page and every right rail tab
+    // suffers with this." Root cause: the right rail unmounts when closed
+    // and re-mounts on the next open, so all per-ticker fetches re-fire
+    // from scratch (no warm cache). TTFetchCache is a sessionStorage-
+    // backed stale-while-revalidate cache loaded by every right-rail host
+    // page; using it here makes the second-and-later open of any ticker
+    // resolve instantly from cache while still refreshing in background.
+    async function _cachedJson(url, { ttlMs = 60000, maxAgeMs = 5 * 60000, fetchOpts } = {}) {
+      try {
+        if (typeof window !== "undefined" && window.TTFetchCache) {
+          const body = await window.TTFetchCache.get(url, {
+            ttlMs,
+            maxAgeMs,
+            fetchOpts: { credentials: "include", cache: "no-store", ...(fetchOpts || {}) },
+          });
+          return body;
+        }
+      } catch (_) { /* fall through to plain fetch */ }
+      try {
+        const r = await fetch(url, { credentials: "include", cache: "no-store", ...(fetchOpts || {}) });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (_) { return null; }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Shared Signal Snapshot & Trade Autopsy Helpers
     // ═══════════════════════════════════════════════════════════════════════
     const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
@@ -3005,9 +3035,8 @@
           let cancelled = false;
           (async () => {
             try {
-              const r = await fetch(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, { cache: "no-store", credentials: "include" });
-              if (!r.ok) return;
-              const j = await r.json();
+              const j = await _cachedJson(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (!j) return;
               if (cancelled) return;
               if (j?.ok && j.found) setDiscoveryThesis(j);
               else setDiscoveryThesis(null);
@@ -3026,9 +3055,8 @@
           let cancelled = false;
           (async () => {
             try {
-              const r = await fetch(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
-              if (!r.ok) return;
-              const j = await r.json();
+              const j = await _cachedJson(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (!j) return;
               if (!cancelled && j?.ok) setStrategyAlignment(j);
             } catch (_) { /* best-effort */ }
           })();
@@ -3244,9 +3272,8 @@
           let cancelled = false;
           (async () => {
             try {
-              const r = await fetch(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store", credentials: "include" });
-              if (!r.ok) return;
-              const j = await r.json();
+              const j = await _cachedJson(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
+              if (!j) return;
               if (!cancelled && j?.ok) setOptionsTabData(j);
             } catch (_) {}
           })();
@@ -4333,9 +4360,8 @@
             try {
               setInvestorLoading(true);
               setInvestorError(null);
-              const res = await fetch(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
+              const json = await _cachedJson(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "investor_failed");
               if (!cancelled) setInvestorData({ ticker: sym, ...json });
             } catch (e) {
@@ -4434,9 +4460,8 @@
               const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
               const qs = new URLSearchParams({ ticker: sym });
               if (apiKey) qs.set("key", apiKey);
-              const res = await fetch(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, { cache: "no-store" });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
+              const json = await _cachedJson(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "catalysts_failed");
               if (!cancelled) {
                 catalystsCacheRef.current.set(sym, { data: json, ts: Date.now() });
@@ -4490,9 +4515,8 @@
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
               qs.set("mode", _predictionMode);
-              const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { cache: "no-store" });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
+              const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
+              if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
               if (!cancelled) setPredictionContract(json.contract || null);
             } catch (e) {
@@ -4519,9 +4543,7 @@
           (async () => {
             try {
               const qs = new URLSearchParams({ ticker: sym, mode: "investor" });
-              const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { cache: "no-store" });
-              if (!res.ok) return;
-              const json = await res.json();
+              const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
               if (!cancelled) setInvestorPrediction(json?.contract || null);
             } catch (_) {
               if (!cancelled) setInvestorPrediction(null);
@@ -6556,7 +6578,15 @@
                         // ── Pull specific levels from predictionContract ────
                         const stopPx = Number(predictionContract?.risk?.stop_loss);
                         const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-                        const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        // 2026-06-03 — Use the RTH-aware v2Price (same source the
+                        // header chip uses) instead of `_live_price` directly. The
+                        // raw `_live_price` field carries the LAST tick — including
+                        // after-hours / pre-market quotes — which produced the
+                        // operator-reported "$208" on the Snapshot hero card while
+                        // the header correctly showed today's RTH close of $214.12.
+                        // resolveDisplayPrice() locks to the RTH close outside RTH
+                        // so the hero and the header agree.
+                        const livePx = Number(v2Price) || Number(ticker?.price);
                         const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
                         const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
 
@@ -7304,46 +7334,101 @@
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
-                      {/* 2026-05-30 — Trader tab now inherits the
-                          root-strategy confluence verdict (same engine
-                          that drives the Options ladder). Renders a
-                          compact mode chip + score so the trader sees
-                          the fused 8-layer POV at the top of the plan. */}
+                      {/* 2026-06-03 — Trader Root Verdict restructured to
+                          mirror the Investor Lane Guidance pattern (Panel +
+                          "WHAT TO DO" hero block + metric grid + "WHY" line).
+                          Operator feedback: "Make the Trader tab top text
+                          Strategy / Root Verdict more like the Investor tab".
+                          Single-line chip was too dense — the trader needs
+                          the same "what to do, what's the score, why this
+                          mode" framing the investor tab already has. */}
                       {(() => {
-                        const v = strategyAlignment ? null : null;
-                        // Read confluence from /timed/options/ticker fetched
-                        // by OptionsTabPanel — fall back to lazy fetch here
-                        // if we don't have it cached at the rail level.
                         const conf = optionsTabData?.confluence_verdict || null;
                         if (!conf || !conf.mode) return null;
+                        const sideRaw = String(conf.side || "").toUpperCase();
+                        const sideIsShort = sideRaw === "SHORT";
+                        // Mode metadata: color, background, icon, plain-English
+                        // "WHAT TO DO" action and one-line description.
                         const META = {
-                          RIDE:  { c: "#34d399", b: "rgba(52,211,153,0.10)", i: "🚀" },
-                          READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", i: "⏳" },
-                          DRIFT: { c: "#60a5fa", b: "rgba(96,165,250,0.10)", i: "🌊" },
-                          FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", i: "↩️" },
-                          WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", i: "⏸" },
+                          RIDE:  { c: "#34d399", b: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", i: "🚀",
+                                   action: sideIsShort ? "Ride the short" : "Ride the trend",
+                                   desc: sideIsShort
+                                     ? "All layers align bearish. Press the short while structure holds; trail stops."
+                                     : "All layers align bullish. Press the trend while structure holds; trail stops." },
+                          READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", i: "⏳",
+                                   action: "Setup forming",
+                                   desc: "Confluence building but the entry trigger has not fired. Wait — do not chase." },
+                          DRIFT: { c: "#60a5fa", b: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", i: "🌊",
+                                   action: "Drift — chop",
+                                   desc: "Mixed signals, no clean directional edge. Fade extremes or sit out." },
+                          FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", i: "↩️",
+                                   action: sideIsShort ? "Fade the rip" : "Fade the dip",
+                                   desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only." },
+                          WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
+                                   action: "Wait — no trade",
+                                   desc: "Layers disagree, no edge from the engine right now. Pass on this name." },
                         };
                         const m = META[conf.mode] || META.WAIT;
+                        const sideColor = sideIsShort ? "#fb7185" : (sideRaw === "LONG" ? "#34d399" : "#9ca3af");
+                        const scoreNum = Number(conf.score);
+                        const layersNum = Number(conf.layers_agreeing);
+                        const layersTotal = Number(conf.layers_total) || 8;
+                        const layersRatio = Number.isFinite(layersNum) ? `${layersNum}/${layersTotal}` : "—";
+                        const summary = String(conf.actionable_summary || "").trim();
+                        // Try to extract a one-line "why" — first 140 chars of
+                        // actionable_summary, falling back to a generic line.
+                        const whyLine = summary && summary.length > 0
+                          ? (summary.length > 160 ? summary.slice(0, 158) + "…" : summary)
+                          : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 with ${layersRatio} layers agreeing.`;
                         return (
-                          <div style={{
-                            marginBottom: "var(--ds-space-3)",
-                            padding: 10,
-                            background: m.b,
-                            border: `1px solid ${m.c}50`,
-                            borderRadius: 8,
-                          }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-                              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>
-                                📡 ROOT-STRATEGY VERDICT
-                              </span>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: m.c, padding: "1px 8px", borderRadius: 999, background: m.c + "20" }}>
-                                {m.i} {conf.mode} · {conf.side}
-                              </span>
+                          <Panel title="📡 Trader Root Verdict" action={
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                              padding: "2px 8px", borderRadius: 999,
+                              color: m.c, background: m.b, border: `1px solid ${m.border}`,
+                            }}>{m.i} {conf.mode}</span>
+                          }>
+                            {/* "WHAT TO DO" hero block — mirrors Investor Lane Guidance */}
+                            <div style={{
+                              padding: "var(--ds-space-2)",
+                              background: m.b,
+                              border: `1px solid ${m.border}`,
+                              borderRadius: "var(--ds-radius-md)",
+                              marginBottom: "var(--ds-space-2)",
+                            }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>WHAT TO DO</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: m.c }}>{m.action}</div>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>{m.desc}</div>
                             </div>
-                            <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.4 }}>
-                              {conf.actionable_summary || `Confluence ${conf.score}/100, ${conf.layers_agreeing}/8 layers agree.`}
+                            {/* Metric grid: Confluence / Layers / Side */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>CONFLUENCE</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171" }}>
+                                  {Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>/100</span>
+                                </div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak"}</div>
+                              </div>
+                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>LAYERS</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" }}>{layersRatio}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(layersNum) && layersNum >= 6 ? "Aligned" : Number.isFinite(layersNum) && layersNum >= 4 ? "Mixed" : "Split"}</div>
+                              </div>
+                              <div style={{ padding: "var(--ds-space-2)", background: sideIsShort ? "rgba(244,63,94,0.06)" : sideRaw === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${sideIsShort ? "rgba(244,63,94,0.25)" : sideRaw === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>BIAS</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: sideColor }}>{sideRaw || "—"}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{sideIsShort ? "Short bias" : sideRaw === "LONG" ? "Long bias" : "No bias"}</div>
+                              </div>
                             </div>
-                          </div>
+                            {/* "WHY" line — engine-emitted summary or computed fallback */}
+                            {whyLine && (
+                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>WHY</div>
+                                <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 }}>{whyLine}</div>
+                              </div>
+                            )}
+                          </Panel>
                         );
                       })()}
                       {/* 2026-05-29 — B8: surface "Current Open Position"

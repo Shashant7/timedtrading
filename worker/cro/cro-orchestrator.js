@@ -232,6 +232,57 @@ export async function runCROFullCycle(env, { force = false } = {}) {
 
   summary.elapsed_ms = Date.now() - t0;
 
+  // 2026-06-03 — Persist a snapshot of the last cycle summary to KV so the
+  // Research Desk + diagnostics endpoint can render it without needing admin
+  // auth. This is the operator's only window into what's happening when
+  // admin endpoints 401 from a non-admin browser context.
+  try {
+    if (env?.KV) {
+      const tombstone = {
+        started_at: summary.started_at,
+        finished_at: Date.now(),
+        elapsed_ms: summary.elapsed_ms,
+        ok: !summary.errors || summary.errors.length === 0,
+        cto: summary.cto ? {
+          ok: !!summary.cto.ok,
+          tickers_processed: summary.cto.tickers_processed || 0,
+          tickers_ok: summary.cto.tickers_ok || 0,
+          error_kind: summary.cto.error_kind || null,
+        } : null,
+        rotation: summary.rotation ? {
+          ok: !!summary.rotation.ok,
+          headlines_count: summary.rotation.headlines_count || 0,
+        } : null,
+        fsd_ingestion: summary.fsd_ingestion ? {
+          ok: !!summary.fsd_ingestion.ok,
+          ingested: summary.fsd_ingestion.ingested || 0,
+          skipped: summary.fsd_ingestion.skipped || null,
+          error_kind: summary.fsd_ingestion.error_kind || null,
+          hint: (summary.fsd_ingestion.hint || "").slice(0, 200),
+        } : null,
+        extractions: Array.isArray(summary.extractions) ? summary.extractions.length : 0,
+        applies_count: Array.isArray(summary.applies) ? summary.applies.filter((a) => a.applied).length : 0,
+        cashtag_backfill: summary.cashtag_backfill ? {
+          ok: !!summary.cashtag_backfill.ok,
+          skipped: summary.cashtag_backfill.skipped || null,
+          pubs_processed: summary.cashtag_backfill.pubs_processed || 0,
+          total_tags_written: summary.cashtag_backfill.total_tags_written || 0,
+        } : null,
+        rewrite_pending: summary.rewrite_pending ? {
+          ok: !!summary.rewrite_pending.ok,
+          skipped: summary.rewrite_pending.skipped || null,
+          rewrote_ok: summary.rewrite_pending.rewrote_ok || 0,
+        } : null,
+        cro_daily: summary.cro_daily ? {
+          ok: !!summary.cro_daily.ok,
+          error_kind: summary.cro_daily.error_kind || null,
+        } : null,
+        errors: Array.isArray(summary.errors) ? summary.errors.slice(0, 8) : [],
+      };
+      await env.KV.put("timed:cro:last_summary", JSON.stringify(tombstone), { expirationTtl: 7 * 24 * 3600 });
+    }
+  } catch (_) { /* never block the cycle on tombstone write */ }
+
   // Best-effort Discord notification on critical failures. We notify if
   // EITHER the CRO daily synthesis failed OR FSD ingestion failed with a
   // non-skipped error. Skips (gate disabled / no credentials) are silent.

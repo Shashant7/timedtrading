@@ -49,6 +49,37 @@
     const getStaleInfo = deps.getStaleInfo;
     const isNyRegularMarketOpen = deps.isNyRegularMarketOpen;
     const downsampleByInterval = deps.downsampleByInterval;
+    async function _cachedJson(url, {
+      ttlMs = 60000,
+      maxAgeMs = 5 * 60000,
+      fetchOpts
+    } = {}) {
+      try {
+        if (typeof window !== "undefined" && window.TTFetchCache) {
+          const body = await window.TTFetchCache.get(url, {
+            ttlMs,
+            maxAgeMs,
+            fetchOpts: {
+              credentials: "include",
+              cache: "no-store",
+              ...(fetchOpts || {})
+            }
+          });
+          return body;
+        }
+      } catch (_) {}
+      try {
+        const r = await fetch(url, {
+          credentials: "include",
+          cache: "no-store",
+          ...(fetchOpts || {})
+        });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch (_) {
+        return null;
+      }
+    }
     const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross",
@@ -4237,12 +4268,11 @@
         let cancelled = false;
         (async () => {
           try {
-            const r = await fetch(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, {
-              cache: "no-store",
-              credentials: "include"
+            const j = await _cachedJson(`${API_BASE}/timed/screener/thesis?ticker=${encodeURIComponent(sym)}`, {
+              ttlMs: 5 * 60 * 1000,
+              maxAgeMs: 30 * 60 * 1000
             });
-            if (!r.ok) return;
-            const j = await r.json();
+            if (!j) return;
             if (cancelled) return;
             if (j?.ok && j.found) setDiscoveryThesis(j);else setDiscoveryThesis(null);
           } catch (_) {}
@@ -4261,11 +4291,11 @@
         let cancelled = false;
         (async () => {
           try {
-            const r = await fetch(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, {
-              cache: "no-store"
+            const j = await _cachedJson(`${API_BASE}/timed/strategy/ticker?ticker=${encodeURIComponent(sym)}`, {
+              ttlMs: 5 * 60 * 1000,
+              maxAgeMs: 30 * 60 * 1000
             });
-            if (!r.ok) return;
-            const j = await r.json();
+            if (!j) return;
             if (!cancelled && j?.ok) setStrategyAlignment(j);
           } catch (_) {}
         })();
@@ -4441,12 +4471,11 @@
         let cancelled = false;
         (async () => {
           try {
-            const r = await fetch(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, {
-              cache: "no-store",
-              credentials: "include"
+            const j = await _cachedJson(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, {
+              ttlMs: 60 * 1000,
+              maxAgeMs: 5 * 60 * 1000
             });
-            if (!r.ok) return;
-            const j = await r.json();
+            if (!j) return;
             if (!cancelled && j?.ok) setOptionsTabData(j);
           } catch (_) {}
         })();
@@ -5423,11 +5452,11 @@
           try {
             setInvestorLoading(true);
             setInvestorError(null);
-            const res = await fetch(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
-              cache: "no-store"
+            const json = await _cachedJson(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
+              ttlMs: 5 * 60 * 1000,
+              maxAgeMs: 30 * 60 * 1000
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
+            if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "investor_failed");
             if (!cancelled) setInvestorData({
               ticker: sym,
@@ -5524,11 +5553,11 @@
               ticker: sym
             });
             if (apiKey) qs.set("key", apiKey);
-            const res = await fetch(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, {
-              cache: "no-store"
+            const json = await _cachedJson(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, {
+              ttlMs: 5 * 60 * 1000,
+              maxAgeMs: 30 * 60 * 1000
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
+            if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "catalysts_failed");
             if (!cancelled) {
               catalystsCacheRef.current.set(sym, {
@@ -5567,11 +5596,11 @@
             const qs = new URLSearchParams();
             qs.set("ticker", sym);
             qs.set("mode", _predictionMode);
-            const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
-              cache: "no-store"
+            const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
+              ttlMs: 60 * 1000,
+              maxAgeMs: 5 * 60 * 1000
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const json = await res.json();
+            if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
             if (!cancelled) setPredictionContract(json.contract || null);
           } catch (e) {
@@ -5601,11 +5630,10 @@
               ticker: sym,
               mode: "investor"
             });
-            const res = await fetch(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
-              cache: "no-store"
+            const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
+              ttlMs: 60 * 1000,
+              maxAgeMs: 5 * 60 * 1000
             });
-            if (!res.ok) return;
-            const json = await res.json();
             if (!cancelled) setInvestorPrediction(json?.contract || null);
           } catch (_) {
             if (!cancelled) setInvestorPrediction(null);
@@ -7509,7 +7537,7 @@
           })();
           const stopPx = Number(predictionContract?.risk?.stop_loss);
           const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-          const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+          const livePx = Number(v2Price) || Number(ticker?.price);
           const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
           const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
           const triggerPx = Number(ticker?.trigger_price);
@@ -8505,75 +8533,220 @@
             showLegend: true
           }));
         })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
-          const v = strategyAlignment ? null : null;
           const conf = optionsTabData?.confluence_verdict || null;
           if (!conf || !conf.mode) return null;
+          const sideRaw = String(conf.side || "").toUpperCase();
+          const sideIsShort = sideRaw === "SHORT";
           const META = {
             RIDE: {
               c: "#34d399",
               b: "rgba(52,211,153,0.10)",
-              i: "🚀"
+              border: "rgba(52,211,153,0.30)",
+              i: "🚀",
+              action: sideIsShort ? "Ride the short" : "Ride the trend",
+              desc: sideIsShort ? "All layers align bearish. Press the short while structure holds; trail stops." : "All layers align bullish. Press the trend while structure holds; trail stops."
             },
             READY: {
               c: "#f5c25c",
               b: "rgba(245,194,92,0.10)",
-              i: "⏳"
+              border: "rgba(245,194,92,0.30)",
+              i: "⏳",
+              action: "Setup forming",
+              desc: "Confluence building but the entry trigger has not fired. Wait — do not chase."
             },
             DRIFT: {
               c: "#60a5fa",
               b: "rgba(96,165,250,0.10)",
-              i: "🌊"
+              border: "rgba(96,165,250,0.30)",
+              i: "🌊",
+              action: "Drift — chop",
+              desc: "Mixed signals, no clean directional edge. Fade extremes or sit out."
             },
             FADE: {
               c: "#a78bfa",
               b: "rgba(167,139,250,0.10)",
-              i: "↩️"
+              border: "rgba(167,139,250,0.30)",
+              i: "↩️",
+              action: sideIsShort ? "Fade the rip" : "Fade the dip",
+              desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only."
             },
             WAIT: {
               c: "#9ca3af",
               b: "rgba(156,163,175,0.10)",
-              i: "⏸"
+              border: "rgba(156,163,175,0.30)",
+              i: "⏸",
+              action: "Wait — no trade",
+              desc: "Layers disagree, no edge from the engine right now. Pass on this name."
             }
           };
           const m = META[conf.mode] || META.WAIT;
-          return React.createElement("div", {
-            style: {
-              marginBottom: "var(--ds-space-3)",
-              padding: 10,
-              background: m.b,
-              border: `1px solid ${m.c}50`,
-              borderRadius: 8
-            }
+          const sideColor = sideIsShort ? "#fb7185" : sideRaw === "LONG" ? "#34d399" : "#9ca3af";
+          const scoreNum = Number(conf.score);
+          const layersNum = Number(conf.layers_agreeing);
+          const layersTotal = Number(conf.layers_total) || 8;
+          const layersRatio = Number.isFinite(layersNum) ? `${layersNum}/${layersTotal}` : "—";
+          const summary = String(conf.actionable_summary || "").trim();
+          const whyLine = summary && summary.length > 0 ? summary.length > 160 ? summary.slice(0, 158) + "…" : summary : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 with ${layersRatio} layers agreeing.`;
+          return React.createElement(Panel, {
+            title: "\uD83D\uDCE1 Trader Root Verdict",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: m.c,
+                background: m.b,
+                border: `1px solid ${m.border}`
+              }
+            }, m.i, " ", conf.mode)
           }, React.createElement("div", {
             style: {
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "baseline",
-              marginBottom: 4
+              padding: "var(--ds-space-2)",
+              background: m.b,
+              border: `1px solid ${m.border}`,
+              borderRadius: "var(--ds-radius-md)",
+              marginBottom: "var(--ds-space-2)"
             }
-          }, React.createElement("span", {
+          }, React.createElement("div", {
             style: {
               fontSize: 10,
               fontWeight: 700,
               color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em",
+              marginBottom: 4
+            }
+          }, "WHAT TO DO"), React.createElement("div", {
+            style: {
+              fontSize: 15,
+              fontWeight: 700,
+              color: m.c
+            }
+          }, m.action), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-body)",
+              marginTop: 4,
+              lineHeight: 1.4
+            }
+          }, m.desc)), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
               letterSpacing: "0.05em"
             }
-          }, "\uD83D\uDCE1 ROOT-STRATEGY VERDICT"), React.createElement("span", {
+          }, "CONFLUENCE"), React.createElement("div", {
             style: {
-              fontSize: 11,
+              fontFamily: "var(--tt-font-mono)",
               fontWeight: 700,
-              color: m.c,
-              padding: "1px 8px",
-              borderRadius: 999,
-              background: m.c + "20"
+              marginTop: 2,
+              fontSize: 18,
+              color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171"
             }
-          }, m.i, " ", conf.mode, " \xB7 ", conf.side)), React.createElement("div", {
+          }, Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—", React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 600,
+              color: "var(--ds-text-muted)"
+            }
+          }, "/100")), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak")), React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "LAYERS"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: 18,
+              color: "var(--ds-text-body)"
+            }
+          }, layersRatio), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, Number.isFinite(layersNum) && layersNum >= 6 ? "Aligned" : Number.isFinite(layersNum) && layersNum >= 4 ? "Mixed" : "Split")), React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: sideIsShort ? "rgba(244,63,94,0.06)" : sideRaw === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${sideIsShort ? "rgba(244,63,94,0.25)" : sideRaw === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "BIAS"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: 18,
+              color: sideColor
+            }
+          }, sideRaw || "—"), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, sideIsShort ? "Short bias" : sideRaw === "LONG" ? "Long bias" : "No bias"))), whyLine && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              paddingTop: "var(--ds-space-2)",
+              borderTop: "1px solid rgba(255,255,255,0.04)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "WHY"), React.createElement("div", {
             style: {
               fontSize: 12,
               color: "var(--ds-text-body)",
-              lineHeight: 1.4
+              lineHeight: 1.45
             }
-          }, conf.actionable_summary || `Confluence ${conf.score}/100, ${conf.layers_agreeing}/8 layers agree.`));
+          }, whyLine)));
         })(), (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
@@ -18051,4 +18224,4 @@
   };
 })();
 
-// cache-bust:1780523140122:29085904
+// cache-bust:1780527994371:686725917

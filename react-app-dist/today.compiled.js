@@ -4354,7 +4354,7 @@ function TodayApp() {
     onSelectTicker
   }), brief && h(MacroStrip, {
     brief
-  }), data && h(TopMovers, {
+  }), h(ResearchDeskExcerpt, null), data && h(TopMovers, {
     data,
     onSelectTicker,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
@@ -4772,6 +4772,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780523140122:29085904
+// cache-bust:1780527994371:686725917
 
-// cache-bust:1780523140122:29085904
+// cache-bust:1780527994371:686725917
