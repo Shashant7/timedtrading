@@ -6423,19 +6423,41 @@
                         const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
 
                         // ── Build entry/exit triggers list ─────────────────
+                        // 2026-06-03 — Operator (correctly) caught that the
+                        // previous "Reclaim $227.84 (Trim) → entry trigger"
+                        // text was wrong: $227.84 is TP1, a TAKE-PROFIT
+                        // target AFTER entry, NOT the entry trigger. The
+                        // real entry trigger is ticker.trigger_price (set
+                        // by the scoring pipeline / Pine — see
+                        // worker/index.js:3349,3390,3435 etc.). Pull
+                        // trigger_price first; tp1 is now only mentioned
+                        // as part of the "if entered today" trade plan,
+                        // never as the entry trigger.
+                        const triggerPx = Number(ticker?.trigger_price);
+                        const hasTrigger = Number.isFinite(triggerPx) && triggerPx > 0;
                         const triggers = [];
                         if (verdict.urgency === "watch") {
-                          // WATCH state — what should the user wait for to ENTER?
-                          if (tp1 && livePx) {
-                            if (isLong && livePx < tp1) {
-                              triggers.push({ tone: "go", text: `Reclaim ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms` });
-                            } else if (isShort && livePx > tp1) {
-                              triggers.push({ tone: "go", text: `Break below ${formatPx(tp1)} (${tp1Label}) with rising volume → entry trigger forms` });
+                          if (hasTrigger) {
+                            if (isLong) {
+                              triggers.push({ tone: "go", text: `Reclaim ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
+                            } else if (isShort) {
+                              triggers.push({ tone: "go", text: `Break below ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
                             }
+                          } else {
+                            // No published trigger_price for this ticker —
+                            // be honest about it.
+                            triggers.push({ tone: "neutral", text: `Setup forming but no explicit entry-trigger price published. Wait for an intraday bullish/bearish reversal candle on the LTF (10m / 15m).` });
                           }
                           if (stopPx && livePx) {
                             const side = isLong ? "Hold above" : "Hold below";
-                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact` });
+                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)` });
+                          }
+                          // Also surface the trade plan as a separate row so
+                          // the user knows what they'd be aiming for IF the
+                          // entry fires — without confusing the TP with the
+                          // entry trigger.
+                          if (tp1 && livePx) {
+                            triggers.push({ tone: "neutral", text: `IF entered, first target sits at ${formatPx(tp1)} (${tp1Label}). Full plan visible on the Trader tab.` });
                           }
                         } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
                           // ACTIVE / MANAGEMENT — what targets matter?
