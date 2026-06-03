@@ -373,6 +373,18 @@ Entry and exit engines switched from frozen `ripster_core` references to `tt_cor
 
 **Config**: `ENTRY_ENGINE = "tt_core"`, `MANAGEMENT_ENGINE = "tt_core"` in wrangler.toml. Both envs.
 
+## Active Strategy Playbook (Fundstrat Direct inspiration)
+
+The system's editorial playbook lives at `worker/strategy-context.js` and feeds:
+- **AI CIO memory** — Layer 15 `strategy_stance` (per-ticker sector/theme alignment) + Layer 15b `tactical_signals` (per-publication rotation overlay matched by theme or sector).
+- **AI CIO prompt** + **Daily Brief prompt** — both open with `getStrategyBrief()` so the LLM speaks from a single macro view.
+- **Promotion-queue scoring** — boost tier-1 theme candidates.
+- **Right Rail "Active Strategy" chip** + **Learn page** — `getStrategyDigest()` exposes the full payload at `/timed/strategy`.
+
+Two vintages run in parallel: `STRATEGY_VINTAGE` (structural — sector/theme/SMID tilts, rolls forward on each Year-Ahead deck) and `STRATEGY_TACTICAL_VINTAGE` (refreshes per Daily Technical Strategy publication). When FSD publishes a new Daily Technical Strategy note, edit `TACTICAL_SIGNALS[]`, bump `STRATEGY_TACTICAL_VINTAGE`, refresh affected theme playbook strings, add any new `ACTIVE_RISKS` entries, and add `EDUCATION_SNIPPETS` for any new technical vocabulary (TD Buy Setup, RSP/SPY, MAGS, etc.). The header-comment vintage-history block in `strategy-context.js` is the canonical changelog. Source PDFs live in `docs/reference-pdfs/` for inventory parity.
+
+Current tactical overlay (2026-06-02, "Time to Favor Equal-Weighted SPX over Cap-Weighted"): RSP/SPY broke its multi-month downtrend (broadening underway); MAGS broke its late-April rising trendline on heaviest April volume (short-term MAG7 caution despite structural overweight); weekly IGV/SMH at multi-year lows with TD Buy Setup (favor Software over Semis); weekly XLI/SPY 1 wk from perfecting TD Buy Setup (Industrials = broadening candidate); SPX > 7,600 on 9-day win streak (stretched, consolidation near); most crypto diverged from equities (short-term de-risk on crypto proxies). All overlays surface to CIO + Daily Brief automatically through `getStrategyBrief()` — no per-consumer edits needed.
+
 ## Full Lessons
 
 See `tasks/lessons.md` for the complete list (180+ items). Use CONTEXT for quick refresh.

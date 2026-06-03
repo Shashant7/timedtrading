@@ -4,7 +4,7 @@
 import { TICKER_PROXY_MAP, getThemesForTicker, THEMES } from "../sector-mapping.js";
 import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
-import { getStrategyForTicker, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
+import { getStrategyForTicker, getTacticalSignals, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
 import { scoreRootConfluence } from "../root-strategy.js";
 
 function computeCryptoTrend(snapshots, idx) {
@@ -624,6 +624,47 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         // without inspecting themes/sector/multiplier.
         on_thesis: !!strategy.aligned || ((strategy.themes_matched || []).length > 0),
       };
+
+      // ── Layer 15b: Tactical signals matching this ticker (2026-06-02) ──
+      // Surfaces the per-publication rotation overlay for any TIER-1 theme
+      // the ticker is part of, plus any sector-overweight signal that
+      // applies to its sector. This is the "what changed since the last
+      // structural playbook revision" view — keeps the CIO from leaning
+      // structurally on a theme that the upstream Daily Technical
+      // Strategy just flagged as tactically over- or under-extended.
+      try {
+        const tactical = getTacticalSignals();
+        const tickerThemes = strategy.themes_matched.map(m => m.theme);
+        const tickerSector = strategy.sector;
+        const matched = [];
+        for (const sig of (tactical.signals || [])) {
+          const themeHit = (sig.affected_tier1_themes || []).some(t => tickerThemes.includes(t));
+          const sectorHit = tickerSector
+            && (sig.affected_sectors_overweight || []).includes(tickerSector);
+          if (themeHit || sectorHit) {
+            matched.push({
+              signal: sig.signal,
+              pair: sig.pair,
+              direction: sig.direction,
+              horizon: sig.horizon,
+              evidence: sig.evidence,
+              action: sig.playbook_action,
+              matched_via: themeHit ? "theme" : "sector",
+            });
+          }
+        }
+        if (matched.length > 0) {
+          mem.tactical_signals = {
+            vintage: tactical.vintage,
+            source: tactical.source,
+            title: tactical.title,
+            matches: matched.slice(0, 5),
+            note: "Tactical overlay — refines WHEN to lean into a theme, never overrides the structural stance.",
+          };
+        }
+      } catch (_) {
+        // Tactical enrichment is best-effort — never break CIO memory.
+      }
     }
   } catch (_) {
     // Strategy enrichment is best-effort — never break CIO memory.
