@@ -9154,7 +9154,29 @@
                     };
 
                     return (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+                      // 2026-06-03 — Mobile scroll fix. The Catalysts body
+                      // sits in a flex column inside the rail-area-right-pane.
+                      // On mobile Safari the parent's overflow-y:auto doesn't
+                      // always fire because the rail isn't a modal — it's
+                      // inline on the page. Adding explicit bottom padding
+                      // (88px = bottom-nav height + iOS safe-area buffer)
+                      // ensures the LAST panel is never hidden behind the
+                      // fixed bottom nav. The body padding from tt-bottom-nav.js
+                      // (body { padding-bottom: 64px } at @media max-width:768px)
+                      // covers the page-level case; this padding handles the
+                      // case where the rail itself owns its scroll container.
+                      <div style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "var(--ds-space-3)",
+                        paddingBottom: "max(88px, calc(64px + env(safe-area-inset-bottom)))",
+                        // Defensive: force overflow-y-auto regardless of parent
+                        // state. The browser ignores this when content fits;
+                        // when content overflows, this guarantees a scrollbar
+                        // so the operator can reach every panel.
+                        overflowY: "visible",
+                        WebkitOverflowScrolling: "touch",
+                      }}>
 
                         {/* ── 0. FSD Intel (FlashInsights + long-form mentions) ────────── */}
                         {/* 2026-06-03 — Renders TT-voice rewrite (tt_summary_title +

@@ -1405,7 +1405,20 @@ input, button, select, textarea {
   flex-direction: column;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
-.tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+.tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane {
+  order: 1;
+  flex: 1 1 auto;
+  /* 2026-06-03 — Mobile rail scroll fix. On iOS Safari the URL bar +
+     the app's fixed bottom nav (tt-bottom-nav.js, ~64px + safe-area)
+     ate the bottom of the last panel. The page-level body padding
+     (set in tt-bottom-nav.js media query) handles the case where the
+     page itself scrolls. This extra padding handles the case where
+     the rail body has its own scroll container active. max() ensures
+     we never lose pixels even when env(safe-area-inset-bottom) is 0
+     on non-iOS browsers. */
+  padding-bottom: max(72px, calc(56px + env(safe-area-inset-bottom)));
+  -webkit-overflow-scrolling: touch;
+}
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
 .tt-rail-area-left-pane,
 .tt-rail-area-right-pane {
