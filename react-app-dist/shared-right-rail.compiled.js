@@ -11329,302 +11329,693 @@
             if (t.length > len) t = t.slice(0, len).trimEnd() + "…";
             return t;
           };
-          return React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--ds-space-3)"
-            }
-          }, C.fsd_intel?.count > 0 && (() => {
-            try {
-              const latest = C.fsd_intel.latest_published_at || C.fsd_intel.publications[0] && C.fsd_intel.publications[0].published_at || null;
-              if (latest && typeof window !== "undefined") {
-                window.localStorage.setItem(`tt-cat-seen-fsd:${tickerSymbol}`, String(latest));
-              }
-            } catch (_) {}
-            return React.createElement(Panel, {
-              title: "\uD83D\uDCE1 FSD Intel",
-              action: React.createElement("span", {
-                className: "ds-chip ds-chip--sm"
-              }, C.fsd_intel.count, " mention", C.fsd_intel.count === 1 ? "" : "s", " \xB7 ", C.fsd_intel.lookback_days, "d")
-            }, React.createElement("div", {
-              style: {
-                fontSize: 10,
-                color: "var(--ds-text-faint)",
-                marginBottom: 6,
-                letterSpacing: "0.05em"
-              }
-            }, "EDITORIAL RESEARCH \u2014 POSTS MENTIONING ", tickerSymbol), React.createElement("div", {
+          return (React.createElement("div", {
               style: {
                 display: "flex",
                 flexDirection: "column",
-                gap: 8
+                gap: "var(--ds-space-3)",
+                paddingBottom: "max(88px, calc(64px + env(safe-area-inset-bottom)))",
+                overflowY: "visible",
+                WebkitOverflowScrolling: "touch"
               }
-            }, C.fsd_intel.publications.slice(0, 4).map((p, i) => {
-              const isFlash = String(p.pub_id || "").includes("fsi-alert") || String(p.title || "").length < 30 || String(p.title || "").startsWith("Mark");
-              const hasRewrite = !!p.tt_summary_body;
-              return React.createElement("div", {
-                key: `fsd-${i}`,
+            }, C.fsd_intel?.count > 0 && (() => {
+              try {
+                const latest = C.fsd_intel.latest_published_at || C.fsd_intel.publications[0] && C.fsd_intel.publications[0].published_at || null;
+                if (latest && typeof window !== "undefined") {
+                  window.localStorage.setItem(`tt-cat-seen-fsd:${tickerSymbol}`, String(latest));
+                }
+              } catch (_) {}
+              return React.createElement(Panel, {
+                title: "\uD83D\uDCE1 FSD Intel",
+                action: React.createElement("span", {
+                  className: "ds-chip ds-chip--sm"
+                }, C.fsd_intel.count, " mention", C.fsd_intel.count === 1 ? "" : "s", " \xB7 ", C.fsd_intel.lookback_days, "d")
+              }, React.createElement("div", {
                 style: {
-                  padding: "8px 10px",
-                  background: "rgba(168,85,247,0.05)",
-                  border: "1px solid rgba(168,85,247,0.18)",
+                  fontSize: 10,
+                  color: "var(--ds-text-faint)",
+                  marginBottom: 6,
+                  letterSpacing: "0.05em"
+                }
+              }, "EDITORIAL RESEARCH \u2014 POSTS MENTIONING ", tickerSymbol), React.createElement("div", {
+                style: {
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8
+                }
+              }, C.fsd_intel.publications.slice(0, 4).map((p, i) => {
+                const isFlash = String(p.pub_id || "").includes("fsi-alert") || String(p.title || "").length < 30 || String(p.title || "").startsWith("Mark");
+                const hasRewrite = !!p.tt_summary_body;
+                return React.createElement("div", {
+                  key: `fsd-${i}`,
+                  style: {
+                    padding: "8px 10px",
+                    background: "rgba(168,85,247,0.05)",
+                    border: "1px solid rgba(168,85,247,0.18)",
+                    borderRadius: "var(--ds-radius-md)"
+                  }
+                }, React.createElement("div", {
+                  style: {
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                    marginBottom: 4,
+                    flexWrap: "wrap"
+                  }
+                }, React.createElement("span", {
+                  style: {
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                    color: isFlash ? "#fbbf24" : "#a78bfa",
+                    background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                    letterSpacing: "0.05em"
+                  }
+                }, isFlash ? "FLASH" : "RESEARCH"), React.createElement("span", {
+                  style: {
+                    fontSize: 10,
+                    color: "var(--ds-text-muted)"
+                  }
+                }, fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)), p.applied_at && React.createElement("span", {
+                  style: {
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: "1px 5px",
+                    borderRadius: 4,
+                    color: "#34d399",
+                    background: "rgba(52,211,153,0.10)"
+                  }
+                }, "APPLIED"), hasRewrite && React.createElement("span", {
+                  style: {
+                    fontSize: 9,
+                    fontWeight: 700,
+                    padding: "1px 5px",
+                    borderRadius: 4,
+                    color: "#67e8f9",
+                    background: "rgba(103,232,249,0.08)"
+                  },
+                  title: "TT-voice summary (paraphrased from source)"
+                }, "TT")), React.createElement("div", {
+                  style: {
+                    fontSize: "var(--ds-fs-body)",
+                    color: "var(--ds-text-body)",
+                    fontWeight: 600,
+                    lineHeight: 1.4,
+                    marginBottom: 4
+                  }
+                }, p.tt_summary_title || !isFlash && p.title || ""), React.createElement("div", {
+                  style: {
+                    fontSize: "var(--ds-fs-meta)",
+                    color: "var(--ds-text-body)",
+                    lineHeight: 1.45
+                  }
+                }, p.tt_summary_body || formatFsdExcerpt(p.excerpt, tickerSymbol)), Array.isArray(p.tt_key_points) && p.tt_key_points.length > 0 && React.createElement("div", {
+                  style: {
+                    display: "flex",
+                    gap: 4,
+                    flexWrap: "wrap",
+                    marginTop: 6
+                  }
+                }, p.tt_key_points.slice(0, 6).map((kp, j) => {
+                  const dirColor = kp.direction === "long" ? "#34d399" : kp.direction === "short" ? "#f87171" : "var(--ds-text-muted)";
+                  const kindBg = kp.kind === "support" || kp.kind === "target" ? "rgba(52,211,153,0.08)" : kp.kind === "resistance" || kp.kind === "stop" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)";
+                  return React.createElement("span", {
+                    key: `kp-${j}`,
+                    title: kp.note || "",
+                    style: {
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      background: kindBg,
+                      color: dirColor,
+                      fontWeight: 600,
+                      border: "1px solid rgba(255,255,255,0.06)"
+                    }
+                  }, kp.ticker ? `${kp.ticker} ` : "", String(kp.kind || "").toUpperCase(), kp.level ? ` ${kp.level}` : "", kp.horizon ? ` · ${kp.horizon}` : "");
+                })), p.tt_cta && React.createElement("div", {
+                  style: {
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--ds-text-faint)",
+                    fontStyle: "italic",
+                    lineHeight: 1.4
+                  }
+                }, "\u2192 ", p.tt_cta), React.createElement("div", {
+                  style: {
+                    marginTop: 6,
+                    fontSize: 9,
+                    color: "var(--ds-text-muted)"
+                  }
+                }, p.attribution || "Source: Fundstrat Direct", p.source_url && React.createElement(React.Fragment, null, " · ", React.createElement("a", {
+                  href: p.source_url,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  style: {
+                    color: "var(--ds-text-muted)",
+                    textDecoration: "underline"
+                  }
+                }, "read original \u2192"))));
+              })), React.createElement("div", {
+                style: {
+                  marginTop: 8,
+                  fontSize: 9,
+                  color: "var(--ds-text-faint)"
+                }
+              }, "TT summaries are paraphrased for compliance. Original research \xA9 Fundstrat Direct \u2014 link above to read in full."));
+            })(), React.createElement(Panel, {
+              title: "\uD83D\uDD25 News Catalysts",
+              action: C.news?.count > 0 && React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, C.news.count, " headlines \xB7 5d")
+            }, !C.news?.has_data ? React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-muted)"
+              }
+            }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
+              style: {
+                marginBottom: "var(--ds-space-3)",
+                padding: "var(--ds-space-2)",
+                background: C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.06)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "TOP CATALYST"), sentimentChip(C.news.top_catalyst.sentiment), React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color: "var(--ds-text-body)",
+                background: "rgba(255,255,255,0.08)"
+              }
+            }, "STR ", C.news.top_catalyst.catalyst_strength, "/10")), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600,
+                lineHeight: 1.4
+              }
+            }, C.news.top_catalyst.headline), React.createElement("div", {
+              style: {
+                marginTop: 4,
+                fontSize: 10,
+                color: "var(--ds-text-muted)"
+              }
+            }, C.news.top_catalyst.source, " \xB7 ", fmtAgo(C.news.top_catalyst.datetime))), React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                marginBottom: "var(--ds-space-2)",
+                flexWrap: "wrap"
+              }
+            }, C.news.bull > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(52,211,153,0.10)",
+                color: "var(--ds-color-up, #34d399)"
+              }
+            }, C.news.bull, " bull"), C.news.bear > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(248,113,113,0.10)",
+                color: "var(--ds-color-down, #f87171)"
+              }
+            }, C.news.bear, " bear"), C.news.neutral > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color: "var(--ds-text-muted)"
+              }
+            }, C.news.neutral, " neutral"), C.news.dominant_sentiment && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color: "var(--ds-text-faint)"
+              }
+            }, "DOMINANT: ", String(C.news.dominant_sentiment).toUpperCase())), Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && React.createElement("div", {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                marginTop: "var(--ds-space-2)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "RECENT HEADLINES"), C.news.latest_3.map((h, i) => React.createElement("div", {
+              key: `hl-${i}`,
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "flex-start",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, sentimentChip(h.sentiment), React.createElement("div", {
+              style: {
+                flex: 1,
+                color: "var(--ds-text-body)",
+                lineHeight: 1.35
+              }
+            }, h.headline, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                color: "var(--ds-text-muted)",
+                marginTop: 1
+              }
+            }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10")))))))), React.createElement(Panel, {
+              title: "\uD83D\uDCBC Insider Activity",
+              action: C.insider?.has_data && React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, C.insider.lookback_days, "d window")
+            }, !C.insider?.has_data ? React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-muted)"
+              }
+            }, "No Form-4 insider transactions in the last 30 days.") : (() => {
+              const buyVal = C.insider.buys?.total_value || 0;
+              const sellVal = C.insider.sells?.total_value || 0;
+              const netVal = C.insider.net_value || 0;
+              const hiBuys = C.insider.buys?.high_signal_count || 0;
+              const hiBuysValue = C.insider.buys?.high_signal_value || 0;
+              return React.createElement(React.Fragment, null, React.createElement("div", {
+                style: {
+                  display: "flex",
+                  gap: "var(--ds-space-3)",
+                  marginBottom: "var(--ds-space-2)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  flex: 1,
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em"
+                }
+              }, "NET 30d"), React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontWeight: 700,
+                  marginTop: 2,
+                  fontSize: "var(--ds-fs-h4, 16px)",
+                  color: netVal >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
+                }
+              }, netVal >= 0 ? "+" : "−", fmtMoney(Math.abs(netVal))), React.createElement("div", {
+                style: {
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)",
+                  marginTop: 2
+                }
+              }, "buys ", fmtMoney(buyVal), " \xB7 sells ", fmtMoney(sellVal))), React.createElement("div", {
+                style: {
+                  flex: 1,
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em"
+                }
+              }, "HIGH-SIGNAL BUYS"), React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontWeight: 700,
+                  marginTop: 2,
+                  fontSize: "var(--ds-fs-h4, 16px)",
+                  color: hiBuys > 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)"
+                }
+              }, hiBuys), React.createElement("div", {
+                style: {
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)",
+                  marginTop: 2
+                }
+              }, "CEO/CFO/Dir \xB7 ", fmtMoney(hiBuysValue)))), Array.isArray(C.insider.buys?.top_3) && C.insider.buys.top_3.length > 0 && React.createElement("div", {
+                style: {
+                  marginTop: "var(--ds-space-2)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em",
+                  marginBottom: 4
+                }
+              }, "RECENT BUYS"), C.insider.buys.top_3.map((t, i) => React.createElement("div", {
+                key: `ib-${i}`,
+                style: {
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "4px 0",
+                  borderBottom: i < C.insider.buys.top_3.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none"
+                }
+              }, React.createElement("div", {
+                style: {
+                  flex: 1,
+                  minWidth: 0
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-meta)",
+                  color: "var(--ds-text-body)",
+                  fontWeight: 600,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }
+              }, t.high_signal && React.createElement("span", {
+                style: {
+                  color: "var(--ds-color-up, #34d399)",
+                  marginRight: 4
+                }
+              }, "\u2605"), t.name), React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  color: "var(--ds-text-muted)"
+                }
+              }, t.title, " \xB7 ", t.date)), React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: "var(--ds-fs-meta)",
+                  fontWeight: 700,
+                  color: "var(--ds-color-up, #34d399)"
+                }
+              }, fmtMoney(t.value))))));
+            })()), C.social?.has_data && (() => {
+              const S = C.social;
+              const hasST = (S.message_count_24h || 0) > 0;
+              const hasRD = S.reddit && (S.reddit.mentions_24h || 0) > 0;
+              if (!hasST && !hasRD) return null;
+              const spike = S.reddit?.spike_ratio;
+              const spikeStr = spike != null && Number.isFinite(spike) && spike < 100 ? spike >= 1 ? `${spike.toFixed(1)}x` : `${(spike * 100).toFixed(0)}%` : null;
+              const bullPct = S.bull_ratio_pct;
+              const bullColor = bullPct == null ? "var(--ds-text-muted)" : bullPct >= 70 ? "var(--ds-color-up, #34d399)" : bullPct <= 30 ? "var(--ds-color-down, #f87171)" : "var(--ds-text-body)";
+              return React.createElement(Panel, {
+                title: "\uD83D\uDCE3 Social Buzz",
+                action: React.createElement("span", {
+                  className: "ds-chip ds-chip--sm"
+                }, hasST ? "StockTwits" : "", hasST && hasRD ? " · " : "", hasRD ? "Reddit" : "")
+              }, React.createElement("div", {
+                style: {
+                  display: "flex",
+                  gap: "var(--ds-space-2)",
+                  marginBottom: hasST && S.top_post_body ? "var(--ds-space-3)" : 0
+                }
+              }, hasST && React.createElement("div", {
+                style: {
+                  flex: 1,
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em"
+                }
+              }, "STOCKTWITS \xB7 24h"), React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontWeight: 700,
+                  marginTop: 2,
+                  fontSize: "var(--ds-fs-h4, 16px)",
+                  color: bullColor
+                }
+              }, bullPct != null ? `${bullPct}%` : "—", React.createElement("span", {
+                style: {
+                  fontSize: 11,
+                  fontWeight: 600,
+                  marginLeft: 3,
+                  color: "var(--ds-text-muted)"
+                }
+              }, "bull")), React.createElement("div", {
+                style: {
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)",
+                  marginTop: 2
+                }
+              }, S.message_count_24h || 0, " posts", S.bullish_count > 0 || S.bearish_count > 0 ? ` · ${S.bullish_count || 0}↑ / ${S.bearish_count || 0}↓` : "", S.watchlist_count > 0 && ` · ${Math.round(S.watchlist_count / 1000)}k watching`)), hasRD && React.createElement("div", {
+                style: {
+                  flex: 1,
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em"
+                }
+              }, "REDDIT \xB7 24h"), React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontWeight: 700,
+                  marginTop: 2,
+                  fontSize: "var(--ds-fs-h4, 16px)",
+                  color: spike != null && spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
+                }
+              }, S.reddit.mentions_24h || 0, React.createElement("span", {
+                style: {
+                  fontSize: 11,
+                  fontWeight: 600,
+                  marginLeft: 3,
+                  color: "var(--ds-text-muted)"
+                }
+              }, "posts")), React.createElement("div", {
+                style: {
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)",
+                  marginTop: 2
+                }
+              }, S.reddit.rank ? `rank #${S.reddit.rank}` : "unranked", spikeStr && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("span", {
+                style: {
+                  color: spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)",
+                  fontWeight: 700
+                }
+              }, spikeStr, " vs prev")), S.reddit.upvotes_24h > 0 && ` · ${S.reddit.upvotes_24h.toLocaleString()} upvotes`))), hasST && S.top_post_body && React.createElement("div", {
+                style: {
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(52,211,153,0.04)",
+                  border: "1px solid rgba(52,211,153,0.15)",
+                  borderRadius: "var(--ds-radius-md)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "var(--ds-text-faint)",
+                  letterSpacing: "0.05em",
+                  marginBottom: 4
+                }
+              }, "TOP POST \xB7 STOCKTWITS"), React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-meta)",
+                  color: "var(--ds-text-body)",
+                  lineHeight: 1.4
+                }
+              }, S.top_post_body.length > 220 ? S.top_post_body.slice(0, 220) + "…" : S.top_post_body), S.top_post_user && React.createElement("div", {
+                style: {
+                  fontSize: 9,
+                  color: "var(--ds-text-muted)",
+                  marginTop: 4
+                }
+              }, "@", S.top_post_user, S.top_post_url && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("a", {
+                href: S.top_post_url,
+                target: "_blank",
+                rel: "noopener",
+                style: {
+                  color: "var(--ds-text-muted)",
+                  textDecoration: "underline"
+                }
+              }, "view on StockTwits \u2197")))), hasRD && spike >= 2 && React.createElement("div", {
+                style: {
+                  marginTop: "var(--ds-space-2)",
+                  padding: "var(--ds-space-2)",
+                  background: "rgba(245, 194, 92, 0.06)",
+                  border: "1px solid rgba(245, 194, 92, 0.25)",
+                  borderRadius: "var(--ds-radius-md)",
+                  fontSize: "var(--ds-fs-meta)",
+                  color: "var(--ds-text-body)"
+                }
+              }, React.createElement("span", {
+                style: {
+                  fontWeight: 700,
+                  color: "var(--ds-color-accent, #f5c25c)"
+                }
+              }, "\u26A1 Reddit mention spike:"), " ", S.reddit.mentions_24h, " posts today vs ", S.reddit.mentions_prev || "~0", " yesterday (", spikeStr, ") \u2014 early trader-interest signal."));
+            })(), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
+              title: "\uD83C\uDFAD Theme Rotation",
+              action: React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, C.themes.length, " theme", C.themes.length === 1 ? "" : "s")
+            }, C.themes.map((th, i) => {
+              const active = th.active;
+              const dir = th.active_direction;
+              const peers = dir === "up" ? th.top_up : th.top_down;
+              return React.createElement("div", {
+                key: `th-${i}`,
+                style: {
+                  marginBottom: i < C.themes.length - 1 ? "var(--ds-space-2)" : 0,
+                  padding: "var(--ds-space-2)",
+                  background: active ? dir === "up" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? dir === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
                   borderRadius: "var(--ds-radius-md)"
                 }
               }, React.createElement("div", {
                 style: {
                   display: "flex",
-                  gap: 6,
                   alignItems: "center",
-                  marginBottom: 4,
-                  flexWrap: "wrap"
+                  gap: 6,
+                  marginBottom: 4
                 }
               }, React.createElement("span", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: "var(--ds-fs-meta)",
+                  color: "var(--ds-text-body)",
+                  fontWeight: 600
+                }
+              }, String(th.theme).replace(/_/g, " ")), active && React.createElement("span", {
                 style: {
                   fontSize: 9,
                   fontWeight: 700,
                   padding: "1px 6px",
                   borderRadius: 4,
-                  color: isFlash ? "#fbbf24" : "#a78bfa",
-                  background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                  background: dir === "up" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)",
+                  color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
                   letterSpacing: "0.05em"
                 }
-              }, isFlash ? "FLASH" : "RESEARCH"), React.createElement("span", {
+              }, dir === "up" ? "▲ ACTIVE" : "▼ ACTIVE")), React.createElement("div", {
                 style: {
                   fontSize: 10,
-                  color: "var(--ds-text-muted)"
-                }
-              }, fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)), p.applied_at && React.createElement("span", {
-                style: {
-                  fontSize: 9,
-                  fontWeight: 700,
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  color: "#34d399",
-                  background: "rgba(52,211,153,0.10)"
-                }
-              }, "APPLIED"), hasRewrite && React.createElement("span", {
-                style: {
-                  fontSize: 9,
-                  fontWeight: 700,
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  color: "#67e8f9",
-                  background: "rgba(103,232,249,0.08)"
-                },
-                title: "TT-voice summary (paraphrased from source)"
-              }, "TT")), React.createElement("div", {
-                style: {
-                  fontSize: "var(--ds-fs-body)",
-                  color: "var(--ds-text-body)",
-                  fontWeight: 600,
-                  lineHeight: 1.4,
+                  color: "var(--ds-text-muted)",
                   marginBottom: 4
                 }
-              }, p.tt_summary_title || !isFlash && p.title || ""), React.createElement("div", {
-                style: {
-                  fontSize: "var(--ds-fs-meta)",
-                  color: "var(--ds-text-body)",
-                  lineHeight: 1.45
-                }
-              }, p.tt_summary_body || formatFsdExcerpt(p.excerpt, tickerSymbol)), Array.isArray(p.tt_key_points) && p.tt_key_points.length > 0 && React.createElement("div", {
+              }, th.has_data, " of ", th.members, " peers reporting \xB7 ", th.up, " up \xB7 ", th.down, " down (\u22652%)"), Array.isArray(peers) && peers.length > 0 && React.createElement("div", {
                 style: {
                   display: "flex",
                   gap: 4,
-                  flexWrap: "wrap",
-                  marginTop: 6
+                  flexWrap: "wrap"
                 }
-              }, p.tt_key_points.slice(0, 6).map((kp, j) => {
-                const dirColor = kp.direction === "long" ? "#34d399" : kp.direction === "short" ? "#f87171" : "var(--ds-text-muted)";
-                const kindBg = kp.kind === "support" || kp.kind === "target" ? "rgba(52,211,153,0.08)" : kp.kind === "resistance" || kp.kind === "stop" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)";
-                return React.createElement("span", {
-                  key: `kp-${j}`,
-                  title: kp.note || "",
-                  style: {
-                    fontSize: 10,
-                    padding: "2px 7px",
-                    borderRadius: 999,
-                    background: kindBg,
-                    color: dirColor,
-                    fontWeight: 600,
-                    border: "1px solid rgba(255,255,255,0.06)"
-                  }
-                }, kp.ticker ? `${kp.ticker} ` : "", String(kp.kind || "").toUpperCase(), kp.level ? ` ${kp.level}` : "", kp.horizon ? ` · ${kp.horizon}` : "");
-              })), p.tt_cta && React.createElement("div", {
+              }, peers.slice(0, 4).map((p, j) => React.createElement("span", {
+                key: `pmv-${j}`,
                 style: {
-                  marginTop: 6,
-                  fontSize: 11,
-                  color: "var(--ds-text-faint)",
-                  fontStyle: "italic",
-                  lineHeight: 1.4
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: 10,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  background: "rgba(255,255,255,0.05)",
+                  color: p.dp >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
                 }
-              }, "\u2192 ", p.tt_cta), React.createElement("div", {
-                style: {
-                  marginTop: 6,
-                  fontSize: 9,
-                  color: "var(--ds-text-muted)"
-                }
-              }, p.attribution || "Source: Fundstrat Direct", p.source_url && React.createElement(React.Fragment, null, " · ", React.createElement("a", {
-                href: p.source_url,
-                target: "_blank",
-                rel: "noopener noreferrer",
-                style: {
-                  color: "var(--ds-text-muted)",
-                  textDecoration: "underline"
-                }
-              }, "read original \u2192"))));
-            })), React.createElement("div", {
+              }, p.ticker || p.t, " ", p.dp >= 0 ? "+" : "", p.dp, "%"))));
+            })), C.macro && React.createElement(Panel, {
+              title: "\uD83C\uDF10 Macro Context"
+            }, C.macro.narrative && React.createElement("div", {
               style: {
-                marginTop: 8,
-                fontSize: 9,
-                color: "var(--ds-text-faint)"
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)",
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                lineHeight: 1.4,
+                marginBottom: "var(--ds-space-2)"
               }
-            }, "TT summaries are paraphrased for compliance. Original research \xA9 Fundstrat Direct \u2014 link above to read in full."));
-          })(), React.createElement(Panel, {
-            title: "\uD83D\uDD25 News Catalysts",
-            action: C.news?.count > 0 && React.createElement("span", {
-              className: "ds-chip ds-chip--sm"
-            }, C.news.count, " headlines \xB7 5d")
-          }, !C.news?.has_data ? React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
-            style: {
-              marginBottom: "var(--ds-space-3)",
-              padding: "var(--ds-space-2)",
-              background: C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.06)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
-              border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-              marginBottom: 4
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "TOP CATALYST"), sentimentChip(C.news.top_catalyst.sentiment), React.createElement("span", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              padding: "1px 6px",
-              borderRadius: 4,
-              color: "var(--ds-text-body)",
-              background: "rgba(255,255,255,0.08)"
-            }
-          }, "STR ", C.news.top_catalyst.catalyst_strength, "/10")), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-body)",
-              fontWeight: 600,
-              lineHeight: 1.4
-            }
-          }, C.news.top_catalyst.headline), React.createElement("div", {
-            style: {
-              marginTop: 4,
-              fontSize: 10,
-              color: "var(--ds-text-muted)"
-            }
-          }, C.news.top_catalyst.source, " \xB7 ", fmtAgo(C.news.top_catalyst.datetime))), React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: 4,
-              marginBottom: "var(--ds-space-2)",
-              flexWrap: "wrap"
-            }
-          }, C.news.bull > 0 && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              padding: "2px 6px",
-              borderRadius: 4,
-              background: "rgba(52,211,153,0.10)",
-              color: "var(--ds-color-up, #34d399)"
-            }
-          }, C.news.bull, " bull"), C.news.bear > 0 && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              padding: "2px 6px",
-              borderRadius: 4,
-              background: "rgba(248,113,113,0.10)",
-              color: "var(--ds-color-down, #f87171)"
-            }
-          }, C.news.bear, " bear"), C.news.neutral > 0 && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              padding: "2px 6px",
-              borderRadius: 4,
-              background: "rgba(255,255,255,0.05)",
-              color: "var(--ds-text-muted)"
-            }
-          }, C.news.neutral, " neutral"), C.news.dominant_sentiment && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 6px",
-              borderRadius: 4,
-              background: "rgba(255,255,255,0.05)",
-              color: "var(--ds-text-faint)"
-            }
-          }, "DOMINANT: ", String(C.news.dominant_sentiment).toUpperCase())), Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              marginTop: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "RECENT HEADLINES"), C.news.latest_3.map((h, i) => React.createElement("div", {
-            key: `hl-${i}`,
-            style: {
-              display: "flex",
-              gap: 6,
-              alignItems: "flex-start",
-              fontSize: "var(--ds-fs-meta)"
-            }
-          }, sentimentChip(h.sentiment), React.createElement("div", {
-            style: {
-              flex: 1,
-              color: "var(--ds-text-body)",
-              lineHeight: 1.35
-            }
-          }, h.headline, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              color: "var(--ds-text-muted)",
-              marginTop: 1
-            }
-          }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10")))))))), React.createElement(Panel, {
-            title: "\uD83D\uDCBC Insider Activity",
-            action: C.insider?.has_data && React.createElement("span", {
-              className: "ds-chip ds-chip--sm"
-            }, C.insider.lookback_days, "d window")
-          }, !C.insider?.has_data ? React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "No Form-4 insider transactions in the last 30 days.") : (() => {
-            const buyVal = C.insider.buys?.total_value || 0;
-            const sellVal = C.insider.sells?.total_value || 0;
-            const netVal = C.insider.net_value || 0;
-            const hiBuys = C.insider.buys?.high_signal_count || 0;
-            const hiBuysValue = C.insider.buys?.high_signal_value || 0;
-            return React.createElement(React.Fragment, null, React.createElement("div", {
+            }, C.macro.narrative), C.macro.cross_asset_regime && React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                flexWrap: "wrap",
+                marginBottom: "var(--ds-space-2)"
+              }
+            }, Object.entries(C.macro.cross_asset_regime).map(([k, v]) => {
+              if (v === "no_data") return null;
+              const color = v === "outperforming" ? "var(--ds-color-up, #34d399)" : v === "underperforming" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)";
+              const arrow = v === "outperforming" ? "▲" : v === "underperforming" ? "▼" : "─";
+              const label = k.replace(/_20d$/, "").replace(/_/g, " ");
+              return React.createElement("span", {
+                key: `xa-${k}`,
+                style: {
+                  fontSize: 10,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  background: "rgba(255,255,255,0.05)",
+                  color
+                }
+              }, arrow, " ", label);
+            })), C.macro.ticker_country && React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                padding: "var(--ds-space-2)",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em",
+                marginBottom: 2
+              }
+            }, "COUNTRY: ", C.macro.ticker_country.label), React.createElement("div", {
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, "20d ", C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : ""), C.macro.ticker_country.ret_20d, "% \xB7 RS vs SPY ", C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : ""), C.macro.ticker_country.rs_20d_vs_spy))), C.coverage && React.createElement(Panel, {
+              title: "\uD83D\uDCCA Detection History"
+            }, React.createElement("div", {
               style: {
                 display: "flex",
                 gap: "var(--ds-space-3)",
@@ -11645,21 +12036,21 @@
                 color: "var(--ds-text-faint)",
                 letterSpacing: "0.05em"
               }
-            }, "NET 30d"), React.createElement("div", {
+            }, "CAPTURE RATE"), React.createElement("div", {
               style: {
                 fontFamily: "var(--tt-font-mono)",
                 fontWeight: 700,
                 marginTop: 2,
                 fontSize: "var(--ds-fs-h4, 16px)",
-                color: netVal >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
+                color: (C.coverage.capture_rate_pct || 0) >= 70 ? "var(--ds-color-up, #34d399)" : (C.coverage.capture_rate_pct || 0) >= 40 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)"
               }
-            }, netVal >= 0 ? "+" : "−", fmtMoney(Math.abs(netVal))), React.createElement("div", {
+            }, C.coverage.capture_rate_pct != null ? `${C.coverage.capture_rate_pct}%` : "—"), React.createElement("div", {
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-muted)",
                 marginTop: 2
               }
-            }, "buys ", fmtMoney(buyVal), " \xB7 sells ", fmtMoney(sellVal))), React.createElement("div", {
+            }, C.coverage.captured, " of ", C.coverage.big_moves, " big moves")), React.createElement("div", {
               style: {
                 flex: 1,
                 padding: "var(--ds-space-2)",
@@ -11674,422 +12065,35 @@
                 color: "var(--ds-text-faint)",
                 letterSpacing: "0.05em"
               }
-            }, "HIGH-SIGNAL BUYS"), React.createElement("div", {
+            }, "GAPS \xB7 ", C.coverage.window_lookback_days || 14, "D"), React.createElement("div", {
               style: {
                 fontFamily: "var(--tt-font-mono)",
                 fontWeight: 700,
                 marginTop: 2,
                 fontSize: "var(--ds-fs-h4, 16px)",
-                color: hiBuys > 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)"
+                color: (C.coverage.gaps || 0) === 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
               }
-            }, hiBuys), React.createElement("div", {
+            }, C.coverage.gaps || 0), React.createElement("div", {
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-muted)",
                 marginTop: 2
               }
-            }, "CEO/CFO/Dir \xB7 ", fmtMoney(hiBuysValue)))), Array.isArray(C.insider.buys?.top_3) && C.insider.buys.top_3.length > 0 && React.createElement("div", {
-              style: {
-                marginTop: "var(--ds-space-2)"
-              }
-            }, React.createElement("div", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em",
-                marginBottom: 4
-              }
-            }, "RECENT BUYS"), C.insider.buys.top_3.map((t, i) => React.createElement("div", {
-              key: `ib-${i}`,
-              style: {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "4px 0",
-                borderBottom: i < C.insider.buys.top_3.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none"
-              }
-            }, React.createElement("div", {
-              style: {
-                flex: 1,
-                minWidth: 0
-              }
-            }, React.createElement("div", {
+            }, "last gap ", C.coverage.last_gap_day || "—"))), C.coverage.dominant_miss_reason && React.createElement("div", {
               style: {
                 fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-body)",
-                fontWeight: 600,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap"
-              }
-            }, t.high_signal && React.createElement("span", {
-              style: {
-                color: "var(--ds-color-up, #34d399)",
-                marginRight: 4
-              }
-            }, "\u2605"), t.name), React.createElement("div", {
-              style: {
-                fontSize: 9,
-                color: "var(--ds-text-muted)"
-              }
-            }, t.title, " \xB7 ", t.date)), React.createElement("div", {
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: "var(--ds-fs-meta)",
-                fontWeight: 700,
-                color: "var(--ds-color-up, #34d399)"
-              }
-            }, fmtMoney(t.value))))));
-          })()), C.social?.has_data && (() => {
-            const S = C.social;
-            const hasST = (S.message_count_24h || 0) > 0;
-            const hasRD = S.reddit && (S.reddit.mentions_24h || 0) > 0;
-            if (!hasST && !hasRD) return null;
-            const spike = S.reddit?.spike_ratio;
-            const spikeStr = spike != null && Number.isFinite(spike) && spike < 100 ? spike >= 1 ? `${spike.toFixed(1)}x` : `${(spike * 100).toFixed(0)}%` : null;
-            const bullPct = S.bull_ratio_pct;
-            const bullColor = bullPct == null ? "var(--ds-text-muted)" : bullPct >= 70 ? "var(--ds-color-up, #34d399)" : bullPct <= 30 ? "var(--ds-color-down, #f87171)" : "var(--ds-text-body)";
-            return React.createElement(Panel, {
-              title: "\uD83D\uDCE3 Social Buzz",
-              action: React.createElement("span", {
-                className: "ds-chip ds-chip--sm"
-              }, hasST ? "StockTwits" : "", hasST && hasRD ? " · " : "", hasRD ? "Reddit" : "")
-            }, React.createElement("div", {
-              style: {
-                display: "flex",
-                gap: "var(--ds-space-2)",
-                marginBottom: hasST && S.top_post_body ? "var(--ds-space-3)" : 0
-              }
-            }, hasST && React.createElement("div", {
-              style: {
-                flex: 1,
+                color: "var(--ds-text-muted)",
                 padding: "var(--ds-space-2)",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(255,193,7,0.05)",
+                border: "1px solid rgba(255,193,7,0.20)",
                 borderRadius: "var(--ds-radius-md)"
               }
-            }, React.createElement("div", {
+            }, React.createElement("strong", {
               style: {
-                fontSize: 9,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em"
-              }
-            }, "STOCKTWITS \xB7 24h"), React.createElement("div", {
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontWeight: 700,
-                marginTop: 2,
-                fontSize: "var(--ds-fs-h4, 16px)",
-                color: bullColor
-              }
-            }, bullPct != null ? `${bullPct}%` : "—", React.createElement("span", {
-              style: {
-                fontSize: 11,
-                fontWeight: 600,
-                marginLeft: 3,
-                color: "var(--ds-text-muted)"
-              }
-            }, "bull")), React.createElement("div", {
-              style: {
-                fontSize: 10,
-                color: "var(--ds-text-muted)",
-                marginTop: 2
-              }
-            }, S.message_count_24h || 0, " posts", S.bullish_count > 0 || S.bearish_count > 0 ? ` · ${S.bullish_count || 0}↑ / ${S.bearish_count || 0}↓` : "", S.watchlist_count > 0 && ` · ${Math.round(S.watchlist_count / 1000)}k watching`)), hasRD && React.createElement("div", {
-              style: {
-                flex: 1,
-                padding: "var(--ds-space-2)",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: "var(--ds-radius-md)"
-              }
-            }, React.createElement("div", {
-              style: {
-                fontSize: 9,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em"
-              }
-            }, "REDDIT \xB7 24h"), React.createElement("div", {
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontWeight: 700,
-                marginTop: 2,
-                fontSize: "var(--ds-fs-h4, 16px)",
-                color: spike != null && spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
-              }
-            }, S.reddit.mentions_24h || 0, React.createElement("span", {
-              style: {
-                fontSize: 11,
-                fontWeight: 600,
-                marginLeft: 3,
-                color: "var(--ds-text-muted)"
-              }
-            }, "posts")), React.createElement("div", {
-              style: {
-                fontSize: 10,
-                color: "var(--ds-text-muted)",
-                marginTop: 2
-              }
-            }, S.reddit.rank ? `rank #${S.reddit.rank}` : "unranked", spikeStr && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("span", {
-              style: {
-                color: spike >= 2 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-muted)",
-                fontWeight: 700
-              }
-            }, spikeStr, " vs prev")), S.reddit.upvotes_24h > 0 && ` · ${S.reddit.upvotes_24h.toLocaleString()} upvotes`))), hasST && S.top_post_body && React.createElement("div", {
-              style: {
-                padding: "var(--ds-space-2)",
-                background: "rgba(52,211,153,0.04)",
-                border: "1px solid rgba(52,211,153,0.15)",
-                borderRadius: "var(--ds-radius-md)"
-              }
-            }, React.createElement("div", {
-              style: {
-                fontSize: 9,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em",
-                marginBottom: 4
-              }
-            }, "TOP POST \xB7 STOCKTWITS"), React.createElement("div", {
-              style: {
-                fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-body)",
-                lineHeight: 1.4
-              }
-            }, S.top_post_body.length > 220 ? S.top_post_body.slice(0, 220) + "…" : S.top_post_body), S.top_post_user && React.createElement("div", {
-              style: {
-                fontSize: 9,
-                color: "var(--ds-text-muted)",
-                marginTop: 4
-              }
-            }, "@", S.top_post_user, S.top_post_url && React.createElement(React.Fragment, null, " \xB7 ", React.createElement("a", {
-              href: S.top_post_url,
-              target: "_blank",
-              rel: "noopener",
-              style: {
-                color: "var(--ds-text-muted)",
-                textDecoration: "underline"
-              }
-            }, "view on StockTwits \u2197")))), hasRD && spike >= 2 && React.createElement("div", {
-              style: {
-                marginTop: "var(--ds-space-2)",
-                padding: "var(--ds-space-2)",
-                background: "rgba(245, 194, 92, 0.06)",
-                border: "1px solid rgba(245, 194, 92, 0.25)",
-                borderRadius: "var(--ds-radius-md)",
-                fontSize: "var(--ds-fs-meta)",
                 color: "var(--ds-text-body)"
               }
-            }, React.createElement("span", {
-              style: {
-                fontWeight: 700,
-                color: "var(--ds-color-accent, #f5c25c)"
-              }
-            }, "\u26A1 Reddit mention spike:"), " ", S.reddit.mentions_24h, " posts today vs ", S.reddit.mentions_prev || "~0", " yesterday (", spikeStr, ") \u2014 early trader-interest signal."));
-          })(), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
-            title: "\uD83C\uDFAD Theme Rotation",
-            action: React.createElement("span", {
-              className: "ds-chip ds-chip--sm"
-            }, C.themes.length, " theme", C.themes.length === 1 ? "" : "s")
-          }, C.themes.map((th, i) => {
-            const active = th.active;
-            const dir = th.active_direction;
-            const peers = dir === "up" ? th.top_up : th.top_down;
-            return React.createElement("div", {
-              key: `th-${i}`,
-              style: {
-                marginBottom: i < C.themes.length - 1 ? "var(--ds-space-2)" : 0,
-                padding: "var(--ds-space-2)",
-                background: active ? dir === "up" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${active ? dir === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
-                borderRadius: "var(--ds-radius-md)"
-              }
-            }, React.createElement("div", {
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginBottom: 4
-              }
-            }, React.createElement("span", {
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: "var(--ds-fs-meta)",
-                color: "var(--ds-text-body)",
-                fontWeight: 600
-              }
-            }, String(th.theme).replace(/_/g, " ")), active && React.createElement("span", {
-              style: {
-                fontSize: 9,
-                fontWeight: 700,
-                padding: "1px 6px",
-                borderRadius: 4,
-                background: dir === "up" ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)",
-                color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
-                letterSpacing: "0.05em"
-              }
-            }, dir === "up" ? "▲ ACTIVE" : "▼ ACTIVE")), React.createElement("div", {
-              style: {
-                fontSize: 10,
-                color: "var(--ds-text-muted)",
-                marginBottom: 4
-              }
-            }, th.has_data, " of ", th.members, " peers reporting \xB7 ", th.up, " up \xB7 ", th.down, " down (\u22652%)"), Array.isArray(peers) && peers.length > 0 && React.createElement("div", {
-              style: {
-                display: "flex",
-                gap: 4,
-                flexWrap: "wrap"
-              }
-            }, peers.slice(0, 4).map((p, j) => React.createElement("span", {
-              key: `pmv-${j}`,
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.05)",
-                color: p.dp >= 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)"
-              }
-            }, p.ticker || p.t, " ", p.dp >= 0 ? "+" : "", p.dp, "%"))));
-          })), C.macro && React.createElement(Panel, {
-            title: "\uD83C\uDF10 Macro Context"
-          }, C.macro.narrative && React.createElement("div", {
-            style: {
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)",
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-body)",
-              lineHeight: 1.4,
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, C.macro.narrative), C.macro.cross_asset_regime && React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: 4,
-              flexWrap: "wrap",
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, Object.entries(C.macro.cross_asset_regime).map(([k, v]) => {
-            if (v === "no_data") return null;
-            const color = v === "outperforming" ? "var(--ds-color-up, #34d399)" : v === "underperforming" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)";
-            const arrow = v === "outperforming" ? "▲" : v === "underperforming" ? "▼" : "─";
-            const label = k.replace(/_20d$/, "").replace(/_/g, " ");
-            return React.createElement("span", {
-              key: `xa-${k}`,
-              style: {
-                fontSize: 10,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.05)",
-                color
-              }
-            }, arrow, " ", label);
-          })), C.macro.ticker_country && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-body)",
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em",
-              marginBottom: 2
-            }
-          }, "COUNTRY: ", C.macro.ticker_country.label), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "20d ", C.macro.ticker_country.ret_20d != null && (C.macro.ticker_country.ret_20d >= 0 ? "+" : ""), C.macro.ticker_country.ret_20d, "% \xB7 RS vs SPY ", C.macro.ticker_country.rs_20d_vs_spy != null && (C.macro.ticker_country.rs_20d_vs_spy >= 0 ? "+" : ""), C.macro.ticker_country.rs_20d_vs_spy))), C.coverage && React.createElement(Panel, {
-            title: "\uD83D\uDCCA Detection History"
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: "var(--ds-space-3)",
-              marginBottom: "var(--ds-space-2)"
-            }
-          }, React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "CAPTURE RATE"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 16px)",
-              color: (C.coverage.capture_rate_pct || 0) >= 70 ? "var(--ds-color-up, #34d399)" : (C.coverage.capture_rate_pct || 0) >= 40 ? "var(--ds-text-body)" : "var(--ds-color-down, #f87171)"
-            }
-          }, C.coverage.capture_rate_pct != null ? `${C.coverage.capture_rate_pct}%` : "—"), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, C.coverage.captured, " of ", C.coverage.big_moves, " big moves")), React.createElement("div", {
-            style: {
-              flex: 1,
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.05em"
-            }
-          }, "GAPS \xB7 ", C.coverage.window_lookback_days || 14, "D"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              marginTop: 2,
-              fontSize: "var(--ds-fs-h4, 16px)",
-              color: (C.coverage.gaps || 0) === 0 ? "var(--ds-color-up, #34d399)" : "var(--ds-text-body)"
-            }
-          }, C.coverage.gaps || 0), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, "last gap ", C.coverage.last_gap_day || "—"))), C.coverage.dominant_miss_reason && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-meta)",
-              color: "var(--ds-text-muted)",
-              padding: "var(--ds-space-2)",
-              background: "rgba(255,193,7,0.05)",
-              border: "1px solid rgba(255,193,7,0.20)",
-              borderRadius: "var(--ds-radius-md)"
-            }
-          }, React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " "))));
+            }, "Dominant miss reason:"), " ", String(C.coverage.dominant_miss_reason).replace(/_/g, " "))))
+          );
         })(), v2RailTab === "INVESTOR" && React.createElement(InvestorTabPanel, {
           ticker: ticker,
           latestTicker: latestTicker,
@@ -17154,4 +17158,4 @@
   };
 })();
 
-// cache-bust:1780506190562:19114811
+// cache-bust:1780509710814:285010715
