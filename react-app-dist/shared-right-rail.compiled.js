@@ -4183,6 +4183,40 @@
         }
         return candidate;
       }, [trade, ledgerTrades, tickerSymbol]);
+      const effectiveTraderTrade = useMemo(() => {
+        if (trade && trade._source_mode !== "investor") return trade;
+        if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+        const symUp = tickerSymbol.toUpperCase();
+        if (!symUp) return null;
+        let candidate = null;
+        for (const t of ledgerTrades) {
+          if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+          if (t?._source_mode === "investor") continue;
+          const st = String(t?.status || "").toUpperCase();
+          if (st === "WIN" || st === "LOSS") continue;
+          if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+            candidate = t;
+          }
+        }
+        return candidate;
+      }, [trade, ledgerTrades, tickerSymbol]);
+      const effectiveInvestorTrade = useMemo(() => {
+        if (trade && trade._source_mode === "investor") return trade;
+        if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
+        const symUp = tickerSymbol.toUpperCase();
+        if (!symUp) return null;
+        let candidate = null;
+        for (const t of ledgerTrades) {
+          if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
+          if (t?._source_mode !== "investor") continue;
+          const st = String(t?.status || "").toUpperCase();
+          if (st === "WIN" || st === "LOSS") continue;
+          if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
+            candidate = t;
+          }
+        }
+        return candidate;
+      }, [trade, ledgerTrades, tickerSymbol]);
       const [bubbleJourney, setBubbleJourney] = useState([]);
       const [bubbleJourneyLoading, setBubbleJourneyLoading] = useState(false);
       const [bubbleJourneyError, setBubbleJourneyError] = useState(null);
@@ -7103,7 +7137,128 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (() => {
+        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, effectiveInvestorTrade && (() => {
+          const it = effectiveInvestorTrade;
+          const dir = String(it?.direction || "LONG").toUpperCase();
+          const isLong = dir !== "SHORT";
+          const entry = Number(it?.entryPrice ?? it?.entry_price);
+          const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+          const pnlPct = entry > 0 && live > 0 ? (isLong ? live - entry : entry - live) / entry * 100 : null;
+          const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+          const entryWhen = (() => {
+            const t = Number(it?.entry_ts);
+            if (!Number.isFinite(t)) return null;
+            try {
+              return new Date(t).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+              });
+            } catch (_) {
+              return null;
+            }
+          })();
+          const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
+          const setupAction = (() => {
+            const s = setupRaw.toLowerCase();
+            if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce")) return "Accumulate on dips, trim into strength";
+            if (s.includes("hold") && !s.includes("watch")) return "Hold — no add, no trim. Let the thesis play out.";
+            if (s.includes("trim") || s.includes("reduce") || s.includes("sell")) return "Reduce on strength — taking profits";
+            if (s.includes("watch") || s.includes("monitor")) return "Monitor — no position change recommended";
+            if (s.includes("add") || s.includes("accumulate")) return "Accumulate — add to position on weakness";
+            if (s.includes("close") || s.includes("exit")) return "Exit recommended — close the position";
+            return setupRaw ? setupRaw.replace(/_/g, " ") : "Holding";
+          })();
+          return React.createElement("div", {
+            style: {
+              padding: "14px 14px 12px",
+              marginBottom: "var(--ds-space-3)",
+              background: "rgba(59,130,246,0.06)",
+              border: "1px solid rgba(59,130,246,0.30)",
+              borderRadius: 12
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: "#93c5fd",
+              background: "rgba(59,130,246,0.12)",
+              letterSpacing: "0.06em"
+            }
+          }, "\uD83D\uDCC2 INVESTOR PORTFOLIO"), React.createElement("span", {
+            style: {
+              fontSize: 13,
+              fontWeight: 800,
+              color: "#93c5fd",
+              letterSpacing: "0.02em"
+            }
+          }, "HOLDING ", dir)), pnlPct != null && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              color: pnlColor
+            }
+          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%")), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.5,
+              marginBottom: 8
+            }
+          }, "Entry ", entry > 0 ? `$${entry.toFixed(2)}` : "—", live > 0 ? React.createElement(React.Fragment, null, " \u2192 ", React.createElement("span", {
+            style: {
+              color: pnlColor
+            }
+          }, "$", live.toFixed(2))) : null, entryWhen && React.createElement("span", {
+            style: {
+              color: "var(--ds-text-faint)"
+            }
+          }, " \xB7 entered ", entryWhen)), React.createElement("div", {
+            style: {
+              marginTop: 4
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "INVESTOR ACTION"), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.4
+            }
+          }, setupAction)), React.createElement("div", {
+            style: {
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.04)",
+              fontSize: 10,
+              color: "var(--ds-text-faint)"
+            }
+          }, "The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running."));
+        })(), (() => {
           const formatPx = n => {
             const x = Number(n);
             if (!Number.isFinite(x)) return "—";
@@ -7114,24 +7269,28 @@
           const pcAction = String(predictionContract?.action_label || "").toUpperCase();
           const isLong = pcDir === "LONG";
           const isShort = pcDir === "SHORT";
-          const tradeOpen = !!(effectiveTrade && String(effectiveTrade?.status || "").toUpperCase() === "OPEN");
+          const traderTrade = effectiveTraderTrade;
+          const tradeOpen = !!(traderTrade && (() => {
+            const s = String(traderTrade?.status || "").toUpperCase();
+            return s === "OPEN" || s === "TP_HIT_TRIM" || !(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
+          })());
           const verdict = (() => {
-            if (stage === "trim") return {
-              word: "TRIM",
-              color: "#f59e0b",
-              bg: "rgba(245,158,11,0.10)",
-              line: "Take partial profits at the next target. Keep the runner alive.",
-              urgency: "now"
-            };
-            if (stage === "defend") return {
-              word: "DEFEND",
-              color: "#fb7185",
-              bg: "rgba(244,63,94,0.10)",
-              line: "Tighten the stop. Setup is at risk.",
-              urgency: "now"
-            };
-            if (stage === "exit") {
-              if (tradeOpen) return {
+            if (tradeOpen) {
+              if (stage === "trim") return {
+                word: "TRIM",
+                color: "#f59e0b",
+                bg: "rgba(245,158,11,0.10)",
+                line: "Take partial profits at the next target. Keep the runner alive.",
+                urgency: "now"
+              };
+              if (stage === "defend") return {
+                word: "DEFEND",
+                color: "#fb7185",
+                bg: "rgba(244,63,94,0.10)",
+                line: "Tighten the stop. Setup is at risk.",
+                urgency: "now"
+              };
+              if (stage === "exit") return {
                 word: "EXIT",
                 color: "#f87171",
                 bg: "rgba(248,113,113,0.10)",
@@ -7139,11 +7298,11 @@
                 urgency: "now"
               };
               return {
-                word: "NO TRADE",
-                color: "#9ca3af",
-                bg: "rgba(255,255,255,0.04)",
-                line: "Model has no edge here right now. Do not enter.",
-                urgency: "none"
+                word: "HOLDING",
+                color: "#67e8f9",
+                bg: "rgba(103,232,249,0.08)",
+                line: "Trader position is active. Watch the stop + targets below.",
+                urgency: "monitor"
               };
             }
             if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
@@ -7153,15 +7312,6 @@
                 bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
                 line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`,
                 urgency: "now"
-              };
-            }
-            if (stage === "hold" || stage === "active" || stage === "just_entered" || tradeOpen) {
-              return {
-                word: "HOLDING",
-                color: "#67e8f9",
-                bg: "rgba(103,232,249,0.08)",
-                line: "Position is active. Watch the stop + targets below.",
-                urgency: "monitor"
               };
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
@@ -7274,6 +7424,28 @@
               borderRadius: 12
             }
           }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: "#fcd34d",
+              background: "rgba(252,211,77,0.10)",
+              letterSpacing: "0.06em"
+            }
+          }, "\uD83C\uDFAF TRADER MODEL"), React.createElement("span", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)"
+            }
+          }, "short-term tactical view")), React.createElement("div", {
             style: {
               display: "flex",
               alignItems: "baseline",
@@ -9095,7 +9267,7 @@
             }
           }, tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
         })(), (() => {
-          const _t = effectiveTrade;
+          const _t = effectiveTraderTrade;
           if (!_t) return null;
           const _status = String(_t?.status || "").toUpperCase();
           const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" || !(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS";
@@ -17613,4 +17785,4 @@
   };
 })();
 
-// cache-bust:1780514536243:901933505
+// cache-bust:1780516205734:426435123
