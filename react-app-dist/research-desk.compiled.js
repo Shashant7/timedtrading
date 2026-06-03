@@ -323,7 +323,7 @@ function OverrideCard({
 function PublicationsCard({
   data,
   isAdmin,
-  onRefresh
+  onAction
 }) {
   const pubs = data?.pubs?.body?.publications || [];
   const proposals = data?.proposals?.body?.proposals || [];
@@ -336,11 +336,16 @@ function PublicationsCard({
   }
   return h("div", {
     className: "card"
-  }, h("h2", null, "📚 Recent Publications + Proposals (admin)"), h("h3", null, "Publications"), pubs.length === 0 ? h("div", {
+  }, h("h2", null, "📚 Recent Publications + Proposals (admin)"), h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 8
+    }
+  }, "Each per-row action is a one-click human button paired with its admin endpoint. The AI CIO can call the same endpoints directly to act autonomously (each button shows the endpoint as a tooltip)."), h("h3", null, "Publications"), pubs.length === 0 ? h("div", {
     className: "muted"
   }, "None yet.") : h("table", {
     className: "table"
-  }, h("thead", null, h("tr", null, h("th", null, "Pub id"), h("th", null, "Title"), h("th", null, "Fetched"), h("th", null, "Extract"), h("th", null, "Applied"))), h("tbody", null, pubs.slice(0, 10).map((p, i) => h("tr", {
+  }, h("thead", null, h("tr", null, h("th", null, "Pub id"), h("th", null, "Title"), h("th", null, "Fetched"), h("th", null, "Extract"), h("th", null, "Applied"), h("th", null, "Action"))), h("tbody", null, pubs.slice(0, 10).map((p, i) => h("tr", {
     key: i
   }, h("td", null, h("code", null, (p.pub_id || "").slice(0, 24))), h("td", {
     className: "muted"
@@ -354,7 +359,21 @@ function PublicationsCard({
     className: "ok"
   }, "✓") : h("span", {
     className: "dim"
-  }, "—")))))), h("h3", {
+  }, "—")), h("td", null, !p.extracted_at && p.fetch_status === "ok" && h("button", {
+    className: "btn btn-sm btn-go",
+    title: "POST /timed/admin/cro/extract {pub_id}",
+    onClick: () => onAction(`extract_${p.pub_id}`, "POST", "/timed/admin/cro/extract", {
+      pub_id: p.pub_id,
+      force: false
+    })
+  }, "Extract"), p.extracted_at && !p.applied_at && p.proposal_id && h("button", {
+    className: "btn btn-sm",
+    title: "Re-extract overrides any prior pending proposal for this pub",
+    onClick: () => onAction(`reextract_${p.pub_id}`, "POST", "/timed/admin/cro/extract", {
+      pub_id: p.pub_id,
+      force: true
+    })
+  }, "Re-extract")))))), h("h3", {
     style: {
       marginTop: 12
     }
@@ -362,7 +381,7 @@ function PublicationsCard({
     className: "muted"
   }, "None yet.") : h("table", {
     className: "table"
-  }, h("thead", null, h("tr", null, h("th", null, "Proposal id"), h("th", null, "Pub"), h("th", null, "Class"), h("th", null, "Status"), h("th", null, "Created"))), h("tbody", null, proposals.slice(0, 10).map((p, i) => h("tr", {
+  }, h("thead", null, h("tr", null, h("th", null, "Proposal id"), h("th", null, "Pub"), h("th", null, "Class"), h("th", null, "Status"), h("th", null, "Created"), h("th", null, "Action"))), h("tbody", null, proposals.slice(0, 10).map((p, i) => h("tr", {
     key: i
   }, h("td", null, h("code", null, (p.proposal_id || "").slice(0, 24))), h("td", {
     className: "dim"
@@ -372,7 +391,33 @@ function PublicationsCard({
     className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "warn"
   }, p.status)), h("td", {
     className: "tabular dim"
-  }, fmtAgo(p.created_at)))))));
+  }, fmtAgo(p.created_at)), h("td", null, p.status === "pending" && h(React.Fragment, null, h("button", {
+    className: "btn btn-sm btn-go",
+    title: "POST /timed/admin/cro/proposal/approve {proposal_id}",
+    style: {
+      marginRight: 6
+    },
+    onClick: () => onAction(`approve_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/approve", {
+      proposal_id: p.proposal_id,
+      note: "operator_approved_via_research_desk"
+    })
+  }, "Approve"), h("button", {
+    className: "btn btn-sm btn-danger",
+    title: "POST /timed/admin/cro/proposal/reject {proposal_id}",
+    onClick: () => onAction(`reject_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/reject", {
+      proposal_id: p.proposal_id,
+      note: "operator_rejected_via_research_desk"
+    })
+  }, "Reject")), p.status === "applied" && h("button", {
+    className: "btn btn-sm",
+    title: "View full proposal JSON",
+    onClick: () => onAction(`view_${p.proposal_id}`, "GET", `/timed/admin/cro/proposal?id=${encodeURIComponent(p.proposal_id)}`)
+  }, "View JSON")))))), h("div", {
+    className: "dim",
+    style: {
+      marginTop: 8
+    }
+  }, "AI CIO programmatic equivalent: POST /timed/admin/cro/proposal/approve {proposal_id} (or reject). " + "These same endpoints accept the API key the CIO already has via env.TIMED_API_KEY."));
 }
 function RotationCard({
   data
@@ -422,36 +467,85 @@ function ActionsCard({
   lastAction
 }) {
   if (!isAdmin) return null;
+  const actions = [{
+    key: "cycle",
+    label: "Kick full CRO/CTO cycle",
+    cls: "btn btn-go",
+    path: "/timed/admin/cro/cycle",
+    body: {},
+    hint: "Runs the whole nightly pipeline now (CTO + rotation + FSD ingest + extract + apply + synthesis)."
+  }, {
+    key: "synth",
+    label: "Synthesize CRO note now",
+    cls: "btn",
+    path: "/timed/admin/cro/synthesize",
+    body: {
+      force: true
+    },
+    hint: "Re-runs only the LLM synthesis step against current cached inputs. Idempotent per date unless force=true."
+  }, {
+    key: "cto",
+    label: "Refresh CTO universe",
+    cls: "btn",
+    path: "/timed/admin/cto/universe/refresh",
+    body: {},
+    hint: "Recomputes Markov-biased probabilistic levels for the active universe (~50 tickers)."
+  }, {
+    key: "rotation",
+    label: "Refresh rotation engine",
+    cls: "btn",
+    path: "/timed/admin/cro/rotation/refresh",
+    body: {},
+    hint: "Recomputes pairwise RS + theme breadth + intra-theme correlation."
+  }, {
+    key: "fsd_probe",
+    label: "Probe FSD login",
+    cls: "btn",
+    path: "/timed/admin/cro/fsd/probe",
+    body: {},
+    hint: "Returns a 500-char snippet of the FSD login page response. No credentials echoed back."
+  }, {
+    key: "fsd_ingest",
+    label: "Pull from FSD now",
+    cls: "btn btn-go",
+    path: "/timed/admin/cro/fsd/ingest",
+    body: {},
+    hint: "Lists FSD publications + ingests any new ones. Auto-applies tactical proposals downstream if cro_auto_apply_tactical is true."
+  }];
   return h("div", {
     className: "card"
   }, h("h2", null, "⚙️ Admin Actions"), h("div", {
     className: "muted",
     style: {
+      marginBottom: 4
+    }
+  }, "These call admin endpoints and may take 10-60 seconds each."), h("div", {
+    className: "muted",
+    style: {
       marginBottom: 12
     }
-  }, "These call admin endpoints and may take 10-60 seconds each. " + "Refresh the page after they complete."), h("div", {
-    className: "row"
+  }, "Each button maps 1:1 to a documented admin endpoint — the AI CIO can call the same path programmatically via its existing TIMED_API_KEY."), h("div", {
+    className: "actions-grid"
+  }, actions.map(a => h("div", {
+    key: a.key,
+    className: "action-tile"
   }, h("button", {
-    className: "btn btn-go",
-    onClick: () => onAction("cycle", "POST", "/timed/admin/cro/cycle", {})
-  }, "Kick full CRO/CTO cycle"), h("button", {
-    className: "btn",
-    onClick: () => onAction("synth", "POST", "/timed/admin/cro/synthesize", {
-      force: true
-    })
-  }, "Synthesize CRO note now"), h("button", {
-    className: "btn",
-    onClick: () => onAction("cto", "POST", "/timed/admin/cto/universe/refresh", {})
-  }, "Refresh CTO universe"), h("button", {
-    className: "btn",
-    onClick: () => onAction("rotation", "POST", "/timed/admin/cro/rotation/refresh", {})
-  }, "Refresh rotation engine"), h("button", {
-    className: "btn",
-    onClick: () => onAction("fsd_probe", "POST", "/timed/admin/cro/fsd/probe", {})
-  }, "Probe FSD login"), h("button", {
-    className: "btn",
-    onClick: () => onAction("fsd_ingest", "POST", "/timed/admin/cro/fsd/ingest", {})
-  }, "Pull from FSD now")), lastAction && h("div", {
+    className: a.cls,
+    title: `POST ${a.path}`,
+    onClick: () => onAction(a.key, "POST", a.path, a.body)
+  }, a.label), h("div", {
+    className: "dim",
+    style: {
+      marginTop: 4,
+      fontFamily: "'SF Mono',Menlo,Consolas,monospace"
+    }
+  }, `POST ${a.path}`), h("div", {
+    className: "muted",
+    style: {
+      marginTop: 2,
+      fontSize: 11
+    }
+  }, a.hint)))), lastAction && h("div", {
     style: {
       marginTop: 14
     }
@@ -464,6 +558,33 @@ function ActionsCard({
   }, "failed"), lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""), h("pre", {
     className: "json-pre"
   }, JSON.stringify(lastAction.body, null, 2).slice(0, 4000))));
+}
+function AICIOActionsCard() {
+  return h("div", {
+    className: "card"
+  }, h("h2", null, "🤖 AI CIO Programmatic Actions"), h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 10
+    }
+  }, "Every UI action above maps to one of these admin endpoints. The AI CIO can call any of them autonomously using its existing env.TIMED_API_KEY. Use the URL paths verbatim — no SDK needed."), h("table", {
+    className: "table"
+  }, h("thead", null, h("tr", null, h("th", null, "Action"), h("th", null, "Method + Path"), h("th", null, "Body shape"), h("th", null, "Idempotent?"))), h("tbody", null, [["Approve a pending proposal", "POST /timed/admin/cro/proposal/approve", "{ proposal_id, note? }", "yes"], ["Reject a pending proposal", "POST /timed/admin/cro/proposal/reject", "{ proposal_id, note? }", "yes"], ["Apply (re-apply) a proposal", "POST /timed/admin/cro/proposal/approve", "{ proposal_id }", "yes"], ["Clear active tactical override", "POST /timed/admin/cro/override/clear", "{ reason? }", "yes"], ["Re-extract a publication", "POST /timed/admin/cro/extract", "{ pub_id, force? }", "yes (force=true supersedes pending)"], ["Ingest URL or blob", "POST /timed/admin/cro/ingest-from-url OR /ingest-from-blob", "{ url } OR { body_text } / { body_bytes_b64 }", "no (creates new pub)"], ["Run full cycle", "POST /timed/admin/cro/cycle", "{ force? }", "mostly (force=true bypasses dedup)"], ["Run synthesis only", "POST /timed/admin/cro/synthesize", "{ force?, as_of_date? }", "yes per date"], ["Refresh CTO universe", "POST /timed/admin/cto/universe/refresh", "{ tickers?, limit? }", "yes"], ["Refresh rotation engine", "POST /timed/admin/cro/rotation/refresh", "{}", "yes"], ["Probe FSD login", "POST /timed/admin/cro/fsd/probe", "{}", "yes (read-only)"], ["List FSD publications", "POST /timed/admin/cro/fsd/list", "{ limit? }", "yes (read-only)"], ["Get proposal payload", "GET  /timed/admin/cro/proposal?id=...", "(query)", "yes (read-only)"], ["Get active override blob", "GET  /timed/admin/cro/override", "(none)", "yes (read-only)"], ["Get rotation snapshot", "GET  /timed/admin/cro/rotation/snapshot", "(none)", "yes (read-only)"], ["Get CTO ticker levels", "GET  /timed/cto/ticker?ticker=SYM", "(query)", "yes (read-only)"], ["Get CTO universe rollup", "GET  /timed/cto/universe", "(none)", "yes (read-only)"], ["Get latest CRO note", "GET  /timed/cro/latest", "(none)", "yes (read-only)"]].map((row, i) => h("tr", {
+    key: i
+  }, h("td", null, row[0]), h("td", null, h("code", {
+    style: {
+      fontSize: 11
+    }
+  }, row[1])), h("td", {
+    className: "dim"
+  }, row[2]), h("td", {
+    className: "muted"
+  }, row[3]))))), h("div", {
+    className: "dim",
+    style: {
+      marginTop: 8
+    }
+  }, "Auth: requireKeyOrAdmin — pass either ?key=TIMED_API_KEY (machine path, AI CIO) or a CF Access JWT (human path, this UI)."));
 }
 function App() {
   const [data, setData] = useState({
@@ -567,7 +688,8 @@ function App() {
     }
   }, h(PublicationsCard, {
     data,
-    isAdmin
+    isAdmin,
+    onAction
   })), h("div", {
     style: {
       marginTop: 14
@@ -576,9 +698,13 @@ function App() {
     isAdmin,
     onAction,
     lastAction
-  })));
+  })), isAdmin && h("div", {
+    style: {
+      marginTop: 14
+    }
+  }, h(AICIOActionsCard)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780466024669:603771096
+// cache-bust:1780491377064:268799849
 
-// cache-bust:1780466024669:603771096
+// cache-bust:1780491377064:268799849
