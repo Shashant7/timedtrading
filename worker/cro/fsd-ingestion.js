@@ -44,6 +44,13 @@ const CASHTAG_NOISE = new Set([
 ]);
 
 const CASHTAG_RE = /\$([A-Z][A-Z0-9]{0,4}(?:\.[A-Z])?)\b/g;
+// 2026-06-03 — Also match the paren-form "(TICKER)" pattern. FSD posts often
+// write "Alphabet (GOOGL)" or "Nvidia (NVDA)" instead of $-tagged cashtags,
+// and the Catalysts panel was returning zero hits on those names. Operator
+// reported repeatedly: "I don't see the FSD insights for GOOGL". This regex
+// matches a 2–5 char uppercase token wrapped in parens — very high-signal
+// in financial publication prose and almost never a false positive.
+const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9]{1,4})\)/g;
 
 export function extractCashtagsFromText(text) {
   if (!text) return [];
@@ -52,6 +59,15 @@ export function extractCashtagsFromText(text) {
   let m;
   CASHTAG_RE.lastIndex = 0;
   while ((m = CASHTAG_RE.exec(text)) !== null) {
+    const t = m[1].toUpperCase();
+    if (t.length < 2) continue;
+    if (CASHTAG_NOISE.has(t)) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  PAREN_TICKER_RE.lastIndex = 0;
+  while ((m = PAREN_TICKER_RE.exec(text)) !== null) {
     const t = m[1].toUpperCase();
     if (t.length < 2) continue;
     if (CASHTAG_NOISE.has(t)) continue;

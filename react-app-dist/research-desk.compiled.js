@@ -80,6 +80,34 @@ function StatusBanner({
   const strat = data?.strategy;
   const override = data?.override?.body;
   const overrideActive = !!override?.active;
+  const sumWrap = data?.lastSummary;
+  const sum = sumWrap && sumWrap.ok && sumWrap.body && sumWrap.body.ok !== false ? sumWrap.body : null;
+  const cycleChip = sum ? (() => {
+    const t = sum.finished_at || sum.started_at;
+    const ageMin = t ? Math.round((Date.now() - t) / 60000) : null;
+    const tone = !sum.ok || sum.errors && sum.errors.length > 0 ? "chip-warn" : "chip-on";
+    const head = sum.ok ? "Last cycle OK" : "Last cycle had errors";
+    const ageStr = ageMin == null ? "" : ageMin < 60 ? ` · ${ageMin}m ago` : ` · ${(ageMin / 60).toFixed(1)}h ago`;
+    return h("span", {
+      className: `chip ${tone}`,
+      title: (sum.errors || []).join("; ") || ""
+    }, `${head}${ageStr}`);
+  })() : h("span", {
+    className: "chip chip-warn"
+  }, "No cycle has run yet");
+  const stepChips = sum ? [sum.cto && h("span", {
+    key: "cto",
+    className: `chip ${sum.cto.ok ? "chip-on" : "chip-warn"}`
+  }, `CTO ${sum.cto.tickers_ok}/${sum.cto.tickers_processed}`), sum.rotation && h("span", {
+    key: "rot",
+    className: `chip ${sum.rotation.ok ? "chip-on" : "chip-warn"}`
+  }, `Rotation ${sum.rotation.ok ? "ok" : "fail"}`), sum.fsd_ingestion && h("span", {
+    key: "fsd",
+    className: `chip ${sum.fsd_ingestion.ok ? "chip-on" : sum.fsd_ingestion.skipped ? "chip" : "chip-warn"}`
+  }, sum.fsd_ingestion.skipped ? `FSD skipped (${sum.fsd_ingestion.skipped.slice(0, 20)})` : `FSD ${sum.fsd_ingestion.ingested} ingested`), sum.applies_count > 0 && h("span", {
+    key: "app",
+    className: "chip chip-blue"
+  }, `${sum.applies_count} auto-applied`)].filter(Boolean) : [];
   return h("div", {
     className: "card",
     style: {
@@ -103,23 +131,35 @@ function StatusBanner({
     className: "chip chip-pur"
   }, `CRO override active: ${override?.blob?.proposal_id || "?"}`) : h("span", {
     className: "chip"
-  }, "No CRO override"), cro?.ok ? h("span", {
+  }, "No CRO override"), cro?.body?.ok ? h("span", {
     className: "chip chip-blue"
   }, `CRO note ${cro?.body?.as_of_date || ""}`) : h("span", {
     className: "chip chip-warn"
-  }, "No CRO note yet (cron fires 22:00 UTC)"), cto?.ok ? h("span", {
+  }, "No CRO note yet (cron fires 22:00 UTC)"), cto?.body?.ok ? h("span", {
     className: "chip chip-blue"
   }, `CTO universe ${cto?.body?.tickers_ok || 0}/${cto?.body?.tickers_processed || 0} tickers`) : h("span", {
     className: "chip chip-warn"
   }, "No CTO rollup yet"), h("span", {
     className: "chip"
-  }, `Refreshed ${fmtAgo(data?.fetched_at)}`)));
+  }, `Refreshed ${fmtAgo(data?.fetched_at)}`)), h("div", {
+    className: "row",
+    style: {
+      marginTop: 8
+    }
+  }, cycleChip, ...stepChips), sum && Array.isArray(sum.errors) && sum.errors.length > 0 && h("div", {
+    className: "muted",
+    style: {
+      marginTop: 6,
+      fontSize: 11,
+      fontFamily: "monospace"
+    }
+  }, `errors: ${sum.errors.slice(0, 3).join("; ").slice(0, 300)}`));
 }
 function CRONoteCard({
   data
 }) {
   const cro = data?.cro;
-  if (!cro || !cro.ok || !cro.body) {
+  if (!cro || !cro.ok || !cro.body || cro.body.ok === false) {
     return h("div", {
       className: "card"
     }, h("h2", null, "🧠 CRO Daily Research Note"), h("div", {
@@ -214,14 +254,25 @@ function CTOUniverseCard({
   data
 }) {
   const cto = data?.cto;
-  if (!cto || !cto.ok || !cto.body) {
+  const body = cto?.body;
+  const isLive = !!(cto && cto.ok && body && body.ok !== false && Number.isFinite(Number(body.tickers_processed)));
+  if (!isLive) {
+    const summary = data?.lastSummary?.body || null;
+    const cycleNote = summary && summary.cto ? `Last cycle: CTO ok=${summary.cto.ok} (${summary.cto.tickers_ok || 0}/${summary.cto.tickers_processed || 0} tickers). ${summary.errors && summary.errors.length ? "Errors: " + summary.errors.slice(0, 2).join("; ").slice(0, 200) : ""}` : null;
     return h("div", {
       className: "card"
     }, h("h2", null, "📐 CTO Probabilistic Levels"), h("div", {
       className: "muted"
-    }, "No universe rollup yet. Runs nightly at 22:00 UTC, refreshes hourly during US business hours. ", "Click \"Refresh CTO universe\" in Admin Actions to populate immediately."));
+    }, body?.error_kind === "no_rollup_yet" ? "No universe rollup written yet. The hourly CRO/CTO cycle has not produced a snapshot. " : "No universe rollup available. ", "Runs nightly at 22:00 UTC and refreshes hourly 14:00-21:00 UTC on US business days. ", "Click \"Refresh CTO universe\" in Admin Actions to populate immediately."), cycleNote && h("div", {
+      className: "dim",
+      style: {
+        marginTop: 8,
+        fontFamily: "monospace",
+        fontSize: 11
+      }
+    }, cycleNote));
   }
-  const r = cto.body;
+  const r = body;
   const headlines = Array.isArray(r.headlines) ? r.headlines : [];
   const top = Array.isArray(r.results) ? r.results.filter(x => x.ok).slice(0, 12) : [];
   return h("div", {
@@ -642,7 +693,7 @@ function App() {
     };
   }, []);
   const load = useCallback(async () => {
-    const [cro, cto, strategy, override, pubs, proposals, rotation] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
+    const [cro, cto, strategy, override, pubs, proposals, rotation, lastSummary] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
       body: null
     }), isAdmin ? jget("/timed/admin/cro/publications?limit=15") : Promise.resolve({
       body: null
@@ -650,7 +701,7 @@ function App() {
       body: null
     }), isAdmin ? jget("/timed/admin/cro/rotation/snapshot") : Promise.resolve({
       body: null
-    })]);
+    }), jget("/timed/cro/last-summary")]);
     setData({
       loading: false,
       fetched_at: Date.now(),
@@ -660,7 +711,8 @@ function App() {
       override,
       pubs,
       proposals,
-      rotation
+      rotation,
+      lastSummary
     });
   }, [isAdmin]);
   useEffect(() => {
@@ -753,6 +805,6 @@ function App() {
   }, h(AICIOActionsCard)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780523140122:29085904
+// cache-bust:1780527994371:686725917
 
-// cache-bust:1780523140122:29085904
+// cache-bust:1780527994371:686725917
