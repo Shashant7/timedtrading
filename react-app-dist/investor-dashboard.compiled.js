@@ -2505,6 +2505,6 @@ root.render(_AuthGate ? React.createElement(_AuthGate, {
 }, user => React.createElement(InvestorDashboard, {
   user
 })) : React.createElement(InvestorDashboard));
-// cache-bust:1780504424620:339353334
+// cache-bust:1780506190562:19114811
 
-// cache-bust:1780504424620:339353334
+// cache-bust:1780506190562:19114811
