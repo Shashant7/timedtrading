@@ -973,7 +973,35 @@ const ahPrice=Number(ticker?._ah_price??ticker?.extended_price??latestTicker?._a
 // price-vs-v2Price delta — that one was the
 // root of the flicker since v2Price could
 // momentarily equal ahPrice).
-if(!Number.isFinite(ahPct)||Math.abs(ahPct)<0.05)return null;const dir=!Number.isFinite(ahPct)?"flat":ahPct>=0?"up":"dn";return/*#__PURE__*/React.createElement("div",{title:"Extended-hours quote (pre-market / after-hours)",style:{display:"inline-flex",alignItems:"baseline",gap:6,padding:"2px 8px",borderRadius:999,fontFamily:"var(--tt-font-mono)",fontSize:"var(--ds-fs-meta)",background:dir==="up"?"rgba(52,211,153,0.08)":dir==="dn"?"rgba(248,113,113,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${dir==="up"?"rgba(52,211,153,0.25)":dir==="dn"?"rgba(248,113,113,0.25)":"rgba(255,255,255,0.08)"}`}},/*#__PURE__*/React.createElement("span",{style:{fontSize:9,fontWeight:700,letterSpacing:"0.05em",color:"var(--ds-text-faint)"}},"EXT"),/*#__PURE__*/React.createElement("span",{style:{color:"var(--ds-text-body)",fontWeight:600}},"$",ahPrice.toFixed(2)),Number.isFinite(ahPct)&&/*#__PURE__*/React.createElement("span",{style:{color:dir==="up"?"var(--ds-color-up, #34d399)":dir==="dn"?"var(--ds-color-down, #f87171)":"var(--ds-text-muted)",fontWeight:700}},ahPct>=0?"+":"",ahPct.toFixed(2),"%"),Number.isFinite(ahChg)&&Math.abs(ahChg)>0.001&&/*#__PURE__*/React.createElement("span",{style:{color:"var(--ds-text-muted)",fontSize:"0.85em"}},"(",ahChg>=0?"+":"−","$",Math.abs(ahChg).toFixed(2),")"));})());})(),(()=>{const fullName=ticker?.context?.name||ticker?.companyName||latestTicker?.context?.name||null;const mktCap=Number(ticker?.market_cap??ticker?.marketCap??latestTicker?.market_cap);const sector=(typeof getTickerSector==="function"?getTickerSector(tickerSymbol):null)||ticker?.sector||ticker?.context?.sector||ticker?._sector||null;// 2026-05-29 — Added industry + themes to the rail
+if(!Number.isFinite(ahPct)||Math.abs(ahPct)<0.05)return null;// 2026-06-03 — Stale-EXT guard. TwelveData's
+// extended_price field is cached server-side
+// and doesn't always refresh after a big RTH
+// move. Symptom (CRDO 6/3/2026): RTH close
+// $214.56 (down -7.66%), but EXT chip stuck at
+// $226.30 — yesterday's premarket high
+// captured before today's selloff. The worker's
+// staleness check clears OUR derived _ah_price
+// but the frontend falls back to the raw
+// extended_price which is still stale.
+//
+// Defense: hide the chip when EXT price is
+// wildly off from today's RTH close. 4% is a
+// tight threshold — earnings AH moves can be
+// larger but those usually move IN THE SAME
+// DIRECTION as the closing pressure, not
+// against it. Combine drift magnitude with a
+// direction-disagreement check: hide if
+// drift > 4% AND (drift > 6% OR EXT direction
+// disagrees with today's RTH direction).
+try{const _rthClose=Number(v2Price);if(Number.isFinite(_rthClose)&&_rthClose>0){const _driftPct=(ahPrice-_rthClose)/_rthClose*100;const _absDrift=Math.abs(_driftPct);const _todayPct=Number(v2DayPct);// Direction disagreement: today's RTH move
+// and the implied EXT move from RTH close
+// point opposite ways with non-trivial
+// magnitudes on both sides.
+const _dirDisagree=Number.isFinite(_todayPct)&&Math.abs(_todayPct)>1.5&&Math.sign(_todayPct)!==Math.sign(_driftPct);if(_absDrift>4&&(_absDrift>6||_dirDisagree)){// Stale — hide quietly. The data team can
+// re-enable later by tightening the
+// worker's _ahStale check or pruning the
+// raw extended_* fields server-side.
+return null;}}}catch(_){}const dir=!Number.isFinite(ahPct)?"flat":ahPct>=0?"up":"dn";return/*#__PURE__*/React.createElement("div",{title:"Extended-hours quote (pre-market / after-hours)",style:{display:"inline-flex",alignItems:"baseline",gap:6,padding:"2px 8px",borderRadius:999,fontFamily:"var(--tt-font-mono)",fontSize:"var(--ds-fs-meta)",background:dir==="up"?"rgba(52,211,153,0.08)":dir==="dn"?"rgba(248,113,113,0.08)":"rgba(255,255,255,0.04)",border:`1px solid ${dir==="up"?"rgba(52,211,153,0.25)":dir==="dn"?"rgba(248,113,113,0.25)":"rgba(255,255,255,0.08)"}`}},/*#__PURE__*/React.createElement("span",{style:{fontSize:9,fontWeight:700,letterSpacing:"0.05em",color:"var(--ds-text-faint)"}},"EXT"),/*#__PURE__*/React.createElement("span",{style:{color:"var(--ds-text-body)",fontWeight:600}},"$",ahPrice.toFixed(2)),Number.isFinite(ahPct)&&/*#__PURE__*/React.createElement("span",{style:{color:dir==="up"?"var(--ds-color-up, #34d399)":dir==="dn"?"var(--ds-color-down, #f87171)":"var(--ds-text-muted)",fontWeight:700}},ahPct>=0?"+":"",ahPct.toFixed(2),"%"),Number.isFinite(ahChg)&&Math.abs(ahChg)>0.001&&/*#__PURE__*/React.createElement("span",{style:{color:"var(--ds-text-muted)",fontSize:"0.85em"}},"(",ahChg>=0?"+":"−","$",Math.abs(ahChg).toFixed(2),")"));})());})(),(()=>{const fullName=ticker?.context?.name||ticker?.companyName||latestTicker?.context?.name||null;const mktCap=Number(ticker?.market_cap??ticker?.marketCap??latestTicker?.market_cap);const sector=(typeof getTickerSector==="function"?getTickerSector(tickerSymbol):null)||ticker?.sector||ticker?.context?.sector||ticker?._sector||null;// 2026-05-29 — Added industry + themes to the rail
 // context line per user request: "How do we show a
 // bit more context about a ticker on the right rail
 // next to the name. For Dell, we just show Dell

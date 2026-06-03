@@ -5496,6 +5496,48 @@
                         // root of the flicker since v2Price could
                         // momentarily equal ahPrice).
                         if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
+                        // 2026-06-03 — Stale-EXT guard. TwelveData's
+                        // extended_price field is cached server-side
+                        // and doesn't always refresh after a big RTH
+                        // move. Symptom (CRDO 6/3/2026): RTH close
+                        // $214.56 (down -7.66%), but EXT chip stuck at
+                        // $226.30 — yesterday's premarket high
+                        // captured before today's selloff. The worker's
+                        // staleness check clears OUR derived _ah_price
+                        // but the frontend falls back to the raw
+                        // extended_price which is still stale.
+                        //
+                        // Defense: hide the chip when EXT price is
+                        // wildly off from today's RTH close. 4% is a
+                        // tight threshold — earnings AH moves can be
+                        // larger but those usually move IN THE SAME
+                        // DIRECTION as the closing pressure, not
+                        // against it. Combine drift magnitude with a
+                        // direction-disagreement check: hide if
+                        // drift > 4% AND (drift > 6% OR EXT direction
+                        // disagrees with today's RTH direction).
+                        try {
+                          const _rthClose = Number(v2Price);
+                          if (Number.isFinite(_rthClose) && _rthClose > 0) {
+                            const _driftPct = ((ahPrice - _rthClose) / _rthClose) * 100;
+                            const _absDrift = Math.abs(_driftPct);
+                            const _todayPct = Number(v2DayPct);
+                            // Direction disagreement: today's RTH move
+                            // and the implied EXT move from RTH close
+                            // point opposite ways with non-trivial
+                            // magnitudes on both sides.
+                            const _dirDisagree = Number.isFinite(_todayPct)
+                              && Math.abs(_todayPct) > 1.5
+                              && Math.sign(_todayPct) !== Math.sign(_driftPct);
+                            if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
+                              // Stale — hide quietly. The data team can
+                              // re-enable later by tightening the
+                              // worker's _ahStale check or pruning the
+                              // raw extended_* fields server-side.
+                              return null;
+                            }
+                          }
+                        } catch (_) {}
                         const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
                         return (
                           <div
