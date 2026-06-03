@@ -5,7 +5,9 @@ import { kvGetJSON, kvPutJSON } from "./storage.js";
 import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
-import { getStrategyBrief, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
+import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
+import { getCROBriefAddendum } from "./cro/cro-service.js";
+import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { computeFuturesPairsState, summarizeFuturesPairs } from "./futures-pairs.js";
 
@@ -2937,7 +2939,7 @@ CRITICAL: This output spec overrides any contradictory structure earlier in this
 `;
 }
 
-function buildMorningPrompt(data) {
+async function buildMorningPrompt(data, env) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
     ? "US equity markets are CLOSED today (holiday). Acknowledge this in your opening and focus on futures/overnight context and next trading day."
@@ -2949,9 +2951,13 @@ function buildMorningPrompt(data) {
   return `Generate the MORNING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 9:00 AM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
-${getStrategyBrief()}
+${await getStrategyBriefAsync(env)}
 
-REQUIRED: At least once per Brief (typically in the Big Picture or Sector Spotlight section), explicitly tie observed action back to the active playbook above — e.g. "Tech leadership today fits our overweight stance on AI compute and the Phase-1 back-ended rally thesis," or "Healthcare weakness aligns with our neutral stance — earnings growth is the lone outright negative this quarter." This anchors the Brief in our written strategy so users learn the playbook as they read.
+${await getCROBriefAddendum(env)}
+
+${await getCTOBriefAddendum(env)}
+
+REQUIRED: At least once per Brief (typically in the Big Picture or Sector Spotlight section), explicitly tie observed action back to the active playbook above — e.g. "Tech leadership today fits our overweight stance on AI compute and the Phase-1 back-ended rally thesis," or "Healthcare weakness aligns with our neutral stance — earnings growth is the lone outright negative this quarter." This anchors the Brief in our written strategy so users learn the playbook as they read. Cite the CRO Research Desk verdict whenever today's tape clearly corroborates or contradicts it.
 
 ## Market Data (as of pre-market):
 ${(() => {
@@ -3309,7 +3315,7 @@ CRITICAL on the per-ETF predictions:
 ${buildRetailFriendlyOutputSpec("morning")}`;
 }
 
-function buildEveningPrompt(data) {
+async function buildEveningPrompt(data, env) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
     ? "US equity markets were CLOSED today (holiday). Focus on futures/overnight and next trading day."
@@ -3321,9 +3327,13 @@ function buildEveningPrompt(data) {
   return `Generate the EVENING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 5:00 PM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
-${getStrategyBrief()}
+${await getStrategyBriefAsync(env)}
 
-REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read.
+${await getCROBriefAddendum(env)}
+
+${await getCTOBriefAddendum(env)}
+
+REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read. Cite the CRO Research Desk verdict whenever today's tape clearly corroborates or contradicts it.
 
 ## Index Quartet (ES/NQ/YM/RTY + VIX):
 ${data.indexQuartetSummary || "Quartet data unavailable."}
@@ -4136,7 +4146,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
     if (data.error) return { ok: false, error: data.error };
 
     // 2. Build prompt and call AI
-    const prompt = type === "morning" ? buildMorningPrompt(data) : buildEveningPrompt(data);
+    const prompt = type === "morning" ? await buildMorningPrompt(data, env) : await buildEveningPrompt(data, env);
     const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt);
     if (!content || content.length < 100) {
       // P0.7.154 (2026-05-14) — persist a stub so the operator has a

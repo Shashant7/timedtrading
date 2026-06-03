@@ -25,6 +25,7 @@ import { getStrategyDigest } from "../strategy-context.js";
 import { listRecentPublications, loadPublicationText } from "./fsd-ingestion.js";
 import { loadTacticalOverrideBlob, loadAppliedHistory } from "./cro-apply.js";
 import { loadRotationSnapshot } from "./rotation-engine.js";
+import { loadCTOUniverse } from "../cto/cto-service.js";
 
 const DAILY_TABLE = "cro_daily_notes";
 const KV_LATEST_KEY = "timed:cro:latest";
@@ -127,6 +128,26 @@ async function collectRotationSnapshot(env) {
         .filter((c) => c.high_correlation_cluster).map((c) => ({ theme: c.theme, avg_corr: c.avg_correlation })),
       themes_decoupling: (snap.theme_correlation || [])
         .filter((c) => c.decoupling).map((c) => ({ theme: c.theme, avg_corr: c.avg_correlation })),
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+async function collectCTOUniverse(env) {
+  try {
+    const rollup = await loadCTOUniverse(env);
+    if (!rollup) return { ok: false, error: "no_cto_rollup" };
+    return {
+      ok: true,
+      computed_at: rollup.computed_at,
+      tickers_processed: rollup.tickers_processed,
+      tickers_ok: rollup.tickers_ok,
+      headlines: (rollup.headlines || []).slice(0, 10),
+      top_picks: (rollup.results || [])
+        .filter((r) => r.ok && (r.top_upside?.[0]?.regime_adjusted_prob >= 0.55 || r.top_downside?.[0]?.regime_adjusted_prob >= 0.55))
+        .slice(0, 6)
+        .map((r) => ({ ticker: r.ticker, narrative: r.narrative })),
     };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
@@ -244,10 +265,13 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "### 3. Rotation Engine Snapshot (TT's own universe data — corroborate / contradict FSD)",
       JSON.stringify(sources.rotation, null, 2),
       "",
-      "### 4. Discovery Pulse (cross-universe signals: news, screener, moves, coverage)",
+      "### 4. CTO Probabilistic Levels (Markov-bias-adjusted Fib / ATR / pivot levels + empirical hit rates — the data-science backing)",
+      JSON.stringify(sources.cto, null, 2),
+      "",
+      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage)",
       JSON.stringify(sources.discovery, null, 2),
       "",
-      "### 5. Active Playbook + Tactical Override Status",
+      "### 6. Active Playbook + Tactical Override Status",
       JSON.stringify({ playbook: sources.playbook, override: sources.override }, null, 2),
       "",
       "## Output Schema",
@@ -333,6 +357,7 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
     fsd:        await collectFSDIntel(env),
     macro:      await collectMacroSnapshot(env),
     rotation:   await collectRotationSnapshot(env),
+    cto:        await collectCTOUniverse(env),
     discovery:  await collectDiscoveryPulse(env),
     playbook:   collectPlaybookSnapshot(),
     override:   await collectOverrideStatus(env),
