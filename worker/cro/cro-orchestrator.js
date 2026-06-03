@@ -27,6 +27,27 @@ import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
 import { rewritePendingPublications, ensureRewriteSchema } from "./fsd-rewriter.js";
 import { backfillCashtagsForExistingPublications } from "./fsd-ingestion.js";
 
+// 2026-06-03 — Macro snapshot freshness helper. Operator screenshot
+// showed the CRO daily note flagging 'No macro snapshot available' as
+// a data gap. Root cause: macro is only refreshed by the daily 22:00
+// UTC cron, so any intraday CRO cycle run BEFORE 22:00 UTC reads a
+// stale-or-missing snapshot. Fix: orchestrator now triggers
+// runMacroSnapshot if the cached snapshot is missing OR > 6 hours old.
+async function ensureMacroFreshness(env) {
+  try {
+    const Macro = await import("../macro/cross-asset-tracker.js");
+    const snap = await Macro.loadMacroSnapshot(env).catch(() => null);
+    const ageMs = snap?.computed_at ? Date.now() - Number(snap.computed_at) : Infinity;
+    if (!snap || ageMs > 6 * 3600 * 1000) {
+      const r = await Macro.runMacroSnapshot(env);
+      return { kind: snap ? "refreshed_stale" : "first_run", ok: !!r?.ok, age_ms_before: ageMs };
+    }
+    return { kind: "fresh", ok: true, age_ms: ageMs };
+  } catch (e) {
+    return { kind: "error", ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
 // ── Public entry point: run the whole CRO/CTO cycle ──────────────────────────
 export async function runCROFullCycle(env, { force = false } = {}) {
   const t0 = Date.now();
@@ -42,6 +63,7 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     cro_daily: { ok: false },
     cashtag_backfill: { ok: false, skipped: "not_run" },
     rewrite_pending: { ok: false, skipped: "not_run" },
+    macro_freshness: { ok: false, skipped: "not_run" },
     errors: [],
   };
 
@@ -182,6 +204,16 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     };
   } catch (e) {
     summary.errors.push(`rewrite_pending_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  // 4d. Macro snapshot freshness — refresh if missing or > 6h old.
+  // The CRO daily synthesis was flagging 'no macro snapshot available'
+  // as a data gap on intraday cycles because the macro cron only fires
+  // at 22:00 UTC daily.
+  try {
+    summary.macro_freshness = await ensureMacroFreshness(env);
+  } catch (e) {
+    summary.errors.push(`macro_freshness_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
   // 5. CRO daily synthesis. Runs after all inputs are refreshed.
