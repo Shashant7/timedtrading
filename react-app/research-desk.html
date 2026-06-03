@@ -131,7 +131,8 @@
           <a href="/investor.html" class="nav-link">Investor</a>
           <a href="/portfolio.html" class="nav-link">Portfolio</a>
           <a href="/insights.html" class="nav-link">Insights</a>
-          <a href="/research-desk.html" class="nav-link active">Research Desk</a>
+          <a href="/faq.html" class="nav-link faq">FAQ</a>
+          <a href="/learn.html" class="nav-link learn">Learn</a>
         </div>
       </div>
     </nav>
@@ -173,22 +174,6 @@
           return { status: 0, ok: false, body: null, error: String(e?.message || e) };
         }
       }
-      async function jpost(path, body) {
-        try {
-          const r = await fetch(`${API_BASE}${path}`, {
-            method: "POST",
-            credentials: "include",
-            cache: "no-store",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body || {}),
-          });
-          const json = await r.json().catch(() => null);
-          return { status: r.status, ok: r.ok, body: json };
-        } catch (e) {
-          return { status: 0, ok: false, body: null, error: String(e?.message || e) };
-        }
-      }
-
       function StatusBanner({ data }) {
         const cro = data?.cro;
         const cto = data?.cto;
@@ -339,11 +324,7 @@
         const blob = o.blob || {};
         const sigs = Array.isArray(blob.tactical_signals) ? blob.tactical_signals : [];
         return h("div", { className: "card" },
-          h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
-            h("h2", null, "🎚 Active CRO Tactical Override"),
-            isAdmin && h("button", { className: "btn btn-danger", onClick: onClear },
-              "Revert (KV delete)")
-          ),
+          h("h2", { style: { marginBottom: 8 } }, "🎚 Active CRO Tactical Override"),
           h("div", { className: "muted", style: { marginBottom: 10 } },
             `Proposal `, h("code", null, blob.proposal_id || "?"), ` from pub `, h("code", null, blob.pub_id || "?"),
             ` · applied ${fmtAgo(blob.applied_at)}`),
@@ -459,42 +440,8 @@
         );
       }
 
-      function ActionsCard({ isAdmin, onAction, lastAction }) {
-        if (!isAdmin) return null;
-        return h("div", { className: "card" },
-          h("h2", null, "⚙️ Admin Actions"),
-          h("div", { className: "muted", style: { marginBottom: 12 } },
-            "These call admin endpoints and may take 10-60 seconds each. " +
-            "Refresh the page after they complete."),
-          h("div", { className: "row" },
-            h("button", { className: "btn btn-go", onClick: () => onAction("cycle", "POST", "/timed/admin/cro/cycle", {}) },
-              "Kick full CRO/CTO cycle"),
-            h("button", { className: "btn", onClick: () => onAction("synth", "POST", "/timed/admin/cro/synthesize", { force: true }) },
-              "Synthesize CRO note now"),
-            h("button", { className: "btn", onClick: () => onAction("cto", "POST", "/timed/admin/cto/universe/refresh", {}) },
-              "Refresh CTO universe"),
-            h("button", { className: "btn", onClick: () => onAction("rotation", "POST", "/timed/admin/cro/rotation/refresh", {}) },
-              "Refresh rotation engine"),
-            h("button", { className: "btn", onClick: () => onAction("fsd_probe", "POST", "/timed/admin/cro/fsd/probe", {}) },
-              "Probe FSD login"),
-            h("button", { className: "btn", onClick: () => onAction("fsd_ingest", "POST", "/timed/admin/cro/fsd/ingest", {}) },
-              "Pull from FSD now")
-          ),
-          lastAction && h("div", { style: { marginTop: 14 } },
-            h("h3", null, `Last action: ${lastAction.kind}`),
-            h("div", { className: "muted" },
-              `Status ${lastAction.status} · `,
-              lastAction.body?.ok ? h("span", { className: "ok" }, "ok") : h("span", { className: "err" }, "failed"),
-              lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""
-            ),
-            h("pre", { className: "json-pre" }, JSON.stringify(lastAction.body, null, 2).slice(0, 4000))
-          )
-        );
-      }
-
       function App() {
         const [data, setData] = useState({ loading: true, fetched_at: Date.now() });
-        const [lastAction, setLastAction] = useState(null);
         const isAdmin = typeof window !== "undefined" && window._ttIsAdmin;
 
         const load = useCallback(async () => {
@@ -516,21 +463,6 @@
           return () => clearInterval(id);
         }, [load]);
 
-        const onClearOverride = async () => {
-          if (!confirm("Revert the active CRO tactical override (single KV delete)?")) return;
-          const r = await jpost("/timed/admin/cro/override/clear", { reason: "operator_ui_clear" });
-          setLastAction({ kind: "override_clear", status: r.status, body: r.body });
-          load();
-        };
-
-        const onAction = async (kind, method, path, body) => {
-          setLastAction({ kind, status: "running", body: { ok: null, message: "Running…" } });
-          const r = method === "POST" ? await jpost(path, body) : await jget(path);
-          setLastAction({ kind, status: r.status, body: r.body });
-          // Reload data after a few seconds to give the backend time to write to KV.
-          setTimeout(load, 3000);
-        };
-
         if (data.loading) {
           return h("main", null,
             h("div", { className: "card", style: { textAlign: "center" } },
@@ -550,13 +482,10 @@
             )
           ),
           h("div", { style: { marginTop: 14 } },
-            h(OverrideCard, { data, onClear: onClearOverride, isAdmin })
+            h(OverrideCard, { data, isAdmin })
           ),
           h("div", { style: { marginTop: 14 } },
             h(PublicationsCard, { data, isAdmin })
-          ),
-          h("div", { style: { marginTop: 14 } },
-            h(ActionsCard, { isAdmin, onAction, lastAction })
           )
         );
       }

@@ -46,32 +46,6 @@ async function jget(path) {
     };
   }
 }
-async function jpost(path, body) {
-  try {
-    const r = await fetch(`${API_BASE}${path}`, {
-      method: "POST",
-      credentials: "include",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body || {})
-    });
-    const json = await r.json().catch(() => null);
-    return {
-      status: r.status,
-      ok: r.ok,
-      body: json
-    };
-  } catch (e) {
-    return {
-      status: 0,
-      ok: false,
-      body: null,
-      error: String(e?.message || e)
-    };
-  }
-}
 function StatusBanner({
   data
 }) {
@@ -285,16 +259,11 @@ function OverrideCard({
   const sigs = Array.isArray(blob.tactical_signals) ? blob.tactical_signals : [];
   return h("div", {
     className: "card"
-  }, h("div", {
-    className: "row",
+  }, h("h2", {
     style: {
-      justifyContent: "space-between",
       marginBottom: 8
     }
-  }, h("h2", null, "🎚 Active CRO Tactical Override"), isAdmin && h("button", {
-    className: "btn btn-danger",
-    onClick: onClear
-  }, "Revert (KV delete)")), h("div", {
+  }, "🎚 Active CRO Tactical Override"), h("div", {
     className: "muted",
     style: {
       marginBottom: 10
@@ -416,61 +385,11 @@ function RotationCard({
     className: "dim"
   }, p.td_setup_state === "none" ? "—" : `${p.td_setup_state.replace(/_/g, " ")} (${p.td_setup_count})`)))))));
 }
-function ActionsCard({
-  isAdmin,
-  onAction,
-  lastAction
-}) {
-  if (!isAdmin) return null;
-  return h("div", {
-    className: "card"
-  }, h("h2", null, "⚙️ Admin Actions"), h("div", {
-    className: "muted",
-    style: {
-      marginBottom: 12
-    }
-  }, "These call admin endpoints and may take 10-60 seconds each. " + "Refresh the page after they complete."), h("div", {
-    className: "row"
-  }, h("button", {
-    className: "btn btn-go",
-    onClick: () => onAction("cycle", "POST", "/timed/admin/cro/cycle", {})
-  }, "Kick full CRO/CTO cycle"), h("button", {
-    className: "btn",
-    onClick: () => onAction("synth", "POST", "/timed/admin/cro/synthesize", {
-      force: true
-    })
-  }, "Synthesize CRO note now"), h("button", {
-    className: "btn",
-    onClick: () => onAction("cto", "POST", "/timed/admin/cto/universe/refresh", {})
-  }, "Refresh CTO universe"), h("button", {
-    className: "btn",
-    onClick: () => onAction("rotation", "POST", "/timed/admin/cro/rotation/refresh", {})
-  }, "Refresh rotation engine"), h("button", {
-    className: "btn",
-    onClick: () => onAction("fsd_probe", "POST", "/timed/admin/cro/fsd/probe", {})
-  }, "Probe FSD login"), h("button", {
-    className: "btn",
-    onClick: () => onAction("fsd_ingest", "POST", "/timed/admin/cro/fsd/ingest", {})
-  }, "Pull from FSD now")), lastAction && h("div", {
-    style: {
-      marginTop: 14
-    }
-  }, h("h3", null, `Last action: ${lastAction.kind}`), h("div", {
-    className: "muted"
-  }, `Status ${lastAction.status} · `, lastAction.body?.ok ? h("span", {
-    className: "ok"
-  }, "ok") : h("span", {
-    className: "err"
-  }, "failed"), lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""), h("pre", {
-    className: "json-pre"
-  }, JSON.stringify(lastAction.body, null, 2).slice(0, 4000))));
-}
 function App() {
   const [data, setData] = useState({
     loading: true,
     fetched_at: Date.now()
   });
-  const [lastAction, setLastAction] = useState(null);
   const isAdmin = typeof window !== "undefined" && window._ttIsAdmin;
   const load = useCallback(async () => {
     const [cro, cto, strategy, override, pubs, proposals, rotation] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
@@ -499,35 +418,6 @@ function App() {
     const id = setInterval(load, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [load]);
-  const onClearOverride = async () => {
-    if (!confirm("Revert the active CRO tactical override (single KV delete)?")) return;
-    const r = await jpost("/timed/admin/cro/override/clear", {
-      reason: "operator_ui_clear"
-    });
-    setLastAction({
-      kind: "override_clear",
-      status: r.status,
-      body: r.body
-    });
-    load();
-  };
-  const onAction = async (kind, method, path, body) => {
-    setLastAction({
-      kind,
-      status: "running",
-      body: {
-        ok: null,
-        message: "Running…"
-      }
-    });
-    const r = method === "POST" ? await jpost(path, body) : await jget(path);
-    setLastAction({
-      kind,
-      status: r.status,
-      body: r.body
-    });
-    setTimeout(load, 3000);
-  };
   if (data.loading) {
     return h("main", null, h("div", {
       className: "card",
@@ -559,7 +449,6 @@ function App() {
     }
   }, h(OverrideCard, {
     data,
-    onClear: onClearOverride,
     isAdmin
   })), h("div", {
     style: {
@@ -568,17 +457,9 @@ function App() {
   }, h(PublicationsCard, {
     data,
     isAdmin
-  })), h("div", {
-    style: {
-      marginTop: 14
-    }
-  }, h(ActionsCard, {
-    isAdmin,
-    onAction,
-    lastAction
   })));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780466024669:603771096
+// cache-bust:1780466920298:86459308
 
-// cache-bust:1780466024669:603771096
+// cache-bust:1780466920298:86459308

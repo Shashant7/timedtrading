@@ -269,6 +269,7 @@
     { href: "/admin-clients.html",         label: "Admin Clients" },
     { href: "/system-intelligence.html",   label: "System Intelligence" },
     { href: "/mission-control.html",       label: "Mission Control" },
+    { href: "/research-desk.html",         label: "Research Desk" },
     { href: "/brand-kit.html",             label: "Brand Kit" },
   ];
 
@@ -371,7 +372,6 @@
       "/investor",
       "/portfolio",
       "/insights",
-      "/research-desk",
       "/learn",
       "/faq",
       // 2026-05-26 — Added /daily-brief. PR #299 wired the Daily
@@ -651,4 +651,4 @@
   })();
 })();
 
-// cache-bust:1780466024669:603771096
+// cache-bust:1780466920298:86459308
