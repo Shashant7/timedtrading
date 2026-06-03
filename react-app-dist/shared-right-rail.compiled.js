@@ -11306,13 +11306,113 @@
               }
             }, label);
           };
+          const formatFsdExcerpt = (excerpt, mainTicker) => {
+            if (!excerpt) return "";
+            let t = String(excerpt).replace(/\s+/g, " ").trim();
+            t = t.replace(/^[A-Z][a-zA-Z .']{3,30},\s*[A-Z]{2,5}\s*[–-]\s*/, "");
+            const len = 360;
+            if (t.length > len) t = t.slice(0, len).trimEnd() + "…";
+            return t;
+          };
           return React.createElement("div", {
             style: {
               display: "flex",
               flexDirection: "column",
               gap: "var(--ds-space-3)"
             }
-          }, React.createElement(Panel, {
+          }, C.fsd_intel?.count > 0 && React.createElement(Panel, {
+            title: "\uD83D\uDCE1 FSD Intel",
+            action: React.createElement("span", {
+              className: "ds-chip ds-chip--sm"
+            }, C.fsd_intel.count, " mention", C.fsd_intel.count === 1 ? "" : "s", " \xB7 ", C.fsd_intel.lookback_days, "d")
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              marginBottom: 6,
+              letterSpacing: "0.05em"
+            }
+          }, "FUNDSTRAT DIRECT \u2014 POSTS MENTIONING $", tickerSymbol), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 8
+            }
+          }, C.fsd_intel.publications.slice(0, 4).map((p, i) => {
+            const isFlash = String(p.pub_id || "").includes("fsi-alert") || String(p.title || "").length < 30 || String(p.title || "").startsWith("Mark");
+            return React.createElement("div", {
+              key: `fsd-${i}`,
+              style: {
+                padding: "8px 10px",
+                background: "rgba(168,85,247,0.05)",
+                border: "1px solid rgba(168,85,247,0.18)",
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                marginBottom: 4,
+                flexWrap: "wrap"
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color: isFlash ? "#fbbf24" : "#a78bfa",
+                background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                letterSpacing: "0.05em"
+              }
+            }, isFlash ? "FLASHINSIGHT" : "FSD NOTE"), React.createElement("span", {
+              style: {
+                fontSize: 10,
+                color: "var(--ds-text-muted)"
+              }
+            }, fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)), p.applied_at && React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 5px",
+                borderRadius: 4,
+                color: "#34d399",
+                background: "rgba(52,211,153,0.10)"
+              }
+            }, "APPLIED")), p.title && !isFlash && React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600,
+                lineHeight: 1.4,
+                marginBottom: 4
+              }
+            }, p.title), p.excerpt && React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-body)",
+                lineHeight: 1.45
+              }
+            }, formatFsdExcerpt(p.excerpt, tickerSymbol)), p.source_url && React.createElement("a", {
+              href: p.source_url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              style: {
+                display: "inline-block",
+                marginTop: 4,
+                fontSize: 10,
+                color: "var(--ds-text-muted)",
+                textDecoration: "underline"
+              }
+            }, "read on fundstratdirect.com \u2192"));
+          })), React.createElement("div", {
+            style: {
+              marginTop: 8,
+              fontSize: 9,
+              color: "var(--ds-text-faint)"
+            }
+          }, "Source: Fundstrat Direct WP REST \xB7 ingested by CRO \xB7 auto-applied where classified tactical")), React.createElement(Panel, {
             title: "\uD83D\uDD25 News Catalysts",
             action: C.news?.count > 0 && React.createElement("span", {
               className: "ds-chip ds-chip--sm"
@@ -16971,4 +17071,4 @@
   };
 })();
 
-// cache-bust:1780492945749:238863080
+// cache-bust:1780504424620:339353334
