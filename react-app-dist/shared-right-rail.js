@@ -4354,7 +4354,11 @@
             setCatalystsLoading(false);
             return;
           }
-          if (railTab !== "CATALYSTS") return;
+          // 2026-06-03 — Removed the `railTab !== "CATALYSTS"` early
+          // return so the catalysts payload (incl. fsd_intel meta) is
+          // available for the tab-strip badge BEFORE the user opens
+          // the tab. 5-min client cache means the server is hit at most
+          // once per ticker per 5 min regardless of tab navigation.
           const cached = catalystsCacheRef.current.get(sym);
           if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
             setCatalysts(cached.data);
@@ -4365,7 +4369,10 @@
           let cancelled = false;
           (async () => {
             try {
-              setCatalystsLoading(true);
+              // Only flip the loading spinner state when the user is
+              // actually viewing the Catalysts tab — otherwise the fetch
+              // is silent.
+              if (railTab === "CATALYSTS") setCatalystsLoading(true);
               setCatalystsError(null);
               const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
               const qs = new URLSearchParams({ ticker: sym });
@@ -5661,6 +5668,16 @@
                       // label changes.
                       const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Trader"],["INVESTOR","Investor"],["OPTIONS","Options"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
                       const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
+                      // 2026-06-03 — Per-tab unread badge. Currently only
+                      // Catalysts (FSD intel) has the indicator; pattern
+                      // is generic so other tabs can grow their own
+                      // unread signal later.
+                      const _fsdLatest = catalysts?.fsd_intel?.latest_published_at
+                        || (catalysts?.fsd_intel?.publications?.[0]?.published_at)
+                        || null;
+                      const _fsdSeen = (typeof window !== "undefined"
+                        && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`)) || null;
+                      const _catalystsHasNew = !!(_fsdLatest && (!_fsdSeen || String(_fsdLatest) > String(_fsdSeen)));
                       return tabs.map(([key, label]) => (
                       <button
                         key={key}
@@ -5671,19 +5688,26 @@
                           justifyContent: "center",
                           padding: "6px 12px",
                           scrollSnapAlign: "start",
-                          /* Accent the CHART tab so the primary chart-access
-                             point on mobile is visually obvious without having
-                             to fight a button-vs-pane layout. */
-                          ...(key === "CHART" ? {
-                            color: "#34d399",
-                            fontWeight: 700,
-                          } : {}),
-                          /* 2026-05-28 follow-up — Catalysts tab uses the
-                             same styling as every other tab. Earlier amber
-                             accent removed per user feedback. */
+                          position: "relative",
+                          ...(key === "CHART" ? { color: "#34d399", fontWeight: 700 } : {}),
                         }}
                       >
                         <span>{label}</span>
+                        {key === "CATALYSTS" && _catalystsHasNew && (
+                          <span
+                            title="New FSD intel — open to view"
+                            style={{
+                              position: "absolute",
+                              top: 4,
+                              right: 4,
+                              width: 7,
+                              height: 7,
+                              borderRadius: "50%",
+                              background: "#a855f7",
+                              boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 6px rgba(168,85,247,0.7)",
+                            }}
+                          />
+                        )}
                       </button>
                       ));
                     })()}
@@ -9133,74 +9157,131 @@
                       <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
 
                         {/* ── 0. FSD Intel (FlashInsights + long-form mentions) ────────── */}
-                        {C.fsd_intel?.count > 0 && (
-                          <Panel
-                            title="📡 FSD Intel"
-                            action={
-                              <span className="ds-chip ds-chip--sm">
-                                {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
-                              </span>
+                        {/* 2026-06-03 — Renders TT-voice rewrite (tt_summary_title +
+                           tt_summary_body + tt_key_points chips) when available,
+                           falls back to raw FSD excerpt when the rewriter hasn't
+                           processed the pub yet. Marks the latest published_at as
+                           "seen" in localStorage when the Catalysts tab is open
+                           so the tab-strip unread dot clears on view. */}
+                        {C.fsd_intel?.count > 0 && (() => {
+                          // Mark this ticker's catalyst feed as "seen" — runs once
+                          // per render when the user is viewing the Catalysts tab.
+                          try {
+                            const latest = C.fsd_intel.latest_published_at
+                              || (C.fsd_intel.publications[0] && C.fsd_intel.publications[0].published_at)
+                              || null;
+                            if (latest && typeof window !== "undefined") {
+                              window.localStorage.setItem(`tt-cat-seen-fsd:${tickerSymbol}`, String(latest));
                             }
-                          >
-                            <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em" }}>
-                              FUNDSTRAT DIRECT — POSTS MENTIONING ${tickerSymbol}
-                            </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                              {C.fsd_intel.publications.slice(0, 4).map((p, i) => {
-                                const isFlash = String(p.pub_id || "").includes("fsi-alert") ||
-                                                String(p.title || "").length < 30 ||
-                                                String(p.title || "").startsWith("Mark");
-                                return (
-                                  <div key={`fsd-${i}`} style={{
-                                    padding: "8px 10px",
-                                    background: "rgba(168,85,247,0.05)",
-                                    border: "1px solid rgba(168,85,247,0.18)",
-                                    borderRadius: "var(--ds-radius-md)",
-                                  }}>
-                                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
-                                      <span style={{
-                                        fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
-                                        color: isFlash ? "#fbbf24" : "#a78bfa",
-                                        background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
-                                        letterSpacing: "0.05em",
-                                      }}>
-                                        {isFlash ? "FLASHINSIGHT" : "FSD NOTE"}
-                                      </span>
-                                      <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
-                                        {fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)}
-                                      </span>
-                                      {p.applied_at && (
+                          } catch (_) {}
+                          return (
+                            <Panel
+                              title="📡 FSD Intel"
+                              action={
+                                <span className="ds-chip ds-chip--sm">
+                                  {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
+                                </span>
+                              }
+                            >
+                              <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em" }}>
+                                EDITORIAL RESEARCH — POSTS MENTIONING {tickerSymbol}
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {C.fsd_intel.publications.slice(0, 4).map((p, i) => {
+                                  const isFlash = String(p.pub_id || "").includes("fsi-alert") ||
+                                                  String(p.title || "").length < 30 ||
+                                                  String(p.title || "").startsWith("Mark");
+                                  const hasRewrite = !!(p.tt_summary_body);
+                                  return (
+                                    <div key={`fsd-${i}`} style={{
+                                      padding: "8px 10px",
+                                      background: "rgba(168,85,247,0.05)",
+                                      border: "1px solid rgba(168,85,247,0.18)",
+                                      borderRadius: "var(--ds-radius-md)",
+                                    }}>
+                                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
                                         <span style={{
-                                          fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
-                                          color: "#34d399", background: "rgba(52,211,153,0.10)",
-                                        }}>APPLIED</span>
-                                      )}
-                                    </div>
-                                    {p.title && !isFlash && (
+                                          fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                          color: isFlash ? "#fbbf24" : "#a78bfa",
+                                          background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                                          letterSpacing: "0.05em",
+                                        }}>
+                                          {isFlash ? "FLASH" : "RESEARCH"}
+                                        </span>
+                                        <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                          {fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)}
+                                        </span>
+                                        {p.applied_at && (
+                                          <span style={{
+                                            fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
+                                            color: "#34d399", background: "rgba(52,211,153,0.10)",
+                                          }}>APPLIED</span>
+                                        )}
+                                        {hasRewrite && (
+                                          <span style={{
+                                            fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
+                                            color: "#67e8f9", background: "rgba(103,232,249,0.08)",
+                                          }} title="TT-voice summary (paraphrased from source)">TT</span>
+                                        )}
+                                      </div>
+                                      {/* TT-voice title (preferred) OR raw FSD title */}
                                       <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4, marginBottom: 4 }}>
-                                        {p.title}
+                                        {p.tt_summary_title || (!isFlash && p.title) || ""}
                                       </div>
-                                    )}
-                                    {p.excerpt && (
+                                      {/* TT-voice body (preferred) OR raw excerpt */}
                                       <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", lineHeight: 1.45 }}>
-                                        {formatFsdExcerpt(p.excerpt, tickerSymbol)}
+                                        {p.tt_summary_body || formatFsdExcerpt(p.excerpt, tickerSymbol)}
                                       </div>
-                                    )}
-                                    {p.source_url && (
-                                      <a href={p.source_url} target="_blank" rel="noopener noreferrer" style={{
-                                        display: "inline-block", marginTop: 4, fontSize: 10,
-                                        color: "var(--ds-text-muted)", textDecoration: "underline",
-                                      }}>read on fundstratdirect.com →</a>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            <div style={{ marginTop: 8, fontSize: 9, color: "var(--ds-text-faint)" }}>
-                              Source: Fundstrat Direct WP REST · ingested by CRO · auto-applied where classified tactical
-                            </div>
-                          </Panel>
-                        )}
+                                      {/* Key-point chips */}
+                                      {Array.isArray(p.tt_key_points) && p.tt_key_points.length > 0 && (
+                                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                                          {p.tt_key_points.slice(0, 6).map((kp, j) => {
+                                            const dirColor = kp.direction === "long" ? "#34d399" : kp.direction === "short" ? "#f87171" : "var(--ds-text-muted)";
+                                            const kindBg = (kp.kind === "support" || kp.kind === "target") ? "rgba(52,211,153,0.08)"
+                                                          : (kp.kind === "resistance" || kp.kind === "stop") ? "rgba(248,113,113,0.08)"
+                                                          : "rgba(255,255,255,0.04)";
+                                            return (
+                                              <span key={`kp-${j}`}
+                                                title={kp.note || ""}
+                                                style={{
+                                                  fontSize: 10, padding: "2px 7px", borderRadius: 999,
+                                                  background: kindBg, color: dirColor, fontWeight: 600,
+                                                  border: "1px solid rgba(255,255,255,0.06)",
+                                                }}>
+                                                {kp.ticker ? `${kp.ticker} ` : ""}{String(kp.kind || "").toUpperCase()}{kp.level ? ` ${kp.level}` : ""}{kp.horizon ? ` · ${kp.horizon}` : ""}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                      {/* CTA */}
+                                      {p.tt_cta && (
+                                        <div style={{ marginTop: 6, fontSize: 11, color: "var(--ds-text-faint)", fontStyle: "italic", lineHeight: 1.4 }}>
+                                          → {p.tt_cta}
+                                        </div>
+                                      )}
+                                      {/* Attribution + source link */}
+                                      <div style={{ marginTop: 6, fontSize: 9, color: "var(--ds-text-muted)" }}>
+                                        {p.attribution || "Source: Fundstrat Direct"}
+                                        {p.source_url && (
+                                          <>
+                                            {" · "}
+                                            <a href={p.source_url} target="_blank" rel="noopener noreferrer" style={{
+                                              color: "var(--ds-text-muted)", textDecoration: "underline",
+                                            }}>read original →</a>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ marginTop: 8, fontSize: 9, color: "var(--ds-text-faint)" }}>
+                                TT summaries are paraphrased for compliance. Original research © Fundstrat Direct — link above to read in full.
+                              </div>
+                            </Panel>
+                          );
+                        })()}
 
                         {/* ── 1. News Catalysts ────────────────────────── */}
                         <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
@@ -10169,11 +10250,17 @@
                     ].map((t) => {
                       const active = railTab === t.k;
                       const locked = t.proOnly && !window._ttIsPro;
+                      const _fsdLatest2 = catalysts?.fsd_intel?.latest_published_at
+                        || (catalysts?.fsd_intel?.publications?.[0]?.published_at)
+                        || null;
+                      const _fsdSeen2 = (typeof window !== "undefined"
+                        && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`)) || null;
+                      const _hasNew2 = t.k === "CATALYSTS" && !!(_fsdLatest2 && (!_fsdSeen2 || String(_fsdLatest2) > String(_fsdSeen2)));
                       return (
                         <button
                           key={`rail-tab-${t.k}`}
                           onClick={() => setRailTab(t.k)}
-                          className={`px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 ${
+                          className={`px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 relative ${
                             active
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
                               : locked
@@ -10183,6 +10270,21 @@
                         >
                           {t.label}
                           {locked && <svg className="w-3 h-3 text-amber-400/60" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>}
+                          {_hasNew2 && (
+                            <span
+                              title="New FSD intel"
+                              style={{
+                                position: "absolute",
+                                top: 2,
+                                right: 2,
+                                width: 6,
+                                height: 6,
+                                borderRadius: "50%",
+                                background: "#a855f7",
+                                boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 5px rgba(168,85,247,0.7)",
+                              }}
+                            />
+                          )}
                         </button>
                       );
                     })}
@@ -14637,4 +14739,4 @@
   };
 })();
 
-// cache-bust:1780504424620:339353334
+// cache-bust:1780506190562:19114811
