@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Research Desk — Timed Trading</title>
+    <meta name="description" content="AI CRO + CTO Research Desk: today's editorial verdict, probabilistic levels, FSD intel, and rotation reads." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260603-cro" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="stylesheet" href="tailwind.generated.css" />
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="auth-gate.js?v=1780466024669"></script>
+    <script src="tt-fetch-cache.js?v=1780466024669"></script>
+    <script src="tt-bottom-nav.js?v=1780466024669" defer></script>
+    <script src="tt-nav-extras.js?v=1780466024669" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: #0b0e11;
+        --tt-bg-surface: rgba(255,255,255,0.025);
+        --tt-bg-elev: rgba(255,255,255,0.04);
+        --tt-border: rgba(255,255,255,0.06);
+        --tt-border-hi: rgba(255,255,255,0.12);
+        --tt-text: #e5e7eb;
+        --tt-text-muted: #9ca3af;
+        --tt-text-dim: #6b7280;
+        --tt-up: #22c55e;
+        --tt-dn: #f43f5e;
+        --tt-amber: #f59e0b;
+        --tt-blue: #3b82f6;
+        --tt-purple: #a855f7;
+        --tt-font: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      body { background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); margin: 0; }
+      main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 80px; }
+      h1, h2, h3 { font-weight: 700; letter-spacing: -0.01em; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { font-size: 16px; margin: 0 0 12px; color: var(--tt-text); }
+      h3 { font-size: 13px; margin: 0 0 8px; color: var(--tt-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      .card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; padding: 18px; }
+      .card + .card { margin-top: 14px; }
+      .grid-2 { display: grid; grid-template-columns: 1fr; gap: 14px; }
+      @media (min-width: 900px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--tt-border-hi); background: var(--tt-bg-elev); color: var(--tt-text-muted); }
+      .chip-on { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+      .chip-warn { color: #f59e0b; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+      .chip-blue { color: #93c5fd; border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.08); }
+      .chip-pur { color: #d8b4fe; border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.08); }
+      .chip-dn { color: #fb7185; border-color: rgba(244,63,94,0.4); background: rgba(244,63,94,0.08); }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .muted { color: var(--tt-text-muted); font-size: 12px; }
+      .dim { color: var(--tt-text-dim); font-size: 11px; }
+      .topnav { background: rgba(10,10,15,0.95); border-bottom: 1px solid var(--tt-border); }
+      .nav-row { max-width: 1180px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 18px; }
+      .nav-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--tt-text); text-decoration: none; font-weight: 700; }
+      .nav-links { display: flex; gap: 14px; margin-left: 12px; }
+      .nav-link { color: var(--tt-text-muted); text-decoration: none; font-size: 14px; font-weight: 600; padding: 6px 0; }
+      .nav-link.active { color: var(--tt-text); }
+      .nav-link:hover { color: var(--tt-text); }
+      .verdict {
+        background: linear-gradient(135deg, rgba(168,85,247,0.06), rgba(59,130,246,0.04));
+        border: 1px solid rgba(168,85,247,0.25);
+        border-radius: 12px;
+        padding: 18px;
+        font-size: 15px;
+        line-height: 1.55;
+      }
+      .obs-row { display: grid; grid-template-columns: 140px 1fr 100px; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--tt-border); align-items: start; font-size: 13px; }
+      .obs-row:last-child { border-bottom: 0; }
+      .obs-section { color: var(--tt-text-muted); font-weight: 600; font-size: 12px; }
+      .obs-source { color: var(--tt-text-dim); font-size: 11px; text-align: right; }
+      .sig-line { padding: 8px 12px; background: var(--tt-bg-elev); border-radius: 8px; margin-bottom: 6px; font-size: 12px; line-height: 1.5; }
+      .sig-line .pair { font-weight: 700; color: #67e8f9; }
+      .sig-line .dir { color: var(--tt-text-muted); }
+      .lvl-row { display: grid; grid-template-columns: 80px 1fr 70px 80px; gap: 8px; padding: 6px 0; font-size: 12px; align-items: center; }
+      .lvl-label { font-weight: 600; }
+      .lvl-prob { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+      .markdown { font-size: 13px; line-height: 1.6; color: var(--tt-text); }
+      .markdown h1, .markdown h2, .markdown h3 { color: var(--tt-text); margin: 12px 0 6px; text-transform: none; letter-spacing: 0; font-size: 14px; }
+      .markdown ul { margin: 6px 0; padding-left: 20px; }
+      .markdown li { margin: 3px 0; }
+      .markdown p { margin: 6px 0; }
+      .markdown code { background: var(--tt-bg-elev); padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+      .btn {
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border-hi); color: var(--tt-text);
+        padding: 7px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+        transition: background 120ms;
+      }
+      .btn:hover { background: rgba(255,255,255,0.08); }
+      .btn-danger { color: #fb7185; border-color: rgba(244,63,94,0.4); }
+      .btn-danger:hover { background: rgba(244,63,94,0.08); }
+      .btn-go { color: #34d399; border-color: rgba(52,211,153,0.4); }
+      .btn-go:hover { background: rgba(52,211,153,0.08); }
+      .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .table th { text-align: left; font-weight: 600; padding: 8px 6px; border-bottom: 1px solid var(--tt-border); color: var(--tt-text-muted); }
+      .table td { padding: 8px 6px; border-bottom: 1px solid var(--tt-border); }
+      .table tr:last-child td { border-bottom: 0; }
+      .tabular { font-variant-numeric: tabular-nums; }
+      .ok { color: #34d399; }
+      .err { color: #fb7185; }
+      .warn { color: #fbbf24; }
+      .json-pre {
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 8px;
+        padding: 12px; font-size: 11px; font-family: 'SF Mono', Menlo, Consolas, monospace;
+        overflow-x: auto; color: var(--tt-text-muted); max-height: 360px;
+      }
+      .spinner {
+        display: inline-block; width: 14px; height: 14px;
+        border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-text-muted);
+        border-radius: 50%; animation: spin 700ms linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <nav class="topnav">
+      <div class="nav-row">
+        <a href="/today.html" class="nav-brand">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
+          Timed Trading
+        </a>
+        <div class="nav-links">
+          <a href="/today.html" class="nav-link">Today</a>
+          <a href="/active-trader.html" class="nav-link">Active Trader</a>
+          <a href="/investor.html" class="nav-link">Investor</a>
+          <a href="/portfolio.html" class="nav-link">Portfolio</a>
+          <a href="/insights.html" class="nav-link">Insights</a>
+          <a href="/research-desk.html" class="nav-link active">Research Desk</a>
+        </div>
+      </div>
+    </nav>
+
+    <div id="root">
+      <main>
+        <div class="card" style="text-align:center;color:var(--tt-text-muted)">Loading Research Desk…</div>
+      </main>
+    </div>
+
+    <script src="research-desk.compiled.js?v=1780466024669"></script>
+  </body>
+</html>
+
+<!-- cache-bust:1780466024669:603771096 -->

@@ -371,6 +371,7 @@
       "/investor",
       "/portfolio",
       "/insights",
+      "/research-desk",
       "/learn",
       "/faq",
       // 2026-05-26 — Added /daily-brief. PR #299 wired the Daily
@@ -650,4 +651,4 @@
   })();
 })();
 
-// cache-bust:1780425821712:365022044
+// cache-bust:1780466024669:603771096

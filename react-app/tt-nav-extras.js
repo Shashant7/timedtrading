@@ -371,6 +371,7 @@
       "/investor",
       "/portfolio",
       "/insights",
+      "/research-desk",
       "/learn",
       "/faq",
       // 2026-05-26 — Added /daily-brief. PR #299 wired the Daily
