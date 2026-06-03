@@ -6474,6 +6474,18 @@
               const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
               if (!Number.isFinite(ahPrice) || ahPrice <= 0) return null;
               if (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05) return null;
+              try {
+                const _rthClose = Number(v2Price);
+                if (Number.isFinite(_rthClose) && _rthClose > 0) {
+                  const _driftPct = (ahPrice - _rthClose) / _rthClose * 100;
+                  const _absDrift = Math.abs(_driftPct);
+                  const _todayPct = Number(v2DayPct);
+                  const _dirDisagree = Number.isFinite(_todayPct) && Math.abs(_todayPct) > 1.5 && Math.sign(_todayPct) !== Math.sign(_driftPct);
+                  if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
+                    return null;
+                  }
+                }
+              } catch (_) {}
               const dir = !Number.isFinite(ahPct) ? "flat" : ahPct >= 0 ? "up" : "dn";
               return React.createElement("div", {
                 title: "Extended-hours quote (pre-market / after-hours)",
@@ -17785,4 +17797,4 @@
   };
 })();
 
-// cache-bust:1780516205734:426435123
+// cache-bust:1780519745312:612729572
