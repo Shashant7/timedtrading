@@ -9114,8 +9114,93 @@
                       );
                     };
 
+                    // 2026-06-03 — Helper to format an FSD publication
+                    // excerpt for inline display. Strips Mark-Newton-style
+                    // "$TICKER " cashtag prefixes that just bloat the
+                    // first sentence and adds an "…" if truncated.
+                    const formatFsdExcerpt = (excerpt, mainTicker) => {
+                      if (!excerpt) return "";
+                      let t = String(excerpt).replace(/\s+/g, " ").trim();
+                      // Drop "Mark L. Newton, CMT – " preface if present.
+                      t = t.replace(/^[A-Z][a-zA-Z .']{3,30},\s*[A-Z]{2,5}\s*[–-]\s*/, "");
+                      // Highlight the main ticker visually.
+                      const len = 360;
+                      if (t.length > len) t = t.slice(0, len).trimEnd() + "…";
+                      return t;
+                    };
+
                     return (
                       <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" }}>
+
+                        {/* ── 0. FSD Intel (FlashInsights + long-form mentions) ────────── */}
+                        {C.fsd_intel?.count > 0 && (
+                          <Panel
+                            title="📡 FSD Intel"
+                            action={
+                              <span className="ds-chip ds-chip--sm">
+                                {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
+                              </span>
+                            }
+                          >
+                            <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em" }}>
+                              FUNDSTRAT DIRECT — POSTS MENTIONING ${tickerSymbol}
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                              {C.fsd_intel.publications.slice(0, 4).map((p, i) => {
+                                const isFlash = String(p.pub_id || "").includes("fsi-alert") ||
+                                                String(p.title || "").length < 30 ||
+                                                String(p.title || "").startsWith("Mark");
+                                return (
+                                  <div key={`fsd-${i}`} style={{
+                                    padding: "8px 10px",
+                                    background: "rgba(168,85,247,0.05)",
+                                    border: "1px solid rgba(168,85,247,0.18)",
+                                    borderRadius: "var(--ds-radius-md)",
+                                  }}>
+                                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4, flexWrap: "wrap" }}>
+                                      <span style={{
+                                        fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                        color: isFlash ? "#fbbf24" : "#a78bfa",
+                                        background: isFlash ? "rgba(251,191,36,0.10)" : "rgba(167,139,250,0.10)",
+                                        letterSpacing: "0.05em",
+                                      }}>
+                                        {isFlash ? "FLASHINSIGHT" : "FSD NOTE"}
+                                      </span>
+                                      <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                        {fmtAgo(p.published_at ? new Date(p.published_at).getTime() : p.fetched_at)}
+                                      </span>
+                                      {p.applied_at && (
+                                        <span style={{
+                                          fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 4,
+                                          color: "#34d399", background: "rgba(52,211,153,0.10)",
+                                        }}>APPLIED</span>
+                                      )}
+                                    </div>
+                                    {p.title && !isFlash && (
+                                      <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4, marginBottom: 4 }}>
+                                        {p.title}
+                                      </div>
+                                    )}
+                                    {p.excerpt && (
+                                      <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", lineHeight: 1.45 }}>
+                                        {formatFsdExcerpt(p.excerpt, tickerSymbol)}
+                                      </div>
+                                    )}
+                                    {p.source_url && (
+                                      <a href={p.source_url} target="_blank" rel="noopener noreferrer" style={{
+                                        display: "inline-block", marginTop: 4, fontSize: 10,
+                                        color: "var(--ds-text-muted)", textDecoration: "underline",
+                                      }}>read on fundstratdirect.com →</a>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div style={{ marginTop: 8, fontSize: 9, color: "var(--ds-text-faint)" }}>
+                              Source: Fundstrat Direct WP REST · ingested by CRO · auto-applied where classified tactical
+                            </div>
+                          </Panel>
+                        )}
 
                         {/* ── 1. News Catalysts ────────────────────────── */}
                         <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
@@ -14552,4 +14637,4 @@
   };
 })();
 
-// cache-bust:1780492945749:238863080
+// cache-bust:1780504424620:339353334
