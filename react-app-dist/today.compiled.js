@@ -1820,7 +1820,7 @@ function QuickGlance({
 }) {
   const info = brief?.infographic || {};
   const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
-  const regime = headline?.regime || info?.regime || null;
+  const briefRegime = headline?.regime || info?.regime || null;
   const breadth = headline?.breadth || info?.breadth || null;
   const breadthGreen = Number(breadth?.green);
   const breadthTotal = Number(breadth?.total);
@@ -1847,6 +1847,17 @@ function QuickGlance({
     }
     return null;
   }, [data]);
+  const regime = useMemo(() => {
+    if (briefRegime) return briefRegime;
+    const latentState = String(latent?.state || "").toUpperCase();
+    if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") return latentState;
+    if (Number.isFinite(breadthPct)) {
+      if (breadthPct >= 70) return "RISK_ON";
+      if (breadthPct <= 30) return "RISK_OFF";
+      return "CHOP";
+    }
+    return latentState || null;
+  }, [briefRegime, latent, breadthPct]);
   const REGIME_TONE = {
     RISK_ON: "#34d399",
     BULL: "#34d399",
@@ -2096,7 +2107,7 @@ function ResearchDeskExcerpt() {
     className: "tt-sec-h"
   }, "AI CRO + CTO — what the research stack is saying"), h("div", {
     className: "tt-sec-sub"
-  }, "Synthesized from Fundstrat Direct intel, macro snapshot, cross-asset rotation and per-ticker Markov-biased probabilistic levels. ", h("a", {
+  }, "Synthesized from external research intel, macro snapshot, cross-asset rotation and per-ticker Markov-biased probabilistic levels. ", h("a", {
     href: "/research-desk",
     style: {
       color: "var(--tt-accent, #67e8f9)",
@@ -2212,14 +2223,8 @@ function ResearchDeskExcerpt() {
       color: "var(--tt-text-muted)",
       lineHeight: 1.5
     }
-  }, "No high-conviction universe headlines yet. Empirical hit-rates × Markov regime forecast power per-ticker level scores (≥60% adj prob surfaces here).")), h("a", {
-    href: "/research-desk",
-    className: "tt-card tt-card-pad",
-    style: {
-      display: "block",
-      textDecoration: "none",
-      color: "inherit"
-    }
+  }, "No high-conviction universe headlines yet. Empirical hit-rates × Markov regime forecast power per-ticker level scores (≥60% adj prob surfaces here).")), h("div", {
+    className: "tt-card tt-card-pad"
   }, h("div", {
     style: {
       display: "flex",
@@ -2270,7 +2275,73 @@ function ResearchDeskExcerpt() {
       color: "var(--tt-text-muted)",
       lineHeight: 1.5
     }
-  }, "No cron tombstone yet. The first CRO/CTO cycle writes this snapshot when it completes. Click through to the Research Desk to force-run via admin actions."))));
+  }, "No cron tombstone yet. The first CRO/CTO cycle writes this snapshot when it completes. Use Force run below to populate immediately."), typeof window !== "undefined" && window._ttIsAdmin && h("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 10,
+      flexWrap: "wrap"
+    }
+  }, h("button", {
+    style: {
+      fontFamily: "var(--tt-font)",
+      fontSize: 12,
+      fontWeight: 600,
+      padding: "6px 12px",
+      background: "var(--tt-bg-surface)",
+      color: "var(--tt-accent, #67e8f9)",
+      border: "1px solid var(--tt-accent, #67e8f9)",
+      borderRadius: 999,
+      cursor: "pointer"
+    },
+    title: "POST /timed/admin/cro/cycle — runs CTO + rotation + FSD ingest + extract + apply + synthesis end-to-end",
+    onClick: async e => {
+      e.preventDefault();
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = "Running…";
+      try {
+        const r = await fetch(`${API_BASE}/timed/admin/cro/cycle`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            force: true
+          })
+        });
+        const j = await r.json().catch(() => null);
+        btn.textContent = r.ok ? "Triggered — refresh in ~60s" : `Error ${r.status}`;
+        console.log("[FORCE CRO CYCLE]", j);
+      } catch (err) {
+        btn.textContent = "Error";
+        console.error(err);
+      } finally {
+        setTimeout(() => {
+          try {
+            btn.disabled = false;
+            btn.textContent = orig;
+          } catch (_) {}
+        }, 8000);
+      }
+    }
+  }, "Force run cycle now"), h("a", {
+    href: "/research-desk",
+    style: {
+      fontFamily: "var(--tt-font)",
+      fontSize: 12,
+      fontWeight: 600,
+      padding: "6px 12px",
+      background: "var(--tt-bg-surface)",
+      color: "var(--tt-text-muted)",
+      border: "1px solid var(--tt-border)",
+      borderRadius: 999,
+      textDecoration: "none"
+    },
+    title: "Open the full Research Desk for per-step controls + diagnostics"
+  }, "Open Research Desk →")))));
 }
 function MacroStrip({
   brief
@@ -5001,6 +5072,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780529198873:179117049
+// cache-bust:1780540766182:488075247
 
-// cache-bust:1780529198873:179117049
+// cache-bust:1780540766182:488075247

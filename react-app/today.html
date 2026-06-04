@@ -2959,7 +2959,7 @@
       function QuickGlance({ brief, data, onSelectTicker }) {
         const info = brief?.infographic || {};
         const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
-        const regime = headline?.regime || info?.regime || null;
+        const briefRegime = headline?.regime || info?.regime || null;
         const breadth = headline?.breadth || info?.breadth || null;
         const breadthGreen = Number(breadth?.green);
         const breadthTotal = Number(breadth?.total);
@@ -2988,6 +2988,23 @@
           }
           return null;
         }, [data]);
+
+        // 2026-06-03 — Fallback regime when the daily brief didn't emit one.
+        // The brief's `regime` reads from `data.market.SPY.regime_class ||
+        // data.regime_class` — both of which can be empty on cold-start.
+        // Falls back to breadth + HMM-latent so the tile shows SOMETHING
+        // reasonable instead of a bare "—".
+        const regime = useMemo(() => {
+          if (briefRegime) return briefRegime;
+          const latentState = String(latent?.state || "").toUpperCase();
+          if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") return latentState;
+          if (Number.isFinite(breadthPct)) {
+            if (breadthPct >= 70) return "RISK_ON";
+            if (breadthPct <= 30) return "RISK_OFF";
+            return "CHOP";
+          }
+          return latentState || null;
+        }, [briefRegime, latent, breadthPct]);
 
         const REGIME_TONE = {
           RISK_ON: "#34d399", BULL: "#34d399", BULL_TREND: "#34d399",
@@ -3177,7 +3194,7 @@
           h("div", { className: "tt-sec-title" }, "RESEARCH DESK"),
           h("div", { className: "tt-sec-h" }, "AI CRO + CTO — what the research stack is saying"),
           h("div", { className: "tt-sec-sub" },
-            "Synthesized from Fundstrat Direct intel, macro snapshot, cross-asset rotation and per-ticker Markov-biased probabilistic levels. ",
+            "Synthesized from external research intel, macro snapshot, cross-asset rotation and per-ticker Markov-biased probabilistic levels. ",
             h("a", { href: "/research-desk", style: { color: "var(--tt-accent, #67e8f9)", textDecoration: "underline" } }, "Open the full Research Desk →"),
           ),
           h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 } },
@@ -3208,7 +3225,7 @@
                 : h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5 } },
                     "No high-conviction universe headlines yet. Empirical hit-rates × Markov regime forecast power per-ticker level scores (≥60% adj prob surfaces here)."),
             ),
-            h("a", { href: "/research-desk", className: "tt-card tt-card-pad", style: { display: "block", textDecoration: "none", color: "inherit" } },
+            h("div", { className: "tt-card tt-card-pad" },
               h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 } },
                 h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-dim)" } }, "⚙️ PIPELINE"),
                 sumOk
@@ -3224,7 +3241,59 @@
                     Array.isArray(sum.errors) && sum.errors.length > 0 && h("div", { style: { color: "var(--tt-warn, #fbbf24)", fontFamily: "var(--tt-font-mono)", fontSize: 11 } }, `${sum.errors.length} error${sum.errors.length === 1 ? "" : "s"}`),
                   )
                 : h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5 } },
-                    "No cron tombstone yet. The first CRO/CTO cycle writes this snapshot when it completes. Click through to the Research Desk to force-run via admin actions."),
+                    "No cron tombstone yet. The first CRO/CTO cycle writes this snapshot when it completes. Use Force run below to populate immediately."),
+              // 2026-06-03 — Admin Force Run button. Operator: "There is
+              // no force run button". Surfaces /timed/admin/cro/cycle
+              // directly on the Today page so admins don't have to
+              // navigate to the Research Desk to kick a manual run.
+              typeof window !== "undefined" && window._ttIsAdmin && h("div", { style: { display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" } },
+                h("button", {
+                  style: {
+                    fontFamily: "var(--tt-font)", fontSize: 12, fontWeight: 600,
+                    padding: "6px 12px",
+                    background: "var(--tt-bg-surface)",
+                    color: "var(--tt-accent, #67e8f9)",
+                    border: "1px solid var(--tt-accent, #67e8f9)",
+                    borderRadius: 999, cursor: "pointer",
+                  },
+                  title: "POST /timed/admin/cro/cycle — runs CTO + rotation + FSD ingest + extract + apply + synthesis end-to-end",
+                  onClick: async (e) => {
+                    e.preventDefault();
+                    const btn = e.currentTarget;
+                    btn.disabled = true;
+                    const orig = btn.textContent;
+                    btn.textContent = "Running…";
+                    try {
+                      const r = await fetch(`${API_BASE}/timed/admin/cro/cycle`, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ force: true }),
+                      });
+                      const j = await r.json().catch(() => null);
+                      btn.textContent = r.ok ? "Triggered — refresh in ~60s" : `Error ${r.status}`;
+                      console.log("[FORCE CRO CYCLE]", j);
+                    } catch (err) {
+                      btn.textContent = "Error";
+                      console.error(err);
+                    } finally {
+                      setTimeout(() => { try { btn.disabled = false; btn.textContent = orig; } catch (_) {} }, 8000);
+                    }
+                  },
+                }, "Force run cycle now"),
+                h("a", {
+                  href: "/research-desk",
+                  style: {
+                    fontFamily: "var(--tt-font)", fontSize: 12, fontWeight: 600,
+                    padding: "6px 12px",
+                    background: "var(--tt-bg-surface)",
+                    color: "var(--tt-text-muted)",
+                    border: "1px solid var(--tt-border)",
+                    borderRadius: 999, textDecoration: "none",
+                  },
+                  title: "Open the full Research Desk for per-step controls + diagnostics",
+                }, "Open Research Desk →"),
+              ),
             ),
           ),
         );
