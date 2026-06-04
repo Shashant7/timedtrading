@@ -458,7 +458,7 @@
                 className: "btn btn-go",
                 title: "POST /timed/admin/cro/fsd/ingest",
                 onClick: () => onAction("fsd_ingest_inline", "POST", "/timed/admin/cro/fsd/ingest", {}),
-              }, "Pull from FSD now"),
+              }, "Force Pull"),
               h("button", {
                 className: "btn",
                 title: "POST /timed/admin/cro/fsd/probe",
@@ -616,7 +616,7 @@
           { key: "cto",        label: "Refresh CTO universe",       cls: "btn",        path: "/timed/admin/cto/universe/refresh", body: {}, hint: "Recomputes Markov-biased probabilistic levels for the active universe (~50 tickers)." },
           { key: "rotation",   label: "Refresh rotation engine",    cls: "btn",        path: "/timed/admin/cro/rotation/refresh", body: {}, hint: "Recomputes pairwise RS + theme breadth + intra-theme correlation." },
           { key: "fsd_probe",  label: "Probe FSD login",            cls: "btn",        path: "/timed/admin/cro/fsd/probe",        body: {}, hint: "Returns a 500-char snippet of the FSD login page response. No credentials echoed back." },
-          { key: "fsd_ingest", label: "Pull from FSD now (force re-fetch)", cls: "btn btn-go", path: "/timed/admin/cro/fsd/ingest", body: { force: true, limit: 20 }, hint: "Lists FSD publications + ingests new ones AND re-fetches existing pubs (force:true) so garbage stored text gets replaced with clean WP REST content + a fresh TT-voice blend. Auto-applies tactical proposals downstream if cro_auto_apply_tactical is true." },
+          { key: "fsd_ingest", label: "Force Pull (FSD re-fetch)", cls: "btn btn-go", path: "/timed/admin/cro/fsd/ingest", body: { force: true, limit: 20 }, hint: "Lists FSD publications + ingests new ones AND re-fetches existing pubs (force:true) so garbage stored text gets replaced with clean WP REST content + a fresh TT-voice blend. Auto-applies tactical proposals downstream if cro_auto_apply_tactical is true." },
         ];
         return h("div", { className: "card" },
           h("h2", null, "⚙️ Admin Actions"),
@@ -702,19 +702,22 @@
           )
         );
         useEffect(() => {
-          const onAuth = () => {
-            const v = window._ttIsAdmin === true ||
-                      document.body?.dataset?.isAdmin === "true";
-            setIsAdmin(v);
-          };
+          const readAdmin = () =>
+            window._ttIsAdmin === true ||
+            document.body?.dataset?.isAdmin === "true";
+          const onAuth = () => setIsAdmin(readAdmin());
           window.addEventListener("tt-auth-bootstrap-updated", onAuth);
-          // Belt-and-suspenders: re-check after auth-gate's typical
-          // settle window (auth-gate fires the event after /timed/me
-          // resolves; in case the listener was attached late, poll once.)
-          const t = setTimeout(onAuth, 1500);
+          onAuth();
+          const t1 = setTimeout(onAuth, 800);
+          const t2 = setTimeout(onAuth, 2500);
+          const poll = setInterval(onAuth, 600);
+          const stopPoll = setTimeout(() => clearInterval(poll), 8000);
           return () => {
             window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
-            clearTimeout(t);
+            clearTimeout(t1);
+            clearTimeout(t2);
+            clearTimeout(stopPoll);
+            clearInterval(poll);
           };
         }, []);
 
@@ -793,7 +796,7 @@
               className: "btn btn-go",
               title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 } — re-fetches the latest publications AND replaces garbage text in existing rows.',
               onClick: () => onAction("fsd_force_topbar", "POST", "/timed/admin/cro/fsd/ingest", { force: true, limit: 20 }),
-            }, "Pull from FSD now (force)"),
+            }, "Force Pull"),
             h("button", {
               className: "btn",
               title: "POST /timed/admin/cro/cycle { force: true } — runs the whole pipeline (CTO + rotation + FSD + extract + apply + synthesis)",
