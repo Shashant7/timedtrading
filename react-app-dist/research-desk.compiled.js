@@ -60,7 +60,7 @@ async function jpost(path, body) {
     const json = await r.json().catch(() => null);
     return {
       status: r.status,
-      ok: r.ok,
+      ok: r.ok || r.status === 202,
       body: json
     };
   } catch (e) {
@@ -762,12 +762,26 @@ function App() {
       }
     });
     const r = method === "POST" ? await jpost(path, body) : await jget(path);
+    const accepted = r.status === 202 || r.body?.accepted === true;
     setLastAction({
       kind,
       status: r.status,
-      body: r.body
+      body: accepted ? {
+        ok: true,
+        message: r.body?.message || "Started in background — status chips refresh in ~1–3 min."
+      } : r.body
     });
-    setTimeout(load, 3000);
+    load();
+    if (accepted) {
+      let polls = 0;
+      const pollId = setInterval(() => {
+        polls += 1;
+        load();
+        if (polls >= 18) clearInterval(pollId);
+      }, 10000);
+    } else {
+      setTimeout(load, 3000);
+    }
   };
   if (data.loading) {
     return h("main", null, h("div", {
@@ -868,6 +882,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780608162031:333639946
+// cache-bust:1780609301261:285731520
 
-// cache-bust:1780608162031:333639946
+// cache-bust:1780609301261:285731520

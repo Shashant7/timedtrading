@@ -4394,7 +4394,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
     if (opts.notifyDiscord) {
       // Pass infographic so topThree/closingLine appear in the description.
       const embed = buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic);
-      await opts.notifyDiscord(env, embed).catch(e =>
+      await opts.notifyDiscord(env, embed, "general").catch(e =>
         console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100))
       );
     }
@@ -4889,11 +4889,9 @@ export async function generateIntradayBrief(env, opts = {}) {
       `).bind(entry.id, data.today, content, now, now).run();
     }
 
-    // 2026-05-29 — Area A: dispatch Intraday Pulse to Discord (TRADE
-    // lane — these are market-pulse insights for traders, not ops
-    // noise). The TLDR sentence is the embed description so readers
-    // get the lean at a glance in the channel; the full body is
-    // linked via the brief permalink.
+    // 2026-05-29 — Dispatch Intraday Pulse to Discord #general (same
+    // lane as morning/evening briefs). Trade-signals stays for model
+    // ENTRY/TRIM/EXIT only.
     if (opts.notifyDiscord) {
       try {
         const tldr = (() => {
@@ -4910,7 +4908,7 @@ export async function generateIntradayBrief(env, opts = {}) {
           timestamp: new Date(now).toISOString(),
           footer: { text: "Timed Trading · Intraday Pulse" },
         };
-        await opts.notifyDiscord(env, embed, "trade").catch(e =>
+        await opts.notifyDiscord(env, embed, "general").catch(e =>
           console.warn("[INTRADAY BRIEF] Discord dispatch failed:", String(e?.message || e).slice(0, 200)),
         );
       } catch (e) {

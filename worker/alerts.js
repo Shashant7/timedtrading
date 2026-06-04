@@ -3,23 +3,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
 // ─────────────────────────────────────────────────────────────────────────────
-// Two lanes, two Discord channels:
+// Three lanes, three Discord channels:
 //
-//   lane="trade"  (default)  → DISCORD_WEBHOOK_URL          (trade channel)
-//   lane="system"            → DISCORD_SYSTEM_WEBHOOK_URL   (ops / noise)
+//   lane="trade"    (default)  → DISCORD_WEBHOOK_URL            (#trade-signals)
+//   lane="general"             → DISCORD_GENERAL_WEBHOOK_URL    (#general)
+//   lane="system"              → DISCORD_SYSTEM_WEBHOOK_URL     (#system-alerts)
 //
-// Trade lane = anything a trader cares about within a session:
-//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*
-//   daily brief embeds / weekly investor digest / investor alerts.
+// Trade lane = model-initiated trade lifecycle only:
+//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*.
+//
+// General lane = editorial / research pulses traders read in #general:
+//   Daily Brief (morning + evening), Intraday Pulse, FSD FlashInsight.
 //
 // System lane = ops noise an operator (not a trader) cares about:
 //   cron failures / candle staleness / migration completions /
 //   ingest health / reconciliation diffs / config integrity warnings /
 //   AI CIO health probes / vision-mismatch warnings.
 //
-// If DISCORD_SYSTEM_WEBHOOK_URL is unset, system messages fall back to
-// the trade webhook (so nothing is dropped). If neither is set, the
-// notification is skipped with reason="missing_webhook".
+// If a lane-specific webhook is unset, fall back: general → trade,
+// system → trade. If DISCORD_WEBHOOK_URL is unset, skip with
+// reason="missing_webhook".
 //
 // Callers tag their lane explicitly: `notifyDiscord(env, embed, "system")`.
 // Default is "trade" so existing untagged callers are unchanged.
@@ -36,18 +39,19 @@ export async function notifyDiscord(env, embed, lane = "trade") {
   }
 
   // Lane → webhook URL resolution
-  const _laneNorm = String(lane || "trade").toLowerCase() === "system" ? "system" : "trade";
+  const _laneRaw = String(lane || "trade").toLowerCase();
+  const _laneNorm = _laneRaw === "system" ? "system" : (_laneRaw === "general" ? "general" : "trade");
   const _systemUrl = env.DISCORD_SYSTEM_WEBHOOK_URL || null;
+  const _generalUrl = env.DISCORD_GENERAL_WEBHOOK_URL || null;
   const _tradeUrl = env.DISCORD_WEBHOOK_URL || null;
-  // System messages prefer the system webhook; if unset, fall back to
-  // the trade webhook (better noisy than dropped). Trade messages never
-  // route to the system channel.
   const url = _laneNorm === "system"
     ? (_systemUrl || _tradeUrl)
-    : _tradeUrl;
+    : _laneNorm === "general"
+      ? (_generalUrl || _tradeUrl)
+      : _tradeUrl;
   if (!url) {
     console.log(
-      `[DISCORD] No webhook URL for lane="${_laneNorm}" (DISCORD_WEBHOOK_URL=${_tradeUrl ? "set" : "missing"}, DISCORD_SYSTEM_WEBHOOK_URL=${_systemUrl ? "set" : "missing"})`,
+      `[DISCORD] No webhook URL for lane="${_laneNorm}" (DISCORD_WEBHOOK_URL=${_tradeUrl ? "set" : "missing"}, DISCORD_GENERAL_WEBHOOK_URL=${_generalUrl ? "set" : "missing"}, DISCORD_SYSTEM_WEBHOOK_URL=${_systemUrl ? "set" : "missing"})`,
     );
     return { ok: false, skipped: true, reason: "missing_webhook", lane: _laneNorm };
   }
@@ -61,7 +65,11 @@ export async function notifyDiscord(env, embed, lane = "trade") {
   // System lane gets a different username so it's visually distinct
   // from trade messages even before reading the title.
   const _baseName = env.DISCORD_WEBHOOK_USERNAME || "Timed Trading";
-  const _webhookUsername = _laneNorm === "system" ? `${_baseName} • Ops` : _baseName;
+  const _webhookUsername = _laneNorm === "system"
+    ? `${_baseName} • Ops`
+    : _laneNorm === "general"
+      ? `${_baseName} • Intel`
+      : _baseName;
   // 2026-05-29 — Discord caches webhook avatars by URL. The system-lane
   // bot kept showing an older avatar even after the source PNG was
   // updated, so we bump a version query param to force a re-fetch.
@@ -69,7 +77,7 @@ export async function notifyDiscord(env, embed, lane = "trade") {
   // if the user ever wants distinct icons.
   const _avatarBase = env.DISCORD_WEBHOOK_AVATAR_URL
     || "https://timed-trading.com/logo-discord.png";
-  const _avatarVer = _laneNorm === "system" ? "v3-ops" : "v3-trade";
+  const _avatarVer = _laneNorm === "system" ? "v3-ops" : (_laneNorm === "general" ? "v3-general" : "v3-trade");
   const _webhookAvatarUrl = `${_avatarBase}${_avatarBase.includes("?") ? "&" : "?"}v=${_avatarVer}`;
   try {
     const response = await fetch(url, {
