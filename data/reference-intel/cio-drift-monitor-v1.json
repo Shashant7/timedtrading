@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-06-04T10:12:19.169064+00:00",
+  "generated_at_utc": "2026-06-04T20:25:45.312309+00:00",
   "source": "d1",
   "window_sizes": {
     "recent": 400,
@@ -20,16 +20,16 @@
     "rows_with_outcome": 2,
     "approve_adjust_rows": 2,
     "reject_rows": 0,
-    "approve_adjust_win_rate": 1.0,
+    "approve_adjust_win_rate": 0.5,
     "reject_counterfactual_win_rate": 0.0,
-    "avg_confidence": 0.815,
-    "avg_edge_score": 0.6
+    "avg_confidence": 0.8,
+    "avg_edge_score": 0.465
   },
   "delta": {
-    "approve_adjust_win_rate": -1.0,
+    "approve_adjust_win_rate": -0.5,
     "reject_counterfactual_win_rate": 0.0,
-    "avg_confidence": -0.815,
-    "avg_edge_score": -0.6
+    "avg_confidence": -0.8,
+    "avg_edge_score": -0.465
   },
   "alerts": {
     "wr_drop_exceeds_threshold": true,
