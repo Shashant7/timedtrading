@@ -460,7 +460,19 @@ function PublicationsCard({
       pub_id: p.pub_id,
       force: true
     })
-  }, "Re-extract")))))), h("h3", {
+  }, "Re-extract"), h("button", {
+    className: "btn btn-sm",
+    style: {
+      marginLeft: 6
+    },
+    title: `POST /timed/admin/cro/fsd/ingest { pub_id: "${p.pub_id}", force: true } — re-fetches this publication and re-runs the TT-voice blend`,
+    onClick: () => onAction(`refetch_${p.pub_id}`, "POST", "/timed/admin/cro/fsd/ingest", {
+      pub_id: p.pub_id,
+      source_url: p.source_url,
+      title: p.title,
+      force: true
+    })
+  }, "Re-fetch")))))), h("h3", {
     style: {
       marginTop: 12
     }
@@ -593,11 +605,14 @@ function ActionsCard({
     hint: "Returns a 500-char snippet of the FSD login page response. No credentials echoed back."
   }, {
     key: "fsd_ingest",
-    label: "Pull from FSD now",
+    label: "Pull from FSD now (force re-fetch)",
     cls: "btn btn-go",
     path: "/timed/admin/cro/fsd/ingest",
-    body: {},
-    hint: "Lists FSD publications + ingests any new ones. Auto-applies tactical proposals downstream if cro_auto_apply_tactical is true."
+    body: {
+      force: true,
+      limit: 20
+    },
+    hint: "Lists FSD publications + ingests new ones AND re-fetches existing pubs (force:true) so garbage stored text gets replaced with clean WP REST content + a fresh TT-voice blend. Auto-applies tactical proposals downstream if cro_auto_apply_tactical is true."
   }];
   return h("div", {
     className: "card"
@@ -766,7 +781,45 @@ function App() {
   }
   return h("main", null, h(StatusBanner, {
     data
-  }), h("div", {
+  }), isAdmin && h("div", {
+    style: {
+      marginBottom: 14,
+      padding: 12,
+      background: "rgba(52,211,153,0.05)",
+      border: "1px solid rgba(52,211,153,0.25)",
+      borderRadius: 10,
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, h("div", {
+    style: {
+      flex: 1,
+      minWidth: 220
+    }
+  }, h("div", {
+    style: {
+      fontWeight: 700,
+      color: "#34d399",
+      marginBottom: 4
+    }
+  }, "📡 FSD Pipeline · admin"), h("div", {
+    className: "muted"
+  }, "Click to pull the latest FSD publications NOW and re-fetch any existing pubs whose stored text looks like the old garbage scrape. Each fresh pub triggers the eager TT-voice blend.")), h("button", {
+    className: "btn btn-go",
+    title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 } — re-fetches the latest publications AND replaces garbage text in existing rows.',
+    onClick: () => onAction("fsd_force_topbar", "POST", "/timed/admin/cro/fsd/ingest", {
+      force: true,
+      limit: 20
+    })
+  }, "Pull from FSD now (force)"), h("button", {
+    className: "btn",
+    title: "POST /timed/admin/cro/cycle { force: true } — runs the whole pipeline (CTO + rotation + FSD + extract + apply + synthesis)",
+    onClick: () => onAction("cycle_force_topbar", "POST", "/timed/admin/cro/cycle", {
+      force: true
+    })
+  }, "Force full cycle")), h("div", {
     className: "grid-2"
   }, h(CRONoteCard, {
     data
@@ -805,6 +858,6 @@ function App() {
   }, h(AICIOActionsCard)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780549792264:275592721
+// cache-bust:1780569581552:248433768
 
-// cache-bust:1780549792264:275592721
+// cache-bust:1780569581552:248433768
