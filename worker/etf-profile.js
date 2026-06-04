@@ -164,17 +164,20 @@ const ETF_PROFILE = {
     tighten_trail_pct: 0.40,    // was 0.30
   },
 
-  // ─── Stagnant-exit timing (ETFs should fire faster) ───
-  // Stock default: phase_i_mfe_dead_money_24h fires after 24h with MFE<1%
-  // ETF profile:   8h with MFE<0.5% (saves SPY trades that just sit)
+  // ─── Stagnant-exit (last resort only) ───
+  // 2026-06-04 — Operator: IWM should have HELD; levels/TP/SL/doctrine
+  // own the exit. Stagnant fires only on old, genuinely stuck losers.
+  // Stock default: phase_i_mfe_dead_money_24h @ MFE<1%.
   stagnant_exit: {
-    // 2026-06-04 — Relaxed vs initial profile: overnight ETF holds were
-    // flat-cutting at the open (4h age from prior session) then immediately
-    // re-entering. Slightly longer windows + re-entry cooldown in trade sim.
-    dead_money_max_age_hours: 10,
-    dead_money_max_mfe_pct: 0.005,        // 0.5%
-    fast_cut_max_age_hours: 6,
-    fast_cut_max_mfe_pct: 0.003,          // 0.3%
+    min_age_hours: 16,                    // no stagnant cut in first 16h
+    min_loss_pct: -0.5,                   // must be <= -0.5% (not flat chop)
+    dead_money_max_age_hours: 24,         // align with stock dead-money horizon
+    dead_money_max_mfe_pct: 0.004,        // 0.4% MFE — never really moved
+    // Early fast-cut disabled — was cutting valid overnight holds at the open.
+    fast_cut_max_age_hours: 999,
+    fast_cut_max_mfe_pct: 0.003,
+    zero_mfe_max_age_hours: 24,           // was 6h "fast_cut_zero_mfe"
+    zero_mfe_max_mfe_pct: 0.0005,         // 0.05%
   },
 
   // ─── Sizing modifier (smaller positions, ETFs are lower-variance) ───
@@ -336,22 +339,24 @@ export function isEtfRideRunnerMode(ticker, mfePct, currentPnlPct) {
        squeeze_active:   boolean, // any TF sq.s === 1 or sq.c === 1
      }
 
-   Defer rule:
-     LONG  + monthly_bull  + above_d_ema200 + squeeze_active → DEFER
-     SHORT + monthly_bear  + below_d_ema200 + squeeze_active → DEFER
+   Defer rule (2026-06-04 — relaxed):
+     LONG  + monthly_bull + above_d_ema200 → DEFER (squeeze optional)
+     SHORT + monthly_bear + below_d_ema200 → DEFER
+     Either direction + squeeze_active + HTF monthly aligned → DEFER
 
-   Strict AND across all three so the rule still catches the common
-   "in a downtrend, stagnant and not moving" pattern that's the
-   original target. */
+   Rationale: flat overnight ETF longs in a bullish structure are
+   coil-before-break, not dead money — let TP/SL/levels decide. */
 function shouldDeferOnHtfContext(htfContext) {
   if (!htfContext || typeof htfContext !== "object") return false;
   const dir = String(htfContext.direction || "").toUpperCase();
   const squeeze = !!htfContext.squeeze_active;
   if (dir === "LONG") {
-    return !!(htfContext.monthly_bull && htfContext.above_d_ema200 && squeeze);
+    if (htfContext.monthly_bull && htfContext.above_d_ema200) return true;
+    if (squeeze && htfContext.monthly_bull) return true;
   }
   if (dir === "SHORT") {
-    return !!(htfContext.monthly_bear && htfContext.below_d_ema200 && squeeze);
+    if (htfContext.monthly_bear && htfContext.below_d_ema200) return true;
+    if (squeeze && htfContext.monthly_bear) return true;
   }
   return false;
 }
@@ -370,15 +375,12 @@ function shouldDeferOnHtfContext(htfContext) {
  * bullish HTF + active squeeze defers the fast_cut_zero_mfe branch.
  * See shouldDeferOnHtfContext above + the DIA 2026-06-01 audit.
  *
- * New logic:
- *  - If currentPnlPct > 0 (any profit): DON'T fire. Let winners run, even
- *    if slow. The position can give back to a stop or a TP — that's the
- *    job of those rules, not stagnant-exit.
- *  - If currentPnlPct <= 0 AND age + MFE thresholds met: FIRE (existing).
- *  - Edge case: MFE truly near zero (< 0.05%) AND age >= fast_cut_max:
- *    fire regardless of current pnl, UNLESS htfContext says the position
- *    is in a bullish coil (LONG) or bearish coil (SHORT) — those are
- *    constructive consolidations about to break in the trade's favor.
+ * Logic (2026-06-04 — last-resort stagnant):
+ *  - Never fire before min_age_hours (levels/TP/SL manage young holds).
+ *  - Never fire if pnl > min_loss_pct (flat/small red holds through chop).
+ *  - Never fire if profitable.
+ *  - HTF-aligned structure defers all branches (coil-before-break).
+ *  - Only dead_money + zero_mfe after long age, both requiring real loss.
  */
 export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = null, htfContext = null) {
   const profile = getEtfProfile(ticker);
@@ -387,54 +389,57 @@ export function checkEtfStagnantExit(ticker, mfePct, ageHours, currentPnlPct = n
   const _mfeAbs = Math.abs(Number(mfePct) || 0) / 100; // mfePct is in %, convert
   const _age = Number(ageHours) || 0;
   const _pnl = currentPnlPct == null ? null : Number(currentPnlPct);
+  const _minAge = Number(stag.min_age_hours) || 16;
+  const _minLoss = Number(stag.min_loss_pct) ?? -0.5;
 
-  // Hard fast-cut: MFE essentially zero (< 0.05%) AND age >= fast_cut_max.
-  // This catches "wrong from bar 1" where the price truly never moved.
-  // Fires even if pnl is currently positive (it's just noise about to revert)
-  // UNLESS the htfContext gate detects a constructive HTF coil setup
-  // (LONG in bullish HTF + squeeze, or SHORT in bearish HTF + squeeze).
-  if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < 0.0005) {
-    if (shouldDeferOnHtfContext(htfContext)) {
-      const dirLower = String(htfContext?.direction || "").toLowerCase();
-      const monthlyFlag = htfContext?.direction === "SHORT"
-        ? !!htfContext.monthly_bear
-        : !!htfContext.monthly_bull;
-      const dEma200Flag = htfContext?.direction === "SHORT"
-        ? !!htfContext.below_d_ema200
-        : !!htfContext.above_d_ema200;
-      return {
-        fire: false,
-        reason: `etf_fast_cut_zero_mfe_DEFERRED_htf_coil: age=${_age.toFixed(1)}h mfe~0 ` +
-                `but ${dirLower} in HTF-aligned squeeze ` +
-                `(monthly=${monthlyFlag}, d_ema200=${dEma200Flag}, squeeze=${!!htfContext.squeeze_active})`,
-      };
-    }
+  if (_age < _minAge) {
+    return { fire: false, reason: `etf_stagnant_too_young: age=${_age.toFixed(1)}h<${_minAge}h (TP/SL/levels first)` };
+  }
+
+  if (shouldDeferOnHtfContext(htfContext)) {
     return {
-      fire: true,
-      reason: `etf_fast_cut_zero_mfe: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(3)}% essentially zero`,
+      fire: false,
+      reason: `etf_stagnant_DEFERRED_htf_structure: age=${_age.toFixed(1)}h — HTF aligned, let price action resolve`,
     };
   }
 
-  // From here, only fire if the trade is NOT currently profitable.
-  // A winning trade — even slow — should be left alone for stops/TPs to
-  // manage. The stagnant rule is for "stuck losers", not "patient winners".
   if (_pnl != null && _pnl > 0) {
     return { fire: false, reason: `etf_stagnant_skip_winning_trade: pnl=${_pnl.toFixed(2)}%>0` };
   }
 
-  // Fast-cut: 4h with <0.3% MFE AND pnl <= 0
-  if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < stag.fast_cut_max_mfe_pct) {
+  if (_pnl != null && _pnl > _minLoss) {
     return {
-      fire: true,
-      reason: `etf_fast_cut: age=${_age.toFixed(1)}h>=${stag.fast_cut_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.fast_cut_max_mfe_pct*100).toFixed(2)}% AND pnl<=0`,
+      fire: false,
+      reason: `etf_stagnant_skip_flat_chop: pnl=${_pnl.toFixed(2)}%>${_minLoss}% (need meaningful loss or level hit)`,
     };
   }
-  // Dead-money: 8h with <0.5% MFE AND pnl <= 0
-  if (_age >= stag.dead_money_max_age_hours && _mfeAbs < stag.dead_money_max_mfe_pct) {
+
+  const _zeroAge = Number(stag.zero_mfe_max_age_hours) || 24;
+  const _zeroMfe = Number(stag.zero_mfe_max_mfe_pct) || 0.0005;
+  if (_age >= _zeroAge && _mfeAbs < _zeroMfe && _pnl != null && _pnl <= _minLoss) {
     return {
       fire: true,
-      reason: `etf_dead_money: age=${_age.toFixed(1)}h>=${stag.dead_money_max_age_hours}h AND mfe=${(_mfeAbs*100).toFixed(2)}%<${(stag.dead_money_max_mfe_pct*100).toFixed(2)}% AND pnl<=0`,
+      reason: `etf_zero_mfe_loser: age=${_age.toFixed(1)}h>=${_zeroAge}h mfe=${(_mfeAbs * 100).toFixed(3)}% pnl=${_pnl.toFixed(2)}%<=${_minLoss}%`,
     };
+  }
+
+  // Legacy fast_cut branch — disabled via fast_cut_max_age_hours=999 in profile.
+  if (_age >= stag.fast_cut_max_age_hours && _mfeAbs < stag.fast_cut_max_mfe_pct) {
+    if (_pnl != null && _pnl <= _minLoss) {
+      return {
+        fire: true,
+        reason: `etf_fast_cut: age=${_age.toFixed(1)}h mfe=${(_mfeAbs * 100).toFixed(2)}% pnl=${_pnl.toFixed(2)}%`,
+      };
+    }
+  }
+
+  if (_age >= stag.dead_money_max_age_hours && _mfeAbs < stag.dead_money_max_mfe_pct) {
+    if (_pnl != null && _pnl <= _minLoss) {
+      return {
+        fire: true,
+        reason: `etf_dead_money: age=${_age.toFixed(1)}h>=${stag.dead_money_max_age_hours}h mfe=${(_mfeAbs * 100).toFixed(2)}% pnl=${_pnl.toFixed(2)}%<=${_minLoss}%`,
+      };
+    }
   }
   return { fire: false };
 }
