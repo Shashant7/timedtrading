@@ -15,10 +15,10 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="auth-gate.js?v=1780609301261"></script>
-    <script src="tt-fetch-cache.js?v=1780609301261"></script>
-    <script src="tt-bottom-nav.js?v=1780609301261" defer></script>
-    <script src="tt-nav-extras.js?v=1780609301261" defer></script>
+    <script src="auth-gate.js?v=1780610079102"></script>
+    <script src="tt-fetch-cache.js?v=1780610079102"></script>
+    <script src="tt-bottom-nav.js?v=1780610079102" defer></script>
+    <script src="tt-nav-extras.js?v=1780610079102" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -127,6 +127,48 @@
         border-radius: 50%; animation: spin 700ms linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
+      .progress-track {
+        height: 3px; background: var(--tt-border); border-radius: 99px;
+        overflow: hidden; margin: 10px 0 0;
+      }
+      .progress-fill {
+        height: 100%; width: 35%; border-radius: 99px;
+        background: linear-gradient(90deg, #34d399, #67e8f9);
+        animation: progress-slide 1.2s ease-in-out infinite;
+      }
+      @keyframes progress-slide {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+      }
+      .layout-main { display: grid; grid-template-columns: 1fr; gap: 14px; }
+      @media (min-width: 960px) {
+        .layout-main { grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr); align-items: start; }
+      }
+      .proposal-card {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        padding: 14px;
+        margin-bottom: 10px;
+      }
+      .proposal-card.pending { border-color: rgba(245,158,11,0.35); }
+      .proposal-card.applied { border-color: rgba(52,211,153,0.35); }
+      .proposal-card.rejected { border-color: rgba(244,63,94,0.25); opacity: 0.85; }
+      .proposal-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+      .proposal-overlay {
+        font-size: 14px; line-height: 1.5; margin: 10px 0;
+        padding: 10px 12px;
+        background: rgba(59,130,246,0.06);
+        border-left: 3px solid rgba(59,130,246,0.5);
+        border-radius: 0 8px 8px 0;
+      }
+      .proposal-block { margin-top: 12px; }
+      .proposal-block h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tt-text-muted); }
+      .btn:disabled, .btn-busy { opacity: 0.55; cursor: not-allowed; pointer-events: none; }
+      .toast {
+        padding: 8px 12px; border-radius: 8px; font-size: 12px; margin-top: 8px;
+        background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24;
+      }
     </style>
   </head>
   <body>
@@ -154,8 +196,8 @@
       </main>
     </div>
 
-    <script src="research-desk.compiled.js?v=1780609301261"></script>
+    <script src="research-desk.compiled.js?v=1780610079102"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780609301261:285731520 -->
+<!-- cache-bust:1780610079102:744911667 -->
