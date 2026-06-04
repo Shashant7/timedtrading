@@ -2,7 +2,8 @@
 const {
   useState,
   useEffect,
-  useCallback
+  useCallback,
+  useRef
 } = React;
 const h = React.createElement;
 const API_BASE = "";
@@ -25,6 +26,310 @@ const fmtAgo = ts => {
   return `${Math.floor(hr / 24)}d ago`;
 };
 const pct = (n, d = 0) => Number.isFinite(n) ? `${(n * 100).toFixed(d)}%` : "—";
+function actionCanonical(kind, method, path) {
+  if (path === "/timed/admin/cro/fsd/ingest") return "fsd_ingest";
+  if (path === "/timed/admin/cro/cycle") return "cro_cycle";
+  if (path === "/timed/admin/cro/fsd/probe") return "fsd_probe";
+  if (path === "/timed/admin/cro/synthesize") return "cro_synth";
+  if (path === "/timed/admin/cto/universe/refresh") return "cto_refresh";
+  if (path === "/timed/admin/cro/rotation/refresh") return "rotation_refresh";
+  if (path === "/timed/admin/cro/extract") return kind;
+  if (path === "/timed/admin/cro/proposal/approve") return kind;
+  if (path === "/timed/admin/cro/proposal/reject") return kind;
+  return `${method}:${path}:${kind}`;
+}
+function ProgressBar({
+  active,
+  label
+}) {
+  if (!active) return null;
+  return h("div", {
+    className: "progress-track",
+    role: "progressbar",
+    "aria-label": label || "Working"
+  }, h("div", {
+    className: "progress-fill"
+  }));
+}
+function BusyBtn({
+  busy,
+  className,
+  children,
+  ...rest
+}) {
+  return h("button", {
+    ...rest,
+    className: (className || "btn") + (busy ? " btn-busy" : ""),
+    disabled: busy || rest.disabled
+  }, busy ? h(React.Fragment, null, h("span", {
+    className: "spinner",
+    style: {
+      marginRight: 6,
+      verticalAlign: "middle"
+    }
+  }), children) : children);
+}
+function renderProposalBody(proposal) {
+  if (!proposal || typeof proposal !== "object") {
+    return h("div", {
+      className: "muted"
+    }, "No proposal payload stored.");
+  }
+  const overlay = proposal.one_line_phase_tactical_overlay;
+  const sigs = Array.isArray(proposal.tactical_signals_add) ? proposal.tactical_signals_add : [];
+  const themes = Array.isArray(proposal.theme_playbook_updates) ? proposal.theme_playbook_updates : [];
+  const sectors = Array.isArray(proposal.sector_playbook_updates) ? proposal.sector_playbook_updates : [];
+  const risks = Array.isArray(proposal.active_risks_add) ? proposal.active_risks_add : [];
+  const edu = Array.isArray(proposal.education_snippets_add) ? proposal.education_snippets_add : [];
+  const sectorStance = Array.isArray(proposal.sector_stance_changes) ? proposal.sector_stance_changes : [];
+  const themeStance = Array.isArray(proposal.theme_stance_changes) ? proposal.theme_stance_changes : [];
+  const blocks = [];
+  if (overlay) blocks.push(h("div", {
+    key: "ov",
+    className: "proposal-overlay"
+  }, overlay));
+  if (proposal.strategy_headline_revision) {
+    blocks.push(h("div", {
+      key: "sh",
+      className: "proposal-block"
+    }, h("h4", null, "Strategy headline revision"), h("div", {
+      className: "sig-line"
+    }, proposal.strategy_headline_revision)));
+  }
+  if (sigs.length) {
+    blocks.push(h("div", {
+      key: "sig",
+      className: "proposal-block"
+    }, h("h4", null, `Tactical signals (${sigs.length}) — replaces full TACTICAL_SIGNALS on approve`), sigs.map((s, i) => h("div", {
+      key: i,
+      className: "sig-line"
+    }, h("div", null, h("span", {
+      className: "pair"
+    }, s.pair || s.signal || "?"), " · ", h("span", {
+      className: "dir"
+    }, s.direction || ""), s.horizon && h("span", {
+      className: "dim"
+    }, ` · ${s.horizon}`)), s.evidence && h("div", {
+      className: "muted",
+      style: {
+        marginTop: 4
+      }
+    }, s.evidence), s.playbook_action && h("div", {
+      style: {
+        marginTop: 4
+      }
+    }, s.playbook_action), (s.affected_tier1_themes || []).length > 0 && h("div", {
+      className: "dim",
+      style: {
+        marginTop: 4
+      }
+    }, "Themes: ", (s.affected_tier1_themes || []).join(", ")), (s.affected_sectors_overweight || []).length > 0 && h("div", {
+      className: "dim"
+    }, "Sectors: ", (s.affected_sectors_overweight || []).join(", "))))));
+  }
+  if (themes.length) {
+    blocks.push(h("div", {
+      key: "th",
+      className: "proposal-block"
+    }, h("h4", null, "Theme playbook notes"), themes.map((t, i) => h("div", {
+      key: i,
+      className: "sig-line"
+    }, h("span", {
+      className: "pair"
+    }, t.theme), " — ", t.tactical_note || "—"))));
+  }
+  if (sectors.length) {
+    blocks.push(h("div", {
+      key: "sec",
+      className: "proposal-block"
+    }, h("h4", null, "Sector playbook notes"), sectors.map((s, i) => h("div", {
+      key: i,
+      className: "sig-line"
+    }, h("span", {
+      className: "pair"
+    }, s.sector), " — ", s.tactical_note || "—"))));
+  }
+  if (sectorStance.length || themeStance.length) {
+    blocks.push(h("div", {
+      key: "stance",
+      className: "proposal-block"
+    }, h("h4", null, "Structural stance changes"), sectorStance.map((s, i) => h("div", {
+      key: `s${i}`,
+      className: "sig-line"
+    }, `${s.sector}: ${s.new_stance} (×${s.new_multiplier}) — ${s.rationale_short || ""}`)), themeStance.map((t, i) => h("div", {
+      key: `t${i}`,
+      className: "sig-line"
+    }, `${t.theme}: ${t.new_stance} (×${t.new_multiplier})`))));
+  }
+  if (risks.length) {
+    blocks.push(h("div", {
+      key: "risk",
+      className: "proposal-block"
+    }, h("h4", null, "Active risks to add"), risks.map((r, i) => h("div", {
+      key: i,
+      className: "sig-line",
+      style: {
+        borderLeft: `3px solid ${r.severity === "high" ? "#f43f5e" : r.severity === "medium" ? "#f59e0b" : "var(--tt-border)"}`,
+        paddingLeft: 10
+      }
+    }, h("strong", null, r.name || "?"), ` (${r.severity || "?"})`, r.note && h("div", {
+      className: "muted",
+      style: {
+        marginTop: 4
+      }
+    }, r.note)))));
+  }
+  if (edu.length) {
+    blocks.push(h("div", {
+      key: "edu",
+      className: "proposal-block"
+    }, h("h4", null, "Education snippets"), edu.map((e, i) => h("div", {
+      key: i,
+      className: "dim"
+    }, h("strong", null, e.term), ": ", e.plain))));
+  }
+  if (proposal.vintage_history_entry) {
+    blocks.push(h("div", {
+      key: "vh",
+      className: "proposal-block"
+    }, h("h4", null, "Changelog entry (on apply)"), h("pre", {
+      className: "json-pre",
+      style: {
+        maxHeight: 120
+      }
+    }, proposal.vintage_history_entry)));
+  }
+  if (!blocks.length) blocks.push(h("div", {
+    className: "muted"
+  }, "Proposal JSON is empty — try Re-extract on the publication."));
+  return h(React.Fragment, null, ...blocks);
+}
+function ProposalsSection({
+  proposals,
+  isAdmin,
+  onAction,
+  busyKey,
+  inFlightSet
+}) {
+  const [details, setDetails] = useState({});
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const idsKey = (proposals || []).map(p => p.proposal_id).join(",");
+  useEffect(() => {
+    if (!isAdmin || !proposals.length) return;
+    let cancelled = false;
+    setLoadingDetails(true);
+    (async () => {
+      const ids = proposals.slice(0, 12).map(p => p.proposal_id).filter(Boolean);
+      const pairs = await Promise.all(ids.map(async id => {
+        const r = await jget(`/timed/admin/cro/proposal?id=${encodeURIComponent(id)}`);
+        return [id, r.body?.ok ? r.body : null];
+      }));
+      if (cancelled) return;
+      const map = {};
+      for (const [id, row] of pairs) if (row) map[id] = row;
+      setDetails(map);
+      setLoadingDetails(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, idsKey]);
+  if (!isAdmin) return null;
+  const pending = proposals.filter(p => p.status === "pending");
+  const rest = proposals.filter(p => p.status !== "pending");
+  return h("div", {
+    className: "card"
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between",
+      marginBottom: 8
+    }
+  }, h("h2", null, "Proposed changes"), h("span", {
+    className: "chip chip-blue"
+  }, `${pending.length} pending · ${proposals.length} total`)), h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 12
+    }
+  }, "Each card is what the AI extractor wants to apply to the playbook: tactical signals replace the full signal list; theme/sector notes append; structural proposals can revise stances. Approve to apply, Reject to discard."), loadingDetails && proposals.length > 0 && h("div", {
+    className: "row",
+    style: {
+      marginBottom: 10
+    }
+  }, h("span", {
+    className: "spinner"
+  }), h("span", {
+    className: "muted"
+  }, "Loading proposal details…")), proposals.length === 0 ? h("div", {
+    className: "muted"
+  }, "No proposals yet. Extract a publication to generate one.") : h(React.Fragment, null, pending.length > 0 && h("h3", null, "Needs review"), pending.map(p => {
+    const row = details[p.proposal_id];
+    const canonApprove = `approve_${p.proposal_id}`;
+    const canonReject = `reject_${p.proposal_id}`;
+    return h("div", {
+      key: p.proposal_id,
+      className: "proposal-card pending"
+    }, h("div", {
+      className: "proposal-head"
+    }, h("div", null, h("code", null, p.proposal_id), h("span", {
+      className: "dim",
+      style: {
+        marginLeft: 8
+      }
+    }, `pub ${p.pub_id} · ${fmtAgo(p.created_at)}`)), h("div", {
+      className: "row"
+    }, h("span", {
+      className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue"
+    }, p.classification), h("span", {
+      className: "warn"
+    }, p.status))), renderProposalBody(row?.proposal), h("div", {
+      className: "row",
+      style: {
+        marginTop: 12
+      }
+    }, h(BusyBtn, {
+      className: "btn btn-go",
+      busy: inFlightSet.has(canonApprove),
+      title: "POST /timed/admin/cro/proposal/approve",
+      onClick: () => onAction(`approve_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/approve", {
+        proposal_id: p.proposal_id,
+        note: "operator_approved_via_research_desk"
+      })
+    }, "Approve & apply"), h(BusyBtn, {
+      className: "btn btn-danger",
+      busy: inFlightSet.has(canonReject),
+      style: {
+        marginLeft: 8
+      },
+      title: "POST /timed/admin/cro/proposal/reject",
+      onClick: () => onAction(`reject_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/reject", {
+        proposal_id: p.proposal_id,
+        note: "operator_rejected_via_research_desk"
+      })
+    }, "Reject")));
+  }), rest.length > 0 && h("h3", {
+    style: {
+      marginTop: 16
+    }
+  }, "History"), rest.map(p => {
+    const row = details[p.proposal_id];
+    return h("div", {
+      key: p.proposal_id,
+      className: `proposal-card ${p.status}`
+    }, h("div", {
+      className: "proposal-head"
+    }, h("code", null, (p.proposal_id || "").slice(0, 28)), h("div", {
+      className: "row"
+    }, h("span", {
+      className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue"
+    }, p.classification), h("span", {
+      className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "dim"
+    }, p.status), h("span", {
+      className: "dim"
+    }, fmtAgo(p.created_at)))), renderProposalBody(row?.proposal));
+  })));
+}
 async function jget(path) {
   try {
     const r = await fetch(`${API_BASE}${path}`, {
@@ -374,21 +679,22 @@ function OverrideCard({
 function PublicationsCard({
   data,
   isAdmin,
-  onAction
+  onAction,
+  inFlightSet
 }) {
   const pubs = data?.pubs?.body?.publications || [];
   const proposals = data?.proposals?.body?.proposals || [];
   if (!isAdmin) {
     return h("div", {
       className: "card"
-    }, h("h2", null, "📚 Recent Publications + Proposals"), h("div", {
+    }, h("h2", null, "Publications"), h("div", {
       className: "muted"
     }, "Visible to admin only."));
   }
   const noData = pubs.length === 0 && proposals.length === 0;
   return h("div", {
     className: "card"
-  }, h("h2", null, "📚 Recent Publications + Proposals (admin)"), h("div", {
+  }, h("h2", null, "FSD publications (admin)"), h("div", {
     className: "muted",
     style: {
       marginBottom: 8
@@ -414,21 +720,27 @@ function PublicationsCard({
     }
   }, "The system is configured but the daily cron (22:00 UTC) hasn't fired yet today. " + "Use \"Pull from FSD now\" below to populate the table immediately, or " + "\"Probe FSD login\" first if the credentials may have drifted."), h("div", {
     className: "row"
-  }, h("button", {
+  }, h(BusyBtn, {
     className: "btn btn-go",
+    busy: inFlightSet.has("fsd_ingest"),
     title: "POST /timed/admin/cro/fsd/ingest",
-    onClick: () => onAction("fsd_ingest_inline", "POST", "/timed/admin/cro/fsd/ingest", {})
-  }, "Force Pull"), h("button", {
+    onClick: () => onAction("fsd_ingest_inline", "POST", "/timed/admin/cro/fsd/ingest", {
+      force: true,
+      limit: 20
+    })
+  }, "Force Pull"), h(BusyBtn, {
     className: "btn",
+    busy: inFlightSet.has("fsd_probe"),
     title: "POST /timed/admin/cro/fsd/probe",
     onClick: () => onAction("fsd_probe_inline", "POST", "/timed/admin/cro/fsd/probe", {})
-  }, "Probe FSD login"), h("button", {
+  }, "Probe FSD login"), h(BusyBtn, {
     className: "btn",
-    title: "POST /timed/admin/cro/cycle — runs everything: CTO + rotation + FSD + extract + apply + synthesis",
+    busy: inFlightSet.has("cro_cycle"),
+    title: "POST /timed/admin/cro/cycle",
     onClick: () => onAction("cycle_inline", "POST", "/timed/admin/cro/cycle", {
       force: true
     })
-  }, "Kick full cycle (force)"))), h("h3", null, "Publications"), pubs.length === 0 ? h("div", {
+  }, "Kick full cycle (force)"))), h("h3", null, "Ingested publications"), pubs.length === 0 ? h("div", {
     className: "muted"
   }, "None yet.") : h("table", {
     className: "table"
@@ -446,77 +758,41 @@ function PublicationsCard({
     className: "ok"
   }, "✓") : h("span", {
     className: "dim"
-  }, "—")), h("td", null, !p.extracted_at && p.fetch_status === "ok" && h("button", {
+  }, "—")), h("td", null, !p.extracted_at && p.fetch_status === "ok" && h(BusyBtn, {
     className: "btn btn-sm btn-go",
+    busy: inFlightSet.has(`extract_${p.pub_id}`),
     title: "POST /timed/admin/cro/extract {pub_id}",
     onClick: () => onAction(`extract_${p.pub_id}`, "POST", "/timed/admin/cro/extract", {
       pub_id: p.pub_id,
       force: false
     })
-  }, "Extract"), p.extracted_at && !p.applied_at && p.proposal_id && h("button", {
+  }, "Extract"), p.extracted_at && !p.applied_at && p.proposal_id && h(BusyBtn, {
     className: "btn btn-sm",
+    busy: inFlightSet.has(`reextract_${p.pub_id}`),
     title: "Re-extract overrides any prior pending proposal for this pub",
     onClick: () => onAction(`reextract_${p.pub_id}`, "POST", "/timed/admin/cro/extract", {
       pub_id: p.pub_id,
       force: true
     })
-  }, "Re-extract"), h("button", {
+  }, "Re-extract"), h(BusyBtn, {
     className: "btn btn-sm",
+    busy: inFlightSet.has("fsd_ingest"),
     style: {
       marginLeft: 6
     },
-    title: `POST /timed/admin/cro/fsd/ingest { pub_id: "${p.pub_id}", force: true } — re-fetches this publication and re-runs the TT-voice blend`,
+    title: `POST /timed/admin/cro/fsd/ingest — re-fetch this publication`,
     onClick: () => onAction(`refetch_${p.pub_id}`, "POST", "/timed/admin/cro/fsd/ingest", {
       pub_id: p.pub_id,
       source_url: p.source_url,
       title: p.title,
       force: true
     })
-  }, "Re-fetch")))))), h("h3", {
-    style: {
-      marginTop: 12
-    }
-  }, "Recent proposals"), proposals.length === 0 ? h("div", {
-    className: "muted"
-  }, "None yet.") : h("table", {
-    className: "table"
-  }, h("thead", null, h("tr", null, h("th", null, "Proposal id"), h("th", null, "Pub"), h("th", null, "Class"), h("th", null, "Status"), h("th", null, "Created"), h("th", null, "Action"))), h("tbody", null, proposals.slice(0, 10).map((p, i) => h("tr", {
-    key: i
-  }, h("td", null, h("code", null, (p.proposal_id || "").slice(0, 24))), h("td", {
-    className: "dim"
-  }, (p.pub_id || "").slice(0, 20)), h("td", null, h("span", {
-    className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue"
-  }, p.classification)), h("td", null, h("span", {
-    className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "warn"
-  }, p.status)), h("td", {
-    className: "tabular dim"
-  }, fmtAgo(p.created_at)), h("td", null, p.status === "pending" && h(React.Fragment, null, h("button", {
-    className: "btn btn-sm btn-go",
-    title: "POST /timed/admin/cro/proposal/approve {proposal_id}",
-    style: {
-      marginRight: 6
-    },
-    onClick: () => onAction(`approve_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/approve", {
-      proposal_id: p.proposal_id,
-      note: "operator_approved_via_research_desk"
-    })
-  }, "Approve"), h("button", {
-    className: "btn btn-sm btn-danger",
-    title: "POST /timed/admin/cro/proposal/reject {proposal_id}",
-    onClick: () => onAction(`reject_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/reject", {
-      proposal_id: p.proposal_id,
-      note: "operator_rejected_via_research_desk"
-    })
-  }, "Reject")), p.status === "applied" && h("button", {
-    className: "btn btn-sm",
-    title: "View full proposal JSON",
-    onClick: () => onAction(`view_${p.proposal_id}`, "GET", `/timed/admin/cro/proposal?id=${encodeURIComponent(p.proposal_id)}`)
-  }, "View JSON")))))), h("div", {
+  }, "Re-fetch")))))), proposals.length > 0 && h("div", {
     className: "dim",
     style: {
       marginTop: 8
     }
-  }, "AI CIO programmatic equivalent: POST /timed/admin/cro/proposal/approve {proposal_id} (or reject). " + "These same endpoints accept the API key the CIO already has via env.TIMED_API_KEY."));
+  }, `${proposals.length} proposal(s) — see Proposed changes section above for full detail.`));
 }
 function RotationCard({
   data
@@ -563,18 +839,24 @@ function RotationCard({
 function ActionsCard({
   isAdmin,
   onAction,
-  lastAction
+  lastAction,
+  inFlightSet,
+  busyCount
 }) {
   if (!isAdmin) return null;
   const actions = [{
     key: "cycle",
+    canon: "cro_cycle",
     label: "Kick full CRO/CTO cycle",
     cls: "btn btn-go",
     path: "/timed/admin/cro/cycle",
-    body: {},
+    body: {
+      force: true
+    },
     hint: "Runs the whole nightly pipeline now (CTO + rotation + FSD ingest + extract + apply + synthesis)."
   }, {
     key: "synth",
+    canon: "cro_synth",
     label: "Synthesize CRO note now",
     cls: "btn",
     path: "/timed/admin/cro/synthesize",
@@ -584,6 +866,7 @@ function ActionsCard({
     hint: "Re-runs only the LLM synthesis step against current cached inputs. Idempotent per date unless force=true."
   }, {
     key: "cto",
+    canon: "cto_refresh",
     label: "Refresh CTO universe",
     cls: "btn",
     path: "/timed/admin/cto/universe/refresh",
@@ -591,6 +874,7 @@ function ActionsCard({
     hint: "Recomputes Markov-biased probabilistic levels for the active universe (~50 tickers)."
   }, {
     key: "rotation",
+    canon: "rotation_refresh",
     label: "Refresh rotation engine",
     cls: "btn",
     path: "/timed/admin/cro/rotation/refresh",
@@ -598,6 +882,7 @@ function ActionsCard({
     hint: "Recomputes pairwise RS + theme breadth + intra-theme correlation."
   }, {
     key: "fsd_probe",
+    canon: "fsd_probe",
     label: "Probe FSD login",
     cls: "btn",
     path: "/timed/admin/cro/fsd/probe",
@@ -605,6 +890,7 @@ function ActionsCard({
     hint: "Returns a 500-char snippet of the FSD login page response. No credentials echoed back."
   }, {
     key: "fsd_ingest",
+    canon: "fsd_ingest",
     label: "Force Pull (FSD re-fetch)",
     cls: "btn btn-go",
     path: "/timed/admin/cro/fsd/ingest",
@@ -616,12 +902,15 @@ function ActionsCard({
   }];
   return h("div", {
     className: "card"
-  }, h("h2", null, "⚙️ Admin Actions"), h("div", {
+  }, h("h2", null, "Admin actions"), h("div", {
     className: "muted",
     style: {
       marginBottom: 4
     }
-  }, "These call admin endpoints and may take 10-60 seconds each."), h("div", {
+  }, busyCount > 0 ? `${busyCount} action(s) in progress — buttons stay disabled until each finishes. Background jobs (202) poll every 10s.` : "These call admin endpoints and may take 10–60 seconds each."), h(ProgressBar, {
+    active: busyCount > 0,
+    label: "Admin action running"
+  }), h("div", {
     className: "muted",
     style: {
       marginBottom: 12
@@ -631,8 +920,9 @@ function ActionsCard({
   }, actions.map(a => h("div", {
     key: a.key,
     className: "action-tile"
-  }, h("button", {
+  }, h(BusyBtn, {
     className: a.cls,
+    busy: inFlightSet.has(a.canon),
     title: `POST ${a.path}`,
     onClick: () => onAction(a.key, "POST", a.path, a.body)
   }, a.label), h("div", {
@@ -653,11 +943,21 @@ function ActionsCard({
     }
   }, h("h3", null, `Last action: ${lastAction.kind}`), h("div", {
     className: "muted"
-  }, `Status ${lastAction.status} · `, lastAction.body?.ok ? h("span", {
+  }, `Status ${lastAction.status} · `, lastAction.status === "skipped" ? h("span", {
+    className: "warn"
+  }, "skipped (duplicate click)") : lastAction.status === "running" ? h("span", {
+    className: "warn"
+  }, "running…") : lastAction.body?.ok ? h("span", {
     className: "ok"
   }, "ok") : h("span", {
     className: "err"
-  }, "failed"), lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""), h("pre", {
+  }, "failed"), lastAction.body?.elapsed_ms ? ` · ${lastAction.body.elapsed_ms}ms` : ""), lastAction.body?.message && h("div", {
+    className: lastAction.body.ok ? "ok" : "warn",
+    style: {
+      marginTop: 6,
+      fontSize: 12
+    }
+  }, lastAction.body.message), lastAction.status !== "skipped" && h("pre", {
     className: "json-pre"
   }, JSON.stringify(lastAction.body, null, 2).slice(0, 4000))));
 }
@@ -694,6 +994,8 @@ function App() {
     fetched_at: Date.now()
   });
   const [lastAction, setLastAction] = useState(null);
+  const [busyKeys, setBusyKeys] = useState(() => new Set());
+  const inFlightRef = useRef(new Set());
   const [isAdmin, setIsAdmin] = useState(typeof window !== "undefined" && (window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true"));
   useEffect(() => {
     const readAdmin = () => window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
@@ -752,37 +1054,59 @@ function App() {
     });
     load();
   };
+  const syncBusy = () => setBusyKeys(new Set(inFlightRef.current));
   const onAction = async (kind, method, path, body) => {
+    const canon = actionCanonical(kind, method, path);
+    if (inFlightRef.current.has(canon)) {
+      setLastAction({
+        kind: canon,
+        status: "skipped",
+        body: {
+          ok: false,
+          message: "Already running — wait for the current request to finish before clicking again."
+        }
+      });
+      return;
+    }
+    inFlightRef.current.add(canon);
+    syncBusy();
     setLastAction({
-      kind,
+      kind: canon,
       status: "running",
       body: {
         ok: null,
         message: "Running…"
       }
     });
-    const r = method === "POST" ? await jpost(path, body) : await jget(path);
-    const accepted = r.status === 202 || r.body?.accepted === true;
-    setLastAction({
-      kind,
-      status: r.status,
-      body: accepted ? {
-        ok: true,
-        message: r.body?.message || "Started in background — status chips refresh in ~1–3 min."
-      } : r.body
-    });
-    load();
-    if (accepted) {
-      let polls = 0;
-      const pollId = setInterval(() => {
-        polls += 1;
-        load();
-        if (polls >= 18) clearInterval(pollId);
-      }, 10000);
-    } else {
-      setTimeout(load, 3000);
+    try {
+      const r = method === "POST" ? await jpost(path, body) : await jget(path);
+      const accepted = r.status === 202 || r.body?.accepted === true;
+      setLastAction({
+        kind: canon,
+        status: r.status,
+        body: accepted ? {
+          ok: true,
+          message: r.body?.message || "Started in background — status chips refresh in ~1–3 min."
+        } : r.body
+      });
+      load();
+      if (accepted) {
+        let polls = 0;
+        const pollId = setInterval(() => {
+          polls += 1;
+          load();
+          if (polls >= 18) clearInterval(pollId);
+        }, 10000);
+      } else {
+        setTimeout(load, 3000);
+      }
+    } finally {
+      inFlightRef.current.delete(canon);
+      syncBusy();
     }
   };
+  const inFlightSet = busyKeys;
+  const proposals = data?.proposals?.body?.proposals || [];
   if (data.loading) {
     return h("main", null, h("div", {
       className: "card",
@@ -800,7 +1124,25 @@ function App() {
   }
   return h("main", null, h(StatusBanner, {
     data
-  }), isAdmin && h("div", {
+  }), busyKeys.size > 0 && h("div", {
+    className: "card",
+    style: {
+      marginBottom: 14,
+      paddingBottom: 12
+    }
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between"
+    }
+  }, h("span", {
+    className: "muted"
+  }, `Working (${busyKeys.size})…`), h("span", {
+    className: "spinner"
+  })), h(ProgressBar, {
+    active: true,
+    label: "Research Desk action"
+  })), isAdmin && h("div", {
     style: {
       marginBottom: 14,
       padding: 12,
@@ -825,21 +1167,23 @@ function App() {
     }
   }, "📡 FSD Pipeline · admin"), h("div", {
     className: "muted"
-  }, "Click to pull the latest FSD publications NOW and re-fetch any existing pubs whose stored text looks like the old garbage scrape. Each fresh pub triggers the eager TT-voice blend.")), h("button", {
+  }, "Click to pull the latest FSD publications NOW and re-fetch any existing pubs whose stored text looks like the old garbage scrape. Each fresh pub triggers the eager TT-voice blend.")), h(BusyBtn, {
     className: "btn btn-go",
-    title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 } — re-fetches the latest publications AND replaces garbage text in existing rows.',
+    busy: inFlightSet.has("fsd_ingest"),
+    title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 }',
     onClick: () => onAction("fsd_force_topbar", "POST", "/timed/admin/cro/fsd/ingest", {
       force: true,
       limit: 20
     })
-  }, "Force Pull"), h("button", {
+  }, "Force Pull"), h(BusyBtn, {
     className: "btn",
-    title: "POST /timed/admin/cro/cycle { force: true } — runs the whole pipeline (CTO + rotation + FSD + extract + apply + synthesis)",
+    busy: inFlightSet.has("cro_cycle"),
+    title: "POST /timed/admin/cro/cycle { force: true }",
     onClick: () => onAction("cycle_force_topbar", "POST", "/timed/admin/cro/cycle", {
       force: true
     })
   }, "Force full cycle")), h("div", {
-    className: "grid-2"
+    className: "layout-main"
   }, h(CRONoteCard, {
     data
   }), h("div", null, h(CTOUniverseCard, {
@@ -854,6 +1198,15 @@ function App() {
     data,
     onClear: onClearOverride,
     isAdmin
+  })), isAdmin && h("div", {
+    style: {
+      marginTop: 14
+    }
+  }, h(ProposalsSection, {
+    proposals,
+    isAdmin,
+    onAction,
+    inFlightSet
   })), h("div", {
     style: {
       marginTop: 14
@@ -861,7 +1214,8 @@ function App() {
   }, h(PublicationsCard, {
     data,
     isAdmin,
-    onAction
+    onAction,
+    inFlightSet
   })), h("div", {
     style: {
       marginTop: 14
@@ -869,7 +1223,9 @@ function App() {
   }, h(ActionsCard, {
     isAdmin,
     onAction,
-    lastAction
+    lastAction,
+    inFlightSet,
+    busyCount: busyKeys.size
   })), isAdmin && h("div", {
     style: {
       marginTop: 14
@@ -882,6 +1238,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780609301261:285731520
+// cache-bust:1780610079102:744911667
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780610079102:744911667
