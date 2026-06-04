@@ -30,6 +30,74 @@
 import { loadPublicationText } from "./fsd-ingestion.js";
 
 const REWRITES_TABLE = "cro_publication_rewrites";
+const PUBLICATION_TICKERS_TABLE = "cro_publication_tickers";
+
+// ── Model-context loader for BLENDED rewrites ────────────────────────────────
+// Operator: "Don't we already have so much data from the Technicals Tab and
+// HTF scoring info? Is there any reusability?" — yes. The right rail's
+// Technicals tab + Snapshot tab consume the per-ticker payload that the
+// scoring path bakes into `timed:all:snapshot.data[SYM]`. We read the same
+// blob, no new KV layout, no parallel fetch.
+async function loadTickersForPub(env, pubId) {
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT ticker FROM ${PUBLICATION_TICKERS_TABLE} WHERE pub_id = ? ORDER BY position ASC LIMIT 6`,
+    ).bind(pubId).all();
+    return (rows?.results || []).map((r) => String(r.ticker || "").toUpperCase()).filter(Boolean);
+  } catch (_) { return []; }
+}
+
+let _snapCache = { ts: 0, blob: null };
+async function loadAllSnapshot(env) {
+  // 60s in-process cache so a multi-ticker rewrite batch doesn't re-fetch
+  // the (large) snapshot blob per call.
+  const now = Date.now();
+  if (_snapCache.blob && (now - _snapCache.ts) < 60000) return _snapCache.blob;
+  try {
+    const raw = await env?.KV?.get("timed:all:snapshot");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    _snapCache = { ts: now, blob: parsed };
+    return parsed;
+  } catch (_) { return null; }
+}
+
+function summarizeTickerForPrompt(sym, t) {
+  // Pull the same fields the Technicals tab + HTF scoring tile + Snapshot
+  // hero card render — keep the prompt-context dense but compact.
+  if (!t) return null;
+  const parts = [`${sym}:`];
+  const _num = (v, fix = 2) => Number.isFinite(Number(v)) ? Number(v).toFixed(fix) : null;
+  if (_num(t.price ?? t._live_price)) parts.push(`px=$${_num(t.price ?? t._live_price)}`);
+  if (_num(t.day_change_pct ?? t.dailyChgPct)) parts.push(`day=${_num(t.day_change_pct ?? t.dailyChgPct)}%`);
+  if (t.regime_class) parts.push(`regime=${String(t.regime_class).replace(/_/g, " ")}`);
+  if (t.kanban_stage) parts.push(`stage=${String(t.kanban_stage)}`);
+  if (t.state) parts.push(`htf=${String(t.state).replace(/_/g, " ")}`);
+  if (_num(t.score, 0)) parts.push(`score=${_num(t.score, 0)}`);
+  if (_num(t.conviction, 0)) parts.push(`conv=${_num(t.conviction, 0)}`);
+  if (_num(t.rank_position, 0)) parts.push(`R${_num(t.rank_position, 0)}`);
+  if (_num(t.rr)) parts.push(`rr=${_num(t.rr)}`);
+  if (_num(t.trigger_price)) parts.push(`trigger=${_num(t.trigger_price)}`);
+  if (_num(t.sl)) parts.push(`stop=${_num(t.sl)}`);
+  if (_num(t.tp)) parts.push(`tp=${_num(t.tp)}`);
+  if (t._ticker_profile?.behavior_type) parts.push(`profile=${t._ticker_profile.behavior_type}`);
+  if (t.latent_regime?.state) parts.push(`hmm=${String(t.latent_regime.state).replace(/_/g, " ")}`);
+  if (Array.isArray(t.flags) && t.flags.length > 0) parts.push(`flags=${t.flags.slice(0, 3).join(",")}`);
+  return parts.join(" ");
+}
+
+async function loadModelContextForTickers(env, tickers) {
+  if (!Array.isArray(tickers) || tickers.length === 0) return "(no tickers extracted from publication)";
+  const snap = await loadAllSnapshot(env);
+  const lines = [];
+  for (const sym of tickers.slice(0, 4)) {
+    const t = snap?.data?.[sym] || null;
+    const summary = summarizeTickerForPrompt(sym, t);
+    if (summary) lines.push(summary);
+    else lines.push(`${sym}: (no model snapshot — ticker not in active universe yet)`);
+  }
+  return lines.join("\n");
+}
 const REWRITE_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "gpt-4o-mini";
 const MAX_INPUT_CHARS = 12_000;
@@ -61,35 +129,47 @@ export async function ensureRewriteSchema(env) {
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
-function buildRewritePrompt(text, sourceTitle, sourceUrl, postType) {
+function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext) {
   return {
     system: [
       "You are the Timed Trading editorial copywriter.",
-      "Your job: rewrite an external research note into TIMED TRADING's own concise, technical-first voice for our user-facing Catalysts tab.",
+      "Your job: produce a BLENDED take that fuses an external research note (from a trusted desk) with TIMED TRADING's own real-time model state for the mentioned tickers. Output is for our user-facing Catalysts tab — users come here to see how our model reads someone else's call against our own data.",
+      "",
+      "BLEND INSTRUCTIONS:",
+      "• START from the source's read. Capture the price levels, direction, time horizon, and reasoning it gives.",
+      "• OVERLAY the TT MODEL CONTEXT below — current price, regime, HTF state, score/conviction, kanban stage, and our own trigger/stop/TP levels (if any).",
+      "• When the model AGREES with the source, say so explicitly and reinforce: 'The setup aligns with our regime read and the entry-trigger at <price>'.",
+      "• When the model DISAGREES (e.g. source long but our regime BEAR_TREND, or source level below our stop), surface the conflict honestly: 'Source sees support at X; our model has us watching <our trigger> instead — the two disagree by Y%.'",
+      "• When the model has NO read (ticker not in active universe), say 'Not in our active universe; presenting the source view as-is.'",
+      "• The result must be MORE VALUABLE than either input alone. Users pay for the synthesis, not the relay.",
       "",
       "ABSOLUTE CONSTRAINTS:",
       "• Output ONLY valid JSON in the schema at the end of the user message — no prose outside.",
-      "• PARAPHRASE — never quote more than 5 consecutive words from the source. We do not republish copyrighted research verbatim.",
-      "• Voice: concise (3-5 sentences MAX in tt_summary_body), present tense, technical, action-oriented. Lead with the price level or trigger. End with the implication.",
-      "• Preserve PRECISE PRICE LEVELS, technical setups (TD Buy Setup, golden gate, support/resistance), and time horizons exactly as cited in the source.",
-      "• No second-person ('you'). Use 'this account', 'the desk', or rephrase to third-person.",
-      "• Mention tickers using bare uppercase symbols (NVDA, GOOGL) — NOT cashtags ($NVDA) or company names.",
-      "• If the source is purely narrative with no actionable level/direction, return tt_key_points = [].",
+      "• PARAPHRASE the source — never quote more than 5 consecutive words. We do not republish copyrighted research verbatim.",
+      "• Voice: concise (3-5 sentences MAX in tt_summary_body), present tense, technical, action-oriented. Lead with the price level or trigger. End with the implication for the desk.",
+      "• Preserve PRECISE PRICE LEVELS, technical setups (TD Buy Setup, golden gate, support/resistance), and time horizons exactly as cited.",
+      "• No second-person (\'you\'). Use \'this account\', \'the desk\', or third-person.",
+      "• Mention tickers as bare uppercase symbols (NVDA, GOOGL) — NOT cashtags or company names.",
+      "• Do NOT mention \'Fundstrat\' or the source brand in the title/body/cta — attribution renders separately. The title should sound like TT wrote it.",
+      "• If neither the source nor the model produces an actionable level/direction, return tt_key_points = [].",
     ].join("\n"),
     user: [
       `Source post type: ${postType}`,
       `Source title: ${sourceTitle || "(untitled)"}`,
       `Source URL: ${sourceUrl || "(none)"}`,
       "",
-      "Source body:",
+      "── TT MODEL CONTEXT (your own data for the tickers mentioned) ──",
+      modelContext || "(no model context)",
+      "",
+      "── SOURCE BODY (paraphrase, do not quote verbatim) ──",
       "```",
-      text.slice(0, MAX_INPUT_CHARS),
+      String(text).slice(0, MAX_INPUT_CHARS),
       "```",
       "",
       "Return JSON EXACTLY in this shape:",
       "{",
-      '  "tt_summary_title": "<50-100 chars headline in TT voice — lead with the ticker + action>",',
-      '  "tt_summary_body": "<3-5 sentences. Paraphrased, concise, technical.>",',
+      '  "tt_summary_title": "<50-100 chars TT-voice headline — lead with the ticker + action. Do not say Fundstrat or any source name.>",',
+      '  "tt_summary_body": "<3-5 sentences. Blend source read + TT model context. State agreement or conflict explicitly when relevant.>",',
       '  "tt_key_points": [',
       "    {",
       '      "ticker": "<uppercase symbol, e.g. NVDA — null if signal is index/macro-only>",',
@@ -97,10 +177,10 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType) {
       '      "level": "<single price or range as a string, e.g. ' + "\"341-350\"" + ' or ' + "\"99\"" + ' — null if not numeric>",',
       '      "direction": "long" | "short" | "neutral" | null,',
       '      "horizon": "intraday" | "tactical" | "intermediate" | "structural" | null,',
-      '      "note": "<≤30 word context for this point>"',
+      '      "note": "<≤30 word context — call out whether TT model agrees or disagrees>"',
       "    }",
       "  ],",
-      '  "tt_cta": "<one sentence: what the desk should DO. e.g. ' + "\"Watch GOOGL for reclaim of 350 over the next week; below 341 invalidates.\"" + '>"',
+      '  "tt_cta": "<one sentence: what the desk should DO, weighing source view against TT model. e.g. ' + "\"Watch GOOGL for reclaim of 350 — our regime read still defensive, so wait for confirmation.\"" + '>"',
       "}",
     ].join("\n"),
   };
@@ -182,11 +262,18 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
   if (/^\d+$/.test(pubId)) postType = "post";
   if (meta?.source_url?.includes("flash") || meta?.source_url?.includes("alert")) postType = "fsi-alert";
 
+  // 2026-06-03 — Build the BLENDED model-context block from the same
+  // per-ticker snapshot the Technicals tab + HTF scoring tile consume
+  // (no parallel KV layout, no duplicate fetches). Reads
+  // `timed:all:snapshot.data[SYM]` for each tagged ticker on the pub.
+  const taggedTickers = await loadTickersForPub(env, pubId);
+  const modelContext = await loadModelContextForTickers(env, taggedTickers);
   const { system, user } = buildRewritePrompt(
     text.text_full,
     meta?.title || "",
     meta?.source_url || "",
     postType,
+    modelContext,
   );
   const llm = await callOpenAI(env, [
     { role: "system", content: system },

@@ -195,20 +195,51 @@ function pdfUnescape(s) {
 }
 
 // HTML → readable text (strip tags + collapse whitespace).
+// Common WP-rendered chrome strings that occasionally bleed into post
+// content via embedded shortcodes or theme bits. We strip the surrounding
+// noise so it doesn't pollute the LLM rewriter input.
+const FSD_CHROME_NOISE = [
+  /Send your questions to the FSI Team[\s\S]*?$/i,
+  /Referral Program\s+Gift Cards\s+Merch Store[\s\S]*?$/i,
+  /Subscribe to FSI[\s\S]*?$/i,
+];
+
 export function extractHtmlText(html) {
   if (!html) return "";
-  return String(html)
+  let out = String(html)
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
+    // Named entities
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
     .replace(/&quot;/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/&hellip;/g, "…")
+    .replace(/&mdash;/g, "—")
+    .replace(/&ndash;/g, "–")
+    .replace(/&lsquo;|&rsquo;/g, "'")
+    .replace(/&ldquo;|&rdquo;/g, '"')
+    // 2026-06-03 — Numeric HTML entities. The operator-reported
+    // garbage text in the Catalysts tab ("Mark L. Newton, CMT &#8211;
+    // $GOOGL &#8230;") was being shown raw because we never decoded
+    // these. Decimal entities first, then hex (e.g. &#x2014;).
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+      try { return String.fromCodePoint(code); } catch (_) { return ""; }
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hx) => {
+      const code = parseInt(hx, 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+      try { return String.fromCodePoint(code); } catch (_) { return ""; }
+    });
+  // Strip well-known chrome blocks that occasionally leak through.
+  for (const re of FSD_CHROME_NOISE) out = out.replace(re, "");
+  return out.replace(/\s+/g, " ").trim();
 }
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
@@ -423,7 +454,16 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     return { ok: true, pub_id: pub.id, skipped: "already_ingested" };
   }
 
-  const fetched = await fetchFSDPublication(env, pub.source_url);
+  // 2026-06-03 — Prefer the numeric post id (carried through from the
+  // listing) over the public source URL. fetchFSDPublication's slug-
+  // resolution path only checks /wp/v2/posts and 404s for fsi-alert
+  // posts, falling through to the legacy HTML scrape of the public
+  // post URL (which grabs FSD's site nav + footer chrome and renders
+  // as garbage in the Catalysts tab). Passing the id keeps us on the
+  // clean WP REST path that walks fsi-alert + fsi-alert-crypto +
+  // posts in turn until the post is found.
+  const fetchKey = pub.id && /^\d+$/.test(String(pub.id)) ? pub.id : pub.source_url;
+  const fetched = await fetchFSDPublication(env, fetchKey);
   if (!fetched.ok) {
     await recordPublication(env, {
       pub_id: pub.id,
@@ -458,6 +498,29 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     fetch_error: null,
   });
   if (text) await recordPublicationText(env, pub.id, text);
+
+  // 2026-06-03 — Eager TT-voice rewrite. Previously we waited on a
+  // periodic cron pass before the LLM rewrite ran; that left the
+  // Catalysts tab showing the raw paraphrased-but-not-yet-blended
+  // excerpt for an hour or more. Now every successful ingest triggers
+  // the rewriter synchronously so the FSD Intel panel renders TT-voice
+  // immediately on the next page render. Best-effort: any rewrite
+  // error is logged but does NOT fail the ingest.
+  try {
+    if (text && text.length > 80) {
+      const { rewriteFSDPublication } = await import("./fsd-rewriter.js");
+      // Force the rewrite when the operator re-ingested (reFetch=true) —
+      // re-ingest is the cleanup path for garbage pubs stored by the
+      // broken slug-resolution code, so the old rewrite (built from
+      // garbage) needs to be overwritten with a fresh blend.
+      const rw = await rewriteFSDPublication(env, pub.id, { force: !!reFetch });
+      if (!rw?.ok && rw?.error_kind) {
+        console.warn(`[CRO_INGESTION] eager rewrite failed pub=${pub.id} kind=${rw.error_kind}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[CRO_INGESTION] eager rewrite threw pub=${pub.id}: ${String(e?.message || e).slice(0, 200)}`);
+  }
 
   // 2026-06-03 — Per-pub Discord notification for FlashInsights that
   // mention an active-universe ticker. Skips long-form posts (those go
