@@ -29934,13 +29934,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 45.5334
+        "sql_duration_ms": 35.2331
       },
-      "duration": 45.5334,
+      "duration": 35.2331,
       "changes": 0,
-      "last_row_id": 8173,
+      "last_row_id": 49421279,
       "changed_db": false,
-      "size_after": 3747729408,
+      "size_after": 3729563648,
       "rows_read": 3325,
       "rows_written": 0,
       "total_attempts": 1
