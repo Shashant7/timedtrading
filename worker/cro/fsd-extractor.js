@@ -61,6 +61,13 @@ export async function ensureCROProposalSchema(env) {
       CREATE INDEX IF NOT EXISTS idx_${PROPOSALS_TABLE}_pub
       ON ${PROPOSALS_TABLE} (pub_id)
     `).run();
+    // 2026-06-04 — Categorization + auto-apply gate columns. ALTER guarded
+    // (D1 has no IF NOT EXISTS for columns; the try/catch is the idempotency).
+    try { await db.prepare(`ALTER TABLE ${PROPOSALS_TABLE} ADD COLUMN category TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE ${PROPOSALS_TABLE} ADD COLUMN confidence REAL`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE ${PROPOSALS_TABLE} ADD COLUMN on_theme INTEGER`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE ${PROPOSALS_TABLE} ADD COLUMN review_status TEXT`).run(); } catch (_) {}
+    try { await db.prepare(`ALTER TABLE ${PROPOSALS_TABLE} ADD COLUMN auto_apply_reason TEXT`).run(); } catch (_) {}
   } catch (e) {
     console.warn("[CRO_EXTRACTOR] schema ensure failed:", String(e?.message || e).slice(0, 200));
   }
@@ -156,9 +163,100 @@ function buildExtractionPrompt(text, playbook) {
       "  ],",
       '  "theme_stance_changes": [',
       "    { \"theme\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <number> }",
-      "  ]",
+      "  ],",
+      "  // Self-assessment — used to decide whether this proposal can be AUTO-APPLIED",
+      "  // without a human review. Be honest and conservative.",
+      '  "self_assessment": {',
+      '    "confidence": <0.0-1.0 — how well-supported and unambiguous is this extraction? High (>0.8) only when the publication clearly states the read and it maps cleanly onto the existing playbook taxonomy>,',
+      '    "on_theme": <true|false — does this ALIGN with the active playbook above (same themes/sectors, no contradiction of current stances)? false if it argues against a current stance or introduces an off-playbook concept>,',
+      '    "review_recommended": <true|false — true if a human should review before applying (e.g. structural stance change, conflicts with the playbook, low-confidence read, unusually large signal change, or ambiguous source text)>,',
+      '    "rationale": "<one sentence: why this confidence / on_theme / review_recommended>"',
+      "  }",
       "}",
     ].join("\n"),
+  };
+}
+
+// ── Auto-apply categorization + gating (2026-06-04) ─────────────────────────
+// Turns a parsed proposal + validation warnings into a durable category and a
+// recommendation on whether it can be auto-applied. The operator only needs to
+// review proposals that are off-theme or that the model is unsure about.
+const DEFAULT_MIN_CONFIDENCE = 0.7;
+
+// Reads the operator-tunable auto-apply config from model_config.
+//   cro_auto_apply_min_confidence  (default 0.7)
+//   cro_auto_apply_structural      (default false — structural always reviewed)
+async function readAutoApplyConfig(env) {
+  let minConfidence = DEFAULT_MIN_CONFIDENCE;
+  let allowStructural = false;
+  try {
+    if (env?.DB) {
+      const rows = await env.DB.prepare(
+        `SELECT config_key, config_value FROM model_config
+          WHERE config_key IN ('cro_auto_apply_min_confidence','cro_auto_apply_structural')`,
+      ).all();
+      for (const r of (rows?.results || [])) {
+        if (r.config_key === "cro_auto_apply_min_confidence") {
+          const v = Number(r.config_value);
+          if (Number.isFinite(v) && v >= 0 && v <= 1) minConfidence = v;
+        } else if (r.config_key === "cro_auto_apply_structural") {
+          const v = String(r.config_value).toLowerCase();
+          allowStructural = v === "true" || v === "1";
+        }
+      }
+    }
+  } catch (_) { /* defaults */ }
+  return { minConfidence, allowStructural };
+}
+
+export function categorizeProposal(parsed) {
+  const hasSignals = Array.isArray(parsed?.tactical_signals_add) && parsed.tactical_signals_add.length > 0;
+  const hasStance = (Array.isArray(parsed?.sector_stance_changes) && parsed.sector_stance_changes.length > 0)
+    || (Array.isArray(parsed?.theme_stance_changes) && parsed.theme_stance_changes.length > 0);
+  if (parsed?.classification === "structural" || hasStance) return "structural";
+  if (hasSignals) return "actionable";
+  return "editorial";
+}
+
+/**
+ * Decide whether a freshly-extracted proposal should auto-apply or be held for
+ * operator review. Deterministic checks (unknown taxonomy, structural) combine
+ * with the LLM self-assessment (confidence / on-theme / review-recommended).
+ *
+ * @returns { auto, review_status, reason, confidence, on_theme, category }
+ */
+export function assessProposalAutoApply(parsed, warnings, {
+  minConfidence = DEFAULT_MIN_CONFIDENCE,
+  allowStructural = false,
+} = {}) {
+  const category = categorizeProposal(parsed);
+  const sa = (parsed && typeof parsed.self_assessment === "object") ? parsed.self_assessment : {};
+  const confidence = Number.isFinite(Number(sa.confidence)) ? Number(sa.confidence) : null;
+  const onTheme = sa.on_theme !== false; // default true unless explicitly false
+  const reviewRecommended = sa.review_recommended === true;
+  // Unknown theme/sector keys are a strong off-theme signal.
+  const hasUnknownTaxonomy = (warnings || []).some((w) =>
+    String(w).startsWith("unknown_theme") || String(w).startsWith("unknown_sector")
+    || String(w).startsWith("theme_update_unknown") || String(w).startsWith("sector_update_unknown"));
+
+  const flags = [];
+  if (category === "structural") flags.push("structural");
+  if (hasUnknownTaxonomy) flags.push("off_taxonomy");
+  if (!onTheme) flags.push("off_theme");
+  if (reviewRecommended) flags.push("model_review_recommended");
+  if (confidence != null && confidence < minConfidence) flags.push(`low_confidence(${confidence.toFixed(2)})`);
+
+  let auto = flags.length === 0;
+  // Structural is gated separately and OFF by default.
+  if (category === "structural") auto = allowStructural && !hasUnknownTaxonomy && onTheme && !reviewRecommended && (confidence == null || confidence >= minConfidence);
+
+  return {
+    auto,
+    review_status: auto ? "auto_applied" : "needs_review",
+    reason: auto ? "confident_on_theme" : (flags.join(", ") || "review"),
+    confidence,
+    on_theme: onTheme,
+    category,
   };
 }
 
@@ -292,13 +390,19 @@ export async function extractPublicationToProposal(env, pubId, { model = null, f
     } catch (_) {}
   }
 
+  // 2026-06-04 — Categorize + decide auto-apply vs needs-review. Persisted on
+  // the row so the Research Desk + orchestrator agree on what needs a human.
+  const gateCfg = await readAutoApplyConfig(env);
+  const gate = assessProposalAutoApply(parsed, warnings, gateCfg);
+
   const proposalId = "prop_" + pubId.slice(0, 40) + "_" + Date.now().toString(36);
   try {
     await env.DB.prepare(`
       INSERT INTO ${PROPOSALS_TABLE}
         (proposal_id, pub_id, classification, proposal_json, model_used,
-         prompt_tokens, completion_tokens, status, created_at)
-      VALUES (?1,?2,?3,?4,?5,?6,?7, 'pending', ?8)
+         prompt_tokens, completion_tokens, status, created_at,
+         category, confidence, on_theme, review_status, auto_apply_reason)
+      VALUES (?1,?2,?3,?4,?5,?6,?7, 'pending', ?8, ?9, ?10, ?11, ?12, ?13)
     `).bind(
       proposalId,
       pubId,
@@ -308,6 +412,11 @@ export async function extractPublicationToProposal(env, pubId, { model = null, f
       llm.prompt_tokens || null,
       llm.completion_tokens || null,
       Date.now(),
+      gate.category,
+      gate.confidence,
+      gate.on_theme ? 1 : 0,
+      gate.review_status,
+      gate.reason,
     ).run();
   } catch (e) {
     return { ok: false, error_kind: "persist_failed", hint: String(e?.message || e).slice(0, 200) };
@@ -325,6 +434,13 @@ export async function extractPublicationToProposal(env, pubId, { model = null, f
     risks_added: (parsed.active_risks_add || []).length,
     education_added: (parsed.education_snippets_add || []).length,
     validation_warnings: warnings,
+    // Auto-apply gate (consumed by the orchestrator).
+    category: gate.category,
+    confidence: gate.confidence,
+    on_theme: gate.on_theme,
+    auto_apply_recommended: gate.auto,
+    review_status: gate.review_status,
+    auto_apply_reason: gate.reason,
     model: llm.model,
     prompt_tokens: llm.prompt_tokens,
     completion_tokens: llm.completion_tokens,
@@ -357,9 +473,13 @@ export async function listPendingProposals(env, { limit = 20 } = {}) {
 }
 
 export async function listRecentProposals(env, { limit = 20 } = {}) {
+  // Ensure the gate columns exist (idempotent) before selecting them — a fresh
+  // deploy may hit this endpoint before the first cron runs the migration.
+  await ensureCROProposalSchema(env);
   try {
     const rows = await env.DB.prepare(
-      `SELECT proposal_id, pub_id, classification, status, created_at, decided_at, applied_at
+      `SELECT proposal_id, pub_id, classification, status, created_at, decided_at, applied_at,
+              category, confidence, on_theme, review_status, auto_apply_reason
          FROM ${PROPOSALS_TABLE} ORDER BY created_at DESC LIMIT ?`,
     ).bind(limit).all();
     return rows?.results || [];

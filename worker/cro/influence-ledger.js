@@ -27,9 +27,21 @@ function safeJson(s) {
   try { return JSON.parse(s); } catch (_) { return null; }
 }
 
-// Infer a human content category from the source URL / title. FSD exposes
-// long-form notes (/posts) and short tactical FlashInsights (fsi-alert).
+// Resolve a human content category. Prefer the durable WP post_type stored at
+// ingest; fall back to URL / title inference for older rows that predate the
+// post_type column.
 function inferContentType(row) {
+  const pt = String(row.post_type || "").toLowerCase();
+  if (pt) {
+    if (pt.includes("fsi-alert-crypto")) return "flash_crypto";
+    if (pt.includes("fsi-alert") || pt.includes("flash")) return "flash";
+    if (pt === "post" || pt === "posts") {
+      const t0 = String(row.title || "").toLowerCase();
+      if (t0.includes("video") || t0.includes("macro minute")) return "video";
+      if (t0.includes("earnings") || t0.includes("eps")) return "earnings";
+      return "note";
+    }
+  }
   const u = String(row.source_url || "").toLowerCase();
   const t = String(row.title || "").toLowerCase();
   if (u.includes("fsi-alert-crypto") || t.includes("crypto")) return "flash_crypto";
@@ -94,6 +106,15 @@ function influencedSurfaces() {
 export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48 } = {}) {
   if (!env?.DB) return { ok: false, error_kind: "db_unavailable", items: [] };
 
+  // Ensure the publications post_type + proposal gate columns exist (idempotent)
+  // so the JOIN below never hits a missing column on a fresh deploy.
+  try {
+    const { ensureCROIngestionSchema } = await import("./fsd-ingestion.js");
+    const { ensureCROProposalSchema } = await import("./fsd-extractor.js");
+    await ensureCROIngestionSchema(env);
+    await ensureCROProposalSchema(env);
+  } catch (_) { /* best-effort */ }
+
   // Active override (what is live right now).
   let override = null;
   try {
@@ -107,10 +128,12 @@ export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48
   try {
     const res = await env.DB.prepare(
       `SELECT p.pub_id, p.title, p.source, p.source_url, p.published_at, p.fetched_at,
-              p.fetch_status, p.fetch_error, p.extracted_at, p.proposal_id, p.applied_at,
+              p.fetch_status, p.fetch_error, p.extracted_at, p.proposal_id, p.applied_at, p.post_type,
               r.tt_summary_title, r.tt_summary_body, r.tt_cta,
               pr.classification, pr.status AS proposal_status, pr.proposal_json,
-              pr.created_at AS proposal_created_at
+              pr.created_at AS proposal_created_at,
+              pr.category AS proposal_category, pr.confidence AS proposal_confidence,
+              pr.review_status AS proposal_review_status, pr.auto_apply_reason AS proposal_auto_reason
          FROM ${PUBLICATIONS_TABLE} p
          LEFT JOIN ${REWRITES_TABLE} r ON r.pub_id = p.pub_id
          LEFT JOIN ${PROPOSALS_TABLE} pr ON pr.proposal_id = p.proposal_id
@@ -127,13 +150,15 @@ export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48
   const window = {
     lookback_hours: lookbackHours,
     ingested: 0, fetch_ok: 0, extracted: 0, applied: 0, pending: 0, rejected: 0,
+    needs_review: 0, auto_applied: 0,
     editorial: 0, actionable: 0, structural: 0,
   };
 
   const items = rows.map((row) => {
     const proposal = safeJson(row.proposal_json);
     const contentType = inferContentType(row);
-    const category = deriveCategory(row, proposal);
+    // Prefer the persisted category written at extraction; fall back to derive.
+    const category = row.proposal_category || deriveCategory(row, proposal);
     const inWindow = Number(row.fetched_at || 0) >= (now - windowMs);
 
     const signals = Array.isArray(proposal?.tactical_signals_add) ? proposal.tactical_signals_add : [];
@@ -166,6 +191,8 @@ export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48
       if (applied) window.applied += 1;
       if (row.proposal_status === "pending") window.pending += 1;
       if (row.proposal_status === "rejected") window.rejected += 1;
+      if (row.proposal_review_status === "needs_review" && row.proposal_status === "pending") window.needs_review += 1;
+      if (row.proposal_review_status === "auto_applied") window.auto_applied += 1;
       if (category === "editorial") window.editorial += 1;
       if (category === "actionable") window.actionable += 1;
       if (category === "structural") window.structural += 1;
@@ -193,6 +220,11 @@ export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48
       proposal_id: row.proposal_id || null,
       classification: row.classification || null,
       proposal_status: row.proposal_status || (row.extracted_at ? "unknown" : null),
+      // Auto-apply gate lineage.
+      review_status: row.proposal_review_status || null,
+      confidence: Number.isFinite(Number(row.proposal_confidence)) ? Number(row.proposal_confidence) : null,
+      auto_apply_reason: row.proposal_auto_reason || null,
+      needs_review: row.proposal_review_status === "needs_review" && row.proposal_status === "pending",
       extracted_at: row.extracted_at || null,
       applied_at: row.applied_at || null,
       // What it changed.
