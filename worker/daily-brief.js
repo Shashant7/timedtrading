@@ -6,7 +6,7 @@ import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-cale
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
 import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
-import { getCROBriefAddendum } from "./cro/cro-service.js";
+import { getCROBriefAddendum, getFSDSynthesisAddendum } from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { computeFuturesPairsState, summarizeFuturesPairs } from "./futures-pairs.js";
@@ -2955,6 +2955,8 @@ ${await getStrategyBriefAsync(env)}
 
 ${await getCROBriefAddendum(env)}
 
+${await getFSDSynthesisAddendum(env)}
+
 ${await getCTOBriefAddendum(env)}
 
 REQUIRED: At least once per Brief (typically in the Big Picture or Sector Spotlight section), explicitly tie observed action back to the active playbook above — e.g. "Tech leadership today fits our overweight stance on AI compute and the Phase-1 back-ended rally thesis," or "Healthcare weakness aligns with our neutral stance — earnings growth is the lone outright negative this quarter." This anchors the Brief in our written strategy so users learn the playbook as they read. Cite the CRO Research Desk verdict whenever today's tape clearly corroborates or contradicts it.
@@ -3330,6 +3332,8 @@ ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote
 ${await getStrategyBriefAsync(env)}
 
 ${await getCROBriefAddendum(env)}
+
+${await getFSDSynthesisAddendum(env)}
 
 ${await getCTOBriefAddendum(env)}
 
@@ -4635,6 +4639,10 @@ async function buildIntradayPrompt(data, env) {
   try {
     const cro = await getCROBriefAddendum(env);
     if (cro) { lines.push(cro); lines.push(""); }
+  } catch (_) {}
+  try {
+    const fsd = await getFSDSynthesisAddendum(env);
+    if (fsd) { lines.push(fsd); lines.push(""); }
   } catch (_) {}
   try {
     const cto = await getCTOBriefAddendum(env);
