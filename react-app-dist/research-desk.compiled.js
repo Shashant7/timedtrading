@@ -676,6 +676,189 @@ function OverrideCard({
     }
   }, s.playbook_action)))));
 }
+function FlowSteps({
+  item
+}) {
+  const ingested = !!item.fetched_at && item.fetch_status === "ok";
+  const synthesized = !!item.has_tt_voice;
+  const categorized = !!item.extracted_at;
+  const influenced = item.applied || item.is_live;
+  const step = (label, state) => h("span", {
+    className: `flow-step ${state}`
+  }, state === "done" ? "✓ " : state === "skip" ? "· " : "", label);
+  const arrow = k => h("span", {
+    key: k,
+    className: "flow-arrow"
+  }, "→");
+  const parts = [step("Ingested", ingested ? "done" : "skip"), arrow("a1"), step("TT voice", synthesized ? "done" : "skip"), arrow("a2"), step("Categorized", categorized ? "done" : "skip"), arrow("a3"), step(influenced ? "Influencing model" : "Not applied", influenced ? "done" : "skip")];
+  return h("div", {
+    className: "flow-steps"
+  }, ...parts);
+}
+function InfluenceLedgerCard({
+  ledger,
+  isAdmin
+}) {
+  if (!isAdmin) return null;
+  if (!ledger) {
+    return h("div", {
+      className: "card"
+    }, h("h2", null, "What we ingested & what it influenced"), h("div", {
+      className: "row"
+    }, h("span", {
+      className: "spinner"
+    }), h("span", {
+      className: "muted",
+      style: {
+        marginLeft: 8
+      }
+    }, "Building digest…")));
+  }
+  if (!ledger.ok) {
+    return h("div", {
+      className: "card"
+    }, h("h2", null, "What we ingested & what it influenced"), h("div", {
+      className: "muted"
+    }, `Digest unavailable: ${ledger.error_kind || "error"}.`));
+  }
+  const w = ledger.window || {};
+  const items = Array.isArray(ledger.items) ? ledger.items : [];
+  const live = ledger.active_overlay;
+  const stat = (n, l, cls) => h("div", {
+    className: "stat"
+  }, h("div", {
+    className: "n" + (cls ? " " + cls : "")
+  }, n), h("div", {
+    className: "l"
+  }, l));
+  return h("div", {
+    className: "card"
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between",
+      marginBottom: 4
+    }
+  }, h("h2", null, "What we ingested & what it influenced"), h("span", {
+    className: "dim"
+  }, `last ${w.lookback_hours || 48}h · ${fmtAgo(ledger.generated_at)}`)), h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 4
+    }
+  }, "Each FundStrat publication, in TT voice: how it was categorized, synthesized, and whether it is shaping the live model right now."), h("div", {
+    className: "ledger-stats"
+  }, stat(w.ingested || 0, "Ingested"), stat(w.actionable || 0, "Actionable", "ok"), stat(w.structural || 0, "Structural", "warn"), stat(w.editorial || 0, "Editorial"), stat(w.applied || 0, "Applied live", "ok"), stat(w.pending || 0, "Pending review", w.pending ? "warn" : "")), live && live.active ? h("div", {
+    className: "flow-card live",
+    style: {
+      marginBottom: 14
+    }
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between"
+    }
+  }, h("div", {
+    style: {
+      fontWeight: 700,
+      color: "#34d399"
+    }
+  }, "Live tactical overlay"), h("span", {
+    className: "dim"
+  }, `applied ${fmtAgo(live.applied_at)}`)), live.overlay && h("div", {
+    className: "tt-quote"
+  }, live.overlay), h("div", {
+    className: "muted",
+    style: {
+      marginTop: 8,
+      fontSize: 11
+    }
+  }, `${live.signals_count} signal(s) · from pub ${live.pub_id || "?"} · proposal ${live.proposal_id || "?"} · feeding Daily Brief, Intraday Pulse, and CIO context.`)) : h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 14
+    }
+  }, "No tactical overlay is live right now — the model is reading the in-code playbook unchanged."), items.length === 0 ? h("div", {
+    className: "muted"
+  }, "Nothing ingested yet. Use Force Pull to fetch the latest FSD publications.") : items.map(it => h("div", {
+    key: it.pub_id,
+    className: `flow-card ${it.is_live ? "live" : ""}`
+  }, h("div", {
+    className: "flow-head"
+  }, h("div", {
+    style: {
+      flex: 1,
+      minWidth: 200
+    }
+  }, h("span", {
+    className: `tag cat-${it.category}`
+  }, it.category_label), h("span", {
+    className: "tag"
+  }, it.content_type_label), it.is_live && h("span", {
+    className: "tag cat-actionable"
+  }, "LIVE NOW"), h("div", {
+    style: {
+      fontWeight: 600,
+      marginTop: 6
+    }
+  }, it.tt_title || it.title), !it.tt_title && it.title && h("div", {
+    className: "dim",
+    style: {
+      marginTop: 2
+    }
+  }, "Awaiting TT-voice rewrite")), h("div", {
+    className: "dim",
+    style: {
+      textAlign: "right",
+      whiteSpace: "nowrap"
+    }
+  }, fmtAgo(it.fetched_at))), it.tt_summary && h("div", {
+    className: "tt-quote"
+  }, it.tt_summary), it.overlay && h("div", {
+    className: "muted",
+    style: {
+      marginTop: 8,
+      fontSize: 12
+    }
+  }, h("strong", null, "Overlay: "), it.overlay), (it.signals_count > 0 || it.themes_touched.length > 0 || it.sectors_touched.length > 0 || it.risks_count > 0 || it.stance_changes_count > 0) && h("div", {
+    style: {
+      marginTop: 8
+    }
+  }, it.signals_count > 0 && h("span", {
+    className: "tag"
+  }, `${it.signals_count} signal${it.signals_count === 1 ? "" : "s"}`), it.stance_changes_count > 0 && h("span", {
+    className: "tag cat-structural"
+  }, `${it.stance_changes_count} stance change${it.stance_changes_count === 1 ? "" : "s"}`), it.risks_count > 0 && h("span", {
+    className: "tag"
+  }, `${it.risks_count} risk${it.risks_count === 1 ? "" : "s"}`), it.education_count > 0 && h("span", {
+    className: "tag"
+  }, `${it.education_count} edu note${it.education_count === 1 ? "" : "s"}`), it.themes_touched.map((t, i) => h("span", {
+    key: `th${i}`,
+    className: "tag cat-editorial"
+  }, t)), it.sectors_touched.map((s, i) => h("span", {
+    key: `se${i}`,
+    className: "tag"
+  }, s))), h(FlowSteps, {
+    item: it
+  }), it.fetch_status && it.fetch_status !== "ok" && h("div", {
+    className: "err",
+    style: {
+      marginTop: 6,
+      fontSize: 11
+    }
+  }, `Fetch failed: ${(it.fetch_error || "").slice(0, 140)}`), it.influenced_surfaces.length > 0 && h("div", {
+    className: "dim",
+    style: {
+      marginTop: 8,
+      fontSize: 11
+    }
+  }, "Reaching: ", it.influenced_surfaces.map(s => s.label).join(" · ")))), h("div", {
+    className: "dim",
+    style: {
+      marginTop: 8
+    }
+  }, "TT-voice summaries are paraphrased from the source; full attribution renders on the Catalysts panel. Source: Fundstrat Direct."));
+}
 function PublicationsCard({
   data,
   isAdmin,
@@ -1015,7 +1198,7 @@ function App() {
     };
   }, []);
   const load = useCallback(async () => {
-    const [cro, cto, strategy, override, pubs, proposals, rotation, lastSummary] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
+    const [cro, cto, strategy, override, pubs, proposals, rotation, lastSummary, influence] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
       body: null
     }), isAdmin ? jget("/timed/admin/cro/publications?limit=15") : Promise.resolve({
       body: null
@@ -1023,7 +1206,9 @@ function App() {
       body: null
     }), isAdmin ? jget("/timed/admin/cro/rotation/snapshot") : Promise.resolve({
       body: null
-    }), jget("/timed/cro/last-summary")]);
+    }), jget("/timed/cro/last-summary"), isAdmin ? jget("/timed/admin/cro/influence?limit=15&lookback_hours=48") : Promise.resolve({
+      body: null
+    })]);
     setData({
       loading: false,
       fetched_at: Date.now(),
@@ -1034,7 +1219,8 @@ function App() {
       pubs,
       proposals,
       rotation,
-      lastSummary
+      lastSummary,
+      influence
     });
   }, [isAdmin]);
   useEffect(() => {
@@ -1202,6 +1388,13 @@ function App() {
     style: {
       marginTop: 14
     }
+  }, h(InfluenceLedgerCard, {
+    ledger: data?.influence?.body,
+    isAdmin
+  })), isAdmin && h("div", {
+    style: {
+      marginTop: 14
+    }
   }, h(ProposalsSection, {
     proposals,
     isAdmin,
@@ -1238,6 +1431,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780610079102:744911667
+// cache-bust:1780610975461:915609400
 
-// cache-bust:1780610079102:744911667
+// cache-bust:1780610975461:915609400
