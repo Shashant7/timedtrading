@@ -825,7 +825,17 @@
         );
       }
 
-      ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+      const AuthGate = window.TimedAuthGate;
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      // 2026-06-04 — Must mount AuthGate so /timed/me runs and
+      // dataset.isAdmin / window._ttIsAdmin are set. Without this,
+      // admin-only controls (Force Pull, Actions card) never appear
+      // even when the operator is logged in as admin via CF Access.
+      root.render(
+        AuthGate
+          ? h(AuthGate, { apiBase: API_BASE, requiredTier: "pro" }, () => h(App))
+          : h(App),
+      );
     </script>
   </body>
 </html>

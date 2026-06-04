@@ -83,18 +83,73 @@ function summarizeTickerForPrompt(sym, t) {
   if (t._ticker_profile?.behavior_type) parts.push(`profile=${t._ticker_profile.behavior_type}`);
   if (t.latent_regime?.state) parts.push(`hmm=${String(t.latent_regime.state).replace(/_/g, " ")}`);
   if (Array.isArray(t.flags) && t.flags.length > 0) parts.push(`flags=${t.flags.slice(0, 3).join(",")}`);
-  return parts.join(" ");
+  return parts.length > 1 ? parts.join(" ") : null;
 }
 
-async function loadModelContextForTickers(env, tickers) {
-  if (!Array.isArray(tickers) || tickers.length === 0) return "(no tickers extracted from publication)";
+async function loadTickerModelContext(env, sym, snap) {
+  const S = String(sym || "").toUpperCase();
+  if (!S) return null;
+  let t = snap?.data?.[S] || null;
+  if (t) return summarizeTickerForPrompt(S, t);
+  // Fallback: ticker_latest / timed:latest (same payload the right rail uses).
+  try {
+    if (env?.DB) {
+      const row = await env.DB.prepare(
+        `SELECT payload_json FROM ticker_latest WHERE ticker = ?1`,
+      ).bind(S).first();
+      if (row?.payload_json) {
+        t = JSON.parse(String(row.payload_json));
+        const summary = summarizeTickerForPrompt(S, t);
+        if (summary) return summary;
+      }
+    }
+  } catch (_) {}
+  try {
+    const raw = await env?.KV?.get(`timed:latest:${S}`);
+    if (raw) {
+      t = JSON.parse(raw);
+      const summary = summarizeTickerForPrompt(S, t);
+      if (summary && !summary.endsWith(`${S}:`)) return summary;
+    }
+  } catch (_) {}
+  try {
+    const pricesRaw = await env?.KV?.get("timed:prices");
+    if (pricesRaw) {
+      const prices = JSON.parse(pricesRaw);
+      const p = prices?.[S];
+      if (p && Number.isFinite(Number(p.p ?? p.price))) {
+        const px = Number(p.p ?? p.price);
+        const dc = Number(p.dc ?? p.day_change);
+        const dp = Number(p.dp ?? p.day_change_pct);
+        const parts = [`${S}:`, `px=$${px.toFixed(2)}`];
+        if (Number.isFinite(dp)) parts.push(`day=${dp.toFixed(2)}%`);
+        else if (Number.isFinite(dc) && px > 0) parts.push(`day=${((dc / px) * 100).toFixed(2)}%`);
+        parts.push("(live price — full desk snapshot syncing)");
+        return parts.join(" ");
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function loadModelContextForTickers(env, tickers, { focusTicker = null } = {}) {
+  const ordered = [];
+  const seen = new Set();
+  const focus = String(focusTicker || "").toUpperCase();
+  if (focus) { ordered.push(focus); seen.add(focus); }
+  for (const t of (tickers || [])) {
+    const S = String(t || "").toUpperCase();
+    if (!S || seen.has(S)) continue;
+    seen.add(S);
+    ordered.push(S);
+  }
+  if (ordered.length === 0) return "(no tickers extracted from publication)";
   const snap = await loadAllSnapshot(env);
   const lines = [];
-  for (const sym of tickers.slice(0, 4)) {
-    const t = snap?.data?.[sym] || null;
-    const summary = summarizeTickerForPrompt(sym, t);
+  for (const sym of ordered.slice(0, 4)) {
+    const summary = await loadTickerModelContext(env, sym, snap);
     if (summary) lines.push(summary);
-    else lines.push(`${sym}: (no model snapshot — ticker not in active universe yet)`);
+    else lines.push(`${sym}: (limited model data — treat source levels as primary until desk snapshot refreshes)`);
   }
   return lines.join("\n");
 }
@@ -140,7 +195,8 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       "• OVERLAY the TT MODEL CONTEXT below — current price, regime, HTF state, score/conviction, kanban stage, and our own trigger/stop/TP levels (if any).",
       "• When the model AGREES with the source, say so explicitly and reinforce: 'The setup aligns with our regime read and the entry-trigger at <price>'.",
       "• When the model DISAGREES (e.g. source long but our regime BEAR_TREND, or source level below our stop), surface the conflict honestly: 'Source sees support at X; our model has us watching <our trigger> instead — the two disagree by Y%.'",
-      "• When the model has NO read (ticker not in active universe), say 'Not in our active universe; presenting the source view as-is.'",
+      "• When TT MODEL CONTEXT includes price/regime/score for a ticker, that ticker IS on the desk — blend source + model. Never claim a ticker is 'not in our active universe' when context lines exist for it.",
+      "• Only when context explicitly says 'limited model data' for a ticker, present the source view and note the desk snapshot is still syncing.",
       "• The result must be MORE VALUABLE than either input alone. Users pay for the synthesis, not the relay.",
       "",
       "ABSOLUTE CONSTRAINTS:",
@@ -227,7 +283,7 @@ async function callOpenAI(env, messages, { model = DEFAULT_MODEL, maxTokens = MA
  * Rewrite a single publication into TT voice. Idempotent unless force=true.
  * Returns { ok, ...rewriteFields } or { ok:false, error_kind, hint }.
  */
-export async function rewriteFSDPublication(env, pubId, { force = false, model = null } = {}) {
+export async function rewriteFSDPublication(env, pubId, { force = false, model = null, focusTicker = null } = {}) {
   await ensureRewriteSchema(env);
   if (!force) {
     try {
@@ -267,7 +323,7 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
   // (no parallel KV layout, no duplicate fetches). Reads
   // `timed:all:snapshot.data[SYM]` for each tagged ticker on the pub.
   const taggedTickers = await loadTickersForPub(env, pubId);
-  const modelContext = await loadModelContextForTickers(env, taggedTickers);
+  const modelContext = await loadModelContextForTickers(env, taggedTickers, { focusTicker });
   const { system, user } = buildRewritePrompt(
     text.text_full,
     meta?.title || "",

@@ -197,6 +197,16 @@
         color: var(--tt-text-dim, #6b7280);
         font-size: 13px;
       }
+      .tt-gs-section {
+        padding: 8px 16px 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim, #6b7280);
+        list-style: none;
+        pointer-events: none;
+      }
       .tt-gs-footer {
         display: flex;
         justify-content: space-between;
@@ -396,6 +406,37 @@
   }
 
   // ── Score function — exact > prefix > substring(ticker) > substring(name) ──
+  // Recently opened tickers (global search pick / rail open). Most-recent first.
+  const RECENT_STORAGE_KEY = "tt-gs-recent-v1";
+  const RECENT_MAX = 10;
+
+  function readRecent() {
+    try {
+      const raw = window.localStorage?.getItem(RECENT_STORAGE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(arr)) return [];
+      return arr.map((s) => String(s || "").trim().toUpperCase()).filter(Boolean).slice(0, RECENT_MAX);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function pushRecent(sym) {
+    const ticker = String(sym || "").trim().toUpperCase();
+    if (!ticker) return;
+    try {
+      const prev = readRecent().filter((s) => s !== ticker);
+      const next = [ticker, ...prev].slice(0, RECENT_MAX);
+      window.localStorage?.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+    } catch (_) {}
+  }
+
+  function recentRankBoost(ticker, recentList) {
+    const idx = recentList.indexOf(String(ticker || "").toUpperCase());
+    if (idx < 0) return 0;
+    return Math.max(1, RECENT_MAX - idx);
+  }
+
   function rank(item, qUp) {
     if (!qUp) return 0;
     const t = item.ticker;
@@ -410,14 +451,18 @@
 
   function search(universe, q) {
     const qUp = String(q || "").trim().toUpperCase();
+    const byTicker = new Map(universe.map((it) => [it.ticker, it]));
+    const recentSyms = readRecent().filter((sym) => byTicker.has(sym));
     if (!qUp) {
-      // Show first 30 as default (alphabetical).
-      return universe.slice(0, 30);
+      const recentItems = recentSyms.map((sym) => byTicker.get(sym)).filter(Boolean);
+      const recentSet = new Set(recentSyms);
+      const rest = universe.filter((it) => !recentSet.has(it.ticker));
+      return recentItems.concat(rest).slice(0, 30);
     }
     const scored = [];
     for (const it of universe) {
       const s = rank(it, qUp);
-      if (s >= 0) scored.push({ it, s });
+      if (s >= 0) scored.push({ it, s: s + recentRankBoost(it.ticker, recentSyms) });
     }
     scored.sort((a, b) => b.s - a.s || a.it.ticker.localeCompare(b.it.ticker));
     return scored.slice(0, 50).map(x => x.it);
@@ -596,7 +641,28 @@
       _resultsEl.appendChild(empty);
       return;
     }
+
+    const recentSet = !qRaw ? new Set(readRecent()) : new Set();
+    let insertedRecentHdr = false;
+    let insertedAllHdr = false;
+
     _currentResults.forEach((it, idx) => {
+      if (!qRaw && recentSet.size > 0) {
+        if (recentSet.has(it.ticker) && !insertedRecentHdr) {
+          insertedRecentHdr = true;
+          const hdr = document.createElement("li");
+          hdr.className = "tt-gs-section";
+          hdr.textContent = "Recent";
+          _resultsEl.appendChild(hdr);
+        }
+        if (!recentSet.has(it.ticker) && insertedRecentHdr && !insertedAllHdr) {
+          insertedAllHdr = true;
+          const hdr = document.createElement("li");
+          hdr.className = "tt-gs-section";
+          hdr.textContent = "All tickers";
+          _resultsEl.appendChild(hdr);
+        }
+      }
       const li = document.createElement("li");
       li.className = "tt-gs-result" + (idx === _activeIdx ? " is-active" : "");
       li.setAttribute("role", "option");
@@ -727,6 +793,9 @@
   function pick(sym) {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
+    // 2026-06-03 — Track recently-picked tickers so the default-state
+    // results list ranks them above the alphabetical universe.
+    pushRecent(ticker);
     closeOverlay();
     try {
       // Update URL so reload preserves the open ticker. Use replaceState
@@ -969,4 +1038,4 @@
   }
 })();
 
-// cache-bust:1780607330582:851097520
+// cache-bust:1780608162031:333639946

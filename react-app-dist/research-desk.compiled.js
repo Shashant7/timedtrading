@@ -862,7 +862,12 @@ function App() {
     }
   }, h(AICIOActionsCard)));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780607330582:851097520
+const AuthGate = window.TimedAuthGate;
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(AuthGate ? h(AuthGate, {
+  apiBase: API_BASE,
+  requiredTier: "pro"
+}, () => h(App)) : h(App));
+// cache-bust:1780608162031:333639946
 
-// cache-bust:1780607330582:851097520
+// cache-bust:1780608162031:333639946
