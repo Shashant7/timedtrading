@@ -431,22 +431,35 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
     if (typeof sourceUrlOrId === "number" || /^\d+$/.test(String(sourceUrlOrId))) {
       postId = String(sourceUrlOrId);
     } else if (typeof sourceUrlOrId === "string") {
-      // Resolve slug → id via WP REST's ?slug=... query.
+      // 2026-06-03 — Resolve slug → id by walking ALL configured post
+      // types in turn. The previous implementation only checked
+      // /wp/v2/posts, which 404s for fsi-alert / fsi-alert-crypto
+      // entries (a separate WP custom post-type bucket). The miss fell
+      // through to the legacy login + full-page HTML scrape, which
+      // grabbed FSD's site nav + footer chrome and stored garbage as
+      // the publication text — operator-visible as the "Search Search
+      // Referral Program Gift Cards Merch Store…" noise in the
+      // Catalysts tab.
       const m = sourceUrlOrId.match(/\/([^/]+?)\/?$/);
       const slug = m ? m[1] : null;
       if (slug) {
-        try {
-          const slugUrl = urlJoin(cfg.base_url, cfg.wp_rest_list_path) + "?slug=" + encodeURIComponent(slug) + "&_fields=id";
-          const { signal, done: req } = withTimeout(
-            fetch(slugUrl, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-            FETCH_TIMEOUT_MS,
-          );
-          const r = await Object.assign(req, { signal });
-          if (r.ok) {
-            const arr = await r.json().catch(() => null);
-            if (Array.isArray(arr) && arr[0]?.id) postId = String(arr[0].id);
-          }
-        } catch (_) {}
+        const slugCandidates = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
+          ? cfg.wp_rest_post_types.map((t) => t.path)
+          : [cfg.wp_rest_list_path];
+        for (const candidatePath of slugCandidates) {
+          try {
+            const slugUrl = urlJoin(cfg.base_url, candidatePath) + "?slug=" + encodeURIComponent(slug) + "&_fields=id";
+            const { signal, done: req } = withTimeout(
+              fetch(slugUrl, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
+              FETCH_TIMEOUT_MS,
+            );
+            const r = await Object.assign(req, { signal });
+            if (r.ok) {
+              const arr = await r.json().catch(() => null);
+              if (Array.isArray(arr) && arr[0]?.id) { postId = String(arr[0].id); break; }
+            }
+          } catch (_) { /* try next post-type */ }
+        }
       }
     }
     if (postId) {

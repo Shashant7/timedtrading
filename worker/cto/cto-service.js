@@ -291,9 +291,17 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
   }
 
   const candles = await loadDailyCandles(env, sym);
-  if (!candles || candles.length < SWING_LOOKBACK + 10) {
-    return { ok: false, error_kind: "insufficient_candles", ticker: sym, bars: candles?.length || 0 };
+  // 2026-06-03 — Lowered minimum from SWING_LOOKBACK + 10 (= 70 bars)
+  // to 30 bars. The old gate failed silently for newly-listed names and
+  // any ticker missing 2-3 months of D-tf history in `ticker_candles`,
+  // which was what zeroed out the entire CTO rollup. With 30 bars we
+  // still have enough for ATR + a coarse swing; empirical hit-rates
+  // collapse to small-sample disclaimers (the `low_sample` flag below).
+  const MIN_BARS = 30;
+  if (!candles || candles.length < MIN_BARS) {
+    return { ok: false, error_kind: "insufficient_candles", ticker: sym, bars: candles?.length || 0, required: MIN_BARS };
   }
+  const lowSample = candles.length < SWING_LOOKBACK + 10;
   const current = candles[candles.length - 1];
   const prevDay = candles[candles.length - 2] || null;
   const atr = computeATR(candles);
@@ -370,6 +378,8 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
     top_upside: ups,
     top_downside: dns,
     narrative,
+    bars: candles.length,
+    low_sample: lowSample,
   };
 
   try {
@@ -432,9 +442,20 @@ export async function runCTOUniverse(env, { tickers, limit = 50 } = {}) {
   for (const t of tickers.slice(0, limit)) {
     try {
       const r = await computeCTOForTicker(env, t, { force: true });
-      results.push({ ticker: t, ok: !!r.ok, narrative: r.narrative || null, top_upside: (r.top_upside || []).slice(0, 1), top_downside: (r.top_downside || []).slice(0, 1) });
+      // 2026-06-03 — Carry through error_kind + bars-available so the
+      // Research Desk + rollup-consumer can see WHY a ticker failed.
+      results.push({
+        ticker: t,
+        ok: !!r.ok,
+        error_kind: r.ok ? null : (r.error_kind || "unknown"),
+        bars: r.bars || null,
+        narrative: r.narrative || null,
+        top_upside: (r.top_upside || []).slice(0, 1),
+        top_downside: (r.top_downside || []).slice(0, 1),
+        low_sample: !!r.low_sample,
+      });
     } catch (e) {
-      results.push({ ticker: t, ok: false, error: String(e?.message || e).slice(0, 150) });
+      results.push({ ticker: t, ok: false, error_kind: "exception", error: String(e?.message || e).slice(0, 150) });
     }
   }
 
