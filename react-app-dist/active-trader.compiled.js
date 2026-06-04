@@ -1277,7 +1277,78 @@ function ActiveTraderApp() {
     allTickers,
     lanes,
     tradeByTicker
-  })), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+  })), !loading && h("section", {
+    className: "tt-row at-controls"
+  }, h("div", {
+    className: "at-search-wrap"
+  }, h("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    className: "at-search-icon"
+  }, h("circle", {
+    cx: 11,
+    cy: 11,
+    r: 8
+  }), h("line", {
+    x1: 21,
+    y1: 21,
+    x2: 16.65,
+    y2: 16.65
+  })), h("input", {
+    type: "text",
+    className: "at-search",
+    placeholder: "Search ticker (e.g. NVDA, AAPL, GOOGL, MSFT)",
+    value: searchQuery,
+    onChange: e => setSearchQuery(e.target.value),
+    "aria-label": "Search Active Trader tickers"
+  }), searchQuery && h("button", {
+    className: "at-search-clear",
+    onClick: () => setSearchQuery(""),
+    "aria-label": "Clear search",
+    title: "Clear"
+  }, "×")), h("div", {
+    className: "at-filter-chips"
+  }, h("button", {
+    className: "at-chip" + (filterLane === null ? " active" : ""),
+    onClick: () => setFilterLane(null),
+    title: "Show all lanes"
+  }, "All"), h("button", {
+    className: "at-chip" + (filterLane === "setup" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "setup" ? null : "setup"),
+    disabled: laneCounts.setup === 0,
+    title: "Tickers forming a setup but not yet triggered"
+  }, `Setup${laneCounts.setup > 0 ? ` (${laneCounts.setup})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "review" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
+    disabled: laneCounts.review === 0,
+    title: "Tickers signaling entry — under operator review"
+  }, `In Review${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "hold" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "hold" ? null : "hold"),
+    disabled: laneCounts.hold === 0,
+    title: "Open positions that the model is holding"
+  }, `Hold${laneCounts.hold > 0 ? ` (${laneCounts.hold})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "defend" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "defend" ? null : "defend"),
+    disabled: laneCounts.defend === 0,
+    title: "Open positions where the model wants the stop tightened"
+  }, `Defend${laneCounts.defend > 0 ? ` (${laneCounts.defend})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "trim" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
+    disabled: laneCounts.trim === 0,
+    title: "Open positions hitting a take-profit level"
+  }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "exit" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
+    disabled: laneCounts.exit === 0,
+    title: "Positions the model wants closed now"
+  }, `Exit${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
   }, h("div", {
@@ -1404,6 +1475,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780529198873:179117049
+// cache-bust:1780540766182:488075247
 
-// cache-bust:1780529198873:179117049
+// cache-bust:1780540766182:488075247
