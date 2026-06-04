@@ -1395,6 +1395,8 @@
       function ActiveTraderApp() {
         const [data, setData] = useState(null);
         const [error, setError] = useState(null);
+        const [searchQuery, setSearchQuery] = useState("");
+        const [filterLane, setFilterLane] = useState(null);
 
         // 2026-05-26 — Auto-refresh prices (30s) + scoring data (90s) so
         // the kanban lanes stay live without manual reloads. See
@@ -1469,19 +1471,54 @@
 
         const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
 
+        const laneCounts = useMemo(() => ({
+          setup: lanes.setup.length,
+          review: lanes.enter.length,
+          hold: lanes.hold.length,
+          defend: lanes.defend.length,
+          trim: lanes.trim.length,
+          exit: lanes.exit.length,
+        }), [lanes]);
+
+        const displayLanes = useMemo(() => {
+          const q = searchQuery.trim().toUpperCase();
+          const match = (list) => {
+            if (!q) return list;
+            return list.filter((t) => String(t?.ticker || "").toUpperCase().includes(q));
+          };
+          const base = {
+            setup: match(lanes.setup),
+            enter: match(lanes.enter),
+            new: match(lanes.new),
+            hold: match(lanes.hold),
+            defend: match(lanes.defend),
+            trim: match(lanes.trim),
+            exit: match(lanes.exit),
+          };
+          if (!filterLane) return base;
+          const empty = { setup: [], enter: [], new: [], hold: [], defend: [], trim: [], exit: [] };
+          if (filterLane === "setup") return { ...empty, setup: base.setup };
+          if (filterLane === "review") return { ...empty, enter: base.enter };
+          if (filterLane === "hold") return { ...empty, hold: base.hold };
+          if (filterLane === "defend") return { ...empty, defend: base.defend };
+          if (filterLane === "trim") return { ...empty, trim: base.trim };
+          if (filterLane === "exit") return { ...empty, exit: base.exit };
+          return base;
+        }, [lanes, searchQuery, filterLane]);
+
         // Pre-fetch sparklines for the visible top of each lane (first ~6)
         useEffect(() => {
           if (!ensureSpark) return;
           const heads = []
-            .concat(lanes.setup.slice(0, 6))
-            .concat(lanes.enter.slice(0, 6))
-            .concat(lanes.new.slice(0, 6))
-            .concat(lanes.hold.slice(0, 12))
-            .concat(lanes.defend.slice(0, 12))
-            .concat(lanes.trim.slice(0, 6))
-            .concat(lanes.exit.slice(0, 6));
+            .concat(displayLanes.setup.slice(0, 6))
+            .concat(displayLanes.enter.slice(0, 6))
+            .concat(displayLanes.new.slice(0, 6))
+            .concat(displayLanes.hold.slice(0, 12))
+            .concat(displayLanes.defend.slice(0, 12))
+            .concat(displayLanes.trim.slice(0, 6))
+            .concat(displayLanes.exit.slice(0, 6));
           heads.forEach((t) => t?.ticker && ensureSpark(t.ticker));
-        }, [lanes, ensureSpark]);
+        }, [displayLanes, ensureSpark]);
 
         // Right rail overlay state — card clicks pop the slide-in panel
         // (same component /index-react.html uses) so users can drill into
@@ -1677,19 +1714,19 @@
                   ),
                 )
               : [
-                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: lanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: lanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: lanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: lanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: lanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: lanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: lanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: displayLanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: displayLanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: displayLanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: displayLanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: displayLanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: displayLanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: displayLanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                 ],
             // Bubble map of the AT board's tickers ONLY (the union of
             // all 7 kanban lanes — Setup → In Review → Position
             // Initiated → Hold → Defend → Trim → Exit). Anything not
             // in a lane is off-board noise and isn't plotted here.
-            !loading && h(ATBubbleMap, { lanes, allTickers, data, onSelectTicker: onOpen }),
+            !loading && h(ATBubbleMap, { lanes: displayLanes, allTickers, data, onSelectTicker: onOpen }),
           ),
           // Right rail slide-in. The Overlay component lives in
           // shared-rail-bootstrap.js and reuses the same factory the

@@ -418,7 +418,7 @@ function PublicationsCard({
     className: "btn btn-go",
     title: "POST /timed/admin/cro/fsd/ingest",
     onClick: () => onAction("fsd_ingest_inline", "POST", "/timed/admin/cro/fsd/ingest", {})
-  }, "Pull from FSD now"), h("button", {
+  }, "Force Pull"), h("button", {
     className: "btn",
     title: "POST /timed/admin/cro/fsd/probe",
     onClick: () => onAction("fsd_probe_inline", "POST", "/timed/admin/cro/fsd/probe", {})
@@ -605,7 +605,7 @@ function ActionsCard({
     hint: "Returns a 500-char snippet of the FSD login page response. No credentials echoed back."
   }, {
     key: "fsd_ingest",
-    label: "Pull from FSD now (force re-fetch)",
+    label: "Force Pull (FSD re-fetch)",
     cls: "btn btn-go",
     path: "/timed/admin/cro/fsd/ingest",
     body: {
@@ -696,15 +696,20 @@ function App() {
   const [lastAction, setLastAction] = useState(null);
   const [isAdmin, setIsAdmin] = useState(typeof window !== "undefined" && (window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true"));
   useEffect(() => {
-    const onAuth = () => {
-      const v = window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
-      setIsAdmin(v);
-    };
+    const readAdmin = () => window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
+    const onAuth = () => setIsAdmin(readAdmin());
     window.addEventListener("tt-auth-bootstrap-updated", onAuth);
-    const t = setTimeout(onAuth, 1500);
+    onAuth();
+    const t1 = setTimeout(onAuth, 800);
+    const t2 = setTimeout(onAuth, 2500);
+    const poll = setInterval(onAuth, 600);
+    const stopPoll = setTimeout(() => clearInterval(poll), 8000);
     return () => {
       window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
-      clearTimeout(t);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(stopPoll);
+      clearInterval(poll);
     };
   }, []);
   const load = useCallback(async () => {
@@ -813,7 +818,7 @@ function App() {
       force: true,
       limit: 20
     })
-  }, "Pull from FSD now (force)"), h("button", {
+  }, "Force Pull"), h("button", {
     className: "btn",
     title: "POST /timed/admin/cro/cycle { force: true } — runs the whole pipeline (CTO + rotation + FSD + extract + apply + synthesis)",
     onClick: () => onAction("cycle_force_topbar", "POST", "/timed/admin/cro/cycle", {
@@ -858,6 +863,6 @@ function App() {
   }, h(AICIOActionsCard)));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(h(App));
-// cache-bust:1780591919863:976488403
+// cache-bust:1780607330582:851097520
 
-// cache-bust:1780591919863:976488403
+// cache-bust:1780607330582:851097520

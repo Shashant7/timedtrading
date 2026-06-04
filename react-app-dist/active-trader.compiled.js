@@ -1067,6 +1067,8 @@ function ATBubbleMap({
 function ActiveTraderApp() {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterLane, setFilterLane] = useState(null);
   const _liveHooks = window.TimedLiveData;
   if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
   if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
@@ -1140,11 +1142,70 @@ function ActiveTraderApp() {
     return injected.length ? mapped.concat(injected) : mapped;
   }, [data, tradeByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
+  const laneCounts = useMemo(() => ({
+    setup: lanes.setup.length,
+    review: lanes.enter.length,
+    hold: lanes.hold.length,
+    defend: lanes.defend.length,
+    trim: lanes.trim.length,
+    exit: lanes.exit.length
+  }), [lanes]);
+  const displayLanes = useMemo(() => {
+    const q = searchQuery.trim().toUpperCase();
+    const match = list => {
+      if (!q) return list;
+      return list.filter(t => String(t?.ticker || "").toUpperCase().includes(q));
+    };
+    const base = {
+      setup: match(lanes.setup),
+      enter: match(lanes.enter),
+      new: match(lanes.new),
+      hold: match(lanes.hold),
+      defend: match(lanes.defend),
+      trim: match(lanes.trim),
+      exit: match(lanes.exit)
+    };
+    if (!filterLane) return base;
+    const empty = {
+      setup: [],
+      enter: [],
+      new: [],
+      hold: [],
+      defend: [],
+      trim: [],
+      exit: []
+    };
+    if (filterLane === "setup") return {
+      ...empty,
+      setup: base.setup
+    };
+    if (filterLane === "review") return {
+      ...empty,
+      enter: base.enter
+    };
+    if (filterLane === "hold") return {
+      ...empty,
+      hold: base.hold
+    };
+    if (filterLane === "defend") return {
+      ...empty,
+      defend: base.defend
+    };
+    if (filterLane === "trim") return {
+      ...empty,
+      trim: base.trim
+    };
+    if (filterLane === "exit") return {
+      ...empty,
+      exit: base.exit
+    };
+    return base;
+  }, [lanes, searchQuery, filterLane]);
   useEffect(() => {
     if (!ensureSpark) return;
-    const heads = [].concat(lanes.setup.slice(0, 6)).concat(lanes.enter.slice(0, 6)).concat(lanes.new.slice(0, 6)).concat(lanes.hold.slice(0, 12)).concat(lanes.defend.slice(0, 12)).concat(lanes.trim.slice(0, 6)).concat(lanes.exit.slice(0, 6));
+    const heads = [].concat(displayLanes.setup.slice(0, 6)).concat(displayLanes.enter.slice(0, 6)).concat(displayLanes.new.slice(0, 6)).concat(displayLanes.hold.slice(0, 12)).concat(displayLanes.defend.slice(0, 12)).concat(displayLanes.trim.slice(0, 6)).concat(displayLanes.exit.slice(0, 6));
     heads.forEach(t => t?.ticker && ensureSpark(t.ticker));
-  }, [lanes, ensureSpark]);
+  }, [displayLanes, ensureSpark]);
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
@@ -1381,7 +1442,7 @@ function ActiveTraderApp() {
     id: "setup",
     title: "Setup",
     accentClass: "setup",
-    tickers: lanes.setup,
+    tickers: displayLanes.setup,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1392,7 +1453,7 @@ function ActiveTraderApp() {
     id: "review",
     title: "In Review",
     accentClass: "review",
-    tickers: lanes.enter,
+    tickers: displayLanes.enter,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1403,7 +1464,7 @@ function ActiveTraderApp() {
     id: "initiated",
     title: "Position Initiated",
     accentClass: "initiated",
-    tickers: lanes.new,
+    tickers: displayLanes.new,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1414,7 +1475,7 @@ function ActiveTraderApp() {
     id: "hold",
     title: "Hold",
     accentClass: "hold",
-    tickers: lanes.hold,
+    tickers: displayLanes.hold,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1425,7 +1486,7 @@ function ActiveTraderApp() {
     id: "defend",
     title: "Defend",
     accentClass: "defend",
-    tickers: lanes.defend,
+    tickers: displayLanes.defend,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1436,7 +1497,7 @@ function ActiveTraderApp() {
     id: "trim",
     title: "Trim",
     accentClass: "trim",
-    tickers: lanes.trim,
+    tickers: displayLanes.trim,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -1447,14 +1508,14 @@ function ActiveTraderApp() {
     id: "exit",
     title: "Exit",
     accentClass: "exit",
-    tickers: lanes.exit,
+    tickers: displayLanes.exit,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
     tradeByTicker
   })], !loading && h(ATBubbleMap, {
-    lanes,
+    lanes: displayLanes,
     allTickers,
     data,
     onSelectTicker: onOpen
@@ -1475,6 +1536,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780591919863:976488403
+// cache-bust:1780607330582:851097520
 
-// cache-bust:1780591919863:976488403
+// cache-bust:1780607330582:851097520
