@@ -204,13 +204,8 @@ const FSD_CHROME_NOISE = [
   /Subscribe to FSI[\s\S]*?$/i,
 ];
 
-export function extractHtmlText(html) {
-  if (!html) return "";
-  let out = String(html)
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
-    // Named entities
+function decodeHtmlEntities(s) {
+  return String(s || "")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -223,10 +218,6 @@ export function extractHtmlText(html) {
     .replace(/&ndash;/g, "–")
     .replace(/&lsquo;|&rsquo;/g, "'")
     .replace(/&ldquo;|&rdquo;/g, '"')
-    // 2026-06-03 — Numeric HTML entities. The operator-reported
-    // garbage text in the Catalysts tab ("Mark L. Newton, CMT &#8211;
-    // $GOOGL &#8230;") was being shown raw because we never decoded
-    // these. Decimal entities first, then hex (e.g. &#x2014;).
     .replace(/&#(\d+);/g, (_, n) => {
       const code = Number(n);
       if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
@@ -237,8 +228,46 @@ export function extractHtmlText(html) {
       if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
       try { return String.fromCodePoint(code); } catch (_) { return ""; }
     });
+}
+
+// Alpine / WP theme strings that leak when the legacy HTML scrape path runs.
+const FSD_UI_LEAK_PATTERNS = [
+  /\$refs\.[a-zA-Z0-9_.]+/g,
+  /\{[^}]*\$refs[^}]*\}/g,
+  /x-on:[a-z-]+="[^"]*"/gi,
+  /Fundstrat Direct\s*-->\s*/gi,
+  /-->\s*⚡\s*\d*/g,
+  /Search\s+Search\s+Referral Program[\s\S]{0,400}?Merch Store/gi,
+];
+
+/**
+ * Clean plain or HTML FSD text for inline Catalysts display and rewriter input.
+ * Decodes entities, strips nav/footer chrome, and removes Alpine/JS leaks.
+ */
+export function sanitizeFsdPlainText(text) {
+  if (!text) return "";
+  let out = String(text);
+  if (/<[a-z][\s\S]*?>/i.test(out)) {
+    out = extractHtmlText(out);
+  } else {
+    out = decodeHtmlEntities(out);
+    for (const re of FSD_CHROME_NOISE) out = out.replace(re, "");
+    for (const re of FSD_UI_LEAK_PATTERNS) out = out.replace(re, " ");
+    out = out.replace(/\s+/g, " ").trim();
+  }
+  return out;
+}
+
+export function extractHtmlText(html) {
+  if (!html) return "";
+  let out = String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ");
+  out = decodeHtmlEntities(out);
   // Strip well-known chrome blocks that occasionally leak through.
   for (const re of FSD_CHROME_NOISE) out = out.replace(re, "");
+  for (const re of FSD_UI_LEAK_PATTERNS) out = out.replace(re, " ");
   return out.replace(/\s+/g, " ").trim();
 }
 
@@ -363,7 +392,8 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
       const excerptByPub = {};
       for (const r of (textRows?.results || [])) excerptByPub[r.pub_id] = r.text_excerpt;
       for (const p of publications) {
-        p.excerpt = excerptByPub[p.pub_id]?.slice(0, 600) || null;
+        const raw = excerptByPub[p.pub_id] || "";
+        p.excerpt = raw ? sanitizeFsdPlainText(raw).slice(0, 2000) || null : null;
       }
     }
     return {
@@ -497,7 +527,10 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     fetch_status: "ok",
     fetch_error: null,
   });
-  if (text) await recordPublicationText(env, pub.id, text);
+  if (text) {
+    text = sanitizeFsdPlainText(text);
+    await recordPublicationText(env, pub.id, text);
+  }
 
   // 2026-06-03 — Eager TT-voice rewrite. Previously we waited on a
   // periodic cron pass before the LLM rewrite ran; that left the

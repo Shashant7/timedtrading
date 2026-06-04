@@ -3364,8 +3364,12 @@
         // tab open, worker caches 10min in KV).
         const [catalysts, setCatalysts] = useState(null);
         const [catalystsLoading, setCatalystsLoading] = useState(false);
+        const [catalystsRefreshing, setCatalystsRefreshing] = useState(false);
         const [catalystsError, setCatalystsError] = useState(null);
+        const [catalystsFetchedAt, setCatalystsFetchedAt] = useState(null);
         const catalystsCacheRef = useRef(new Map()); // ticker -> { data, ts }
+        const catalystsForceRef = useRef(false);
+        const [catalystsFetchNonce, setCatalystsFetchNonce] = useState(0);
 
         // Right Rail: multi-timeframe candles chart (fetched on-demand)
         /* V2.1 round 11 (2026-05-04) — Default to 30m per user feedback:
@@ -4435,6 +4439,8 @@
             setCatalysts(null);
             setCatalystsError(null);
             setCatalystsLoading(false);
+            setCatalystsRefreshing(false);
+            setCatalystsFetchedAt(null);
             return;
           }
           // 2026-06-03 — Removed the `railTab !== "CATALYSTS"` early
@@ -4442,11 +4448,14 @@
           // available for the tab-strip badge BEFORE the user opens
           // the tab. 5-min client cache means the server is hit at most
           // once per ticker per 5 min regardless of tab navigation.
+          const force = !!catalystsForceRef.current;
+          if (force) catalystsForceRef.current = false;
           const cached = catalystsCacheRef.current.get(sym);
-          if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
+          if (!force && cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
             setCatalysts(cached.data);
             setCatalystsError(null);
             setCatalystsLoading(false);
+            setCatalystsFetchedAt(cached.data?.fetched_at || cached.ts || null);
             return;
           }
           let cancelled = false;
@@ -4455,17 +4464,29 @@
               // Only flip the loading spinner state when the user is
               // actually viewing the Catalysts tab — otherwise the fetch
               // is silent.
-              if (railTab === "CATALYSTS") setCatalystsLoading(true);
+              if (railTab === "CATALYSTS") {
+                if (force && catalysts) setCatalystsRefreshing(true);
+                else setCatalystsLoading(true);
+              }
               setCatalystsError(null);
               const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
               const qs = new URLSearchParams({ ticker: sym });
               if (apiKey) qs.set("key", apiKey);
-              const json = await _cachedJson(`${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (force) qs.set("force", "1");
+              const url = `${API_BASE}/timed/discovery/ticker-catalysts?${qs.toString()}`;
+              const json = force
+                ? await (async () => {
+                    const r = await fetch(url, { credentials: "include", cache: "no-store" });
+                    if (!r.ok) return null;
+                    return r.json();
+                  })()
+                : await _cachedJson(url, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
               if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "catalysts_failed");
               if (!cancelled) {
                 catalystsCacheRef.current.set(sym, { data: json, ts: Date.now() });
                 setCatalysts(json);
+                setCatalystsFetchedAt(json.fetched_at || Date.now());
               }
             } catch (e) {
               if (!cancelled) {
@@ -4473,11 +4494,45 @@
                 setCatalystsError(String(e?.message || e));
               }
             } finally {
-              if (!cancelled) setCatalystsLoading(false);
+              if (!cancelled) {
+                setCatalystsLoading(false);
+                setCatalystsRefreshing(false);
+              }
             }
           })();
           return () => { cancelled = true; };
-        }, [railTab, tickerSymbol]);
+        }, [railTab, tickerSymbol, catalystsFetchNonce]);
+
+        // 2026-06-04 — Poll while FSD intel is syncing or TT rewrites are
+        // still pending. Also refresh every 5 min while the Catalysts tab
+        // is open so new FSD pubs land without a manual reload.
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || railTab !== "CATALYSTS") return undefined;
+          const needsFsdPoll = (data) => {
+            const fi = data?.fsd_intel;
+            if (!fi) return false;
+            if (fi.diagnostics?.heal_kicked) return true;
+            if (fi.count > 0 && Array.isArray(fi.publications)) {
+              return fi.publications.some((p) => !p.tt_summary_body);
+            }
+            return false;
+          };
+          const tick = (opts = {}) => {
+            if (opts.force) catalystsForceRef.current = true;
+            catalystsCacheRef.current.delete(sym);
+            setCatalystsFetchNonce((n) => n + 1);
+          };
+          const fast = setInterval(() => {
+            const cached = catalystsCacheRef.current.get(sym)?.data;
+            if (needsFsdPoll(cached || catalysts)) tick({ force: true });
+          }, 30 * 1000);
+          const slow = setInterval(() => tick({ force: true }), 5 * 60 * 1000);
+          return () => {
+            clearInterval(fast);
+            clearInterval(slow);
+          };
+        }, [railTab, tickerSymbol, catalysts]);
 
         /* V15 P0.7.119 (2026-05-09) — predictionContract refetch was
            keyed on `railTab`, so EVERY tab switch (Snapshot → Setup →
@@ -9890,19 +9945,46 @@
                       );
                     };
 
-                    // 2026-06-03 — Helper to format an FSD publication
-                    // excerpt for inline display. Strips Mark-Newton-style
-                    // "$TICKER " cashtag prefixes that just bloat the
-                    // first sentence and adds an "…" if truncated.
-                    const formatFsdExcerpt = (excerpt, mainTicker) => {
+                    // 2026-06-04 — Sanitize fallback FSD excerpt when TT rewrite
+                    // is not ready yet. Mirrors worker/cro/fsd-ingestion.js.
+                    const decodeFsdEntities = (s) => String(s || "")
+                      .replace(/&nbsp;/g, " ")
+                      .replace(/&amp;/g, "&")
+                      .replace(/&hellip;/g, "…")
+                      .replace(/&mdash;/g, "—")
+                      .replace(/&ndash;/g, "–")
+                      .replace(/&#(\d+);/g, (_, n) => {
+                        const code = Number(n);
+                        if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+                        try { return String.fromCodePoint(code); } catch (_) { return ""; }
+                      })
+                      .replace(/&#x([0-9a-fA-F]+);/gi, (_, hx) => {
+                        const code = parseInt(hx, 16);
+                        if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+                        try { return String.fromCodePoint(code); } catch (_) { return ""; }
+                      });
+
+                    const formatFsdExcerpt = (excerpt) => {
                       if (!excerpt) return "";
-                      let t = String(excerpt).replace(/\s+/g, " ").trim();
-                      // Drop "Mark L. Newton, CMT – " preface if present.
+                      let t = decodeFsdEntities(String(excerpt))
+                        .replace(/<script[\s\S]*?<\/script>/gi, "")
+                        .replace(/<[^>]+>/g, " ")
+                        .replace(/\$refs\.[a-zA-Z0-9_.]+/g, "")
+                        .replace(/\{[^}]*\$refs[^}]*\}/g, "")
+                        .replace(/Fundstrat Direct\s*-->\s*/gi, "")
+                        .replace(/Search\s+Search\s+Referral Program[\s\S]{0,400}?Merch Store/gi, "")
+                        .replace(/\s+/g, " ")
+                        .trim();
                       t = t.replace(/^[A-Z][a-zA-Z .']{3,30},\s*[A-Z]{2,5}\s*[–-]\s*/, "");
-                      // Highlight the main ticker visually.
-                      const len = 360;
-                      if (t.length > len) t = t.slice(0, len).trimEnd() + "…";
                       return t;
+                    };
+
+                    const refreshCatalysts = (opts = {}) => {
+                      const sym = String(tickerSymbol || "").trim().toUpperCase();
+                      if (!sym) return;
+                      if (opts.force) catalystsForceRef.current = true;
+                      catalystsCacheRef.current.delete(sym);
+                      setCatalystsFetchNonce((n) => n + 1);
                     };
 
                     return (
@@ -9969,6 +10051,17 @@
                             <div style={{ marginTop: 6, fontSize: 10, color: "var(--ds-text-faint)" }}>
                               Pipeline state: {C.fsd_intel.diagnostics.pubs_total} pubs ingested ·{" "}
                               {C.fsd_intel.diagnostics.tags_total} tickers tagged across all pubs
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              <button
+                                type="button"
+                                className="ds-chip ds-chip--sm"
+                                style={{ cursor: "pointer", color: "#67e8f9", borderColor: "rgba(103,232,249,0.35)" }}
+                                disabled={catalystsRefreshing || catalystsLoading}
+                                onClick={() => refreshCatalysts({ force: true })}
+                              >
+                                {catalystsRefreshing ? "Checking…" : "Check for updates"}
+                              </button>
                             </div>
                           </div>
                         )}
@@ -10061,17 +10154,40 @@
                               window.localStorage.setItem(`tt-cat-seen-fsd:${tickerSymbol}`, String(latest));
                             }
                           } catch (_) {}
+                          const _fsdPendingRewrite = C.fsd_intel.publications.some((p) => !p.tt_summary_body);
                           return (
                             <Panel
                               title="📡 FSD Intel"
                               action={
-                                <span className="ds-chip ds-chip--sm">
-                                  {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
-                                </span>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    className="ds-chip ds-chip--sm"
+                                    style={{ cursor: "pointer", color: "#67e8f9", borderColor: "rgba(103,232,249,0.35)" }}
+                                    title="Fetch latest catalysts (bypasses cache; kicks TT-voice blend if summaries are missing)"
+                                    disabled={catalystsRefreshing || catalystsLoading}
+                                    onClick={() => refreshCatalysts({ force: true })}
+                                  >
+                                    {catalystsRefreshing ? "Refreshing…" : "Refresh"}
+                                  </button>
+                                  <span className="ds-chip ds-chip--sm">
+                                    {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
+                                  </span>
+                                </div>
                               }
                             >
-                              <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em" }}>
-                                EDITORIAL RESEARCH — POSTS MENTIONING {tickerSymbol}
+                              <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                                <span>EDITORIAL RESEARCH — POSTS MENTIONING {tickerSymbol}</span>
+                                {catalystsFetchedAt && (
+                                  <span title="Last catalyst bundle fetch">
+                                    Updated {fmtAgo(catalystsFetchedAt)}
+                                  </span>
+                                )}
+                                {_fsdPendingRewrite && (
+                                  <span style={{ color: "#67e8f9" }} title="TT-voice summaries are generating; auto-refresh every 30s">
+                                    Blending TT voice…
+                                  </span>
+                                )}
                               </div>
                               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                 {C.fsd_intel.publications.slice(0, 4).map((p, i) => {
@@ -10115,9 +10231,13 @@
                                       <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4, marginBottom: 4 }}>
                                         {p.tt_summary_title || (!isFlash && p.title) || ""}
                                       </div>
-                                      {/* TT-voice body (preferred) OR raw excerpt */}
-                                      <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", lineHeight: 1.45 }}>
-                                        {p.tt_summary_body || formatFsdExcerpt(p.excerpt, tickerSymbol)}
+                                      {/* TT-voice body (preferred) OR sanitized excerpt while blend runs */}
+                                      <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", lineHeight: 1.45, whiteSpace: "pre-wrap" }}>
+                                        {p.tt_summary_body || formatFsdExcerpt(p.excerpt) || (
+                                          <span style={{ color: "var(--ds-text-muted)", fontStyle: "italic" }}>
+                                            TT summary generating — tap Refresh or wait for auto-update.
+                                          </span>
+                                        )}
                                       </div>
                                       {/* Key-point chips */}
                                       {Array.isArray(p.tt_key_points) && p.tt_key_points.length > 0 && (
@@ -15625,5 +15745,3 @@
       }
   };
 })();
-
-// cache-bust:1780591919863:976488403
