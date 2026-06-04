@@ -107,13 +107,25 @@ export async function runCROFullCycle(env, { force = false } = {}) {
   }
   await writeTombstone(env, summary).catch(() => {});
 
-  // 3. FSD ingestion. If FSD_USERNAME / FSD_PASSWORD aren't set OR the
-  //    operator's `cro_fsd_ingestion_enabled` flag is off, skip gracefully.
+  // 3. FSD ingestion.
+  //
+  // 2026-06-03 — The credential gate (FSD_USERNAME + FSD_PASSWORD) was
+  // a LEGACY check for the deprecated HTML login-scrape path. The
+  // current default is WordPress REST (`scrape_mode: "wp_rest"`), which
+  // hits public endpoints (`/wp-json/wp/v2/posts`, `.../fsi-alert`,
+  // `.../fsi-alert-crypto`) and does NOT require credentials. The old
+  // gate was silently skipping every ingestion run with
+  // `missing_fsd_credentials`, leaving the catalog empty and the
+  // Catalysts tab dark — the user reported a fresh GOOGL FlashInsight
+  // (post id 1534059, 2026-06-03 12:11) was never picked up.
+  //
+  // Now we always run the ingestion (gated only by the operator's
+  // `cro_fsd_ingestion_enabled` model_config flag). The client itself
+  // surfaces credential gaps if the operator ever flips back to the
+  // legacy HTML scrape mode via `cro:fsd:config` KV override.
   const fsdEnabled = await isFSDIngestionEnabled(env);
   if (!fsdEnabled) {
     summary.fsd_ingestion = { ok: true, skipped: "fsd_ingestion_disabled_in_model_config" };
-  } else if (!env?.FSD_USERNAME || !env?.FSD_PASSWORD) {
-    summary.fsd_ingestion = { ok: false, skipped: "missing_fsd_credentials" };
   } else {
     try {
       const r = await runFSDIngestion(env, { limit: 10, force });
