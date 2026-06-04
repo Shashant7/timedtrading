@@ -727,6 +727,9 @@
   function pick(sym) {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
+    // 2026-06-03 — Track recently-picked tickers so the default-state
+    // results list ranks them above the alphabetical universe.
+    pushRecent(ticker);
     closeOverlay();
     try {
       // Update URL so reload preserves the open ticker. Use replaceState
@@ -969,4 +972,4 @@
   }
 })();
 
-// cache-bust:1780549792264:275592721
+// cache-bust:1780550770190:398509046

@@ -451,7 +451,37 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   await ensureCROIngestionSchema(env);
   const exists = await publicationExists(env, pub.id);
   if (exists && !reFetch) {
-    return { ok: true, pub_id: pub.id, skipped: "already_ingested" };
+    // 2026-06-03 — Auto self-heal: if the existing stored text looks
+    // like the garbage HTML-scrape output from the broken slug-
+    // resolution code (FSD nav/footer chrome markers), promote this
+    // to a re-fetch so the new id-based WP REST path replaces it
+    // with clean content. Avoids needing the operator to manually
+    // hit Pull from FSD now (force) for every garbage pub.
+    try {
+      const existingText = await env.DB.prepare(
+        `SELECT text_excerpt FROM ${PUBLICATION_TEXT_TABLE} WHERE pub_id = ?`,
+      ).bind(pub.id).first().catch(() => null);
+      const txt = String(existingText?.text_excerpt || "");
+      const GARBAGE_MARKERS = [
+        "Referral Program",
+        "Gift Cards",
+        "Merch Store",
+        "Send your questions to the FSI Team",
+        "$refs.searchInput.focus",
+        "About Us Discover what makes us unique",
+      ];
+      const garbageHits = GARBAGE_MARKERS.filter((m) => txt.includes(m)).length;
+      // 2+ markers = clearly the chrome-scrape output (avoids false
+      // positives on a single mention in legitimate content).
+      if (garbageHits >= 2) {
+        console.log(`[CRO_INGESTION] auto self-heal: pub=${pub.id} has ${garbageHits} chrome markers, forcing refetch`);
+        reFetch = true;
+      } else {
+        return { ok: true, pub_id: pub.id, skipped: "already_ingested" };
+      }
+    } catch (_) {
+      return { ok: true, pub_id: pub.id, skipped: "already_ingested" };
+    }
   }
 
   // 2026-06-03 — Prefer the numeric post id (carried through from the
