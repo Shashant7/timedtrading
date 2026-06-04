@@ -18,7 +18,7 @@
 //  from the fetch — fetch is cheap and the operator may want to ingest
 //  many at once but extract only a subset.
 
-import { listFSDPublications, fetchFSDPublication } from "./fsd-client.js";
+import { listFSDPublications, fetchFSDPublication, isGarbageFsdText } from "./fsd-client.js";
 
 const PUBLICATIONS_TABLE = "cro_publications";
 const PUBLICATION_TEXT_TABLE = "cro_publication_text";
@@ -493,7 +493,9 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   // clean WP REST path that walks fsi-alert + fsi-alert-crypto +
   // posts in turn until the post is found.
   const fetchKey = pub.id && /^\d+$/.test(String(pub.id)) ? pub.id : pub.source_url;
-  const fetched = await fetchFSDPublication(env, fetchKey);
+  const fetched = await fetchFSDPublication(env, fetchKey, {
+    postTypePath: pub.post_type_path || null,
+  });
   if (!fetched.ok) {
     await recordPublication(env, {
       pub_id: pub.id,
@@ -529,6 +531,14 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   });
   if (text) {
     text = sanitizeFsdPlainText(text);
+    if (isGarbageFsdText(text)) {
+      return {
+        ok: false,
+        pub_id: pub.id,
+        error_kind: "garbage_body_text",
+        hint: "Extracted text looks like paywall/chrome, not article body. Re-ingest with numeric WP id via wp_rest (not HTML URL scrape).",
+      };
+    }
     await recordPublicationText(env, pub.id, text);
   }
 

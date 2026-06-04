@@ -10170,6 +10170,31 @@
                                   >
                                     {catalystsRefreshing ? "Refreshing…" : "Refresh"}
                                   </button>
+                                  {typeof window !== "undefined" && window._ttIsAdmin && (
+                                    <button
+                                      type="button"
+                                      className="ds-chip ds-chip--sm"
+                                      style={{ cursor: "pointer", color: "#fbbf24", borderColor: "rgba(245,158,11,0.45)" }}
+                                      title="POST /timed/admin/cro/fsd/ingest { force: true } — re-pull FlashInsights + research via WP REST (not HTML scrape)"
+                                      disabled={catalystsRefreshing || catalystsLoading}
+                                      onClick={async () => {
+                                        try {
+                                          setCatalystsRefreshing(true);
+                                          await fetch(`${API_BASE}/timed/admin/cro/fsd/ingest`, {
+                                            method: "POST",
+                                            credentials: "include",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ force: true, limit: 20 }),
+                                          });
+                                          refreshCatalysts({ force: true });
+                                        } catch (_) {
+                                          setCatalystsRefreshing(false);
+                                        }
+                                      }}
+                                    >
+                                      Pull FSD
+                                    </button>
+                                  )}
                                   <span className="ds-chip ds-chip--sm">
                                     {C.fsd_intel.count} mention{C.fsd_intel.count === 1 ? "" : "s"} · {C.fsd_intel.lookback_days}d
                                   </span>
