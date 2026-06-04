@@ -3,16 +3,14 @@
 //  Fundstrat Direct HTTP client — WordPress REST API + login fallback.
 // ─────────────────────────────────────────────────────────────────────────────
 //
-//  2026-06-03 — Discovered FSD is a WordPress site that exposes the
-//  standard /wp-json/wp/v2/posts REST API publicly. Both metadata
-//  (id, title, link, date, categories, excerpt) AND full content
-//  (content.rendered HTML body) are accessible without authentication.
-//  The original login+cookie flow was solving a problem we don't have.
+//  2026-06-04 — FlashInsights HTML pages are paywalled (public URL returns
+//  a subscription shell + site chrome). Full bodies MUST come from WP REST
+//  using the numeric post id from listing (/wp/v2/fsi-alert/{id}). Never
+//  fall back to scraping /fsi-alert/* HTML in wp_rest mode.
 //
-//  Current default scrape_mode is "wp_rest". The legacy "html" mode is
-//  retained for future use if FSD ever paywalls the REST endpoint or
-//  the site shape shifts; that mode walks the login + HTML scrape we
-//  built in PR #448, also configurable via KV `cro:fsd:config`.
+//  When FSD_USERNAME/FSD_PASSWORD secrets exist, WP REST requests attach
+//  the logged-in session cookie. scrape_mode "wp_rest" (default) or "html".
+//  Config overrides via KV `cro:fsd:config`.
 //
 //  All FSD-specific knobs (URLs, query strings, scrape mode) live in
 //  KV `cro:fsd:config` (operator overrides via POST /timed/admin/cro/
@@ -28,6 +26,8 @@ export const DEFAULT_FSD_CONFIG = {
   base_url: "https://fundstratdirect.com",
   // ── Scrape mode ── "wp_rest" (current, default) | "html" (legacy) ──
   scrape_mode: "wp_rest",
+  // Attach FSD login cookies to WP REST when worker secrets are present.
+  wp_rest_use_auth: true,
   // ── WP REST settings (used in wp_rest mode) ──
   // 2026-06-03 — FSD exposes MULTIPLE custom post types via WP REST:
   //   - /wp/v2/posts            — long-form notes (Daily Technical Strategy,
@@ -47,9 +47,11 @@ export const DEFAULT_FSD_CONFIG = {
   ],
   wp_rest_post_path: "/wp-json/wp/v2/posts",  // legacy single-type fetch path
   wp_rest_post_query: "_fields=id,title,link,date,categories,content,excerpt",
+  members_flashinsights_path: "/members/flashinsights/",
+  members_latest_research_path: "/members/latest-research/",
   // ── Legacy login fields (used in html mode only) ──
-  login_page_path: "/login",
-  login_submit_path: "/login",
+  login_page_path: "/login/",
+  login_submit_path: "/login/",
   login_method: "POST",
   login_content_type: "application/x-www-form-urlencoded",
   login_field_username: "email",
@@ -58,7 +60,7 @@ export const DEFAULT_FSD_CONFIG = {
   login_success_redirect_path: "/dashboard/",
   expected_session_cookie_names: ["_fsd_session", "session", "_session_id", "wordpress_logged_in"],
   // ── Legacy HTML scrape (used in html mode only) ──
-  publications_list_path: "/dashboard/",
+  publications_list_path: "/members/latest-research/",
   publications_list_format: "html",
   publications_list_json_path: "",
   publications_html_link_pattern: "<a[^>]*href=\"(/market-intelligence/[^\"]+)\"[^>]*>([^<]{5,200})</a>",
@@ -112,6 +114,96 @@ function wpField(v) {
     .replace(/&#8220;|&#8221;/g, '"')
     .replace(/&amp;/g, "&")
     .replace(/&nbsp;/g, " ");
+}
+
+/** True when stored/scraped text looks like a paywall shell, not article body. */
+export function isGarbageFsdText(text) {
+  const t = String(text || "");
+  if (t.length < 40) return true;
+  const markers = [
+    /subscription to access/i,
+    /Fundstrat Direct subscription/i,
+    /\$refs\./,
+    /Referral Program\s+Gift Cards/i,
+    /Merch Store/i,
+    /Onboarding New Learn how/i,
+    /Send your questions to the FSI Team/i,
+    /Get Fundstrat Pro/i,
+    /window\.likePost\s*=/i,
+  ];
+  let hits = 0;
+  for (const re of markers) if (re.test(t)) hits++;
+  // Short text with chrome markers is almost certainly a bad scrape.
+  if (hits >= 2) return true;
+  if (hits >= 1 && t.length < 500) return true;
+  return false;
+}
+
+export function inferPostTypePathFromUrl(sourceUrl, cfg = DEFAULT_FSD_CONFIG) {
+  const u = String(sourceUrl || "").toLowerCase();
+  if (u.includes("fsi-alert-crypto")) return "/wp-json/wp/v2/fsi-alert-crypto";
+  if (u.includes("fsi-alert") || u.includes("flashinsight")) return "/wp-json/wp/v2/fsi-alert";
+  return cfg.wp_rest_post_path || "/wp-json/wp/v2/posts";
+}
+
+function orderPostTypePaths(cfg, preferredPath) {
+  const all = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
+    ? cfg.wp_rest_post_types.map((t) => t.path)
+    : [cfg.wp_rest_post_path || cfg.wp_rest_list_path];
+  const pref = preferredPath ? String(preferredPath) : null;
+  if (!pref) return all;
+  const rest = all.filter((p) => p !== pref);
+  return [pref, ...rest];
+}
+
+async function getWpRestAuth(env, cfg) {
+  if (cfg.wp_rest_use_auth === false) return null;
+  if (!env?.FSD_USERNAME || !env?.FSD_PASSWORD) return null;
+  const auth = await loginFSD(env);
+  return auth.ok ? auth.cookies : null;
+}
+
+async function wpRestFetch(env, cfg, url, { preferredPath = null } = {}) {
+  const cookies = await getWpRestAuth(env, cfg);
+  const headers = {
+    "User-Agent": cfg.user_agent,
+    "Accept": "application/json",
+  };
+  if (cookies?.length) headers.Cookie = serializeCookieHeader(cookies);
+  const { signal, done: req } = withTimeout(fetch(url, { method: "GET", headers }), FETCH_TIMEOUT_MS);
+  const resp = await Object.assign(req, { signal });
+  return { resp, cookies_used: !!cookies?.length };
+}
+
+/**
+ * Extract article body from a member/post HTML page (html mode only).
+ * Avoids dumping the full 300KB+ shell into the rewriter.
+ */
+export function extractMainContentFromHtml(html) {
+  if (!html) return "";
+  const h = String(html);
+  if (/subscription to access/i.test(h) && !/<p[^>]*>/.test(h.slice(0, 120000))) {
+    return "";
+  }
+  const tries = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]*class="[^"]*entry-content[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*id="fsi-alert-\d+"[^>]*>([\s\S]*?)<\/div>/i,
+    /<main[^>]*>([\s\S]*?)<\/main>/i,
+  ];
+  for (const re of tries) {
+    const m = h.match(re);
+    if (m && m[1] && m[1].length > 80) {
+      let chunk = m[1]
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!isGarbageFsdText(chunk)) return chunk;
+    }
+  }
+  return "";
 }
 
 // ── Legacy login flow (used only in html scrape_mode) ─────────────────────────
@@ -282,18 +374,25 @@ export async function probeFSD(env) {
   // 1. WP REST probe
   try {
     const url = urlJoin(cfg.base_url, cfg.wp_rest_list_path) + "?per_page=1&_fields=id,title,date";
-    const { signal, done: req } = withTimeout(
-      fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-      FETCH_TIMEOUT_MS,
-    );
-    const resp = await Object.assign(req, { signal });
+    const { resp, cookies_used } = await wpRestFetch(env, cfg, url);
     const body = await resp.json().catch(() => null);
     out.wp_rest = {
       status: resp.status,
       ok: resp.ok && Array.isArray(body),
+      auth_cookies_used: !!cookies_used,
       first_post_id: Array.isArray(body) && body[0]?.id || null,
       first_post_date: Array.isArray(body) && body[0]?.date || null,
     };
+    // Sample FlashInsight body length (validates REST returns real content).
+    try {
+      const flashUrl = urlJoin(cfg.base_url, "/wp-json/wp/v2/fsi-alert") + "?per_page=1&_fields=id,content";
+      const { resp: fr } = await wpRestFetch(env, cfg, flashUrl);
+      if (fr.ok) {
+        const arr = await fr.json().catch(() => null);
+        const c = arr?.[0]?.content?.rendered || "";
+        out.wp_rest.flash_sample_content_len = String(c).length;
+      }
+    } catch (_) {}
   } catch (e) {
     out.wp_rest = { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
@@ -323,11 +422,7 @@ async function listViaWPRest(env, cfg, limit) {
     const perPage = Math.min(50, Math.max(1, t.per_page || limit));
     const url = urlJoin(cfg.base_url, t.path) + "?per_page=" + perPage + (baseQuery ? "&" + baseQuery : "");
     try {
-      const { signal, done: req } = withTimeout(
-        fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-        FETCH_TIMEOUT_MS,
-      );
-      const resp = await Object.assign(req, { signal });
+      const { resp } = await wpRestFetch(env, cfg, url);
       if (!resp.ok) return { ok: false, label: t.label, error: `HTTP ${resp.status}`, url };
       const json = await resp.json().catch(() => null);
       if (!Array.isArray(json)) return { ok: false, label: t.label, error: "non-array response", url };
@@ -422,8 +517,9 @@ async function listViaHTML(env, cfg, limit) {
 
 // ── Public API: fetch a single publication ────────────────────────────────────
 
-export async function fetchFSDPublication(env, sourceUrlOrId) {
+export async function fetchFSDPublication(env, sourceUrlOrId, opts = {}) {
   const cfg = await getConfig(env);
+  const preferredPath = opts.postTypePath || opts.post_type_path || null;
 
   // Path A: WP REST mode — accepts a numeric id OR a WP-style slug URL.
   if (cfg.scrape_mode === "wp_rest") {
@@ -443,17 +539,11 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
       const m = sourceUrlOrId.match(/\/([^/]+?)\/?$/);
       const slug = m ? m[1] : null;
       if (slug) {
-        const slugCandidates = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
-          ? cfg.wp_rest_post_types.map((t) => t.path)
-          : [cfg.wp_rest_list_path];
+        const slugCandidates = orderPostTypePaths(cfg, preferredPath);
         for (const candidatePath of slugCandidates) {
           try {
             const slugUrl = urlJoin(cfg.base_url, candidatePath) + "?slug=" + encodeURIComponent(slug) + "&_fields=id";
-            const { signal, done: req } = withTimeout(
-              fetch(slugUrl, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-              FETCH_TIMEOUT_MS,
-            );
-            const r = await Object.assign(req, { signal });
+            const { resp: r } = await wpRestFetch(env, cfg, slugUrl, { preferredPath });
             if (r.ok) {
               const arr = await r.json().catch(() => null);
               if (Array.isArray(arr) && arr[0]?.id) { postId = String(arr[0].id); break; }
@@ -467,20 +557,14 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
       // /wp/v2/posts holds long-form notes; /wp/v2/fsi-alert holds
       // FlashInsights; etc. Iterate so a numeric id resolves regardless
       // of which post-type it lives under.
-      const candidatePaths = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
-        ? cfg.wp_rest_post_types.map((t) => t.path)
-        : [cfg.wp_rest_post_path];
+      const candidatePaths = orderPostTypePaths(cfg, preferredPath);
       let post = null;
       let lastStatus = null;
       for (const candidatePath of candidatePaths) {
         try {
           const url = urlJoin(cfg.base_url, candidatePath) + "/" + encodeURIComponent(postId)
             + "?" + (cfg.wp_rest_post_query || "");
-          const { signal, done: req } = withTimeout(
-            fetch(url, { method: "GET", headers: { "User-Agent": cfg.user_agent, "Accept": "application/json" } }),
-            FETCH_TIMEOUT_MS,
-          );
-          const resp = await Object.assign(req, { signal });
+          const { resp } = await wpRestFetch(env, cfg, url, { preferredPath });
           lastStatus = resp.status;
           if (resp.ok) {
             const p = await resp.json().catch(() => null);
@@ -489,12 +573,18 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
         } catch (_) { /* try next type */ }
       }
       if (!post) {
-        return { ok: false, error_kind: "wp_post_http_error", hint: `wp/posts/${postId} across ${candidatePaths.length} type(s) -> last status ${lastStatus}` };
+        return { ok: false, error_kind: "wp_post_http_error", hint: `wp REST ${postId} across ${candidatePaths.length} type(s) -> last status ${lastStatus}` };
       }
       const title = wpField(post.title);
-      const excerpt = wpField(post.excerpt);
       const content = wpField(post.content);
-      const fullText = [title, excerpt, content].filter(Boolean).join("\n\n");
+      // Prefer full content.rendered; title is metadata only (excerpt is truncated).
+      const fullText = content || title || wpField(post.excerpt);
+      if (!fullText || fullText.length < 40) {
+        return { ok: false, error_kind: "wp_rest_empty_content", hint: `post ${postId} returned no content.rendered` };
+      }
+      if (isGarbageFsdText(fullText)) {
+        return { ok: false, error_kind: "wp_rest_garbage_content", hint: `post ${postId} content looks like paywall/chrome, not article body` };
+      }
       return {
         ok: true,
         content_type: "text/html",
@@ -507,7 +597,12 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
         post_link: post.link || null,
       };
     }
-    // If we couldn't resolve a post id, fall through to legacy login.
+    // wp_rest mode never scrapes paywalled HTML shells.
+    return {
+      ok: false,
+      error_kind: "wp_rest_unresolved",
+      hint: "Pass numeric WP post id from listFSDPublications (not a bare URL). FlashInsights HTML is subscription-gated.",
+    };
   }
 
   // Path B: legacy login + HTML scrape.
@@ -541,6 +636,7 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
       return { ok: true, content_type: ct, body_bytes_len: buf.byteLength, body_bytes: buf, body_text: null, pdf_url: sourceUrl };
     }
     const html = await r1.text();
+    const mainText = extractMainContentFromHtml(html);
     const re = new RegExp(cfg.publication_pdf_link_pattern, "i");
     const m = html.match(re);
     if (m && m[1]) {
@@ -560,7 +656,10 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
         pdf_url: pdfUrl,
       };
     }
-    return { ok: true, content_type: ct, body_bytes_len: html.length, body_text: html, body_bytes: null, pdf_url: null };
+    if (mainText && mainText.length > 80) {
+      return { ok: true, content_type: ct, body_bytes_len: mainText.length, body_text: mainText, body_bytes: null, pdf_url: null, source_kind: "html_main" };
+    }
+    return { ok: false, error_kind: "html_no_article_body", hint: "page had no extractable article body (paywall shell or SPA). Use wp_rest mode with numeric post id." };
   } catch (e) {
     return { ok: false, error_kind: "fetch_exception", hint: String(e?.message || e).slice(0, 200) };
   }
@@ -568,7 +667,7 @@ export async function fetchFSDPublication(env, sourceUrlOrId) {
 
 export function describeDefaultConfig() {
   return {
-    description: "Operator-tunable config for the FSD scraper. Override via KV cro:fsd:config (partial merge). Default mode is wp_rest (no auth needed).",
+    description: "Operator-tunable config for the FSD scraper. Override via KV cro:fsd:config (partial merge). Default wp_rest uses login cookies when FSD_USERNAME/FSD_PASSWORD are set. Never scrape /fsi-alert HTML (paywalled shell).",
     defaults: DEFAULT_FSD_CONFIG,
     kv_key: CONFIG_KV_KEY,
     session_kv_key: SESSION_KV_KEY,
