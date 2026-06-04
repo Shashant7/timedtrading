@@ -48,6 +48,95 @@ async function ensureMacroFreshness(env) {
   }
 }
 
+// ── Public entry point: lightweight INTRADAY cycle ─────────────────────────
+// Operator hit Workers CPU billing threshold (25M ms / month) twice in one
+// day. Root cause: the hourly business-hours cron (0 13-21 * * 1-5 = 9
+// fires per weekday) was calling runCROFullCycle, which re-runs CTO
+// universe (50 tickers × candle loads + Markov + Fib + hit-rate stats) +
+// rotation engine (12 pairs × daily candles + correlation) every hour.
+// Those inputs are daily candles — they don't change intraday — yet we
+// were burning ~30-40 CPU-seconds per hour to recompute the same answer.
+//
+// runCROIntradayCycle does ONLY the FSD pipeline (ingest + extract +
+// apply). CTO + rotation stay in runCROFullCycle, which the daily 22:00
+// UTC cron continues to call. ~70-80% CPU saved on the hourly intraday lane.
+export async function runCROIntradayCycle(env, { force = false } = {}) {
+  const t0 = Date.now();
+  const summary = {
+    ok: true,
+    started_at: t0,
+    elapsed_ms: null,
+    cto: { skipped: "intraday_skips_cto_universe" },
+    rotation: { skipped: "intraday_skips_rotation_engine" },
+    fsd_ingestion: { ok: false, skipped: null },
+    extractions: [],
+    applies: [],
+    cro_daily: { skipped: "intraday_skips_synthesis" },
+    cashtag_backfill: { ok: false, skipped: "not_run" },
+    rewrite_pending: { ok: false, skipped: "not_run" },
+    errors: [],
+    cycle_kind: "intraday",
+  };
+
+  try {
+    await ensureCROIngestionSchema(env);
+    await ensureCROProposalSchema(env);
+  } catch (e) {
+    summary.errors.push(`schema_ensure_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  const fsdEnabled = await isFSDIngestionEnabled(env);
+  if (!fsdEnabled) {
+    summary.fsd_ingestion = { ok: true, skipped: "fsd_ingestion_disabled_in_model_config" };
+  } else {
+    try {
+      const r = await runFSDIngestion(env, { limit: 10, force });
+      summary.fsd_ingestion = r;
+    } catch (e) {
+      summary.fsd_ingestion = { ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 200) };
+    }
+  }
+  await writeTombstone(env, summary).catch(() => {});
+
+  try {
+    const recent = await listRecentPublications(env, { limit: 8, sourceFilter: null });
+    const autoApply = await isAutoApplyEnabled(env);
+    const autoApplyStructural = await isAutoApplyStructuralEnabled(env);
+    for (const p of recent) {
+      if (p.fetch_status !== "ok" || p.extracted_at) continue;
+      try {
+        const ext = await extractPublicationToProposal(env, p.pub_id, { force: false });
+        summary.extractions.push({
+          pub_id: p.pub_id, ok: !!ext.ok,
+          proposal_id: ext.proposal_id || null,
+          classification: ext.classification || null,
+          error_kind: ext.error_kind || null,
+        });
+        if (!ext.ok || !ext.proposal_id) continue;
+        const allow = (ext.classification === "structural") ? autoApplyStructural : autoApply;
+        if (!allow) {
+          summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: "auto_apply_disabled" });
+          continue;
+        }
+        const apply = await applyProposal(env, ext.proposal_id, { autoApproved: true, decidedBy: "cro_intraday" });
+        summary.applies.push({
+          pub_id: p.pub_id, proposal_id: ext.proposal_id,
+          applied: !!apply.ok, classification: ext.classification,
+          error_kind: apply.error_kind || null,
+        });
+      } catch (e) {
+        summary.errors.push(`extract_apply_failed:${p.pub_id}: ${String(e?.message || e).slice(0, 200)}`);
+      }
+    }
+  } catch (e) {
+    summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  summary.elapsed_ms = Date.now() - t0;
+  await writeTombstone(env, summary).catch(() => {});
+  return summary;
+}
+
 // ── Public entry point: run the whole CRO/CTO cycle ──────────────────────────
 export async function runCROFullCycle(env, { force = false } = {}) {
   const t0 = Date.now();
