@@ -48,6 +48,58 @@ async function ensureMacroFreshness(env) {
   }
 }
 
+// ── Auto-apply decision + needs-review handling (2026-06-04) ───────────────
+// The extractor already computes per-proposal category + confidence + an
+// auto-apply recommendation (worker/cro/fsd-extractor.js assessProposalAutoApply).
+// Here we combine that with the global kill-switches so the operator only ever
+// has to review proposals that are off-theme or that the model is unsure about.
+const PROPOSALS_TABLE = "cro_playbook_proposals";
+
+async function decideAutoApply(env, ext, { autoApply, autoApplyStructural }) {
+  // Global kill-switches (operator can disable all auto-apply).
+  const isStructural = ext.category === "structural" || ext.classification === "structural";
+  if (isStructural && !autoApplyStructural) {
+    return { apply: false, reason: ext.auto_apply_reason || "structural_review_required" };
+  }
+  if (!isStructural && !autoApply) {
+    return { apply: false, reason: "tactical_auto_apply_disabled" };
+  }
+  // Per-proposal confidence / on-theme gate (computed at extraction).
+  if (ext.auto_apply_recommended === false) {
+    return { apply: false, reason: ext.auto_apply_reason || "needs_review" };
+  }
+  return { apply: true, reason: ext.auto_apply_reason || "confident_on_theme" };
+}
+
+async function markProposalNeedsReview(env, proposalId, reason) {
+  try {
+    await env.DB.prepare(
+      `UPDATE ${PROPOSALS_TABLE}
+          SET review_status = 'needs_review', auto_apply_reason = ?2
+        WHERE proposal_id = ?1`,
+    ).bind(proposalId, String(reason || "needs_review").slice(0, 200)).run();
+  } catch (_) { /* best-effort */ }
+}
+
+async function notifyProposalNeedsReview(env, pub, ext, reason) {
+  try {
+    const { notifyDiscord } = await import("../alerts.js");
+    await notifyDiscord(env, {
+      title: "[CRO] Proposal needs operator review",
+      description: (pub?.title || pub?.pub_id || "publication").slice(0, 200),
+      color: 0xf59e0b,
+      fields: [
+        { name: "Proposal", value: `${ext.proposal_id}`, inline: true },
+        { name: "Category", value: `${ext.category || ext.classification || "?"}`, inline: true },
+        { name: "Confidence", value: ext.confidence != null ? ext.confidence.toFixed(2) : "n/a", inline: true },
+        { name: "Why held", value: String(reason || "review").slice(0, 300), inline: false },
+        { name: "Review", value: "Research Desk → Proposed changes (Approve / Reject)", inline: false },
+      ],
+      timestamp: new Date().toISOString(),
+    }, "system");
+  } catch (_) { /* alerts never block the cycle */ }
+}
+
 // ── Public entry point: lightweight INTRADAY cycle ─────────────────────────
 // Operator hit Workers CPU billing threshold (25M ms / month) twice in one
 // day. Root cause: the hourly business-hours cron (0 13-21 * * 1-5 = 9
@@ -110,18 +162,24 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
           pub_id: p.pub_id, ok: !!ext.ok,
           proposal_id: ext.proposal_id || null,
           classification: ext.classification || null,
+          category: ext.category || null,
+          confidence: ext.confidence ?? null,
+          review_status: ext.review_status || null,
           error_kind: ext.error_kind || null,
         });
         if (!ext.ok || !ext.proposal_id) continue;
-        const allow = (ext.classification === "structural") ? autoApplyStructural : autoApply;
-        if (!allow) {
-          summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: "auto_apply_disabled" });
+        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural });
+        if (!decision.apply) {
+          summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: decision.reason, review_status: "needs_review" });
+          await markProposalNeedsReview(env, ext.proposal_id, decision.reason);
+          await notifyProposalNeedsReview(env, p, ext, decision.reason);
           continue;
         }
         const apply = await applyProposal(env, ext.proposal_id, { autoApproved: true, decidedBy: "cro_intraday" });
         summary.applies.push({
           pub_id: p.pub_id, proposal_id: ext.proposal_id,
           applied: !!apply.ok, classification: ext.classification,
+          review_status: "auto_applied",
           error_kind: apply.error_kind || null,
         });
       } catch (e) {
@@ -241,16 +299,20 @@ export async function runCROFullCycle(env, { force = false } = {}) {
           pub_id: p.pub_id, ok: !!ext.ok,
           proposal_id: ext.proposal_id || null,
           classification: ext.classification || null,
+          category: ext.category || null,
+          confidence: ext.confidence ?? null,
+          review_status: ext.review_status || null,
           signals: ext.signals_count || 0,
           error_kind: ext.error_kind || null,
         });
         if (!ext.ok || !ext.proposal_id) continue;
-        // Auto-apply gating.
-        const allow = (ext.classification === "structural")
-          ? autoApplyStructural
-          : autoApply;
-        if (!allow) {
-          summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: ext.classification === "structural" ? "structural_auto_apply_disabled" : "tactical_auto_apply_disabled" });
+        // Auto-apply gate: confident + on-theme proposals apply; off-theme /
+        // low-confidence / structural ones are held for operator review.
+        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural });
+        if (!decision.apply) {
+          summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: decision.reason, review_status: "needs_review" });
+          await markProposalNeedsReview(env, ext.proposal_id, decision.reason);
+          await notifyProposalNeedsReview(env, p, ext, decision.reason);
           continue;
         }
         const apply = await applyProposal(env, ext.proposal_id, { autoApproved: true, decidedBy: "cro_cron" });
@@ -258,6 +320,7 @@ export async function runCROFullCycle(env, { force = false } = {}) {
           pub_id: p.pub_id, proposal_id: ext.proposal_id,
           applied: !!apply.ok,
           classification: ext.classification,
+          review_status: "auto_applied",
           error_kind: apply.error_kind || null,
         });
       } catch (e) {

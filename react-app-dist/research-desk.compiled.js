@@ -281,9 +281,13 @@ function ProposalsSection({
       className: "row"
     }, h("span", {
       className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue"
-    }, p.classification), h("span", {
+    }, p.category || p.classification), Number.isFinite(Number(p.confidence)) && h("span", {
+      className: "chip"
+    }, `conf ${Math.round(Number(p.confidence) * 100)}%`), h("span", {
       className: "warn"
-    }, p.status))), renderProposalBody(row?.proposal), h("div", {
+    }, p.status))), p.auto_apply_reason && p.review_status === "needs_review" && h("div", {
+      className: "toast"
+    }, `Why this needs a decision: ${p.auto_apply_reason}`), renderProposalBody(row?.proposal), h("div", {
       className: "row",
       style: {
         marginTop: 12
@@ -748,7 +752,18 @@ function InfluenceLedgerCard({
     }
   }, "Each FundStrat publication, in TT voice: how it was categorized, synthesized, and whether it is shaping the live model right now."), h("div", {
     className: "ledger-stats"
-  }, stat(w.ingested || 0, "Ingested"), stat(w.actionable || 0, "Actionable", "ok"), stat(w.structural || 0, "Structural", "warn"), stat(w.editorial || 0, "Editorial"), stat(w.applied || 0, "Applied live", "ok"), stat(w.pending || 0, "Pending review", w.pending ? "warn" : "")), live && live.active ? h("div", {
+  }, stat(w.ingested || 0, "Ingested"), stat((w.auto_applied != null ? w.auto_applied : w.applied) || 0, "Auto-applied", "ok"), stat(w.needs_review || 0, "Needs review", w.needs_review ? "warn" : ""), stat(w.actionable || 0, "Actionable", "ok"), stat(w.structural || 0, "Structural", "warn"), stat(w.editorial || 0, "Editorial")), (w.needs_review || 0) > 0 ? h("div", {
+    className: "toast",
+    style: {
+      marginBottom: 12
+    }
+  }, `${w.needs_review} proposal(s) need a human decision — off-theme or low-confidence. Review them in Proposed changes below. Everything else was auto-applied.`) : h("div", {
+    className: "muted",
+    style: {
+      marginBottom: 12,
+      fontSize: 12
+    }
+  }, "Confident, on-theme proposals auto-apply. Only off-theme or uncertain ones wait for review."), live && live.active ? h("div", {
     className: "flow-card live",
     style: {
       marginBottom: 14
@@ -794,7 +809,13 @@ function InfluenceLedgerCard({
     className: `tag cat-${it.category}`
   }, it.category_label), h("span", {
     className: "tag"
-  }, it.content_type_label), it.is_live && h("span", {
+  }, it.content_type_label), it.review_status === "auto_applied" && h("span", {
+    className: "tag cat-actionable"
+  }, "Auto-applied"), it.needs_review && h("span", {
+    className: "tag cat-structural"
+  }, "Needs review"), Number.isFinite(it.confidence) && h("span", {
+    className: "tag"
+  }, `conf ${Math.round(it.confidence * 100)}%`), it.is_live && h("span", {
     className: "tag cat-actionable"
   }, "LIVE NOW"), h("div", {
     style: {
@@ -840,7 +861,13 @@ function InfluenceLedgerCard({
     className: "tag"
   }, s))), h(FlowSteps, {
     item: it
-  }), it.fetch_status && it.fetch_status !== "ok" && h("div", {
+  }), it.needs_review && it.auto_apply_reason && h("div", {
+    className: "warn",
+    style: {
+      marginTop: 6,
+      fontSize: 11
+    }
+  }, `Held for review: ${it.auto_apply_reason}`), it.fetch_status && it.fetch_status !== "ok" && h("div", {
     className: "err",
     style: {
       marginTop: 6,
@@ -1431,6 +1458,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780610975461:915609400
+// cache-bust:1780616794021:248643169
 
-// cache-bust:1780610975461:915609400
+// cache-bust:1780616794021:248643169
