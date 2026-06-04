@@ -633,7 +633,27 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
       // structurally on a theme that the upstream Daily Technical
       // Strategy just flagged as tactically over- or under-extended.
       try {
-        const tactical = getTacticalSignals();
+        // 2026-06-04 — Prefer the LIVE CRO tactical override (FSD-derived,
+        // applied via cro:tactical_overrides and preloaded into
+        // memoryCache.tacticalOverride) over the in-code TACTICAL_SIGNALS.
+        // Without this, an approved FSD FlashInsight reached the Daily Brief
+        // (getTacticalSignalsAsync) but the CIO's per-trade reasoning still
+        // saw only the stale in-code list. Falls back to in-code when no
+        // override is live or the preload is missing.
+        const override = memoryCache?.tacticalOverride || null;
+        const liveSignals = Array.isArray(override?.tactical_signals) && override.tactical_signals.length > 0
+          ? override.tactical_signals
+          : null;
+        const base = getTacticalSignals();
+        const tactical = liveSignals
+          ? {
+              vintage: override.tactical_vintage || base.vintage,
+              source: override.source || base.source,
+              title: override.tactical_title || base.title,
+              signals: liveSignals,
+              live_override: true,
+            }
+          : { ...base, live_override: false };
         const tickerThemes = strategy.themes_matched.map(m => m.theme);
         const tickerSector = strategy.sector;
         const matched = [];
@@ -658,8 +678,11 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
             vintage: tactical.vintage,
             source: tactical.source,
             title: tactical.title,
+            live_override: tactical.live_override,
             matches: matched.slice(0, 5),
-            note: "Tactical overlay — refines WHEN to lean into a theme, never overrides the structural stance.",
+            note: tactical.live_override
+              ? "LIVE FSD-derived tactical overlay (CRO-applied) — refines WHEN to lean into a theme, never overrides the structural stance."
+              : "Tactical overlay — refines WHEN to lean into a theme, never overrides the structural stance.",
           };
         }
       } catch (_) {
@@ -721,6 +744,26 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     }
   } catch (_) {
     // CRO note enrichment is best-effort — never break CIO memory.
+  }
+
+  // ── Layer 15b-overlay: live desk tactical overlay headline (2026-06-04) ──
+  // Even when no per-ticker tactical signal matches, surface the one-line
+  // FSD-derived overlay that is currently live so the CIO always knows the
+  // desk's tactical posture for the day. Tiny (~150 chars); omitted when no
+  // override is applied. Best-effort.
+  try {
+    const override = memoryCache?.tacticalOverride || null;
+    if (override && (override.tactical_overlay || override.tactical_title)) {
+      mem.cro_tactical_overlay = {
+        overlay: String(override.tactical_overlay || override.tactical_title).slice(0, 280),
+        vintage: override.tactical_vintage || null,
+        signals_live: Array.isArray(override.tactical_signals) ? override.tactical_signals.length : 0,
+        source: "FSD-derived, CRO-applied",
+        note: "Current desk tactical posture. CONTEXT for timing; the structural playbook + engine still own the call.",
+      };
+    }
+  } catch (_) {
+    // Overlay headline is best-effort — never break CIO memory.
   }
 
   // ── Layer 15d: CTO probabilistic levels (2026-06-03) ─────────────────────
