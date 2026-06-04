@@ -3141,9 +3141,20 @@
           return;
         }
         lastMappedSigRef.current = sig;
+        let prevVisibleRange = null;
+        if (firstDataLoadAppliedRef.current) {
+          try {
+            prevVisibleRange = chart.timeScale().getVisibleLogicalRange();
+          } catch (_) {}
+        }
         try {
           candleSeries.setData(mapped);
         } catch (_) {}
+        if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+          try {
+            chart.timeScale().setVisibleLogicalRange(prevVisibleRange);
+          } catch (_) {}
+        }
         for (const k of Object.keys(overlaySeriesRef.current)) {
           const v = overlaySeriesRef.current[k];
           if (Array.isArray(v)) {
@@ -4723,6 +4734,11 @@
           setModalCandles([]);
         }
       }, [chartExpanded]);
+      const _priceLinesSig = useMemo(() => {
+        const lines = subtleKeyLevelLines;
+        if (!Array.isArray(lines) || lines.length === 0) return "";
+        return lines.map(l => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
+      }, [subtleKeyLevelLines]);
       const _railChartElement = useMemo(() => React.createElement(LWChart, {
         candles: chartCandles,
         chartTf,
@@ -4730,7 +4746,7 @@
         priceLines: subtleKeyLevelLines,
         ticker,
         hideOverlayToggles: true
-      }), [chartCandles, chartTf, chartOverlays, subtleKeyLevelLines, ticker?.ticker]);
+      }), [chartCandles, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         if (chartCandles.length >= 2) {
@@ -5436,7 +5452,6 @@
         }
       }, [railTab, ledgerTrades, tradeChartSelection]);
       useEffect(() => {
-        setChartCandles([]);
         setChartError(null);
         setChartLoading(false);
         setChartVisibleCount(80);
@@ -5580,12 +5595,16 @@
             if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "catalysts_failed");
             if (!cancelled) {
+              const prevSig = catalystsCacheRef.current.get(sym)?.data?.fsd_intel ? JSON.stringify(catalystsCacheRef.current.get(sym).data.fsd_intel) : "";
+              const nextSig = JSON.stringify(json.fsd_intel);
               catalystsCacheRef.current.set(sym, {
                 data: json,
                 ts: Date.now()
               });
-              setCatalysts(json);
-              setCatalystsFetchedAt(json.fetched_at || Date.now());
+              if (prevSig !== nextSig) {
+                setCatalysts(json);
+                setCatalystsFetchedAt(json.fetched_at || Date.now());
+              }
             }
           } catch (e) {
             if (!cancelled) {
@@ -5626,9 +5645,12 @@
             force: true
           });
         }, 30 * 1000);
-        const slow = setInterval(() => tick({
-          force: true
-        }), 5 * 60 * 1000);
+        const slow = setInterval(() => {
+          const cached = catalystsCacheRef.current.get(sym)?.data;
+          if (needsFsdPoll(cached || catalysts)) tick({
+            force: true
+          });
+        }, 5 * 60 * 1000);
         return () => {
           clearInterval(fast);
           clearInterval(slow);
@@ -5780,16 +5802,17 @@
         let cancelled = false;
         const run = async () => {
           try {
-            setChartLoading(true);
             setChartError(null);
             const tf = String(chartTf || "30");
             const cacheKey = `${sym}:${tf}`;
             const cached = candleCacheRef.current[cacheKey];
-            if (cached && Date.now() - cached.ts < 60000) {
+            const haveCached = cached && Date.now() - cached.ts < 60000 && Array.isArray(cached.data) && cached.data.length >= 2;
+            if (haveCached) {
               if (!cancelled) setChartCandles(cached.data);
               if (!cancelled) setChartLoading(false);
               return;
             }
+            if (!cancelled) setChartLoading(true);
             const TF_LIMITS = {
               "5": 250,
               "15": 180,
@@ -6774,7 +6797,7 @@
                 } : {})
               }
             }, React.createElement("span", null, label), key === "CATALYSTS" && _catalystsHasNew && React.createElement("span", {
-              title: "New FSD intel \u2014 open to view",
+              title: "New intel \u2014 open to view",
               style: {
                 position: "absolute",
                 top: 4,
@@ -7265,7 +7288,7 @@
             flex: "1 1 auto",
             minHeight: 280
           }
-        }, chartCandles && chartCandles.length >= 2 ? _railChartElement : React.createElement("div", {
+        }, chartCandles && chartCandles.length >= 2 ? _railChartElement : chartLoading ? React.createElement("div", {
           style: {
             height: "100%",
             display: "flex",
@@ -7274,7 +7297,7 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026"))), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, effectiveInvestorTrade && (() => {
+        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, effectiveInvestorTrade && (() => {
           const it = effectiveInvestorTrade;
           const dir = String(it?.direction || "LONG").toUpperCase();
           const isLong = dir !== "SHORT";
@@ -12360,7 +12383,7 @@
                 background: "rgba(103,232,249,0.10)",
                 letterSpacing: "0.05em"
               }
-            }, "\uD83D\uDCE1 FSD SYNCING"), React.createElement("span", {
+            }, "\uD83D\uDCE1 SYNCING"), React.createElement("span", {
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-muted)"
@@ -12408,7 +12431,7 @@
                 color: "var(--ds-text-faint)",
                 letterSpacing: "0.05em"
               }
-            }, "\uD83D\uDCE1 FSD INTEL"), React.createElement("span", {
+            }, "\uD83D\uDCE1 INTEL"), React.createElement("span", {
               style: {
                 marginLeft: 6
               }
@@ -12439,7 +12462,7 @@
                 borderRadius: 4,
                 letterSpacing: "0.05em"
               }
-            }, "\uD83D\uDCE1 FSD PIPELINE EMPTY")), React.createElement("div", {
+            }, "\uD83D\uDCE1 PIPELINE EMPTY")), React.createElement("div", {
               style: {
                 color: "var(--ds-text-body)",
                 marginBottom: 8
@@ -12506,7 +12529,7 @@
               } catch (_) {}
               const _fsdPendingRewrite = C.fsd_intel.publications.some(p => !p.tt_summary_body);
               return React.createElement(Panel, {
-                title: "\uD83D\uDCE1 FSD Intel",
+                title: "\uD83D\uDCE1 Intel",
                 action: React.createElement("div", {
                   style: {
                     display: "flex",
@@ -12558,7 +12581,7 @@
                       setCatalystsRefreshing(false);
                     }
                   }
-                }, "Pull FSD"), React.createElement("span", {
+                }, "Pull latest"), React.createElement("span", {
                   className: "ds-chip ds-chip--sm"
                 }, C.fsd_intel.count, " mention", C.fsd_intel.count === 1 ? "" : "s", " \xB7 ", C.fsd_intel.lookback_days, "d"))
               }, React.createElement("div", {
@@ -14111,7 +14134,7 @@
           d: "M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z",
           clipRule: "evenodd"
         })), _hasNew2 && React.createElement("span", {
-          title: "New FSD intel",
+          title: "New intel",
           style: {
             position: "absolute",
             top: 2,
@@ -15324,13 +15347,15 @@
           side: "sup"
         })))));
       })(), (() => {
-        if (chartLoading) return React.createElement(SkeletonBlock, {
-          height: 200,
-          lines: 0,
-          style: {
-            background: "rgba(255,255,255,0.02)"
-          }
-        });
+        if (chartLoading && (!Array.isArray(chartCandles) || chartCandles.length < 2)) {
+          return React.createElement(SkeletonBlock, {
+            height: 200,
+            lines: 0,
+            style: {
+              background: "rgba(255,255,255,0.02)"
+            }
+          });
+        }
         if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
         const price = Number(ticker?.price);
         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
@@ -17057,7 +17082,7 @@
           className: `px-2 py-1 rounded border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"}`,
           title: `Show ${t.label} candles`
         }, t.label);
-      }))), chartLoading ? React.createElement(SkeletonBlock, {
+      }))), chartLoading && (!Array.isArray(chartCandles) || chartCandles.length < 2) ? React.createElement(SkeletonBlock, {
         height: 200,
         lines: 0,
         style: {
@@ -18386,4 +18411,4 @@
   };
 })();
 
-// cache-bust:1780607330582:851097520
+// cache-bust:1780608162031:333639946

@@ -2184,10 +2184,22 @@
         }
         lastMappedSigRef.current = sig;
 
+        // Preserve zoom on refresh — setData alone can rescale the pane for
+        // a frame when bar count changes (stale cache → full fetch), which
+        // reads as "extra large candles" flicker.
+        let prevVisibleRange = null;
+        if (firstDataLoadAppliedRef.current) {
+          try { prevVisibleRange = chart.timeScale().getVisibleLogicalRange(); } catch (_) {}
+        }
+
         // Push current candle data
         try {
           candleSeries.setData(mapped);
         } catch (_) { /* fall through; series will recover on next ref */ }
+
+        if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+          try { chart.timeScale().setVisibleLogicalRange(prevVisibleRange); } catch (_) {}
+        }
 
         // Replace overlay (EMA / SuperTrend) line series. We remove + add
         // because indicatorData can include arbitrary segments per cycle.
@@ -3522,6 +3534,12 @@
         // chartOverlays declaration). Re-uses the prior React element
         // across tab switches so the persistent chart never sees a
         // spurious render-cycle.
+        const _priceLinesSig = useMemo(() => {
+          const lines = subtleKeyLevelLines;
+          if (!Array.isArray(lines) || lines.length === 0) return "";
+          return lines.map((l) => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
+        }, [subtleKeyLevelLines]);
+
         const _railChartElement = useMemo(
           () => React.createElement(LWChart, {
             candles: chartCandles,
@@ -3535,7 +3553,7 @@
             chartCandles,
             chartTf,
             chartOverlays,
-            subtleKeyLevelLines,
+            _priceLinesSig,
             ticker?.ticker,
           ],
         );
@@ -4342,7 +4360,9 @@
         }, [railTab, ledgerTrades, tradeChartSelection]);
 
         useEffect(() => {
-          setChartCandles([]);
+          // 2026-06-04 — Keep prior candles visible while the next ticker loads
+          // (stale-while-revalidate). Clearing to [] unmounted the chart and
+          // caused a visible flash on open / ticker change.
           setChartError(null);
           setChartLoading(false);
           setChartVisibleCount(80);
@@ -4484,9 +4504,15 @@
               if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "catalysts_failed");
               if (!cancelled) {
+                const prevSig = catalystsCacheRef.current.get(sym)?.data?.fsd_intel
+                  ? JSON.stringify(catalystsCacheRef.current.get(sym).data.fsd_intel)
+                  : "";
+                const nextSig = JSON.stringify(json.fsd_intel);
                 catalystsCacheRef.current.set(sym, { data: json, ts: Date.now() });
-                setCatalysts(json);
-                setCatalystsFetchedAt(json.fetched_at || Date.now());
+                if (prevSig !== nextSig) {
+                  setCatalysts(json);
+                  setCatalystsFetchedAt(json.fetched_at || Date.now());
+                }
               }
             } catch (e) {
               if (!cancelled) {
@@ -4527,7 +4553,10 @@
             const cached = catalystsCacheRef.current.get(sym)?.data;
             if (needsFsdPoll(cached || catalysts)) tick({ force: true });
           }, 30 * 1000);
-          const slow = setInterval(() => tick({ force: true }), 5 * 60 * 1000);
+          const slow = setInterval(() => {
+            const cached = catalystsCacheRef.current.get(sym)?.data;
+            if (needsFsdPoll(cached || catalysts)) tick({ force: true });
+          }, 5 * 60 * 1000);
           return () => {
             clearInterval(fast);
             clearInterval(slow);
@@ -4709,18 +4738,19 @@
           let cancelled = false;
           const run = async () => {
             try {
-              setChartLoading(true);
               setChartError(null);
               const tf = String(chartTf || "30");
               const cacheKey = `${sym}:${tf}`;
 
               // Check cache (60-second TTL)
               const cached = candleCacheRef.current[cacheKey];
-              if (cached && Date.now() - cached.ts < 60000) {
+              const haveCached = cached && Date.now() - cached.ts < 60000 && Array.isArray(cached.data) && cached.data.length >= 2;
+              if (haveCached) {
                 if (!cancelled) setChartCandles(cached.data);
                 if (!cancelled) setChartLoading(false);
                 return;
               }
+              if (!cancelled) setChartLoading(true);
 
               // V15 P0.7.98 — match Daily Brief MiniChart limits exactly.
               // Was 500 bars (~2 weeks of 30m, costly + unnecessary). User
@@ -5907,7 +5937,7 @@
                         <span>{label}</span>
                         {key === "CATALYSTS" && _catalystsHasNew && (
                           <span
-                            title="New FSD intel — open to view"
+                            title="New intel — open to view"
                             style={{
                               position: "absolute",
                               top: 4,
@@ -6354,11 +6384,11 @@
                       >
                         {chartCandles && chartCandles.length >= 2
                           ? _railChartElement
-                          : (
+                          : chartLoading ? (
                             <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-body)" }}>
                               Loading price candles…
                             </div>
-                          )}
+                          ) : null}
                       </div>
                     </div>
                   )}
@@ -10035,7 +10065,7 @@
                               <span style={{
                                 fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
                                 color: "#67e8f9", background: "rgba(103,232,249,0.10)", letterSpacing: "0.05em",
-                              }}>📡 FSD SYNCING</span>
+                              }}>📡 SYNCING</span>
                               <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
                                 {C.fsd_intel.diagnostics.heal_kind === "full_cycle"
                                   ? "first-time ingest"
@@ -10075,7 +10105,7 @@
                             fontSize: 11,
                             color: "var(--ds-text-muted)",
                           }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>📡 FSD INTEL</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>📡 INTEL</span>
                             <span style={{ marginLeft: 6 }}>
                               No FSD publications mention {tickerSymbol} in the last 14 days.
                               ({C.fsd_intel.diagnostics.pubs_total} pubs scanned ·{" "}
@@ -10100,7 +10130,7 @@
                             fontSize: 12, lineHeight: 1.45,
                           }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: "#fbbf24", background: "rgba(245,158,11,0.12)", padding: "1px 6px", borderRadius: 4, letterSpacing: "0.05em" }}>📡 FSD PIPELINE EMPTY</span>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: "#fbbf24", background: "rgba(245,158,11,0.12)", padding: "1px 6px", borderRadius: 4, letterSpacing: "0.05em" }}>📡 PIPELINE EMPTY</span>
                             </div>
                             <div style={{ color: "var(--ds-text-body)", marginBottom: 8 }}>
                               No FSD publications have been ingested into the DB yet (pipeline cold-start). FSD ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now.
@@ -10157,7 +10187,7 @@
                           const _fsdPendingRewrite = C.fsd_intel.publications.some((p) => !p.tt_summary_body);
                           return (
                             <Panel
-                              title="📡 FSD Intel"
+                              title="📡 Intel"
                               action={
                                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                                   <button
@@ -10192,7 +10222,7 @@
                                         }
                                       }}
                                     >
-                                      Pull FSD
+                                      Pull latest
                                     </button>
                                   )}
                                   <span className="ds-chip ds-chip--sm">
@@ -11304,7 +11334,7 @@
                           {locked && <svg className="w-3 h-3 text-amber-400/60" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/></svg>}
                           {_hasNew2 && (
                             <span
-                              title="New FSD intel"
+                              title="New intel"
                               style={{
                                 position: "absolute",
                                 top: 2,
@@ -12386,7 +12416,9 @@
                       {/* 5b. MINI PRICE CHART (SL / TP1 / Entry overlay)            */}
                       {/* ═══════════════════════════════════════════════════════════ */}
                       {(() => {
-                        if (chartLoading) return React.createElement(SkeletonBlock, { height: 200, lines: 0, style: { background: "rgba(255,255,255,0.02)" } });
+                        if (chartLoading && (!Array.isArray(chartCandles) || chartCandles.length < 2)) {
+                          return React.createElement(SkeletonBlock, { height: 200, lines: 0, style: { background: "rgba(255,255,255,0.02)" } });
+                        }
                         if (!Array.isArray(chartCandles) || chartCandles.length < 2) return null;
 
                         const price = Number(ticker?.price);
@@ -14319,7 +14351,7 @@
                           </div>
                         </div>
 
-                        {chartLoading ? (
+                        {chartLoading && (!Array.isArray(chartCandles) || chartCandles.length < 2) ? (
                           <SkeletonBlock height={200} lines={0} style={{ background: "rgba(255,255,255,0.02)" }} />
                         ) : chartError ? (
                           <div className="text-xs text-yellow-300">
