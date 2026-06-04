@@ -168,9 +168,12 @@ const ETF_PROFILE = {
   // Stock default: phase_i_mfe_dead_money_24h fires after 24h with MFE<1%
   // ETF profile:   8h with MFE<0.5% (saves SPY trades that just sit)
   stagnant_exit: {
-    dead_money_max_age_hours: 8,
+    // 2026-06-04 — Relaxed vs initial profile: overnight ETF holds were
+    // flat-cutting at the open (4h age from prior session) then immediately
+    // re-entering. Slightly longer windows + re-entry cooldown in trade sim.
+    dead_money_max_age_hours: 10,
     dead_money_max_mfe_pct: 0.005,        // 0.5%
-    fast_cut_max_age_hours: 4,            // even faster cut
+    fast_cut_max_age_hours: 6,
     fast_cut_max_mfe_pct: 0.003,          // 0.3%
   },
 

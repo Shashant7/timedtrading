@@ -659,11 +659,11 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
         { name: "Mentioned (active universe)", value: matched.map((t) => `\`${t}\``).join(" "), inline: false },
         ...(summary_body ? [{ name: "TT summary", value: summary_body.slice(0, 900), inline: false }] : []),
         ...(meta?.source_url ? [{ name: "Source", value: `[Read on fundstratdirect.com](${meta.source_url})`, inline: false }] : []),
-        { name: "View in app", value: `Open the ticker's right-rail → Catalysts tab (📡 FSD Intel panel)`, inline: false },
+        { name: "View in app", value: `Open the ticker's right-rail → Catalysts tab (Intel panel)`, inline: false },
       ],
       footer: { text: `pub_id=${pubId} · auto-routed by CRO ingestion` },
       timestamp: new Date().toISOString(),
-    }, "system");
+    }, "general");
   } catch (_) {}
 }
 

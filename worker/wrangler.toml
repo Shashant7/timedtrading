@@ -234,7 +234,9 @@ class_name = "BacktestRunner"
 #
 # Required Secrets (set via Dashboard or CLI):
 # - TIMED_API_KEY: API key for POST /timed/ingest authentication
-# - DISCORD_WEBHOOK_URL: Discord webhook URL (trade alerts)
+# - DISCORD_WEBHOOK_URL: Discord webhook URL (#trade-signals — model trades only)
+# - DISCORD_GENERAL_WEBHOOK_URL: Discord webhook (#general — briefs, intraday pulse, FSD intel)
+# - DISCORD_SYSTEM_WEBHOOK_URL: Discord webhook (#system-alerts — cron/ops noise)
 # - DISCORD_CLIENT_ID: Discord OAuth2 Application Client ID (community integration)
 # - DISCORD_CLIENT_SECRET: Discord OAuth2 Application Client Secret
 # - DISCORD_BOT_TOKEN: Discord Bot token (needs MANAGE_ROLES + guilds.join)
