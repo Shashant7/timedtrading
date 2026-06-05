@@ -1811,6 +1811,7 @@ function ResearchDeskPanel({
   onSelectTicker
 }) {
   const [feed, setFeed] = useState(null);
+  const [openId, setOpenId] = useState(null);
   useEffect(() => {
     let alive = true;
     fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
@@ -1824,7 +1825,6 @@ function ResearchDeskPanel({
     };
   }, []);
   const items = feed && feed.ok && Array.isArray(feed.items) ? feed.items : [];
-  const catCls = c => c === "structural" ? "var(--tt-accent)" : c === "actionable" ? "var(--tt-up-soft)" : "var(--tt-violet)";
   const ago = ts => {
     if (!ts) return "";
     const d = Date.parse(ts) || Number(ts);
@@ -1862,80 +1862,91 @@ function ResearchDeskPanel({
       flexDirection: "column",
       gap: 8
     }
-  }, items.slice(0, 5).map((it, i) => h("div", {
-    key: it.pub_id || i,
-    style: {
-      padding: "8px 0",
-      borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      flexWrap: "wrap",
-      marginBottom: 3
-    }
-  }, h("span", {
-    style: {
-      fontSize: 9.5,
-      fontWeight: 700,
-      letterSpacing: "0.04em",
-      color: catCls(it.category),
-      border: `1px solid ${catCls(it.category)}`,
-      borderRadius: 5,
-      padding: "1px 6px",
-      opacity: 0.95
-    }
-  }, (it.category_label || "").toUpperCase()), h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)"
-    }
-  }, it.content_type_label || ""), h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)",
-      marginLeft: "auto"
-    }
-  }, ago(it.published_at || it.fetched_at))), h("div", {
-    style: {
-      fontSize: 12.5,
-      color: "var(--tt-text)",
-      lineHeight: 1.4,
-      fontWeight: 600
-    }
-  }, it.title), it.tickers && it.tickers.length > 0 && h("div", {
-    style: {
-      display: "flex",
-      gap: 5,
-      flexWrap: "wrap",
-      marginTop: 5
-    }
-  }, it.tickers.map(tk => h("button", {
-    key: tk,
-    onClick: () => onSelectTicker && onSelectTicker(tk),
-    style: {
-      fontSize: 10.5,
-      fontWeight: 700,
-      fontFamily: "var(--tt-font-mono)",
-      color: "var(--tt-text-muted)",
-      background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
-      border: "1px solid var(--tt-border-hi)",
-      borderRadius: 5,
-      padding: "1px 6px",
-      cursor: "pointer"
-    }
-  }, tk)))))), h("a", {
-    href: "/research-desk.html",
-    style: {
-      display: "inline-block",
-      marginTop: 10,
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      textDecoration: "none"
-    }
-  }, "Open Research Desk →"));
+  }, items.slice(0, 5).map((it, i) => {
+    const id = it.pub_id || String(i);
+    const isOpen = openId === id;
+    const hasMore = !!it.tt_summary;
+    return h("div", {
+      key: id,
+      style: {
+        padding: "8px 0",
+        borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 3
+      }
+    }, h("span", {
+      style: {
+        fontSize: 9.5,
+        fontWeight: 600,
+        letterSpacing: "0.06em",
+        color: "var(--tt-text-dim)",
+        textTransform: "uppercase"
+      }
+    }, it.category_label || "Editorial"), h("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-dim)",
+        marginLeft: "auto"
+      }
+    }, ago(it.published_at || it.fetched_at))), h("button", {
+      onClick: () => hasMore && setOpenId(isOpen ? null : id),
+      style: {
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: hasMore ? "pointer" : "default",
+        fontSize: 12.5,
+        color: "var(--tt-text)",
+        lineHeight: 1.4,
+        fontWeight: 600
+      }
+    }, it.title, hasMore && h("span", {
+      style: {
+        color: "var(--tt-text-dim)",
+        fontWeight: 400,
+        marginLeft: 6,
+        fontSize: 11
+      }
+    }, isOpen ? "▴" : "▾")), isOpen && it.tt_summary && h("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5,
+        marginTop: 6,
+        paddingLeft: 10,
+        borderLeft: "2px solid var(--tt-border-hi)"
+      }
+    }, it.tt_summary), it.tickers && it.tickers.length > 0 && h("div", {
+      style: {
+        display: "flex",
+        gap: 5,
+        flexWrap: "wrap",
+        marginTop: 5
+      }
+    }, it.tickers.map(tk => h("button", {
+      key: tk,
+      onClick: () => onSelectTicker && onSelectTicker(tk),
+      style: {
+        fontSize: 10.5,
+        fontWeight: 700,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-muted)",
+        background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
+        border: "1px solid var(--tt-border-hi)",
+        borderRadius: 5,
+        padding: "1px 6px",
+        cursor: "pointer"
+      }
+    }, tk))));
+  })));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -5290,6 +5301,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780627741773:498279513
+// cache-bust:1780628220559:392337428
 
-// cache-bust:1780627741773:498279513
+// cache-bust:1780628220559:392337428
