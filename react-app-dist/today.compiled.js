@@ -1291,14 +1291,14 @@ function OptionsPlaysOfTheDay({
       style: {
         color: "#f5c25c"
       }
-    }, "DAY TRADE · INDEX ETFs"), h("div", {
+    }, "OPTIONS PLAYS · DAY TRADE INDEX ETFs"), h("div", {
       style: {
         fontSize: 13,
         fontWeight: 600,
         color: "var(--tt-text)",
         letterSpacing: "-0.005em"
       }
-    }, `SPY · QQQ · IWM — ${dteLabel}`)), h("span", {
+    }, `SPY · QQQ · IWM · DIA — ${dteLabel}`)), h("span", {
       style: {
         fontSize: 10,
         color: "var(--tt-text-muted)",
@@ -1306,6 +1306,17 @@ function OptionsPlaysOfTheDay({
       },
       title: "Short-dated day-trade plays for index ETFs. Separate from any swing/investor play on the same ticker."
     }, "scalps only · manage actively")), h("div", {
+      style: {
+        fontSize: 10.5,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5,
+        marginBottom: 8
+      }
+    }, h("strong", {
+      style: {
+        color: "var(--tt-text)"
+      }
+    }, "Spot"), " = the index price when this play was computed (refreshes ~every 5 min). The suggested strike is anchored to that spot, so if the index has moved more than ~1% the play is stale — re-check the live price before acting. 0DTE expires ", h("strong", null, "today"), "; 1DTE the next session. These are intraday scalps — manage actively, not hold-overnight ideas."), h("div", {
       style: isSidebar ? {
         display: "flex",
         flexDirection: "column",
@@ -1952,7 +1963,6 @@ function DayTradePredictions({
   onSelectTicker
 }) {
   const [pred, setPred] = useState(null);
-  const [opts, setOpts] = useState(null);
   useEffect(() => {
     let alive = true;
     fetch(`${API_BASE || ""}/timed/day-trade-predictions`, {
@@ -1961,34 +1971,12 @@ function DayTradePredictions({
     }).then(r => r.ok ? r.json() : null).then(j => {
       if (alive) setPred(j);
     }).catch(() => {});
-    const _optsUrl = `${API_BASE || ""}/timed/options/all?limit=10`;
-    if (window.TTFetchCache) {
-      window.TTFetchCache.get(_optsUrl, {
-        ttlMs: 60000,
-        maxAgeMs: 300000,
-        fetchOpts: {
-          credentials: "include"
-        }
-      }).then(j => {
-        if (alive && j) setOpts(j);
-      }).catch(() => {});
-    } else {
-      fetch(_optsUrl, {
-        credentials: "include",
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).then(j => {
-        if (alive) setOpts(j);
-      }).catch(() => {});
-    }
     return () => {
       alive = false;
     };
   }, []);
   const items = pred && pred.ok && Array.isArray(pred.items) ? pred.items : [];
   if (!pred) return null;
-  const dtPlays = opts && Array.isArray(opts.day_trade_plays) ? opts.day_trade_plays : [];
-  const dteLabel = opts?.day_trade_expiration ? opts.day_trade_expiration.dte === 0 ? "0DTE" : `${opts.day_trade_expiration.dte}DTE` : null;
-  const playFor = sym => dtPlays.find(p => String(p.ticker || "").toUpperCase() === sym) || null;
   const gradeColor = g => g === "A" ? "var(--tt-up-soft)" : g === "B" ? "#fbbf24" : g === "C" ? "var(--tt-dn-soft)" : "var(--tt-text-dim)";
   const fmt = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString(undefined, {
     maximumFractionDigits: 2
@@ -2028,13 +2016,12 @@ function DayTradePredictions({
       gap: 8
     }
   }, items.map(it => {
-    const play = playFor(it.sym);
     const lv = it.levels;
     return h("div", {
       key: it.sym,
       style: {
         display: "grid",
-        gridTemplateColumns: "64px 1fr auto",
+        gridTemplateColumns: "64px 1fr",
         gap: 12,
         alignItems: "center",
         padding: "10px 0",
@@ -2095,38 +2082,7 @@ function DayTradePredictions({
       style: {
         color: "var(--tt-text-dim)"
       }
-    }, `close ${fmt(it.close)}`))), play ? h("button", {
-      onClick: () => onSelectTicker && onSelectTicker(it.sym),
-      title: "Today's index-ETF day-trade option play",
-      style: {
-        textAlign: "right",
-        background: "rgba(245,194,92,0.08)",
-        border: "1px solid rgba(245,194,92,0.3)",
-        borderRadius: 8,
-        padding: "6px 9px",
-        cursor: "pointer",
-        color: "var(--tt-text)"
-      }
-    }, h("div", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: "#f5c25c",
-        letterSpacing: "0.03em"
-      }
-    }, dteLabel || "DAY TRADE"), h("div", {
-      style: {
-        fontSize: 12,
-        fontWeight: 700,
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, `${play.direction === "LONG" ? "CALL" : play.direction === "SHORT" ? "PUT" : "STRDL"}${Number.isFinite(Number(play.strike)) ? ` ${fmt(play.strike)}` : ""}`)) : h("div", {
-      style: {
-        fontSize: 10.5,
-        color: "var(--tt-text-dim)",
-        textAlign: "right"
-      }
-    }, "no option play"));
+    }, `close ${fmt(it.close)}`))));
   })), h("div", {
     style: {
       fontSize: 10,
@@ -2134,7 +2090,7 @@ function DayTradePredictions({
       marginTop: 8,
       lineHeight: 1.5
     }
-  }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. Educational, not advice."));
+  }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. The matching 0/1DTE option play for each index is in “Options Plays · Day Trade Index ETFs” below. Educational, not advice."));
 }
 function TodayHero({
   brief,
@@ -2537,7 +2493,8 @@ function MacroStrip({
 }
 function FocusRail({
   data,
-  onSelectTicker
+  onSelectTicker,
+  strip
 }) {
   const lanes = useMemo(() => {
     if (!data) return [];
@@ -2618,6 +2575,51 @@ function FocusRail({
     }
     return "";
   };
+  if (strip) {
+    const stripLanes = lanes.filter(l => l.id !== "rank");
+    if (stripLanes.length === 0) return null;
+    return h(React.Fragment, null, stripLanes.map(lane => h("section", {
+      key: lane.id,
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, lane.label), h("div", {
+      className: "tt-strip-scroll"
+    }, lane.items.map(t => {
+      const sym = String(t.ticker || "").toUpperCase();
+      const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
+      const pct = Number(dc?.dayPct);
+      const metric = fmtMetric(t, lane.id);
+      return h("button", {
+        key: sym,
+        onClick: () => onSelectTicker && onSelectTicker(sym),
+        className: "tt-strip-chip",
+        title: sym
+      }, h(TickerLogo, {
+        sym,
+        size: 18
+      }), h("span", {
+        style: {
+          fontWeight: 700,
+          fontSize: 12,
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, sym), metric && h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--tt-text-dim)"
+        }
+      }, metric), Number.isFinite(pct) && h("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`));
+    })))));
+  }
   const computeBias = t => {
     const raw = String(t?.bias_direction || "").toUpperCase();
     if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
@@ -2871,12 +2873,15 @@ function TopMovers({
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
   if (strip) {
-    const chips = [...rthGain.slice(0, 8), ...rthLoss.slice(0, 8)];
-    if (chips.length === 0) return null;
-    const moverChip = t => {
+    const moverChip = (t, mode) => {
       const sym = String(t.ticker || t.sym || "").toUpperCase();
-      const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
-      const pct = Number(dc?.dayPct);
+      let pct;
+      if (mode === "ext") {
+        pct = Number(t._ah_change_pct);
+      } else {
+        const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
+        pct = Number(dc?.dayPct);
+      }
       const up = Number.isFinite(pct) && pct >= 0;
       return h("button", {
         key: sym,
@@ -2899,15 +2904,20 @@ function TopMovers({
           color: up ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
           fontFamily: "var(--tt-font-mono)"
         }
-      }, `${up ? "+" : ""}${pct.toFixed(2)}%`));
+      }, `${up ? "+" : ""}${pct.toFixed(2)}%${mode === "ext" ? " EXT" : ""}`));
     };
-    return h("section", {
+    const stripFor = (key, title, items, mode) => items.length > 0 && h("section", {
+      key,
       className: "tt-row"
     }, h("div", {
       className: "tt-sec-title"
-    }, "TOP MOVERS"), h("div", {
+    }, title), h("div", {
       className: "tt-strip-scroll"
-    }, chips.map(moverChip)));
+    }, items.slice(0, 12).map(t => moverChip(t, mode))));
+    const open = isNyRegularMarketOpen();
+    const strips = [stripFor("rth-up", "TOP MOVERS \u2014 RTH GAINERS", rthGain, "rth"), stripFor("rth-dn", "TOP MOVERS \u2014 RTH LOSERS", rthLoss, "rth"), !open && stripFor("ext-up", "AFTER-HOURS \u2014 EXT GAINERS", extGain, "ext"), !open && stripFor("ext-dn", "AFTER-HOURS \u2014 EXT LOSERS", extLoss, "ext")].filter(Boolean);
+    if (strips.length === 0) return null;
+    return h(React.Fragment, null, strips);
   }
   return h("section", {
     className: "tt-row"
@@ -4877,17 +4887,17 @@ function TodayApp() {
   }), brief && h(MacroStrip, {
     brief,
     data
+  }), earnings && h(EarningsStrip, {
+    earnings,
+    onSelectTicker,
+    strip: true,
+    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), data && h(FocusRail, {
     data,
     onSelectTicker,
     strip: true
   }), data && h(TopMovers, {
     data,
-    onSelectTicker,
-    strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), earnings && h(EarningsStrip, {
-    earnings,
     onSelectTicker,
     strip: true,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
@@ -5301,6 +5311,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780628220559:392337428
+// cache-bust:1780630405394:234986831
 
-// cache-bust:1780628220559:392337428
+// cache-bust:1780630405394:234986831
