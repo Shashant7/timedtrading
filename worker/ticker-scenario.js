@@ -181,7 +181,7 @@ async function loadLatestSnapshot(env, ticker) {
  * @param {string} ticker
  * @returns {Promise<object|null>} canonical scenario, or null if data unavailable
  */
-export async function buildTickerScenario(env, ticker) {
+export async function buildTickerScenario(env, ticker, opts = {}) {
   const sym = String(ticker || "").toUpperCase();
   if (!sym) return null;
 
@@ -200,7 +200,14 @@ export async function buildTickerScenario(env, ticker) {
     };
   }
 
-  const price = Number(latest.price) || Number(latest.close) || 0;
+  // 2026-06-05 — Optional live-price override. The snapshot price is the RTH
+  // close while the market is closed; callers that want the game plan + levels
+  // anchored to the LIVE (pre/post-market) price pass priceOverride so the
+  // triggers/targets regenerate around where the index actually is now.
+  const _override = Number(opts.priceOverride);
+  const price = (Number.isFinite(_override) && _override > 0)
+    ? _override
+    : (Number(latest.price) || Number(latest.close) || 0);
   const prevClose = Number(latest.prev_close) || Number(dailies[dailies.length - 2]?.c) || 0;
   const atr14 = computeATR14(dailies);
   const bias = classifyBias(latest);

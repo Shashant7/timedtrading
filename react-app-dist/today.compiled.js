@@ -2052,9 +2052,20 @@ function DayTradePredictions({
     className: "tt-sec-h",
     style: {
       fontSize: 15,
+      marginBottom: 4
+    }
+  }, "How the day may unfold — with a grade after the close"), pred.levels_live && h("div", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-muted)",
       marginBottom: 10
     }
-  }, "How the day may unfold — with a grade after the close"), h("div", {
+  }, h("span", {
+    style: {
+      fontWeight: 700,
+      color: pred.market_open ? "#34d399" : "#fbbf24"
+    }
+  }, pred.market_open ? "LIVE LEVELS" : "LIVE LEVELS (pre/post-market)"), " — regenerated off the current price, not the 9am close."), h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -2115,7 +2126,11 @@ function DayTradePredictions({
         fontSize: 11,
         fontFamily: "var(--tt-font-mono)"
       }
-    }, Number.isFinite(lv.bull_trigger) && h("span", {
+    }, Number.isFinite(it.spot) && h("span", {
+      style: {
+        color: "var(--tt-text)"
+      }
+    }, `spot ${fmt(it.spot)}`), Number.isFinite(lv.bull_trigger) && h("span", {
       style: {
         color: "var(--tt-up-soft)"
       }
@@ -5356,6 +5371,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780664490753:314565211
+// cache-bust:1780666573160:678333791
 
-// cache-bust:1780664490753:314565211
+// cache-bust:1780666573160:678333791
