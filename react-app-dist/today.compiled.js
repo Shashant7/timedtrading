@@ -1498,10 +1498,31 @@ function OptionsPlaysOfTheDay({
         }
       }, "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually.")));
     }
-    if (dayTradePlays && dayTradePlays.length > 0) {
-      return h(React.Fragment, null, renderDayTradeStrip());
-    }
-    return null;
+    return h(React.Fragment, null, renderDayTradeStrip(), h("section", {
+      className: "tt-row",
+      style: {
+        marginBottom: 24
+      }
+    }, h("div", {
+      style: {
+        marginBottom: 8
+      }
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "OPTIONS PLAYS OF THE DAY"), h("div", {
+      style: {
+        fontSize: 14,
+        fontWeight: 600,
+        color: "var(--tt-text)"
+      }
+    }, "Confluence-Driven Strategies")), h("div", {
+      className: "tt-card tt-card-pad",
+      style: {
+        fontSize: 12.5,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5
+      }
+    }, "No actionable swing plays right now — the model is in WAIT across the universe. This row fills in when a setup reaches RIDE / DRIFT / READY. The Options tab on any ticker still shows its full strategy ladder.")));
   }
   const MODE_META = {
     RIDE: {
@@ -2069,66 +2090,62 @@ function DayTradePredictions({
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 8
+      gap: 2
     }
   }, items.map(it => {
     const lv = it.levels;
     return h("div", {
       key: it.sym,
       style: {
-        display: "grid",
-        gridTemplateColumns: "64px 1fr",
-        gap: 12,
-        alignItems: "center",
-        padding: "10px 0",
+        padding: "11px 0",
         borderBottom: "1px solid var(--tt-border)"
       }
-    }, h("div", null, h("button", {
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap"
+      }
+    }, h("button", {
       onClick: () => onSelectTicker && onSelectTicker(it.sym),
       style: {
         background: "transparent",
         border: "none",
         color: "var(--tt-text)",
         fontWeight: 800,
-        fontSize: 15,
+        fontSize: 16,
         fontFamily: "var(--tt-font-mono)",
         cursor: "pointer",
-        padding: 0
+        padding: 0,
+        minWidth: 44,
+        textAlign: "left"
       }
-    }, it.sym), h("div", {
+    }, it.sym), h("span", {
       title: it.grade_label,
       style: {
-        marginTop: 4,
-        fontSize: 10.5,
+        fontSize: 10,
         fontWeight: 700,
         color: gradeColor(it.grade),
         border: `1px solid ${gradeColor(it.grade)}`,
         borderRadius: 5,
-        padding: "1px 5px",
-        display: "inline-block"
+        padding: "1px 6px",
+        whiteSpace: "nowrap"
       }
-    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades ~4pm" : "—")), h("div", {
+    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades ~4pm" : "—"), lv && h("div", {
       style: {
-        minWidth: 0
-      }
-    }, it.narrative && h("div", {
-      style: {
-        fontSize: 12.5,
-        color: "var(--tt-text)",
-        lineHeight: 1.45
-      }
-    }, it.narrative), lv && h("div", {
-      style: {
+        marginLeft: "auto",
         display: "flex",
-        gap: 10,
+        gap: 12,
         flexWrap: "wrap",
-        marginTop: 5,
-        fontSize: 11,
+        justifyContent: "flex-end",
+        fontSize: 11.5,
         fontFamily: "var(--tt-font-mono)"
       }
     }, Number.isFinite(it.spot) && h("span", {
       style: {
-        color: "var(--tt-text)"
+        color: "var(--tt-text)",
+        fontWeight: 700
       }
     }, `spot ${fmt(it.spot)}`), Number.isFinite(lv.bull_trigger) && h("span", {
       style: {
@@ -2142,7 +2159,14 @@ function DayTradePredictions({
       style: {
         color: "var(--tt-text-dim)"
       }
-    }, `close ${fmt(it.close)}`))));
+    }, `close ${fmt(it.close)}`))), it.narrative && h("div", {
+      style: {
+        fontSize: 12.5,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5,
+        marginTop: 6
+      }
+    }, it.narrative));
   })), h("div", {
     style: {
       fontSize: 10,
@@ -5371,6 +5395,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780666573160:678333791
+// cache-bust:1780675372699:823630225
 
-// cache-bust:1780666573160:678333791
+// cache-bust:1780675372699:823630225
