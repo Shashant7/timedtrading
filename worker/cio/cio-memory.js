@@ -762,6 +762,40 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         note: "Current desk tactical posture. CONTEXT for timing; the structural playbook + engine still own the call.",
       };
     }
+    // 2026-06-05 — EDITORIAL sector/theme insights too. A publication like
+    // "Healthcare shows strength; watch for bullish seasonality" produces a
+    // sector_playbook_update (not always a tactical_signal). Surface the
+    // override's sector_notes / theme_notes / risks that match THIS ticker's
+    // sector + themes so the CIO applies editorial reads, not just signals.
+    if (override) {
+      const tSector = mem.strategy_stance?.sector || null;
+      const tThemes = (mem.strategy_stance?.themes_matched || []).map((m) => (typeof m === "string" ? m : m.theme));
+      const notes = [];
+      for (const n of (Array.isArray(override.sector_notes) ? override.sector_notes : [])) {
+        if (n?.sector && tSector && String(n.sector).toLowerCase() === String(tSector).toLowerCase() && n.tactical_note) {
+          notes.push({ scope: `sector:${n.sector}`, note: String(n.tactical_note).slice(0, 200) });
+        }
+      }
+      for (const n of (Array.isArray(override.theme_notes) ? override.theme_notes : [])) {
+        if (n?.theme && tThemes.includes(n.theme) && n.tactical_note) {
+          notes.push({ scope: `theme:${n.theme}`, note: String(n.tactical_note).slice(0, 200) });
+        }
+      }
+      const risks = (Array.isArray(override.active_risks_add) ? override.active_risks_add : [])
+        .filter((r) => {
+          const s = JSON.stringify(r || {}).toLowerCase();
+          return (tSector && s.includes(String(tSector).toLowerCase())) || tThemes.some((t) => s.includes(String(t).toLowerCase()));
+        })
+        .slice(0, 2)
+        .map((r) => ({ name: r.name, severity: r.severity, note: String(r.note || "").slice(0, 160) }));
+      if (notes.length > 0 || risks.length > 0) {
+        mem.cro_editorial_reads = {
+          notes: notes.slice(0, 3),
+          risks,
+          note: "FSD editorial reads for this ticker's sector/theme. Bias commentary + conviction; not a hard trade trigger.",
+        };
+      }
+    }
   } catch (_) {
     // Overlay headline is best-effort — never break CIO memory.
   }
