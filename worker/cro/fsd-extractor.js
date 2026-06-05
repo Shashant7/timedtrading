@@ -188,7 +188,7 @@ const DEFAULT_MIN_CONFIDENCE = 0.7;
 //   cro_auto_apply_structural      (default false — structural always reviewed)
 async function readAutoApplyConfig(env) {
   let minConfidence = DEFAULT_MIN_CONFIDENCE;
-  let allowStructural = false;
+  let allowStructural = true; // 2026-06-05 — operator flipped structural auto-apply ON by default.
   try {
     if (env?.DB) {
       const rows = await env.DB.prepare(
@@ -201,7 +201,7 @@ async function readAutoApplyConfig(env) {
           if (Number.isFinite(v) && v >= 0 && v <= 1) minConfidence = v;
         } else if (r.config_key === "cro_auto_apply_structural") {
           const v = String(r.config_value).toLowerCase();
-          allowStructural = v === "true" || v === "1";
+          allowStructural = !(v === "false" || v === "0");
         }
       }
     }

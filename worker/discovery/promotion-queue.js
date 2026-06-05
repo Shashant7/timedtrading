@@ -612,11 +612,13 @@ async function buildTacticalNudgeContext(env) {
   const ctx = { enabled: false, themeDir: new Map(), sectorDir: new Map() };
   try {
     if (!env?.DB) return ctx;
+    // 2026-06-05 — operator flipped this ON by default. Disabled only when the
+    // model_config row is explicitly false.
     const cfg = await env.DB.prepare(
       `SELECT config_value FROM model_config WHERE config_key = 'cro_tactical_rank_nudge_enabled'`,
     ).first().catch(() => null);
-    const v = cfg ? String(cfg.config_value).toLowerCase() : "false";
-    if (!(v === "true" || v === "1")) return ctx;
+    const v = cfg ? String(cfg.config_value).toLowerCase() : "true";
+    if (v === "false" || v === "0") return ctx;
     const raw = await env?.KV?.get("cro:tactical_overrides");
     const blob = raw ? JSON.parse(raw) : null;
     const signals = Array.isArray(blob?.tactical_signals) ? blob.tactical_signals : [];

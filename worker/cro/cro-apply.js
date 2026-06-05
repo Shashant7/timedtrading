@@ -197,20 +197,23 @@ export async function isAutoApplyEnabled(env) {
 }
 
 /**
- * Also gated separately for structural changes — these are higher-risk and
- * default OFF even when tactical auto-apply is on. Operator opt-in.
+ * Also gated separately for structural changes. 2026-06-05 — operator flipped
+ * this ON by default. Structural proposals still pass the same confidence /
+ * on-theme review gate (assessProposalAutoApply) before auto-applying; only
+ * confident, on-theme, model-not-flagged ones apply automatically — the rest
+ * still queue for review. Set cro_auto_apply_structural = "false" to opt out.
  */
 export async function isAutoApplyStructuralEnabled(env) {
   const cached = env?._deepAuditConfig?.cro_auto_apply_structural;
   if (cached === true || String(cached).toLowerCase() === "true") return true;
   if (cached === false || String(cached).toLowerCase() === "false") return false;
-  if (!env?.DB) return false;
+  if (!env?.DB) return true;
   try {
     const row = await env.DB.prepare(
       `SELECT config_value FROM model_config WHERE config_key = 'cro_auto_apply_structural'`,
     ).first();
-    if (!row) return false;
+    if (!row) return true;
     const v = row.config_value;
-    return v === true || String(v).toLowerCase() === "true" || String(v) === "1";
-  } catch (_) { return false; }
+    return !(v === false || String(v).toLowerCase() === "false" || String(v) === "0");
+  } catch (_) { return true; }
 }
