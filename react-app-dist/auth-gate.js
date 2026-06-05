@@ -2433,8 +2433,40 @@
 
     // Persisted "already joined" state so the button shows "You're in" on return
     const [joined, setJoined] = React.useState(() => {
-      try { return localStorage.getItem("tt_waitlist_joined") === "1"; } catch { return false; }
+      try { return localStorage.getItem("tt_waitlist_joined") === "1" || localStorage.getItem("tt_discord_linked") === "1"; } catch { return false; }
     });
+
+    // 2026-06-05 — Capture the Discord link result from BOTH flows:
+    //   • popup: callback posts {type:'discord-connected'} to window.opener
+    //   • same-tab: callback redirects back with ?discord=linked
+    React.useEffect(() => {
+      const markLinked = () => {
+        setJoined(true); setSuccess(true); setError(null);
+        try { localStorage.setItem("tt_discord_linked", "1"); } catch {}
+      };
+      const onMsg = (e) => {
+        const t = e?.data?.type;
+        if (t === "discord-connected") markLinked();
+        else if (t === "discord-error") setError("Discord linking failed — try again.");
+      };
+      window.addEventListener("message", onMsg);
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        const d = params.get("discord");
+        if (d === "linked") {
+          markLinked(); setOpen(true);
+          params.delete("discord"); params.delete("reason");
+          const qs = params.toString();
+          window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+        } else if (d === "error") {
+          setError("Discord linking failed — try again."); setOpen(true);
+          params.delete("discord"); params.delete("reason");
+          const qs = params.toString();
+          window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
+        }
+      } catch (_) {}
+      return () => window.removeEventListener("message", onMsg);
+    }, []);
 
     // Click outside to close
     React.useEffect(() => {
@@ -2678,4 +2710,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780621964194:530697469

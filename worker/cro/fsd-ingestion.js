@@ -108,6 +108,10 @@ export async function ensureCROIngestionSchema(env) {
       CREATE INDEX IF NOT EXISTS idx_${PUBLICATIONS_TABLE}_source
       ON ${PUBLICATIONS_TABLE} (source, fetched_at DESC)
     `).run();
+    // 2026-06-04 — Persist the WP post type (post / fsi-alert / fsi-alert-crypto)
+    // so categorization (FlashInsight vs long-form note) is durable rather than
+    // inferred from the URL. ALTER guarded for idempotency (no IF NOT EXISTS).
+    try { await db.prepare(`ALTER TABLE ${PUBLICATIONS_TABLE} ADD COLUMN post_type TEXT`).run(); } catch (_) {}
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS ${PUBLICATION_TEXT_TABLE} (
         pub_id              TEXT PRIMARY KEY,
@@ -287,8 +291,8 @@ async function recordPublication(env, row) {
       INSERT OR REPLACE INTO ${PUBLICATIONS_TABLE}
         (pub_id, title, source, source_url, published_at, fetched_at,
          content_type, bytes_len, fetch_status, fetch_error,
-         extracted_at, proposal_id, applied_at)
-      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
+         extracted_at, proposal_id, applied_at, post_type)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
     `).bind(
       row.pub_id,
       row.title || null,
@@ -303,6 +307,7 @@ async function recordPublication(env, row) {
       row.extracted_at || null,
       row.proposal_id || null,
       row.applied_at || null,
+      row.post_type || null,
     ).run();
   } catch (e) {
     console.warn("[CRO_INGESTION] recordPublication failed:", String(e?.message || e).slice(0, 200));
@@ -465,7 +470,7 @@ export async function listRecentPublications(env, { limit = 20, sourceFilter = n
     const where = sourceFilter ? `WHERE source = ?` : ``;
     const stmt = env.DB.prepare(
       `SELECT pub_id, title, source, source_url, published_at, fetched_at,
-              fetch_status, fetch_error, extracted_at, proposal_id, applied_at
+              fetch_status, fetch_error, extracted_at, proposal_id, applied_at, post_type
          FROM ${PUBLICATIONS_TABLE}
          ${where}
          ORDER BY fetched_at DESC LIMIT ?`);
@@ -506,6 +511,7 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
       fetched_at: Date.now(),
       fetch_status: "error",
       fetch_error: `${fetched.error_kind}: ${fetched.hint || ""}`.slice(0, 500),
+      post_type: pub.post_type || null,
     });
     return { ok: false, pub_id: pub.id, error_kind: fetched.error_kind, hint: fetched.hint };
   }
@@ -528,6 +534,7 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     bytes_len: fetched.body_bytes_len || (text?.length || 0),
     fetch_status: "ok",
     fetch_error: null,
+    post_type: pub.post_type || null,
   });
   if (text) {
     text = sanitizeFsdPlainText(text);

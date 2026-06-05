@@ -319,14 +319,43 @@ function BriefPreview({
       break;
     }
   }
+  const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]*:\s*/, "").replace(/\s+/g, " ").trim();
+  const _cap = s => s.length > 200 ? s.slice(0, 197).trimEnd() + "…" : s;
+  const _twoLine = (() => {
+    const cand = [];
+    for (const it of top3.slice(0, 2)) {
+      const b = _plain(itemText(it));
+      if (b && b.length > 20) cand.push(b);
+    }
+    if (closing && _plain(closing).length > 20) cand.push(_plain(closing));
+    if (cand.length === 0 && fallbackSummary) cand.push(_plain(fallbackSummary));
+    if (cand.length === 0 && headline) cand.push(headline);
+    const out = [];
+    for (const c of cand) {
+      if (!out.some(o => o.slice(0, 40) === c.slice(0, 40))) out.push(c);
+      if (out.length === 2) break;
+    }
+    return out.map(_cap).join(" ");
+  })();
   return h("section", {
     className: "tt-card tt-card-pad tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "DAILY BRIEF — MORNING READ"), h("div", {
     className: "tt-sec-h"
-  }, "What the model is watching today"), headline && h("p", {
-    className: "brief-head"
+  }, "What the model is watching today"), _twoLine && h("p", {
+    style: {
+      fontSize: 14,
+      lineHeight: 1.55,
+      color: "var(--tt-text)",
+      margin: "6px 0 10px"
+    }
+  }, _twoLine), headline && h("p", {
+    className: "brief-head",
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)"
+    }
   }, headline), top3.length > 0 && h("div", {
     className: "brief-three"
   }, top3.slice(0, 3).map((item, i) => {
@@ -843,7 +872,8 @@ function IndexPredictionsStrip({
   const active = evening || morning;
   if (!active) return null;
   const briefType = active.type || (evening ? "evening" : "morning");
-  const indices = (active?.infographic?.indices || []).filter(i => ["SPY", "QQQ", "IWM"].includes(String(i?.sym || "").toUpperCase()));
+  const _wantOrder = ["ES", "ES1!", "SPY", "QQQ", "IWM", "DIA"];
+  const indices = (active?.infographic?.indices || []).filter(i => _wantOrder.includes(String(i?.sym || "").toUpperCase())).sort((a, b) => _wantOrder.indexOf(String(a?.sym || "").toUpperCase()) - _wantOrder.indexOf(String(b?.sym || "").toUpperCase()));
   if (indices.length === 0) return null;
   const briefDate = active?.date || morning?.date || null;
   const _label = briefType === "evening" ? "Today's Day-Trade Scorecard" : "Today's Day-Trade Plan";
@@ -870,7 +900,7 @@ function IndexPredictionsStrip({
     style: {
       margin: 0
     }
-  }, _isCompact ? `${_label.toUpperCase()} · 3 INDICES` : "DAILY BRIEF · DAY-TRADE PREDICTIONS"), briefDate && h("span", {
+  }, _isCompact ? `${_label.toUpperCase()} · ${indices.length} INDICES` : "DAY-TRADE PREDICTIONS"), briefDate && h("span", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10,
@@ -1768,6 +1798,311 @@ function OpenPositionsPreview({
     }, "INV"));
   })));
 }
+function ResearchDeskPanel({
+  onSelectTicker
+}) {
+  const [feed, setFeed] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setFeed(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const items = feed && feed.ok && Array.isArray(feed.items) ? feed.items : [];
+  const catCls = c => c === "structural" ? "var(--tt-accent)" : c === "actionable" ? "var(--tt-up-soft)" : "var(--tt-violet)";
+  const ago = ts => {
+    if (!ts) return "";
+    const d = Date.parse(ts) || Number(ts);
+    if (!Number.isFinite(d)) return "";
+    const m = Math.floor((Date.now() - d) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const hr = Math.floor(m / 60);
+    if (hr < 24) return `${hr}h ago`;
+    return `${Math.floor(hr / 24)}d ago`;
+  };
+  return h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      minWidth: 0
+    }
+  }, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 2
+    }
+  }, "RESEARCH DESK"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      marginBottom: 10
+    }
+  }, "Fresh from the research feed"), items.length === 0 ? h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)"
+    }
+  }, feed ? "No fresh research yet today." : "Loading research…") : h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, items.slice(0, 5).map((it, i) => h("div", {
+    key: it.pub_id || i,
+    style: {
+      padding: "8px 0",
+      borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap",
+      marginBottom: 3
+    }
+  }, h("span", {
+    style: {
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: catCls(it.category),
+      border: `1px solid ${catCls(it.category)}`,
+      borderRadius: 5,
+      padding: "1px 6px",
+      opacity: 0.95
+    }
+  }, (it.category_label || "").toUpperCase()), h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, it.content_type_label || ""), h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginLeft: "auto"
+    }
+  }, ago(it.published_at || it.fetched_at))), h("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--tt-text)",
+      lineHeight: 1.4,
+      fontWeight: 600
+    }
+  }, it.title), it.tickers && it.tickers.length > 0 && h("div", {
+    style: {
+      display: "flex",
+      gap: 5,
+      flexWrap: "wrap",
+      marginTop: 5
+    }
+  }, it.tickers.map(tk => h("button", {
+    key: tk,
+    onClick: () => onSelectTicker && onSelectTicker(tk),
+    style: {
+      fontSize: 10.5,
+      fontWeight: 700,
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--tt-text-muted)",
+      background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
+      border: "1px solid var(--tt-border-hi)",
+      borderRadius: 5,
+      padding: "1px 6px",
+      cursor: "pointer"
+    }
+  }, tk)))))), h("a", {
+    href: "/research-desk.html",
+    style: {
+      display: "inline-block",
+      marginTop: 10,
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      textDecoration: "none"
+    }
+  }, "Open Research Desk →"));
+}
+function DayTradePredictions({
+  onSelectTicker
+}) {
+  const [pred, setPred] = useState(null);
+  const [opts, setOpts] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE || ""}/timed/day-trade-predictions`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setPred(j);
+    }).catch(() => {});
+    fetch(`${API_BASE || ""}/timed/options/all?limit=20`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setOpts(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const items = pred && pred.ok && Array.isArray(pred.items) ? pred.items : [];
+  if (!pred) return null;
+  const dtPlays = opts && Array.isArray(opts.day_trade_plays) ? opts.day_trade_plays : [];
+  const dteLabel = opts?.day_trade_expiration ? opts.day_trade_expiration.dte === 0 ? "0DTE" : `${opts.day_trade_expiration.dte}DTE` : null;
+  const playFor = sym => dtPlays.find(p => String(p.ticker || "").toUpperCase() === sym) || null;
+  const gradeColor = g => g === "A" ? "var(--tt-up-soft)" : g === "B" ? "#fbbf24" : g === "C" ? "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+  const fmt = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  }) : "—";
+  if (items.length === 0) return null;
+  return h("section", {
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 4
+    }
+  }, h("div", {
+    className: "tt-sec-title",
+    style: {
+      margin: 0
+    }
+  }, "DAY-TRADE PREDICTIONS"), h("span", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-dim)"
+    }
+  }, pred.grades_note || "")), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 15,
+      marginBottom: 10
+    }
+  }, "How the day may unfold — with a grade after the close"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, items.map(it => {
+    const play = playFor(it.sym);
+    const lv = it.levels;
+    return h("div", {
+      key: it.sym,
+      style: {
+        display: "grid",
+        gridTemplateColumns: "64px 1fr auto",
+        gap: 12,
+        alignItems: "center",
+        padding: "10px 0",
+        borderBottom: "1px solid var(--tt-border)"
+      }
+    }, h("div", null, h("button", {
+      onClick: () => onSelectTicker && onSelectTicker(it.sym),
+      style: {
+        background: "transparent",
+        border: "none",
+        color: "var(--tt-text)",
+        fontWeight: 800,
+        fontSize: 15,
+        fontFamily: "var(--tt-font-mono)",
+        cursor: "pointer",
+        padding: 0
+      }
+    }, it.sym), h("div", {
+      title: it.grade_label,
+      style: {
+        marginTop: 4,
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: gradeColor(it.grade),
+        border: `1px solid ${gradeColor(it.grade)}`,
+        borderRadius: 5,
+        padding: "1px 5px",
+        display: "inline-block"
+      }
+    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades ~4pm" : "—")), h("div", {
+      style: {
+        minWidth: 0
+      }
+    }, it.narrative && h("div", {
+      style: {
+        fontSize: 12.5,
+        color: "var(--tt-text)",
+        lineHeight: 1.45
+      }
+    }, it.narrative), lv && h("div", {
+      style: {
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        marginTop: 5,
+        fontSize: 11,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, Number.isFinite(lv.bull_trigger) && h("span", {
+      style: {
+        color: "var(--tt-up-soft)"
+      }
+    }, `▲ ${fmt(lv.bull_trigger)}${Number.isFinite(lv.bull_target) ? ` → ${fmt(lv.bull_target)}` : ""}`), Number.isFinite(lv.bear_trigger) && h("span", {
+      style: {
+        color: "var(--tt-dn-soft)"
+      }
+    }, `▼ ${fmt(lv.bear_trigger)}${Number.isFinite(lv.bear_target) ? ` → ${fmt(lv.bear_target)}` : ""}`), Number.isFinite(it.close) && h("span", {
+      style: {
+        color: "var(--tt-text-dim)"
+      }
+    }, `close ${fmt(it.close)}`))), play ? h("button", {
+      onClick: () => onSelectTicker && onSelectTicker(it.sym),
+      title: "Today's index-ETF day-trade option play",
+      style: {
+        textAlign: "right",
+        background: "rgba(245,194,92,0.08)",
+        border: "1px solid rgba(245,194,92,0.3)",
+        borderRadius: 8,
+        padding: "6px 9px",
+        cursor: "pointer",
+        color: "var(--tt-text)"
+      }
+    }, h("div", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: "#f5c25c",
+        letterSpacing: "0.03em"
+      }
+    }, dteLabel || "DAY TRADE"), h("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, `${play.direction === "LONG" ? "CALL" : play.direction === "SHORT" ? "PUT" : "STRDL"}${Number.isFinite(Number(play.strike)) ? ` ${fmt(play.strike)}` : ""}`)) : h("div", {
+      style: {
+        fontSize: 10.5,
+        color: "var(--tt-text-dim)",
+        textAlign: "right"
+      }
+    }, "no option play"));
+  })), h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      marginTop: 8,
+      lineHeight: 1.5
+    }
+  }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. Educational, not advice."));
+}
 function TodayHero({
   brief,
   data,
@@ -1799,18 +2134,12 @@ function TodayHero({
     brief,
     data,
     onSelectTicker
-  }), brief && h(IndexPredictionsStrip, {
-    brief,
-    data,
-    onSelectTicker,
-    layout: "compact"
   })), h("div", {
     style: {
       minWidth: 0
     }
-  }, h(OptionsPlaysOfTheDay, {
-    onSelectTicker,
-    layout: "sidebar"
+  }, h(ResearchDeskPanel, {
+    onSelectTicker
   })));
 }
 function QuickGlance({
@@ -2055,18 +2384,42 @@ function MarketState({
   }))));
 }
 function MacroStrip({
-  brief
+  brief,
+  data
 }) {
-  const macro = brief?.infographic?.macro || [];
+  const info = brief?.infographic || {};
+  const macro = info.macro || [];
   const items = Array.isArray(macro) ? macro.slice(0, 12) : [];
-  if (items.length === 0) return null;
+  const sectors = Array.isArray(info.sectors) ? info.sectors.filter(s => s && (s.sym || s.label)) : [];
+  const sectorsSorted = sectors.map(s => ({
+    sym: String(s.sym || s.label || "").toUpperCase(),
+    chgPct: Number(s.chgPct),
+    status: s.status
+  })).filter(s => s.sym).sort((a, b) => (Number.isFinite(b.chgPct) ? b.chgPct : -99) - (Number.isFinite(a.chgPct) ? a.chgPct : -99));
+  const SECTOR_NAME = {
+    XLK: "Technology",
+    XLF: "Financials",
+    XLY: "Consumer Disc.",
+    XLC: "Communications",
+    XLV: "Health Care",
+    XLI: "Industrials",
+    XLE: "Energy",
+    XLB: "Materials",
+    XLP: "Staples",
+    XLU: "Utilities",
+    XLRE: "Real Estate"
+  };
+  const leaders = sectorsSorted.filter(s => Number.isFinite(s.chgPct) && s.chgPct > 0).slice(0, 2);
+  const laggards = sectorsSorted.filter(s => Number.isFinite(s.chgPct) && s.chgPct < 0).slice(-2).reverse();
+  const themeCallout = leaders.length || laggards.length ? [leaders.length ? `Leadership: ${leaders.map(s => SECTOR_NAME[s.sym] || s.sym).join(" + ")}` : null, laggards.length ? `Lagging: ${laggards.map(s => SECTOR_NAME[s.sym] || s.sym).join(" + ")}` : null].filter(Boolean).join(" · ") : null;
+  if (items.length === 0 && sectorsSorted.length === 0) return null;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "MACRO ON THE TAPE"), h("div", {
+  }, "CROSS-ASSET & SECTOR SIGNALS"), h("div", {
     className: "tt-sec-h"
-  }, "Cross-asset signals the model is weighting"), h("div", {
+  }, "What the model is weighting across assets + S&P sectors"), items.length > 0 && h("div", {
     className: "macro-row"
   }, items.map((m, i) => {
     if (typeof m === "string") {
@@ -2101,7 +2454,53 @@ function MacroStrip({
         fontWeight: 700
       }
     }, (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"));
-  })));
+  })), sectorsSorted.length > 0 && h("div", {
+    style: {
+      marginTop: 12
+    }
+  }, h("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: "var(--tt-text-muted)",
+      marginBottom: 6
+    }
+  }, "S&P SECTORS"), h("div", {
+    className: "macro-row"
+  }, sectorsSorted.map((s, i) => {
+    const hasChg = Number.isFinite(s.chgPct);
+    const col = hasChg ? s.chgPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+    return h("span", {
+      key: i,
+      className: "macro-chip",
+      title: SECTOR_NAME[s.sym] || s.sym
+    }, h("span", {
+      style: {
+        color: "var(--tt-text)",
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700
+      }
+    }, s.sym), hasChg && h("span", {
+      style: {
+        color: col,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 11,
+        fontWeight: 700
+      }
+    }, (s.chgPct >= 0 ? "+" : "") + s.chgPct.toFixed(2) + "%"));
+  })), themeCallout && h("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, "Rotation to mind: "), themeCallout, ".")));
 }
 function FocusRail({
   data,
@@ -4350,21 +4749,36 @@ function TodayApp() {
   }), h("main", null, h(StatusHeader, {
     cal,
     briefDate: brief?.date
-  }), h(TodayHero, {
+  }), data ? h(MarketState, {
+    data,
+    onSelectTicker
+  }) : h(MarketStateSkeleton, null), h(TodayHero, {
     brief,
     data,
     earnings,
     onSelectTicker
+  }), h(DayTradePredictions, {
+    onSelectTicker
+  }), h(OptionsPlaysOfTheDay, {
+    onSelectTicker,
+    layout: "row"
   }), h(OpenPositionsPreview, {
     onSelectTicker
-  }), data ? h(MarketState, {
-    data,
-    onSelectTicker
-  }) : h(MarketStateSkeleton, null), data && h(FocusRail, {
-    data,
-    onSelectTicker
   }), brief && h(MacroStrip, {
-    brief
+    brief,
+    data
+  }), h("div", {
+    className: "today-tri-row",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+      gap: 14,
+      marginBottom: 14,
+      alignItems: "start"
+    }
+  }, data && h(FocusRail, {
+    data,
+    onSelectTicker
   }), data && h(TopMovers, {
     data,
     onSelectTicker,
@@ -4373,7 +4787,7 @@ function TodayApp() {
     earnings,
     onSelectTicker,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), data ? h(AnalysisControls, {
+  })), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
     visibleCount: visible.length,
@@ -4783,6 +5197,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780609301261:285731520
+// cache-bust:1780622416424:426531197
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780622416424:426531197

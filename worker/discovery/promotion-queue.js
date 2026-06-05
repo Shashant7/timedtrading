@@ -52,6 +52,7 @@ const W_SOCIAL = 10;
 // is a normative tilt) but large enough to break ties between two ~50
 // scores in favour of the on-thesis name.
 const W_STRATEGY = 8;
+const W_TACTICAL = 4; // max ± points from the gated FSD tactical-overlay nudge
 
 // ── Quality floors ───────────────────────────────────────────────────────
 const HARD_FLOOR_MARKET_CAP = 2_000_000_000; // $2B
@@ -554,37 +555,93 @@ function buildThesisText(ticker, latest, components, redFlags, totalScore, statu
 // the queue actively de-prioritises off-thesis candidates without rejecting
 // them outright (the score gates already handle that). Pure data join —
 // no I/O.
-function scoreStrategyAlignment(sym, latest) {
+function scoreStrategyAlignment(sym, latest, tacticalCtx) {
   try {
     const aligned = getStrategyForTicker(sym, {
       sector: latest?.sector,
       market_cap: Number(latest?.market_cap) || null,
     }, getThemesForTicker);
-    if (!aligned || aligned.stance === "neutral" || aligned.multiplier === 1.0) {
-      return { pts: 0, stance: "neutral", multiplier: 1.0, tier: null, reason: null };
+    const base = (!aligned || aligned.stance === "neutral" || aligned.multiplier === 1.0)
+      ? { pts: 0, stance: "neutral", multiplier: 1.0, tier: null, reason: null, sector: aligned?.sector || latest?.sector || null, themes: (aligned?.themes_matched || []).map(t => t.theme) }
+      : (() => {
+          // multiplier semantics: 1.25 = OW strongest, 0.90 = UW strongest.
+          const delta = aligned.multiplier - 1.0;
+          const scale = Math.min(1.0, Math.abs(delta) / 0.25);
+          const sign = delta >= 0 ? 1 : -1;
+          return {
+            pts: Math.round(sign * scale * W_STRATEGY),
+            stance: aligned.stance,
+            multiplier: aligned.multiplier,
+            tier: aligned.tier,
+            reason: aligned.reason,
+            sector: aligned.sector,
+            themes: (aligned.themes_matched || []).map(t => t.theme),
+          };
+        })();
+
+    // 2026-06-04 — Optional, gated FSD tactical-overlay nudge. When the live
+    // CRO tactical overlay favors (or cautions on) a theme/sector this name
+    // belongs to, add a small bounded ±W_TACTICAL. Default OFF
+    // (cro_tactical_rank_nudge_enabled). Never flips the structural stance.
+    if (tacticalCtx && tacticalCtx.enabled) {
+      let nudge = 0;
+      const reasons = [];
+      for (const th of (base.themes || [])) {
+        const s = tacticalCtx.themeDir.get(th);
+        if (s) { nudge += s; reasons.push(`${th}${s > 0 ? "+" : "-"}`); }
+      }
+      const secSign = base.sector ? tacticalCtx.sectorDir.get(base.sector) : null;
+      if (secSign) { nudge += secSign; reasons.push(`${base.sector}${secSign > 0 ? "+" : "-"}`); }
+      if (nudge !== 0) {
+        const capped = Math.max(-1, Math.min(1, nudge)) * W_TACTICAL;
+        base.pts += Math.round(capped);
+        base.tactical_nudge = Math.round(capped);
+        base.tactical_reason = reasons.slice(0, 4).join(", ");
+      }
     }
-    // multiplier semantics: 1.25 = OW strongest, 0.90 = UW strongest.
-    // Map to symmetric ±W_STRATEGY around 1.0.
-    const delta = aligned.multiplier - 1.0; // in [-0.10, +0.25] range
-    const scale = Math.min(1.0, Math.abs(delta) / 0.25);
-    const sign = delta >= 0 ? 1 : -1;
-    const pts = Math.round(sign * scale * W_STRATEGY);
-    return {
-      pts,
-      stance: aligned.stance,
-      multiplier: aligned.multiplier,
-      tier: aligned.tier,
-      reason: aligned.reason,
-      sector: aligned.sector,
-      themes: (aligned.themes_matched || []).map(t => t.theme),
-    };
+    return base;
   } catch (_) {
     return { pts: 0, stance: "neutral", multiplier: 1.0, tier: null, reason: null };
   }
 }
 
+// Build the (gated) FSD tactical-overlay nudge context once per scoring run.
+// Reads the operator flag + the live tactical override, mapping affected
+// themes/sectors to a favor (+1) / caution (-1) direction.
+async function buildTacticalNudgeContext(env) {
+  const ctx = { enabled: false, themeDir: new Map(), sectorDir: new Map() };
+  try {
+    if (!env?.DB) return ctx;
+    // 2026-06-05 — operator flipped this ON by default. Disabled only when the
+    // model_config row is explicitly false.
+    const cfg = await env.DB.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'cro_tactical_rank_nudge_enabled'`,
+    ).first().catch(() => null);
+    const v = cfg ? String(cfg.config_value).toLowerCase() : "true";
+    if (v === "false" || v === "0") return ctx;
+    const raw = await env?.KV?.get("cro:tactical_overrides");
+    const blob = raw ? JSON.parse(raw) : null;
+    const signals = Array.isArray(blob?.tactical_signals) ? blob.tactical_signals : [];
+    if (signals.length === 0) return ctx;
+    const cautionRe = /(caution|bearish|under|reduce|fade|trim|down|stretch)/i;
+    for (const sig of signals) {
+      const dir = String(sig.direction || "");
+      const sign = cautionRe.test(dir) ? -1 : 1;
+      for (const th of (sig.affected_tier1_themes || [])) {
+        ctx.themeDir.set(th, sign);
+      }
+      // affected_sectors_overweight are explicit overweight calls → favorable.
+      for (const sec of (sig.affected_sectors_overweight || [])) {
+        ctx.sectorDir.set(sec, 1);
+      }
+    }
+    ctx.enabled = ctx.themeDir.size > 0 || ctx.sectorDir.size > 0;
+  } catch (_) { /* gate stays off on any error */ }
+  return ctx;
+}
+
 // ── Main scorer ──────────────────────────────────────────────────────────
-function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary, socialSummary) {
+function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary, socialSummary, tacticalCtx) {
   const sym = String(ticker || "").toUpperCase();
   const appearances = (allAppearances || []).filter((a) => String(a.ticker || "").toUpperCase() === sym);
   const themes = getThemesForTicker(sym);
@@ -598,7 +655,7 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const macroResult = scoreMacro(themes, macroSnapshot, latest?.sector);
   const peerResult = scorePeer(themes, coverageGapsSummary);
   const socialResult = scoreSocial(socialSummary);
-  const strategyResult = scoreStrategyAlignment(sym, latest);
+  const strategyResult = scoreStrategyAlignment(sym, latest, tacticalCtx);
 
   const components = {
     sustain: sustainPts,
@@ -737,6 +794,9 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   const gapsRaw = await KV.get("timed:discovery:coverage-gaps-summary");
   const coverageGapsSummary = gapsRaw ? JSON.parse(gapsRaw) : null;
 
+  // Gated FSD tactical-overlay nudge context (default OFF).
+  const tacticalCtx = await buildTacticalNudgeContext(env);
+
   // 5. Score every unique ticker.
   const now = Date.now();
   const scoredResults = [];
@@ -745,7 +805,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
       const result = scoreCandidate(
         sym, latestBySym[sym], candidates, themeActivityByName,
         newsSummaries[sym], insiderSummaries[sym], macroSnapshot, coverageGapsSummary,
-        socialSummaries[sym],
+        socialSummaries[sym], tacticalCtx,
       );
       result.in_universe = inUniverseSet.has(sym);
       // Annotate signals payload so the UI can render the badge without

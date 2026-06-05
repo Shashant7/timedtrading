@@ -504,3 +504,63 @@ export async function getCROBriefAddendum(env) {
   }
   return lines.join("\n");
 }
+
+// ── Fresh FSD synthesis addendum for the Daily Brief / Intraday Pulse ────────
+/**
+ * Surfaces the FRESHEST FundStrat publications synthesis so the Daily Brief +
+ * Intraday Pulse stay on-theme with what FSD published THROUGH THE DAY — not
+ * just the once-nightly CRO note. Built from the influence ledger so it
+ * reflects the same lineage the Research Desk shows: the live tactical
+ * overlay + the most recent TT-voice publication takes + themes/sectors in
+ * motion. Compact (≤ ~900 chars) to fit the prompt budget. Returns a
+ * single-line stub when nothing is ingested.
+ *
+ * @param env
+ * @param opts { lookbackHours?, maxItems? }
+ */
+export async function getFSDSynthesisAddendum(env, { lookbackHours = 30, maxItems = 4 } = {}) {
+  let ledger = null;
+  try {
+    const { buildInfluenceLedger } = await import("./influence-ledger.js");
+    ledger = await buildInfluenceLedger(env, { limit: 12, lookbackHours });
+  } catch (_) { ledger = null; }
+  if (!ledger || !ledger.ok) {
+    return "## FundStrat Intel — no fresh publications ingested today (relying on the structural playbook + CRO note above).";
+  }
+
+  const items = (ledger.items || []).filter((it) => it.in_window && it.fetch_status === "ok");
+  const live = ledger.active_overlay;
+  const lines = ["## FundStrat Intel — fresh synthesis (keep today's update ON-THEME with these)"];
+
+  if (live && live.active && (live.overlay || live.title)) {
+    lines.push(`Live tactical overlay (FSD-derived, applied): ${(live.overlay || live.title).slice(0, 240)}`);
+  } else {
+    lines.push("No tactical overlay is live — read against the structural playbook above.");
+  }
+
+  if (items.length > 0) {
+    lines.push(`Latest publications (TT voice — paraphrased, attribute to FundStrat):`);
+    for (const it of items.slice(0, maxItems)) {
+      const headline = (it.tt_title || it.title || "").slice(0, 120);
+      const cat = it.category_label || it.category || "";
+      const take = (it.tt_summary || "").slice(0, 200);
+      lines.push(`• [${cat}] ${headline}${take ? ` — ${take}` : ""}`);
+    }
+    // Themes + sectors in motion across the window.
+    const themes = new Set();
+    const sectors = new Set();
+    for (const it of items) {
+      for (const t of (it.themes_touched || [])) themes.add(t);
+      for (const s of (it.sectors_touched || [])) sectors.add(s);
+    }
+    if (themes.size > 0) lines.push(`Themes in motion: ${Array.from(themes).slice(0, 8).join(", ")}.`);
+    if (sectors.size > 0) lines.push(`Sectors in motion: ${Array.from(sectors).slice(0, 8).join(", ")}.`);
+  } else {
+    lines.push("No new publications in the last day — the overlay above is the current read.");
+  }
+
+  lines.push(
+    "DIRECTIVE: Thread today's narrative through these FSD themes where the live tape supports them, in TT voice (concise, technical, no second-person, never name the source brand in body copy — attribution renders separately). Call out explicitly when the tape DIVERGES from the FSD read.",
+  );
+  return lines.join("\n");
+}

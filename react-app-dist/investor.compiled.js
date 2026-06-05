@@ -356,6 +356,137 @@ function AccountStrip() {
     className: "inv-account-strip__sub"
   }, ` · ${winRate.toFixed(0)}% WR`)))));
 }
+function HowToReadCard() {
+  const KEY = "tt_inv_guide_open_v1";
+  const [open, setOpen] = React.useState(() => {
+    try {
+      return localStorage.getItem(KEY) !== "0";
+    } catch (_) {
+      return true;
+    }
+  });
+  const toggle = () => {
+    setOpen(v => {
+      const n = !v;
+      try {
+        localStorage.setItem(KEY, n ? "1" : "0");
+      } catch (_) {}
+      return n;
+    });
+  };
+  const lane = (name, when) => h("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      padding: "5px 0",
+      borderBottom: "1px solid var(--tt-border)",
+      fontSize: 12
+    }
+  }, h("strong", {
+    style: {
+      minWidth: 124,
+      color: "var(--tt-text)"
+    }
+  }, name), h("span", {
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, when));
+  const el = (label, desc) => h("div", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.5
+    }
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, label), " — ", h("span", {
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, desc));
+  return h("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 14
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "label"
+  }, "HOW TO READ THIS PAGE"), h("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text)",
+      fontWeight: 600,
+      marginTop: 2
+    }
+  }, "The model's live, long-horizon investment portfolio")), h("button", {
+    onClick: toggle,
+    style: {
+      background: "transparent",
+      border: "1px solid var(--tt-border-hi)",
+      color: "var(--tt-text-muted)",
+      borderRadius: 8,
+      padding: "4px 10px",
+      fontSize: 12,
+      cursor: "pointer"
+    }
+  }, open ? "Hide guide" : "Show guide")), open && h("div", {
+    style: {
+      marginTop: 12,
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+      gap: 16
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 6
+    }
+  }, "WHAT THIS IS"), h("p", {
+    style: {
+      fontSize: 12.5,
+      lineHeight: 1.55,
+      color: "var(--tt-text-muted)",
+      margin: 0
+    }
+  }, "Multi-week to multi-month positions the model holds in a simulated portfolio — not personal advice. ", "Read the lanes to see conviction, the cards for the levels and returns, and click any card for the full guide."), h("div", {
+    className: "tt-sec-title",
+    style: {
+      margin: "12px 0 6px"
+    }
+  }, "ON A CARD"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, el("Stage chip", "the model's stance: Accumulate, Core Hold, Hold & Watch, Reduce."), el("OWNED", "the simulated portfolio holds this name; shows shares, avg entry, and P&L."), el("BUY / RS HI", "in a Buy Zone / a relative-strength leader."), el("1M · 3M", "trailing returns; S = score, RS = relative-strength rank."), el("LAST", "the most recent model action (Buy / Sell / DCA) and when."))), h("div", null, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 6
+    }
+  }, "THE LANES — AND HOW TO ACT"), lane("On Radar", "researching — wait for a Buy Zone."), lane("Accumulate", "the model is buying / adding here."), lane("Core Hold", "established winner — hold for the trend."), lane("Hold & Watch", "owned, no active signal — monitor."), lane("Reduce", "thesis weakening — trimming soon."), h("p", {
+    style: {
+      fontSize: 12,
+      lineHeight: 1.5,
+      color: "var(--tt-text-muted)",
+      margin: "10px 0 0"
+    }
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, "Tip: "), "the model acts on its own schedule. Use the lanes to understand intent, and click a card for the full chart + per-ticker guide in the right rail."))));
+}
 function InvestorApp() {
   const {
     saved,
@@ -540,7 +671,7 @@ function InvestorApp() {
     className: "label"
   }, "INVESTOR"), h("h1", null, "Long-horizon positions"), h("div", {
     className: "sub"
-  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), h("section", {
+  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), h(HowToReadCard, null), h("section", {
     className: "tt-row inv-controls"
   }, h("div", {
     className: "inv-search-wrap"
@@ -650,6 +781,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780609301261:285731520
+// cache-bust:1780621299506:984343530
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780621299506:984343530

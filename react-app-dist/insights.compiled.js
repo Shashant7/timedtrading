@@ -1405,6 +1405,175 @@ function ActiveStrategyPanel({
     }
   }, "The playbook biases the AI CIO, Daily Brief, and Discovery scoring. It is editorial guidance — not a guarantee. Update when the underlying research deck changes.")));
 }
+function ResearchNotePanel({
+  note,
+  education
+}) {
+  const hasNote = note && note.ok !== false && note.verdict;
+  const edu = education && education.ok !== false && Array.isArray(education.education) ? education.education : [];
+  if (!hasNote && edu.length === 0) return null;
+  const obs = hasNote && Array.isArray(note.observations) ? note.observations.slice(0, 4) : [];
+  const indicators = hasNote && Array.isArray(note.early_indicators) ? note.early_indicators.slice(0, 3) : [];
+  return h("section", {
+    className: "tt-row",
+    id: "research-desk"
+  }, h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "RESEARCH DESK · DAILY READ"), h("div", {
+    className: "tt-sec-h"
+  }, "What the desk is watching")), hasNote && h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, note.as_of_date || "")), hasNote ? h("p", {
+    style: {
+      fontSize: 14,
+      color: "var(--tt-text)",
+      lineHeight: 1.6,
+      margin: 0
+    }
+  }, note.verdict) : h("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--tt-text-muted)",
+      margin: 0
+    }
+  }, "Today's research note posts after the market-close synthesis. Concepts below explain the current playbook."), obs.length > 0 && h("div", null, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 6
+    }
+  }, "OBSERVATIONS"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, obs.map((o, i) => h("div", {
+    key: i,
+    style: {
+      padding: 10,
+      borderRadius: 8,
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid var(--tt-border)"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, h("strong", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text)"
+    }
+  }, o.section || ""), o.source && h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, o.source)), h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.45,
+      marginTop: 3
+    }
+  }, o.text || ""))))), indicators.length > 0 && h("div", null, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 6
+    }
+  }, "EARLY INDICATORS"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, indicators.map((e, i) => h("div", {
+    key: i,
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.45
+    }
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, e.indicator || ""), " — ", e.implication || "")))), edu.length > 0 && h("div", null, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 6
+    }
+  }, "CONCEPTS EXPLAINED"), h("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+      gap: 8
+    }
+  }, edu.slice(0, 10).map((e, i) => h("div", {
+    key: i,
+    style: {
+      padding: 10,
+      borderRadius: 8,
+      background: e.fresh ? "rgba(103,232,249,0.05)" : "rgba(255,255,255,0.02)",
+      border: e.fresh ? "1px solid rgba(103,232,249,0.25)" : "1px solid var(--tt-border)"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 6,
+      marginBottom: 3
+    }
+  }, h("strong", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text)"
+    }
+  }, e.term), e.fresh && h("span", {
+    style: {
+      fontSize: 9,
+      fontWeight: 700,
+      color: "#67e8f9",
+      letterSpacing: "0.05em"
+    }
+  }, "NEW")), h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.45
+    }
+  }, e.plain))))), h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      lineHeight: 1.5,
+      paddingTop: 8,
+      borderTop: "1px solid var(--tt-border)"
+    }
+  }, "The desk's daily synthesis blends external research with this account's own model state. Educational context — not investment advice.")));
+}
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
@@ -1412,13 +1581,19 @@ function InsightsApp() {
   const [brief, setBrief] = useState(null);
   const [universeChanges, setUniverseChanges] = useState(null);
   const [strategy, setStrategy] = useState(null);
+  const [croNote, setCroNote] = useState(null);
+  const [education, setEducation] = useState(null);
   const [error, setError] = useState(null);
   const [dim, setDim] = useState("setup_name");
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [a, h_, b, u, s, sg] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/strategy`, {
+        const [a, h_, b, u, s, sg, cn, ed] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/strategy`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/latest`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/education`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null)]);
         if (!alive) return;
@@ -1428,6 +1603,8 @@ function InsightsApp() {
         if (u?.ok) setUniverseChanges(u.events || []);
         if (s?.ok) setSummary(s);
         if (sg?.ok) setStrategy(sg);
+        if (cn) setCroNote(cn);
+        if (ed) setEducation(ed);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -1449,6 +1626,9 @@ function InsightsApp() {
     className: "sub"
   }, "How the model is performing under the hood. The engine analyses each setup type and learns from outcomes; this page surfaces a high-level view. ", "Every closed trade contributes back to the AI CIO's weekly retrospective — patterns that work get more weight, patterns that don't get tightened."))), h(ActiveStrategyPanel, {
     data: strategy
+  }), h(ResearchNotePanel, {
+    note: croNote,
+    education
   }), h(ModelStatus, {
     allMeta,
     history,
@@ -1515,6 +1695,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780609301261:285731520
+// cache-bust:1780616960219:875881815
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780616960219:875881815

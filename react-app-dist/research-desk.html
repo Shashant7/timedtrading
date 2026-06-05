@@ -15,10 +15,10 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="auth-gate.js?v=1780610079102"></script>
-    <script src="tt-fetch-cache.js?v=1780610079102"></script>
-    <script src="tt-bottom-nav.js?v=1780610079102" defer></script>
-    <script src="tt-nav-extras.js?v=1780610079102" defer></script>
+    <script src="auth-gate.js?v=1780616794021"></script>
+    <script src="tt-fetch-cache.js?v=1780616794021"></script>
+    <script src="tt-bottom-nav.js?v=1780616794021" defer></script>
+    <script src="tt-nav-extras.js?v=1780616794021" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -169,6 +169,43 @@
         padding: 8px 12px; border-radius: 8px; font-size: 12px; margin-top: 8px;
         background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24;
       }
+      .ledger-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+      .stat {
+        flex: 1 1 90px; min-width: 90px; background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border); border-radius: 10px; padding: 10px 12px;
+      }
+      .stat .n { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+      .stat .l { font-size: 11px; color: var(--tt-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .flow-card {
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border);
+        border-radius: 10px; padding: 14px; margin-bottom: 10px;
+      }
+      .flow-card.live { border-color: rgba(52,211,153,0.45); box-shadow: 0 0 0 1px rgba(52,211,153,0.15); }
+      .flow-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; justify-content: space-between; }
+      .flow-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; }
+      .flow-step {
+        display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+        border-radius: 999px; border: 1px solid var(--tt-border-hi);
+        background: var(--tt-bg-surface); color: var(--tt-text-muted);
+      }
+      .flow-step.done { color: #34d399; border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.08); }
+      .flow-step.skip { color: var(--tt-text-dim); opacity: 0.7; }
+      .flow-arrow { color: var(--tt-text-dim); }
+      .tt-quote {
+        font-size: 13px; line-height: 1.55; margin: 10px 0 0;
+        padding: 10px 12px; border-left: 3px solid rgba(103,232,249,0.5);
+        background: rgba(103,232,249,0.05); border-radius: 0 8px 8px 0;
+      }
+      .tag {
+        display: inline-block; font-size: 10.5px; padding: 2px 7px; border-radius: 6px;
+        margin: 2px 4px 2px 0; background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border-hi); color: var(--tt-text-muted);
+      }
+      .cat-actionable { color: #93c5fd; border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.08); }
+      .cat-structural { color: #f59e0b; border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+      .cat-editorial  { color: #d8b4fe; border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.08); }
+      .cat-ingested_only { color: var(--tt-text-muted); }
+      .cat-fetch_failed { color: #fb7185; border-color: rgba(244,63,94,0.4); background: rgba(244,63,94,0.08); }
     </style>
   </head>
   <body>
@@ -196,8 +233,8 @@
       </main>
     </div>
 
-    <script src="research-desk.compiled.js?v=1780610079102"></script>
+    <script src="research-desk.compiled.js?v=1780616794021"></script>
   </body>
 </html>
 
-<!-- cache-bust:1780610079102:744911667 -->
+<!-- cache-bust:1780616794021:248643169 -->
