@@ -40,20 +40,31 @@ export const DEFAULT_FSD_CONFIG = {
   // counts are config-tunable so the operator can throttle if needed.
   wp_rest_list_path: "/wp-json/wp/v2/posts",
   wp_rest_list_query: "_fields=id,title,link,date,categories,excerpt",
+  // 2026-06-05 — Verified against the live FSD WP REST API: the long-form
+  // notes (Tom Lee "First Word", Mark Newton "Daily Technical Strategy",
+  // "Daily Earnings Update", single-stock notes) all live under /wp/v2/posts;
+  // FSD also exposes a dedicated `technicals` custom post type. FlashInsights
+  // are fsi-alert / fsi-alert-crypto. These four are the research surfaces.
   wp_rest_post_types: [
-    { path: "/wp-json/wp/v2/posts",            label: "post",        per_page: 25 },
-    { path: "/wp-json/wp/v2/fsi-alert",        label: "fsi-alert",   per_page: 12 },
+    { path: "/wp-json/wp/v2/posts",            label: "post",             per_page: 25 },
+    { path: "/wp-json/wp/v2/technicals",       label: "technicals",       per_page: 10 },
+    { path: "/wp-json/wp/v2/fsi-alert",        label: "fsi-alert",        per_page: 12 },
     { path: "/wp-json/wp/v2/fsi-alert-crypto", label: "fsi-alert-crypto", per_page: 6 },
   ],
   // 2026-06-05 — Auto-discover custom WP post types via /wp-json/wp/v2/types
-  // so any FSD series (e.g. "First Word", "Daily Technical Strategy", "Market
-  // Update", "Earnings Daily") is captured even if it lives under a custom
-  // post-type slug, not /posts. Discovered types are merged with the explicit
-  // list above (explicit wins on dup). Set false to use only the explicit list.
+  // so any NEW FSD research series is captured even under a custom slug.
+  // Discovered types merge with the explicit list (explicit wins on dup).
+  // The skip-list excludes WP built-ins AND the known non-research FSD types
+  // (product/event/community/guide/announcements/fi_template) so discovery
+  // never pulls store/community noise into the research pipeline.
   wp_rest_discover_types: true,
   wp_rest_discover_per_page: 10,
-  // Post-type slugs to skip during discovery (WP built-ins + noise).
-  wp_rest_discover_skip: ["page", "attachment", "nav_menu_item", "wp_block", "wp_template", "wp_template_part", "wp_navigation", "wp_global_styles", "amp_validated_url", "custom_css", "customize_changeset"],
+  wp_rest_discover_skip: [
+    "page", "attachment", "nav_menu_item", "wp_block", "wp_template", "wp_template_part",
+    "wp_navigation", "wp_global_styles", "wp_font_family", "wp_font_face", "fi_template",
+    "amp_validated_url", "custom_css", "customize_changeset",
+    "product", "event", "community", "guide", "announcements",
+  ],
   wp_rest_post_path: "/wp-json/wp/v2/posts",  // legacy single-type fetch path
   wp_rest_post_query: "_fields=id,title,link,date,categories,content,excerpt",
   members_flashinsights_path: "/members/flashinsights/",
