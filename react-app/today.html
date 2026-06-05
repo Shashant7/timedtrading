@@ -41,6 +41,21 @@
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
+      /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
+         One scrolling row of chips so a category stays short vertically. */
+      .tt-strip-scroll {
+        display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px;
+        scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+      }
+      .tt-strip-scroll::-webkit-scrollbar { height: 6px; }
+      .tt-strip-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+      .tt-strip-chip {
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+        padding: 6px 11px; border-radius: 999px; cursor: pointer;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.10);
+        color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
+      }
+      .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
       :root {
         --tt-bg-base: #0b0e11;
         --tt-bg-surface: rgba(255,255,255,0.025);
@@ -2489,9 +2504,13 @@
           let alive = true;
           (async () => {
             try {
-              const r = await fetch(`${API_BASE}/timed/options/all?limit=10`, { credentials: "include", cache: "no-store" });
-              if (!r.ok) return;
-              const j = await r.json();
+              // 2026-06-05 — Shared cache so the Day-Trade Predictions section
+              // and this section hit /timed/options/all only once.
+              const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
+              const j = window.TTFetchCache
+                ? await window.TTFetchCache.get(_optsUrl, { ttlMs: 60000, maxAgeMs: 300000, fetchOpts: { credentials: "include" } })
+                : await (async () => { const r = await fetch(_optsUrl, { credentials: "include", cache: "no-store" }); return r.ok ? r.json() : null; })();
+              if (!j) return;
               if (alive && j?.ok && Array.isArray(j.plays)) {
                 // Filter to actionable modes only (RIDE / DRIFT / READY).
                 // WAIT plays clutter the row.
@@ -3002,8 +3021,17 @@
           let alive = true;
           fetch(`${API_BASE || ""}/timed/day-trade-predictions`, { credentials: "include", cache: "no-store" })
             .then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive) setPred(j); }).catch(() => {});
-          fetch(`${API_BASE || ""}/timed/options/all?limit=20`, { credentials: "include", cache: "no-store" })
-            .then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive) setOpts(j); }).catch(() => {});
+          // 2026-06-05 — Share the options fetch with OptionsPlaysOfTheDay via
+          // TTFetchCache (same URL) so the heavy /timed/options/all endpoint is
+          // hit ONCE, not twice (the duplicate call was contributing to 503s).
+          const _optsUrl = `${API_BASE || ""}/timed/options/all?limit=10`;
+          if (window.TTFetchCache) {
+            window.TTFetchCache.get(_optsUrl, { ttlMs: 60000, maxAgeMs: 300000, fetchOpts: { credentials: "include" } })
+              .then((j) => { if (alive && j) setOpts(j); }).catch(() => {});
+          } else {
+            fetch(_optsUrl, { credentials: "include", cache: "no-store" })
+              .then((r) => (r.ok ? r.json() : null)).then((j) => { if (alive) setOpts(j); }).catch(() => {});
+          }
           return () => { alive = false; };
         }, []);
         const items = (pred && pred.ok && Array.isArray(pred.items)) ? pred.items : [];
@@ -3707,7 +3735,7 @@
               ),
         );
       }
-      function TopMovers({ data, onSelectTicker, universe }) {
+      function TopMovers({ data, onSelectTicker, universe, strip }) {
         const arr = useMemo(() => {
           if (!data) return [];
           return Object.values(data).filter(t => t && t.ticker);
@@ -3756,6 +3784,33 @@
 
         const hasExt = extGain.length > 0 || extLoss.length > 0;
 
+        // 2026-06-05 — Compact horizontal STRIP: one scrolling row of mover
+        // chips (gainers then losers) so the category stays short vertically.
+        if (strip) {
+          const chips = [...rthGain.slice(0, 8), ...rthLoss.slice(0, 8)];
+          if (chips.length === 0) return null;
+          const moverChip = (t) => {
+            const sym = String(t.ticker || t.sym || "").toUpperCase();
+            const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
+            const pct = Number(dc?.dayPct);
+            const up = Number.isFinite(pct) && pct >= 0;
+            return h("button", {
+              key: sym,
+              onClick: () => onSelectTicker && onSelectTicker(sym),
+              className: "tt-strip-chip",
+              title: sym,
+            },
+              h(TickerLogo, { sym, size: 18 }),
+              h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
+              Number.isFinite(pct) && h("span", { style: { fontSize: 11, fontWeight: 700, color: up ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontFamily: "var(--tt-font-mono)" } }, `${up ? "+" : ""}${pct.toFixed(2)}%`),
+            );
+          };
+          return h("section", { className: "tt-row" },
+            h("div", { className: "tt-sec-title" }, "TOP MOVERS"),
+            h("div", { className: "tt-strip-scroll" }, chips.map(moverChip)),
+          );
+        }
+
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "TOP MOVERS"),
           h("div", { className: "tt-sec-h" }, "Who's running and who's getting hit"),
@@ -3789,7 +3844,7 @@
       // .tt-trow component (same shape as MoverRow and FocusRail).
       // Logo + bold symbol + hour chip + EPS estimate, fully
       // clickable via onSelectTicker → opens the right rail.
-      function EarningsStrip({ earnings, universe, onSelectTicker }) {
+      function EarningsStrip({ earnings, universe, onSelectTicker, strip }) {
         const events = safeArr(earnings?.events).slice();
         if (events.length === 0) return null;
         const HOUR_ORDER = (h) => {
@@ -3828,6 +3883,32 @@
           if (hl.startsWith("amc") || hl.includes("after"))  return "amc";
           return "unk";
         };
+
+        // 2026-06-05 — Compact horizontal STRIP: one scrolling row of earnings
+        // chips (universe-first ordering preserved) to save vertical space.
+        if (strip) {
+          const chips = events.slice(0, 24);
+          return h("section", { className: "tt-row" },
+            h("div", { className: "tt-sec-title" }, "EVENT-DRIVEN RISK \u2014 EARNINGS"),
+            h("div", { className: "tt-strip-scroll" },
+              chips.map((ev, i) => {
+                const sym = String(ev?.symbol || "").toUpperCase();
+                const uni = uniSet.has(sym);
+                return h("button", {
+                  key: `${sym}-${i}`,
+                  onClick: () => onSelectTicker && onSelectTicker(sym),
+                  className: "tt-strip-chip",
+                  title: `${sym} \u00b7 ${ev?.date || ""} ${ev?.hour || ""}`,
+                  style: uni ? { borderColor: "rgba(52,211,153,0.4)" } : undefined,
+                },
+                  h(TickerLogo, { sym, size: 18 }),
+                  h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
+                  h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)" } }, `${String(ev?.date || "").slice(5)} ${hourClass(ev?.hour).toUpperCase()}`),
+                );
+              }),
+            ),
+          );
+        }
 
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "EARNINGS THIS WEEK"),
@@ -5546,21 +5627,22 @@
             h(OpenPositionsPreview, { onSelectTicker }),
             // Cross-asset + S&P sectors + theme callouts.
             brief && h(MacroStrip, { brief, data }),
-            // 2026-06-05 — Focus / Top Movers / Event-driven made horizontal
-            // so they stop dominating vertical space.
-            h("div", { className: "today-tri-row", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14, alignItems: "start" } },
-              data && h(FocusRail, { data, onSelectTicker }),
-              data && h(TopMovers, {
-                data,
-                onSelectTicker,
-                universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
-              }),
-              earnings && h(EarningsStrip, {
-                earnings,
-                onSelectTicker,
-                universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
-              }),
-            ),
+            // 2026-06-05 — Focus / Top Movers / Event-driven each render as a
+            // full-width horizontal STRIP (one category per row, items scroll
+            // horizontally within the strip) — not side-by-side columns.
+            data && h(FocusRail, { data, onSelectTicker, strip: true }),
+            data && h(TopMovers, {
+              data,
+              onSelectTicker,
+              strip: true,
+              universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
+            }),
+            earnings && h(EarningsStrip, {
+              earnings,
+              onSelectTicker,
+              strip: true,
+              universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
+            }),
             // ── Analysis (interactive) ──
             data
               ? h(AnalysisControls, {
