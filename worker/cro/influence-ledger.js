@@ -20,6 +20,7 @@
 const PUBLICATIONS_TABLE = "cro_publications";
 const REWRITES_TABLE = "cro_publication_rewrites";
 const PROPOSALS_TABLE = "cro_playbook_proposals";
+const PUBLICATION_TICKERS_TABLE = "cro_publication_tickers";
 const OVERRIDE_KV_KEY = "cro:tactical_overrides";
 
 function safeJson(s) {
@@ -103,6 +104,79 @@ function influencedSurfaces() {
  *   items: [ ... per-publication lineage ... ]
  * }
  */
+/**
+ * Build a slim, USER-SAFE FSD feed for the Today page Research Desk panel.
+ * Recent publications with their TT-voice headline, durable category,
+ * publish time, and affected tickers — NO proposal internals / admin lineage.
+ *
+ * @param env
+ * @param opts { limit?, lookbackHours? }
+ * @returns { ok, generated_at, items: [{ pub_id, title, category, category_label,
+ *            content_type_label, published_at, fetched_at, tickers: [], tt_summary }] }
+ */
+export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } = {}) {
+  if (!env?.DB) return { ok: false, error_kind: "db_unavailable", items: [] };
+  try {
+    const { ensureCROIngestionSchema } = await import("./fsd-ingestion.js");
+    const { ensureCROProposalSchema } = await import("./fsd-extractor.js");
+    await ensureCROIngestionSchema(env);
+    await ensureCROProposalSchema(env);
+  } catch (_) { /* best-effort */ }
+
+  let rows = [];
+  try {
+    const res = await env.DB.prepare(
+      `SELECT p.pub_id, p.title, p.source_url, p.published_at, p.fetched_at, p.fetch_status, p.post_type,
+              r.tt_summary_title, r.tt_summary_body,
+              pr.category AS proposal_category, pr.classification
+         FROM ${PUBLICATIONS_TABLE} p
+         LEFT JOIN ${REWRITES_TABLE} r ON r.pub_id = p.pub_id
+         LEFT JOIN ${PROPOSALS_TABLE} pr ON pr.proposal_id = p.proposal_id
+        WHERE p.fetch_status = 'ok'
+        ORDER BY COALESCE(p.published_at, '') DESC, p.fetched_at DESC
+        LIMIT ?`,
+    ).bind(Math.min(30, Math.max(1, limit))).all();
+    rows = res?.results || [];
+  } catch (e) {
+    return { ok: false, error_kind: "query_failed", hint: String(e?.message || e).slice(0, 200), items: [] };
+  }
+
+  // Affected tickers per pub (single batched query).
+  const tickersByPub = {};
+  try {
+    const ids = rows.map((r) => r.pub_id).filter(Boolean);
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => "?").join(",");
+      const tk = await env.DB.prepare(
+        `SELECT pub_id, ticker FROM ${PUBLICATION_TICKERS_TABLE}
+          WHERE pub_id IN (${placeholders}) ORDER BY position ASC`,
+      ).bind(...ids).all();
+      for (const r of (tk?.results || [])) {
+        const k = r.pub_id;
+        (tickersByPub[k] = tickersByPub[k] || []).push(String(r.ticker || "").toUpperCase());
+      }
+    }
+  } catch (_) { /* tickers are best-effort */ }
+
+  const items = rows.map((row) => {
+    const contentType = inferContentType(row);
+    const category = row.proposal_category || (row.classification || "editorial");
+    return {
+      pub_id: row.pub_id,
+      title: row.tt_summary_title || row.title || "(untitled)",
+      tt_summary: row.tt_summary_body || null,
+      category,
+      category_label: CATEGORY_LABEL[category] || (category === "structural" ? "Structural" : category === "actionable" ? "Actionable" : "Editorial"),
+      content_type_label: CONTENT_TYPE_LABEL[contentType] || "Research note",
+      published_at: row.published_at || null,
+      fetched_at: row.fetched_at || null,
+      tickers: (tickersByPub[row.pub_id] || []).slice(0, 6),
+    };
+  });
+
+  return { ok: true, generated_at: Date.now(), items };
+}
+
 export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48 } = {}) {
   if (!env?.DB) return { ok: false, error_kind: "db_unavailable", items: [] };
 
