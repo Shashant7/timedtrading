@@ -40,10 +40,30 @@ export const DEFAULT_FSD_CONFIG = {
   // counts are config-tunable so the operator can throttle if needed.
   wp_rest_list_path: "/wp-json/wp/v2/posts",
   wp_rest_list_query: "_fields=id,title,link,date,categories,excerpt",
+  // 2026-06-05 — Verified against the live FSD WP REST API: the long-form
+  // notes (Tom Lee "First Word", Mark Newton "Daily Technical Strategy",
+  // "Daily Earnings Update", single-stock notes) all live under /wp/v2/posts;
+  // FSD also exposes a dedicated `technicals` custom post type. FlashInsights
+  // are fsi-alert / fsi-alert-crypto. These four are the research surfaces.
   wp_rest_post_types: [
-    { path: "/wp-json/wp/v2/posts",            label: "post",        per_page: 12 },
-    { path: "/wp-json/wp/v2/fsi-alert",        label: "fsi-alert",   per_page: 12 },
+    { path: "/wp-json/wp/v2/posts",            label: "post",             per_page: 25 },
+    { path: "/wp-json/wp/v2/technicals",       label: "technicals",       per_page: 10 },
+    { path: "/wp-json/wp/v2/fsi-alert",        label: "fsi-alert",        per_page: 12 },
     { path: "/wp-json/wp/v2/fsi-alert-crypto", label: "fsi-alert-crypto", per_page: 6 },
+  ],
+  // 2026-06-05 — Auto-discover custom WP post types via /wp-json/wp/v2/types
+  // so any NEW FSD research series is captured even under a custom slug.
+  // Discovered types merge with the explicit list (explicit wins on dup).
+  // The skip-list excludes WP built-ins AND the known non-research FSD types
+  // (product/event/community/guide/announcements/fi_template) so discovery
+  // never pulls store/community noise into the research pipeline.
+  wp_rest_discover_types: true,
+  wp_rest_discover_per_page: 10,
+  wp_rest_discover_skip: [
+    "page", "attachment", "nav_menu_item", "wp_block", "wp_template", "wp_template_part",
+    "wp_navigation", "wp_global_styles", "wp_font_family", "wp_font_face", "fi_template",
+    "amp_validated_url", "custom_css", "customize_changeset",
+    "product", "event", "community", "guide", "announcements",
   ],
   wp_rest_post_path: "/wp-json/wp/v2/posts",  // legacy single-type fetch path
   wp_rest_post_query: "_fields=id,title,link,date,categories,content,excerpt",
@@ -409,13 +429,50 @@ export async function listFSDPublications(env, { limit = 20 } = {}) {
   return listViaHTML(env, cfg, limit);
 }
 
+// 2026-06-05 — Discover every public WP post type so custom FSD series
+// (First Word, Daily Technical Strategy, Market Update, Earnings Daily, …)
+// are captured even when they live under a custom post-type slug. Reads
+// /wp-json/wp/v2/types and returns [{ path, label, per_page }] for each type
+// that exposes a REST base and isn't on the skip-list. Best-effort: any
+// failure returns [] so the explicit list still drives the fetch.
+async function discoverWpPostTypes(env, cfg) {
+  if (cfg.wp_rest_discover_types === false) return [];
+  const skip = new Set((cfg.wp_rest_discover_skip || []).map((s) => String(s).toLowerCase()));
+  const perPage = Math.min(50, Math.max(1, Number(cfg.wp_rest_discover_per_page) || 10));
+  try {
+    const url = urlJoin(cfg.base_url, "/wp-json/wp/v2/types") + "?context=view";
+    const { resp } = await wpRestFetch(env, cfg, url);
+    if (!resp.ok) return [];
+    const json = await resp.json().catch(() => null);
+    if (!json || typeof json !== "object") return [];
+    const out = [];
+    for (const [slug, meta] of Object.entries(json)) {
+      const restBase = meta && (meta.rest_base || meta.slug || slug);
+      if (!restBase) continue;
+      if (skip.has(String(slug).toLowerCase()) || skip.has(String(restBase).toLowerCase())) continue;
+      // WP namespace: most are under wp/v2; respect a custom rest_namespace.
+      const ns = meta.rest_namespace && meta.rest_namespace !== "wp/v2" ? meta.rest_namespace : "wp/v2";
+      out.push({ path: `/wp-json/${ns}/${restBase}`, label: String(slug), per_page: perPage, _discovered: true });
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
 async function listViaWPRest(env, cfg, limit) {
   // Multi-type fetch. Each type runs in parallel; results merge by date DESC,
   // truncated to `limit`. Per-type failures are reported in `meta.errors[]`
   // but don't fail the whole list — partial results are still returned.
-  const types = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
+  const explicit = Array.isArray(cfg.wp_rest_post_types) && cfg.wp_rest_post_types.length > 0
     ? cfg.wp_rest_post_types
     : [{ path: cfg.wp_rest_list_path, label: "post", per_page: limit }];
+  // Merge in auto-discovered custom post types (explicit entries win on dup path).
+  const discovered = await discoverWpPostTypes(env, cfg);
+  const byPath = new Map();
+  for (const t of explicit) byPath.set(t.path, t);
+  for (const t of discovered) if (!byPath.has(t.path)) byPath.set(t.path, t);
+  const types = Array.from(byPath.values());
   const baseQuery = (cfg.wp_rest_list_query || "").replace(/(^|[?&])per_page=\d+/g, "").replace(/^&+|&+$/g, "");
 
   const fetches = types.map(async (t) => {

@@ -86,17 +86,13 @@
     var marketOpen = isNyRegularMarketOpen();
 
     // ── Resolve current price ──
-    // 2026-06-05 — During RTH the live tick (_live_price) is canonical. When
-    // the market is CLOSED, _live_price is an EXTENDED-hours (pre/post-market)
-    // print — so the MAIN price + day change must reflect the RTH session
-    // (price/close), not the extended tick. The extended move is surfaced
-    // separately via getExtChange()/_ah_* on the EXT line. Without this, the
-    // Market Pulse + ticker cards showed the pre-market price as the headline
-    // number during pre-market instead of the regular-session price.
+    // _live_price mirrors timed:prices `p`, which is the live RTH price during
+    // the session and the RTH CLOSE while the market is closed (the extended
+    // print lives in `ahp` / _ah_price, surfaced separately on the EXT line).
+    // So _live_price is the correct headline source in both states. The
+    // snapshot `price` field can lag to a pre-market value, so it's a fallback.
     var price = 0;
-    var priceKeys = marketOpen
-      ? ["_live_price", "price", "close"]
-      : ["price", "close", "_live_price"];
+    var priceKeys = ["_live_price", "price", "close"];
     for (var pi = 0; pi < priceKeys.length; pi++) {
       var pv = Number(t?.[priceKeys[pi]]);
       if (Number.isFinite(pv) && pv > 0) { price = pv; break; }
@@ -455,4 +451,4 @@
   };
 })();
 
-// cache-bust:1780660635610:64046635
+// cache-bust:1780664490753:314565211

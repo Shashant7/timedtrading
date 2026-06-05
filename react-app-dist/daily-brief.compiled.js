@@ -18,6 +18,7 @@ function renderMarkdown(md) {
       cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
     }
   }
+  cleaned = cleaned.replace(/\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi, "\n");
   if (typeof marked !== "undefined" && marked.parse) {
     return marked.parse(cleaned, {
       breaks: true,
@@ -29,6 +30,37 @@ function renderMarkdown(md) {
 function BriefInfographic({
   data
 }) {
+  const [livePx, setLivePx] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/timed/prices", {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive && j && j.prices) setLivePx(j.prices);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const _mktOpen = (() => {
+    try {
+      return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+    } catch (_) {
+      return true;
+    }
+  })();
+  const liveFor = (sym, fallback) => {
+    if (!livePx) return fallback;
+    const s = String(sym || "").toUpperCase();
+    const row = livePx[s] || (s === "ES" ? livePx["ES1!"] || livePx["ES"] : null);
+    if (!row) return fallback;
+    const ext = Number(row.ahp),
+      p = Number(row.p);
+    if (!_mktOpen && Number.isFinite(ext) && ext > 0) return ext;
+    if (Number.isFinite(p) && p > 0) return p;
+    return fallback;
+  };
   if (!data) return null;
   const hl = data.headline || {};
   const vixBucket = hl.vix?.bucket;
@@ -139,7 +171,9 @@ function BriefInfographic({
     const dayProb = lvls.goldenGateProbability;
     const weekProb = wlvls?.goldenGateProbability;
     const anchor = lvls.anchor;
-    const cp = lvls.currentPrice ?? idx.price;
+    const cp = liveFor(idx.sym, lvls.currentPrice ?? idx.price);
+    const _dispPx = liveFor(idx.sym, idx.price);
+    const _isLivePx = livePx && cp != null && idx.price != null && Math.abs(cp - idx.price) > 0.001;
     const up382 = lvls.levels?.["+38.2%"];
     const dn382 = lvls.levels?.["-38.2%"];
     const wUp382 = wlvls?.levels?.["+38.2%"];
@@ -163,7 +197,13 @@ function BriefInfographic({
       className: "flex items-baseline gap-2 mb-2"
     }, React.createElement("span", {
       className: "text-lg font-bold text-white tabular-nums"
-    }, idx.price != null ? `$${idx.price.toFixed(2)}` : "—"), React.createElement("span", {
+    }, _dispPx != null ? `$${_dispPx.toFixed(2)}` : "—"), _isLivePx ? React.createElement("span", {
+      className: "text-[10px] font-semibold tabular-nums",
+      style: {
+        color: _mktOpen ? "#34d399" : "#fbbf24"
+      },
+      title: `Live ${_mktOpen ? "" : "extended-hours "}price — brief was anchored at $${idx.price != null ? idx.price.toFixed(2) : "?"}`
+    }, _mktOpen ? "live" : "ext") : React.createElement("span", {
       className: "text-[11px] font-semibold tabular-nums",
       style: {
         color: pctColor(idx.chgPct)
@@ -336,7 +376,7 @@ function BriefInfographic({
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.filter(i => i.levels?.gamePlan).map(idx => {
     const gp = idx.levels.gamePlan;
-    const cp = idx.levels.currentPrice ?? idx.price;
+    const cp = liveFor(idx.sym, idx.levels.currentPrice ?? idx.price);
     const bullArmed = cp != null && cp >= gp.bullTrigger;
     const bearArmed = cp != null && cp <= gp.bearTrigger;
     const bullPct = (gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100;
@@ -656,12 +696,9 @@ function BriefCard({
       color: "var(--tt-text-0)",
       letterSpacing: "-0.01em"
     }
-  }, dateStr)), (brief.esPrediction || brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
+  }, dateStr)), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
     className: "mb-4 grid grid-cols-1 md:grid-cols-2 gap-2"
   }, [{
-    label: "ES Prediction",
-    body: brief.esPrediction
-  }, {
     label: "SPY Prediction",
     body: brief.spyPrediction
   }, {
@@ -2639,6 +2676,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1780609301261:285731520
+// cache-bust:1780665619337:663662583
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780665619337:663662583

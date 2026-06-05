@@ -1826,7 +1826,12 @@
         const dc = getDailyChange(tx);
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
         const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
-        const price = Number(tx.price);
+        // 2026-06-05 — Headline = RTH price. _live_price mirrors timed:prices.p
+        // (live during RTH, RTH close while closed). The snapshot `price` field
+        // can carry a pre-market value when closed, so prefer _live_price. The
+        // extended/pre-market print shows on the EXT line below (getExtChange).
+        const _liveP = Number(tx._live_price);
+        const price = _liveP > 0 ? _liveP : Number(tx.price);
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
 
         // 1H sparkline (uses the same cache /active-trader and /investor use).
@@ -3091,7 +3096,10 @@
             h("div", { className: "tt-sec-title", style: { margin: 0 } }, "DAY-TRADE PREDICTIONS"),
             h("span", { style: { fontSize: 10.5, color: "var(--tt-text-dim)" } }, pred.grades_note || ""),
           ),
-          h("div", { className: "tt-sec-h", style: { fontSize: 15, marginBottom: 10 } }, "How the day may unfold — with a grade after the close"),
+          h("div", { className: "tt-sec-h", style: { fontSize: 15, marginBottom: 4 } }, "How the day may unfold — with a grade after the close"),
+          pred.levels_live && h("div", { style: { fontSize: 10.5, color: "var(--tt-text-muted)", marginBottom: 10 } },
+            h("span", { style: { fontWeight: 700, color: pred.market_open ? "#34d399" : "#fbbf24" } }, pred.market_open ? "LIVE LEVELS" : "LIVE LEVELS (pre/post-market)"),
+            " — regenerated off the current price, not the 9am close."),
           h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
             items.map((it) => {
               const lv = it.levels;
@@ -3111,6 +3119,7 @@
                 h("div", { style: { minWidth: 0 } },
                   it.narrative && h("div", { style: { fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.45 } }, it.narrative),
                   lv && h("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5, fontSize: 11, fontFamily: "var(--tt-font-mono)" } },
+                    Number.isFinite(it.spot) && h("span", { style: { color: "var(--tt-text)" } }, `spot ${fmt(it.spot)}`),
                     Number.isFinite(lv.bull_trigger) && h("span", { style: { color: "var(--tt-up-soft)" } }, `▲ ${fmt(lv.bull_trigger)}${Number.isFinite(lv.bull_target) ? ` → ${fmt(lv.bull_target)}` : ""}`),
                     Number.isFinite(lv.bear_trigger) && h("span", { style: { color: "var(--tt-dn-soft)" } }, `▼ ${fmt(lv.bear_trigger)}${Number.isFinite(lv.bear_target) ? ` → ${fmt(lv.bear_target)}` : ""}`),
                     Number.isFinite(it.close) && h("span", { style: { color: "var(--tt-text-dim)" } }, `close ${fmt(it.close)}`),
