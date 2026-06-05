@@ -319,14 +319,43 @@ function BriefPreview({
       break;
     }
   }
+  const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]*:\s*/, "").replace(/\s+/g, " ").trim();
+  const _cap = s => s.length > 200 ? s.slice(0, 197).trimEnd() + "…" : s;
+  const _twoLine = (() => {
+    const cand = [];
+    for (const it of top3.slice(0, 2)) {
+      const b = _plain(itemText(it));
+      if (b && b.length > 20) cand.push(b);
+    }
+    if (closing && _plain(closing).length > 20) cand.push(_plain(closing));
+    if (cand.length === 0 && fallbackSummary) cand.push(_plain(fallbackSummary));
+    if (cand.length === 0 && headline) cand.push(headline);
+    const out = [];
+    for (const c of cand) {
+      if (!out.some(o => o.slice(0, 40) === c.slice(0, 40))) out.push(c);
+      if (out.length === 2) break;
+    }
+    return out.map(_cap).join(" ");
+  })();
   return h("section", {
     className: "tt-card tt-card-pad tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "DAILY BRIEF — MORNING READ"), h("div", {
     className: "tt-sec-h"
-  }, "What the model is watching today"), headline && h("p", {
-    className: "brief-head"
+  }, "What the model is watching today"), _twoLine && h("p", {
+    style: {
+      fontSize: 14,
+      lineHeight: 1.55,
+      color: "var(--tt-text)",
+      margin: "6px 0 10px"
+    }
+  }, _twoLine), headline && h("p", {
+    className: "brief-head",
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)"
+    }
   }, headline), top3.length > 0 && h("div", {
     className: "brief-three"
   }, top3.slice(0, 3).map((item, i) => {
@@ -1898,6 +1927,181 @@ function ResearchDeskPanel({
       textDecoration: "none"
     }
   }, "Open Research Desk →"));
+}
+function DayTradePredictions({
+  onSelectTicker
+}) {
+  const [pred, setPred] = useState(null);
+  const [opts, setOpts] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE || ""}/timed/day-trade-predictions`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setPred(j);
+    }).catch(() => {});
+    fetch(`${API_BASE || ""}/timed/options/all?limit=20`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setOpts(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const items = pred && pred.ok && Array.isArray(pred.items) ? pred.items : [];
+  if (!pred) return null;
+  const dtPlays = opts && Array.isArray(opts.day_trade_plays) ? opts.day_trade_plays : [];
+  const dteLabel = opts?.day_trade_expiration ? opts.day_trade_expiration.dte === 0 ? "0DTE" : `${opts.day_trade_expiration.dte}DTE` : null;
+  const playFor = sym => dtPlays.find(p => String(p.ticker || "").toUpperCase() === sym) || null;
+  const gradeColor = g => g === "A" ? "var(--tt-up-soft)" : g === "B" ? "#fbbf24" : g === "C" ? "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+  const fmt = n => Number.isFinite(Number(n)) ? Number(n).toLocaleString(undefined, {
+    maximumFractionDigits: 2
+  }) : "—";
+  if (items.length === 0) return null;
+  return h("section", {
+    className: "tt-card tt-card-pad"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 4
+    }
+  }, h("div", {
+    className: "tt-sec-title",
+    style: {
+      margin: 0
+    }
+  }, "DAY-TRADE PREDICTIONS"), h("span", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-dim)"
+    }
+  }, pred.grades_note || "")), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 15,
+      marginBottom: 10
+    }
+  }, "How the day may unfold — with a grade after the close"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, items.map(it => {
+    const play = playFor(it.sym);
+    const lv = it.levels;
+    return h("div", {
+      key: it.sym,
+      style: {
+        display: "grid",
+        gridTemplateColumns: "64px 1fr auto",
+        gap: 12,
+        alignItems: "center",
+        padding: "10px 0",
+        borderBottom: "1px solid var(--tt-border)"
+      }
+    }, h("div", null, h("button", {
+      onClick: () => onSelectTicker && onSelectTicker(it.sym),
+      style: {
+        background: "transparent",
+        border: "none",
+        color: "var(--tt-text)",
+        fontWeight: 800,
+        fontSize: 15,
+        fontFamily: "var(--tt-font-mono)",
+        cursor: "pointer",
+        padding: 0
+      }
+    }, it.sym), h("div", {
+      title: it.grade_label,
+      style: {
+        marginTop: 4,
+        fontSize: 10.5,
+        fontWeight: 700,
+        color: gradeColor(it.grade),
+        border: `1px solid ${gradeColor(it.grade)}`,
+        borderRadius: 5,
+        padding: "1px 5px",
+        display: "inline-block"
+      }
+    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades ~4pm" : "—")), h("div", {
+      style: {
+        minWidth: 0
+      }
+    }, it.narrative && h("div", {
+      style: {
+        fontSize: 12.5,
+        color: "var(--tt-text)",
+        lineHeight: 1.45
+      }
+    }, it.narrative), lv && h("div", {
+      style: {
+        display: "flex",
+        gap: 10,
+        flexWrap: "wrap",
+        marginTop: 5,
+        fontSize: 11,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, Number.isFinite(lv.bull_trigger) && h("span", {
+      style: {
+        color: "var(--tt-up-soft)"
+      }
+    }, `▲ ${fmt(lv.bull_trigger)}${Number.isFinite(lv.bull_target) ? ` → ${fmt(lv.bull_target)}` : ""}`), Number.isFinite(lv.bear_trigger) && h("span", {
+      style: {
+        color: "var(--tt-dn-soft)"
+      }
+    }, `▼ ${fmt(lv.bear_trigger)}${Number.isFinite(lv.bear_target) ? ` → ${fmt(lv.bear_target)}` : ""}`), Number.isFinite(it.close) && h("span", {
+      style: {
+        color: "var(--tt-text-dim)"
+      }
+    }, `close ${fmt(it.close)}`))), play ? h("button", {
+      onClick: () => onSelectTicker && onSelectTicker(it.sym),
+      title: "Today's index-ETF day-trade option play",
+      style: {
+        textAlign: "right",
+        background: "rgba(245,194,92,0.08)",
+        border: "1px solid rgba(245,194,92,0.3)",
+        borderRadius: 8,
+        padding: "6px 9px",
+        cursor: "pointer",
+        color: "var(--tt-text)"
+      }
+    }, h("div", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        color: "#f5c25c",
+        letterSpacing: "0.03em"
+      }
+    }, dteLabel || "DAY TRADE"), h("div", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, `${play.direction === "LONG" ? "CALL" : play.direction === "SHORT" ? "PUT" : "STRDL"}${Number.isFinite(Number(play.strike)) ? ` ${fmt(play.strike)}` : ""}`)) : h("div", {
+      style: {
+        fontSize: 10.5,
+        color: "var(--tt-text-dim)",
+        textAlign: "right"
+      }
+    }, "no option play"));
+  })), h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      marginTop: 8,
+      lineHeight: 1.5
+    }
+  }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. Educational, not advice."));
 }
 function TodayHero({
   brief,
@@ -4553,14 +4757,9 @@ function TodayApp() {
     data,
     earnings,
     onSelectTicker
-  }), brief && h("section", {
-    className: "tt-row"
-  }, h(IndexPredictionsStrip, {
-    brief,
-    data,
-    onSelectTicker,
-    layout: "full"
-  })), h(OptionsPlaysOfTheDay, {
+  }), h(DayTradePredictions, {
+    onSelectTicker
+  }), h(OptionsPlaysOfTheDay, {
     onSelectTicker,
     layout: "row"
   }), h(OpenPositionsPreview, {
@@ -4998,6 +5197,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780621650287:453279131
+// cache-bust:1780622416424:426531197
 
-// cache-bust:1780621650287:453279131
+// cache-bust:1780622416424:426531197
