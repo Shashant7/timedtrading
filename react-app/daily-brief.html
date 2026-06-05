@@ -239,6 +239,16 @@
           }
         }
 
+        // 2026-06-05 — Strip the per-index "## {SYM} Prediction" sections from
+        // the body. They duplicate the compact prediction cards rendered just
+        // above the markdown (and tend to read stale vs the live index). Match
+        // an h2-h4 "<SYM> Prediction" heading and everything up to the next
+        // heading of the same-or-higher level (or end of doc).
+        cleaned = cleaned.replace(
+          /\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi,
+          "\n",
+        );
+
         if (typeof marked !== "undefined" && marked.parse) {
           return marked.parse(cleaned, { breaks: true, gfm: true });
         }
@@ -254,6 +264,33 @@
       //   - Risks / Opportunities pill list
       //   - Event ribbon (earnings + macro events today)
       function BriefInfographic({ data }) {
+        // 2026-06-05 — Live EXT-aware price overlay. The brief is generated at
+        // 9am with the RTH close baked into every index card + game plan, so
+        // during pre/post-market the price + "between triggers" status read
+        // stale. Fetch /timed/prices once and anchor the displayed current
+        // price to the LIVE extended price (ahp) while the market is closed,
+        // or the live RTH price during the session. Levels themselves stay as
+        // generated; only the live price marker + status update.
+        const [livePx, setLivePx] = useState(null);
+        useEffect(() => {
+          let alive = true;
+          fetch("/timed/prices", { credentials: "include", cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (alive && j && j.prices) setLivePx(j.prices); })
+            .catch(() => {});
+          return () => { alive = false; };
+        }, []);
+        const _mktOpen = (() => { try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; } catch (_) { return true; } })();
+        const liveFor = (sym, fallback) => {
+          if (!livePx) return fallback;
+          const s = String(sym || "").toUpperCase();
+          const row = livePx[s] || (s === "ES" ? (livePx["ES1!"] || livePx["ES"]) : null);
+          if (!row) return fallback;
+          const ext = Number(row.ahp), p = Number(row.p);
+          if (!_mktOpen && Number.isFinite(ext) && ext > 0) return ext;
+          if (Number.isFinite(p) && p > 0) return p;
+          return fallback;
+        };
         if (!data) return null;
         const hl = data.headline || {};
         const vixBucket = hl.vix?.bucket;
@@ -352,7 +389,9 @@
                   const dayProb = lvls.goldenGateProbability;
                   const weekProb = wlvls?.goldenGateProbability;
                   const anchor = lvls.anchor;
-                  const cp = lvls.currentPrice ?? idx.price;
+                  const cp = liveFor(idx.sym, lvls.currentPrice ?? idx.price);
+                  const _dispPx = liveFor(idx.sym, idx.price);
+                  const _isLivePx = livePx && cp != null && idx.price != null && Math.abs(cp - idx.price) > 0.001;
                   const up382 = lvls.levels?.["+38.2%"];
                   const dn382 = lvls.levels?.["-38.2%"];
                   const wUp382 = wlvls?.levels?.["+38.2%"];
@@ -374,11 +413,13 @@
                       </div>
                       <div className="flex items-baseline gap-2 mb-2">
                         <span className="text-lg font-bold text-white tabular-nums">
-                          {idx.price != null ? `$${idx.price.toFixed(2)}` : "—"}
+                          {_dispPx != null ? `$${_dispPx.toFixed(2)}` : "—"}
                         </span>
-                        <span className="text-[11px] font-semibold tabular-nums" style={{ color: pctColor(idx.chgPct) }}>
-                          {idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""}
-                        </span>
+                        {_isLivePx
+                          ? <span className="text-[10px] font-semibold tabular-nums" style={{ color: _mktOpen ? "#34d399" : "#fbbf24" }} title={`Live ${_mktOpen ? "" : "extended-hours "}price — brief was anchored at $${idx.price != null ? idx.price.toFixed(2) : "?"}`}>{_mktOpen ? "live" : "ext"}</span>
+                          : <span className="text-[11px] font-semibold tabular-nums" style={{ color: pctColor(idx.chgPct) }}>
+                              {idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""}
+                            </span>}
                         {/* 2026-05-26 (PR #305) — "ATR" → "Typical daily move ~$X"
                             so non-quant users understand what the number means. */}
                         {idx.atr != null && (
@@ -562,7 +603,7 @@
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                   {indicies.filter((i) => i.levels?.gamePlan).map((idx) => {
                     const gp = idx.levels.gamePlan;
-                    const cp = idx.levels.currentPrice ?? idx.price;
+                    const cp = liveFor(idx.sym, idx.levels.currentPrice ?? idx.price);
                     const bullArmed = cp != null && cp >= gp.bullTrigger;
                     const bearArmed = cp != null && cp <= gp.bearTrigger;
                     const bullPct = ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100);
@@ -874,10 +915,12 @@
             {/* P0.7.129 — render all four predictions (ES + SPY + QQQ + IWM)
                 up top, in parallel format. ES leads (broad-market futures
                 anchor), then the three ETFs the user actually trades. */}
-            {(brief.esPrediction || brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
+            {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
               <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {/* 2026-06-05 — ES dropped: it's the futures proxy for SPY, so
+                    its prediction duplicates SPY and tends to read stale vs the
+                    live index. SPY/QQQ/IWM are the tradeable ETFs users act on. */}
                 {[
-                  { label: "ES Prediction",  body: brief.esPrediction },
                   { label: "SPY Prediction", body: brief.spyPrediction },
                   { label: "QQQ Prediction", body: brief.qqqPrediction },
                   { label: "IWM Prediction", body: brief.iwmPrediction },
