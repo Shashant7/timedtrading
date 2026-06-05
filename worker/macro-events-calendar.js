@@ -67,34 +67,47 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
     return d.toISOString().slice(0, 10);
   })();
 
-  // Live actuals from the daily-market-snapshots / KV econ cache (best-effort).
-  // We don't hard-depend on a live feed — the curated schedule is the floor.
-  let liveByName = {};
+  const normKey = (date, name) => `${date}|${String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 40)}`;
+
+  // Merge map: curated schedule is the floor; FSD-extracted events (from
+  // ingested "First Word" / daily notes) override + supply real estimates +
+  // ACTUALS, and add events the curated list doesn't know about.
+  const byKey = new Map();
+  for (const e of CURATED_UPCOMING_MACRO) {
+    if (e.date < today || e.date > horizon) continue;
+    byKey.set(normKey(e.date, e.name), {
+      date: e.date, time_et: e.time_et || null, name: e.name, impact: e.impact,
+      kind: e.kind || "macro", estimate: e.estimate || null, actual: null, source: "curated",
+    });
+  }
+
+  // 2026-06-05 — FSD-extracted events (self-updating from ingested notes).
+  let fsdCount = 0;
   try {
-    const raw = env?.KV_TIMED ? await env.KV_TIMED.get(`timed:econ-cal:${today}`, "json") : null;
-    for (const e of (raw?.events || [])) {
-      const k = String(e.event || e.name || "").toLowerCase().slice(0, 14);
-      if (k) liveByName[k] = e;
-    }
-  } catch (_) {}
-
-  const items = CURATED_UPCOMING_MACRO
-    .filter((e) => e.date >= today && e.date <= horizon)
-    .filter((e) => includeLowImpact || e.impact !== "low")
-    .map((e) => {
-      const live = liveByName[String(e.name || "").toLowerCase().slice(0, 14)] || null;
-      return {
+    const { loadFSDMacroEvents } = await import("./cro/macro-event-extractor.js");
+    const fsdEvents = await loadFSDMacroEvents(env);
+    for (const e of (fsdEvents || [])) {
+      if (!e?.date || e.date < today || e.date > horizon) continue;
+      const k = normKey(e.date, e.name);
+      const prev = byKey.get(k);
+      byKey.set(k, {
         date: e.date,
-        time_et: e.time_et || null,
-        name: e.name,
-        impact: e.impact,
-        kind: e.kind || "macro",
-        estimate: e.estimate || live?.estimate || null,
-        actual: live?.actual || null,
-        is_today: e.date === today,
-      };
-    })
-    .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? -1 : 1));
+        time_et: e.time_et || prev?.time_et || null,
+        name: e.name || prev?.name,
+        impact: e.impact || prev?.impact || "medium",
+        kind: e.kind || prev?.kind || "macro",
+        estimate: e.estimate || prev?.estimate || null,
+        actual: e.actual || prev?.actual || null,
+        source: "fsd",
+      });
+      fsdCount += 1;
+    }
+  } catch (_) { /* FSD store optional — curated is the floor */ }
 
-  return { ok: true, today, days, count: items.length, events: items, generated_at: Date.now() };
+  const items = Array.from(byKey.values())
+    .filter((e) => includeLowImpact || e.impact !== "low")
+    .map((e) => ({ ...e, is_today: e.date === today }))
+    .sort((a, b) => (a.date === b.date ? (String(a.time_et) < String(b.time_et) ? -1 : 1) : a.date < b.date ? -1 : 1));
+
+  return { ok: true, today, days, count: items.length, fsd_events: fsdCount, events: items, generated_at: Date.now() };
 }
