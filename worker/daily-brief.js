@@ -66,6 +66,17 @@ export async function d1EnsureBriefSchema(env) {
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN qqq_score REAL`).run(); } catch {}
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_score REAL`).run(); } catch {}
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN evaluated_at INTEGER`).run(); } catch {}
+    // 2026-06-05 — Extend grading to ES + DIA (5-index Day-Trade Predictions).
+    // ES levels come from esTechnical's game plan; DIA from diaTechnical.
+    for (const _k of ["es", "dia"]) {
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bull_trigger REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bull_target  REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bear_trigger REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bear_target  REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_open  REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_close REAL`).run(); } catch {}
+      try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_score REAL`).run(); } catch {}
+    }
     await db.prepare(`
       CREATE TABLE IF NOT EXISTS daily_market_snapshots (
         date TEXT PRIMARY KEY,
@@ -1412,6 +1423,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     iwmCandlesW?.candles || []
   );
 
+  // 2026-06-05 — DIA (Dow ETF) added as the 5th day-trade index so it gets a
+  // game plan + post-close grade. Fetched separately (daily candles + latest)
+  // to avoid threading the large parallel block; ES already has esTechnical.
+  let diaData = null, diaCandles = { candles: [] };
+  try { diaData = await kvGetJSON(KV, "timed:latest:DIA").catch(() => null); } catch (_) {}
+  try {
+    if (db && opts.d1GetCandles) diaCandles = await opts.d1GetCandles(env, "DIA", "D", 20).catch(() => ({ candles: [] }));
+  } catch (_) {}
+  const diaTechnical = summarizeTechnical(
+    diaCandles?.candles || [], [], [], diaData, [], []
+  );
+
   // V15 P0.7.72 — Phase 2 Q1 unification.
   // Build canonical scenarios for the indices using the SAME helper that
   // /timed/ticker-scenario serves to the Right Rail. This guarantees the
@@ -1479,6 +1502,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       IWM: extract(iwmData),
     },
     esTechnical,
+    diaTechnical,
     nqTechnical,
     spyTechnical,
     qqqTechnical,
@@ -4334,6 +4358,15 @@ export async function generateDailyBrief(env, type, opts = {}) {
         return Number.isFinite(px) ? px : null;
       };
       const spyGp = _gp("SPY"), qqqGp = _gp("QQQ"), iwmGp = _gp("IWM");
+      // 2026-06-05 — ES + DIA game plans come from their technicals (not the
+      // infographic.indices list, which is SPY/QQQ/IWM only) so all 5 day-trade
+      // indices get archived levels for the 4:30pm ET grader.
+      const esGp = data?.esTechnical?.atrFibLevels?.gamePlan || null;
+      const diaGp = data?.diaTechnical?.atrFibLevels?.gamePlan || null;
+      const _techOpen = (tech) => {
+        const p = Number(tech?.atrFibLevels?.currentPrice ?? tech?.currentPrice);
+        return Number.isFinite(p) ? p : null;
+      };
       await db.prepare(`
         INSERT INTO daily_briefs (
           id, date, type, content, es_prediction, es_prediction_correct, es_close,
@@ -4341,6 +4374,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
           qqq_bull_trigger, qqq_bull_target, qqq_bear_trigger, qqq_bear_target,
           iwm_bull_trigger, iwm_bull_target, iwm_bear_trigger, iwm_bear_target,
           spy_open, qqq_open, iwm_open,
+          es_bull_trigger, es_bull_target, es_bear_trigger, es_bear_target, es_open,
+          dia_bull_trigger, dia_bull_target, dia_bear_trigger, dia_bear_target, dia_open,
           published_at, created_at
         ) VALUES (
           ?1, ?2, ?3, ?4, ?5, NULL, ?6,
@@ -4348,6 +4383,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
           ?11, ?12, ?13, ?14,
           ?15, ?16, ?17, ?18,
           ?19, ?20, ?21,
+          ?24, ?25, ?26, ?27, ?28,
+          ?29, ?30, ?31, ?32, ?33,
           ?22, ?23
         )
         ON CONFLICT(id) DO UPDATE SET
@@ -4366,9 +4403,19 @@ export async function generateDailyBrief(env, type, opts = {}) {
           iwm_bull_target  = COALESCE(excluded.iwm_bull_target,  daily_briefs.iwm_bull_target),
           iwm_bear_trigger = COALESCE(excluded.iwm_bear_trigger, daily_briefs.iwm_bear_trigger),
           iwm_bear_target  = COALESCE(excluded.iwm_bear_target,  daily_briefs.iwm_bear_target),
+          es_bull_trigger  = COALESCE(excluded.es_bull_trigger,  daily_briefs.es_bull_trigger),
+          es_bull_target   = COALESCE(excluded.es_bull_target,   daily_briefs.es_bull_target),
+          es_bear_trigger  = COALESCE(excluded.es_bear_trigger,  daily_briefs.es_bear_trigger),
+          es_bear_target   = COALESCE(excluded.es_bear_target,   daily_briefs.es_bear_target),
+          dia_bull_trigger = COALESCE(excluded.dia_bull_trigger, daily_briefs.dia_bull_trigger),
+          dia_bull_target  = COALESCE(excluded.dia_bull_target,  daily_briefs.dia_bull_target),
+          dia_bear_trigger = COALESCE(excluded.dia_bear_trigger, daily_briefs.dia_bear_trigger),
+          dia_bear_target  = COALESCE(excluded.dia_bear_target,  daily_briefs.dia_bear_target),
           spy_open = COALESCE(daily_briefs.spy_open, excluded.spy_open),
           qqq_open = COALESCE(daily_briefs.qqq_open, excluded.qqq_open),
           iwm_open = COALESCE(daily_briefs.iwm_open, excluded.iwm_open),
+          es_open  = COALESCE(daily_briefs.es_open,  excluded.es_open),
+          dia_open = COALESCE(daily_briefs.dia_open, excluded.dia_open),
           published_at = excluded.published_at
       `).bind(
         briefId, data.today, type, content, esPrediction, esClose,
@@ -4376,7 +4423,9 @@ export async function generateDailyBrief(env, type, opts = {}) {
         qqqGp?.bullTrigger ?? null, qqqGp?.bullTarget ?? null, qqqGp?.bearTrigger ?? null, qqqGp?.bearTarget ?? null,
         iwmGp?.bullTrigger ?? null, iwmGp?.bullTarget ?? null, iwmGp?.bearTrigger ?? null, iwmGp?.bearTarget ?? null,
         _open("SPY"), _open("QQQ"), _open("IWM"),
-        now, now
+        now, now,
+        esGp?.bullTrigger ?? null, esGp?.bullTarget ?? null, esGp?.bearTrigger ?? null, esGp?.bearTarget ?? null, _techOpen(data?.esTechnical),
+        diaGp?.bullTrigger ?? null, diaGp?.bullTarget ?? null, diaGp?.bearTrigger ?? null, diaGp?.bearTarget ?? null, _techOpen(data?.diaTechnical),
       ).run();
     }
 
