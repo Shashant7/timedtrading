@@ -14,26 +14,26 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
-<script src="auth-gate.js?v=1780621299506"></script>
-    <script src="tt-fetch-cache.js?v=1780621299506"></script>
-    <script src="tt-live-data.js?v=1780621299506"></script>
-    <script src="tt-bottom-nav.js?v=1780621299506" defer></script>
-    <script src="tt-nav-extras.js?v=1780621299506" defer></script>
-    <script src="tt-global-search.js?v=1780621299506" defer></script>
-    <script src="tt-rail-bridge.js?v=1780621299506" defer></script>
-    <script src="tt-activity-strip.js?v=1780621299506" defer></script>
-    <script src="shared-price-utils.js?v=1780621299506"></script>
-    <script src="ds-components.js?v=1780621299506"></script>
-    <script src="shared-bubble-chart.compiled.js?v=1780621299506"></script>
+<script src="auth-gate.js?v=1780661177129"></script>
+    <script src="tt-fetch-cache.js?v=1780661177129"></script>
+    <script src="tt-live-data.js?v=1780661177129"></script>
+    <script src="tt-bottom-nav.js?v=1780661177129" defer></script>
+    <script src="tt-nav-extras.js?v=1780661177129" defer></script>
+    <script src="tt-global-search.js?v=1780661177129" defer></script>
+    <script src="tt-rail-bridge.js?v=1780661177129" defer></script>
+    <script src="tt-activity-strip.js?v=1780661177129" defer></script>
+    <script src="shared-price-utils.js?v=1780661177129"></script>
+    <script src="ds-components.js?v=1780661177129"></script>
+    <script src="shared-bubble-chart.compiled.js?v=1780661177129"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=1780621299506"></script>
-    <script src="shared-right-rail.compiled.js?v=1780621299506"></script>
-    <script src="ticker-spider-chart.js?v=1780621299506"></script>
-    <script src="shared-rail-bootstrap.js?v=1780621299506"></script>
+    <script src="shared-rail-helpers.js?v=1780661177129"></script>
+    <script src="shared-right-rail.compiled.js?v=1780661177129"></script>
+    <script src="ticker-spider-chart.js?v=1780661177129"></script>
+    <script src="shared-rail-bootstrap.js?v=1780661177129"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -141,6 +141,97 @@
       @media (max-width: 720px) {
         .at-hero { grid-template-columns: 1fr; }
         .at-hero h1 { font-size: 18px; }
+      }
+
+      /* 2026-06-05 — Search + lane-filter controls. These classes were used in
+         the markup but never had CSS, so the search input + filter chips
+         rendered unstyled (run-together text, cut-off placeholder). Mirrors the
+         Investor page's .inv-controls for cross-page consistency. */
+      .at-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .at-search-wrap {
+        position: relative;
+        flex: 1 1 320px;
+        max-width: 480px;
+        display: flex;
+        align-items: center;
+      }
+      .at-search-icon {
+        position: absolute;
+        left: 12px;
+        color: var(--tt-text-dim);
+        pointer-events: none;
+      }
+      .at-search {
+        width: 100%;
+        height: 36px;
+        padding: 0 36px 0 36px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        font-family: var(--tt-font);
+        font-size: 13px;
+        color: var(--tt-text);
+        transition: border-color 120ms ease, background 120ms ease;
+      }
+      .at-search::placeholder { color: var(--tt-text-faint); }
+      .at-search:focus {
+        outline: none;
+        border-color: var(--tt-border-hi);
+        background: var(--tt-bg-elev);
+      }
+      .at-search-clear {
+        position: absolute;
+        right: 6px;
+        width: 24px;
+        height: 24px;
+        background: transparent;
+        border: 0;
+        color: var(--tt-text-dim);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      .at-search-clear:hover {
+        color: var(--tt-text);
+        background: var(--tt-bg-elev);
+      }
+      .at-filter-chips {
+        display: inline-flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .at-chip {
+        font-family: var(--tt-font);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 12px;
+        background: var(--tt-bg-surface);
+        color: var(--tt-text-muted);
+        border: 1px solid var(--tt-border);
+        border-radius: 999px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      }
+      .at-chip:hover:not(:disabled) {
+        color: var(--tt-text);
+        background: var(--tt-bg-elev);
+      }
+      .at-chip.active {
+        color: var(--tt-accent);
+        background: var(--tt-accent-dim);
+        border-color: rgba(245,194,92,0.30);
+      }
+      .at-chip:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
       }
 
       /* Account summary strip — small KPI tiles for the trader / investor account */
@@ -461,7 +552,7 @@
       </main>
     </div>
 
-    <script src="active-trader.compiled.js?v=1780621299506"></script>
+    <script src="active-trader.compiled.js?v=1780661177129"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -469,4 +560,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1780621299506:984343530 -->
+<!-- cache-bust:1780661177129:913820681 -->
