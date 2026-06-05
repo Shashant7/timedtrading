@@ -878,6 +878,72 @@ function _fmtEtClock(ts) {
   } catch (_) { return null; }
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Trim history for exit emails — 2026-06-05.
+//
+// User report: "Looking at this IWM Trade, it looks like a loss and questions
+// our accuracy without seeing the TRIM as well." A LONG that trimmed into
+// strength and then exited its final tranche below entry shows Exit < Entry
+// in the headline, yet a POSITIVE blended P&L — which reads as a contradiction
+// unless the trims that captured the gains are shown. This pulls the TRIM
+// events recorded for the trade so the exit email can spell out each partial
+// profit-take that fed into the realized P&L.
+//
+// Returns null when there is no DB binding, no trade_id, or no trims found.
+async function _fetchTradeTrims(env, tradeId, direction, entry) {
+  const db = env?.DB;
+  if (!db || !tradeId) return null;
+  let rows = [];
+  try {
+    const res = await db
+      .prepare(
+        `SELECT ts, price, qty_pct_delta, qty_pct_total, pnl_realized, reason
+           FROM trade_events
+          WHERE trade_id = ?1 AND type = 'TRIM'
+          ORDER BY ts ASC`,
+      )
+      .bind(String(tradeId))
+      .all();
+    rows = (res && res.results) || [];
+  } catch (_) {
+    return null;
+  }
+  if (!rows.length) return null;
+
+  const isLong = String(direction || "").toUpperCase() !== "SHORT";
+  const entryPx = Number(entry);
+  const hasEntry = Number.isFinite(entryPx) && entryPx > 0;
+  let totalRealized = 0;
+  let anyRealized = false;
+
+  const trims = rows.map((r) => {
+    const px = Number(r.price);
+    const deltaPct = Number(r.qty_pct_delta);
+    const totalPct = Number(r.qty_pct_total);
+    const realized = Number(r.pnl_realized);
+    if (Number.isFinite(realized)) {
+      totalRealized += realized;
+      anyRealized = true;
+    }
+    // Gain vs entry for this fill (direction-aware).
+    let gainPct = null;
+    if (hasEntry && Number.isFinite(px) && px > 0) {
+      gainPct = ((px - entryPx) / entryPx) * 100 * (isLong ? 1 : -1);
+    }
+    return {
+      ts: Number(r.ts),
+      price: Number.isFinite(px) ? px : null,
+      deltaPct: Number.isFinite(deltaPct) ? deltaPct : null,
+      totalPct: Number.isFinite(totalPct) ? totalPct : null,
+      realized: Number.isFinite(realized) ? realized : null,
+      gainPct,
+      reason: r.reason || null,
+    };
+  });
+
+  return { trims, totalRealized: anyRealized ? totalRealized : null };
+}
+
 // Render a labelled section (DiscordEmbed-style: bold label, value beneath)
 function _section(label, valueHtml) {
   if (!valueHtml) return "";
@@ -961,6 +1027,41 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const posSection = posLines.length > 0
     ? _section(isExit ? "Trade Summary" : "Position", posLines.join("<br>"))
     : "";
+
+  // TRIMS ALONG THE WAY (exits only) — pulls the partial profit-takes that
+  // fed into the blended P&L. Without this, a trade that trimmed into
+  // strength then exited its final tranche below entry reads as a loss
+  // even though the realized P&L is positive.
+  let exitTrimsSection = "";
+  let exitTrimData = null;
+  if (isExit) {
+    const trimData = await _fetchTradeTrims(env, trade_id, direction, entry);
+    exitTrimData = trimData;
+    if (trimData && trimData.trims.length > 0) {
+      const rowsHtml = trimData.trims.map((t, i) => {
+        const when = _fmtEtClock(t.ts);
+        const pxStr = t.price != null ? `$${t.price.toFixed(2)}` : "—";
+        const sizeStr = t.deltaPct != null
+          ? `${Math.round(t.deltaPct)}%`
+          : (t.totalPct != null ? `to ${Math.round(t.totalPct)}%` : "");
+        const gainStr = t.gainPct != null
+          ? `<span style="color:${t.gainPct >= 0 ? "#10b981" : "#f43f5e"}">${t.gainPct >= 0 ? "+" : ""}${t.gainPct.toFixed(2)}% vs entry</span>`
+          : "";
+        const realizedStr = t.realized != null
+          ? ` &nbsp;·&nbsp; <span style="color:${t.realized >= 0 ? "#10b981" : "#f43f5e"}">${t.realized >= 0 ? "+" : "-"}$${Math.abs(t.realized).toFixed(2)}</span>`
+          : "";
+        return `<div style="margin:0 0 4px">
+          <strong style="color:white">✂️ Trim ${i + 1}</strong>${sizeStr ? ` <span style="color:${BRAND.textMuted}">(${sizeStr})</span>` : ""}
+          &nbsp;@&nbsp;<strong style="color:white">${pxStr}</strong>${gainStr ? ` &nbsp;·&nbsp; ${gainStr}` : ""}${realizedStr}
+          ${when ? `<span style="color:${BRAND.textMuted};font-size:11px;margin-left:6px">${when}</span>` : ""}
+        </div>`;
+      }).join("");
+      const totalLine = trimData.totalRealized != null
+        ? `<div style="margin:8px 0 0;color:${BRAND.textSecondary};font-size:12px">Trims captured <strong style="color:${trimData.totalRealized >= 0 ? "#10b981" : "#f43f5e"}">${trimData.totalRealized >= 0 ? "+" : "-"}$${Math.abs(trimData.totalRealized).toFixed(2)}</strong> before this final exit — included in the P&amp;L above.</div>`
+        : `<div style="margin:8px 0 0;color:${BRAND.textMuted};font-size:11px">Earlier trims are already included in the P&amp;L above.</div>`;
+      exitTrimsSection = _section(`Trims Along The Way · ${trimData.trims.length}`, rowsHtml + totalLine);
+    }
+  }
 
   // TRIM STATUS (trimmed % + shares) — TRIMs only
   let trimSection = "";
@@ -1149,6 +1250,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     </div>
     ${chartImgHtml}
     ${posSection}
+    ${exitTrimsSection}
     ${trimSection}
     ${setupSection}
     ${optionsPlaySection}
@@ -1168,6 +1270,19 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const _txtParts = [`${typeLabel}: ${ticker} ${dir} @ ${priceFmt}`];
   if (_etTime) _txtParts.push(_etTime);
   if (posLines.length > 0) _txtParts.push("", "Position:", ...posLines.map(l => "  " + l.replace(/<[^>]+>/g, "")));
+  if (isExit && exitTrimData && exitTrimData.trims.length > 0) {
+    _txtParts.push("", "Trims along the way:");
+    exitTrimData.trims.forEach((t, i) => {
+      const pxStr = t.price != null ? `$${t.price.toFixed(2)}` : "—";
+      const sizeStr = t.deltaPct != null ? ` (${Math.round(t.deltaPct)}%)` : (t.totalPct != null ? ` (to ${Math.round(t.totalPct)}%)` : "");
+      const gainStr = t.gainPct != null ? ` · ${t.gainPct >= 0 ? "+" : ""}${t.gainPct.toFixed(2)}% vs entry` : "";
+      const realizedStr = t.realized != null ? ` · ${t.realized >= 0 ? "+" : "-"}$${Math.abs(t.realized).toFixed(2)}` : "";
+      _txtParts.push(`  Trim ${i + 1}${sizeStr} @ ${pxStr}${gainStr}${realizedStr}`);
+    });
+    if (exitTrimData.totalRealized != null) {
+      _txtParts.push(`  Trims captured ${exitTrimData.totalRealized >= 0 ? "+" : "-"}$${Math.abs(exitTrimData.totalRealized).toFixed(2)} (included in P&L above).`);
+    }
+  }
   if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
   if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
   if (cio && cio.decision) {
