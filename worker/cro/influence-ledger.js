@@ -133,7 +133,7 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
          LEFT JOIN ${REWRITES_TABLE} r ON r.pub_id = p.pub_id
          LEFT JOIN ${PROPOSALS_TABLE} pr ON pr.proposal_id = p.proposal_id
         WHERE p.fetch_status = 'ok'
-        ORDER BY COALESCE(p.published_at, '') DESC, p.fetched_at DESC
+        ORDER BY p.fetched_at DESC, COALESCE(p.published_at, '') DESC
         LIMIT ?`,
     ).bind(Math.min(30, Math.max(1, limit))).all();
     rows = res?.results || [];

@@ -572,6 +572,25 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     console.warn(`[CRO_INGESTION] eager rewrite threw pub=${pub.id}: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  // 2026-06-05 — Eager macro-calendar extraction. FSD "First Word" + daily
+  // notes embed the US economic calendar (dates, times, estimates, ACTUALS).
+  // Pull it into the self-updating macro-events store so the Today macro strip
+  // reflects the real schedule + released figures, not a hand-curated list.
+  // Cheap-gated (only calendar-bearing notes hit the LLM) + best-effort.
+  try {
+    if (text && text.length > 120) {
+      const { extractMacroEventsFromPublication, looksLikeMacroCalendar } = await import("./macro-event-extractor.js");
+      if (looksLikeMacroCalendar(text, pub.title)) {
+        const me = await extractMacroEventsFromPublication(env, pub.id, { title: pub.title });
+        if (me?.ok && me.merged > 0) {
+          console.log(`[CRO_INGESTION] macro-calendar: merged ${me.merged} event(s) from pub=${pub.id}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[CRO_INGESTION] macro-calendar extract threw pub=${pub.id}: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
   // 2026-06-03 — Per-pub Discord notification for FlashInsights that
   // mention an active-universe ticker. Skips long-form posts (those go
   // through the daily synthesis-summary Discord) and skips pubs without

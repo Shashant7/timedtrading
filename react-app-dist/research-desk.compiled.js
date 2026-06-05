@@ -701,7 +701,9 @@ function FlowSteps({
 }
 function InfluenceLedgerCard({
   ledger,
-  isAdmin
+  isAdmin,
+  onAction,
+  inFlightSet
 }) {
   if (!isAdmin) return null;
   if (!ledger) {
@@ -757,7 +759,7 @@ function InfluenceLedgerCard({
     style: {
       marginBottom: 12
     }
-  }, `${w.needs_review} proposal(s) need a human decision — off-theme or low-confidence. Review them in Proposed changes below. Everything else was auto-applied.`) : h("div", {
+  }, `${w.needs_review} proposal(s) need a human decision — off-theme or low-confidence. Use the Approve / Reject buttons on each "Needs review" card below. Everything else was auto-applied.`) : h("div", {
     className: "muted",
     style: {
       marginBottom: 12,
@@ -867,7 +869,29 @@ function InfluenceLedgerCard({
       marginTop: 6,
       fontSize: 11
     }
-  }, `Held for review: ${it.auto_apply_reason}`), it.fetch_status && it.fetch_status !== "ok" && h("div", {
+  }, `Held for review: ${it.auto_apply_reason}`), it.needs_review && it.proposal_id && onAction && h("div", {
+    className: "row",
+    style: {
+      marginTop: 8,
+      gap: 8
+    }
+  }, h(BusyBtn, {
+    className: "btn btn-go btn-sm",
+    busy: inFlightSet && inFlightSet.has(`approve_${it.proposal_id}`),
+    title: "POST /timed/admin/cro/proposal/approve — applies this proposal to the live tactical overlay",
+    onClick: () => onAction(`approve_${it.proposal_id}`, "POST", "/timed/admin/cro/proposal/approve", {
+      proposal_id: it.proposal_id,
+      note: "operator_approved_via_research_desk"
+    })
+  }, "Approve & apply"), h(BusyBtn, {
+    className: "btn btn-danger btn-sm",
+    busy: inFlightSet && inFlightSet.has(`reject_${it.proposal_id}`),
+    title: "POST /timed/admin/cro/proposal/reject — discards this proposal",
+    onClick: () => onAction(`reject_${it.proposal_id}`, "POST", "/timed/admin/cro/proposal/reject", {
+      proposal_id: it.proposal_id,
+      note: "operator_rejected_via_research_desk"
+    })
+  }, "Reject")), it.fetch_status && it.fetch_status !== "ok" && h("div", {
     className: "err",
     style: {
       marginTop: 6,
@@ -1395,22 +1419,30 @@ function App() {
     }
   }, "📡 FSD Pipeline · admin"), h("div", {
     className: "muted"
-  }, "Click to pull the latest FSD publications NOW and re-fetch any existing pubs whose stored text looks like the old garbage scrape. Each fresh pub triggers the eager TT-voice blend.")), h(BusyBtn, {
-    className: "btn btn-go",
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, "Force Pull = fetch only"), " (lists + re-fetches publications). It does ", h("strong", null, "not"), " extract or apply — that runs automatically on the hourly + nightly cron. ", h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, "Force full cycle = fetch + extract + auto-apply + synthesize now"), " — use this to process brand-new posts immediately instead of waiting for the cron.")), h(BusyBtn, {
+    className: "btn",
     busy: inFlightSet.has("fsd_ingest"),
-    title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 }',
+    title: 'POST /timed/admin/cro/fsd/ingest { force: true, limit: 20 } — FETCH ONLY',
     onClick: () => onAction("fsd_force_topbar", "POST", "/timed/admin/cro/fsd/ingest", {
       force: true,
       limit: 20
     })
-  }, "Force Pull"), h(BusyBtn, {
-    className: "btn",
+  }, "Force Pull (fetch)"), h(BusyBtn, {
+    className: "btn btn-go",
     busy: inFlightSet.has("cro_cycle"),
-    title: "POST /timed/admin/cro/cycle { force: true }",
+    title: "POST /timed/admin/cro/cycle { force: true } — fetch + extract + apply + synthesize",
     onClick: () => onAction("cycle_force_topbar", "POST", "/timed/admin/cro/cycle", {
       force: true
     })
-  }, "Force full cycle")), h("div", {
+  }, "Force full cycle (process now)")), h("div", {
     className: "layout-main"
   }, h(CRONoteCard, {
     data
@@ -1432,7 +1464,9 @@ function App() {
     }
   }, h(InfluenceLedgerCard, {
     ledger: data?.influence?.body,
-    isAdmin
+    isAdmin,
+    onAction,
+    inFlightSet
   })), isAdmin && h("div", {
     style: {
       marginTop: 14
@@ -1473,6 +1507,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780675372699:823630225
+// cache-bust:1780690270563:198003561
 
-// cache-bust:1780675372699:823630225
+// cache-bust:1780690270563:198003561

@@ -81,6 +81,49 @@ async function markProposalNeedsReview(env, proposalId, reason) {
   } catch (_) { /* best-effort */ }
 }
 
+// 2026-06-05 — Cycle-end pending-review digest. The per-item alert above only
+// fires at the moment of extraction, so proposals extracted in an earlier
+// cycle (before this code, or skipped as already-extracted) never alerted the
+// operator. This sweeps the CURRENT pending+needs_review set after each cycle
+// and sends ONE Discord digest — deduped by the proposal-id set so it only
+// re-alerts when the set actually changes (new items arrive).
+async function notifyPendingReviewDigest(env) {
+  try {
+    if (!env?.DB) return;
+    const rows = await env.DB.prepare(
+      `SELECT proposal_id, pub_id, classification, confidence, auto_apply_reason
+         FROM ${PROPOSALS_TABLE}
+        WHERE status = 'pending' AND review_status = 'needs_review'
+        ORDER BY created_at DESC LIMIT 20`,
+    ).all().catch(() => ({ results: [] }));
+    const pending = rows?.results || [];
+    const key = "cro:pending_review:last_alert_sig";
+    const sig = pending.map((p) => p.proposal_id).sort().join(",");
+    let prevSig = null;
+    try { prevSig = await env.KV?.get(key); } catch (_) {}
+    if (pending.length === 0) {
+      // Clear the signature so the next pending item re-alerts cleanly.
+      if (prevSig) { try { await env.KV?.delete(key); } catch (_) {} }
+      return;
+    }
+    if (prevSig === sig) return; // unchanged set — already alerted
+    const { notifyDiscord } = await import("../alerts.js");
+    await notifyDiscord(env, {
+      title: `[CRO] ${pending.length} FSD proposal${pending.length === 1 ? "" : "s"} need review`,
+      description: "Off-theme / low-confidence proposals are waiting for an Approve / Reject decision on the Research Desk.",
+      color: 0xf59e0b,
+      fields: pending.slice(0, 5).map((p) => ({
+        name: `${p.classification || "tactical"} · conf ${p.confidence != null ? Math.round(Number(p.confidence) * 100) + "%" : "n/a"}`,
+        value: `pub ${p.pub_id} — ${String(p.auto_apply_reason || "review").slice(0, 100)}`,
+        inline: false,
+      })),
+      footer: { text: "Research Desk → What we ingested & what it influenced → Approve / Reject" },
+      timestamp: new Date().toISOString(),
+    }, "system");
+    try { await env.KV?.put(key, sig, { expirationTtl: 7 * 86400 }); } catch (_) {}
+  } catch (_) { /* digest is best-effort — never block the cycle */ }
+}
+
 async function notifyProposalNeedsReview(env, pub, ext, reason) {
   try {
     const { notifyDiscord } = await import("../alerts.js");
@@ -190,6 +233,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  await notifyPendingReviewDigest(env).catch(() => {});
   summary.elapsed_ms = Date.now() - t0;
   await writeTombstone(env, summary).catch(() => {});
   return summary;
@@ -397,6 +441,7 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     summary.errors.push(`cro_daily_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  await notifyPendingReviewDigest(env).catch(() => {});
   summary.elapsed_ms = Date.now() - t0;
   await writeTombstone(env, summary).catch(() => {});
 

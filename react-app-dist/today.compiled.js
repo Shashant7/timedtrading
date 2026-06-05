@@ -3044,6 +3044,85 @@ function TopMovers({
     universe
   })));
 }
+function MacroEventsStrip() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE || ""}/timed/macro/events?days=10`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setData(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const events = data && data.ok && Array.isArray(data.events) ? data.events : [];
+  if (!data || events.length === 0) return null;
+  const impColor = i => i === "high" ? "var(--tt-dn-soft)" : i === "medium" ? "#fbbf24" : "var(--tt-text-dim)";
+  const fmtDate = d => {
+    try {
+      return new Date(d + "T12:00:00Z").toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric"
+      });
+    } catch (_) {
+      return d;
+    }
+  };
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MACRO EVENTS \u2014 NEXT 10 DAYS"), h("div", {
+    className: "tt-strip-scroll"
+  }, events.map((e, i) => h("div", {
+    key: i,
+    className: "tt-strip-chip",
+    style: e.is_today ? {
+      borderColor: impColor(e.impact),
+      background: "rgba(245,158,11,0.10)"
+    } : {
+      borderColor: impColor(e.impact) + "55"
+    },
+    title: `${fmtDate(e.date)} ${e.time_et || ""} · ${e.impact} impact`
+  }, h("span", {
+    style: {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: impColor(e.impact),
+      display: "inline-block",
+      flexShrink: 0
+    }
+  }), h("span", {
+    style: {
+      fontSize: 10,
+      color: e.is_today ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-dim)",
+      fontWeight: 700,
+      letterSpacing: "0.03em"
+    }
+  }, e.is_today ? "TODAY" : fmtDate(e.date)), h("span", {
+    style: {
+      fontSize: 12,
+      fontWeight: 600,
+      color: "var(--tt-text)"
+    }
+  }, e.name), e.time_et && h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, e.time_et), (e.actual || e.estimate) && h("span", {
+    style: {
+      fontSize: 10.5,
+      fontFamily: "var(--tt-font-mono)",
+      color: e.actual ? "var(--tt-up-soft)" : "var(--tt-text-dim)"
+    }
+  }, e.actual ? `act ${e.actual}` : `est ${e.estimate}`)))));
+}
 function EarningsStrip({
   earnings,
   universe,
@@ -4971,7 +5050,7 @@ function TodayApp() {
   }), brief && h(MacroStrip, {
     brief,
     data
-  }), earnings && h(EarningsStrip, {
+  }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
     earnings,
     onSelectTicker,
     strip: true,
@@ -5395,6 +5474,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780675372699:823630225
+// cache-bust:1780691798393:709084591
 
-// cache-bust:1780675372699:823630225
+// cache-bust:1780691798393:709084591
