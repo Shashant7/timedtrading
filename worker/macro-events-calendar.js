@@ -104,10 +104,17 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
     }
   } catch (_) { /* FSD store optional — curated is the floor */ }
 
-  const items = Array.from(byKey.values())
+  let items = Array.from(byKey.values())
     .filter((e) => includeLowImpact || e.impact !== "low")
     .map((e) => ({ ...e, is_today: e.date === today }))
     .sort((a, b) => (a.date === b.date ? (String(a.time_et) < String(b.time_et) ? -1 : 1) : a.date < b.date ? -1 : 1));
+
+  // 2026-06-05 — Near-real-time ACTUALS from FRED (authoritative, fills within
+  // minutes of release vs FSD's note cadence). Best-effort; no-op without key.
+  try {
+    const { applyFREDActuals } = await import("./macro-actuals-fred.js");
+    items = await applyFREDActuals(env, items, today);
+  } catch (_) { /* FRED layer optional */ }
 
   return { ok: true, today, days, count: items.length, fsd_events: fsdCount, events: items, generated_at: Date.now() };
 }
