@@ -1150,12 +1150,21 @@ function OptionsPlaysOfTheDay({
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`${API_BASE}/timed/options/all?limit=10`, {
-          credentials: "include",
-          cache: "no-store"
-        });
-        if (!r.ok) return;
-        const j = await r.json();
+        const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(_optsUrl, {
+          ttlMs: 60000,
+          maxAgeMs: 300000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        }) : await (async () => {
+          const r = await fetch(_optsUrl, {
+            credentials: "include",
+            cache: "no-store"
+          });
+          return r.ok ? r.json() : null;
+        })();
+        if (!j) return;
         if (alive && j?.ok && Array.isArray(j.plays)) {
           const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
           setPlays(actionable);
@@ -1802,6 +1811,7 @@ function ResearchDeskPanel({
   onSelectTicker
 }) {
   const [feed, setFeed] = useState(null);
+  const [openId, setOpenId] = useState(null);
   useEffect(() => {
     let alive = true;
     fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
@@ -1815,7 +1825,6 @@ function ResearchDeskPanel({
     };
   }, []);
   const items = feed && feed.ok && Array.isArray(feed.items) ? feed.items : [];
-  const catCls = c => c === "structural" ? "var(--tt-accent)" : c === "actionable" ? "var(--tt-up-soft)" : "var(--tt-violet)";
   const ago = ts => {
     if (!ts) return "";
     const d = Date.parse(ts) || Number(ts);
@@ -1853,80 +1862,91 @@ function ResearchDeskPanel({
       flexDirection: "column",
       gap: 8
     }
-  }, items.slice(0, 5).map((it, i) => h("div", {
-    key: it.pub_id || i,
-    style: {
-      padding: "8px 0",
-      borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      flexWrap: "wrap",
-      marginBottom: 3
-    }
-  }, h("span", {
-    style: {
-      fontSize: 9.5,
-      fontWeight: 700,
-      letterSpacing: "0.04em",
-      color: catCls(it.category),
-      border: `1px solid ${catCls(it.category)}`,
-      borderRadius: 5,
-      padding: "1px 6px",
-      opacity: 0.95
-    }
-  }, (it.category_label || "").toUpperCase()), h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)"
-    }
-  }, it.content_type_label || ""), h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)",
-      marginLeft: "auto"
-    }
-  }, ago(it.published_at || it.fetched_at))), h("div", {
-    style: {
-      fontSize: 12.5,
-      color: "var(--tt-text)",
-      lineHeight: 1.4,
-      fontWeight: 600
-    }
-  }, it.title), it.tickers && it.tickers.length > 0 && h("div", {
-    style: {
-      display: "flex",
-      gap: 5,
-      flexWrap: "wrap",
-      marginTop: 5
-    }
-  }, it.tickers.map(tk => h("button", {
-    key: tk,
-    onClick: () => onSelectTicker && onSelectTicker(tk),
-    style: {
-      fontSize: 10.5,
-      fontWeight: 700,
-      fontFamily: "var(--tt-font-mono)",
-      color: "var(--tt-text-muted)",
-      background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
-      border: "1px solid var(--tt-border-hi)",
-      borderRadius: 5,
-      padding: "1px 6px",
-      cursor: "pointer"
-    }
-  }, tk)))))), h("a", {
-    href: "/research-desk.html",
-    style: {
-      display: "inline-block",
-      marginTop: 10,
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      textDecoration: "none"
-    }
-  }, "Open Research Desk →"));
+  }, items.slice(0, 5).map((it, i) => {
+    const id = it.pub_id || String(i);
+    const isOpen = openId === id;
+    const hasMore = !!it.tt_summary;
+    return h("div", {
+      key: id,
+      style: {
+        padding: "8px 0",
+        borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 3
+      }
+    }, h("span", {
+      style: {
+        fontSize: 9.5,
+        fontWeight: 600,
+        letterSpacing: "0.06em",
+        color: "var(--tt-text-dim)",
+        textTransform: "uppercase"
+      }
+    }, it.category_label || "Editorial"), h("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-dim)",
+        marginLeft: "auto"
+      }
+    }, ago(it.published_at || it.fetched_at))), h("button", {
+      onClick: () => hasMore && setOpenId(isOpen ? null : id),
+      style: {
+        display: "block",
+        width: "100%",
+        textAlign: "left",
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: hasMore ? "pointer" : "default",
+        fontSize: 12.5,
+        color: "var(--tt-text)",
+        lineHeight: 1.4,
+        fontWeight: 600
+      }
+    }, it.title, hasMore && h("span", {
+      style: {
+        color: "var(--tt-text-dim)",
+        fontWeight: 400,
+        marginLeft: 6,
+        fontSize: 11
+      }
+    }, isOpen ? "▴" : "▾")), isOpen && it.tt_summary && h("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.5,
+        marginTop: 6,
+        paddingLeft: 10,
+        borderLeft: "2px solid var(--tt-border-hi)"
+      }
+    }, it.tt_summary), it.tickers && it.tickers.length > 0 && h("div", {
+      style: {
+        display: "flex",
+        gap: 5,
+        flexWrap: "wrap",
+        marginTop: 5
+      }
+    }, it.tickers.map(tk => h("button", {
+      key: tk,
+      onClick: () => onSelectTicker && onSelectTicker(tk),
+      style: {
+        fontSize: 10.5,
+        fontWeight: 700,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-muted)",
+        background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
+        border: "1px solid var(--tt-border-hi)",
+        borderRadius: 5,
+        padding: "1px 6px",
+        cursor: "pointer"
+      }
+    }, tk))));
+  })));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -1941,12 +1961,25 @@ function DayTradePredictions({
     }).then(r => r.ok ? r.json() : null).then(j => {
       if (alive) setPred(j);
     }).catch(() => {});
-    fetch(`${API_BASE || ""}/timed/options/all?limit=20`, {
-      credentials: "include",
-      cache: "no-store"
-    }).then(r => r.ok ? r.json() : null).then(j => {
-      if (alive) setOpts(j);
-    }).catch(() => {});
+    const _optsUrl = `${API_BASE || ""}/timed/options/all?limit=10`;
+    if (window.TTFetchCache) {
+      window.TTFetchCache.get(_optsUrl, {
+        ttlMs: 60000,
+        maxAgeMs: 300000,
+        fetchOpts: {
+          credentials: "include"
+        }
+      }).then(j => {
+        if (alive && j) setOpts(j);
+      }).catch(() => {});
+    } else {
+      fetch(_optsUrl, {
+        credentials: "include",
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).then(j => {
+        if (alive) setOpts(j);
+      }).catch(() => {});
+    }
     return () => {
       alive = false;
     };
@@ -2799,7 +2832,8 @@ function MoversCol({
 function TopMovers({
   data,
   onSelectTicker,
-  universe
+  universe,
+  strip
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -2836,6 +2870,45 @@ function TopMovers({
     })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t);
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
+  if (strip) {
+    const chips = [...rthGain.slice(0, 8), ...rthLoss.slice(0, 8)];
+    if (chips.length === 0) return null;
+    const moverChip = t => {
+      const sym = String(t.ticker || t.sym || "").toUpperCase();
+      const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
+      const pct = Number(dc?.dayPct);
+      const up = Number.isFinite(pct) && pct >= 0;
+      return h("button", {
+        key: sym,
+        onClick: () => onSelectTicker && onSelectTicker(sym),
+        className: "tt-strip-chip",
+        title: sym
+      }, h(TickerLogo, {
+        sym,
+        size: 18
+      }), h("span", {
+        style: {
+          fontWeight: 700,
+          fontSize: 12,
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, sym), Number.isFinite(pct) && h("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          color: up ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, `${up ? "+" : ""}${pct.toFixed(2)}%`));
+    };
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "TOP MOVERS"), h("div", {
+      className: "tt-strip-scroll"
+    }, chips.map(moverChip)));
+  }
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -2880,7 +2953,8 @@ function TopMovers({
 function EarningsStrip({
   earnings,
   universe,
-  onSelectTicker
+  onSelectTicker,
+  strip
 }) {
   const events = safeArr(earnings?.events).slice();
   if (events.length === 0) return null;
@@ -2916,6 +2990,42 @@ function EarningsStrip({
     if (hl.startsWith("amc") || hl.includes("after")) return "amc";
     return "unk";
   };
+  if (strip) {
+    const chips = events.slice(0, 24);
+    return h("section", {
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "EVENT-DRIVEN RISK \u2014 EARNINGS"), h("div", {
+      className: "tt-strip-scroll"
+    }, chips.map((ev, i) => {
+      const sym = String(ev?.symbol || "").toUpperCase();
+      const uni = uniSet.has(sym);
+      return h("button", {
+        key: `${sym}-${i}`,
+        onClick: () => onSelectTicker && onSelectTicker(sym),
+        className: "tt-strip-chip",
+        title: `${sym} \u00b7 ${ev?.date || ""} ${ev?.hour || ""}`,
+        style: uni ? {
+          borderColor: "rgba(52,211,153,0.4)"
+        } : undefined
+      }, h(TickerLogo, {
+        sym,
+        size: 18
+      }), h("span", {
+        style: {
+          fontWeight: 700,
+          fontSize: 12,
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, sym), h("span", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text-dim)"
+        }
+      }, `${String(ev?.date || "").slice(5)} ${hourClass(ev?.hour).toUpperCase()}`));
+    })));
+  }
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -4767,27 +4877,21 @@ function TodayApp() {
   }), brief && h(MacroStrip, {
     brief,
     data
-  }), h("div", {
-    className: "today-tri-row",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-      gap: 14,
-      marginBottom: 14,
-      alignItems: "start"
-    }
-  }, data && h(FocusRail, {
+  }), data && h(FocusRail, {
     data,
-    onSelectTicker
+    onSelectTicker,
+    strip: true
   }), data && h(TopMovers, {
     data,
     onSelectTicker,
+    strip: true,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), earnings && h(EarningsStrip, {
     earnings,
     onSelectTicker,
+    strip: true,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  })), data ? h(AnalysisControls, {
+  }), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
     visibleCount: visible.length,
@@ -5197,6 +5301,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780622416424:426531197
+// cache-bust:1780628220559:392337428
 
-// cache-bust:1780622416424:426531197
+// cache-bust:1780628220559:392337428
