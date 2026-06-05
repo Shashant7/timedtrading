@@ -1144,6 +1144,7 @@ function OptionsPlaysOfTheDay({
   const [dayTradePlays, setDayTradePlays] = useState(null);
   const [dayTradeExp, setDayTradeExp] = useState(null);
   const [dayTradeSuppressed, setDayTradeSuppressed] = useState(null);
+  const [dayTradeAsOf, setDayTradeAsOf] = useState(null);
   const [loading, setLoading] = useState(true);
   const isSidebar = layout === "sidebar";
   useEffect(() => {
@@ -1173,6 +1174,7 @@ function OptionsPlaysOfTheDay({
           setDayTradePlays(j.day_trade_plays);
           setDayTradeExp(j.day_trade_expiration || null);
           setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
+          setDayTradeAsOf(Number(j.generated_at || j._cached_at) || null);
         }
       } catch (_) {} finally {
         if (alive) setLoading(false);
@@ -1272,6 +1274,14 @@ function OptionsPlaysOfTheDay({
   const renderDayTradeStrip = () => {
     if (!dayTradePlays || dayTradePlays.length === 0) return null;
     const dteLabel = dayTradeExp?.dte === 0 ? "0DTE (Today)" : `${dayTradeExp?.dte ?? "?"}DTE (${dayTradeExp?.label || "Next session"})`;
+    const asOfMs = Number(dayTradeAsOf);
+    const asOfLabel = Number.isFinite(asOfMs) && asOfMs > 0 ? new Date(asOfMs).toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit"
+    }) + " ET" : null;
+    const asOfAgeMin = Number.isFinite(asOfMs) && asOfMs > 0 ? Math.floor((Date.now() - asOfMs) / 60000) : null;
+    const asOfStale = asOfAgeMin != null && asOfAgeMin > 15;
     return h("section", {
       className: isSidebar ? "" : "tt-row",
       style: {
@@ -1312,11 +1322,25 @@ function OptionsPlaysOfTheDay({
         lineHeight: 1.5,
         marginBottom: 8
       }
-    }, h("strong", {
+    }, asOfLabel && h("span", {
+      style: {
+        display: "inline-block",
+        marginBottom: 4,
+        marginRight: 6,
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        padding: "1px 7px",
+        borderRadius: 999,
+        color: asOfStale ? "#fbbf24" : "#34d399",
+        border: `1px solid ${asOfStale ? "rgba(245,158,11,0.4)" : "rgba(52,211,153,0.4)"}`,
+        background: asOfStale ? "rgba(245,158,11,0.08)" : "rgba(52,211,153,0.08)"
+      }
+    }, asOfStale ? `STALE · spot as of ${asOfLabel}` : `LIVE · spot as of ${asOfLabel}`), h("strong", {
       style: {
         color: "var(--tt-text)"
       }
-    }, "Spot"), " = the index price when this play was computed (refreshes ~every 5 min). The suggested strike is anchored to that spot, so if the index has moved more than ~1% the play is stale — re-check the live price before acting. 0DTE expires ", h("strong", null, "today"), "; 1DTE the next session. These are intraday scalps — manage actively, not hold-overnight ideas."), h("div", {
+    }, "Spot"), " = the index price when this play was last computed. The strike is anchored to that spot and re-validated each cycle (~5 min) — a play only shows while its strike is within ~2% of spot, so it's a valid read for ", h("strong", null, dayTradeExp?.dte === 0 ? "today's session" : "the next session"), ". 0DTE expires today; 1DTE the next session. Intraday scalps — manage actively. ", asOfStale ? "This quote hasn't refreshed in a while — confirm the live price before acting." : ""), h("div", {
       style: isSidebar ? {
         display: "flex",
         flexDirection: "column",
@@ -1333,6 +1357,9 @@ function OptionsPlaysOfTheDay({
       const strike = Number(p.strike || p.primary?.strikes?.primary) || null;
       const spot = Number(p.price) || null;
       const strikeBlurb = strike ? flavor === "straddle" ? `$${strike} straddle (spot $${spot ? spot.toFixed(2) : "?"})` : `$${strike} ${flavorLabel.toLowerCase()} (spot $${spot ? spot.toFixed(2) : "?"})` : p.primary?.label || "Day-trade play";
+      const driftPct = strike && spot ? Math.abs(strike - spot) / spot * 100 : null;
+      const driftLabel = driftPct == null ? null : driftPct < 0.5 ? "At the money" : `${driftPct.toFixed(1)}% from spot`;
+      const driftColor = driftPct == null ? "var(--tt-text-dim)" : driftPct < 1 ? "#34d399" : driftPct < 2 ? "#fbbf24" : "#f87171";
       return h("div", {
         key: `dt-${p.ticker}`,
         onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
@@ -1398,12 +1425,29 @@ function OptionsPlaysOfTheDay({
         }
       }, strikeBlurb), h("div", {
         style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexWrap: "wrap",
           fontSize: 10,
           color: "var(--tt-text-muted)",
           lineHeight: 1.4,
           marginBottom: 6
         }
-      }, p.primary?.expiration?.label || `${p.day_trade_dte}DTE`), p.primary?.max_loss_usd && h("div", {
+      }, h("span", null, p.primary?.expiration?.label || `${p.day_trade_dte}DTE`), driftLabel && h("span", {
+        title: "How close the suggested strike is to the spot it was anchored to. A play only shows while within ~2% of spot.",
+        style: {
+          fontWeight: 700,
+          color: driftColor,
+          border: `1px solid ${driftColor}55`,
+          borderRadius: 4,
+          padding: "0 5px"
+        }
+      }, driftLabel), asOfLabel && h("span", {
+        style: {
+          color: "var(--tt-text-dim)"
+        }
+      }, `· as of ${asOfLabel}`)), p.primary?.max_loss_usd && h("div", {
         style: {
           fontSize: 10,
           color: "var(--tt-text-faint)",
@@ -5311,6 +5355,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780630405394:234986831
+// cache-bust:1780663707105:961511149
 
-// cache-bust:1780630405394:234986831
+// cache-bust:1780663707105:961511149
