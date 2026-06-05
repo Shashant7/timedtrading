@@ -905,6 +905,21 @@ function PublicationsCard({
   return h("div", {
     className: "card"
   }, h("h2", null, "FSD publications (admin)"), h("div", {
+    style: {
+      marginBottom: 10,
+      padding: "8px 12px",
+      borderRadius: 8,
+      fontSize: 12,
+      lineHeight: 1.5,
+      background: "rgba(52,211,153,0.06)",
+      border: "1px solid rgba(52,211,153,0.25)",
+      color: "var(--tt-text)"
+    }
+  }, h("strong", {
+    style: {
+      color: "#34d399"
+    }
+  }, "Fully automated — no action needed. "), "Ingestion runs hourly (13:00–21:00 UTC) + nightly; each new publication is auto-extracted and, if the proposal is confident + on-theme, auto-applied. Off-theme / low-confidence ones surface in “Proposed changes” for review. ", h("strong", null, "The Extract / Re-fetch / Approve buttons are manual overrides"), " to expedite a single item — you don't need to click them."), h("div", {
     className: "muted",
     style: {
       marginBottom: 8
@@ -1458,6 +1473,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780616794021:248643169
+// cache-bust:1780675372699:823630225
 
-// cache-bust:1780616794021:248643169
+// cache-bust:1780675372699:823630225

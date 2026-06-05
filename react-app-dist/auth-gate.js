@@ -2465,6 +2465,19 @@
           window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
         }
       } catch (_) {}
+      // 2026-06-05 — Cross-device truth: the linked state lives on the account
+      // (users.discord_id), not localStorage, so a second browser/Mac shows
+      // "Link Discord" even when already linked. Ask the server.
+      (async () => {
+        try {
+          const r = await fetch(`${apiBase}/timed/discord/status`, { credentials: "include" });
+          const j = await r.json().catch(() => null);
+          if (j?.ok && j.connected) {
+            setJoined(true);
+            try { localStorage.setItem("tt_discord_linked", "1"); } catch {}
+          }
+        } catch (_) {}
+      })();
       return () => window.removeEventListener("message", onMsg);
     }, []);
 
@@ -2710,4 +2723,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1780621964194:530697469
+// cache-bust:1780675372699:823630225
