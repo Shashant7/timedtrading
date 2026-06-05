@@ -843,7 +843,8 @@ function IndexPredictionsStrip({
   const active = evening || morning;
   if (!active) return null;
   const briefType = active.type || (evening ? "evening" : "morning");
-  const indices = (active?.infographic?.indices || []).filter(i => ["SPY", "QQQ", "IWM"].includes(String(i?.sym || "").toUpperCase()));
+  const _wantOrder = ["ES", "ES1!", "SPY", "QQQ", "IWM", "DIA"];
+  const indices = (active?.infographic?.indices || []).filter(i => _wantOrder.includes(String(i?.sym || "").toUpperCase())).sort((a, b) => _wantOrder.indexOf(String(a?.sym || "").toUpperCase()) - _wantOrder.indexOf(String(b?.sym || "").toUpperCase()));
   if (indices.length === 0) return null;
   const briefDate = active?.date || morning?.date || null;
   const _label = briefType === "evening" ? "Today's Day-Trade Scorecard" : "Today's Day-Trade Plan";
@@ -870,7 +871,7 @@ function IndexPredictionsStrip({
     style: {
       margin: 0
     }
-  }, _isCompact ? `${_label.toUpperCase()} · 3 INDICES` : "DAILY BRIEF · DAY-TRADE PREDICTIONS"), briefDate && h("span", {
+  }, _isCompact ? `${_label.toUpperCase()} · ${indices.length} INDICES` : "DAY-TRADE PREDICTIONS"), briefDate && h("span", {
     style: {
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10,
@@ -1768,6 +1769,136 @@ function OpenPositionsPreview({
     }, "INV"));
   })));
 }
+function ResearchDeskPanel({
+  onSelectTicker
+}) {
+  const [feed, setFeed] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null).then(j => {
+      if (alive) setFeed(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const items = feed && feed.ok && Array.isArray(feed.items) ? feed.items : [];
+  const catCls = c => c === "structural" ? "var(--tt-accent)" : c === "actionable" ? "var(--tt-up-soft)" : "var(--tt-violet)";
+  const ago = ts => {
+    if (!ts) return "";
+    const d = Date.parse(ts) || Number(ts);
+    if (!Number.isFinite(d)) return "";
+    const m = Math.floor((Date.now() - d) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m}m ago`;
+    const hr = Math.floor(m / 60);
+    if (hr < 24) return `${hr}h ago`;
+    return `${Math.floor(hr / 24)}d ago`;
+  };
+  return h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      minWidth: 0
+    }
+  }, h("div", {
+    className: "tt-sec-title",
+    style: {
+      marginBottom: 2
+    }
+  }, "RESEARCH DESK"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      marginBottom: 10
+    }
+  }, "Fresh from the research feed"), items.length === 0 ? h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)"
+    }
+  }, feed ? "No fresh research yet today." : "Loading research…") : h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 8
+    }
+  }, items.slice(0, 5).map((it, i) => h("div", {
+    key: it.pub_id || i,
+    style: {
+      padding: "8px 0",
+      borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap",
+      marginBottom: 3
+    }
+  }, h("span", {
+    style: {
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: catCls(it.category),
+      border: `1px solid ${catCls(it.category)}`,
+      borderRadius: 5,
+      padding: "1px 6px",
+      opacity: 0.95
+    }
+  }, (it.category_label || "").toUpperCase()), h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, it.content_type_label || ""), h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginLeft: "auto"
+    }
+  }, ago(it.published_at || it.fetched_at))), h("div", {
+    style: {
+      fontSize: 12.5,
+      color: "var(--tt-text)",
+      lineHeight: 1.4,
+      fontWeight: 600
+    }
+  }, it.title), it.tickers && it.tickers.length > 0 && h("div", {
+    style: {
+      display: "flex",
+      gap: 5,
+      flexWrap: "wrap",
+      marginTop: 5
+    }
+  }, it.tickers.map(tk => h("button", {
+    key: tk,
+    onClick: () => onSelectTicker && onSelectTicker(tk),
+    style: {
+      fontSize: 10.5,
+      fontWeight: 700,
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--tt-text-muted)",
+      background: "var(--tt-bg-elev, rgba(255,255,255,0.04))",
+      border: "1px solid var(--tt-border-hi)",
+      borderRadius: 5,
+      padding: "1px 6px",
+      cursor: "pointer"
+    }
+  }, tk)))))), h("a", {
+    href: "/research-desk.html",
+    style: {
+      display: "inline-block",
+      marginTop: 10,
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      textDecoration: "none"
+    }
+  }, "Open Research Desk →"));
+}
 function TodayHero({
   brief,
   data,
@@ -1799,18 +1930,12 @@ function TodayHero({
     brief,
     data,
     onSelectTicker
-  }), brief && h(IndexPredictionsStrip, {
-    brief,
-    data,
-    onSelectTicker,
-    layout: "compact"
   })), h("div", {
     style: {
       minWidth: 0
     }
-  }, h(OptionsPlaysOfTheDay, {
-    onSelectTicker,
-    layout: "sidebar"
+  }, h(ResearchDeskPanel, {
+    onSelectTicker
   })));
 }
 function QuickGlance({
@@ -2055,18 +2180,42 @@ function MarketState({
   }))));
 }
 function MacroStrip({
-  brief
+  brief,
+  data
 }) {
-  const macro = brief?.infographic?.macro || [];
+  const info = brief?.infographic || {};
+  const macro = info.macro || [];
   const items = Array.isArray(macro) ? macro.slice(0, 12) : [];
-  if (items.length === 0) return null;
+  const sectors = Array.isArray(info.sectors) ? info.sectors.filter(s => s && (s.sym || s.label)) : [];
+  const sectorsSorted = sectors.map(s => ({
+    sym: String(s.sym || s.label || "").toUpperCase(),
+    chgPct: Number(s.chgPct),
+    status: s.status
+  })).filter(s => s.sym).sort((a, b) => (Number.isFinite(b.chgPct) ? b.chgPct : -99) - (Number.isFinite(a.chgPct) ? a.chgPct : -99));
+  const SECTOR_NAME = {
+    XLK: "Technology",
+    XLF: "Financials",
+    XLY: "Consumer Disc.",
+    XLC: "Communications",
+    XLV: "Health Care",
+    XLI: "Industrials",
+    XLE: "Energy",
+    XLB: "Materials",
+    XLP: "Staples",
+    XLU: "Utilities",
+    XLRE: "Real Estate"
+  };
+  const leaders = sectorsSorted.filter(s => Number.isFinite(s.chgPct) && s.chgPct > 0).slice(0, 2);
+  const laggards = sectorsSorted.filter(s => Number.isFinite(s.chgPct) && s.chgPct < 0).slice(-2).reverse();
+  const themeCallout = leaders.length || laggards.length ? [leaders.length ? `Leadership: ${leaders.map(s => SECTOR_NAME[s.sym] || s.sym).join(" + ")}` : null, laggards.length ? `Lagging: ${laggards.map(s => SECTOR_NAME[s.sym] || s.sym).join(" + ")}` : null].filter(Boolean).join(" · ") : null;
+  if (items.length === 0 && sectorsSorted.length === 0) return null;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "MACRO ON THE TAPE"), h("div", {
+  }, "CROSS-ASSET & SECTOR SIGNALS"), h("div", {
     className: "tt-sec-h"
-  }, "Cross-asset signals the model is weighting"), h("div", {
+  }, "What the model is weighting across assets + S&P sectors"), items.length > 0 && h("div", {
     className: "macro-row"
   }, items.map((m, i) => {
     if (typeof m === "string") {
@@ -2101,7 +2250,53 @@ function MacroStrip({
         fontWeight: 700
       }
     }, (chgPct >= 0 ? "+" : "") + chgPct.toFixed(2) + "%"));
-  })));
+  })), sectorsSorted.length > 0 && h("div", {
+    style: {
+      marginTop: 12
+    }
+  }, h("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: "var(--tt-text-muted)",
+      marginBottom: 6
+    }
+  }, "S&P SECTORS"), h("div", {
+    className: "macro-row"
+  }, sectorsSorted.map((s, i) => {
+    const hasChg = Number.isFinite(s.chgPct);
+    const col = hasChg ? s.chgPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+    return h("span", {
+      key: i,
+      className: "macro-chip",
+      title: SECTOR_NAME[s.sym] || s.sym
+    }, h("span", {
+      style: {
+        color: "var(--tt-text)",
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700
+      }
+    }, s.sym), hasChg && h("span", {
+      style: {
+        color: col,
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 11,
+        fontWeight: 700
+      }
+    }, (s.chgPct >= 0 ? "+" : "") + s.chgPct.toFixed(2) + "%"));
+  })), themeCallout && h("div", {
+    style: {
+      marginTop: 8,
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.5
+    }
+  }, h("strong", {
+    style: {
+      color: "var(--tt-text)"
+    }
+  }, "Rotation to mind: "), themeCallout, ".")));
 }
 function FocusRail({
   data,
@@ -4350,21 +4545,41 @@ function TodayApp() {
   }), h("main", null, h(StatusHeader, {
     cal,
     briefDate: brief?.date
-  }), h(TodayHero, {
+  }), data ? h(MarketState, {
+    data,
+    onSelectTicker
+  }) : h(MarketStateSkeleton, null), h(TodayHero, {
     brief,
     data,
     earnings,
     onSelectTicker
+  }), brief && h("section", {
+    className: "tt-row"
+  }, h(IndexPredictionsStrip, {
+    brief,
+    data,
+    onSelectTicker,
+    layout: "full"
+  })), h(OptionsPlaysOfTheDay, {
+    onSelectTicker,
+    layout: "row"
   }), h(OpenPositionsPreview, {
     onSelectTicker
-  }), data ? h(MarketState, {
-    data,
-    onSelectTicker
-  }) : h(MarketStateSkeleton, null), data && h(FocusRail, {
-    data,
-    onSelectTicker
   }), brief && h(MacroStrip, {
-    brief
+    brief,
+    data
+  }), h("div", {
+    className: "today-tri-row",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+      gap: 14,
+      marginBottom: 14,
+      alignItems: "start"
+    }
+  }, data && h(FocusRail, {
+    data,
+    onSelectTicker
   }), data && h(TopMovers, {
     data,
     onSelectTicker,
@@ -4373,7 +4588,7 @@ function TodayApp() {
     earnings,
     onSelectTicker,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), data ? h(AnalysisControls, {
+  })), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
     visibleCount: visible.length,
@@ -4783,6 +4998,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780609301261:285731520
+// cache-bust:1780621650287:453279131
 
-// cache-bust:1780609301261:285731520
+// cache-bust:1780621650287:453279131
