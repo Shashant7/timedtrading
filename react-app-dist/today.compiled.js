@@ -428,7 +428,8 @@ function MarketPulseTile({
   const dc = getDailyChange(tx);
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
-  const price = Number(tx.price);
+  const _liveP = Number(tx._live_price);
+  const price = _liveP > 0 ? _liveP : Number(tx.price);
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
   const sparkSrc = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
   useEffect(() => {
@@ -5355,6 +5356,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780663707105:961511149
+// cache-bust:1780664490753:314565211
 
-// cache-bust:1780663707105:961511149
+// cache-bust:1780664490753:314565211
