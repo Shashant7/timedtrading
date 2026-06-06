@@ -2,8 +2,8 @@
 //
 // Worker-native screener runner + GitHub Actions dispatch for modes that
 // still depend on tvscreener (daily momentum, top movers). Weekly scan
-// runs inline via Finnhub screener + TwelveData daily bars so admins can
-// trigger it from the Screener UI without a terminal.
+// runs inline via TwelveData daily bars (pool from Finnhub screener when
+// available, else TwelveData /stocks) so admins can trigger it from the UI.
 
 import { tdFetchTimeSeries } from "../twelvedata.js";
 
@@ -31,6 +31,18 @@ export function screenerErrorHint(error) {
   }
   if (e.startsWith("finnhub_http_")) {
     return `Finnhub screener returned ${e.replace("finnhub_http_", "HTTP ")}.`;
+  }
+  if (e === "finnhub_screener_unavailable" || e === "finnhub_screener_redirect") {
+    return "Finnhub /stock/screener is unavailable (returns HTML). Weekly scan falls back to TwelveData /stocks.";
+  }
+  if (e === "pool_unavailable") {
+    return "Could not build a candidate pool from Finnhub or TwelveData.";
+  }
+  if (e === "screener_timeout") {
+    return "Screener scan timed out in the background. Retry with a smaller limit or try again later.";
+  }
+  if (e === "non_json_response" || e === "json_parse_failed" || e.includes("Unexpected token '<'")) {
+    return "Upstream data provider returned HTML instead of JSON. Retry in a minute.";
   }
   if (e === "github_not_configured") {
     return "Set GITHUB_TOKEN (secret) and GITHUB_REPO on the production worker.";
@@ -80,7 +92,7 @@ export async function setScreenerRunStatus(env, status) {
 }
 
 /** True when a UI-triggered scan is still in flight (KV status running + fresh). */
-export function isScreenerRunActive(status, maxAgeMs = 15 * 60 * 1000) {
+export function isScreenerRunActive(status, maxAgeMs = 5 * 60 * 1000) {
   if (!status || status.status !== "running") return false;
   const started = Number(status.started_at) || 0;
   if (!started) return true;
@@ -98,8 +110,14 @@ export async function executeScreenerRun(env, mode, opts = {}) {
     mode: normalized,
     started_at: Date.now(),
   });
+  const scanTimeoutMs = Math.max(60000, Math.min(240000, Number(opts.timeoutMs) || 150000));
   try {
-    const result = await runScreenerScan(env, normalized, opts);
+    const result = await Promise.race([
+      runScreenerScan(env, normalized, opts),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("screener_timeout")), scanTimeoutMs);
+      }),
+    ]);
     if (result?.ok && (normalized === "weekly" || normalized === "all")) {
       try {
         const PromotionQueue = await import("./promotion-queue.js");
@@ -173,6 +191,24 @@ async function loadInUniverseSet() {
   return new Set(Object.keys(SectorMap.SECTOR_MAP).map((s) => s.toUpperCase()));
 }
 
+async function parseResponseJson(resp) {
+  const text = await resp.text().catch(() => "");
+  if (!text || String(text).trim().startsWith("<")) {
+    return {
+      _parseError: "non_json_response",
+      _detail: String(text).slice(0, 200),
+    };
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return {
+      _parseError: "json_parse_failed",
+      _detail: String(e?.message || e).slice(0, 200),
+    };
+  }
+}
+
 async function finnhubScreener(env, opts = {}) {
   const token = env?.FINNHUB_API_KEY;
   if (!token) return { ok: false, error: "finnhub_not_configured", rows: [] };
@@ -186,16 +222,126 @@ async function finnhubScreener(env, opts = {}) {
   });
 
   try {
-    const resp = await fetch(`${FINNHUB_SCREENER}?${params}`, { signal: AbortSignal.timeout(20000) });
+    const resp = await fetch(`${FINNHUB_SCREENER}?${params}`, {
+      signal: AbortSignal.timeout(20000),
+      redirect: "manual",
+    });
+    if (resp.status >= 300 && resp.status < 400) {
+      return { ok: false, error: "finnhub_screener_redirect", rows: [] };
+    }
     if (!resp.ok) {
       return { ok: false, error: `finnhub_http_${resp.status}`, rows: [] };
     }
-    const data = await resp.json();
+    const data = await parseResponseJson(resp);
+    if (data._parseError) {
+      return { ok: false, error: "finnhub_screener_unavailable", detail: data._detail, rows: [] };
+    }
     const rows = Array.isArray(data?.data) ? data.data : [];
     return { ok: true, rows };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200), rows: [] };
   }
+}
+
+/** Reuse recent screener KV candidates as a fast pool for week-change refresh. */
+export async function poolFromExistingCandidates(env, inUniverse, limit = 100) {
+  const KV = env?.KV_TIMED || env?.KV;
+  if (!KV) return { ok: false, error: "no_kv", rows: [] };
+  try {
+    const raw = await KV.get(SCREENER_KV_KEY);
+    if (!raw) return { ok: false, error: "no_candidates", rows: [] };
+    const parsed = JSON.parse(raw);
+    const rows = (parsed?.candidates || [])
+      .map((c) => ({
+        symbol: String(c?.ticker || "").toUpperCase(),
+        ticker: String(c?.ticker || "").toUpperCase(),
+        name: c?.name || null,
+        sector: c?.sector || null,
+        market_cap: c?.market_cap || null,
+        price: c?.price || null,
+        volume: c?.volume || null,
+      }))
+      .filter((r) => r.ticker && !inUniverse.has(r.ticker))
+      .slice(0, Math.min(80, Math.max(10, limit)));
+    return { ok: rows.length > 0, rows, source: "kv_candidates" };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200), rows: [] };
+  }
+}
+
+/** Fallback pool when Finnhub /stock/screener is unavailable. */
+export async function poolFromFinnhubSymbols(env, inUniverse, limit = 100) {
+  const token = env?.FINNHUB_API_KEY;
+  if (!token) return { ok: false, error: "finnhub_not_configured", rows: [] };
+  try {
+    const resp = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${token}`, {
+      signal: AbortSignal.timeout(25000),
+      redirect: "follow",
+    });
+    if (!resp.ok) return { ok: false, error: `finnhub_http_${resp.status}`, rows: [] };
+    const data = await parseResponseJson(resp);
+    if (data._parseError || !Array.isArray(data)) {
+      return { ok: false, error: "finnhub_symbol_list_failed", rows: [] };
+    }
+    const rows = [];
+    for (const s of data) {
+      if (rows.length >= Math.min(120, limit * 2)) break;
+      const sym = String(s?.symbol || "").toUpperCase();
+      if (!sym || sym.includes("/") || inUniverse.has(sym)) continue;
+      if (String(s?.type || "") !== "Common Stock") continue;
+      if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(sym)) continue;
+      rows.push({
+        symbol: sym,
+        ticker: sym,
+        name: s?.description || null,
+        sector: null,
+        market_cap: null,
+        price: null,
+        volume: null,
+      });
+    }
+    return { ok: rows.length > 0, rows: rows.slice(0, limit), source: "finnhub_symbols" };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200), rows: [] };
+  }
+}
+
+/** Resolve the weekly scan pool — Finnhub first, TwelveData /stocks fallback. */
+export async function resolveWeeklyPool(env, opts = {}, inUniverse, limit = 100) {
+  const fh = await finnhubScreener(env, opts);
+  if (fh.ok && fh.rows?.length) {
+    return { ok: true, rows: fh.rows, source: "finnhub" };
+  }
+
+  const kv = await poolFromExistingCandidates(env, inUniverse, limit);
+  if (kv.ok && kv.rows?.length) {
+    return {
+      ok: true,
+      rows: kv.rows,
+      source: kv.source,
+      fallback_reason: fh.error || "finnhub_empty",
+    };
+  }
+
+  const sym = await poolFromFinnhubSymbols(env, inUniverse, limit);
+  if (sym.ok && sym.rows?.length) {
+    return {
+      ok: true,
+      rows: sym.rows,
+      source: sym.source,
+      fallback_reason: fh.error || kv.error || "finnhub_empty",
+    };
+  }
+
+  return {
+    ok: false,
+    error: "pool_unavailable",
+    hint: screenerErrorHint("pool_unavailable"),
+    finnhub_error: fh.error || null,
+    kv_error: kv.error || null,
+    finnhub_symbols_error: sym.error || null,
+    rows: [],
+  };
 }
 
 function weekChangeFromDailyBars(bars) {
@@ -220,10 +366,18 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
   const limit = Math.max(10, Math.min(100, num(opts.limit, 100) || 100));
 
   const inUniverse = await loadInUniverseSet();
-  const screen = await finnhubScreener(env, opts);
+  const screen = await resolveWeeklyPool(env, opts, inUniverse, limit);
   if (!screen.ok) {
-    const error = screen.error || "finnhub_screener_failed";
-    return { ok: false, mode: "weekly", error, hint: screenerErrorHint(error) };
+    const error = screen.error || "pool_unavailable";
+    return {
+      ok: false,
+      mode: "weekly",
+      error,
+      hint: screen.hint || screenerErrorHint(error),
+      finnhub_error: screen.finnhub_error,
+      kv_error: screen.kv_error,
+      finnhub_symbols_error: screen.finnhub_symbols_error,
+    };
   }
 
   let pool = (screen.rows || [])
@@ -245,7 +399,10 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
   }
 
   const symbols = pool.map((p) => p.ticker);
-  const tsRes = await tdFetchTimeSeries(env, symbols, "1day", null, null, 8);
+  const tsRes = await tdFetchTimeSeries(env, symbols, "1day", null, null, 8, {
+    batchDelayMs: 2500,
+    fetchTimeoutMs: 20000,
+  });
   if (tsRes?.error) {
     const error = String(tsRes.error);
     return { ok: false, mode: "weekly", error, hint: screenerErrorHint(error) };
@@ -294,6 +451,8 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
     candidates: candidates.length,
     stored: mergeRes.stored,
     scan_ts: scanTs,
+    pool_source: screen.source || "unknown",
+    pool_fallback_reason: screen.fallback_reason || null,
     elapsed_ms: Date.now() - t0,
   });
 }
