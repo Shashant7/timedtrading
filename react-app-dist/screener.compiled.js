@@ -30,7 +30,11 @@ const fmtPct = n => {
   const v = Number(n);
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 };
-const getCandidateChangePct = candidate => {
+const getCandidateChangePct = (candidate, preferWeekly = false) => {
+  if (preferWeekly || candidate?.scan_type === "weekly_momentum") {
+    const week = Number(candidate?.week_change_pct ?? candidate?.change_pct);
+    if (Number.isFinite(week)) return week;
+  }
   const daily = window.getDailyChange ? window.getDailyChange(candidate) : null;
   if (daily && Number.isFinite(Number(daily.dayPct))) return Number(daily.dayPct);
   const raw = Number(candidate?.change_pct ?? candidate?.day_change_pct ?? candidate?.week_change_pct);
@@ -57,14 +61,14 @@ const SCAN_TYPES = [{
   label: "Weekly",
   icon: "📈"
 }];
-const SORT_OPTIONS = [{
+const buildSortOptions = (preferWeekly = false) => [{
   id: "change_desc",
-  label: "Change % ↓",
-  fn: (a, b) => Math.abs(getCandidateChangePct(b) || 0) - Math.abs(getCandidateChangePct(a) || 0)
+  label: preferWeekly ? "Week % ↓" : "Change % ↓",
+  fn: (a, b) => Math.abs(getCandidateChangePct(b, preferWeekly) || 0) - Math.abs(getCandidateChangePct(a, preferWeekly) || 0)
 }, {
   id: "change_asc",
-  label: "Change % ↑",
-  fn: (a, b) => Math.abs(getCandidateChangePct(a) || 0) - Math.abs(getCandidateChangePct(b) || 0)
+  label: preferWeekly ? "Week % ↑" : "Change % ↑",
+  fn: (a, b) => Math.abs(getCandidateChangePct(a, preferWeekly) || 0) - Math.abs(getCandidateChangePct(b, preferWeekly) || 0)
 }, {
   id: "mcap_desc",
   label: "Market Cap ↓",
@@ -107,6 +111,8 @@ function App({
   const [pqMeta, setPqMeta] = useState(null);
   const [pqDeciding, setPqDeciding] = useState(new Set());
   const [pqRebuilding, setPqRebuilding] = useState(false);
+  const [scanRunning, setScanRunning] = useState(false);
+  const [scanMsg, setScanMsg] = useState(null);
   const fetchPromotionQueue = useCallback(async () => {
     setPqLoading(true);
     setPqErr(null);
@@ -208,6 +214,45 @@ function App({
       setLoading(false);
     }
   }, []);
+  const triggerScreenerScan = useCallback(async (mode = "weekly") => {
+    if (scanRunning) return;
+    const labels = {
+      weekly: "Weekly momentum (8%+ week change)",
+      daily: "Daily momentum",
+      top_movers: "Top gainers + losers",
+      all: "Full scan (daily + movers + weekly)"
+    };
+    if (!confirm(`Run ${labels[mode] || mode} scan now? This may take up to 2 minutes.`)) return;
+    setScanRunning(true);
+    setScanMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/screener/run`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          mode
+        })
+      });
+      const j = await res.json();
+      if (j.ok) {
+        const count = j.candidates ?? j.weekly?.candidates ?? j.stored ?? "?";
+        setScanMsg(`Scan complete · ${count} candidates`);
+        await fetchCandidates(true);
+      } else {
+        const hint = j.hint || j.error || j.github?.error || "unknown";
+        setScanMsg(`Scan failed: ${hint}`);
+        alert(`Scan failed: ${hint}`);
+      }
+    } catch (e) {
+      setScanMsg(`Scan failed: ${String(e.message || e)}`);
+      alert(`Scan failed: ${String(e.message || e)}`);
+    } finally {
+      setScanRunning(false);
+    }
+  }, [scanRunning, fetchCandidates]);
   const fetchExistingTickers = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/timed/tickers`, {
@@ -241,6 +286,8 @@ function App({
     }
     return counts;
   }, [candidates]);
+  const preferWeeklySort = scanFilter === "weekly_momentum";
+  const SORT_OPTIONS = useMemo(() => buildSortOptions(preferWeeklySort), [preferWeeklySort]);
   const filteredCandidates = useMemo(() => {
     let result = [...candidates];
     if (scanFilter !== "all") {
@@ -256,7 +303,7 @@ function App({
     const sortOpt = SORT_OPTIONS.find(s => s.id === sortBy);
     if (sortOpt) result.sort(sortOpt.fn);
     return result;
-  }, [candidates, scanFilter, sectorFilter, search, sortBy]);
+  }, [candidates, scanFilter, sectorFilter, search, sortBy, SORT_OPTIONS]);
   const addToUniverse = useCallback(async tickers => {
     if (!tickers.length) return;
     const tickerSet = new Set(tickers.map(t => t.toUpperCase()));
@@ -582,12 +629,22 @@ function App({
   }, viewMode === "discovery" && isAdmin && selectedTickers.size > 0 && React.createElement("button", {
     onClick: () => addToUniverse(Array.from(selectedTickers)),
     className: "px-4 py-1.5 rounded-lg text-[13px] font-medium bg-[#00c853]/15 text-[#00c853] border border-[#00c853]/30 hover:bg-[#00c853]/25 transition-all"
-  }, "Add ", selectedTickers.size, " to Universe"), viewMode === "discovery" && React.createElement("button", {
+  }, "Add ", selectedTickers.size, " to Universe"), viewMode === "discovery" && isAdmin && React.createElement(React.Fragment, null, React.createElement("button", {
+    onClick: () => triggerScreenerScan("weekly"),
+    disabled: scanRunning || loading,
+    className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#a78bfa] border border-[#a78bfa]/30 hover:bg-[#a78bfa]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+    title: "Run weekly momentum scan (8%+ week change)"
+  }, scanRunning ? "Scanning…" : "Run Weekly Scan"), React.createElement("button", {
+    onClick: () => triggerScreenerScan("all"),
+    disabled: scanRunning || loading,
+    className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#f5c25c] border border-[#f5c25c]/30 hover:bg-[#f5c25c]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+    title: "Run daily momentum + top movers + weekly (GitHub Actions when configured)"
+  }, "Run Full Scan")), viewMode === "discovery" && React.createElement("button", {
     onClick: () => fetchCandidates(true),
-    disabled: loading,
+    disabled: loading || scanRunning,
     className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-    title: "Fetch latest screener results"
-  }, loading ? "Loading..." : "↻ Rescan"), viewMode === "promote" && isAdmin && React.createElement("button", {
+    title: "Refresh cached screener results"
+  }, loading ? "Loading..." : "↻ Refresh"), viewMode === "promote" && isAdmin && React.createElement("button", {
     onClick: triggerPqRebuild,
     disabled: pqRebuilding,
     className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#f5c25c] border border-[#f5c25c]/30 hover:bg-[#f5c25c]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
@@ -852,14 +909,16 @@ function App({
     }, "First seen ", row.first_seen_at ? new Date(Number(row.first_seen_at)).toLocaleDateString() : "—")));
   })), pqRows.length > 0 && React.createElement("div", {
     className: "text-[10px] text-[#4b5563] mt-4 italic"
-  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226540 + no critical \u2192 needs review \xB7 otherwise \u2192 rejected. Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, scanTs && React.createElement("div", {
+  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226540 + no critical \u2192 needs review \xB7 otherwise \u2192 rejected. Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, (scanTs || scanMsg) && React.createElement("div", {
     className: "text-[11px] text-[#4b5563] mb-3 -mt-4"
-  }, "Last scan: ", new Date(scanTs).toLocaleString(), " (", (() => {
+  }, scanMsg && React.createElement("span", {
+    className: "text-[#a78bfa] mr-3"
+  }, scanMsg), scanTs && React.createElement(React.Fragment, null, "Last scan: ", new Date(scanTs).toLocaleString(), " (", (() => {
     const mins = Math.round((Date.now() - new Date(scanTs).getTime()) / 60000);
     if (mins < 60) return `${mins}m ago`;
     if (mins < 1440) return `${Math.round(mins / 60)}h ago`;
     return `${Math.round(mins / 1440)}d ago`;
-  })(), ")"), React.createElement("div", {
+  })(), ")")), React.createElement("div", {
     className: "flex items-center gap-4 flex-wrap mb-4"
   }, React.createElement("div", {
     className: "flex items-center gap-1 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04]"
@@ -932,9 +991,13 @@ function App({
     className: "text-[#6b7280] text-sm mb-2"
   }, "No candidates found"), React.createElement("p", {
     className: "text-[#4b5563] text-xs"
-  }, "Run the discovery script to populate: ", React.createElement("code", {
-    className: "bg-white/[0.04] px-1.5 py-0.5 rounded text-[#9ca3af]"
-  }, "python scripts/discover-tickers.py --post --api-key YOUR_KEY"))), filteredCandidates.length > 0 && React.createElement("div", {
+  }, scanFilter === "weekly_momentum" ? React.createElement(React.Fragment, null, "No weekly momentum candidates yet. ", isAdmin && React.createElement(React.Fragment, null, "Click ", React.createElement("button", {
+    className: "underline text-[#a78bfa]",
+    onClick: () => triggerScreenerScan("weekly")
+  }, "Run Weekly Scan"), " to populate.")) : isAdmin ? React.createElement(React.Fragment, null, "Click ", React.createElement("button", {
+    className: "underline text-[#f5c25c]",
+    onClick: () => triggerScreenerScan("all")
+  }, "Run Full Scan"), " or wait for the nightly cron (22:30 UTC).") : "Waiting for the nightly discovery scan.")), filteredCandidates.length > 0 && React.createElement("div", {
     className: "tt-card overflow-hidden"
   }, React.createElement("div", {
     className: "grid items-center gap-3 px-4 py-2.5 border-b border-white/[0.06] text-[10px] font-medium text-[#4b5563] uppercase tracking-wider",
@@ -975,7 +1038,7 @@ function App({
     const justAdded = addedTickers.has(ticker);
     const isAdding = addingTickers.has(ticker);
     const isSelected = selectedTickers.has(ticker);
-    const changePct = getCandidateChangePct(c);
+    const changePct = getCandidateChangePct(c, c.scan_type === "weekly_momentum");
     const isPositive = Number(changePct) >= 0;
     return React.createElement("div", {
       key: `${ticker}-${idx}`,
@@ -1047,6 +1110,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780717206445:374814505
+// cache-bust:1780719611598:381920102
 
-// cache-bust:1780717206445:374814505
+// cache-bust:1780719611598:381920102

@@ -10,7 +10,18 @@ on:
   schedule:
     # Run at 5:30 PM ET (22:30 UTC) Mon–Fri, after market close
     - cron: "30 22 * * 1-5"
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Scan mode"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - daily
+          - top_movers
+          - weekly
 
 jobs:
   scan:
@@ -28,6 +39,7 @@ jobs:
           pip install -r scripts/requirements.txt
 
       - name: Run daily momentum scan
+        if: github.event_name == 'schedule' || inputs.mode == 'all' || inputs.mode == 'daily'
         env:
           TIMED_API_BASE: "https://timed-trading-ingest.shashant.workers.dev"
           TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
@@ -36,9 +48,19 @@ jobs:
         continue-on-error: true
 
       - name: Run top movers scan
+        if: github.event_name == 'schedule' || inputs.mode == 'all' || inputs.mode == 'top_movers'
         env:
           TIMED_API_BASE: "https://timed-trading-ingest.shashant.workers.dev"
           TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
         run: |
           python scripts/discover-tickers.py --top-movers --post --limit 100
+        continue-on-error: true
+
+      - name: Run weekly momentum scan
+        if: github.event_name == 'schedule' || inputs.mode == 'all' || inputs.mode == 'weekly'
+        env:
+          TIMED_API_BASE: "https://timed-trading-ingest.shashant.workers.dev"
+          TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
+        run: |
+          python scripts/discover-tickers.py --weekly --post --limit 100
         continue-on-error: true

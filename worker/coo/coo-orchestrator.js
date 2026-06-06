@@ -672,6 +672,44 @@ async function _notifyScreenerPromotions(env, promoted, vetoed) {
   }
 }
 
+// ── Screener lane (post-ingest) ───────────────────────────────────────
+
+/**
+ * Rebuild promotion queue then run screener auto-promote. Scheduled at
+ * 23:00 UTC Mon–Fri so it runs AFTER the 22:30 GitHub screener POST.
+ */
+export async function runCooScreenerLane(env, options = {}) {
+  const t0 = Date.now();
+  const summary = {
+    ok: true,
+    started_at: t0,
+    promotion_queue: null,
+    screener_promote: null,
+    elapsed_ms: 0,
+  };
+
+  try {
+    const PromotionQueue = await import("../discovery/promotion-queue.js");
+    summary.promotion_queue = await PromotionQueue.rebuildPromotionQueue(env);
+  } catch (e) {
+    summary.promotion_queue = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+
+  try {
+    summary.screener_promote = await runScreenerAutoPromote(env, options);
+  } catch (e) {
+    summary.screener_promote = { error: String(e?.message || e).slice(0, 200) };
+  }
+
+  summary.elapsed_ms = Date.now() - t0;
+
+  try {
+    await env.KV_TIMED.put("coo:last_screener_lane", JSON.stringify(summary), { expirationTtl: 14 * 86400 });
+  } catch (_) {}
+
+  return summary;
+}
+
 // ── Master orchestrator ───────────────────────────────────────────────
 
 /**
@@ -716,12 +754,10 @@ export async function runCooDailyCycle(env, options = {}) {
     summary.self_healing = { error: String(e?.message || e).slice(0, 200) };
   }
 
-  // 3. Screener auto-promote cycle (CIO-consulted, daily-capped).
-  try {
-    summary.screener_promote = await runScreenerAutoPromote(env, options);
-  } catch (e) {
-    summary.screener_promote = { error: String(e?.message || e).slice(0, 200) };
-  }
+  // 3. Screener auto-promote moved to runCooScreenerLane() at 23:00 UTC
+  // (after the 22:30 GitHub screener POST). Running it here at 22:00
+  // raced the empty/stale KV and produced zero promotions.
+  summary.screener_promote = { skipped: true, reason: "deferred_to_23_00_screener_lane" };
 
   // 4. Move Discovery scan — what did we miss / churn / capture?
   //    Persists to KV timed:move-discovery (which the system-
