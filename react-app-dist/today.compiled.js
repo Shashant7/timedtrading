@@ -1888,14 +1888,21 @@ function ResearchDeskPanel({
   onSelectTicker
 }) {
   const [feed, setFeed] = useState(null);
+  const [croNote, setCroNote] = useState(null);
   const [openId, setOpenId] = useState(null);
+  const [croOpen, setCroOpen] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
+    Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
       credentials: "include",
       cache: "no-store"
-    }).then(r => r.ok ? r.json() : null).then(j => {
-      if (alive) setFeed(j);
+    }).then(r => r.ok ? r.json() : null), fetch(`${API_BASE || ""}/timed/cro/latest`, {
+      credentials: "include",
+      cache: "no-store"
+    }).then(r => r.ok ? r.json() : null)]).then(([feedJson, noteJson]) => {
+      if (!alive) return;
+      setFeed(feedJson);
+      if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
     }).catch(() => {});
     return () => {
       alive = false;
@@ -1928,12 +1935,82 @@ function ResearchDeskPanel({
     style: {
       marginBottom: 10
     }
-  }, "Fresh from the research feed"), items.length === 0 ? h("div", {
+  }, "Fresh from the research feed"), croNote && h("div", {
+    style: {
+      marginBottom: 10,
+      padding: "10px 12px",
+      borderRadius: 8,
+      border: "1px solid rgba(139,92,246,0.35)",
+      background: "rgba(139,92,246,0.06)"
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 4
+    }
+  }, h("span", {
+    style: {
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "#a78bfa",
+      textTransform: "uppercase"
+    }
+  }, "CRO Daily Note"), h("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginLeft: "auto"
+    }
+  }, ago(croNote.produced_at))), h("button", {
+    onClick: () => setCroOpen(!croOpen),
+    style: {
+      display: "block",
+      width: "100%",
+      textAlign: "left",
+      background: "transparent",
+      border: "none",
+      padding: 0,
+      cursor: "pointer",
+      fontSize: 12.5,
+      color: "var(--tt-text)",
+      lineHeight: 1.45,
+      fontWeight: 600
+    }
+  }, (croNote.verdict || "Daily research synthesis").slice(0, croOpen ? 2000 : 180), (croNote.verdict || "").length > 180 && h("span", {
+    style: {
+      color: "var(--tt-text-dim)",
+      fontWeight: 400,
+      marginLeft: 6,
+      fontSize: 11
+    }
+  }, croOpen ? "▴" : "▾")), croOpen && Array.isArray(croNote.observations) && croNote.observations.length > 0 && h("div", {
+    style: {
+      marginTop: 8,
+      display: "flex",
+      flexDirection: "column",
+      gap: 4
+    }
+  }, croNote.observations.slice(0, 3).map((obs, idx) => h("div", {
+    key: idx,
+    style: {
+      fontSize: 11.5,
+      color: "var(--tt-text-muted)",
+      lineHeight: 1.4
+    }
+  }, h("span", {
+    style: {
+      fontWeight: 700,
+      color: "var(--tt-text-dim)"
+    }
+  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), items.length === 0 ? h("div", {
     style: {
       fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, feed ? "No fresh research yet today." : "Loading research…") : h("div", {
+  }, feed ? "No fresh FSD publications yet today." : "Loading research…") : h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -5474,6 +5551,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780691798393:709084591
+// cache-bust:1780717206445:374814505
 
-// cache-bust:1780691798393:709084591
+// cache-bust:1780717206445:374814505

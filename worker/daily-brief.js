@@ -3493,13 +3493,17 @@ STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a t
 
 4. **Session Review & Levels** (~60 words) — ATR performance, actual vs expected range. After-hours earnings if material.
 
-5. **Sector & Themes** (~60 words) — Leading/lagging and WHY. Rotation signals, breadth verdict.
+5. **CRO Research Desk** (~80 words) — REQUIRED when the CRO addendum above is present.
+   Summarize the daily note verdict, 1-2 early indicators, and any notable drifts vs the active playbook.
+   Tie today's session action back to the CRO read — corroboration or contradiction.
 
-6. **Looking Ahead** (~80 words) — Primary thesis for next 1-3 sessions with specific SPY/QQQ/IWM levels and time dimension.
+6. **Sector & Themes** (~60 words) — Leading/lagging and WHY. Rotation signals, breadth verdict.
 
-7. **Active Trader Report** (~80 words) — Each position: ticker, today's change%, P&L, thesis status, action. Entries/exits/trims briefly.
+7. **Looking Ahead** (~80 words) — Primary thesis for next 1-3 sessions with specific SPY/QQQ/IWM levels and time dimension.
 
-8. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities.
+8. **Active Trader Report** (~80 words) — Each position: ticker, today's change%, P&L, thesis status, action. Entries/exits/trims briefly.
+
+9. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities.
 
 End with TWO sections:
 - **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. Plain English.

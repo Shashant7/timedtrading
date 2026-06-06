@@ -22,7 +22,7 @@ import { runFSDIngestion, ensureCROIngestionSchema, listRecentPublications } fro
 import { extractPublicationToProposal, ensureCROProposalSchema } from "./fsd-extractor.js";
 import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled } from "./cro-apply.js";
 import { runRotationSnapshot } from "./rotation-engine.js";
-import { runCRODaily, ensureCRODailyNoteSchema } from "./cro-service.js";
+import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote } from "./cro-service.js";
 import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
 import { rewritePendingPublications, ensureRewriteSchema } from "./fsd-rewriter.js";
 import { backfillCashtagsForExistingPublications } from "./fsd-ingestion.js";
@@ -143,6 +143,34 @@ async function notifyProposalNeedsReview(env, pub, ext, reason) {
   } catch (_) { /* alerts never block the cycle */ }
 }
 
+// Refresh today's CRO note when new FSD intel arrives intraday. Skips the
+// expensive LLM call when today's note is already newer than the latest pub.
+async function maybeRefreshCRODailyNote(env, { hadNewExtractions = false, hadNewRewrites = false } = {}) {
+  if (!hadNewExtractions && !hadNewRewrites) {
+    return { ok: true, skipped: "no_new_fsd_activity" };
+  }
+  try {
+    await ensureCRODailyNoteSchema(env);
+    const recent = await listRecentPublications(env, { limit: 5 });
+    const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
+    const note = await loadLatestCRONote(env);
+    const today = new Date().toISOString().slice(0, 10);
+    if (note?.as_of_date === today && Number(note.produced_at || 0) >= newestFetched) {
+      return { ok: true, skipped: "note_fresh_enough", note_id: note.note_id || null };
+    }
+    const r = await runCRODaily(env, { force: true });
+    return {
+      ok: !!r.ok,
+      skipped: r.skipped || null,
+      note_id: r.note_id || null,
+      elapsed_ms: r.elapsed_ms || null,
+      error_kind: r.error_kind || null,
+    };
+  } catch (e) {
+    return { ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 200) };
+  }
+}
+
 // ── Public entry point: lightweight INTRADAY cycle ─────────────────────────
 // Operator hit Workers CPU billing threshold (25M ms / month) twice in one
 // day. Root cause: the hourly business-hours cron (0 13-21 * * 1-5 = 9
@@ -166,7 +194,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     fsd_ingestion: { ok: false, skipped: null },
     extractions: [],
     applies: [],
-    cro_daily: { skipped: "intraday_skips_synthesis" },
+    cro_daily: { ok: false, skipped: "not_run" },
     cashtag_backfill: { ok: false, skipped: "not_run" },
     rewrite_pending: { ok: false, skipped: "not_run" },
     errors: [],
@@ -194,7 +222,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
   await writeTombstone(env, summary).catch(() => {});
 
   try {
-    const recent = await listRecentPublications(env, { limit: 8, sourceFilter: null });
+    const recent = await listRecentPublications(env, { limit: 15, sourceFilter: null });
     const autoApply = await isAutoApplyEnabled(env);
     const autoApplyStructural = await isAutoApplyStructuralEnabled(env);
     for (const p of recent) {
@@ -231,6 +259,31 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     }
   } catch (e) {
     summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  // TT-voice rewrite — was skipped in intraday, leaving publications stuck at
+  // "Ingested" with no synthesis in the Research Desk feed.
+  try {
+    await ensureRewriteSchema(env);
+    const r = await rewritePendingPublications(env, { limit: 10 });
+    summary.rewrite_pending = {
+      ok: !!r.ok,
+      considered: r.considered || 0,
+      rewrote_ok: r.rewrote_ok || 0,
+      errors: r.errors || 0,
+    };
+  } catch (e) {
+    summary.errors.push(`rewrite_pending_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  // Refresh today's CRO daily note when fresh FSD intel landed (lightweight
+  // synthesis — skips if note is already newer than the latest publication).
+  try {
+    const hadNewExtractions = (summary.extractions || []).some((x) => x.ok);
+    const hadNewRewrites = (summary.rewrite_pending?.rewrote_ok || 0) > 0;
+    summary.cro_daily = await maybeRefreshCRODailyNote(env, { hadNewExtractions, hadNewRewrites });
+  } catch (e) {
+    summary.errors.push(`cro_daily_refresh_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
   await notifyPendingReviewDigest(env).catch(() => {});
