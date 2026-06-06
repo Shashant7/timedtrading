@@ -3180,19 +3180,17 @@
         // chart shows the universally-understood trade plan instead.
         const tradeplanPriceLines = useMemo(() => {
           const out = [];
-          // 2026-05-28 — Use the resolved trade (prop OR ledger lookup).
-          // See the effectiveTrade comment near line 1735.
-          const trade = effectiveTrade;
-          // Resolve direction (prediction contract first, then active trade)
+          // Trader-mode trade only — investor holdings must not flip chart lines.
+          const trade = effectiveTraderTrade;
           const pcDir = String(predictionContract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = !!(trade && (
             tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
             (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
           ));
-          const dir = (pcDir === "LONG" || pcDir === "SHORT")
-            ? pcDir
-            : (tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null);
+          const dir = tradeIsOpen
+            ? (String(trade?.direction || "").toUpperCase() || ((pcDir === "LONG" || pcDir === "SHORT") ? pcDir : null))
+            : ((pcDir === "LONG" || pcDir === "SHORT") ? pcDir : null);
           if (!dir) return EMPTY_PRICE_LINES;
           const isLong = dir === "LONG";
 
@@ -7622,7 +7620,6 @@
                               <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER CALL</div>
                                 <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: callColor }}>{traderCall || "—"}</div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>Matches header</div>
                               </div>
                             </div>
                             {/* "WHY" line — engine-emitted summary or computed fallback */}
@@ -8195,11 +8192,11 @@
                         const px = Number(v2Price) || Number(ticker?.price) || 0;
                         if (!(px > 0)) return null;
 
-                        // 2026-05-28 — Resolve trade from prop OR ledger.
-                        // Without this, today/portfolio/active-trader pages
-                        // (which don't pass `trade` to the rail) always show
-                        // PROPOSED levels even when a position is live.
-                        const trade = effectiveTrade;
+                        // 2026-06-06 — Trader-mode trade only. effectiveTrade
+                        // can include investor holdings (LONG) which leaked
+                        // a LONG chip into Trade Plan while the trader call
+                        // was SHORT (operator report).
+                        const trade = effectiveTraderTrade;
 
                         const pcSL = Number(predictionContract?.risk?.stop_loss);
                         const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
@@ -8210,13 +8207,20 @@
                           tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
                           (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
                         ));
-                        // 2026-06-06 — Trade Plan direction must match the
-                        // header TRADER call (v2Dir / trader contract), not
-                        // the 8-layer fusion lean or a stale investor contract.
-                        // Never default to LONG while the contract loads.
+                        // Trade Plan chip = trader call. Proposed plans use
+                        // the trader contract (not HTF first-paint LONG from
+                        // v2Dir, not investor ledger direction).
                         const resolveTraderCallDir = (raw) => {
                           const d = String(raw || "").toUpperCase();
                           return d === "LONG" || d === "SHORT" ? d : "";
+                        };
+                        const inferDirFromLevels = () => {
+                          if (!(px > 0) || !(pcSL > 0)) return "";
+                          const tpBelow = pcTargets.some((t) => Number(t?.price) > 0 && Number(t.price) < px);
+                          const tpAbove = pcTargets.some((t) => Number(t?.price) > 0 && Number(t.price) > px);
+                          if (pcSL > px && tpBelow) return "SHORT";
+                          if (pcSL < px && tpAbove) return "LONG";
+                          return pcSL > px ? "SHORT" : "LONG";
                         };
                         const traderCallDir = (() => {
                           if (tradeIsOpen) {
@@ -8224,7 +8228,7 @@
                           }
                           return resolveTraderCallDir(pcDirRaw)
                             || resolveTraderCallDir(optionsTraderDir)
-                            || resolveTraderCallDir(v2Dir);
+                            || inferDirFromLevels();
                         })();
                         if (!traderCallDir) {
                           if (predictionContractLoading) {
@@ -8358,7 +8362,7 @@
                         return (
                           <Panel title="Trade Plan" action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>
-                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Trader call — matches header chip">{dir}</span>
+                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Trader call">{dir}</span>
                               {_rrChip}
                               <span style={{ color: eyebrowColor, fontWeight: 700 }}>{eyebrow}</span>
                             </span>
@@ -15943,4 +15947,4 @@
   };
 })();
 
-// cache-bust:1780779292334:337706872
+// cache-bust:1780779737156:561890554

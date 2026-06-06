@@ -4521,11 +4521,11 @@
       const cioVerdictCacheRef = useRef({});
       const tradeplanPriceLines = useMemo(() => {
         const out = [];
-        const trade = effectiveTrade;
+        const trade = effectiveTraderTrade;
         const pcDir = String(predictionContract?.direction || "").toUpperCase();
         const tradeStatus = String(trade?.status || "").toUpperCase();
         const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
-        const dir = pcDir === "LONG" || pcDir === "SHORT" ? pcDir : tradeIsOpen ? String(trade?.direction || "").toUpperCase() : null;
+        const dir = tradeIsOpen ? String(trade?.direction || "").toUpperCase() || (pcDir === "LONG" || pcDir === "SHORT" ? pcDir : null) : pcDir === "LONG" || pcDir === "SHORT" ? pcDir : null;
         if (!dir) return EMPTY_PRICE_LINES;
         const isLong = dir === "LONG";
         const pcSL = Number(predictionContract?.risk?.stop_loss);
@@ -9041,13 +9041,7 @@
               fontSize: 18,
               color: callColor
             }
-          }, traderCall || "—"), React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 2
-            }
-          }, "Matches header"))), whyLine && React.createElement("div", {
+          }, traderCall || "—"))), whyLine && React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-2)",
               paddingTop: "var(--ds-space-2)",
@@ -9633,7 +9627,7 @@
         })(), (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
-          const trade = effectiveTrade;
+          const trade = effectiveTraderTrade;
           const pcSL = Number(predictionContract?.risk?.stop_loss);
           const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
@@ -9644,11 +9638,19 @@
             const d = String(raw || "").toUpperCase();
             return d === "LONG" || d === "SHORT" ? d : "";
           };
+          const inferDirFromLevels = () => {
+            if (!(px > 0) || !(pcSL > 0)) return "";
+            const tpBelow = pcTargets.some(t => Number(t?.price) > 0 && Number(t.price) < px);
+            const tpAbove = pcTargets.some(t => Number(t?.price) > 0 && Number(t.price) > px);
+            if (pcSL > px && tpBelow) return "SHORT";
+            if (pcSL < px && tpAbove) return "LONG";
+            return pcSL > px ? "SHORT" : "LONG";
+          };
           const traderCallDir = (() => {
             if (tradeIsOpen) {
               return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
             }
-            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || resolveTraderCallDir(v2Dir);
+            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
           })();
           if (!traderCallDir) {
             if (predictionContractLoading) {
@@ -9847,7 +9849,7 @@
               }
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
-              title: "Trader call \u2014 matches header chip"
+              title: "Trader call"
             }, dir), _rrChip, React.createElement("span", {
               style: {
                 color: eyebrowColor,
@@ -18679,4 +18681,4 @@
   };
 })();
 
-// cache-bust:1780779292334:337706872
+// cache-bust:1780779737156:561890554
