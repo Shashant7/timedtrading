@@ -466,6 +466,38 @@ function pickExpiration(setupStage, now = Date.now()) {
   };
 }
 
+// Index ETFs (SPY/QQQ/IWM/DIA) list daily expiries — profile should steer
+// DTE and structure, not just reorder the same swing ladder.
+const _INDEX_MULTI_LEG = new Set([
+  "vertical_spread", "long_straddle", "long_strangle", "iron_condor", "day_trade_straddle",
+]);
+const _INDEX_SINGLE_LEG = new Set([
+  "long_call", "long_put", "moonshot_call", "moonshot_put",
+  "day_trade_call", "day_trade_put",
+]);
+
+/**
+ * Profile-aware expiration for the options ladder.
+ * Index ETFs in Trader mode bias short-dated for Speculator/Aggressive and
+ * longer-dated / weekly for Conservative.
+ */
+export function pickExpirationForProfile(contract, profile = DEFAULT_RISK_PROFILE, now = Date.now()) {
+  const ticker = String(contract?.ticker || "").toUpperCase();
+  const mode = String(contract?.mode || "").toLowerCase();
+  const stage = classifySetupStage(contract);
+  if (isDayTradeTicker(ticker) && mode !== "investor") {
+    if (profile === "speculator" || profile === "aggressive") {
+      return pickDayTradeExpiration(now);
+    }
+    if (profile === "moderate") {
+      return pickDayTradeExpiration(now, { forceTomorrow: true });
+    }
+    // Conservative: weekly swing (~21 DTE) — defined-risk spreads / LEAPs.
+    return pickExpiration("swing", now);
+  }
+  return pickExpiration(stage, now);
+}
+
 // ── Black-Scholes (no-chain estimator) ─────────────────────────────────────
 // Standard BS for European-style options. Good enough for premium estimates
 // when we don't have the live chain. Replaced by chain bid/ask in v2.
@@ -1363,22 +1395,24 @@ export function buildDayTradePlay(ctx) {
   const price = Number(ctx?.price);
   if (!Number.isFinite(price) || price <= 0) return null;
 
+  const profile = ctx?.profile && PROFILE_META[ctx.profile] ? ctx.profile : DEFAULT_RISK_PROFILE;
   const direction = String(ctx?.direction || "").toUpperCase();
   const verdictMode = ctx?.verdict?.mode || "UNKNOWN";
   const verdictSide = ctx?.verdict?.side || direction;
   const atrPct = Number(ctx?.atrPct) || 0.012;
-  const expiration = ctx?.expiration || pickDayTradeExpiration();
+  const expiration = ctx?.expiration || pickDayTradeExpiration(Date.now(), {
+    forceTomorrow: profile === "conservative" || profile === "moderate",
+  });
   const chain = ctx?.chain || null;
+  const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
 
   // Decide flavor.
   let flavor;
   if (verdictMode === "WAIT" || direction === "" || direction === "NEUTRAL") {
-    // No clear direction: straddle only if vol is meaningfully high.
-    // Daily ETF vol < 1.2% usually means a chop day — skip the play
-    // entirely rather than show a marginal straddle.
-    if (atrPct < 0.012) {
-      return null;
-    }
+    // Speculator/Aggressive: skip direction-neutral straddles — prefer no
+    // play over a conservative dual-leg structure.
+    if (wantsSingleLeg) return null;
+    if (atrPct < 0.012) return null;
     flavor = "straddle";
   } else if (verdictSide === "SHORT" || direction === "SHORT") {
     flavor = "put";
@@ -1386,7 +1420,10 @@ export function buildDayTradePlay(ctx) {
     flavor = "call";
   }
 
-  const strike = snapStrike(price);
+  // Speculator: slight OTM for more gamma; others stay ATM.
+  const strike = (profile === "speculator" && (flavor === "call" || flavor === "put"))
+    ? snapStrike(flavor === "call" ? price * 1.005 : price * 0.995)
+    : snapStrike(price);
   const contracts = 1; // intentional minimum; operator scales via MC
   const _dteForBs = Math.max(expiration.dte, 0.5); // BS estimator needs > 0
 
@@ -1537,32 +1574,47 @@ function buildLongStraddle(ctx) {
 
 // ── Strategy ranking by profile + confluence + moonshot ───────────────────
 // Priority order:
-//   1. 🌙 Moonshot active (when ALL conditions met) — top of ladder
-//   2. Confluence-boosted plays (RIDE → long premium, FADE → spreads)
+//   1. Moonshot active (when ALL conditions met) — top of ladder
+//   2. Confluence-boosted plays (RIDE -> long premium, FADE -> spreads)
 //   3. Risk profile preference
 // The stock fallback always remains so every profile sees something
 // actionable even when WAIT / no confluence.
-function rankByProfile(strategies, profile) {
+function rankByProfile(strategies, profile, { ticker } = {}) {
   const order = PROFILE_META[profile]?.preferred || PROFILE_META.speculator.preferred;
+  const sym = String(ticker || "").toUpperCase();
+  const isIndexTrader = isDayTradeTicker(sym);
+  const wantsSingleLeg = isIndexTrader && (profile === "speculator" || profile === "aggressive");
+  const wantsDefinedRisk = isIndexTrader && (profile === "conservative" || profile === "moderate");
+
   const profileScore = (s) => {
     const idx = order.indexOf(s.archetype);
-    return idx === -1 ? 999 : idx;
+    let score = idx === -1 ? 999 : idx;
+    // Index ETFs: penalize multi-leg structures when profile wants singles.
+    if (wantsSingleLeg && _INDEX_MULTI_LEG.has(s.archetype)) score += 25;
+    if (wantsSingleLeg && _INDEX_SINGLE_LEG.has(s.archetype)) score -= 5;
+    // Conservative/moderate index: prefer spreads over naked long premium.
+    if (wantsDefinedRisk && _INDEX_MULTI_LEG.has(s.archetype)) score -= 8;
+    if (wantsDefinedRisk && (s.archetype === "long_call" || s.archetype === "long_put")) score += 6;
+    return score;
   };
+
+  const confluenceBoost = (s) => {
+    if (!s._confluence_boost) return 0;
+    // DRIFT/FADE boosts spreads — but on index ETFs Speculator should still
+    // headline single-leg gamma plays, not a vertical spread.
+    if (wantsSingleLeg && _INDEX_MULTI_LEG.has(s.archetype)) return 0;
+    return -10;
+  };
+
   return [...strategies].sort((a, b) => {
-    // Moonshot wins above everything when active (it IS the gem).
     const aMoon = a._moonshot_active ? -100 : 0;
     const bMoon = b._moonshot_active ? -100 : 0;
     if (aMoon !== bMoon) return aMoon - bMoon;
-    // Investor-stage boost — LEAP Call wins for Investor-mode entries
-    // regardless of profile. The Investor is, by definition, taking a
-    // long-term view; the LEAP is the option expression of that thesis.
-    // Speculator profile still beats this via moonshot above when active.
     const aInv = a._investor_boost ? -50 : 0;
     const bInv = b._investor_boost ? -50 : 0;
     if (aInv !== bInv) return aInv - bInv;
-    // Confluence boost — RIDE ⇒ long premium / FADE ⇒ spreads.
-    const aBoost = a._confluence_boost ? -10 : 0;
-    const bBoost = b._confluence_boost ? -10 : 0;
+    const aBoost = confluenceBoost(a);
+    const bBoost = confluenceBoost(b);
     if (aBoost !== bBoost) return aBoost - bBoost;
     return profileScore(a) - profileScore(b);
   });
@@ -1598,7 +1650,13 @@ export function buildOptionsLadder(contract, opts = {}) {
   const sl = Number(contract.sl);
   const tp1 = Number(contract.tp1 ?? contract.tp ?? (direction === "LONG" ? price * 1.05 : price * 0.95));
   const atrPct = Number(contract.atr_pct ?? contract.atrPct ?? 0.025);
-  const expiration = pickExpiration(classifySetupStage(contract));
+  const isInvestorMode = String(contract?.mode || "").toLowerCase() === "investor"
+    || classifySetupStage(contract) === "investor";
+  const expiration = pickExpirationForProfile(contract, profile, opts.now || Date.now());
+  const tickerSym = String(contract.ticker || "").toUpperCase();
+  const isIndexTrader = isDayTradeTicker(tickerSym) && !isInvestorMode;
+  const indexWantsSingleLeg = isIndexTrader && (profile === "speculator" || profile === "aggressive");
+  const indexWantsDefinedRisk = isIndexTrader && (profile === "conservative" || profile === "moderate");
 
   // Sizing: dollars at risk = accountValue × riskBudgetPct.
   // Each long-option contract risks 100 × premium. Solve for # contracts.
@@ -1618,6 +1676,13 @@ export function buildOptionsLadder(contract, opts = {}) {
   //   WAIT                → 0.50 delta (any directional is suppressed anyway)
   const verdictModeForDelta = opts.confluence?.mode || "UNKNOWN";
   const targetDelta = (() => {
+    if (isIndexTrader) {
+      if (profile === "speculator") {
+        return verdictModeForDelta === "FADE" ? 0.30 : 0.45;
+      }
+      if (profile === "aggressive") return 0.50;
+      if (profile === "conservative") return 0.70;
+    }
     if (verdictModeForDelta === "RIDE") {
       return profile === "speculator" ? 0.70 : 0.50;
     }
@@ -1682,8 +1747,6 @@ export function buildOptionsLadder(contract, opts = {}) {
      trader confluence was WAIT (pre-catalyst), and the ladder showed a
      Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
      "we are accumulating LONG" investor thesis. Operator flagged it. */
-  const isInvestorMode = String(contract?.mode || "").toLowerCase() === "investor"
-    || classifySetupStage(contract) === "investor";
   const suppressDirectional = verdictMode === "WAIT" && !isInvestorMode;
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
@@ -1713,15 +1776,17 @@ export function buildOptionsLadder(contract, opts = {}) {
   const _isInvestorStage = classifySetupStage(contract) === "investor";
 
   if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
-    const leap = buildLeapCall({
-      ...ctxEff,
-      expiration: pickLeapExpiration(),
-      targetDelta: 0.80,
-    });
-    if (leap) {
-      if (_isInvestorStage) leap._investor_boost = true;
-      if (verdictMode === "RIDE") leap._confluence_boost = true;
-      ladder.push(leap);
+    if (!indexWantsSingleLeg) {
+      const leap = buildLeapCall({
+        ...ctxEff,
+        expiration: pickLeapExpiration(),
+        targetDelta: 0.80,
+      });
+      if (leap) {
+        if (_isInvestorStage) leap._investor_boost = true;
+        if (verdictMode === "RIDE") leap._confluence_boost = true;
+        ladder.push(leap);
+      }
     }
     const lc = buildLongCall(ctxEff);
     if (lc) {
@@ -1730,17 +1795,23 @@ export function buildOptionsLadder(contract, opts = {}) {
       if (verdictMode === "DRIFT") lc._late_entry = true;
       ladder.push(lc);
     }
-    const bcs = buildVerticalSpread(ctxEff, "long");
-    if (bcs) {
-      if (verdictMode === "FADE" || verdictMode === "DRIFT") bcs._confluence_boost = true;
-      ladder.push(bcs);
+    if (!indexWantsSingleLeg || indexWantsDefinedRisk) {
+      const bcs = buildVerticalSpread(ctxEff, "long");
+      if (bcs) {
+        if (verdictMode === "FADE" || verdictMode === "DRIFT") bcs._confluence_boost = true;
+        ladder.push(bcs);
+      }
     }
-    const letfLong = buildLeveragedETF({ ...ctxEff, direction: "LONG" });
-    if (letfLong) ladder.push(letfLong);
-    const csp = buildCashSecuredPut(ctxEff);
-    if (csp) ladder.push(csp);
-    const cc = buildCoveredCall(ctxEff);
-    if (cc) ladder.push(cc);
+    if (!indexWantsSingleLeg) {
+      const letfLong = buildLeveragedETF({ ...ctxEff, direction: "LONG" });
+      if (letfLong) ladder.push(letfLong);
+    }
+    if (!indexWantsSingleLeg) {
+      const csp = buildCashSecuredPut(ctxEff);
+      if (csp) ladder.push(csp);
+      const cc = buildCoveredCall(ctxEff);
+      if (cc) ladder.push(cc);
+    }
     ladder.push({
       archetype: "stock_long",
       label: "Stock (Long)",
@@ -1760,13 +1831,17 @@ export function buildOptionsLadder(contract, opts = {}) {
       if (verdictMode === "DRIFT") lp._late_entry = true;
       ladder.push(lp);
     }
-    const bps = buildVerticalSpread(ctxEff, "short");
-    if (bps) {
-      if (verdictMode === "FADE" || verdictMode === "DRIFT") bps._confluence_boost = true;
-      ladder.push(bps);
+    if (!indexWantsSingleLeg || indexWantsDefinedRisk) {
+      const bps = buildVerticalSpread(ctxEff, "short");
+      if (bps) {
+        if (verdictMode === "FADE" || verdictMode === "DRIFT") bps._confluence_boost = true;
+        ladder.push(bps);
+      }
     }
-    const letfShort = buildLeveragedETF({ ...ctxEff, direction: "SHORT" });
-    if (letfShort) ladder.push(letfShort);
+    if (!indexWantsSingleLeg) {
+      const letfShort = buildLeveragedETF({ ...ctxEff, direction: "SHORT" });
+      if (letfShort) ladder.push(letfShort);
+    }
     ladder.push({
       archetype: "stock_short",
       label: "Stock (Short)",
@@ -1787,7 +1862,7 @@ export function buildOptionsLadder(contract, opts = {}) {
      atr_pct >= 4% or verdict is WAIT — that's where direction-neutral
      volatility expressions are appropriate (catalyst pending, squeeze
      release, no clear short-term direction). */
-  const allowDirectionNeutral = !isInvestorMode;
+  const allowDirectionNeutral = !isInvestorMode && !indexWantsSingleLeg;
   if (allowDirectionNeutral && (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04)) {
     const ls = buildLongStraddle(ctxEff);
     if (ls) ladder.push(ls);
@@ -1859,14 +1934,14 @@ export function buildOptionsLadder(contract, opts = {}) {
     if (warns.length > 0) s.warnings = warns;
   }
 
-  const ranked = rankByProfile(ladder, profile);
+  const ranked = rankByProfile(ladder, profile, { ticker: tickerSym });
   const primary = ranked[0] || null;
 
   // Also build a per-profile preview so the UI can show "what each profile
   // would do with this setup" — educational on the Today page.
   const ladder_by_profile = {};
   for (const p of RISK_PROFILES) {
-    const r = rankByProfile(ladder, p);
+    const r = rankByProfile(ladder, p, { ticker: tickerSym });
     ladder_by_profile[p] = r[0]?.archetype || null;
   }
 

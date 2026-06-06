@@ -27,7 +27,21 @@ import {
   compactOptionsPlay,
   optionsPlayDiscordField,
   optionsPlayEmailHtml,
+  buildOptionsLadder,
+  buildDayTradePlay,
+  pickExpirationForProfile,
 } from "./options-plays.js";
+
+const SPY_CONTRACT = {
+  ticker: "SPY",
+  price: 540,
+  direction: "LONG",
+  sl: 530,
+  tp1: 560,
+  stage: "swing",
+  atr_pct: 0.012,
+  mode: "trader",
+};
 
 describe("blackScholes", () => {
   it("prices an ATM call sensibly", async () => {
@@ -202,6 +216,68 @@ describe("optionsPlayDiscordField — live-exit projection", () => {
   it("qualifies max loss as expiration-only", () => {
     const field = optionsPlayDiscordField(buildCompact());
     expect(field.value).toMatch(/Max loss \(if held to exp\)/);
+  });
+});
+
+describe("index ETF profile alignment", () => {
+  // Tuesday 2026-06-02 15:00 UTC (~11 AM ET) — weekday, before close.
+  const TUESDAY_OPEN = new Date("2026-06-02T15:00:00.000Z").getTime();
+
+  it("pickExpirationForProfile uses 0DTE for Speculator on index ETFs", () => {
+    const exp = pickExpirationForProfile(SPY_CONTRACT, "speculator", TUESDAY_OPEN);
+    expect(exp.dte).toBeLessThanOrEqual(1);
+  });
+
+  it("pickExpirationForProfile uses weekly swing for Conservative on index ETFs", () => {
+    const exp = pickExpirationForProfile(SPY_CONTRACT, "conservative");
+    expect(exp.dte).toBeGreaterThanOrEqual(14);
+  });
+
+  it("Speculator SPY ladder prefers single-leg long call over vertical spread on DRIFT", () => {
+    const ladder = buildOptionsLadder(
+      { ...SPY_CONTRACT, _asOf: TUESDAY_OPEN },
+      { profile: "speculator", confluence: { mode: "DRIFT", side: "LONG" }, now: TUESDAY_OPEN },
+    );
+    expect(ladder).not.toBeNull();
+    expect(ladder.primary.archetype).toBe("long_call");
+    expect(ladder.expiration.dte).toBeLessThanOrEqual(1);
+    expect(ladder.ladder.some((s) => s.archetype === "vertical_spread")).toBe(false);
+  });
+
+  it("Conservative SPY ladder can headline a vertical spread on DRIFT", () => {
+    const ladder = buildOptionsLadder(SPY_CONTRACT, {
+      profile: "conservative",
+      confluence: { mode: "DRIFT", side: "LONG" },
+    });
+    expect(ladder).not.toBeNull();
+    expect(["vertical_spread", "leap_call", "stock_long"]).toContain(ladder.primary.archetype);
+    expect(ladder.expiration.dte).toBeGreaterThanOrEqual(14);
+  });
+
+  it("buildDayTradePlay skips straddle for Speculator on neutral days", () => {
+    const play = buildDayTradePlay({
+      ticker: "SPY",
+      price: 540,
+      direction: "",
+      atrPct: 0.015,
+      verdict: { mode: "WAIT", side: "NEUTRAL" },
+      profile: "speculator",
+    });
+    expect(play).toBeNull();
+  });
+
+  it("buildDayTradePlay allows straddle for Conservative on neutral high-vol days", () => {
+    const play = buildDayTradePlay({
+      ticker: "SPY",
+      price: 540,
+      direction: "",
+      atrPct: 0.015,
+      verdict: { mode: "WAIT", side: "NEUTRAL" },
+      profile: "conservative",
+      expiration: { iso: "2026-06-09", dte: 1, label: "1DTE" },
+    });
+    expect(play).not.toBeNull();
+    expect(play.archetype).toBe("day_trade_straddle");
   });
 });
 

@@ -996,7 +996,7 @@
         (async () => {
           try {
             const base = API_BASE || window.API_BASE || "";
-            const r = await fetch(`${base}/timed/options/all?limit=10`, { cache: "no-store", credentials: "include" });
+            const r = await fetch(`${base}/timed/options/all?limit=10&profile=${encodeURIComponent(profile)}`, { cache: "no-store", credentials: "include" });
             if (!r.ok || cancelled) return;
             const j = await r.json();
             if (cancelled || !j?.ok) return;
@@ -1010,7 +1010,7 @@
           } catch (_) { /* best-effort */ }
         })();
         return () => { cancelled = true; };
-      }, [tickerSymbol, API_BASE]);
+      }, [tickerSymbol, profile, API_BASE]);
 
       const updateProfile = async (newProfile) => {
         setProfile(newProfile);
@@ -15802,5 +15802,3 @@
       }
   };
 })();
-
-// cache-bust:1780722952573:105538101
