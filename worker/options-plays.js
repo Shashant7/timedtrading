@@ -393,6 +393,127 @@ export function shouldAllowIndexDirectional({
   return { allow: false, reason: `mode_${mode.toLowerCase()}_unsupported`, contractDir, side };
 }
 
+const SETUP_GUIDANCE_TIER_META = {
+  not_good: { color: "#f87171", bg: "rgba(248,113,113,0.10)", label: "NOT A GOOD SETUP" },
+  forming:  { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", label: "SETUP FORMING" },
+  valid:    { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", label: "VALID SETUP" },
+  good:     { color: "#34d399", bg: "rgba(52,211,153,0.10)", label: "GOOD SETUP" },
+};
+
+/**
+ * Plain-English setup-quality guidance for the Options tab.
+ * Emphasizes TIMING — options punish early/late entries more than shares,
+ * especially on high-volatility names.
+ */
+export function buildOptionsSetupGuidance({
+  confluence,
+  contract,
+  directionAlignment,
+  primary,
+  moonshot,
+  isInvestorMode,
+}) {
+  const mode = String(confluence?.mode || "WAIT").toUpperCase();
+  const side = String(confluence?.side || "NEUTRAL").toUpperCase();
+  const st = confluence?.supertrend_trigger || {};
+  const stFresh = String(st.freshness || "none");
+  const score = Number(confluence?.score) || 0;
+  const atrPct = Number(contract?.atr_pct ?? contract?.atrPct ?? 0.025);
+  const ticker = String(contract?.ticker || "").toUpperCase();
+  const isHighVol = atrPct >= 0.035;
+  const align = directionAlignment;
+  const hasPlay = !!primary;
+  const investor = !!isInvestorMode;
+
+  const timingSuffix = isHighVol
+    ? ` ${ticker || "This name"} runs ~${(atrPct * 100).toFixed(1)}% daily ATR — options magnify timing errors. Entering too early bleeds theta; entering too late chases a move that may reverse. Shares forgive sloppy timing more than short-dated premium.`
+    : " Options decay faster than shares — entry timing matters more than direction alone.";
+
+  let tier = "not_good";
+  let headline = "Not a good setup";
+  let body = `Insufficient signal for directional options (${score}/100).${timingSuffix}`;
+
+  if (align && align.allow === false) {
+    tier = "not_good";
+    if (align.reason === "wait_no_directional_bet") {
+      headline = "Not a good setup — no directional bet";
+      body = `Confluence is WAIT (${score}/100). Layers are split and SuperTrend has not confirmed. Directional calls and puts are suppressed on purpose — forcing a trade here invites whiplash.${timingSuffix}`;
+    } else if (String(align.reason || "").includes("vs_confluence")) {
+      headline = "Not a good setup — timing conflict";
+      body = `The trader contract points ${align.contractDir || "—"} but confluence reads ${align.side || "NEUTRAL"}. Until layers align, directional premium is a coin flip.${timingSuffix}`;
+    } else {
+      headline = "Not a good setup";
+      body = `Root-strategy gates block directional options (${String(align.reason || "blocked").replace(/_/g, " ")}).${timingSuffix}`;
+    }
+  } else if (mode === "WAIT") {
+    tier = "not_good";
+    headline = "Not a good setup — wait for timing";
+    body = `Mixed signals (${score}/100). No SuperTrend trigger. Directional options are not warranted — theta erodes premium while the model waits for clarity.${timingSuffix}`;
+  } else if (mode === "READY") {
+    tier = "forming";
+    headline = "Setup forming — wait for timing";
+    body = `Confluence leans ${side} (${score}/100) but SuperTrend slope has not ignited. ENTRY PENDING — prepare the order, do not chase. Options entered before the trigger often see drawdowns sharper than shares.${timingSuffix}`;
+  } else if (mode === "FADE") {
+    if (hasPlay) {
+      tier = "valid";
+      headline = "Valid setup — countertrend, defined risk";
+      body = `FADE ${side} — layers disagree with price action. Prefer credit spreads or iron condor over naked long premium. Timing is fragile on fades.${timingSuffix}`;
+    } else {
+      tier = "not_good";
+      headline = "Not a good setup — fade without expression";
+      body = `Countertrend fade detected but no suitable options expression for this profile.${timingSuffix}`;
+    }
+  } else if (mode === "DRIFT") {
+    if (hasPlay) {
+      tier = "valid";
+      headline = "Valid setup — late-cycle, defined risk";
+      body = `DRIFT ${side} — partial confluence (${score}/100), SuperTrend already in motion. Late-entry risk: long premium bleeds theta. Defined-risk structures below are preferred.${timingSuffix}`;
+    } else {
+      tier = "forming";
+      headline = "Setup forming — drift without play";
+      body = `Partial confluence but no play surfaced for this profile. Wait for cleaner timing or adjust risk profile.${timingSuffix}`;
+    }
+  } else if (mode === "RIDE") {
+    if (stFresh === "fresh" && hasPlay) {
+      tier = "good";
+      headline = moonshot?.activated ? "Good setup — timing + momentum aligned" : "Good setup — timing aligned";
+      body = `RIDE ${side} — ${score}/100 confluence, SuperTrend trigger is fresh. Direction and moment agree. This is the window Timed Trading is built for — size for theta and move speed.${timingSuffix}`;
+    } else if ((stFresh === "in_motion" || stFresh === "mature") && hasPlay) {
+      tier = "valid";
+      headline = "Valid setup — move underway";
+      body = `RIDE ${side} but the SuperTrend trigger is ${stFresh === "mature" ? "mature" : "in motion"} — not the freshest entry. Options may still work with tight sizing; avoid chasing extended moves.${timingSuffix}`;
+    } else if (hasPlay) {
+      tier = "valid";
+      headline = "Valid setup — confluence RIDE";
+      body = `RIDE ${side} (${score}/100). Review SuperTrend freshness before sizing — options punish late entries harder than equity.${timingSuffix}`;
+    } else {
+      tier = "forming";
+      headline = "Setup forming — RIDE without expression";
+      body = `Confluence is RIDE ${side} but no options play matched this profile. Check horizon or risk profile.${timingSuffix}`;
+    }
+  }
+
+  if (investor && tier === "not_good" && mode !== "WAIT" && hasPlay) {
+    tier = "valid";
+    headline = "Valid setup — long-horizon expression";
+    body = `Investor horizon uses LEAPs (≥1y DTE) where short-term timing is less punitive than swing premium. Thesis: ${side} bias (${score}/100). Roll discipline still applies.`;
+  }
+
+  const meta = SETUP_GUIDANCE_TIER_META[tier] || SETUP_GUIDANCE_TIER_META.not_good;
+
+  return {
+    tier,
+    headline,
+    body: body.trim(),
+    timing_focus: "Timed Trading prioritizes timing over direction alone — especially for options.",
+    color: meta.color,
+    bg: meta.bg,
+    label: meta.label,
+    high_volatility: isHighVol,
+    atr_pct: atrPct,
+  };
+}
+
 /**
  * Detect "underlying already in motion" — the moonshot ignition condition.
  * The fused TT call has identified BOTH direction AND moment; the move is
@@ -2049,6 +2170,17 @@ export function buildOptionsLadder(contract, opts = {}) {
       reason: moonshotDecision.reason || null,
       motion: moonshotDecision.motion || null,
     },
+    setup_guidance: buildOptionsSetupGuidance({
+      confluence: verdict,
+      contract: { ticker: tickerSym, atr_pct: atrPct, direction },
+      directionAlignment: isIndexTrader ? indexAlign : null,
+      primary,
+      moonshot: {
+        activated: !!moonshotDecision.activate,
+        reason: moonshotDecision.reason || null,
+      },
+      isInvestorMode,
+    }),
     estimated_premium_caveat: opts.chain
       ? null
       : "Premium values are Black-Scholes estimates using ATR-implied volatility. Verify in your broker chain before executing.",

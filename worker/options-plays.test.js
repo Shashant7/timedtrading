@@ -32,6 +32,7 @@ import {
   pickExpirationForProfile,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
+  buildOptionsSetupGuidance,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -342,6 +343,65 @@ describe("index ETF profile alignment", () => {
     });
     expect(play).not.toBeNull();
     expect(play.archetype).toBe("day_trade_straddle");
+  });
+});
+
+describe("buildOptionsSetupGuidance — setup quality tiers", () => {
+  it("WAIT → not_good with timing emphasis", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: { mode: "WAIT", side: "LONG", score: 22 },
+      contract: { ticker: "SPY", atr_pct: 0.012 },
+      directionAlignment: { allow: false, reason: "wait_no_directional_bet", contractDir: "SHORT", side: "LONG" },
+      primary: null,
+    });
+    expect(g.tier).toBe("not_good");
+    expect(g.label).toBe("NOT A GOOD SETUP");
+    expect(g.headline).toMatch(/no directional bet/i);
+    expect(g.timing_focus).toMatch(/timing/i);
+  });
+
+  it("READY → forming", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: { mode: "READY", side: "LONG", score: 68, supertrend_trigger: { freshness: "none" } },
+      contract: { ticker: "NVDA", atr_pct: 0.04 },
+      primary: null,
+    });
+    expect(g.tier).toBe("forming");
+    expect(g.high_volatility).toBe(true);
+    expect(g.body).toMatch(/do not chase/i);
+  });
+
+  it("RIDE + fresh ST + play → good", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: {
+        mode: "RIDE", side: "LONG", score: 82,
+        supertrend_trigger: { freshness: "fresh", side: "LONG" },
+      },
+      contract: { ticker: "SPY", atr_pct: 0.012 },
+      primary: { archetype: "long_call" },
+    });
+    expect(g.tier).toBe("good");
+    expect(g.label).toBe("GOOD SETUP");
+    expect(g.body).toMatch(/fresh/i);
+  });
+
+  it("DRIFT with play → valid", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: { mode: "DRIFT", side: "SHORT", score: 55, supertrend_trigger: { freshness: "in_motion" } },
+      contract: { ticker: "TSLA", atr_pct: 0.05 },
+      primary: { archetype: "vertical_spread" },
+    });
+    expect(g.tier).toBe("valid");
+    expect(g.body).toMatch(/defined-risk/i);
+  });
+
+  it("ladder includes setup_guidance", () => {
+    const ladder = buildOptionsLadder(SPY_CONTRACT, {
+      profile: "speculator",
+      confluence: { mode: "RIDE", side: "LONG", score: 80, supertrend_trigger: { freshness: "fresh", side: "LONG" } },
+    });
+    expect(ladder.setup_guidance?.tier).toBe("good");
+    expect(ladder.setup_guidance?.headline).toBeTruthy();
   });
 });
 
