@@ -16,6 +16,49 @@ function num(v, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Actionable hint for common screener failure codes. */
+export function screenerErrorHint(error) {
+  const e = String(error || "");
+  if (!e) return null;
+  if (e === "finnhub_not_configured") {
+    return "FINNHUB_API_KEY is not set on the production worker.";
+  }
+  if (e === "no_kv") {
+    return "KV_TIMED binding is missing on the worker (cannot store candidates).";
+  }
+  if (e === "missing_credentials") {
+    return "TwelveData API key is missing on the worker.";
+  }
+  if (e.startsWith("finnhub_http_")) {
+    return `Finnhub screener returned ${e.replace("finnhub_http_", "HTTP ")}.`;
+  }
+  if (e === "github_not_configured") {
+    return "Set GITHUB_TOKEN (secret) and GITHUB_REPO on the production worker.";
+  }
+  if (e.startsWith("github_http_")) {
+    return `GitHub workflow dispatch failed (${e}). Check PAT Actions permissions.`;
+  }
+  return null;
+}
+
+/** Lift nested weekly/github errors to top-level fields for the UI. */
+export function normalizeScreenerResult(result) {
+  if (!result) return { ok: false, error: "empty_result", hint: "Screener returned no result." };
+  if (result.ok) return result;
+  const error = result.error
+    || result.weekly?.error
+    || result.github?.error
+    || "screener_failed";
+  const hint = result.hint
+    || result.weekly?.hint
+    || result.github?.hint
+    || result.github?.detail
+    || result.weekly?.detail
+    || screenerErrorHint(error)
+    || error;
+  return { ...result, ok: false, error, hint };
+}
+
 export async function getScreenerRunStatus(env) {
   const KV = env?.KV_TIMED || env?.KV;
   if (!KV) return null;
@@ -128,7 +171,10 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
 
   const inUniverse = await loadInUniverseSet();
   const screen = await finnhubScreener(env, opts);
-  if (!screen.ok) return { ok: false, error: screen.error || "finnhub_screener_failed" };
+  if (!screen.ok) {
+    const error = screen.error || "finnhub_screener_failed";
+    return { ok: false, mode: "weekly", error, hint: screenerErrorHint(error) };
+  }
 
   let pool = (screen.rows || [])
     .map((r) => ({
@@ -150,6 +196,10 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
 
   const symbols = pool.map((p) => p.ticker);
   const tsRes = await tdFetchTimeSeries(env, symbols, "1day", null, null, 8);
+  if (tsRes?.error) {
+    const error = String(tsRes.error);
+    return { ok: false, mode: "weekly", error, hint: screenerErrorHint(error) };
+  }
   const barsBySym = tsRes?.bars || {};
 
   const candidates = [];
@@ -176,16 +226,26 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
 
   const scanTs = new Date().toISOString();
   const mergeRes = await mergeScreenerCandidates(env, candidates, scanTs);
+  if (!mergeRes.ok) {
+    const error = mergeRes.error || "kv_merge_failed";
+    return {
+      ok: false,
+      mode: "weekly",
+      candidates: candidates.length,
+      error,
+      hint: screenerErrorHint(error),
+      elapsed_ms: Date.now() - t0,
+    };
+  }
 
-  return {
-    ok: mergeRes.ok,
+  return normalizeScreenerResult({
+    ok: true,
     mode: "weekly",
     candidates: candidates.length,
     stored: mergeRes.stored,
     scan_ts: scanTs,
     elapsed_ms: Date.now() - t0,
-    error: mergeRes.error,
-  };
+  });
 }
 
 const GITHUB_USER_AGENT = "TimedTrading-Screener/1.0 (+https://timed-trading.com)";
@@ -327,7 +387,7 @@ export async function runScreenerScan(env, mode = "weekly", opts = {}) {
   const normalized = String(mode || "weekly").toLowerCase();
 
   if (normalized === "weekly") {
-    return runWeeklyScreenerScan(env, opts);
+    return normalizeScreenerResult(await runWeeklyScreenerScan(env, opts));
   }
 
   if (normalized === "all") {
@@ -335,8 +395,8 @@ export async function runScreenerScan(env, mode = "weekly", opts = {}) {
     const gh = await triggerGithubScreenerWorkflow(env, "all");
     // Weekly scan runs inline and is the primary path; GitHub dispatch is
     // the tvscreener backup. Do not fail the whole scan when GitHub rejects.
-    return {
-      ok: weekly.ok,
+    return normalizeScreenerResult({
+      ok: !!weekly.ok,
       mode: "all",
       weekly,
       github: gh,
@@ -344,8 +404,10 @@ export async function runScreenerScan(env, mode = "weekly", opts = {}) {
       candidates: weekly.candidates,
       stored: weekly.stored,
       scan_ts: weekly.scan_ts,
-    };
+      error: weekly.ok ? undefined : (weekly.error || "weekly_scan_failed"),
+      hint: weekly.ok ? undefined : (weekly.hint || screenerErrorHint(weekly.error)),
+    });
   }
 
-  return triggerGithubScreenerWorkflow(env, normalized);
+  return normalizeScreenerResult(await triggerGithubScreenerWorkflow(env, normalized));
 }
