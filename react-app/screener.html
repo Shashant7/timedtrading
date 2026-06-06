@@ -110,7 +110,11 @@
         const v = Number(n);
         return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
       };
-      const getCandidateChangePct = (candidate) => {
+      const getCandidateChangePct = (candidate, preferWeekly = false) => {
+        if (preferWeekly || candidate?.scan_type === "weekly_momentum") {
+          const week = Number(candidate?.week_change_pct ?? candidate?.change_pct);
+          if (Number.isFinite(week)) return week;
+        }
         const daily = window.getDailyChange ? window.getDailyChange(candidate) : null;
         if (daily && Number.isFinite(Number(daily.dayPct))) return Number(daily.dayPct);
         const raw = Number(candidate?.change_pct ?? candidate?.day_change_pct ?? candidate?.week_change_pct);
@@ -126,9 +130,9 @@
         { id: "weekly_momentum", label: "Weekly", icon: "📈" },
       ];
 
-      const SORT_OPTIONS = [
-        { id: "change_desc", label: "Change % ↓", fn: (a, b) => Math.abs(getCandidateChangePct(b) || 0) - Math.abs(getCandidateChangePct(a) || 0) },
-        { id: "change_asc", label: "Change % ↑", fn: (a, b) => Math.abs(getCandidateChangePct(a) || 0) - Math.abs(getCandidateChangePct(b) || 0) },
+      const buildSortOptions = (preferWeekly = false) => [
+        { id: "change_desc", label: preferWeekly ? "Week % ↓" : "Change % ↓", fn: (a, b) => Math.abs(getCandidateChangePct(b, preferWeekly) || 0) - Math.abs(getCandidateChangePct(a, preferWeekly) || 0) },
+        { id: "change_asc", label: preferWeekly ? "Week % ↑" : "Change % ↑", fn: (a, b) => Math.abs(getCandidateChangePct(a, preferWeekly) || 0) - Math.abs(getCandidateChangePct(b, preferWeekly) || 0) },
         { id: "mcap_desc", label: "Market Cap ↓", fn: (a, b) => (b.market_cap || 0) - (a.market_cap || 0) },
         { id: "volume_desc", label: "Volume ↓", fn: (a, b) => (b.volume || 0) - (a.volume || 0) },
         { id: "ticker_asc", label: "Ticker A-Z", fn: (a, b) => (a.ticker || "").localeCompare(b.ticker || "") },
@@ -166,6 +170,8 @@
         const [pqMeta, setPqMeta] = useState(null);
         const [pqDeciding, setPqDeciding] = useState(new Set());
         const [pqRebuilding, setPqRebuilding] = useState(false);
+        const [scanRunning, setScanRunning] = useState(false);
+        const [scanMsg, setScanMsg] = useState(null);
 
         const fetchPromotionQueue = useCallback(async () => {
           setPqLoading(true);
@@ -260,6 +266,42 @@
           }
         }, []);
 
+        const triggerScreenerScan = useCallback(async (mode = "weekly") => {
+          if (scanRunning) return;
+          const labels = {
+            weekly: "Weekly momentum (8%+ week change)",
+            daily: "Daily momentum",
+            top_movers: "Top gainers + losers",
+            all: "Full scan (daily + movers + weekly)",
+          };
+          if (!confirm(`Run ${labels[mode] || mode} scan now? This may take up to 2 minutes.`)) return;
+          setScanRunning(true);
+          setScanMsg(null);
+          try {
+            const res = await fetch(`${API_BASE}/timed/admin/screener/run`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode }),
+            });
+            const j = await res.json();
+            if (j.ok) {
+              const count = j.candidates ?? j.weekly?.candidates ?? j.stored ?? "?";
+              setScanMsg(`Scan complete · ${count} candidates`);
+              await fetchCandidates(true);
+            } else {
+              const hint = j.hint || j.error || j.github?.error || "unknown";
+              setScanMsg(`Scan failed: ${hint}`);
+              alert(`Scan failed: ${hint}`);
+            }
+          } catch (e) {
+            setScanMsg(`Scan failed: ${String(e.message || e)}`);
+            alert(`Scan failed: ${String(e.message || e)}`);
+          } finally {
+            setScanRunning(false);
+          }
+        }, [scanRunning, fetchCandidates]);
+
         // Fetch existing tickers in our universe
         const fetchExistingTickers = useCallback(async () => {
           try {
@@ -296,6 +338,9 @@
           return counts;
         }, [candidates]);
 
+        const preferWeeklySort = scanFilter === "weekly_momentum";
+        const SORT_OPTIONS = useMemo(() => buildSortOptions(preferWeeklySort), [preferWeeklySort]);
+
         // Filtered + sorted candidates
         const filteredCandidates = useMemo(() => {
           let result = [...candidates];
@@ -325,7 +370,7 @@
           if (sortOpt) result.sort(sortOpt.fn);
 
           return result;
-        }, [candidates, scanFilter, sectorFilter, search, sortBy]);
+        }, [candidates, scanFilter, sectorFilter, search, sortBy, SORT_OPTIONS]);
 
         // Add to universe
         const addToUniverse = useCallback(async (tickers) => {
@@ -459,14 +504,34 @@
                       Add {selectedTickers.size} to Universe
                     </button>
                   )}
+                  {viewMode === "discovery" && isAdmin && (
+                    <>
+                      <button
+                        onClick={() => triggerScreenerScan("weekly")}
+                        disabled={scanRunning || loading}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#a78bfa] border border-[#a78bfa]/30 hover:bg-[#a78bfa]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Run weekly momentum scan (8%+ week change)"
+                      >
+                        {scanRunning ? "Scanning…" : "Run Weekly Scan"}
+                      </button>
+                      <button
+                        onClick={() => triggerScreenerScan("all")}
+                        disabled={scanRunning || loading}
+                        className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#f5c25c] border border-[#f5c25c]/30 hover:bg-[#f5c25c]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Run daily momentum + top movers + weekly (GitHub Actions when configured)"
+                      >
+                        Run Full Scan
+                      </button>
+                    </>
+                  )}
                   {viewMode === "discovery" && (
                     <button
                       onClick={() => fetchCandidates(true)}
-                      disabled={loading}
+                      disabled={loading || scanRunning}
                       className="px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Fetch latest screener results"
+                      title="Refresh cached screener results"
                     >
-                      {loading ? "Loading..." : "↻ Rescan"}
+                      {loading ? "Loading..." : "↻ Refresh"}
                     </button>
                   )}
                   {viewMode === "promote" && isAdmin && (
@@ -738,14 +803,15 @@
               {viewMode === "discovery" && <React.Fragment>
 
               {/* Last scan timestamp */}
-              {scanTs && (
+              {(scanTs || scanMsg) && (
                 <div className="text-[11px] text-[#4b5563] mb-3 -mt-4">
-                  Last scan: {new Date(scanTs).toLocaleString()} ({(() => {
+                  {scanMsg && <span className="text-[#a78bfa] mr-3">{scanMsg}</span>}
+                  {scanTs && <>Last scan: {new Date(scanTs).toLocaleString()} ({(() => {
                     const mins = Math.round((Date.now() - new Date(scanTs).getTime()) / 60000);
                     if (mins < 60) return `${mins}m ago`;
                     if (mins < 1440) return `${Math.round(mins/60)}h ago`;
                     return `${Math.round(mins/1440)}d ago`;
-                  })()})
+                  })()})</>}
                 </div>
               )}
 
@@ -852,7 +918,11 @@
                 <div className="tt-card p-12 text-center">
                   <p className="text-[#6b7280] text-sm mb-2">No candidates found</p>
                   <p className="text-[#4b5563] text-xs">
-                    Run the discovery script to populate: <code className="bg-white/[0.04] px-1.5 py-0.5 rounded text-[#9ca3af]">python scripts/discover-tickers.py --post --api-key YOUR_KEY</code>
+                    {scanFilter === "weekly_momentum"
+                      ? <>No weekly momentum candidates yet. {isAdmin && <>Click <button className="underline text-[#a78bfa]" onClick={() => triggerScreenerScan("weekly")}>Run Weekly Scan</button> to populate.</>}</>
+                      : isAdmin
+                        ? <>Click <button className="underline text-[#f5c25c]" onClick={() => triggerScreenerScan("all")}>Run Full Scan</button> or wait for the nightly cron (22:30 UTC).</>
+                        : "Waiting for the nightly discovery scan."}
                   </p>
                 </div>
               )}
@@ -900,7 +970,7 @@
                       const justAdded = addedTickers.has(ticker);
                       const isAdding = addingTickers.has(ticker);
                       const isSelected = selectedTickers.has(ticker);
-                      const changePct = getCandidateChangePct(c);
+                      const changePct = getCandidateChangePct(c, c.scan_type === "weekly_momentum");
                       const isPositive = Number(changePct) >= 0;
 
                       return (
