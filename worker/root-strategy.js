@@ -824,17 +824,17 @@ function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAg
                     : stTrigger.freshness === "mature" ? " (ST sloping mature)"
                     : "";
     const tfs = (stTrigger.confirmed_tfs || []).join("/");
-    return `RIDE ${side} — confluence ${score}/100, ${side === "LONG" ? longAgree : shortAgree}/8 layers agree, ST slope ${tfs}${freshness}. Strongest: ${topLayers.join(" · ")}. Options: prefer long ${side === "LONG" ? "call" : "put"} (max convexity).`;
+    return `RIDE ${side} — confluence ${score}/100, ${side === "LONG" ? longAgree : shortAgree}/8 layers agree, ST slope ${tfs}${freshness}. Strongest: ${topLayers.join(" · ")}.`;
   }
   if (mode === "READY") {
-    return `READY ${side} — confluence ${score}/100 (${side === "LONG" ? longAgree : shortAgree}/8 layers) but SuperTrend slope hasn't ignited yet. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on D/4H/60m. Options: prepare order; do not chase.`;
+    return `READY ${side} — confluence ${score}/100 (${side === "LONG" ? longAgree : shortAgree}/8 layers) but SuperTrend slope hasn't ignited yet. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on D/4H/60m.`;
   }
   if (mode === "FADE") {
     const fadeSrc = stTrigger.side === side ? "ST opposes confluence" : "Newton (RS/Wave/Ichi) opposes majority";
-    return `FADE ${side} — ${fadeSrc}. ${score}/100 confluence on the other side. Likely countertrend; prefer credit spread / iron condor over directional bet.`;
+    return `FADE ${side} — ${fadeSrc}. ${score}/100 confluence on the other side. Likely countertrend — smaller size, tighter stops.`;
   }
   if (mode === "DRIFT") {
-    return `DRIFT ${side} — partial confluence (${score}/100) with ST already in motion. Late entry; defined-risk spread only. Skip long premium (theta will eat it).`;
+    return `DRIFT ${side} — partial confluence (${score}/100) with ST already in motion. Late entry; defined-risk structures only.`;
   }
-  return `WAIT — confluence ${score}/100, layers split (${longAgree} long / ${shortAgree} short), no SuperTrend trigger. No directional bet. If IV is rich, iron condor candidate.`;
+  return `WAIT — confluence ${score}/100, layers split (${longAgree} long / ${shortAgree} short), no SuperTrend trigger. No directional bet — sit out until layers align.`;
 }

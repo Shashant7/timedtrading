@@ -1684,35 +1684,58 @@
           not_good: {
             color: "#f87171",
             bg: "rgba(248,113,113,0.10)",
-            label: "NOT A GOOD SETUP"
+            border: "rgba(248,113,113,0.30)",
+            label: "NOT A GOOD SETUP",
+            action: "Sit out — no options entry",
+            desc: "Timing or alignment does not support a directional options bet."
           },
           forming: {
             color: "#f5c25c",
             bg: "rgba(245,194,92,0.10)",
-            label: "SETUP FORMING"
+            border: "rgba(245,194,92,0.30)",
+            label: "SETUP FORMING",
+            action: "Prepare only — do not enter yet",
+            desc: "Layers are leaning but the entry trigger has not fired."
           },
           valid: {
             color: "#60a5fa",
             bg: "rgba(96,165,250,0.10)",
-            label: "VALID SETUP"
+            border: "rgba(96,165,250,0.30)",
+            label: "VALID SETUP",
+            action: "Defined-risk only if entering",
+            desc: "A play may exist, but timing is not ideal."
           },
           good: {
             color: "#34d399",
             bg: "rgba(52,211,153,0.10)",
-            label: "GOOD SETUP"
+            border: "rgba(52,211,153,0.30)",
+            label: "GOOD SETUP",
+            action: "Timing aligned — size for theta",
+            desc: "Direction and trigger agree."
           }
         };
         const _m = _colors[_tier] || _colors.not_good;
         return {
           tier: _tier,
-          headline: _mode === "WAIT" ? "Not a good setup — wait for timing" : `${_m.label.replace(/ SETUP/i, "")} — ${_mode}`,
-          body: verdict.actionable_summary || "Awaiting confluence verdict…",
-          timing_focus: "Timed Trading prioritizes timing over direction alone — especially for options.",
+          mode: _mode,
+          action: _m.action,
+          desc: _m.desc,
+          why: verdict.actionable_summary || "Awaiting confluence verdict…",
+          timing_note: "Options decay faster than shares — entry timing matters more than direction alone.",
           color: _m.color,
           bg: _m.bg,
+          border: _m.border,
           label: _m.label
         };
       })();
+      const _gColor = setupGuidance.color || modeMeta.color;
+      const _gBg = setupGuidance.bg || modeMeta.bg;
+      const _gBorder = setupGuidance.border || _gColor + "4d";
+      const _scoreNum = Number(verdict.score);
+      const _layersNum = Number(verdict.layers_agreeing);
+      const _layersTotal = Number(verdict.layers_total) || 8;
+      const _layersRatio = Number.isFinite(_layersNum) ? `${_layersNum}/${_layersTotal}` : "—";
+      const _stSideColor = st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)";
       const _loadingOverlay = loading && data && h("div", {
         style: {
           position: "absolute",
@@ -1854,16 +1877,17 @@
       const _emptyPlaysNote = !_hasAnyPlay && data && (() => {
         const _align = data.direction_alignment;
         const _gateNote = _align && _align.allow === false && _align.reason ? ` Gate: ${String(_align.reason).replace(/_/g, " ")}.` : "";
-        return h(Panel, {
-          title: "No options play surfaced",
-          color: setupGuidance.color
-        }, h("div", {
+        return h("div", {
           style: {
             fontSize: 12,
             color: "var(--ds-text-muted)",
-            lineHeight: 1.55
+            lineHeight: 1.55,
+            padding: "var(--ds-space-2)",
+            background: "rgba(255,255,255,0.02)",
+            border: "1px solid var(--ds-stroke)",
+            borderRadius: "var(--ds-radius-md)"
           }
-        }, "No directional expression for ", sym, " in ", String(profile || "speculator"), " · ", String(horizon || "trader"), " horizon.", _gateNote, " The guidance above explains whether this is a timing issue or a blocked setup.", " Try another profile or check back when confluence shifts to RIDE with aligned layers."));
+        }, "No directional expression for ", sym, " in ", String(profile || "speculator"), " · ", String(horizon || "trader"), " horizon.", _gateNote, " See setup guidance above for whether this is a timing issue or a blocked setup.");
       })();
       return h("div", {
         style: {
@@ -1872,99 +1896,79 @@
           gap: "var(--ds-space-3)",
           position: "relative"
         }
-      }, _loadingOverlay, h("div", {
-        style: {
-          background: setupGuidance.bg || "rgba(255,255,255,0.03)",
-          border: `1px solid ${setupGuidance.color || "#9ca3af"}55`,
-          borderRadius: "var(--ds-radius-lg, 12px)",
-          padding: "var(--ds-space-3, 12px)"
-        }
-      }, h("div", {
-        style: {
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 8,
-          flexWrap: "wrap",
-          gap: 6
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 800,
-          color: setupGuidance.color,
-          letterSpacing: "0.08em"
-        }
-      }, "⏱ TIMING GUIDANCE"), h("span", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: setupGuidance.color,
-          background: setupGuidance.bg,
-          padding: "3px 10px",
-          borderRadius: 999,
-          border: `1px solid ${setupGuidance.color}66`
-        }
-      }, setupGuidance.label || "SETUP")), h("div", {
-        style: {
-          fontSize: 14,
-          fontWeight: 700,
-          color: "var(--ds-text-display)",
-          marginBottom: 6,
-          lineHeight: 1.35
-        }
-      }, setupGuidance.headline), h("div", {
-        style: {
-          fontSize: 12,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.55,
-          marginBottom: 6
-        }
-      }, setupGuidance.body), h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--ds-text-faint)",
-          fontStyle: "italic",
-          lineHeight: 1.45
-        }
-      }, setupGuidance.timing_focus, setupGuidance.high_volatility && h("span", {
-        style: {
-          color: setupGuidance.color,
-          fontWeight: 600,
-          marginLeft: 4
-        }
-      }, " · High-volatility name — options whiplash risk elevated."))), h(Panel, {
-        title: "📡 Root-Strategy Verdict",
-        color: modeMeta.color,
-        action: h("span", {
+      }, _loadingOverlay, h(Panel, {
+        title: "⏱ Options Setup Guidance",
+        color: _gColor,
+        action: h("div", {
           style: {
-            fontSize: 11,
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap"
+          }
+        }, h("span", {
+          style: {
+            fontSize: 10,
             fontWeight: 700,
+            letterSpacing: "0.05em",
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: _gColor,
+            background: _gBg,
+            border: `1px solid ${_gBorder}`
+          }
+        }, setupGuidance.label || "SETUP"), h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.05em",
+            padding: "2px 8px",
+            borderRadius: 999,
             color: modeMeta.color,
             background: modeMeta.bg,
-            padding: "3px 10px",
-            borderRadius: 999,
             border: `1px solid ${modeMeta.color}66`
           }
-        }, modeMeta.icon, " ", modeMeta.label, " · ", contract.direction || "—")
+        }, modeMeta.icon, " ", modeMeta.label))
       }, h("div", {
         style: {
-          fontSize: 13,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.5,
-          marginBottom: 8
+          padding: "var(--ds-space-2)",
+          background: _gBg,
+          border: `1px solid ${_gBorder}`,
+          borderRadius: "var(--ds-radius-md)",
+          marginBottom: "var(--ds-space-2)"
         }
-      }, verdict.actionable_summary || "Awaiting confluence verdict…"), h("div", {
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "WHAT TO DO"), h("div", {
+        style: {
+          fontSize: 15,
+          fontWeight: 700,
+          color: _gColor
+        }
+      }, setupGuidance.action || setupGuidance.headline || "—"), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-body)",
+          marginTop: 4,
+          lineHeight: 1.4
+        }
+      }, setupGuidance.desc || "")), h("div", {
         style: {
           display: "grid",
           gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 8
+          gap: "var(--ds-space-2)"
         }
       }, h("div", {
         style: {
-          padding: 8,
+          padding: "var(--ds-space-2)",
           background: "rgba(255,255,255,0.03)",
-          borderRadius: 6
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "var(--ds-radius-md)"
         }
       }, h("div", {
         style: {
@@ -1976,21 +1980,29 @@
       }, "CONFLUENCE"), h("div", {
         style: {
           fontFamily: "var(--tt-font-mono)",
-          fontSize: 18,
           fontWeight: 700,
-          color: modeMeta.color,
-          marginTop: 2
+          marginTop: 2,
+          fontSize: 18,
+          color: Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "#34d399" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171"
         }
-      }, verdict.score || 0, h("span", {
+      }, Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", h("span", {
         style: {
           fontSize: 10,
+          fontWeight: 600,
           color: "var(--ds-text-muted)"
         }
-      }, "/100"))), h("div", {
+      }, "/100")), h("div", {
         style: {
-          padding: 8,
+          fontSize: 10,
+          color: "var(--ds-text-muted)",
+          marginTop: 2
+        }
+      }, Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak")), h("div", {
+        style: {
+          padding: "var(--ds-space-2)",
           background: "rgba(255,255,255,0.03)",
-          borderRadius: 6
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "var(--ds-radius-md)"
         }
       }, h("div", {
         style: {
@@ -2002,21 +2014,23 @@
       }, "LAYERS"), h("div", {
         style: {
           fontFamily: "var(--tt-font-mono)",
-          fontSize: 18,
           fontWeight: 700,
-          color: "var(--ds-text-body)",
-          marginTop: 2
+          marginTop: 2,
+          fontSize: 18,
+          color: "var(--ds-text-body)"
         }
-      }, verdict.layers_agreeing || 0, h("span", {
+      }, _layersRatio), h("div", {
         style: {
           fontSize: 10,
-          color: "var(--ds-text-muted)"
+          color: "var(--ds-text-muted)",
+          marginTop: 2
         }
-      }, "/", verdict.layers_total || 8))), h("div", {
+      }, Number.isFinite(_layersNum) && _layersNum >= 6 ? "Aligned" : Number.isFinite(_layersNum) && _layersNum >= 4 ? "Mixed" : "Split")), h("div", {
         style: {
-          padding: 8,
-          background: "rgba(255,255,255,0.03)",
-          borderRadius: 6
+          padding: "var(--ds-space-2)",
+          background: st.side ? st.side === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+          border: `1px solid ${st.side === "LONG" ? "rgba(52,211,153,0.25)" : st.side === "SHORT" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.06)"}`,
+          borderRadius: "var(--ds-radius-md)"
         }
       }, h("div", {
         style: {
@@ -2025,19 +2039,55 @@
           color: "var(--ds-text-faint)",
           letterSpacing: "0.05em"
         }
-      }, "ST TRIGGER"), h("div", {
+      }, "ST TIMING"), h("div", {
         style: {
-          fontSize: 13,
+          fontFamily: "var(--tt-font-mono)",
           fontWeight: 700,
-          color: st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)",
-          marginTop: 2
+          marginTop: 2,
+          fontSize: 14,
+          color: _stSideColor
         }
       }, st.side || "NEUTRAL"), h("div", {
         style: {
-          fontSize: 9,
-          color: "var(--ds-text-muted)"
+          fontSize: 10,
+          color: "var(--ds-text-muted)",
+          marginTop: 2
         }
-      }, stFresh))), st.confirmed_tfs && st.confirmed_tfs.length > 0 && h("div", {
+      }, stFresh))), (setupGuidance.why || setupGuidance.body) && h("div", {
+        style: {
+          marginTop: "var(--ds-space-2)",
+          paddingTop: "var(--ds-space-2)",
+          borderTop: "1px solid rgba(255,255,255,0.04)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.06em",
+          marginBottom: 4
+        }
+      }, "WHY"), h("div", {
+        style: {
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.45
+        }
+      }, setupGuidance.why || setupGuidance.body)), (setupGuidance.timing_note || setupGuidance.timing_focus) && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontStyle: "italic",
+          lineHeight: 1.45
+        }
+      }, setupGuidance.timing_note || setupGuidance.timing_focus, setupGuidance.high_volatility && h("span", {
+        style: {
+          color: _gColor,
+          fontWeight: 600,
+          marginLeft: 4
+        }
+      }, " · High-volatility name.")), st.confirmed_tfs && st.confirmed_tfs.length > 0 && h("div", {
         style: {
           marginTop: 8,
           fontSize: 10,
@@ -2131,13 +2181,21 @@
           }
         }, l.evidence));
       }))), h(Panel, {
-        title: "🎚 Risk Profile"
+        title: "⚙ Options Preferences"
       }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "RISK PROFILE"), h("div", {
         style: {
           display: "flex",
           flexWrap: "wrap",
           gap: 6,
-          marginBottom: 8
+          marginBottom: 10
         }
       }, PROFILE_CHIPS.map(p => h("button", {
         key: p.key,
@@ -2156,11 +2214,18 @@
         style: {
           fontSize: 11,
           color: "var(--ds-text-muted)",
-          fontStyle: "italic"
+          fontStyle: "italic",
+          marginBottom: 10
         }
-      }, data.profile_meta.one_liner)), h(Panel, {
-        title: "⏱ Horizon"
-      }, h("div", {
+      }, data.profile_meta.one_liner), h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "HORIZON"), h("div", {
         style: {
           display: "flex",
           gap: 6,
@@ -2194,15 +2259,7 @@
           color: "var(--ds-text-muted)",
           fontStyle: "italic"
         }
-      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms." : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.")), h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 800,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.08em",
-          marginTop: 4
-        }
-      }, "OPTIONS PLAYS"), _dayTradePanel, _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
+      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.")), _dayTradePanel, _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
         style: {
           background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
           border: "2px solid rgba(245,194,92,0.50)",
@@ -18525,4 +18582,4 @@
   };
 })();
 
-// cache-bust:1780771541259:57580091
+// cache-bust:1780775568871:863281049
