@@ -10,6 +10,13 @@ import { getCROBriefAddendum, getFSDSynthesisAddendum } from "./cro/cro-service.
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { computeFuturesPairsState, summarizeFuturesPairs } from "./futures-pairs.js";
+import {
+  SATY_FIBS,
+  INDEX_DAY_TRADE_ETFS,
+  computeOvernightRangeFromM5,
+  computeOpeningRangeFromM5,
+  buildOvernightDayTradeGamePlan,
+} from "./day-trade-game-plan.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
@@ -1427,13 +1434,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // 2026-06-05 — DIA (Dow ETF) added as the 5th day-trade index so it gets a
   // game plan + post-close grade. Fetched separately (daily candles + latest)
   // to avoid threading the large parallel block; ES already has esTechnical.
-  let diaData = null, diaCandles = { candles: [] };
+  let diaData = null, diaCandles = { candles: [] }, diaCandlesM5 = { candles: [] };
   try { diaData = await kvGetJSON(KV, "timed:latest:DIA").catch(() => null); } catch (_) {}
   try {
-    if (db && opts.d1GetCandles) diaCandles = await opts.d1GetCandles(env, "DIA", "D", 20).catch(() => ({ candles: [] }));
+    if (db && opts.d1GetCandles) {
+      [diaCandles, diaCandlesM5] = await Promise.all([
+        opts.d1GetCandles(env, "DIA", "D", 20).catch(() => ({ candles: [] })),
+        opts.d1GetCandles(env, "DIA", "5", 100).catch(() => ({ candles: [] })),
+      ]);
+    }
   } catch (_) {}
   const diaTechnical = summarizeTechnical(
-    diaCandles?.candles || [], [], [], diaData, [], []
+    diaCandles?.candles || [], [], diaCandlesM5?.candles || [], diaData, [], []
   );
 
   // V15 P0.7.72 — Phase 2 Q1 unification.
@@ -1841,9 +1853,6 @@ function _resolveWeeklyAnchorFromDaily(dailyCandles, currentPriceTs) {
   }
   return { anchor: Number(pick.candle?.c) || 0, anchorDateKey: pick.dateKey };
 }
-// Saty's full fib ladder. Used by both Day Mode and Multi-Day Mode.
-const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
-
 function _satyFibLabel(f) {
   return (f * 100).toFixed(1).replace(/\.0$/, "");
 }
@@ -2182,44 +2191,8 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     }
   }
 
-  // Overnight / pre-market range from 5-min candles
-  // Filter to candles from the extended session: after 4:00 PM ET (21:00 UTC) yesterday
-  // through 9:30 AM ET (14:30 UTC) today. This gives the true overnight range.
-  let overnightRange = null;
-  if (fiveMinCandles && fiveMinCandles.length > 0) {
-    const now = new Date();
-    // Today 14:30 UTC = 9:30 AM ET (RTH open)
-    const rthOpenToday = new Date(now);
-    rthOpenToday.setUTCHours(14, 30, 0, 0);
-    // Yesterday 21:00 UTC = 4:00 PM ET (RTH close)
-    const rthCloseYesterday = new Date(rthOpenToday);
-    rthCloseYesterday.setUTCDate(rthCloseYesterday.getUTCDate() - 1);
-    rthCloseYesterday.setUTCHours(21, 0, 0, 0);
-    // If today is Monday, go back to Friday
-    const dayOfWeek = now.getUTCDay();
-    if (dayOfWeek === 1) { // Monday → Friday close
-      rthCloseYesterday.setUTCDate(rthCloseYesterday.getUTCDate() - 2);
-    }
-    const rthCloseTs = rthCloseYesterday.getTime();
-    const rthOpenTs = rthOpenToday.getTime();
-
-    // Filter 5-min candles to overnight session only
-    const overnightCandles = fiveMinCandles.filter(c => {
-      const ts = Number(c.ts || c.t);
-      return ts >= rthCloseTs && ts < rthOpenTs;
-    });
-
-    // Fallback: if no candles match the timestamp filter, use the last 60 candles
-    const m5ForRange = overnightCandles.length >= 3 ? overnightCandles : fiveMinCandles.slice(-60);
-    const m5Highs = m5ForRange.map(c => Number(c.h)).filter(Number.isFinite);
-    const m5Lows = m5ForRange.map(c => Number(c.l)).filter(Number.isFinite);
-    if (m5Highs.length > 0) {
-      overnightRange = {
-        high: Math.round(Math.max(...m5Highs) * 100) / 100,
-        low: Math.round(Math.min(...m5Lows) * 100) / 100,
-      };
-    }
-  }
+  const overnightRange = computeOvernightRangeFromM5(fiveMinCandles);
+  const openingRange = computeOpeningRangeFromM5(fiveMinCandles);
 
   // ── ATR Fibonacci Day Trader Levels ──────────────────────────────────
   // Compute session ATR from 5-min candles, then project Fibonacci levels
@@ -2392,30 +2365,14 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     // the trigger. If the nearest fib doesn't satisfy, walk the fib
     // ladder until one does; if even the top fib is too close, fall
     // back to trigger + 0.75 * dayAtr. Mirrored for bear side.
-    const oHi = overnightRange?.high || curPrice;
-    const oLo = overnightRange?.low || curPrice;
-    const bullTrig = Math.max(rnd(oHi), rnd(curPrice + dayAtr * 0.25));
-    const bearTrig = Math.min(rnd(oLo), rnd(curPrice - dayAtr * 0.25));
-    // P0.7.140 (2026-05-13) — bug fix: same root cause as the upGate
-    // ReferenceError above. The Saty Day Mode rewrite removed the local
-    // `fibs` array (renamed to module-level SATY_FIBS) but this game-plan
-    // block kept reading the dead local. Use SATY_FIBS directly.
-    const allUpFibs = SATY_FIBS.map(f => rnd(anchor + dayAtr * f));
-    const allDnFibs = SATY_FIBS.map(f => rnd(anchor - dayAtr * f));
-    const _MIN_GAP = Math.max(dayAtr * 0.40, curPrice * 0.003);
-    // Walk fibs in order; first one ≥ trigger + _MIN_GAP wins.
-    const bullTargetFib = allUpFibs.find(t => t >= bullTrig + _MIN_GAP);
-    // Bear side: walk reversed; first fib ≤ trigger - _MIN_GAP wins.
-    const bearTargetFib = allDnFibs.slice().reverse().find(t => t <= bearTrig - _MIN_GAP);
-    const bullTgt = bullTargetFib != null ? bullTargetFib : rnd(bullTrig + Math.max(dayAtr * 0.75, _MIN_GAP));
-    const bearTgt = bearTargetFib != null ? bearTargetFib : rnd(bearTrig - Math.max(dayAtr * 0.75, _MIN_GAP));
-    atrFibLevels.gamePlan = {
-      bullTrigger: bullTrig,
-      bullTarget:  Math.max(bullTgt, rnd(bullTrig + _MIN_GAP)),
-      bearTrigger: bearTrig,
-      bearTarget:  Math.min(bearTgt, rnd(bearTrig - _MIN_GAP)),
-      min_gap: rnd(_MIN_GAP),
-    };
+    const gpPlan = buildOvernightDayTradeGamePlan({
+      curPrice,
+      anchor,
+      dayAtr,
+      overnightRange,
+      openingRange,
+    });
+    if (gpPlan) atrFibLevels.gamePlan = gpPlan;
   }
 
   // ── Multi-day (Weekly) ATR Levels — Saty ATR Levels · Multi-Day Mode ──
@@ -2525,6 +2482,7 @@ function summarizeTechnical(dailyCandles, hourlyCandles, fiveMinCandles, latestD
     hourlyRange: h1Hi != null ? { high: h1Hi, low: h1Lo } : null,
     pivots,
     overnightRange,
+    openingRange,
     atrFibLevels,
     multiDayAtrLevels,
     structureContext,
@@ -3966,7 +3924,15 @@ function buildBriefInfographic(data, type) {
     const atr = Number(scenario?.atr14 ?? tech?.atr14 ?? tech?.atr);
     const baseLevels = _normLevels(tech);
     let mergedLevels = baseLevels;
-    if (scenario?.ok && scenario?.game_plan) {
+    // Index ETFs: overnight/OR playbook lives on summarizeTechnical (5m-fed).
+    // Scenario uses the same module but technical also carries overnightRange.
+    const _etfOvernightGp = INDEX_DAY_TRADE_ETFS.has(sym) && baseLevels?.gamePlan;
+    if (_etfOvernightGp) {
+      mergedLevels = {
+        ...(baseLevels || {}),
+        currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
+      };
+    } else if (scenario?.ok && scenario?.game_plan) {
       // Use scenario's game plan + current price; keep tech's fib map
       // (anchor/levels object) for the DAY GATE bar so we don't lose
       // the existing visualization, but override the gamePlan + currentPrice.
@@ -4363,9 +4329,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
         return Number.isFinite(px) ? px : null;
       };
       const spyGp = _gp("SPY"), qqqGp = _gp("QQQ"), iwmGp = _gp("IWM");
-      // 2026-06-05 — ES game plan comes from esTechnical (futures path).
-      // DIA now rides the canonical scenario (same as SPY/QQQ/IWM) so the
-      // morning call archived for grading matches /timed/day-trade-predictions.
+      // ES game plan comes from esTechnical (futures path). DIA archival
+      // prefers infographic overnight/OR levels, then live scenario, then tech.
       const esGp = data?.esTechnical?.atrFibLevels?.gamePlan || null;
       const _scenarioGp = (scn) => {
         if (!scn?.ok || !scn?.game_plan) return null;
