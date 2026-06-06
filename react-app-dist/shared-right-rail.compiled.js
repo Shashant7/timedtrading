@@ -5866,7 +5866,6 @@
           clearInterval(slow);
         };
       }, [railTab, tickerSymbol, catalysts]);
-      const _predictionMode = railTab === "INVESTOR" ? "investor" : "trader";
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -5882,10 +5881,13 @@
             setPredictionContractError(null);
             const qs = new URLSearchParams();
             qs.set("ticker", sym);
-            qs.set("mode", _predictionMode);
+            qs.set("mode", "trader");
             const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
-              ttlMs: 60 * 1000,
-              maxAgeMs: 5 * 60 * 1000
+              ttlMs: 30 * 1000,
+              maxAgeMs: 2 * 60 * 1000,
+              fetchOpts: {
+                cache: "no-store"
+              }
             });
             if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
@@ -5903,7 +5905,7 @@
         return () => {
           cancelled = true;
         };
-      }, [_predictionMode, tickerSymbol]);
+      }, [tickerSymbol]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -9635,10 +9637,35 @@
           const pcSL = Number(predictionContract?.risk?.stop_loss);
           const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+          const optionsTraderDir = String(optionsTabData?.contract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
-          const dir = tradeIsOpen ? String(trade?.direction || "").toUpperCase() || pcDirRaw : pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
-          if (!dir) return null;
+          const resolveTraderCallDir = raw => {
+            const d = String(raw || "").toUpperCase();
+            return d === "LONG" || d === "SHORT" ? d : "";
+          };
+          const traderCallDir = (() => {
+            if (tradeIsOpen) {
+              return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
+            }
+            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || resolveTraderCallDir(v2Dir);
+          })();
+          if (!traderCallDir) {
+            if (predictionContractLoading) {
+              return React.createElement(Panel, {
+                title: "Trade Plan"
+              }, React.createElement("p", {
+                style: {
+                  margin: 0,
+                  fontSize: "var(--ds-fs-caption)",
+                  color: "var(--ds-text-faint)",
+                  fontStyle: "italic"
+                }
+              }, "Loading trader call\u2026"));
+            }
+            return null;
+          }
+          const dir = traderCallDir;
           const isLong = dir === "LONG";
           const sl = (() => {
             if (tradeIsOpen) {
@@ -9820,7 +9847,7 @@
               }
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
-              title: "Bias direction"
+              title: "Trader call \u2014 matches header chip"
             }, dir), _rrChip, React.createElement("span", {
               style: {
                 color: eyebrowColor,
@@ -18652,4 +18679,4 @@
   };
 })();
 
-// cache-bust:1780778507820:245258155
+// cache-bust:1780779292334:337706872
