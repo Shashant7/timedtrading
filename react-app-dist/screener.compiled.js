@@ -213,6 +213,10 @@ function App({
       setLoading(false);
     }
   }, []);
+  const screenerErrorMessage = (j, status) => {
+    if (!j || typeof j !== "object") return `HTTP ${status || "error"} — no response body`;
+    return j.hint || j.detail || j.error || j.weekly?.hint || j.weekly?.detail || j.weekly?.error || j.github?.hint || j.github?.detail || j.github?.error || (status ? `HTTP ${status}` : "screener_failed");
+  };
   const triggerScreenerScan = useCallback(async (mode = "weekly") => {
     if (scanRunning) return;
     const labels = {
@@ -235,15 +239,20 @@ function App({
           mode
         })
       });
-      const j = await res.json();
-      if (j.ok) {
+      let j = null;
+      try {
+        j = await res.json();
+      } catch (_) {
+        j = null;
+      }
+      if (j?.ok) {
         const count = j.candidates ?? j.weekly?.candidates ?? j.stored ?? "?";
         const ghWarn = j.github_warning || (j.github && !j.github.ok ? j.github.hint || j.github.detail || j.github.error : null);
         setScanMsg(ghWarn ? `Scan complete · ${count} candidates (GitHub tvscreener skipped: ${ghWarn})` : `Scan complete · ${count} candidates`);
         if (ghWarn) alert(`Weekly scan finished (${count} candidates).\n\nGitHub tvscreener was not dispatched:\n${ghWarn}`);
         await fetchCandidates(true);
       } else {
-        const hint = j.hint || j.detail || j.error || j.github?.hint || j.github?.detail || j.github?.error || "unknown";
+        const hint = screenerErrorMessage(j, res.status);
         setScanMsg(`Scan failed: ${hint}`);
         alert(`Scan failed: ${hint}`);
       }
@@ -841,6 +850,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780722121833:810039696
+// cache-bust:1780722534072:90342603
 
-// cache-bust:1780722121833:810039696
+// cache-bust:1780722534072:90342603
