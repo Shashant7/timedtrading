@@ -1676,26 +1676,43 @@
       const ladder = (data?.ladder || []).slice(0, 6);
       const _hasSwingPlay = !!data?.primary;
       const _hasDayTradeSurface = !!(dayTradeData?.play || dayTradeData?.suppressed);
-      if (!data && !_hasDayTradeSurface && !loading) {
-        return h(Panel, {
-          title: "No play yet"
-        }, h("div", {
-          style: {
-            color: "var(--ds-text-muted)",
-            fontSize: 13
+      const _hasAnyPlay = _hasSwingPlay || !!dayTradeData?.play;
+      const setupGuidance = data?.setup_guidance || (() => {
+        const _mode = String(verdict.mode || data?.confluence_mode || "WAIT").toUpperCase();
+        const _tier = _mode === "RIDE" ? "good" : _mode === "READY" ? "forming" : _mode === "DRIFT" || _mode === "FADE" ? "valid" : "not_good";
+        const _colors = {
+          not_good: {
+            color: "#f87171",
+            bg: "rgba(248,113,113,0.10)",
+            label: "NOT A GOOD SETUP"
+          },
+          forming: {
+            color: "#f5c25c",
+            bg: "rgba(245,194,92,0.10)",
+            label: "SETUP FORMING"
+          },
+          valid: {
+            color: "#60a5fa",
+            bg: "rgba(96,165,250,0.10)",
+            label: "VALID SETUP"
+          },
+          good: {
+            color: "#34d399",
+            bg: "rgba(52,211,153,0.10)",
+            label: "GOOD SETUP"
           }
-        }, "Couldn't load options for ", sym, ". Check connection or try again in a moment."));
-      }
-      if (data && !_hasSwingPlay && !_hasDayTradeSurface && !loading) {
-        return h(Panel, {
-          title: "No play yet"
-        }, h("div", {
-          style: {
-            color: "var(--ds-text-muted)",
-            fontSize: 13
-          }
-        }, "No options play matched ", sym, " for ", String(profile || "speculator"), " right now. Try another profile or check back after the next scoring refresh."));
-      }
+        };
+        const _m = _colors[_tier] || _colors.not_good;
+        return {
+          tier: _tier,
+          headline: _mode === "WAIT" ? "Not a good setup — wait for timing" : `${_m.label.replace(/ SETUP/i, "")} — ${_mode}`,
+          body: verdict.actionable_summary || "Awaiting confluence verdict…",
+          timing_focus: "Timed Trading prioritizes timing over direction alone — especially for options.",
+          color: _m.color,
+          bg: _m.bg,
+          label: _m.label
+        };
+      })();
       const _loadingOverlay = loading && data && h("div", {
         style: {
           position: "absolute",
@@ -1834,6 +1851,20 @@
           }
         }, `Last considered strike $${suppressed.strike}, spot $${Number(suppressed.spot).toFixed(2)} — re-check after next /options/all refresh.`));
       })();
+      const _emptyPlaysNote = !_hasAnyPlay && data && (() => {
+        const _align = data.direction_alignment;
+        const _gateNote = _align && _align.allow === false && _align.reason ? ` Gate: ${String(_align.reason).replace(/_/g, " ")}.` : "";
+        return h(Panel, {
+          title: "No options play surfaced",
+          color: setupGuidance.color
+        }, h("div", {
+          style: {
+            fontSize: 12,
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.55
+          }
+        }, "No directional expression for ", sym, " in ", String(profile || "speculator"), " · ", String(horizon || "trader"), " horizon.", _gateNote, " The guidance above explains whether this is a timing issue or a blocked setup.", " Try another profile or check back when confluence shifts to RIDE with aligned layers."));
+      })();
       return h("div", {
         style: {
           display: "flex",
@@ -1841,7 +1872,68 @@
           gap: "var(--ds-space-3)",
           position: "relative"
         }
-      }, _loadingOverlay, _dayTradePanel, h(Panel, {
+      }, _loadingOverlay, h("div", {
+        style: {
+          background: setupGuidance.bg || "rgba(255,255,255,0.03)",
+          border: `1px solid ${setupGuidance.color || "#9ca3af"}55`,
+          borderRadius: "var(--ds-radius-lg, 12px)",
+          padding: "var(--ds-space-3, 12px)"
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+          flexWrap: "wrap",
+          gap: 6
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 800,
+          color: setupGuidance.color,
+          letterSpacing: "0.08em"
+        }
+      }, "⏱ TIMING GUIDANCE"), h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: setupGuidance.color,
+          background: setupGuidance.bg,
+          padding: "3px 10px",
+          borderRadius: 999,
+          border: `1px solid ${setupGuidance.color}66`
+        }
+      }, setupGuidance.label || "SETUP")), h("div", {
+        style: {
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--ds-text-display)",
+          marginBottom: 6,
+          lineHeight: 1.35
+        }
+      }, setupGuidance.headline), h("div", {
+        style: {
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.55,
+          marginBottom: 6
+        }
+      }, setupGuidance.body), h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontStyle: "italic",
+          lineHeight: 1.45
+        }
+      }, setupGuidance.timing_focus, setupGuidance.high_volatility && h("span", {
+        style: {
+          color: setupGuidance.color,
+          fontWeight: 600,
+          marginLeft: 4
+        }
+      }, " · High-volatility name — options whiplash risk elevated."))), h(Panel, {
         title: "📡 Root-Strategy Verdict",
         color: modeMeta.color,
         action: h("span", {
@@ -2039,7 +2131,7 @@
           }
         }, l.evidence));
       }))), h(Panel, {
-        title: "🎚 Your Risk Profile"
+        title: "🎚 Risk Profile"
       }, h("div", {
         style: {
           display: "flex",
@@ -2102,7 +2194,15 @@
           color: "var(--ds-text-muted)",
           fontStyle: "italic"
         }
-      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms." : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.")), primary && primary._moonshot_active && h("div", {
+      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms." : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.")), h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 800,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.08em",
+          marginTop: 4
+        }
+      }, "OPTIONS PLAYS"), _dayTradePanel, _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
         style: {
           background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
           border: "2px solid rgba(245,194,92,0.50)",
@@ -18425,4 +18525,4 @@
   };
 })();
 
-// cache-bust:1780763676656:830196948
+// cache-bust:1780771541259:57580091
