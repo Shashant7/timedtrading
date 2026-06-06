@@ -266,6 +266,17 @@ describe("index ETF profile alignment", () => {
     expect(play).toBeNull();
   });
 
+  it("Speculator SPY ladder still surfaces long_call on WAIT when contract is LONG", () => {
+    const ladder = buildOptionsLadder(SPY_CONTRACT, {
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "LONG" },
+      now: TUESDAY_OPEN,
+    });
+    expect(ladder).not.toBeNull();
+    expect(ladder.primary?.archetype).toBe("long_call");
+    expect(ladder.ladder.length).toBeGreaterThan(0);
+  });
+
   it("buildDayTradePlay allows straddle for Conservative on neutral high-vol days", () => {
     const play = buildDayTradePlay({
       ticker: "SPY",

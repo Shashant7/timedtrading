@@ -1747,7 +1747,13 @@ export function buildOptionsLadder(contract, opts = {}) {
      trader confluence was WAIT (pre-catalyst), and the ladder showed a
      Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
      "we are accumulating LONG" investor thesis. Operator flagged it. */
-  const suppressDirectional = verdictMode === "WAIT" && !isInvestorMode;
+  // Index ETFs (SPY/QQQ/IWM/DIA): trader WAIT must not wipe the ladder when
+  // the prediction contract still carries LONG/SHORT — those names trade on
+  // 0-1 DTE singles independent of short-horizon confluence chop.
+  const contractHasDirection = direction === "LONG" || direction === "SHORT"
+    || effectiveDirection === "LONG" || effectiveDirection === "SHORT";
+  const suppressDirectional = verdictMode === "WAIT" && !isInvestorMode
+    && !(isIndexTrader && contractHasDirection);
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
   // This is the gem: short-dated OTM gamma play when the model has identified
