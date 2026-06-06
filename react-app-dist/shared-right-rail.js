@@ -1115,6 +1115,17 @@
       const _layersTotal = Number(verdict.layers_total) || 8;
       const _layersRatio = Number.isFinite(_layersNum) ? `${_layersNum}/${_layersTotal}` : "—";
       const _stSideColor = st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)";
+      const _traderCall = String(contract?.direction || "").toUpperCase();
+      const _layerLean = String(verdict.side || "").toUpperCase();
+      const _longLayers = Number(verdict.long_agree);
+      const _shortLayers = Number(verdict.short_agree);
+      const _layerSplitLabel = (Number.isFinite(_longLayers) && Number.isFinite(_shortLayers))
+        ? `${_longLayers}L · ${_shortLayers}S`
+        : _layersRatio;
+      const _callColor = _traderCall === "SHORT" ? "#fb7185" : _traderCall === "LONG" ? "#34d399" : "var(--ds-text-muted)";
+      const _callVsLeanConflict = (_traderCall === "LONG" || _traderCall === "SHORT")
+        && (_layerLean === "LONG" || _layerLean === "SHORT")
+        && _traderCall !== _layerLean;
 
       /* 2026-06-01 — Loading overlay during horizon/profile transitions.
          When the user flips horizon (Trader ↔ Investor) or profile
@@ -1253,6 +1264,13 @@
             h("div", { style: { fontSize: 15, fontWeight: 700, color: _gColor } }, setupGuidance.action || setupGuidance.headline || "—"),
             h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, setupGuidance.desc || ""),
           ),
+          _callVsLeanConflict && h("div", {
+            style: { marginBottom: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.08)", border: "1px solid rgba(245,194,92,0.30)", borderRadius: "var(--ds-radius-md)", fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 },
+          },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 } }, "SIGNAL SPLIT — NOT STALE"),
+            "Trader contract is ", h("strong", { style: { color: _callColor } }, _traderCall),
+            " but layers lean ", h("strong", null, _layerLean), " (", _layerSplitLabel, "). Directional options are gated until timing aligns.",
+          ),
           h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" } },
             h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "CONFLUENCE"),
@@ -1263,14 +1281,14 @@
               h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak"),
             ),
             h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "LAYERS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" } }, _layersRatio),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, Number.isFinite(_layersNum) && _layersNum >= 6 ? "Aligned" : Number.isFinite(_layersNum) && _layersNum >= 4 ? "Mixed" : "Split"),
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "LAYER SPLIT"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" } }, _layerSplitLabel),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, "Fusion leans ", _layerLean || "—"),
             ),
-            h("div", { style: { padding: "var(--ds-space-2)", background: st.side ? (st.side === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)") : "rgba(255,255,255,0.03)", border: `1px solid ${st.side === "LONG" ? "rgba(52,211,153,0.25)" : st.side === "SHORT" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "ST TIMING"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 14, color: _stSideColor } }, st.side || "NEUTRAL"),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, stFresh),
+            h("div", { style: { padding: "var(--ds-space-2)", background: _traderCall === "SHORT" ? "rgba(248,113,113,0.06)" : _traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${_traderCall === "SHORT" ? "rgba(248,113,113,0.25)" : _traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "TRADER CALL"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: _callColor } }, _traderCall || "—"),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, "ST: ", st.side || "—", " · ", stFresh),
             ),
           ),
           (setupGuidance.why || setupGuidance.body) && h("div", { style: { marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" } },
@@ -3338,10 +3356,23 @@
           const sym = String(tickerSymbol || "").toUpperCase();
           const needsConfluence = sym && (railTab === "OPTIONS" || railTab === "SETUP" || railTab === "SNAPSHOT");
           if (!needsConfluence) { setOptionsTabData(null); return; }
+          // Clear immediately on ticker/tab change so a prior ticker's LONG
+          // bias never flashes under a SHORT header chip.
+          setOptionsTabData(null);
           let cancelled = false;
           (async () => {
             try {
-              const j = await _cachedJson(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
+              // Trader tab needs fresher confluence than the 5m client cache —
+              // contract direction can flip on the scoring cron while cached
+              // confluence still shows the old layer lean.
+              const isTraderTab = railTab === "SETUP";
+              const j = isTraderTab
+                ? await (async () => {
+                    const r = await fetch(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, { credentials: "include", cache: "no-store" });
+                    if (!r.ok) return null;
+                    return r.json();
+                  })()
+                : await _cachedJson(`${API_BASE}/timed/options/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
               if (!j) return;
               if (!cancelled && j?.ok) setOptionsTabData(j);
             } catch (_) {}
@@ -7487,16 +7518,31 @@
                       {(() => {
                         const conf = optionsTabData?.confluence_verdict || null;
                         if (!conf || !conf.mode) return null;
-                        const sideRaw = String(conf.side || "").toUpperCase();
-                        const sideIsShort = sideRaw === "SHORT";
+                        // Header chip uses predictionContract.direction (trader call).
+                        // conf.side is the 8-layer fusion lean — can diverge (e.g.
+                        // contract SHORT + 4L/1S layer split). Show BOTH honestly.
+                        const traderCall = String(predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+                        const layerLean = String(conf.side || "").toUpperCase();
+                        const traderCallIsShort = traderCall === "SHORT";
+                        const layerLeanIsShort = layerLean === "SHORT";
+                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#9ca3af";
+                        const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#9ca3af";
+                        const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT")
+                          && (layerLean === "LONG" || layerLean === "SHORT")
+                          && traderCall !== layerLean;
+                        const longLayers = Number(conf.long_agree);
+                        const shortLayers = Number(conf.short_agree);
+                        const layerSplitLabel = (Number.isFinite(longLayers) && Number.isFinite(shortLayers))
+                          ? `${longLayers}L · ${shortLayers}S`
+                          : "—";
                         // Mode metadata: color, background, icon, plain-English
                         // "WHAT TO DO" action and one-line description.
                         const META = {
                           RIDE:  { c: "#34d399", b: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", i: "🚀",
-                                   action: sideIsShort ? "Ride the short" : "Ride the trend",
-                                   desc: sideIsShort
-                                     ? "All layers align bearish. Press the short while structure holds; trail stops."
-                                     : "All layers align bullish. Press the trend while structure holds; trail stops." },
+                                   action: traderCallIsShort ? "Ride the short" : "Ride the trend",
+                                   desc: traderCallIsShort
+                                     ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops."
+                                     : "Trader call is LONG with aligned layers. Press while structure holds; trail stops." },
                           READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", i: "⏳",
                                    action: "Setup forming",
                                    desc: "Confluence building but the entry trigger has not fired. Wait — do not chase." },
@@ -7504,24 +7550,20 @@
                                    action: "Drift — chop",
                                    desc: "Mixed signals, no clean directional edge. Fade extremes or sit out." },
                           FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", i: "↩️",
-                                   action: sideIsShort ? "Fade the rip" : "Fade the dip",
+                                   action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
                                    desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only." },
                           WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
                                    action: "Wait — no trade",
                                    desc: "Layers disagree, no edge from the engine right now. Pass on this name." },
                         };
                         const m = META[conf.mode] || META.WAIT;
-                        const sideColor = sideIsShort ? "#fb7185" : (sideRaw === "LONG" ? "#34d399" : "#9ca3af");
                         const scoreNum = Number(conf.score);
-                        const layersNum = Number(conf.layers_agreeing);
-                        const layersTotal = Number(conf.layers_total) || 8;
-                        const layersRatio = Number.isFinite(layersNum) ? `${layersNum}/${layersTotal}` : "—";
                         const summary = String(conf.actionable_summary || "").trim();
                         // Try to extract a one-line "why" — first 140 chars of
                         // actionable_summary, falling back to a generic line.
                         const whyLine = summary && summary.length > 0
                           ? (summary.length > 160 ? summary.slice(0, 158) + "…" : summary)
-                          : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 with ${layersRatio} layers agreeing.`;
+                          : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 · layer split ${layerSplitLabel}.`;
                         return (
                           <Panel title="📡 Trader Root Verdict" action={
                             <span style={{
@@ -7542,7 +7584,22 @@
                               <div style={{ fontSize: 15, fontWeight: 700, color: m.c }}>{m.action}</div>
                               <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>{m.desc}</div>
                             </div>
-                            {/* Metric grid: Confluence / Layers / Side */}
+                            {callVsLeanConflict && (
+                              <div style={{
+                                marginBottom: "var(--ds-space-2)",
+                                padding: "var(--ds-space-2)",
+                                background: "rgba(245,194,92,0.08)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                borderRadius: "var(--ds-radius-md)",
+                                fontSize: 12,
+                                color: "var(--ds-text-body)",
+                                lineHeight: 1.45,
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
+                                Trader call is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
+                              </div>
+                            )}
+                            {/* Metric grid: Confluence / Layer split / Trader call (header-aligned) */}
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
                               <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>CONFLUENCE</div>
@@ -7553,14 +7610,16 @@
                                 <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak"}</div>
                               </div>
                               <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>LAYERS</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" }}>{layersRatio}</div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(layersNum) && layersNum >= 6 ? "Aligned" : Number.isFinite(layersNum) && layersNum >= 4 ? "Mixed" : "Split"}</div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>LAYER SPLIT</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" }}>{layerSplitLabel}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                  Fusion leans {layerLean || "—"}
+                                </div>
                               </div>
-                              <div style={{ padding: "var(--ds-space-2)", background: sideIsShort ? "rgba(244,63,94,0.06)" : sideRaw === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${sideIsShort ? "rgba(244,63,94,0.25)" : sideRaw === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>BIAS</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: sideColor }}>{sideRaw || "—"}</div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{sideIsShort ? "Short bias" : sideRaw === "LONG" ? "Long bias" : "No bias"}</div>
+                              <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER CALL</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: callColor }}>{traderCall || "—"}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>Matches header</div>
                               </div>
                             </div>
                             {/* "WHY" line — engine-emitted summary or computed fallback */}
@@ -15860,4 +15919,4 @@
   };
 })();
 
-// cache-bust:1780775568871:863281049
+// cache-bust:1780778507820:245258155
