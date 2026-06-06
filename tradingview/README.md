@@ -5,8 +5,45 @@ This directory contains the Pine Script indicator for Timed Trading.
 ## Files
 
 - `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
+- `TimedTrading_Levels_Overlay.pine` - **Chart overlay** — TT universe, bias, stop, targets, S/R lines + table
 - `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
 - `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
+
+## TimedTrading Levels Overlay (chart lines + bias table)
+
+Pine Script **cannot call HTTP APIs**. Three modes:
+
+1. **GitHub Seed (auto)** — `request.seed("seed_timedtrading_levels", syminfo.ticker, …)` after syncing worker data into a [Pine Seeds](https://github.com/tradingview-pine-seeds/docs) fork.
+2. **TT Sync** — paste the `compact` string from `GET /timed/tv-levels?ticker=SYM`.
+3. **Local** — on-chart ATR/pivot math.
+
+> **Note:** TradingView paused provisioning of *new* Pine Seed repos. Use an existing TV fork, or TT Sync paste until a seed repo is enabled.
+
+### GitHub Seed setup
+
+```bash
+TIMED_TRADING_API_KEY=... node scripts/sync-tv-levels-seed.mjs
+```
+
+Push `seed-timedtrading-levels/` to your Pine Seeds fork (`seed_timedtrading_levels`), run **Check data**, then set indicator Mode → **GitHub Seed (auto)**.
+
+See `seed-timedtrading-levels/README.md` for OHLCV field mapping.
+
+### TT Sync setup (no seed repo)
+
+1. Add `TimedTrading_Levels_Overlay.pine` to the chart (overlay on price).
+2. Fetch levels for the current symbol:
+   ```
+   https://timed-trading-ingest.shashant.workers.dev/timed/tv-levels?ticker=AAPL
+   ```
+3. Copy the `compact` field from the JSON response.
+4. Indicator settings → **TT Sync string (compact)** → paste → Save.
+
+The table shows **TT Universe** (yes/no), **Direction**, **Bias**, **Stage**, **Rank**, **Stop**, and **Targets**. Lines draw STOP (solid red), TRIM/EXIT/RUNNER targets (dashed), and up to 8 S/R levels from the worker.
+
+Refresh the sync string when the setup changes (new scan, stage move, or after the nightly rescore).
+
+---
 
 ## Overview
 
