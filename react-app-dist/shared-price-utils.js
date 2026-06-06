@@ -219,7 +219,7 @@
 
   // Client-side ticker → type classification (mirrors worker/sector-mapping.js)
   var TICKER_TYPE_MAP = {
-    SPY:'broad_etf',QQQ:'broad_etf',IWM:'broad_etf',DIA:'broad_etf',TNA:'broad_etf',
+    SPY:'broad_etf',RSP:'broad_etf',QQQ:'broad_etf',IWM:'broad_etf',DIA:'broad_etf',TNA:'broad_etf',
     XLB:'sector_etf',XLC:'sector_etf',XLE:'sector_etf',XLF:'sector_etf',XLI:'sector_etf',
     XLK:'sector_etf',XLP:'sector_etf',XLRE:'sector_etf',XLU:'sector_etf',XLV:'sector_etf',
     XLY:'sector_etf',SOXL:'sector_etf',XHB:'sector_etf',
@@ -451,4 +451,4 @@
   };
 })();
 
-// cache-bust:1780722952573:105538101
+// cache-bust:1780727405650:951989926
