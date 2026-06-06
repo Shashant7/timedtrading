@@ -58,8 +58,14 @@
  */
 
 import { kvGetJSON } from "./storage.js";
+import {
+  isIndexDayTradeEtf,
+  computeOvernightRangeFromM5,
+  computeOpeningRangeFromM5,
+  buildOvernightDayTradeGamePlan,
+} from "./day-trade-game-plan.js";
 
-const SCENARIO_VERSION = "ticker-scenario.v1";
+const SCENARIO_VERSION = "ticker-scenario.v2";
 
 function rnd2(v) {
   return Math.round(Number(v) * 100) / 100;
@@ -163,6 +169,28 @@ async function loadDailyCandles(env, ticker, limit = 40) {
   }
 }
 
+/** Load 5m candles for overnight / opening-range game plans. */
+async function loadM5Candles(env, ticker, limit = 100) {
+  const db = env?.DB;
+  if (!db) return [];
+  try {
+    const rows = (await db.prepare(
+      `SELECT ts, o, h, l, c FROM ticker_candles
+       WHERE tf = '5' AND ticker = ?1
+       ORDER BY ts DESC LIMIT ?2`
+    ).bind(String(ticker).toUpperCase(), limit).all())?.results || [];
+    return rows.reverse().map(r => ({
+      ts: Number(r.ts),
+      o: Number(r.o),
+      h: Number(r.h),
+      l: Number(r.l),
+      c: Number(r.c),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Load latest snapshot for the ticker (price, state, bias inputs). */
 async function loadLatestSnapshot(env, ticker) {
   const KV = env?.KV_TIMED;
@@ -185,9 +213,11 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
   const sym = String(ticker || "").toUpperCase();
   if (!sym) return null;
 
-  const [latest, dailies] = await Promise.all([
+  const useOvernightPlaybook = isIndexDayTradeEtf(sym);
+  const [latest, dailies, m5Candles] = await Promise.all([
     loadLatestSnapshot(env, sym),
     loadDailyCandles(env, sym, 40),
+    useOvernightPlaybook ? loadM5Candles(env, sym, 100) : Promise.resolve([]),
   ]);
 
   if (!latest || dailies.length < 5) {
@@ -284,28 +314,44 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
   const finalSupports = dedupeAndSort(supportLevels.filter(l => l.price < price), false).slice(0, 4);
   const finalResistances = dedupeAndSort(resistanceLevels.filter(l => l.price > price), true).slice(0, 4);
 
-  // Game Plan triggers: nearest swing reclaim above (bull) and break below (bear).
-  //
-  // 2026-05-22 — Minimum target gap. The 2nd-nearest resistance can be
-  // pennies away from the 1st when swings cluster, producing useless
-  // "$746.50 → $746.92" "targets". Require the target to be at least
-  // max(0.5 × ATR14, 0.4% of price) away from the trigger; walk further
-  // out the resistance/support stack until one qualifies, otherwise
-  // fall back to the projected ATR distance.
-  const _MIN_GAP = Math.max(atr14 * 0.50, price * 0.004);
-  const bullTrigger = finalResistances[0]?.price || rnd2(price + atr14 * 0.25);
-  const bearTrigger = finalSupports[0]?.price || rnd2(price - atr14 * 0.25);
-  const _pickFurther = (levels, fromPrice, dir) => {
-    // dir > 0 → above (resistances); dir < 0 → below (supports)
-    const minOk = dir > 0 ? fromPrice + _MIN_GAP : fromPrice - _MIN_GAP;
-    for (const l of levels) {
-      if (dir > 0 && l.price >= minOk) return l.price;
-      if (dir < 0 && l.price <= minOk) return l.price;
-    }
-    return null;
-  };
-  const bullTarget = _pickFurther(finalResistances, bullTrigger, +1) || rnd2(bullTrigger + Math.max(atr14 * 1.0, _MIN_GAP));
-  const bearTarget = _pickFurther(finalSupports, bearTrigger, -1) || rnd2(bearTrigger - Math.max(atr14 * 1.0, _MIN_GAP));
+  // Game plan: index ETFs use overnight + opening-range playbook (shared
+  // with daily-brief summarizeTechnical). Other tickers keep swing S/R.
+  let game_plan;
+  if (useOvernightPlaybook) {
+    const overnightRange = computeOvernightRangeFromM5(m5Candles);
+    const openingRange = computeOpeningRangeFromM5(m5Candles);
+    const anchor = Number(prevClose) || price;
+    game_plan = buildOvernightDayTradeGamePlan({
+      curPrice: price,
+      anchor,
+      dayAtr: atr14,
+      overnightRange,
+      openingRange,
+      snakeCase: true,
+    });
+  }
+  if (!game_plan) {
+    const _MIN_GAP = Math.max(atr14 * 0.50, price * 0.004);
+    const bullTrigger = finalResistances[0]?.price || rnd2(price + atr14 * 0.25);
+    const bearTrigger = finalSupports[0]?.price || rnd2(price - atr14 * 0.25);
+    const _pickFurther = (levels, fromPrice, dir) => {
+      const minOk = dir > 0 ? fromPrice + _MIN_GAP : fromPrice - _MIN_GAP;
+      for (const l of levels) {
+        if (dir > 0 && l.price >= minOk) return l.price;
+        if (dir < 0 && l.price <= minOk) return l.price;
+      }
+      return null;
+    };
+    const bullTarget = _pickFurther(finalResistances, bullTrigger, +1) || rnd2(bullTrigger + Math.max(atr14 * 1.0, _MIN_GAP));
+    const bearTarget = _pickFurther(finalSupports, bearTrigger, -1) || rnd2(bearTrigger - Math.max(atr14 * 1.0, _MIN_GAP));
+    game_plan = {
+      bull_trigger: rnd2(bullTrigger),
+      bull_target: rnd2(bullTarget),
+      bear_trigger: rnd2(bearTrigger),
+      bear_target: rnd2(bearTarget),
+      playbook: "swing_reclaim",
+    };
+  }
 
   // Golden Gate: best-effort from latest snapshot. Not all tickers have GG,
   // so this is null when not available. Daily Brief will skip the section.
@@ -338,12 +384,7 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
     pivots,
     atr_fib: atrFib,
     golden_gate,
-    game_plan: {
-      bull_trigger: rnd2(bullTrigger),
-      bull_target: rnd2(bullTarget),
-      bear_trigger: rnd2(bearTrigger),
-      bear_target: rnd2(bearTarget),
-    },
+    game_plan,
     generated_at: new Date().toISOString(),
     source: SCENARIO_VERSION,
   };
