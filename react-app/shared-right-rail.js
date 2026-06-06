@@ -1092,9 +1092,16 @@
         );
       }
       if (data && !_hasSwingPlay && !_hasDayTradeSurface && !loading) {
+        const _align = data.direction_alignment;
+        const _gateNote = (_align && _align.allow === false && _align.reason)
+          ? ` Root-strategy gate: ${String(_align.reason).replace(/_/g, " ")}.`
+          : "";
         return h(Panel, { title: "No play yet" },
           h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
-            "No options play matched ", sym, " for ", String(profile || "speculator"), " right now. Try another profile or check back after the next scoring refresh.",
+            "No options play for ", sym, " in ", String(profile || "speculator"), " mode — confluence is ",
+            String(data.confluence_mode || verdict.mode || "UNKNOWN"),
+            " and the model is not issuing a directional options expression.", _gateNote,
+            " Try another profile or check back when mode shifts to RIDE / READY / DRIFT with aligned layers.",
           ),
         );
       }

@@ -31,6 +31,7 @@ import {
   buildDayTradePlay,
   pickExpirationForProfile,
   attachIndexDayTradeFallback,
+  shouldAllowIndexDirectional,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -255,8 +256,42 @@ describe("index ETF profile alignment", () => {
     expect(ladder.expiration.dte).toBeGreaterThanOrEqual(14);
   });
 
-  it("buildDayTradePlay builds put on WAIT when trader contract is SHORT", () => {
-    const play = buildDayTradePlay({
+  it("WAIT suppresses index directional plays (no bet per root-strategy)", () => {
+    const ladder = buildOptionsLadder(
+      { ...SPY_CONTRACT, direction: "SHORT" },
+      {
+        profile: "speculator",
+        confluence: { mode: "WAIT", side: "LONG" },
+        now: TUESDAY_OPEN,
+      },
+    );
+    expect(ladder.primary).toBeNull();
+    expect(ladder.direction_alignment?.reason).toBe("wait_no_directional_bet");
+  });
+
+  it("RIDE with aligned SHORT surfaces long_put for speculator", () => {
+    const ladder = buildOptionsLadder(
+      { ...SPY_CONTRACT, direction: "SHORT" },
+      {
+        profile: "speculator",
+        confluence: { mode: "RIDE", side: "SHORT" },
+        now: TUESDAY_OPEN,
+      },
+    );
+    expect(ladder.primary?.archetype).toBe("long_put");
+    expect(ladder.direction_alignment?.allow).toBe(true);
+  });
+
+  it("DRIFT blocks when contract conflicts with confluence side", () => {
+    expect(shouldAllowIndexDirectional({
+      verdictMode: "DRIFT",
+      verdictSide: "LONG",
+      direction: "SHORT",
+    }).allow).toBe(false);
+  });
+
+  it("buildDayTradePlay rejects WAIT mismatch", () => {
+    expect(buildDayTradePlay({
       ticker: "SPY",
       price: 737.55,
       direction: "SHORT",
@@ -264,15 +299,12 @@ describe("index ETF profile alignment", () => {
       verdict: { mode: "WAIT", side: "LONG" },
       profile: "speculator",
       expiration: { iso: "2026-06-06", dte: 0, label: "0DTE" },
-    });
-    expect(play).not.toBeNull();
-    expect(play.archetype).toBe("day_trade_put");
-    expect(play._day_trade_flavor).toBe("put");
+    })).toBeNull();
   });
 
-  it("attachIndexDayTradeFallback fills empty ladder for index ETFs", () => {
+  it("attachIndexDayTradeFallback skips WAIT mismatch", () => {
     const ladder = attachIndexDayTradeFallback(
-      { ladder: [], primary: null, profile: "speculator" },
+      { ladder: [], primary: null },
       {
         ticker: "SPY",
         price: 737.55,
@@ -283,8 +315,7 @@ describe("index ETF profile alignment", () => {
         expiration: { iso: "2026-06-06", dte: 0, label: "0DTE" },
       },
     );
-    expect(ladder.primary?.archetype).toBe("day_trade_put");
-    expect(ladder.day_trade_fallback).toBe(true);
+    expect(ladder.primary).toBeNull();
   });
 
   it("buildDayTradePlay skips straddle for Speculator on neutral days", () => {
@@ -297,17 +328,6 @@ describe("index ETF profile alignment", () => {
       profile: "speculator",
     });
     expect(play).toBeNull();
-  });
-
-  it("Speculator SPY ladder still surfaces long_call on WAIT when contract is LONG", () => {
-    const ladder = buildOptionsLadder(SPY_CONTRACT, {
-      profile: "speculator",
-      confluence: { mode: "WAIT", side: "LONG" },
-      now: TUESDAY_OPEN,
-    });
-    expect(ladder).not.toBeNull();
-    expect(ladder.primary?.archetype).toBe("long_call");
-    expect(ladder.ladder.length).toBeGreaterThan(0);
   });
 
   it("buildDayTradePlay allows straddle for Conservative on neutral high-vol days", () => {

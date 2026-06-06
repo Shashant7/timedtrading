@@ -339,6 +339,61 @@ export function isDayTradeTicker(ticker) {
 }
 
 /**
+ * Resolve the trader prediction contract's directional bias.
+ */
+export function resolveContractDirection(direction, effectiveDirection) {
+  const d = String(direction || "").toUpperCase();
+  if (d === "LONG" || d === "SHORT") return d;
+  const e = String(effectiveDirection || "").toUpperCase();
+  if (e === "LONG" || e === "SHORT") return e;
+  return null;
+}
+
+/**
+ * Gate index-ETF directional options on root-strategy alignment.
+ *
+ * WAIT explicitly means "no directional bet" — never emit single-leg
+ * calls/puts on WAIT, even when the swing-consensus contract disagrees.
+ * RIDE / READY / DRIFT require confluence side to match contract direction.
+ * FADE is handled upstream via effectiveDirection flip.
+ */
+export function shouldAllowIndexDirectional({
+  verdictMode,
+  verdictSide,
+  direction,
+  effectiveDirection,
+}) {
+  const contractDir = resolveContractDirection(direction, effectiveDirection);
+  if (!contractDir) {
+    return { allow: false, reason: "no_contract_direction" };
+  }
+  const mode = String(verdictMode || "WAIT").toUpperCase();
+  const side = String(verdictSide || "NEUTRAL").toUpperCase();
+
+  if (mode === "WAIT") {
+    return { allow: false, reason: "wait_no_directional_bet", contractDir, side };
+  }
+  if (mode === "FADE") {
+    return { allow: true, reason: "fade_mode", contractDir, side };
+  }
+  if (mode === "RIDE" || mode === "READY" || mode === "DRIFT") {
+    if (side === "NEUTRAL") {
+      return { allow: false, reason: `${mode.toLowerCase()}_side_neutral`, contractDir, side };
+    }
+    if (side !== contractDir) {
+      return {
+        allow: false,
+        reason: `contract_${contractDir.toLowerCase()}_vs_confluence_${side.toLowerCase()}`,
+        contractDir,
+        side,
+      };
+    }
+    return { allow: true, reason: `${mode.toLowerCase()}_aligned`, contractDir, side };
+  }
+  return { allow: false, reason: `mode_${mode.toLowerCase()}_unsupported`, contractDir, side };
+}
+
+/**
  * Detect "underlying already in motion" — the moonshot ignition condition.
  * The fused TT call has identified BOTH direction AND moment; the move is
  * underway and we want to ride it via gamma.
@@ -1405,23 +1460,23 @@ export function buildDayTradePlay(ctx) {
   });
   const chain = ctx?.chain || null;
   const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
-
-  // Trader contract direction wins over short-horizon confluence WAIT/READY.
-  // SPY can show TRADER · SHORT while confluence is WAIT · LONG — the day-
-  // trade play must follow the contract, not the neutral verdict label.
-  const tradeDir = (direction === "LONG" || direction === "SHORT")
-    ? direction
-    : (String(verdictSide || "").toUpperCase() === "SHORT" ? "SHORT"
-      : String(verdictSide || "").toUpperCase() === "LONG" ? "LONG" : null);
+  const align = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection: direction,
+  });
 
   // Decide flavor.
   let flavor;
-  if (!tradeDir) {
-    // Truly direction-neutral: straddle only for conservative/moderate.
-    if (wantsSingleLeg) return null;
-    if (atrPct < 0.012) return null;
-    flavor = "straddle";
-  } else if (tradeDir === "SHORT") {
+  if (!align.allow) {
+    // WAIT / misaligned: straddle only for conservative/moderate on high-vol days.
+    if (verdictMode === "WAIT" && !wantsSingleLeg && atrPct >= 0.012) {
+      flavor = "straddle";
+    } else {
+      return null;
+    }
+  } else if (align.contractDir === "SHORT") {
     flavor = "put";
   } else {
     flavor = "call";
@@ -1754,13 +1809,16 @@ export function buildOptionsLadder(contract, opts = {}) {
      trader confluence was WAIT (pre-catalyst), and the ladder showed a
      Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
      "we are accumulating LONG" investor thesis. Operator flagged it. */
-  // Index ETFs (SPY/QQQ/IWM/DIA): trader WAIT must not wipe the ladder when
-  // the prediction contract still carries LONG/SHORT — those names trade on
-  // 0-1 DTE singles independent of short-horizon confluence chop.
-  const contractHasDirection = direction === "LONG" || direction === "SHORT"
-    || effectiveDirection === "LONG" || effectiveDirection === "SHORT";
-  const suppressDirectional = verdictMode === "WAIT" && !isInvestorMode
-    && !(isIndexTrader && contractHasDirection);
+  const indexAlign = isIndexTrader
+    ? shouldAllowIndexDirectional({
+      verdictMode,
+      verdictSide,
+      direction,
+      effectiveDirection,
+    })
+    : null;
+  const suppressDirectional = (verdictMode === "WAIT" && !isInvestorMode)
+    || (isIndexTrader && !indexAlign?.allow);
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
   // This is the gem: short-dated OTM gamma play when the model has identified
@@ -1982,6 +2040,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     confluence_side: verdictSide,
     confluence_score: Number(verdict?.score) || null,
     confluence_summary: verdict?.actionable_summary || null,
+    direction_alignment: isIndexTrader ? indexAlign : null,
     direction_flipped_by_confluence: fadeFlipped,
     target_delta: targetDelta,
     // Moonshot tier metadata — UI uses to surface special treatment.
@@ -2010,6 +2069,13 @@ export function attachIndexDayTradeFallback(ladder, ctx) {
   if (!ladder || ladder.primary) return ladder;
   const ticker = String(ctx?.ticker || "").toUpperCase();
   if (!isDayTradeTicker(ticker)) return ladder;
+  const align = shouldAllowIndexDirectional({
+    verdictMode: ctx?.verdict?.mode,
+    verdictSide: ctx?.verdict?.side,
+    direction: ctx?.direction,
+    effectiveDirection: ctx?.direction,
+  });
+  if (!align.allow) return ladder;
   const dt = buildDayTradePlay(ctx);
   if (!dt) return ladder;
   return {
@@ -2017,6 +2083,7 @@ export function attachIndexDayTradeFallback(ladder, ctx) {
     primary: dt,
     ladder: [dt, ...(Array.isArray(ladder.ladder) ? ladder.ladder : [])],
     day_trade_fallback: true,
+    direction_alignment: align,
   };
 }
 
