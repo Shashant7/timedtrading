@@ -105,7 +105,7 @@ function influencedSurfaces() {
  * }
  */
 /**
- * Build a slim, USER-SAFE FSD feed for the Today page Research Desk panel.
+ * Build a slim, USER-SAFE research feed for the Today page Research Desk panel.
  * Recent publications with their TT-voice headline, durable category,
  * publish time, and affected tickers — NO proposal internals / admin lineage.
  *
@@ -123,19 +123,22 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
     await ensureCROProposalSchema(env);
   } catch (_) { /* best-effort */ }
 
+  const cutoff = Date.now() - Math.max(6, lookbackHours) * 3600000;
   let rows = [];
   try {
     const res = await env.DB.prepare(
       `SELECT p.pub_id, p.title, p.source_url, p.published_at, p.fetched_at, p.fetch_status, p.post_type,
-              r.tt_summary_title, r.tt_summary_body,
+              p.extracted_at,
+              r.tt_summary_title, r.tt_summary_body, r.rewritten_at,
               pr.category AS proposal_category, pr.classification
          FROM ${PUBLICATIONS_TABLE} p
          LEFT JOIN ${REWRITES_TABLE} r ON r.pub_id = p.pub_id
          LEFT JOIN ${PROPOSALS_TABLE} pr ON pr.proposal_id = p.proposal_id
         WHERE p.fetch_status = 'ok'
-        ORDER BY p.fetched_at DESC, COALESCE(p.published_at, '') DESC
+          AND p.fetched_at >= ?
+        ORDER BY COALESCE(r.rewritten_at, p.fetched_at) DESC, COALESCE(p.published_at, '') DESC
         LIMIT ?`,
-    ).bind(Math.min(30, Math.max(1, limit))).all();
+    ).bind(cutoff, Math.min(40, Math.max(limit * 3, limit))).all();
     rows = res?.results || [];
   } catch (e) {
     return { ok: false, error_kind: "query_failed", hint: String(e?.message || e).slice(0, 200), items: [] };
@@ -158,23 +161,43 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
     }
   } catch (_) { /* tickers are best-effort */ }
 
-  const items = rows.map((row) => {
+  const items = [];
+  for (const row of rows) {
     const contentType = inferContentType(row);
     const category = row.proposal_category || (row.classification || "editorial");
-    return {
+    const hasTtVoice = !!row.tt_summary_body;
+    // User-facing feed: TT Voice only — never surface raw upstream titles.
+    if (!hasTtVoice) {
+      items.push({
+        pub_id: row.pub_id,
+        title: "Research note — writing TT summary…",
+        tt_summary: null,
+        pending_tt_voice: true,
+        category,
+        category_label: CATEGORY_LABEL[category] || "Editorial",
+        content_type_label: CONTENT_TYPE_LABEL[contentType] || "Research note",
+        published_at: row.published_at || null,
+        fetched_at: row.fetched_at || null,
+        tickers: (tickersByPub[row.pub_id] || []).slice(0, 6),
+      });
+      continue;
+    }
+    items.push({
       pub_id: row.pub_id,
-      title: row.tt_summary_title || row.title || "(untitled)",
+      title: row.tt_summary_title || "Research note",
       tt_summary: row.tt_summary_body || null,
+      pending_tt_voice: false,
       category,
       category_label: CATEGORY_LABEL[category] || (category === "structural" ? "Structural" : category === "actionable" ? "Actionable" : "Editorial"),
       content_type_label: CONTENT_TYPE_LABEL[contentType] || "Research note",
       published_at: row.published_at || null,
       fetched_at: row.fetched_at || null,
       tickers: (tickersByPub[row.pub_id] || []).slice(0, 6),
-    };
-  });
+    });
+    if (items.length >= limit) break;
+  }
 
-  return { ok: true, generated_at: Date.now(), items };
+  return { ok: true, generated_at: Date.now(), lookback_hours: lookbackHours, items };
 }
 
 export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48 } = {}) {

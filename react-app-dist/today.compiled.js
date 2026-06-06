@@ -1893,19 +1893,26 @@ function ResearchDeskPanel({
   const [croOpen, setCroOpen] = useState(false);
   useEffect(() => {
     let alive = true;
-    Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
-      credentials: "include",
-      cache: "no-store"
-    }).then(r => r.ok ? r.json() : null), fetch(`${API_BASE || ""}/timed/cro/latest`, {
-      credentials: "include",
-      cache: "no-store"
-    }).then(r => r.ok ? r.json() : null)]).then(([feedJson, noteJson]) => {
-      if (!alive) return;
-      setFeed(feedJson);
-      if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
-    }).catch(() => {});
+    let pollTimer = null;
+    const load = () => {
+      Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
+        credentials: "include",
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null), fetch(`${API_BASE || ""}/timed/cro/latest`, {
+        credentials: "include",
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null)]).then(([feedJson, noteJson]) => {
+        if (!alive) return;
+        setFeed(feedJson);
+        if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
+        const pending = Array.isArray(feedJson?.items) && feedJson.items.some(it => it.pending_tt_voice);
+        if (pending) pollTimer = setTimeout(load, 15000);
+      }).catch(() => {});
+    };
+    load();
     return () => {
       alive = false;
+      if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
   const items = feed && feed.ok && Array.isArray(feed.items) ? feed.items : [];
@@ -2010,7 +2017,7 @@ function ResearchDeskPanel({
       fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, feed ? "No fresh FSD publications yet today." : "Loading research…") : h("div", {
+  }, feed ? "No fresh research notes yet today." : "Loading research…") : h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -5551,6 +5558,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780717206445:374814505
+// cache-bust:1780721307573:768728117
 
-// cache-bust:1780717206445:374814505
+// cache-bust:1780721307573:768728117

@@ -10073,10 +10073,10 @@
                               </span>
                             </div>
                             <div style={{ color: "var(--ds-text-body)", lineHeight: 1.45 }}>
-                              No FSD coverage shows yet for {tickerSymbol}. A background sync just kicked
+                              No research desk coverage shows yet for {tickerSymbol}. A background sync just kicked
                               ({C.fsd_intel.diagnostics.heal_reason || "auto"}).
                               Hard-refresh in 30-60 seconds — the panel will populate with TT-voice
-                              summaries + key-level chips from any FSD pub mentioning {tickerSymbol}.
+                              summaries + key-level chips from any research note mentioning {tickerSymbol}.
                             </div>
                             <div style={{ marginTop: 6, fontSize: 10, color: "var(--ds-text-faint)" }}>
                               Pipeline state: {C.fsd_intel.diagnostics.pubs_total} pubs ingested ·{" "}
@@ -10107,7 +10107,7 @@
                           }}>
                             <span style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>📡 INTEL</span>
                             <span style={{ marginLeft: 6 }}>
-                              No FSD publications mention {tickerSymbol} in the last 14 days.
+                              No research desk notes mention {tickerSymbol} in the last 14 days.
                               ({C.fsd_intel.diagnostics.pubs_total} pubs scanned ·{" "}
                               {C.fsd_intel.diagnostics.tags_total} tickers tagged universe-wide.)
                             </span>
@@ -10133,7 +10133,7 @@
                               <span style={{ fontSize: 9, fontWeight: 700, color: "#fbbf24", background: "rgba(245,158,11,0.12)", padding: "1px 6px", borderRadius: 4, letterSpacing: "0.05em" }}>📡 PIPELINE EMPTY</span>
                             </div>
                             <div style={{ color: "var(--ds-text-body)", marginBottom: 8 }}>
-                              No FSD publications have been ingested into the DB yet (pipeline cold-start). FSD ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now.
+                              No research notes have been ingested yet (pipeline cold-start). Research ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now.
                             </div>
                             <div style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>
                               Pipeline diagnostic: pubs_total={C.fsd_intel.diagnostics?.pubs_total ?? "?"} ·

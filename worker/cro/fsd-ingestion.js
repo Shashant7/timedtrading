@@ -615,6 +615,34 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   };
 }
 
+/**
+ * Full post-ingest pipeline: extract → TT-voice rewrite.
+ * Called after re-fetch so publications land in the Research Desk feed
+ * with synthesis + TT voice, not just raw ingested text.
+ */
+export async function runPublicationPostIngestPipeline(env, pubId, { forceExtract = true, forceRewrite = true } = {}) {
+  const id = String(pubId || "").trim();
+  if (!id) return { ok: false, error: "missing_pub_id" };
+  const out = { ok: true, pub_id: id, extract: null, rewrite: null };
+
+  try {
+    const { extractPublicationToProposal } = await import("./fsd-extractor.js");
+    out.extract = await extractPublicationToProposal(env, id, { force: !!forceExtract });
+  } catch (e) {
+    out.extract = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+
+  try {
+    const { rewriteFSDPublication } = await import("./fsd-rewriter.js");
+    out.rewrite = await rewriteFSDPublication(env, id, { force: !!forceRewrite });
+  } catch (e) {
+    out.rewrite = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+
+  out.ok = !!(out.extract?.ok !== false || out.rewrite?.ok);
+  return out;
+}
+
 // ── Discord notification for new FlashInsights ──────────────────────────────
 /**
  * Fires a Discord system-lane embed when a newly-ingested FlashInsight

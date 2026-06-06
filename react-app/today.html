@@ -3018,7 +3018,7 @@
       // takes ~40%. Below 980px both stack vertically.
       // ─────────────────────────────────────────────────────────────
       // 2026-06-05 — Research Desk panel for the Today hero. Surfaces the
-      // freshest FundStrat publications (TT-voice headline, category, time,
+      // freshest research notes (TT-voice headline, category, time,
       // affected tickers) so the page stays fresh with the research feed.
       function ResearchDeskPanel({ onSelectTicker }) {
         const [feed, setFeed] = useState(null);
@@ -3027,15 +3027,22 @@
         const [croOpen, setCroOpen] = useState(false);
         useEffect(() => {
           let alive = true;
-          Promise.all([
-            fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-            fetch(`${API_BASE || ""}/timed/cro/latest`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-          ]).then(([feedJson, noteJson]) => {
-            if (!alive) return;
-            setFeed(feedJson);
-            if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
-          }).catch(() => {});
-          return () => { alive = false; };
+          let pollTimer = null;
+          const load = () => {
+            Promise.all([
+              fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+              fetch(`${API_BASE || ""}/timed/cro/latest`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+            ]).then(([feedJson, noteJson]) => {
+              if (!alive) return;
+              setFeed(feedJson);
+              if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
+              const pending = Array.isArray(feedJson?.items)
+                && feedJson.items.some((it) => it.pending_tt_voice);
+              if (pending) pollTimer = setTimeout(load, 15000);
+            }).catch(() => {});
+          };
+          load();
+          return () => { alive = false; if (pollTimer) clearTimeout(pollTimer); };
         }, []);
         const items = (feed && feed.ok && Array.isArray(feed.items)) ? feed.items : [];
         const ago = (ts) => {
@@ -3078,7 +3085,7 @@
           ),
           items.length === 0
             ? h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)" } },
-                feed ? "No fresh FSD publications yet today." : "Loading research…")
+                feed ? "No fresh research notes yet today." : "Loading research…")
             : h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
                 items.slice(0, 5).map((it, i) => {
                   const id = it.pub_id || String(i);

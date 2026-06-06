@@ -188,21 +188,98 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
   };
 }
 
+/** Normalize owner/repo from GITHUB_REPO (accepts URL or bare slug). */
+export function normalizeGithubRepo(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return null;
+  s = s.replace(/^https?:\/\/github\.com\//i, "");
+  s = s.replace(/\.git$/i, "");
+  s = s.replace(/\/+$/, "");
+  const parts = s.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  return `${parts[0]}/${parts[1]}`;
+}
+
+function githubActionsHint(status) {
+  if (status === 403) {
+    return "GitHub PAT needs Actions: Read and write on the repo (fine-grained token: Repository permissions → Actions). "
+      + "Authorize SSO if the repo is org-owned. Set secrets on the production worker: "
+      + "wrangler secret put GITHUB_TOKEN --env production";
+  }
+  if (status === 404) {
+    return "Workflow screener-daily.yml not found on main, or GITHUB_REPO is wrong (use owner/repo, e.g. Shashant7/timedtrading).";
+  }
+  return null;
+}
+
+async function parseGithubErrorBody(text, status) {
+  let message = String(text || "").slice(0, 300) || `HTTP ${status}`;
+  try {
+    const j = JSON.parse(text);
+    message = j.message || j.error || message;
+  } catch (_) { /* plain text */ }
+  return message;
+}
+
+/**
+ * Resolve workflow dispatch URL — try filename first, then list workflows.
+ */
+async function resolveWorkflowDispatchUrl(token, owner, name) {
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const filePath = "screener-daily.yml";
+  const direct = `https://api.github.com/repos/${owner}/${name}/actions/workflows/${filePath}/dispatches`;
+
+  try {
+    const probe = await fetch(direct.replace("/dispatches", ""), {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (probe.ok) return direct;
+  } catch (_) { /* fall through */ }
+
+  try {
+    const listUrl = `https://api.github.com/repos/${owner}/${name}/actions/workflows?per_page=100`;
+    const listResp = await fetch(listUrl, { headers, signal: AbortSignal.timeout(10000) });
+    if (!listResp.ok) return direct;
+    const data = await listResp.json();
+    const workflows = Array.isArray(data?.workflows) ? data.workflows : [];
+    const match = workflows.find((w) => (
+      String(w.path || "").endsWith(filePath)
+      || String(w.name || "").toLowerCase() === "screener daily scan"
+    ));
+    if (match?.id) {
+      return `https://api.github.com/repos/${owner}/${name}/actions/workflows/${match.id}/dispatches`;
+    }
+  } catch (_) { /* use direct */ }
+
+  return direct;
+}
+
 /**
  * Dispatch the GitHub Actions screener workflow (tvscreener path).
  * Requires GITHUB_TOKEN + GITHUB_REPO env vars on the worker.
  */
 export async function triggerGithubScreenerWorkflow(env, mode = "all") {
   const token = env?.GITHUB_TOKEN || env?.GITHUB_PAT;
-  const repo = env?.GITHUB_REPO;
+  const repo = normalizeGithubRepo(env?.GITHUB_REPO);
   if (!token || !repo) {
-    return { ok: false, error: "github_not_configured", hint: "Set GITHUB_TOKEN and GITHUB_REPO on the worker" };
+    return {
+      ok: false,
+      error: "github_not_configured",
+      hint: "Set GITHUB_TOKEN (secret) and GITHUB_REPO (owner/repo) on the production worker",
+    };
   }
 
-  const [owner, name] = String(repo).split("/");
-  if (!owner || !name) return { ok: false, error: "invalid_github_repo" };
+  const [owner, name] = repo.split("/");
+  if (!owner || !name) {
+    return { ok: false, error: "invalid_github_repo", hint: "GITHUB_REPO must be owner/repo (e.g. Shashant7/timedtrading)" };
+  }
 
-  const url = `https://api.github.com/repos/${owner}/${name}/actions/workflows/screener-daily.yml/dispatches`;
+  const url = await resolveWorkflowDispatchUrl(token, owner, name);
   try {
     const resp = await fetch(url, {
       method: "POST",
@@ -219,10 +296,17 @@ export async function triggerGithubScreenerWorkflow(env, mode = "all") {
       signal: AbortSignal.timeout(15000),
     });
     if (resp.status === 204) {
-      return { ok: true, dispatched: true, mode };
+      return { ok: true, dispatched: true, mode, repo };
     }
     const text = await resp.text().catch(() => "");
-    return { ok: false, error: `github_http_${resp.status}`, detail: text.slice(0, 300) };
+    const detail = await parseGithubErrorBody(text, resp.status);
+    return {
+      ok: false,
+      error: `github_http_${resp.status}`,
+      detail,
+      repo,
+      hint: githubActionsHint(resp.status),
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
@@ -245,11 +329,17 @@ export async function runScreenerScan(env, mode = "weekly", opts = {}) {
   if (normalized === "all") {
     const weekly = await runWeeklyScreenerScan(env, opts);
     const gh = await triggerGithubScreenerWorkflow(env, "all");
+    // Weekly scan runs inline and is the primary path; GitHub dispatch is
+    // the tvscreener backup. Do not fail the whole scan when GitHub rejects.
     return {
-      ok: weekly.ok || gh.ok,
+      ok: weekly.ok,
       mode: "all",
       weekly,
       github: gh,
+      github_warning: gh.ok ? null : (gh.hint || gh.detail || gh.error),
+      candidates: weekly.candidates,
+      stored: weekly.stored,
+      scan_ts: weekly.scan_ts,
     };
   }
 
