@@ -1518,7 +1518,7 @@
       const [dayTradeData, setDayTradeData] = useState(null);
       useEffect(() => {
         const sym = String(tickerSymbol || "").toUpperCase();
-        const _DT_TICKERS = new Set(["SPY", "QQQ", "IWM"]);
+        const _DT_TICKERS = new Set(["SPY", "QQQ", "IWM", "DIA"]);
         if (!sym || !_DT_TICKERS.has(sym)) {
           setDayTradeData(null);
           return;
