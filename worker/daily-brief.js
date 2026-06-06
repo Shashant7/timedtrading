@@ -1635,7 +1635,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
 function buildPriceFeedCrossRef(pf) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA", "BTCUSD", "ETHUSD"];
+  const tickers = ["SPY", "RSP", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA", "BTCUSD", "ETHUSD"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];

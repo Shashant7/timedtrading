@@ -3393,9 +3393,9 @@ const TT_NORM_TICKER = t => {
   if (s === "BRK.B" || s === "BRK-B") s = "BRK-B";
   return s;
 };
-const MARKET_PULSE_PUBLIC_SYMBOLS = ["SPY", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "QQQ", "IWM", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const INDEX_SYMS = ["SPY", "QQQ", "IWM"];
+const MARKET_PULSE_PUBLIC_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
 const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
@@ -5583,6 +5583,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780722952573:105538101
+// cache-bust:1780727405650:951989926
 
-// cache-bust:1780722952573:105538101
+// cache-bust:1780727405650:951989926

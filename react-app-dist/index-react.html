@@ -1162,15 +1162,15 @@
       </div>
     </div>
 
-    <script src="auth-gate.js?v=1780722952573"></script>
-    <script src="tt-fetch-cache.js?v=1780722952573"></script>
-    <script src="tt-bottom-nav.js?v=1780722952573" defer></script>
-    <script src="shared-price-utils.js?v=1780722952573"></script>
-    <script src="ds-components.js?v=1780722952573"></script>
-    <script src="investor-panel.js?v=1780722952573"></script>
+    <script src="auth-gate.js?v=1780727405650"></script>
+    <script src="tt-fetch-cache.js?v=1780727405650"></script>
+    <script src="tt-bottom-nav.js?v=1780727405650" defer></script>
+    <script src="shared-price-utils.js?v=1780727405650"></script>
+    <script src="ds-components.js?v=1780727405650"></script>
+    <script src="investor-panel.js?v=1780727405650"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=1780722952573"></script>
-    <script src="ticker-spider-chart.js?v=1780722952573"></script>
+    <script src="shared-right-rail.compiled.js?v=1780727405650"></script>
+    <script src="ticker-spider-chart.js?v=1780727405650"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -3597,13 +3597,13 @@
 
       // Market Pulse universes used by the dedicated Market Pulse pills/chips.
       const MARKET_PULSE_ADMIN_SYMBOLS = [
-        "SPY", "QQQ", "IWM",
+        "SPY", "RSP", "QQQ", "IWM",
         "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!",
         "BTCUSD", "ETHUSD",
         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
       ];
       const MARKET_PULSE_PUBLIC_SYMBOLS = [
-        "SPY", "QQQ", "IWM",
+        "SPY", "RSP", "QQQ", "IWM",
         "GLD", "SLV", "USO",
         "BTCUSD", "ETHUSD",
         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
@@ -13498,6 +13498,28 @@
           return { label: "MIXED", tone: "neutral", spyPct };
         }, [breadth, data]);
 
+        // ── RSP/SPY equal-weight vs cap-weight gauge (intraday spread)
+        const rspSpyGauge = React.useMemo(() => {
+          const get = typeof window !== "undefined" ? window.getDailyChange : null;
+          const pick = (sym) => {
+            const fromData = (data && typeof data === "object") ? data[sym] : null;
+            if (fromData) return fromData;
+            return (Array.isArray(tickers) ? tickers : []).find((t) => String(t?.ticker || "").toUpperCase() === sym) || null;
+          };
+          const rsp = pick("RSP");
+          const spy = pick("SPY");
+          if (!rsp || !spy || !get) return null;
+          let rspPct = null, spyPct = null;
+          try { rspPct = get(rsp)?.dayPct; spyPct = get(spy)?.dayPct; } catch (_) {}
+          if (!Number.isFinite(rspPct)) rspPct = Number(rsp?.day_change_pct ?? rsp?.dailyChgPct);
+          if (!Number.isFinite(spyPct)) spyPct = Number(spy?.day_change_pct ?? spy?.dailyChgPct);
+          if (!Number.isFinite(rspPct) || !Number.isFinite(spyPct)) return null;
+          const spread = rspPct - spyPct;
+          const label = spread > 0.15 ? "BROADENING" : spread < -0.15 ? "NARROW" : "NEUTRAL";
+          const tone = spread > 0.15 ? "success" : spread < -0.15 ? "danger" : "neutral";
+          return { rspPct, spyPct, spread, label, tone };
+        }, [data, tickers]);
+
         // ── VIX level + bucket (from VIXY proxy × 0.55 heuristic, or a VIX ticker if available)
         const vix = React.useMemo(() => {
           const vixTkr = (data && typeof data === "object") ? (data["VIX"] || data["$VIX"] || data["^VIX"]) : null;
@@ -13649,6 +13671,7 @@
         );
 
         const regimeTone = toneCls(regime.tone);
+        const rspSpyTone = rspSpyGauge ? toneCls(rspSpyGauge.tone) : toneCls("neutral");
         const vixTone = vix ? toneCls(
           vix.bucket === "calm" ? "success" :
           vix.bucket === "normal" ? "neutral" :
@@ -13680,6 +13703,25 @@
                 <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: regime.spyPct > 0 ? "var(--tt-success)" : regime.spyPct < 0 ? "var(--tt-danger)" : "var(--tt-text-3)" }}>
                   SPY {regime.spyPct > 0 ? "+" : ""}{regime.spyPct.toFixed(2)}%
                 </span>
+              )}
+            </Cell>
+
+            {/* RSP/SPY — equal-weight vs cap-weight breadth gauge */}
+            <Cell
+              label="RSP/SPY"
+              title={rspSpyGauge
+                ? `Equal-weight RSP ${rspSpyGauge.rspPct > 0 ? "+" : ""}${rspSpyGauge.rspPct.toFixed(2)}% vs cap-weight SPY ${rspSpyGauge.spyPct > 0 ? "+" : ""}${rspSpyGauge.spyPct.toFixed(2)}% · spread ${rspSpyGauge.spread > 0 ? "+" : ""}${rspSpyGauge.spread.toFixed(2)}%`
+                : "RSP/SPY gauge — needs RSP + SPY in universe"}
+            >
+              {rspSpyGauge ? (
+                <span>
+                  <span className="font-bold uppercase" style={{ color: rspSpyTone.fg, fontSize: 10.5, letterSpacing: "0.04em" }}>{rspSpyGauge.label}</span>
+                  <span className="tt-num ml-1.5" style={{ fontSize: 10.5, color: rspSpyGauge.spread > 0 ? "var(--tt-success)" : rspSpyGauge.spread < 0 ? "var(--tt-danger)" : "var(--tt-text-3)" }}>
+                    {rspSpyGauge.spread > 0 ? "+" : ""}{rspSpyGauge.spread.toFixed(2)}%
+                  </span>
+                </span>
+              ) : (
+                <span className="text-[#4b5563]">—</span>
               )}
             </Cell>
 
@@ -16171,4 +16213,4 @@
                   <div className="mt-2 space-y-1">
                     <Bar label="Phase" p={phaseP} color={phaseColor} />
                     <Bar label="Completion" p={compP} 
-<!-- cache-bust:1780722952573:105538101 -->
+<!-- cache-bust:1780727405650:951989926 -->
