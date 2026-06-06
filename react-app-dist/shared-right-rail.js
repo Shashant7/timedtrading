@@ -3293,7 +3293,7 @@
             });
           }
           return out.length > 0 ? out : EMPTY_PRICE_LINES;
-        }, [predictionContract, trade, effectiveTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+        }, [predictionContract, effectiveTraderTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
 
         // 2026-05-30 — Delight Me Chart: tab-aware price-line overlays.
         // The chart annotation follows the user's tab focus:
@@ -15947,4 +15947,4 @@
   };
 })();
 
-// cache-bust:1780779737156:561890554
+// cache-bust:1780780155450:587855651
