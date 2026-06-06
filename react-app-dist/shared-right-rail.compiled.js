@@ -4616,7 +4616,7 @@
           });
         }
         return out.length > 0 ? out : EMPTY_PRICE_LINES;
-      }, [predictionContract, trade, effectiveTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
+      }, [predictionContract, effectiveTraderTrade, ticker?.sl, ticker?.tp_trim, ticker?.tp_exit, ticker?.tp_max, ticker?.tp_runner]);
       const investorPriceLines = useMemo(() => {
         if (!investorData) return EMPTY_PRICE_LINES;
         const out = [];
@@ -18681,4 +18681,4 @@
   };
 })();
 
-// cache-bust:1780779737156:561890554
+// cache-bust:1780780155450:587855651
