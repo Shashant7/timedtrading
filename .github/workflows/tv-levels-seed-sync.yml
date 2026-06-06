@@ -1,0 +1,34 @@
+# Sync Timed Trading tv-levels into Pine Seeds CSV layout.
+# Commits to seed-timedtrading-levels/ when run manually or on schedule.
+# Operator still pushes that folder to the TV-provisioned Pine Seeds fork.
+name: TV levels seed sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * 1-5"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Sync seed CSVs
+        env:
+          TIMED_TRADING_API_KEY: ${{ secrets.TIMED_TRADING_API_KEY }}
+          TV_SEED_LIMIT: "300"
+        run: node scripts/sync-tv-levels-seed.mjs
+      - name: Commit seed data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add seed-timedtrading-levels/data seed-timedtrading-levels/symbol_info
+          if git diff --staged --quiet; then
+            echo "No seed changes"
+            exit 0
+          fi
+          git commit -m "chore(seed): refresh tv-levels Pine Seeds data"
+          git push

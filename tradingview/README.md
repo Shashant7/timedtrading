@@ -11,12 +11,25 @@ This directory contains the Pine Script indicator for Timed Trading.
 
 ## TimedTrading Levels Overlay (chart lines + bias table)
 
-Pine Script **cannot call HTTP APIs**, so this overlay uses two modes:
+Pine Script **cannot call HTTP APIs**. Three modes:
 
-1. **TT Sync (recommended)** — paste the `compact` string from the worker (same levels as Right Rail / prediction-contract).
-2. **Local** — on-chart ATR/pivot math when no sync string is pasted.
+1. **GitHub Seed (auto)** — `request.seed("seed_timedtrading_levels", syminfo.ticker, …)` after syncing worker data into a [Pine Seeds](https://github.com/tradingview-pine-seeds/docs) fork.
+2. **TT Sync** — paste the `compact` string from `GET /timed/tv-levels?ticker=SYM`.
+3. **Local** — on-chart ATR/pivot math.
 
-### Setup
+> **Note:** TradingView paused provisioning of *new* Pine Seed repos. Use an existing TV fork, or TT Sync paste until a seed repo is enabled.
+
+### GitHub Seed setup
+
+```bash
+TIMED_TRADING_API_KEY=... node scripts/sync-tv-levels-seed.mjs
+```
+
+Push `seed-timedtrading-levels/` to your Pine Seeds fork (`seed_timedtrading_levels`), run **Check data**, then set indicator Mode → **GitHub Seed (auto)**.
+
+See `seed-timedtrading-levels/README.md` for OHLCV field mapping.
+
+### TT Sync setup (no seed repo)
 
 1. Add `TimedTrading_Levels_Overlay.pine` to the chart (overlay on price).
 2. Fetch levels for the current symbol:
