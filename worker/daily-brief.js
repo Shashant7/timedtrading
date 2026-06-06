@@ -67,7 +67,8 @@ export async function d1EnsureBriefSchema(env) {
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_score REAL`).run(); } catch {}
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN evaluated_at INTEGER`).run(); } catch {}
     // 2026-06-05 — Extend grading to ES + DIA (5-index Day-Trade Predictions).
-    // ES levels come from esTechnical's game plan; DIA from diaTechnical.
+    // ES levels come from esTechnical's game plan; DIA from diaScenario
+    // (canonical buildTickerScenario — same source as /timed/day-trade-predictions).
     for (const _k of ["es", "dia"]) {
       try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bull_trigger REAL`).run(); } catch {}
       try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bull_target  REAL`).run(); } catch {}
@@ -1440,13 +1441,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // /timed/ticker-scenario serves to the Right Rail. This guarantees the
   // levels the AI cites in the brief match exactly what the user sees in
   // the chart overlay and Model card.
-  let spyScenario = null, qqqScenario = null, iwmScenario = null;
+  let spyScenario = null, qqqScenario = null, iwmScenario = null, diaScenario = null;
   try {
     const { buildTickerScenario } = await import("./ticker-scenario.js");
-    [spyScenario, qqqScenario, iwmScenario] = await Promise.all([
+    [spyScenario, qqqScenario, iwmScenario, diaScenario] = await Promise.all([
       buildTickerScenario(env, "SPY").catch(() => null),
       buildTickerScenario(env, "QQQ").catch(() => null),
       buildTickerScenario(env, "IWM").catch(() => null),
+      buildTickerScenario(env, "DIA").catch(() => null),
     ]);
   } catch (e) {
     console.warn("[DailyBrief] canonical scenario import/build failed:", String(e).slice(0, 200));
@@ -1500,6 +1502,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       SPY: { ...extract(spyData), sessionClose: spySessionClose.price },
       QQQ: extract(qqqData),
       IWM: extract(iwmData),
+      DIA: extract(diaData),
     },
     esTechnical,
     diaTechnical,
@@ -1511,6 +1514,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     spyScenario,
     qqqScenario,
     iwmScenario,
+    diaScenario,
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
@@ -4001,6 +4005,7 @@ function buildBriefInfographic(data, type) {
     _extract("SPY", data.market?.SPY, data.spyTechnical, data.spyScenario),
     _extract("QQQ", data.market?.QQQ, data.qqqTechnical, data.qqqScenario),
     _extract("IWM", data.market?.IWM, data.iwmTechnical, data.iwmScenario),
+    _extract("DIA", data.market?.DIA, data.diaTechnical, data.diaScenario),
   ].filter(Boolean);
 
   const pf = data.priceFeedRaw || {};
@@ -4358,14 +4363,34 @@ export async function generateDailyBrief(env, type, opts = {}) {
         return Number.isFinite(px) ? px : null;
       };
       const spyGp = _gp("SPY"), qqqGp = _gp("QQQ"), iwmGp = _gp("IWM");
-      // 2026-06-05 — ES + DIA game plans come from their technicals (not the
-      // infographic.indices list, which is SPY/QQQ/IWM only) so all 5 day-trade
-      // indices get archived levels for the 4:30pm ET grader.
+      // 2026-06-05 — ES game plan comes from esTechnical (futures path).
+      // DIA now rides the canonical scenario (same as SPY/QQQ/IWM) so the
+      // morning call archived for grading matches /timed/day-trade-predictions.
       const esGp = data?.esTechnical?.atrFibLevels?.gamePlan || null;
-      const diaGp = data?.diaTechnical?.atrFibLevels?.gamePlan || null;
+      const _scenarioGp = (scn) => {
+        if (!scn?.ok || !scn?.game_plan) return null;
+        const gp = scn.game_plan;
+        const bullTrigger = Number(gp.bull_trigger);
+        const bullTarget = Number(gp.bull_target);
+        const bearTrigger = Number(gp.bear_trigger);
+        const bearTarget = Number(gp.bear_target);
+        if (!Number.isFinite(bullTrigger) && !Number.isFinite(bearTrigger)) return null;
+        return {
+          bullTrigger: Number.isFinite(bullTrigger) ? bullTrigger : null,
+          bullTarget: Number.isFinite(bullTarget) ? bullTarget : null,
+          bearTrigger: Number.isFinite(bearTrigger) ? bearTrigger : null,
+          bearTarget: Number.isFinite(bearTarget) ? bearTarget : null,
+        };
+      };
+      const diaGp = _gp("DIA") || _scenarioGp(data?.diaScenario)
+        || data?.diaTechnical?.atrFibLevels?.gamePlan || null;
       const _techOpen = (tech) => {
         const p = Number(tech?.atrFibLevels?.currentPrice ?? tech?.currentPrice);
         return Number.isFinite(p) ? p : null;
+      };
+      const _scenarioOpen = (scn) => {
+        const p = Number(scn?.price);
+        return Number.isFinite(p) && p > 0 ? p : null;
       };
       await db.prepare(`
         INSERT INTO daily_briefs (
@@ -4425,7 +4450,8 @@ export async function generateDailyBrief(env, type, opts = {}) {
         _open("SPY"), _open("QQQ"), _open("IWM"),
         now, now,
         esGp?.bullTrigger ?? null, esGp?.bullTarget ?? null, esGp?.bearTrigger ?? null, esGp?.bearTarget ?? null, _techOpen(data?.esTechnical),
-        diaGp?.bullTrigger ?? null, diaGp?.bullTarget ?? null, diaGp?.bearTrigger ?? null, diaGp?.bearTarget ?? null, _techOpen(data?.diaTechnical),
+        diaGp?.bullTrigger ?? null, diaGp?.bullTarget ?? null, diaGp?.bearTrigger ?? null, diaGp?.bearTarget ?? null,
+        _open("DIA") ?? _scenarioOpen(data?.diaScenario) ?? _techOpen(data?.diaTechnical),
       ).run();
     }
 

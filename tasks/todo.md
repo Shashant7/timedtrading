@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **DIA day-trade archival — canonical scenario + grading (PR pending).**
+      DIA morning triggers were NULL on 2026-06-05 because archival read
+      `diaTechnical` (D-candles only) instead of `buildTickerScenario`.
+      Patched: `diaScenario` in gather, DIA in infographic.indices, D1
+      insert prefers scenario game plan; right-rail day-trade panel includes DIA.
 - [x] **Discord: link-flow button + welcome email rules (PR #438).**
 - [x] **Holistic MC smoke-test skill + polish-sweep logic verdict (PR #439).**
 - [x] **Investor alerts: explicit ACTION verb + chart in email (PR #440).**
