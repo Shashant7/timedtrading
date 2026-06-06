@@ -1895,7 +1895,7 @@ function ResearchDeskPanel({
     let alive = true;
     let pollTimer = null;
     const load = () => {
-      Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, {
+      Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`, {
         credentials: "include",
         cache: "no-store"
       }).then(r => r.ok ? r.json() : null), fetch(`${API_BASE || ""}/timed/cro/latest`, {
@@ -2017,13 +2017,25 @@ function ResearchDeskPanel({
       fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, feed ? "No fresh research notes yet today." : "Loading research…") : h("div", {
+  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h("div", null, h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginBottom: 8,
+      letterSpacing: "0.04em"
+    }
+  }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
-      gap: 8
+      gap: 0,
+      maxHeight: 300,
+      overflowY: "auto",
+      overflowX: "hidden",
+      paddingRight: 4,
+      WebkitOverflowScrolling: "touch"
     }
-  }, items.slice(0, 5).map((it, i) => {
+  }, items.map((it, i) => {
     const id = it.pub_id || String(i);
     const isOpen = openId === id;
     const hasMore = !!it.tt_summary;
@@ -2031,7 +2043,7 @@ function ResearchDeskPanel({
       key: id,
       style: {
         padding: "8px 0",
-        borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none"
+        borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none"
       }
     }, h("div", {
       style: {
@@ -2107,7 +2119,7 @@ function ResearchDeskPanel({
         cursor: "pointer"
       }
     }, tk))));
-  })));
+  }))));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -5558,6 +5570,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780721833965:388190282
+// cache-bust:1780722121833:810039696
 
-// cache-bust:1780721833965:388190282
+// cache-bust:1780722121833:810039696

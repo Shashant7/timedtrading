@@ -114,7 +114,7 @@ function influencedSurfaces() {
  * @returns { ok, generated_at, items: [{ pub_id, title, category, category_label,
  *            content_type_label, published_at, fetched_at, tickers: [], tt_summary }] }
  */
-export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } = {}) {
+export async function buildPublicFSDFeed(env, { limit = 30, lookbackHours = 168, skipKvSync = false } = {}) {
   if (!env?.DB) return { ok: false, error_kind: "db_unavailable", items: [] };
   try {
     const { ensureCROIngestionSchema } = await import("./fsd-ingestion.js");
@@ -123,7 +123,11 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
     await ensureCROProposalSchema(env);
   } catch (_) { /* best-effort */ }
 
-  const cutoff = Date.now() - Math.max(6, lookbackHours) * 3600000;
+  const { parsePublicationTs, dedupeAndSortFeedItems, syncResearchFeedKv } = await import("./research-feed-kv.js");
+  const lookbackDays = Math.max(1, Math.round(lookbackHours / 24));
+  const cutoff = Date.now() - lookbackHours * 3600000;
+  const fetchLimit = Math.min(120, Math.max(limit * 2, 60));
+
   let rows = [];
   try {
     const res = await env.DB.prepare(
@@ -135,11 +139,10 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
          LEFT JOIN ${REWRITES_TABLE} r ON r.pub_id = p.pub_id
          LEFT JOIN ${PROPOSALS_TABLE} pr ON pr.proposal_id = p.proposal_id
         WHERE p.fetch_status = 'ok'
-          AND p.fetched_at >= ?
-        ORDER BY COALESCE(r.rewritten_at, p.fetched_at) DESC, COALESCE(p.published_at, '') DESC
+        ORDER BY COALESCE(p.published_at, '') DESC, p.fetched_at DESC
         LIMIT ?`,
-    ).bind(cutoff, Math.min(40, Math.max(limit * 3, limit))).all();
-    rows = res?.results || [];
+    ).bind(fetchLimit).all();
+    rows = (res?.results || []).filter((row) => parsePublicationTs(row) >= cutoff);
   } catch (e) {
     return { ok: false, error_kind: "query_failed", hint: String(e?.message || e).slice(0, 200), items: [] };
   }
@@ -161,43 +164,59 @@ export async function buildPublicFSDFeed(env, { limit = 8, lookbackHours = 72 } 
     }
   } catch (_) { /* tickers are best-effort */ }
 
-  const items = [];
+  const mapped = [];
+  const seenPub = new Set();
   for (const row of rows) {
+    if (!row.pub_id || seenPub.has(row.pub_id)) continue;
+    seenPub.add(row.pub_id);
     const contentType = inferContentType(row);
     const category = row.proposal_category || (row.classification || "editorial");
     const hasTtVoice = !!row.tt_summary_body;
-    // User-facing feed: TT Voice only — never surface raw upstream titles.
-    if (!hasTtVoice) {
-      items.push({
-        pub_id: row.pub_id,
-        title: "Research note — writing TT summary…",
-        tt_summary: null,
-        pending_tt_voice: true,
-        category,
-        category_label: CATEGORY_LABEL[category] || "Editorial",
-        content_type_label: CONTENT_TYPE_LABEL[contentType] || "Research note",
-        published_at: row.published_at || null,
-        fetched_at: row.fetched_at || null,
-        tickers: (tickersByPub[row.pub_id] || []).slice(0, 6),
-      });
-      continue;
-    }
-    items.push({
+    const base = {
       pub_id: row.pub_id,
-      title: row.tt_summary_title || "Research note",
-      tt_summary: row.tt_summary_body || null,
-      pending_tt_voice: false,
       category,
       category_label: CATEGORY_LABEL[category] || (category === "structural" ? "Structural" : category === "actionable" ? "Actionable" : "Editorial"),
       content_type_label: CONTENT_TYPE_LABEL[contentType] || "Research note",
       published_at: row.published_at || null,
       fetched_at: row.fetched_at || null,
+      sort_ts: parsePublicationTs(row),
       tickers: (tickersByPub[row.pub_id] || []).slice(0, 6),
+    };
+    if (!hasTtVoice) {
+      mapped.push({
+        ...base,
+        title: "Research note — writing TT summary…",
+        tt_summary: null,
+        pending_tt_voice: true,
+      });
+      continue;
+    }
+    mapped.push({
+      ...base,
+      title: row.tt_summary_title || "Research note",
+      tt_summary: row.tt_summary_body || null,
+      pending_tt_voice: false,
     });
-    if (items.length >= limit) break;
   }
 
-  return { ok: true, generated_at: Date.now(), lookback_hours: lookbackHours, items };
+  const items = dedupeAndSortFeedItems(mapped, { lookbackDays }).slice(0, Math.min(50, Math.max(1, limit)));
+
+  let kvSync = null;
+  if (!skipKvSync) {
+    try {
+      kvSync = await syncResearchFeedKv(env, items, { lookbackDays });
+    } catch (_) { kvSync = { ok: false }; }
+  }
+
+  return {
+    ok: true,
+    generated_at: Date.now(),
+    lookback_hours: lookbackHours,
+    lookback_days: lookbackDays,
+    count: items.length,
+    kv_sync: kvSync,
+    items,
+  };
 }
 
 export async function buildInfluenceLedger(env, { limit = 15, lookbackHours = 48 } = {}) {

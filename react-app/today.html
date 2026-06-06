@@ -3030,7 +3030,7 @@
           let pollTimer = null;
           const load = () => {
             Promise.all([
-              fetch(`${API_BASE || ""}/timed/cro/feed?limit=6`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+              fetch(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
               fetch(`${API_BASE || ""}/timed/cro/latest`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
             ]).then(([feedJson, noteJson]) => {
               if (!alive) return;
@@ -3085,13 +3085,22 @@
           ),
           items.length === 0
             ? h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)" } },
-                feed ? "No fresh research notes yet today." : "Loading research…")
-            : h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
-                items.slice(0, 5).map((it, i) => {
+                feed ? "No research notes in the last 7 days." : "Loading research…")
+            : h("div", null,
+                h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em" } },
+                  `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
+                h("div", {
+                  style: {
+                    display: "flex", flexDirection: "column", gap: 0,
+                    maxHeight: 300, overflowY: "auto", overflowX: "hidden",
+                    paddingRight: 4, WebkitOverflowScrolling: "touch",
+                  },
+                },
+                items.map((it, i) => {
                   const id = it.pub_id || String(i);
                   const isOpen = openId === id;
                   const hasMore = !!it.tt_summary;
-                  return h("div", { key: id, style: { padding: "8px 0", borderBottom: i < 4 ? "1px solid var(--tt-border)" : "none" } },
+                  return h("div", { key: id, style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
                     // Subtle category + time line (no FlashInsight / source labels).
                     h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
                       h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
@@ -3116,6 +3125,7 @@
                     ),
                   );
                 }),
+                ),
               ),
         );
       }

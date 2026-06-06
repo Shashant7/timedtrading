@@ -287,6 +287,16 @@ async function publicationExists(env, pubId) {
 
 async function recordPublication(env, row) {
   try {
+    // Preserve extraction lineage on re-fetch — INSERT OR REPLACE would
+    // otherwise null out extracted_at / proposal_id / applied_at.
+    let existing = null;
+    if (row.pub_id) {
+      try {
+        existing = await env.DB.prepare(
+          `SELECT extracted_at, proposal_id, applied_at FROM ${PUBLICATIONS_TABLE} WHERE pub_id = ?`,
+        ).bind(row.pub_id).first();
+      } catch (_) { /* fresh row */ }
+    }
     await env.DB.prepare(`
       INSERT OR REPLACE INTO ${PUBLICATIONS_TABLE}
         (pub_id, title, source, source_url, published_at, fetched_at,
@@ -304,9 +314,9 @@ async function recordPublication(env, row) {
       row.bytes_len || null,
       row.fetch_status,
       row.fetch_error || null,
-      row.extracted_at || null,
-      row.proposal_id || null,
-      row.applied_at || null,
+      row.extracted_at != null ? row.extracted_at : (existing?.extracted_at ?? null),
+      row.proposal_id != null ? row.proposal_id : (existing?.proposal_id ?? null),
+      row.applied_at != null ? row.applied_at : (existing?.applied_at ?? null),
       row.post_type || null,
     ).run();
   } catch (e) {
@@ -640,6 +650,12 @@ export async function runPublicationPostIngestPipeline(env, pubId, { forceExtrac
   }
 
   out.ok = !!(out.extract?.ok !== false || out.rewrite?.ok);
+
+  try {
+    const { buildPublicFSDFeed } = await import("./influence-ledger.js");
+    await buildPublicFSDFeed(env, { limit: 50, lookbackHours: 7 * 24 });
+  } catch (_) { /* KV sync best-effort */ }
+
   return out;
 }
 
@@ -737,15 +753,38 @@ export async function runFSDIngestion(env, { limit = 20, force = false } = {}) {
     };
   }
 
+  // Process oldest publications first so extract/rewrite respects chronology.
+  const pubs = [...(listed.publications || [])];
+  pubs.sort((a, b) => {
+    const ta = Date.parse(String(a.published_at || "")) || 0;
+    const tb = Date.parse(String(b.published_at || "")) || 0;
+    return ta - tb;
+  });
+
   const results = [];
-  for (const pub of (listed.publications || [])) {
+  for (const pub of pubs) {
     try {
       const r = await ingestSinglePublication(env, pub, { reFetch: force });
       results.push(r);
+      if (r?.ok && !r.skipped) {
+        try {
+          // Extract after ingest; rewrite already ran inside ingestSinglePublication.
+          await runPublicationPostIngestPipeline(env, pub.id, {
+            forceExtract: true,
+            forceRewrite: !!force,
+          });
+        } catch (_) { /* pipeline is best-effort */ }
+      }
     } catch (e) {
       results.push({ ok: false, pub_id: pub.id, error_kind: "exception", hint: String(e?.message || e).slice(0, 200) });
     }
   }
+
+  // Refresh KV research feed cache after batch ingest.
+  try {
+    const { buildPublicFSDFeed } = await import("./influence-ledger.js");
+    await buildPublicFSDFeed(env, { limit: 50, lookbackHours: 7 * 24 });
+  } catch (_) { /* KV sync is best-effort */ }
 
   return {
     ok: true,
