@@ -1406,15 +1406,22 @@ export function buildDayTradePlay(ctx) {
   const chain = ctx?.chain || null;
   const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
 
+  // Trader contract direction wins over short-horizon confluence WAIT/READY.
+  // SPY can show TRADER · SHORT while confluence is WAIT · LONG — the day-
+  // trade play must follow the contract, not the neutral verdict label.
+  const tradeDir = (direction === "LONG" || direction === "SHORT")
+    ? direction
+    : (String(verdictSide || "").toUpperCase() === "SHORT" ? "SHORT"
+      : String(verdictSide || "").toUpperCase() === "LONG" ? "LONG" : null);
+
   // Decide flavor.
   let flavor;
-  if (verdictMode === "WAIT" || direction === "" || direction === "NEUTRAL") {
-    // Speculator/Aggressive: skip direction-neutral straddles — prefer no
-    // play over a conservative dual-leg structure.
+  if (!tradeDir) {
+    // Truly direction-neutral: straddle only for conservative/moderate.
     if (wantsSingleLeg) return null;
     if (atrPct < 0.012) return null;
     flavor = "straddle";
-  } else if (verdictSide === "SHORT" || direction === "SHORT") {
+  } else if (tradeDir === "SHORT") {
     flavor = "put";
   } else {
     flavor = "call";
@@ -1995,6 +2002,24 @@ export function buildOptionsLadder(contract, opts = {}) {
  * Used by the auto-mirror engine (Phase 3) to choose which play to route
  * for the operator's account.
  */
+/**
+ * When the swing ladder is empty for an index ETF, attach a 0-1 DTE play
+ * built from the trader contract direction + live spot.
+ */
+export function attachIndexDayTradeFallback(ladder, ctx) {
+  if (!ladder || ladder.primary) return ladder;
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return ladder;
+  const dt = buildDayTradePlay(ctx);
+  if (!dt) return ladder;
+  return {
+    ...ladder,
+    primary: dt,
+    ladder: [dt, ...(Array.isArray(ladder.ladder) ? ladder.ladder : [])],
+    day_trade_fallback: true,
+  };
+}
+
 export function selectStrategy(contract, profile = DEFAULT_RISK_PROFILE) {
   const ladder = buildOptionsLadder(contract, { profile });
   if (!ladder || !ladder.primary) return null;

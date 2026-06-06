@@ -1084,14 +1084,14 @@
       const ladder = (data?.ladder || []).slice(0, 6);
       const _hasSwingPlay = !!data?.primary;
       const _hasDayTradeSurface = !!(dayTradeData?.play || dayTradeData?.suppressed);
-      if (!data && !_hasDayTradeSurface) {
+      if (!data && !_hasDayTradeSurface && !loading) {
         return h(Panel, { title: "No play yet" },
           h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
-            "No Trader contract for ", sym, " yet. Options plays require an active scoring snapshot.",
+            "Couldn't load options for ", sym, ". Check connection or try again in a moment.",
           ),
         );
       }
-      if (data && !_hasSwingPlay && !_hasDayTradeSurface) {
+      if (data && !_hasSwingPlay && !_hasDayTradeSurface && !loading) {
         return h(Panel, { title: "No play yet" },
           h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
             "No options play matched ", sym, " for ", String(profile || "speculator"), " right now. Try another profile or check back after the next scoring refresh.",
@@ -15814,4 +15814,4 @@
   };
 })();
 
-// cache-bust:1780762645787:914846768
+// cache-bust:1780763676656:830196948
