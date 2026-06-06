@@ -5,8 +5,32 @@ This directory contains the Pine Script indicator for Timed Trading.
 ## Files
 
 - `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
+- `TimedTrading_Levels_Overlay.pine` - **Chart overlay** — TT universe, bias, stop, targets, S/R lines + table
 - `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
 - `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
+
+## TimedTrading Levels Overlay (chart lines + bias table)
+
+Pine Script **cannot call HTTP APIs**, so this overlay uses two modes:
+
+1. **TT Sync (recommended)** — paste the `compact` string from the worker (same levels as Right Rail / prediction-contract).
+2. **Local** — on-chart ATR/pivot math when no sync string is pasted.
+
+### Setup
+
+1. Add `TimedTrading_Levels_Overlay.pine` to the chart (overlay on price).
+2. Fetch levels for the current symbol:
+   ```
+   https://timed-trading-ingest.shashant.workers.dev/timed/tv-levels?ticker=AAPL
+   ```
+3. Copy the `compact` field from the JSON response.
+4. Indicator settings → **TT Sync string (compact)** → paste → Save.
+
+The table shows **TT Universe** (yes/no), **Direction**, **Bias**, **Stage**, **Rank**, **Stop**, and **Targets**. Lines draw STOP (solid red), TRIM/EXIT/RUNNER targets (dashed), and up to 8 S/R levels from the worker.
+
+Refresh the sync string when the setup changes (new scan, stage move, or after the nightly rescore).
+
+---
 
 ## Overview
 
