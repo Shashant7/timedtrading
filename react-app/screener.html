@@ -271,6 +271,8 @@
           return j.hint
             || j.detail
             || j.error
+            || j.status?.result?.hint
+            || j.status?.error
             || j.weekly?.hint
             || j.weekly?.detail
             || j.weekly?.error
@@ -278,6 +280,64 @@
             || j.github?.detail
             || j.github?.error
             || (status ? `HTTP ${status}` : "screener_failed");
+        };
+
+        const parseScreenerJson = async (res) => {
+          const ct = String(res?.headers?.get?.("content-type") || "");
+          if (!ct.includes("json")) {
+            const text = await res.text().catch(() => "");
+            if (String(text).trim().startsWith("<")) {
+              return {
+                ok: false,
+                error: "non_json_response",
+                hint: "Server returned HTML instead of JSON (timeout or gateway error). Wait a minute and retry.",
+              };
+            }
+            try { return JSON.parse(text); } catch (_) {
+              return { ok: false, error: "invalid_json", hint: `HTTP ${res.status} — response was not JSON` };
+            }
+          }
+          try { return await res.json(); } catch (_) {
+            return { ok: false, error: "json_parse_failed", hint: `HTTP ${res.status} — could not parse response` };
+          }
+        };
+
+        const pollScreenerUntilDone = async (timeoutMs = 180000) => {
+          const t0 = Date.now();
+          while (Date.now() - t0 < timeoutMs) {
+            await new Promise((r) => setTimeout(r, 3000));
+            const res = await fetch(`${API_BASE}/timed/admin/screener/status`, {
+              credentials: "include",
+              cache: "no-store",
+            });
+            const j = await parseScreenerJson(res);
+            const st = j?.status;
+            if (st?.status === "completed" || st?.status === "failed") {
+              return { status: st, pollJson: j };
+            }
+          }
+          return { status: null, timeout: true };
+        };
+
+        const finishScanFromResult = async (result, modeLabel) => {
+          if (result?.ok) {
+            const count = result.candidates ?? result.weekly?.candidates ?? result.stored ?? "?";
+            const ghWarn = result.github_warning
+              || (result.github && !result.github.ok
+                ? (result.github.hint || result.github.detail || result.github.error)
+                : null);
+            setScanMsg(ghWarn
+              ? `Scan complete · ${count} candidates (GitHub tvscreener skipped: ${ghWarn})`
+              : `Scan complete · ${count} candidates`);
+            if (ghWarn) {
+              alert(`Weekly scan finished (${count} candidates).\n\nGitHub tvscreener was not dispatched:\n${ghWarn}`);
+            }
+            await fetchCandidates(true);
+            return;
+          }
+          const hint = screenerErrorMessage(result, 500);
+          setScanMsg(`Scan failed: ${hint}`);
+          alert(`Scan failed: ${hint}`);
         };
 
         const triggerScreenerScan = useCallback(async (mode = "weekly") => {
@@ -288,9 +348,9 @@
             top_movers: "Top gainers + losers",
             all: "Full scan (daily + movers + weekly)",
           };
-          if (!confirm(`Run ${labels[mode] || mode} scan now? This may take up to 2 minutes.`)) return;
+          if (!confirm(`Run ${labels[mode] || mode} scan now? This runs in the background and may take up to 2 minutes.`)) return;
           setScanRunning(true);
-          setScanMsg(null);
+          setScanMsg("Scan started — waiting for results…");
           try {
             const res = await fetch(`${API_BASE}/timed/admin/screener/run`, {
               method: "POST",
@@ -298,18 +358,27 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ mode }),
             });
-            let j = null;
-            try { j = await res.json(); } catch (_) { j = null; }
-            if (j?.ok) {
-              const count = j.candidates ?? j.weekly?.candidates ?? j.stored ?? "?";
-              const ghWarn = j.github_warning || (j.github && !j.github.ok ? (j.github.hint || j.github.detail || j.github.error) : null);
-              setScanMsg(ghWarn
-                ? `Scan complete · ${count} candidates (GitHub tvscreener skipped: ${ghWarn})`
-                : `Scan complete · ${count} candidates`);
-              if (ghWarn) alert(`Weekly scan finished (${count} candidates).\n\nGitHub tvscreener was not dispatched:\n${ghWarn}`);
-              await fetchCandidates(true);
-            } else {
+            const j = await parseScreenerJson(res);
+            if (!j?.ok && !j?.accepted) {
               const hint = screenerErrorMessage(j, res.status);
+              setScanMsg(`Scan failed: ${hint}`);
+              alert(`Scan failed: ${hint}`);
+              return;
+            }
+            if (j?.accepted === false && j?.already_running) {
+              setScanMsg("Scan already running — polling status…");
+            }
+            const polled = await pollScreenerUntilDone();
+            if (polled.timeout) {
+              setScanMsg("Scan still running — refresh candidates in a minute.");
+              alert("Scan is still running in the background. Refresh the candidate list in about a minute.");
+              return;
+            }
+            const st = polled.status;
+            if (st?.status === "completed") {
+              await finishScanFromResult(st.result || {}, labels[mode]);
+            } else {
+              const hint = screenerErrorMessage(st?.result || { error: st?.error }, 500);
               setScanMsg(`Scan failed: ${hint}`);
               alert(`Scan failed: ${hint}`);
             }

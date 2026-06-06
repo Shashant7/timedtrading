@@ -79,6 +79,56 @@ export async function setScreenerRunStatus(env, status) {
   }), { expirationTtl: 86400 });
 }
 
+/** True when a UI-triggered scan is still in flight (KV status running + fresh). */
+export function isScreenerRunActive(status, maxAgeMs = 15 * 60 * 1000) {
+  if (!status || status.status !== "running") return false;
+  const started = Number(status.started_at) || 0;
+  if (!started) return true;
+  return (Date.now() - started) < maxAgeMs;
+}
+
+/**
+ * Background scan wrapper — updates KV status and optionally rebuilds
+ * the promotion queue after weekly/all modes complete.
+ */
+export async function executeScreenerRun(env, mode, opts = {}) {
+  const normalized = String(mode || "weekly").toLowerCase();
+  await setScreenerRunStatus(env, {
+    status: "running",
+    mode: normalized,
+    started_at: Date.now(),
+  });
+  try {
+    const result = await runScreenerScan(env, normalized, opts);
+    if (result?.ok && (normalized === "weekly" || normalized === "all")) {
+      try {
+        const PromotionQueue = await import("./promotion-queue.js");
+        await PromotionQueue.rebuildPromotionQueue(env);
+      } catch (pqErr) {
+        result.promotion_queue_rebuild = {
+          ok: false,
+          error: String(pqErr?.message || pqErr).slice(0, 200),
+        };
+      }
+    }
+    await setScreenerRunStatus(env, {
+      status: result?.ok ? "completed" : "failed",
+      mode: normalized,
+      result,
+      finished_at: Date.now(),
+    });
+    return result;
+  } catch (e) {
+    await setScreenerRunStatus(env, {
+      status: "failed",
+      mode: normalized,
+      error: String(e?.message || e).slice(0, 300),
+      finished_at: Date.now(),
+    });
+    throw e;
+  }
+}
+
 /**
  * Merge new candidates into KV using the same 7-day dedup rules as
  * POST /timed/screener/candidates.

@@ -98,6 +98,28 @@ function isNyRegularMarketOpen() {
   }
 }
 const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+async function fetchJsonRetry(url, opts = {}, retries = 3) {
+  const fetchOpts = {
+    credentials: "include",
+    cache: "no-store",
+    ...(opts.fetchOpts || {})
+  };
+  const delays = [0, 2000, 5000];
+  let lastRes = null;
+  for (let i = 0; i < retries; i++) {
+    if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+    try {
+      const r = await fetch(url, fetchOpts);
+      lastRes = r;
+      if (r.ok) return r.json();
+      if (r.status >= 500 || r.status === 429 || r.status === 408) continue;
+      return null;
+    } catch (_) {
+      if (i === retries - 1) return null;
+    }
+  }
+  return null;
+}
 async function fetchAll() {
   if (CACHE) {
     return CACHE.get(`${API_BASE}/timed/all`, {
@@ -1150,39 +1172,36 @@ function OptionsPlaysOfTheDay({
   const isSidebar = layout === "sidebar";
   useEffect(() => {
     let alive = true;
-    (async () => {
-      try {
-        const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
-        const j = window.TTFetchCache ? await window.TTFetchCache.get(_optsUrl, {
-          ttlMs: 60000,
-          maxAgeMs: 300000,
-          fetchOpts: {
-            credentials: "include"
+    const defer = setTimeout(() => {
+      (async () => {
+        try {
+          const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
+          const j = window.TTFetchCache ? await window.TTFetchCache.get(_optsUrl, {
+            ttlMs: 60000,
+            maxAgeMs: 300000,
+            fetchOpts: {
+              credentials: "include"
+            }
+          }) : await fetchJsonRetry(_optsUrl);
+          if (!j) return;
+          if (alive && j?.ok && Array.isArray(j.plays)) {
+            const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
+            setPlays(actionable);
           }
-        }) : await (async () => {
-          const r = await fetch(_optsUrl, {
-            credentials: "include",
-            cache: "no-store"
-          });
-          return r.ok ? r.json() : null;
-        })();
-        if (!j) return;
-        if (alive && j?.ok && Array.isArray(j.plays)) {
-          const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
-          setPlays(actionable);
+          if (alive && j?.ok && Array.isArray(j.day_trade_plays)) {
+            setDayTradePlays(j.day_trade_plays);
+            setDayTradeExp(j.day_trade_expiration || null);
+            setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
+            setDayTradeAsOf(Number(j.generated_at || j._cached_at) || null);
+          }
+        } catch (_) {} finally {
+          if (alive) setLoading(false);
         }
-        if (alive && j?.ok && Array.isArray(j.day_trade_plays)) {
-          setDayTradePlays(j.day_trade_plays);
-          setDayTradeExp(j.day_trade_expiration || null);
-          setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
-          setDayTradeAsOf(Number(j.generated_at || j._cached_at) || null);
-        }
-      } catch (_) {} finally {
-        if (alive) setLoading(false);
-      }
-    })();
+      })();
+    }, 4000);
     return () => {
       alive = false;
+      clearTimeout(defer);
     };
   }, []);
   if (loading) {
@@ -1710,65 +1729,64 @@ function OpenPositionsPreview({
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const [traderRes, investorRes] = await Promise.all([fetch(`/timed/ledger/trades?status=open&limit=30`, {
-          cache: "no-store"
-        }), fetch(`/timed/investor/positions`, {
-          cache: "no-store"
-        }).catch(() => null)]);
-        if (cancelled) return;
-        const all = [];
-        const seen = new Set();
-        let _liveTraderCount = 0;
-        if (traderRes?.ok) {
-          const j = await traderRes.json();
-          if (j?.ok && Array.isArray(j.trades)) {
-            for (const t of j.trades) {
-              const key = `T:${String(t?.ticker || "").toUpperCase()}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              all.push({
-                ...t,
-                _mode: "trader"
-              });
-              _liveTraderCount++;
+    const defer = setTimeout(() => {
+      (async () => {
+        try {
+          const [traderJ, investorJ] = await Promise.all([fetchJsonRetry(`${API_BASE}/timed/ledger/trades?status=open&limit=30`), fetchJsonRetry(`${API_BASE}/timed/investor/positions`)]);
+          if (cancelled) return;
+          const all = [];
+          const seen = new Set();
+          let _liveTraderCount = 0;
+          if (traderJ?.ok) {
+            const j = traderJ;
+            if (j?.ok && Array.isArray(j.trades)) {
+              for (const t of j.trades) {
+                const key = `T:${String(t?.ticker || "").toUpperCase()}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                all.push({
+                  ...t,
+                  _mode: "trader"
+                });
+                _liveTraderCount++;
+              }
             }
           }
-        }
-        try {
-          window.__liveTraderOpenCount = _liveTraderCount;
-          window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
-        } catch (_) {}
-        if (investorRes?.ok) {
-          const j = await investorRes.json();
-          const positions = Array.isArray(j?.positions) ? j.positions : [];
-          for (const p of positions) {
-            if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
-            if (!(Number(p?.total_shares) > 0)) continue;
-            const key = `I:${String(p?.ticker || "").toUpperCase()}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
-            all.push({
-              ticker: p.ticker,
-              direction: "LONG",
-              status: p.status,
-              kanban_stage: p.investor_stage,
-              entry_price: avgEntry,
-              shares: p.total_shares,
-              trade_id: p.id,
-              _mode: "investor"
-            });
+          try {
+            window.__liveTraderOpenCount = _liveTraderCount;
+            window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
+          } catch (_) {}
+          if (investorJ?.ok) {
+            const j = investorJ;
+            const positions = Array.isArray(j?.positions) ? j.positions : [];
+            for (const p of positions) {
+              if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+              if (!(Number(p?.total_shares) > 0)) continue;
+              const key = `I:${String(p?.ticker || "").toUpperCase()}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
+              all.push({
+                ticker: p.ticker,
+                direction: "LONG",
+                status: p.status,
+                kanban_stage: p.investor_stage,
+                entry_price: avgEntry,
+                shares: p.total_shares,
+                trade_id: p.id,
+                _mode: "investor"
+              });
+            }
           }
+          if (!cancelled) setTrades(all);
+        } catch (_) {} finally {
+          if (!cancelled) setLoading(false);
         }
-        if (!cancelled) setTrades(all);
-      } catch (_) {} finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+      })();
+    }, 2500);
     return () => {
       cancelled = true;
+      clearTimeout(defer);
     };
   }, []);
   if (loading) return null;
@@ -1895,13 +1913,7 @@ function ResearchDeskPanel({
     let alive = true;
     let pollTimer = null;
     const load = () => {
-      Promise.all([fetch(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`, {
-        credentials: "include",
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null), fetch(`${API_BASE || ""}/timed/cro/latest`, {
-        credentials: "include",
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null)]).then(([feedJson, noteJson]) => {
+      Promise.all([fetchJsonRetry(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`), fetchJsonRetry(`${API_BASE || ""}/timed/cro/latest`)]).then(([feedJson, noteJson]) => {
         if (!alive) return;
         setFeed(feedJson);
         if (noteJson && noteJson.ok !== false && noteJson.verdict) setCroNote(noteJson);
@@ -1909,9 +1921,10 @@ function ResearchDeskPanel({
         if (pending) pollTimer = setTimeout(load, 15000);
       }).catch(() => {});
     };
-    load();
+    const defer = setTimeout(load, 3000);
     return () => {
       alive = false;
+      clearTimeout(defer);
       if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
@@ -5570,6 +5583,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780722534072:90342603
+// cache-bust:1780722952573:105538101
 
-// cache-bust:1780722534072:90342603
+// cache-bust:1780722952573:105538101
