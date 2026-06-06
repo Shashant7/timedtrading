@@ -28,6 +28,10 @@
 //                              rank floor, etc.); CIO gets to override.
 //   rebalance_trim           — Investor auto-rebalance is about to trim a
 //                              "reduce" or event-risk position; CIO can HOLD.
+//   rebalance_add            — Investor auto-rebalance is about to open or
+//                              add to an accumulate/watch position; CIO can HOLD.
+//   investor_lane_change     — Investor stage reclassified (accumulate /
+//                              reduce); CIO opinion recorded for audit.
 //   sl_move                  — SL is about to move by >= 1.5% of the entry-to-
 //                              current-SL distance; CIO can defer to next bar.
 //                              Defaults to RECORD-ONLY mode (logs opinion but
@@ -43,6 +47,7 @@
 // path NEVER stalls waiting on CIO.
 
 import { buildCIOLifecycleProposal, evaluateCIOLifecycle } from "./cio-service.js";
+import { buildInvestorCioMemory } from "./cio-memory-loader.js";
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
@@ -77,8 +82,10 @@ function estimatedCostUsd(model) {
 const ENGINE_DEFAULT = {
   entry_skip_review: { decision: "SKIP", reason: "engine_default_skip" },
   rebalance_trim: { decision: "PROCEED", reason: "engine_default_trim" },
+  rebalance_add: { decision: "PROCEED", reason: "engine_default_add" },
   sl_move: { decision: "PROCEED", reason: "engine_default_sl_move" },
   defend_record: { decision: "RECORD_ONLY", reason: "engine_default_defend" },
+  investor_lane_change: { decision: "RECORD_ONLY", reason: "engine_default_lane_change" },
 };
 
 // ── Config loader ──────────────────────────────────────────────────────────
@@ -120,8 +127,10 @@ export function getLifecycleGateConfig(env) {
     types: {
       entry_skip_review: masterOn && readBool("ai_cio_entry_skip_review_enabled", "AI_CIO_ENTRY_SKIP_REVIEW_ENABLED", true),
       rebalance_trim: masterOn && readBool("ai_cio_rebalance_trim_enabled", "AI_CIO_REBALANCE_TRIM_ENABLED", true),
+      rebalance_add: masterOn && readBool("ai_cio_rebalance_add_enabled", "AI_CIO_REBALANCE_ADD_ENABLED", true),
       sl_move: masterOn && readBool("ai_cio_sl_move_enabled", "AI_CIO_SL_MOVE_ENABLED", true),
       defend_record: masterOn && readBool("ai_cio_defend_record_enabled", "AI_CIO_DEFEND_RECORD_ENABLED", true),
+      investor_lane_change: masterOn && readBool("ai_cio_investor_lane_change_enabled", "AI_CIO_INVESTOR_LANE_CHANGE_ENABLED", true),
     },
     // Some types support "record-only" mode where CIO opinion is logged but
     // never overrides the engine. Useful while building the audit dataset.
@@ -132,6 +141,7 @@ export function getLifecycleGateConfig(env) {
       sl_move: !readBool("ai_cio_sl_move_authoritative", "AI_CIO_SL_MOVE_AUTHORITATIVE", false),
       // DEFEND is always record-only per PR #285 (doctrine wins).
       defend_record: true,
+      investor_lane_change: true,
     },
     timeoutMs: readNum("ai_cio_lifecycle_timeout_ms", "AI_CIO_LIFECYCLE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     monthlyUsdCap: readNum("ai_cio_monthly_usd_cap", "AI_CIO_MONTHLY_USD_CAP", DEFAULT_MONTHLY_USD_CAP),
@@ -193,7 +203,7 @@ async function bumpStat(env, type, field) {
  * /timed/admin/ai-cio/lifecycle-stats endpoint.
  */
 export async function getLifecycleStats(env) {
-  const types = ["entry_skip_review", "rebalance_trim", "sl_move", "defend_record"];
+  const types = ["entry_skip_review", "rebalance_trim", "rebalance_add", "sl_move", "defend_record", "investor_lane_change"];
   const out = { month: monthKey(), monthly_usd: 0, types: {} };
   if (!env?.KV_TIMED) return out;
   try {
@@ -418,7 +428,18 @@ export async function cioReviewEntrySkip(env, { sym, direction, proposal, memory
  * Engine default is PROCEED (trim). If CIO returns HOLD with edge_remaining
  * >= 0.6, we skip the trim and let the position breathe.
  */
-export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice, position, scoreData, bucket, getTickerProfile }) {
+async function _resolveInvestorCioMemory(env, sym, tickerData, scoreData, explicitMemory) {
+  if (explicitMemory && Object.keys(explicitMemory).length > 0) return explicitMemory;
+  const td = tickerData || { ticker: sym, regime_class: scoreData?.regime || null };
+  try {
+    return await buildInvestorCioMemory(env, sym, td, []);
+  } catch (e) {
+    console.warn(`[AI_CIO_GATE] investor memory build failed sym=${sym}: ${String(e?.message || e).slice(0, 100)}`);
+    return {};
+  }
+}
+
+export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice, position, scoreData, bucket, getTickerProfile, tickerData, memory }) {
   const cfg = getLifecycleGateConfig(env);
   if (!cfg.types.rebalance_trim) {
     return { proceed: true, reasoning: "type_disabled" };
@@ -435,11 +456,12 @@ export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice
     tp: null,
     trimmedPct: 0,
   };
+  const td = tickerData || { ticker: sym, regime_class: scoreData?.regime || null };
   const proposal = buildCIOLifecycleProposal(
     "REBALANCE_TRIM",
     sym,
     openTradeShim,
-    { ticker: sym, regime_class: scoreData?.regime || null },
+    td,
     Number(currentPrice) || 0,
     getTickerProfile || (() => ({ profileKey: "investor", label: "Investor", max_hold_hours: 24 * 365 })),
   );
@@ -448,13 +470,16 @@ export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice
   proposal.investor_stage = scoreData?.stage || null;
   proposal.position_shares = Number(position?.total_shares) || 0;
   proposal.position_cost_basis = Number(position?.cost_basis) || 0;
+  proposal.investor_mode = true;
+
+  const cioMemory = await _resolveInvestorCioMemory(env, sym, td, scoreData, memory);
 
   const gate = await cioLifecycleGate(env, {
     type: "rebalance_trim",
     bucket: bucket || "auto_reduce",
     sym,
     proposal,
-    memory: {},
+    memory: cioMemory,
     engineDefaultDecision: "PROCEED",
   });
 
@@ -463,6 +488,130 @@ export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice
   const proceed = !(gate.is_override && gate.cio_decision === "HOLD" && Number(gate.edge_remaining) >= minEdge);
 
   return { proceed, reasoning: gate.reasoning, gate };
+}
+
+/**
+ * Review an Investor auto-rebalance add (new entry or add-to-existing)
+ * before it executes. Returns { proceed: boolean, reasoning, gate }.
+ *
+ * Engine default is PROCEED. If CIO returns HOLD with edge_remaining
+ * >= ai_cio_rebalance_min_hold_edge (default 0.6), skip the add.
+ */
+export async function cioReviewInvestorAccumulate(env, {
+  sym, direction, currentPrice, position, scoreData, bucket, isAdd, tickerData, getTickerProfile, memory,
+}) {
+  const cfg = getLifecycleGateConfig(env);
+  if (!cfg.types.rebalance_add) {
+    return { proceed: true, reasoning: "type_disabled" };
+  }
+
+  const hasPosition = !!(position && Number(position?.total_shares) > 0);
+  const openTradeShim = hasPosition ? {
+    direction: String(direction || "LONG").toUpperCase(),
+    entryPrice: Number(position?.avg_entry) || Number(position?.cost_basis) / Math.max(1, Number(position?.total_shares)) || 0,
+    entry_ts: Number(position?.first_entry_ts) || Date.now() - 30 * 86400000,
+    setupName: "investor_accumulate",
+    setupGrade: scoreData?.score ?? null,
+    sl: null,
+    tp: null,
+    trimmedPct: 0,
+  } : {
+    direction: String(direction || "LONG").toUpperCase(),
+    entryPrice: Number(currentPrice) || 0,
+    entry_ts: Date.now(),
+    setupName: "investor_accumulate",
+    setupGrade: scoreData?.score ?? null,
+    sl: null,
+    tp: null,
+    trimmedPct: 0,
+  };
+
+  const td = tickerData || { ticker: sym, regime_class: scoreData?.regime || null };
+  const proposal = buildCIOLifecycleProposal(
+    "REBALANCE_ADD",
+    sym,
+    openTradeShim,
+    td,
+    Number(currentPrice) || 0,
+    getTickerProfile || (() => ({ profileKey: "investor", label: "Investor", max_hold_hours: 24 * 365 })),
+  );
+  proposal.engine_action = bucket || (isAdd ? "auto_add" : "auto_entry");
+  proposal.investor_score = scoreData?.score ?? null;
+  proposal.investor_stage = scoreData?.stage || null;
+  proposal.accum_zone = scoreData?.accumZone || null;
+  proposal.sim_eligible = scoreData?.simEligible ?? null;
+  if (hasPosition) {
+    proposal.position_shares = Number(position?.total_shares) || 0;
+    proposal.position_cost_basis = Number(position?.cost_basis) || 0;
+  }
+  proposal.investor_mode = true;
+
+  const cioMemory = await _resolveInvestorCioMemory(env, sym, td, scoreData, memory);
+
+  const gate = await cioLifecycleGate(env, {
+    type: "rebalance_add",
+    bucket: bucket || (isAdd ? "auto_add" : "auto_entry"),
+    sym,
+    proposal,
+    memory: cioMemory,
+    engineDefaultDecision: "PROCEED",
+  });
+
+  const merged = { ...(env?._cioModelCache || {}), ...(env?._deepAuditConfig || {}) };
+  const minEdge = Number(merged?.ai_cio_rebalance_min_hold_edge ?? env?.AI_CIO_REBALANCE_MIN_HOLD_EDGE) || 0.6;
+  const proceed = !(gate.is_override && gate.cio_decision === "HOLD" && Number(gate.edge_remaining) >= minEdge);
+
+  return { proceed, reasoning: gate.reasoning, gate };
+}
+
+/**
+ * Record CIO opinion when an Investor ticker changes Kanban stage to an
+ * actionable lane (accumulate / reduce). RECORD-ONLY — builds the audit
+ * dataset for lane-change quality without blocking classification.
+ */
+export async function cioRecordInvestorLaneChange(env, {
+  sym, prevStage, newStage, scoreData, tickerData, getTickerProfile, currentPrice,
+}) {
+  const cfg = getLifecycleGateConfig(env);
+  if (!cfg.types.investor_lane_change) return;
+
+  try {
+    const proposal = buildCIOLifecycleProposal(
+      "INVESTOR_LANE_CHANGE",
+      sym,
+      {
+        direction: "LONG",
+        entryPrice: Number(currentPrice) || 0,
+        entry_ts: Date.now(),
+        setupName: `investor_${newStage}`,
+        setupGrade: scoreData?.score ?? null,
+      },
+      tickerData || { ticker: sym },
+      Number(currentPrice) || 0,
+      getTickerProfile || (() => ({ profileKey: "investor", label: "Investor", max_hold_hours: 24 * 365 })),
+    );
+    proposal.engine_action = "LANE_CHANGE";
+    proposal.investor_stage_prev = prevStage || null;
+    proposal.investor_stage_new = newStage || null;
+    proposal.investor_score = scoreData?.score ?? null;
+    proposal.stage_reason = scoreData?.stageReason || null;
+    proposal.accum_zone = scoreData?.accumZone || null;
+    proposal.sim_eligible = scoreData?.simEligible ?? null;
+    proposal.investor_mode = true;
+
+    const cioMemory = await _resolveInvestorCioMemory(env, sym, tickerData || { ticker: sym }, scoreData, null);
+
+    await cioLifecycleGate(env, {
+      type: "investor_lane_change",
+      bucket: `${prevStage || "?"}_to_${newStage || "?"}`,
+      sym,
+      proposal,
+      memory: cioMemory,
+      engineDefaultDecision: "RECORD_ONLY",
+    });
+  } catch (e) {
+    console.warn("[AI_CIO_GATE] cioRecordInvestorLaneChange failed:", String(e?.message || e).slice(0, 120));
+  }
 }
 
 /**
