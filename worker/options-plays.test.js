@@ -356,8 +356,9 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
     });
     expect(g.tier).toBe("not_good");
     expect(g.label).toBe("NOT A GOOD SETUP");
-    expect(g.headline).toMatch(/no directional bet/i);
-    expect(g.timing_focus).toMatch(/timing/i);
+    expect(g.action).toMatch(/sit out/i);
+    expect(g.why).toMatch(/suppressed on purpose/i);
+    expect(g.timing_note).toMatch(/timing/i);
   });
 
   it("READY → forming", () => {
@@ -368,7 +369,7 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
     });
     expect(g.tier).toBe("forming");
     expect(g.high_volatility).toBe(true);
-    expect(g.body).toMatch(/do not chase/i);
+    expect(g.why).toMatch(/do not chase/i);
   });
 
   it("RIDE + fresh ST + play → good", () => {
@@ -382,7 +383,7 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
     });
     expect(g.tier).toBe("good");
     expect(g.label).toBe("GOOD SETUP");
-    expect(g.body).toMatch(/fresh/i);
+    expect(g.why).toMatch(/fresh/i);
   });
 
   it("DRIFT with play → valid", () => {
@@ -392,7 +393,8 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
       primary: { archetype: "vertical_spread" },
     });
     expect(g.tier).toBe("valid");
-    expect(g.body).toMatch(/defined-risk/i);
+    expect(g.why).toMatch(/defined-risk/i);
+    expect(g.why).not.toMatch(/iron condor/i);
   });
 
   it("ladder includes setup_guidance", () => {
@@ -401,7 +403,8 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
       confluence: { mode: "RIDE", side: "LONG", score: 80, supertrend_trigger: { freshness: "fresh", side: "LONG" } },
     });
     expect(ladder.setup_guidance?.tier).toBe("good");
-    expect(ladder.setup_guidance?.headline).toBeTruthy();
+    expect(ladder.setup_guidance?.action).toBeTruthy();
+    expect(ladder.setup_guidance?.why).toBeTruthy();
   });
 });
 

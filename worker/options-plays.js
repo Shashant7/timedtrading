@@ -394,10 +394,30 @@ export function shouldAllowIndexDirectional({
 }
 
 const SETUP_GUIDANCE_TIER_META = {
-  not_good: { color: "#f87171", bg: "rgba(248,113,113,0.10)", label: "NOT A GOOD SETUP" },
-  forming:  { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", label: "SETUP FORMING" },
-  valid:    { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", label: "VALID SETUP" },
-  good:     { color: "#34d399", bg: "rgba(52,211,153,0.10)", label: "GOOD SETUP" },
+  not_good: {
+    color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)",
+    label: "NOT A GOOD SETUP",
+    action: "Sit out — no options entry",
+    desc: "Timing or alignment does not support a directional options bet.",
+  },
+  forming: {
+    color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)",
+    label: "SETUP FORMING",
+    action: "Prepare only — do not enter yet",
+    desc: "Layers are leaning but the entry trigger has not fired.",
+  },
+  valid: {
+    color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)",
+    label: "VALID SETUP",
+    action: "Defined-risk only if entering",
+    desc: "A play may exist, but timing is not ideal — prefer spreads over naked premium.",
+  },
+  good: {
+    color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)",
+    label: "GOOD SETUP",
+    action: "Timing aligned — size for theta",
+    desc: "Direction and trigger agree. This is the window Timed Trading targets.",
+  },
 };
 
 /**
@@ -425,92 +445,85 @@ export function buildOptionsSetupGuidance({
   const hasPlay = !!primary;
   const investor = !!isInvestorMode;
 
-  const timingSuffix = isHighVol
-    ? ` ${ticker || "This name"} runs ~${(atrPct * 100).toFixed(1)}% daily ATR — options magnify timing errors. Entering too early bleeds theta; entering too late chases a move that may reverse. Shares forgive sloppy timing more than short-dated premium.`
-    : " Options decay faster than shares — entry timing matters more than direction alone.";
-
   let tier = "not_good";
-  let headline = "Not a good setup";
-  let body = `Insufficient signal for directional options (${score}/100).${timingSuffix}`;
+  let why = `Insufficient signal for directional options (${score}/100).`;
 
   if (align && align.allow === false) {
     tier = "not_good";
     if (align.reason === "wait_no_directional_bet") {
-      headline = "Not a good setup — no directional bet";
-      body = `Confluence is WAIT (${score}/100). Layers are split and SuperTrend has not confirmed. Directional calls and puts are suppressed on purpose — forcing a trade here invites whiplash.${timingSuffix}`;
+      why = `Confluence is WAIT (${score}/100). Layers are split and SuperTrend has not confirmed. Directional calls and puts are suppressed on purpose — forcing a trade here invites whiplash.`;
     } else if (String(align.reason || "").includes("vs_confluence")) {
-      headline = "Not a good setup — timing conflict";
-      body = `The trader contract points ${align.contractDir || "—"} but confluence reads ${align.side || "NEUTRAL"}. Until layers align, directional premium is a coin flip.${timingSuffix}`;
+      why = `The trader contract points ${align.contractDir || "—"} but confluence reads ${align.side || "NEUTRAL"}. Until layers align, buying calls or puts is effectively a coin flip.`;
     } else {
-      headline = "Not a good setup";
-      body = `Root-strategy gates block directional options (${String(align.reason || "blocked").replace(/_/g, " ")}).${timingSuffix}`;
+      why = `Root-strategy gates block directional options (${String(align.reason || "blocked").replace(/_/g, " ")}).`;
     }
   } else if (mode === "WAIT") {
     tier = "not_good";
-    headline = "Not a good setup — wait for timing";
-    body = `Mixed signals (${score}/100). No SuperTrend trigger. Directional options are not warranted — theta erodes premium while the model waits for clarity.${timingSuffix}`;
+    why = `Mixed signals (${score}/100) with no SuperTrend trigger. Directional options are not warranted — premium decays (theta) while the model waits for a clear edge.`;
   } else if (mode === "READY") {
     tier = "forming";
-    headline = "Setup forming — wait for timing";
-    body = `Confluence leans ${side} (${score}/100) but SuperTrend slope has not ignited. ENTRY PENDING — prepare the order, do not chase. Options entered before the trigger often see drawdowns sharper than shares.${timingSuffix}`;
+    why = `Confluence leans ${side} (${score}/100) but SuperTrend slope has not ignited. ENTRY PENDING — stage the order, do not chase. Options entered before the trigger often draw down harder than shares.`;
   } else if (mode === "FADE") {
     if (hasPlay) {
       tier = "valid";
-      headline = "Valid setup — countertrend, defined risk";
-      body = `FADE ${side} — layers disagree with price action. Prefer credit spreads or iron condor over naked long premium. Timing is fragile on fades.${timingSuffix}`;
+      why = `FADE ${side} — countertrend setup. Prefer a credit spread (sell premium, collect income, capped loss) over buying calls or puts. Fades are timing-fragile.`;
     } else {
       tier = "not_good";
-      headline = "Not a good setup — fade without expression";
-      body = `Countertrend fade detected but no suitable options expression for this profile.${timingSuffix}`;
+      why = `Countertrend fade detected but no suitable options expression for this risk profile.`;
     }
   } else if (mode === "DRIFT") {
     if (hasPlay) {
       tier = "valid";
-      headline = "Valid setup — late-cycle, defined risk";
-      body = `DRIFT ${side} — partial confluence (${score}/100), SuperTrend already in motion. Late-entry risk: long premium bleeds theta. Defined-risk structures below are preferred.${timingSuffix}`;
+      why = `DRIFT ${side} — partial confluence (${score}/100) with SuperTrend already in motion. Late entry: long premium bleeds theta. Defined-risk spreads below are preferred over naked calls/puts.`;
     } else {
       tier = "forming";
-      headline = "Setup forming — drift without play";
-      body = `Partial confluence but no play surfaced for this profile. Wait for cleaner timing or adjust risk profile.${timingSuffix}`;
+      why = `Partial confluence but no play surfaced for this profile. Wait for cleaner timing or adjust risk profile.`;
     }
   } else if (mode === "RIDE") {
     if (stFresh === "fresh" && hasPlay) {
       tier = "good";
-      headline = moonshot?.activated ? "Good setup — timing + momentum aligned" : "Good setup — timing aligned";
-      body = `RIDE ${side} — ${score}/100 confluence, SuperTrend trigger is fresh. Direction and moment agree. This is the window Timed Trading is built for — size for theta and move speed.${timingSuffix}`;
+      why = moonshot?.activated
+        ? `RIDE ${side} — ${score}/100 confluence, fresh SuperTrend trigger, and momentum aligned. Short-dated gamma play — size small, theta burns fast.`
+        : `RIDE ${side} — ${score}/100 confluence with a fresh SuperTrend trigger. Direction and timing agree — size for theta and move speed.`;
     } else if ((stFresh === "in_motion" || stFresh === "mature") && hasPlay) {
       tier = "valid";
-      headline = "Valid setup — move underway";
-      body = `RIDE ${side} but the SuperTrend trigger is ${stFresh === "mature" ? "mature" : "in motion"} — not the freshest entry. Options may still work with tight sizing; avoid chasing extended moves.${timingSuffix}`;
+      why = `RIDE ${side} but SuperTrend is ${stFresh === "mature" ? "mature" : "in motion"} — not the freshest entry. Tight sizing only; avoid chasing an extended move.`;
     } else if (hasPlay) {
       tier = "valid";
-      headline = "Valid setup — confluence RIDE";
-      body = `RIDE ${side} (${score}/100). Review SuperTrend freshness before sizing — options punish late entries harder than equity.${timingSuffix}`;
+      why = `RIDE ${side} (${score}/100). Review SuperTrend freshness before sizing — options punish late entries harder than equity.`;
     } else {
       tier = "forming";
-      headline = "Setup forming — RIDE without expression";
-      body = `Confluence is RIDE ${side} but no options play matched this profile. Check horizon or risk profile.${timingSuffix}`;
+      why = `Confluence is RIDE ${side} but no options play matched this profile. Check horizon or risk profile.`;
     }
   }
 
   if (investor && tier === "not_good" && mode !== "WAIT" && hasPlay) {
     tier = "valid";
-    headline = "Valid setup — long-horizon expression";
-    body = `Investor horizon uses LEAPs (≥1y DTE) where short-term timing is less punitive than swing premium. Thesis: ${side} bias (${score}/100). Roll discipline still applies.`;
+    why = `Investor horizon uses LEAPs (≥1y DTE) where short-term timing is less punitive than swing premium. Thesis: ${side} bias (${score}/100). Roll discipline still applies.`;
   }
 
   const meta = SETUP_GUIDANCE_TIER_META[tier] || SETUP_GUIDANCE_TIER_META.not_good;
+  const timingNote = isHighVol
+    ? `${ticker || "This name"} runs ~${(atrPct * 100).toFixed(1)}% daily ATR — options magnify timing errors. Entering too early bleeds theta; entering too late chases a move that may reverse.`
+    : "Options decay faster than shares — entry timing matters more than direction alone.";
 
   return {
     tier,
-    headline,
-    body: body.trim(),
-    timing_focus: "Timed Trading prioritizes timing over direction alone — especially for options.",
+    mode,
+    action: meta.action,
+    desc: meta.desc,
+    why: why.trim(),
+    timing_note: timingNote,
     color: meta.color,
     bg: meta.bg,
+    border: meta.border,
     label: meta.label,
     high_volatility: isHighVol,
     atr_pct: atrPct,
+    // Legacy aliases — older clients may still read these.
+    headline: meta.action,
+    body: why.trim(),
+    timing_focus: timingNote,
   };
 }
 

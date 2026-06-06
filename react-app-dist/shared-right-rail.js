@@ -896,10 +896,11 @@
     // which returns the TT Root Strategy verdict + a ranked play ladder
     // tailored to the user's risk profile (Speculator default).
     //
-    // Renders (top → bottom):
-    //   1. Setup guidance — not good vs forming vs valid vs good (timing-first)
-    //   2. Modes — confluence verdict, risk profile, horizon toggle
-    //   3. Options plays — day-trade panel, primary play, strategy ladder
+    // Renders (top → bottom) — mirrors Trader Root Verdict / Investor Lane
+    // Guidance lockup (WHAT TO DO + metrics + WHY), then preferences, then plays:
+    //   1. Options Setup Guidance — single combined panel (timing + confluence)
+    //   2. Options Preferences — risk profile + horizon
+    //   3. Options Plays — day-trade, primary, strategy ladder
     function OptionsTabPanel({ tickerSymbol, API_BASE, mode: modeProp }) {
       const h = React.createElement;
       const [data, setData] = useState(null);
@@ -1082,27 +1083,38 @@
       const _hasDayTradeSurface = !!(dayTradeData?.play || dayTradeData?.suppressed);
       const _hasAnyPlay = _hasSwingPlay || !!dayTradeData?.play;
 
-      // Setup guidance from worker (timing-first verdict for options).
+      // Setup guidance from worker — single source for the combined panel.
       const setupGuidance = data?.setup_guidance || (() => {
         const _mode = String(verdict.mode || data?.confluence_mode || "WAIT").toUpperCase();
         const _tier = _mode === "RIDE" ? "good" : _mode === "READY" ? "forming" : _mode === "DRIFT" || _mode === "FADE" ? "valid" : "not_good";
         const _colors = {
-          not_good: { color: "#f87171", bg: "rgba(248,113,113,0.10)", label: "NOT A GOOD SETUP" },
-          forming:  { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", label: "SETUP FORMING" },
-          valid:    { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", label: "VALID SETUP" },
-          good:     { color: "#34d399", bg: "rgba(52,211,153,0.10)", label: "GOOD SETUP" },
+          not_good: { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", label: "NOT A GOOD SETUP", action: "Sit out — no options entry", desc: "Timing or alignment does not support a directional options bet." },
+          forming:  { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", label: "SETUP FORMING", action: "Prepare only — do not enter yet", desc: "Layers are leaning but the entry trigger has not fired." },
+          valid:    { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", label: "VALID SETUP", action: "Defined-risk only if entering", desc: "A play may exist, but timing is not ideal." },
+          good:     { color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", label: "GOOD SETUP", action: "Timing aligned — size for theta", desc: "Direction and trigger agree." },
         };
         const _m = _colors[_tier] || _colors.not_good;
         return {
           tier: _tier,
-          headline: _mode === "WAIT" ? "Not a good setup — wait for timing" : `${_m.label.replace(/ SETUP/i, "")} — ${_mode}`,
-          body: verdict.actionable_summary || "Awaiting confluence verdict…",
-          timing_focus: "Timed Trading prioritizes timing over direction alone — especially for options.",
+          mode: _mode,
+          action: _m.action,
+          desc: _m.desc,
+          why: verdict.actionable_summary || "Awaiting confluence verdict…",
+          timing_note: "Options decay faster than shares — entry timing matters more than direction alone.",
           color: _m.color,
           bg: _m.bg,
+          border: _m.border,
           label: _m.label,
         };
       })();
+      const _gColor = setupGuidance.color || modeMeta.color;
+      const _gBg = setupGuidance.bg || modeMeta.bg;
+      const _gBorder = setupGuidance.border || (_gColor + "4d");
+      const _scoreNum = Number(verdict.score);
+      const _layersNum = Number(verdict.layers_agreeing);
+      const _layersTotal = Number(verdict.layers_total) || 8;
+      const _layersRatio = Number.isFinite(_layersNum) ? `${_layersNum}/${_layersTotal}` : "—";
+      const _stSideColor = st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)";
 
       /* 2026-06-01 — Loading overlay during horizon/profile transitions.
          When the user flips horizon (Trader ↔ Investor) or profile
@@ -1209,80 +1221,65 @@
         const _gateNote = (_align && _align.allow === false && _align.reason)
           ? ` Gate: ${String(_align.reason).replace(/_/g, " ")}.`
           : "";
-        return h(Panel, { title: "No options play surfaced", color: setupGuidance.color },
-          h("div", { style: { fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.55 } },
-            "No directional expression for ", sym, " in ", String(profile || "speculator"), " · ",
-            String(horizon || "trader"), " horizon.",
-            _gateNote,
-            " The guidance above explains whether this is a timing issue or a blocked setup.",
-            " Try another profile or check back when confluence shifts to RIDE with aligned layers.",
-          ),
+        return h("div", { style: { fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.55, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.02)", border: "1px solid var(--ds-stroke)", borderRadius: "var(--ds-radius-md)" } },
+          "No directional expression for ", sym, " in ", String(profile || "speculator"), " · ",
+          String(horizon || "trader"), " horizon.",
+          _gateNote,
+          " See setup guidance above for whether this is a timing issue or a blocked setup.",
         );
       })();
 
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", position: "relative" } },
         _loadingOverlay,
 
-        // 1. Setup guidance — timing-first callout (not good vs valid vs good)
-        h("div", {
-          style: {
-            background: setupGuidance.bg || "rgba(255,255,255,0.03)",
-            border: `1px solid ${(setupGuidance.color || "#9ca3af")}55`,
-            borderRadius: "var(--ds-radius-lg, 12px)",
-            padding: "var(--ds-space-3, 12px)",
-          },
-        },
-          h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 6 } },
-            h("div", { style: { fontSize: 10, fontWeight: 800, color: setupGuidance.color, letterSpacing: "0.08em" } },
-              "⏱ TIMING GUIDANCE",
-            ),
-            h("span", {
-              style: {
-                fontSize: 10, fontWeight: 700, color: setupGuidance.color,
-                background: setupGuidance.bg, padding: "3px 10px", borderRadius: 999,
-                border: `1px solid ${setupGuidance.color}66`,
-              },
-            }, setupGuidance.label || "SETUP"),
-          ),
-          h("div", { style: { fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", marginBottom: 6, lineHeight: 1.35 } },
-            setupGuidance.headline,
-          ),
-          h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.55, marginBottom: 6 } },
-            setupGuidance.body,
-          ),
-          h("div", { style: { fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic", lineHeight: 1.45 } },
-            setupGuidance.timing_focus,
-            setupGuidance.high_volatility && h("span", { style: { color: setupGuidance.color, fontWeight: 600, marginLeft: 4 } },
-              " · High-volatility name — options whiplash risk elevated.",
-            ),
-          ),
-        ),
-
-        // 2. Modes — confluence verdict
+        // 1. Combined Options Setup Guidance — mirrors Trader Root Verdict /
+        //    Investor Lane Guidance (WHAT TO DO hero + metrics + WHY).
         h(Panel, {
-          title: "📡 Root-Strategy Verdict",
-          color: modeMeta.color,
-          action: h("span", {
-            style: { fontSize: 11, fontWeight: 700, color: modeMeta.color, background: modeMeta.bg, padding: "3px 10px", borderRadius: 999, border: `1px solid ${modeMeta.color}66` },
-          }, modeMeta.icon, " ", modeMeta.label, " · ", contract.direction || "—"),
-        },
-          h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8 } },
-            verdict.actionable_summary || "Awaiting confluence verdict…",
+          title: "⏱ Options Setup Guidance",
+          color: _gColor,
+          action: h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
+            h("span", {
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}` },
+            }, setupGuidance.label || "SETUP"),
+            h("span", {
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: modeMeta.color, background: modeMeta.bg, border: `1px solid ${modeMeta.color}66` },
+            }, modeMeta.icon, " ", modeMeta.label),
           ),
-          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } },
-            h("div", { style: { padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6 } },
+        },
+          h("div", {
+            style: { padding: "var(--ds-space-2)", background: _gBg, border: `1px solid ${_gBorder}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" },
+          },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
+            h("div", { style: { fontSize: 15, fontWeight: 700, color: _gColor } }, setupGuidance.action || setupGuidance.headline || "—"),
+            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, setupGuidance.desc || ""),
+          ),
+          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" } },
+            h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "CONFLUENCE"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 18, fontWeight: 700, color: modeMeta.color, marginTop: 2 } }, verdict.score || 0, h("span", { style: { fontSize: 10, color: "var(--ds-text-muted)" } }, "/100")),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "#34d399" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171" } },
+                Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—",
+                h("span", { style: { fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" } }, "/100"),
+              ),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak"),
             ),
-            h("div", { style: { padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6 } },
+            h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "LAYERS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 18, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 } }, verdict.layers_agreeing || 0, h("span", { style: { fontSize: 10, color: "var(--ds-text-muted)" } }, "/", verdict.layers_total || 8)),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" } }, _layersRatio),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, Number.isFinite(_layersNum) && _layersNum >= 6 ? "Aligned" : Number.isFinite(_layersNum) && _layersNum >= 4 ? "Mixed" : "Split"),
             ),
-            h("div", { style: { padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6 } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "ST TRIGGER"),
-              h("div", { style: { fontSize: 13, fontWeight: 700, color: st.side === "LONG" ? "#34d399" : st.side === "SHORT" ? "#f87171" : "var(--ds-text-muted)", marginTop: 2 } }, st.side || "NEUTRAL"),
-              h("div", { style: { fontSize: 9, color: "var(--ds-text-muted)" } }, stFresh),
+            h("div", { style: { padding: "var(--ds-space-2)", background: st.side ? (st.side === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)") : "rgba(255,255,255,0.03)", border: `1px solid ${st.side === "LONG" ? "rgba(52,211,153,0.25)" : st.side === "SHORT" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "ST TIMING"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 14, color: _stSideColor } }, st.side || "NEUTRAL"),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, stFresh),
             ),
+          ),
+          (setupGuidance.why || setupGuidance.body) && h("div", { style: { marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" } },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 } }, "WHY"),
+            h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 } }, setupGuidance.why || setupGuidance.body),
+          ),
+          (setupGuidance.timing_note || setupGuidance.timing_focus) && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic", lineHeight: 1.45 } },
+            setupGuidance.timing_note || setupGuidance.timing_focus,
+            setupGuidance.high_volatility && h("span", { style: { color: _gColor, fontWeight: 600, marginLeft: 4 } }, " · High-volatility name."),
           ),
           (st.confirmed_tfs && st.confirmed_tfs.length > 0) && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-muted)" } },
             "SuperTrend sloping on TFs: ", h("strong", { style: { color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" } }, st.confirmed_tfs.join(" · ")),
@@ -1295,10 +1292,6 @@
             (verdict.layers || []).map((l) => {
               const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
               const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
-              // 2026-05-30 — friendly layer labels. The internal keys (L2_newton,
-              // L5_carter, L8_saty, etc.) attribute the source author for
-              // engineering provenance, but users shouldn't see external author
-              // names in the UI. Map to function-based labels instead.
               const LAYER_LABEL = {
                 L1_macro:  "L1 · Macro Regime",
                 L2_newton: "L2 · Rel. Strength + Structure",
@@ -1324,9 +1317,10 @@
           ),
         ),
 
-        // 2b. Risk profile selector
-        h(Panel, { title: "🎚 Risk Profile" },
-          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 } },
+        // 2. Options Preferences — risk profile + horizon in one panel.
+        h(Panel, { title: "⚙ Options Preferences" },
+          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
+          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
             PROFILE_CHIPS.map((p) => h("button", {
               key: p.key,
               onClick: () => updateProfile(p.key),
@@ -1340,16 +1334,10 @@
               },
             }, p.label)),
           ),
-          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
+          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic", marginBottom: 10 } },
             data.profile_meta.one_liner,
           ),
-        ),
-
-        // 2b. Horizon toggle — Trader (short-dated ladder) vs Investor
-        // (LEAP-first). 2026-06-01. Auto-detected from host URL on mount
-        // but always operator-overridable so users can preview both
-        // horizons on any ticker without leaving the rail.
-        h(Panel, { title: "⏱ Horizon" },
+          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "HORIZON"),
           h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
             [
               { key: "trader", label: "Trader · short-dated", emoji: "⚡" },
@@ -1370,15 +1358,12 @@
           ),
           h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
             horizon === "investor"
-              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days; consider PMCC stacking once thesis confirms."
-              : "Swing / intraday — primary play matches your risk profile (Long Call · Spread · Moonshot when active). LEAP still appears below as a long-term alternative.",
+              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
+              : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.",
           ),
         ),
 
-        // 3. Options plays — day-trade, primary, ladder
-        h("div", { style: { fontSize: 10, fontWeight: 800, color: "var(--ds-text-faint)", letterSpacing: "0.08em", marginTop: 4 } },
-          "OPTIONS PLAYS",
-        ),
+        // 3. Options plays — each play is its own panel (like Trader entry cards).
         _dayTradePanel,
         _emptyPlaysNote,
 
@@ -15875,4 +15860,4 @@
   };
 })();
 
-// cache-bust:1780771541259:57580091
+// cache-bust:1780775568871:863281049
