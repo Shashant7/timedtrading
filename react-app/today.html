@@ -17,7 +17,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
-    <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-fetch-cache.js?v=20260606a"></script>
     <script src="tt-live-data.js?v=20260526a"></script>
     <script src="tt-bottom-nav.js?v=20260601-ios-urlbar" defer></script>
     <script src="tt-nav-extras.js?v=20260517e" defer></script>
@@ -1553,6 +1553,30 @@
       // every 5 min so 90s ttl ensures we re-fetch once per render
       // when stale, but cached responses paint instantly on nav.
       const CACHE = (typeof window !== "undefined" && window.TTFetchCache) || null;
+
+      async function fetchJsonRetry(url, opts = {}, retries = 3) {
+        const fetchOpts = {
+          credentials: "include",
+          cache: "no-store",
+          ...(opts.fetchOpts || {}),
+        };
+        const delays = [0, 2000, 5000];
+        let lastRes = null;
+        for (let i = 0; i < retries; i++) {
+          if (delays[i] > 0) await new Promise((r) => setTimeout(r, delays[i]));
+          try {
+            const r = await fetch(url, fetchOpts);
+            lastRes = r;
+            if (r.ok) return r.json();
+            if (r.status >= 500 || r.status === 429 || r.status === 408) continue;
+            return null;
+          } catch (_) {
+            if (i === retries - 1) return null;
+          }
+        }
+        return null;
+      }
+
       async function fetchAll() {
         if (CACHE) {
           return CACHE.get(`${API_BASE}/timed/all`, {
@@ -2508,14 +2532,14 @@
         const isSidebar = layout === "sidebar";
         useEffect(() => {
           let alive = true;
-          (async () => {
+          const defer = setTimeout(() => { (async () => {
             try {
               // 2026-06-05 — Shared cache so the Day-Trade Predictions section
               // and this section hit /timed/options/all only once.
               const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
               const j = window.TTFetchCache
                 ? await window.TTFetchCache.get(_optsUrl, { ttlMs: 60000, maxAgeMs: 300000, fetchOpts: { credentials: "include" } })
-                : await (async () => { const r = await fetch(_optsUrl, { credentials: "include", cache: "no-store" }); return r.ok ? r.json() : null; })();
+                : await fetchJsonRetry(_optsUrl);
               if (!j) return;
               if (alive && j?.ok && Array.isArray(j.plays)) {
                 // Filter to actionable modes only (RIDE / DRIFT / READY).
@@ -2531,8 +2555,8 @@
               }
             } catch (_) {}
             finally { if (alive) setLoading(false); }
-          })();
-          return () => { alive = false; };
+          })(); }, 4000);
+          return () => { alive = false; clearTimeout(defer); };
         }, []);
         // 2026-05-30 — Skeleton loader instead of returning null while
         // loading. The fetch can take 2-4 seconds on a cold cache and
@@ -2859,7 +2883,7 @@
         const [loading, setLoading] = useState(true);
         useEffect(() => {
           let cancelled = false;
-          (async () => {
+          const defer = setTimeout(() => { (async () => {
             try {
               // 2026-05-29 — Investor mode source changed from
               // /timed/ledger/trades?mode=investor (which returns LOTS
@@ -2868,16 +2892,16 @@
               // per open position). The prior path was showing "29 open
               // positions" when there were 8 actual ones because each
               // position had 3-4 lots returned.
-              const [traderRes, investorRes] = await Promise.all([
-                fetch(`/timed/ledger/trades?status=open&limit=30`, { cache: "no-store" }),
-                fetch(`/timed/investor/positions`, { cache: "no-store" }).catch(() => null),
+              const [traderJ, investorJ] = await Promise.all([
+                fetchJsonRetry(`${API_BASE}/timed/ledger/trades?status=open&limit=30`),
+                fetchJsonRetry(`${API_BASE}/timed/investor/positions`),
               ]);
               if (cancelled) return;
               const all = [];
               const seen = new Set(); // dedupe by ticker+mode
               let _liveTraderCount = 0;
-              if (traderRes?.ok) {
-                const j = await traderRes.json();
+              if (traderJ?.ok) {
+                const j = traderJ;
                 if (j?.ok && Array.isArray(j.trades)) {
                   for (const t of j.trades) {
                     const key = `T:${String(t?.ticker || "").toUpperCase()}`;
@@ -2897,8 +2921,8 @@
                 window.__liveTraderOpenCount = _liveTraderCount;
                 window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
               } catch (_) { /* not in browser context */ }
-              if (investorRes?.ok) {
-                const j = await investorRes.json();
+              if (investorJ?.ok) {
+                const j = investorJ;
                 const positions = Array.isArray(j?.positions) ? j.positions : [];
                 for (const p of positions) {
                   // Position must be open
@@ -2925,8 +2949,8 @@
               if (!cancelled) setTrades(all);
             } catch (_) { /* silent */ }
             finally { if (!cancelled) setLoading(false); }
-          })();
-          return () => { cancelled = true; };
+          })(); }, 2500);
+          return () => { cancelled = true; clearTimeout(defer); };
         }, []);
 
         if (loading) return null;
@@ -3030,8 +3054,8 @@
           let pollTimer = null;
           const load = () => {
             Promise.all([
-              fetch(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-              fetch(`${API_BASE || ""}/timed/cro/latest`, { credentials: "include", cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+              fetchJsonRetry(`${API_BASE || ""}/timed/cro/feed?limit=50&lookback_days=7`),
+              fetchJsonRetry(`${API_BASE || ""}/timed/cro/latest`),
             ]).then(([feedJson, noteJson]) => {
               if (!alive) return;
               setFeed(feedJson);
@@ -3041,8 +3065,8 @@
               if (pending) pollTimer = setTimeout(load, 15000);
             }).catch(() => {});
           };
-          load();
-          return () => { alive = false; if (pollTimer) clearTimeout(pollTimer); };
+          const defer = setTimeout(load, 3000);
+          return () => { alive = false; clearTimeout(defer); if (pollTimer) clearTimeout(pollTimer); };
         }, []);
         const items = (feed && feed.ok && Array.isArray(feed.items)) ? feed.items : [];
         const ago = (ts) => {

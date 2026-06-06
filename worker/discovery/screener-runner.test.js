@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { normalizeScreenerResult, screenerErrorHint } from "./screener-runner.js";
+import {
+  normalizeScreenerResult,
+  screenerErrorHint,
+  isScreenerRunActive,
+} from "./screener-runner.js";
 
 describe("screener-runner errors", () => {
   it("screenerErrorHint maps finnhub_not_configured", () => {
@@ -15,5 +19,11 @@ describe("screener-runner errors", () => {
     });
     expect(out.error).toBe("finnhub_not_configured");
     expect(out.hint).toContain("FINNHUB_API_KEY");
+  });
+
+  it("isScreenerRunActive detects fresh running status", () => {
+    expect(isScreenerRunActive({ status: "running", started_at: Date.now() })).toBe(true);
+    expect(isScreenerRunActive({ status: "completed" })).toBe(false);
+    expect(isScreenerRunActive({ status: "running", started_at: Date.now() - 20 * 60 * 1000 })).toBe(false);
   });
 });

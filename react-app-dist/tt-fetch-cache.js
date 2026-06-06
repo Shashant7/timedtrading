@@ -73,10 +73,28 @@
     }
   }
 
+  async function fetchWithRetry(url, fetchOpts, retries = 3) {
+    const delays = [0, 2000, 5000];
+    let lastRes = null;
+    for (let i = 0; i < retries; i++) {
+      if (delays[i] > 0) await new Promise((r) => setTimeout(r, delays[i]));
+      try {
+        const r = await fetch(url, fetchOpts);
+        lastRes = r;
+        if (r.ok) return r;
+        if (r.status >= 500 || r.status === 429 || r.status === 408) continue;
+        return r;
+      } catch (err) {
+        if (i === retries - 1) throw err;
+      }
+    }
+    return lastRes;
+  }
+
   async function backgroundRefresh(url, fetchOpts) {
     try {
-      const r = await fetch(url, fetchOpts);
-      if (!r.ok) return;
+      const r = await fetchWithRetry(url, fetchOpts);
+      if (!r?.ok) return;
       const body = await r.json();
       writeEntry(url, body, r.status);
       notify(url, body);
@@ -105,14 +123,22 @@
       return entry.body;
     }
 
-    // No usable entry — fetch synchronously.
+    // No usable entry — fetch synchronously (retry transient 5xx).
     try {
-      const r = await fetch(url, fetchOpts);
-      if (!r.ok) return null;
+      const r = await fetchWithRetry(url, fetchOpts);
+      if (!r?.ok) {
+        // Emergency fallback: serve very stale cache on worker saturation (503).
+        if (entry && r && r.status >= 500 && age < maxAgeMs * 4) {
+          backgroundRefresh(url, fetchOpts);
+          return entry.body;
+        }
+        return null;
+      }
       const body = await r.json();
       writeEntry(url, body, r.status);
       return body;
     } catch (_) {
+      if (entry && age < maxAgeMs * 4) return entry.body;
       return null;
     }
   }
@@ -150,4 +176,4 @@
   window.TTFetchCache = { get, peek, subscribe, invalidate, clear };
 })();
 
-// cache-bust:1780722534072:90342603
+// cache-bust:1780722952573:105538101
