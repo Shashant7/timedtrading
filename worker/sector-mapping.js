@@ -1,4 +1,4 @@
-// Sector Mapping — 229-ticker active universe
+// Sector Mapping — 230-ticker active universe
 // Maps tickers to their GICS sectors
 
 const SECTOR_MAP = {
@@ -241,6 +241,7 @@ const SECTOR_MAP = {
 
   // Index ETFs (broad-market trackers — independent risk vehicles)
   'SPY': 'Index ETF',
+  'RSP': 'Index ETF',  // Equal-weight S&P 500 — RSP/SPY breadth gauge
   'QQQ': 'Index ETF',
   'IWM': 'Index ETF',
   'DIA': 'Index ETF',
@@ -394,7 +395,7 @@ const THEMES = {
   cybersecurity:     ["CRWD","ZS","PANW","NET","S","FTNT","OKTA","CYBR","RBRK","TENB"],
 
   // Country / cross-region ETFs (Phase 5 — referenced by macro tracker).
-  country_us_broad:  ["SPY","QQQ","IWM","DIA","VTI"],
+  country_us_broad:  ["SPY","RSP","QQQ","IWM","DIA","VTI"],
   country_korea:     ["EWY"],
   country_germany:   ["EWG"],
   country_japan:     ["EWJ","DXJ"],
@@ -521,7 +522,7 @@ const TICKER_TYPE_MAP = {
   'XHB': 'sector_etf',
 
   // Broad ETFs
-  'SPY': 'broad_etf', 'QQQ': 'broad_etf', 'IWM': 'broad_etf',
+  'SPY': 'broad_etf', 'RSP': 'broad_etf', 'QQQ': 'broad_etf', 'IWM': 'broad_etf',
   'TNA': 'broad_etf', 'DIA': 'broad_etf',
   'RPG': 'broad_etf', 'SPHB': 'broad_etf',
 
@@ -668,6 +669,10 @@ const TICKER_PROXY_MAP = {
   // Industrials / Infra
   CAT:  { peers: ["DE", "CNH"], etf: "XLI", sector_etf: "XLI" },
   DE:   { peers: ["CAT", "CNH"], etf: "XLI", sector_etf: "XLI" },
+
+  // Broad index ETFs — RSP/SPY is the equal-weight vs cap-weight breadth gauge
+  SPY: { peers: ["RSP", "QQQ", "IWM", "DIA"], etf: "SPY", gauge_pair: "RSP/SPY" },
+  RSP: { peers: ["SPY", "QQQ", "IWM", "DIA"], etf: "RSP", gauge_pair: "RSP/SPY" },
 
   // Crypto — leading indicators for equities
   // BTC leads SPY/QQQ (risk-on/risk-off barometer)

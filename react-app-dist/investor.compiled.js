@@ -647,18 +647,22 @@ function InvestorApp() {
   const chipCounts = useMemo(() => {
     let actionable = 0,
       simEligible = 0,
-      simUnknown = 0;
+      simUnknown = 0,
+      executeReady = 0;
     const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
     for (const row of list) {
       const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
       if (stage !== "accumulate" && stage !== "reduce") continue;
       actionable++;
+      const tier = row?.actionTier;
+      if (tier === "act_now" || tier === "ready") executeReady++;
       if (row?.simEligible === true) simEligible++;else if (row?.simEligible == null) simUnknown++;
     }
     return {
       actionable,
       simEligible,
-      simUnknown
+      simUnknown,
+      executeReady
     };
   }, [investorScores]);
   return h(React.Fragment, null, !panelMounted && h("div", {
@@ -716,6 +720,10 @@ function InvestorApp() {
     onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
     title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
   }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`), h("button", {
+    className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
+    onClick: () => setFilterGroup("EXECUTE_READY"),
+    title: "Accumulate/Reduce names the model would prioritize — ACT NOW (buy zone + trend) or READY (alignment / in-zone)"
+  }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`), h("button", {
     className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
     onClick: () => setFilterGroup("SIM_ELIGIBLE"),
     title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`
@@ -781,6 +789,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768
 
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768

@@ -218,33 +218,21 @@ function App({
     return j.hint || j.detail || j.error || j.status?.result?.hint || j.status?.error || j.weekly?.hint || j.weekly?.detail || j.weekly?.error || j.github?.hint || j.github?.detail || j.github?.error || (status ? `HTTP ${status}` : "screener_failed");
   };
   const parseScreenerJson = async res => {
-    const ct = String(res?.headers?.get?.("content-type") || "");
-    if (!ct.includes("json")) {
-      const text = await res.text().catch(() => "");
-      if (String(text).trim().startsWith("<")) {
-        return {
-          ok: false,
-          error: "non_json_response",
-          hint: "Server returned HTML instead of JSON (timeout or gateway error). Wait a minute and retry."
-        };
-      }
-      try {
-        return JSON.parse(text);
-      } catch (_) {
-        return {
-          ok: false,
-          error: "invalid_json",
-          hint: `HTTP ${res.status} — response was not JSON`
-        };
-      }
+    const text = await res.text().catch(() => "");
+    if (!text || String(text).trim().startsWith("<")) {
+      return {
+        ok: false,
+        error: "non_json_response",
+        hint: "Server returned HTML instead of JSON (timeout or gateway error). Wait a minute and retry."
+      };
     }
     try {
-      return await res.json();
+      return JSON.parse(text);
     } catch (_) {
       return {
         ok: false,
         error: "json_parse_failed",
-        hint: `HTTP ${res.status} — could not parse response`
+        hint: `HTTP ${res.status} — response was not JSON`
       };
     }
   };
@@ -274,7 +262,8 @@ function App({
     if (result?.ok) {
       const count = result.candidates ?? result.weekly?.candidates ?? result.stored ?? "?";
       const ghWarn = result.github_warning || (result.github && !result.github.ok ? result.github.hint || result.github.detail || result.github.error : null);
-      setScanMsg(ghWarn ? `Scan complete · ${count} candidates (GitHub tvscreener skipped: ${ghWarn})` : `Scan complete · ${count} candidates`);
+      const poolNote = result.pool_source ? ` · pool ${result.pool_source}${result.pool_fallback_reason ? " (Finnhub fallback)" : ""}` : "";
+      setScanMsg(ghWarn ? `Scan complete · ${count} candidates${poolNote} (GitHub tvscreener skipped: ${ghWarn})` : `Scan complete · ${count} candidates${poolNote}`);
       if (ghWarn) {
         alert(`Weekly scan finished (${count} candidates).\n\nGitHub tvscreener was not dispatched:\n${ghWarn}`);
       }
@@ -293,9 +282,9 @@ function App({
       top_movers: "Top gainers + losers",
       all: "Full scan (daily + movers + weekly)"
     };
-    if (!confirm(`Run ${labels[mode] || mode} scan now? This runs in the background and may take up to 2 minutes.`)) return;
+    if (!confirm(`Run ${labels[mode] || mode} scan now? This may take up to 2 minutes.`)) return;
     setScanRunning(true);
-    setScanMsg("Scan started — waiting for results…");
+    setScanMsg("Scan running — fetching market data…");
     try {
       const res = await fetch(`${API_BASE}/timed/admin/screener/run`, {
         method: "POST",
@@ -309,9 +298,13 @@ function App({
       });
       const j = await parseScreenerJson(res);
       if (!j?.ok && !j?.accepted) {
-        const hint = screenerErrorMessage(j, res.status);
+        const hint = screenerErrorMessage(j?.result || j, res.status);
         setScanMsg(`Scan failed: ${hint}`);
         alert(`Scan failed: ${hint}`);
+        return;
+      }
+      if (j?.result && (res.status === 200 || j?.ok)) {
+        await finishScanFromResult(j.result, labels[mode]);
         return;
       }
       if (j?.accepted === false && j?.already_running) {
@@ -927,6 +920,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768
 
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768

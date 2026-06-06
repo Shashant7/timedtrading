@@ -81,6 +81,24 @@ function fromTdSymbol(tdSym) {
 // Core: fetch helper with timeout and error handling
 // ═══════════════════════════════════════════════════════════════════════════════
 
+async function parseTdJson(resp) {
+  const text = await resp.text().catch(() => "");
+  if (!text || String(text).trim().startsWith("<")) {
+    return {
+      _error: "non_json_response",
+      _detail: String(text).slice(0, 200) || `http_${resp.status}`,
+    };
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    return {
+      _error: "json_parse_failed",
+      _detail: String(err?.message || err).slice(0, 200),
+    };
+  }
+}
+
 async function tdFetch(url, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -92,7 +110,11 @@ async function tdFetch(url, timeoutMs = 30000) {
       console.error(`[TWELVEDATA] HTTP ${resp.status}: ${text.slice(0, 300)}`);
       return { _error: `http_${resp.status}`, _detail: text.slice(0, 200) };
     }
-    const data = await resp.json();
+    const data = await parseTdJson(resp);
+    if (data._error) {
+      console.error(`[TWELVEDATA] Parse error: ${data._error} ${data._detail || ""}`);
+      return data;
+    }
     if (data.status === "error") {
       console.error(`[TWELVEDATA] API error: ${data.message || JSON.stringify(data).slice(0, 200)}`);
       return { _error: "api_error", _detail: data.message || "" };
@@ -111,7 +133,7 @@ async function tdFetch(url, timeoutMs = 30000) {
 // Normalized to Alpaca-compatible bar shape.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export async function tdFetchTimeSeries(env, symbols, interval, start, end = null, outputsize = 5000) {
+export async function tdFetchTimeSeries(env, symbols, interval, start, end = null, outputsize = 5000, opts = {}) {
   const apiKey = getApiKey(env);
   if (!apiKey) return { bars: {}, error: "missing_credentials" };
   if (!symbols || symbols.length === 0) return { bars: {} };
@@ -125,6 +147,7 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
   const _outputsizeClamped = Math.max(1, Math.min(5000, Number(outputsize) || 5000));
 
   const result = {};
+  const errors = [];
   const BATCH = 8; // TwelveData supports batch, but safer in small groups
   const filtered = symbols.filter(s => !SKIP_TICKERS.has(s));
 
@@ -147,8 +170,12 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
     if (end) params.set("end_date", end.replace("Z", "").replace("T", " ").slice(0, 19));
 
     const url = `${TD_BASE}/time_series?${params}`;
-    const data = await tdFetch(url, 60000);
-    if (data._error) continue;
+    const fetchTimeoutMs = Math.max(5000, Number(opts.fetchTimeoutMs) || 60000);
+    const data = await tdFetch(url, fetchTimeoutMs);
+    if (data._error) {
+      errors.push(data._error);
+      continue;
+    }
 
     if (tdSyms.length === 1) {
       // Single symbol: response is { meta, values, status }
@@ -164,12 +191,15 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
         result[ourSym] = symData.values.map(tdBarToAlpacaBar);
       }
     }
-    // TwelveData PRO: 8 req/min → 8s between requests
-    if (i + BATCH < filtered.length) {
-      await new Promise((r) => setTimeout(r, 8000));
+    const batchDelayMs = Math.max(0, Number(opts.batchDelayMs) || 8000);
+    if (batchDelayMs > 0 && i + BATCH < filtered.length) {
+      await new Promise((r) => setTimeout(r, batchDelayMs));
     }
   }
 
+  if (Object.keys(result).length === 0 && errors.length > 0) {
+    return { bars: result, error: errors[0] };
+  }
   return { bars: result };
 }
 

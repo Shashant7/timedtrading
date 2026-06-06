@@ -1039,16 +1039,18 @@
         //   null  → counted as unknown (cron hasn't repopulated since
         //           the field was added 2026-06-01; run /compute)
         const chipCounts = useMemo(() => {
-          let actionable = 0, simEligible = 0, simUnknown = 0;
+          let actionable = 0, simEligible = 0, simUnknown = 0, executeReady = 0;
           const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
           for (const row of list) {
             const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
             if (stage !== "accumulate" && stage !== "reduce") continue;
             actionable++;
+            const tier = row?.actionTier;
+            if (tier === "act_now" || tier === "ready") executeReady++;
             if (row?.simEligible === true) simEligible++;
             else if (row?.simEligible == null) simUnknown++;
           }
-          return { actionable, simEligible, simUnknown };
+          return { actionable, simEligible, simUnknown, executeReady };
         }, [investorScores]);
 
         return h(React.Fragment, null,
@@ -1110,6 +1112,11 @@
                 // (matches worker/index.js:36692-36698 exactly). Chip
                 // label format: "Sim-eligible (N+M?)" where N = strictly
                 // eligible, M = unknown (cron hasn't repopulated yet).
+                h("button", {
+                  className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
+                  onClick: () => setFilterGroup("EXECUTE_READY"),
+                  title: "Accumulate/Reduce names the model would prioritize — ACT NOW (buy zone + trend) or READY (alignment / in-zone)",
+                }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`),
                 h("button", {
                   className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
                   onClick: () => setFilterGroup("SIM_ELIGIBLE"),

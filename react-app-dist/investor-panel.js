@@ -7,6 +7,42 @@
   const { useState, useEffect, useCallback, useMemo, useRef } = React;
   const getDailyChange = window.TimedPriceUtils?.getDailyChange || (() => ({ dayPct: null, dayChg: null }));
 
+  /* 2026-06-06 — Investor action tier (server: computeInvestorActionTier).
+     act_now = buy zone + SuperTrend alignment; ready = simEligible or
+     in-zone strong score; monitor = lane label only; stale = signal >7d. */
+  const ACTION_TIER_ORDER = { act_now: 0, ready: 1, monitor: 2, stale: 3 };
+  const ACTION_TIER_META = {
+    act_now: { label: "ACT NOW", color: "#22c55e", title: "Buy zone + trend alignment — model would prioritize on next rebalance" },
+    ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
+    monitor: { label: "MONITOR", color: "#6b7280", title: "Accumulate lane signal — not execution-ready yet" },
+    stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
+  };
+  function deriveActionTier(t) {
+    if (t?.actionTier && ACTION_TIER_META[t.actionTier]) return t.actionTier;
+    const stage = String(t?.stage || "");
+    if (stage !== "accumulate" && stage !== "reduce") return null;
+    const owned = !!(t?.position?.owned);
+    const simEligible = t?.simEligible === true;
+    const inZone = !!(t?.accumZone?.inZone);
+    const score = Number(t?.score) || 0;
+    const lastTs = Number(t?.position?.last_action_ts) || 0;
+    const lastType = String(t?.position?.last_action_type || "");
+    const agoMs = lastTs > 0 ? Date.now() - lastTs : 0;
+    const stale = owned && lastTs > 0 && agoMs > 7 * 86400000 && (
+      (stage === "reduce" && lastType !== "SELL") ||
+      (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastType))
+    );
+    if (stale) return "stale";
+    if (stage === "accumulate") {
+      if (inZone && simEligible) return "act_now";
+      if (simEligible || (inZone && score >= 65)) return "ready";
+      return "monitor";
+    }
+    if (simEligible) return "act_now";
+    if (owned) return "ready";
+    return "monitor";
+  }
+
   function ScoreBar({ score, max }) {
     const pct = Math.max(0, Math.min(100, ((score || 0) / (max || 100)) * 100));
     return React.createElement("div", { className: "w-full h-[3px] bg-white/[0.04] overflow-hidden", style: { borderRadius: "1px" } },
@@ -125,6 +161,9 @@
     })();
 
     /* Stage chip mapping — colors hint at action */
+    const actionTier = deriveActionTier(t);
+    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
+
     const stageChip = (() => {
       if (stage === "accumulate")        return { label: "Accumulate", cls: "ds-chip--up" };
       if (stage === "core_hold")         return { label: "Core Hold", cls: "ds-chip--accent" };
@@ -161,6 +200,14 @@
       width: 280,
       textAlign: "left",
       padding: "var(--ds-space-3)",
+      // 2026-06-06 — execution-ready accumulate cards get a green left rail.
+      ...(actionTier === "act_now" && !isSelected ? {
+        borderLeft: "3px solid rgba(34,197,94,0.85)",
+        boxShadow: "inset 3px 0 0 rgba(34,197,94,0.25)",
+      } : {}),
+      ...(actionTier === "ready" && !isSelected && actionTier !== "act_now" ? {
+        borderLeft: "3px solid rgba(74,222,128,0.55)",
+      } : {}),
       // Owned positions get a violet halo (matches the Investor mode accent dot
       // on the section header). Selected / TT Selected take precedence.
       ...(isOwned && !isSelected && !isTTSel ? {
@@ -190,6 +237,18 @@
           },
         }, sym.slice(0, 2)),
         React.createElement("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
+        tierMeta && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)", marginLeft: 4,
+            color: tierMeta.color,
+            background: `${tierMeta.color}18`,
+            borderColor: `${tierMeta.color}55`,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+          },
+          title: tierMeta.title,
+        }, tierMeta.label),
         // OWNED badge — system has an open investor position in this ticker
         // (Phase 3.9l). Violet to match the Investor mode accent.
         isOwned && React.createElement("span", {
@@ -533,9 +592,15 @@
     }
     // Phase 3.9l — within each lane, push owned positions to the front so
     // user's actual portfolio is the first thing they see horizontally.
-    // Stable secondary sort by score (DESC) preserves intra-group ranking.
+    // 2026-06-06 — Accumulate/Reduce: sort by action tier (act_now first)
+    // then score DESC so execution-ready names surface in wide lanes.
     for (const s of stages) {
       grouped[s].sort((a, b) => {
+        if (s === "accumulate" || s === "reduce") {
+          const aTier = ACTION_TIER_ORDER[deriveActionTier(a)] ?? 9;
+          const bTier = ACTION_TIER_ORDER[deriveActionTier(b)] ?? 9;
+          if (aTier !== bTier) return aTier - bTier;
+        }
         const aOwned = !!(a?.position?.owned);
         const bOwned = !!(b?.position?.owned);
         if (aOwned !== bOwned) return aOwned ? -1 : 1;
@@ -563,6 +628,15 @@
     const HOLDING_LANES = new Set(["core_hold", "watch", "reduce"]);
     const laneCount = (stage) => {
       const items = grouped[stage] || [];
+      if (stage === "accumulate" || stage === "reduce") {
+        const act = items.filter((t) => {
+          const tier = deriveActionTier(t);
+          return tier === "act_now" || tier === "ready";
+        }).length;
+        if (act > 0 && act < items.length) return `${act} act / ${items.length}`;
+        if (act > 0) return `${act} act`;
+        return items.length;
+      }
       if (!HOLDING_LANES.has(stage)) return items.length;
       const owned = items.filter(t => !!(t?.position?.owned)).length;
       if (owned === items.length) return owned;
@@ -870,6 +944,14 @@
       //     simulator may or may not pick them up; better to surface
       //     than to hide). Operator clears the unknown bucket by
       //     POSTing /timed/investor/compute.
+      if (filterGroup === "EXECUTE_READY") {
+        list = list.filter((t) => {
+          const stage = String(t?.stage || "").toLowerCase();
+          if (stage !== "accumulate" && stage !== "reduce") return false;
+          const tier = deriveActionTier(t);
+          return tier === "act_now" || tier === "ready";
+        });
+      }
       if (filterGroup === "SIM_ELIGIBLE") {
         list = list.filter(t => {
           const stage = String(t?.stage || "").toLowerCase();
@@ -904,6 +986,7 @@
         if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0 && !savedTickers.has(sym)) return;
         if (filterGroup === "INVESTOR_ACTIONABLE") return;
         if (filterGroup === "SIM_ELIGIBLE") return;
+        if (filterGroup === "EXECUTE_READY") return;
         const mainData = tickerData?.[sym] || {};
         list.unshift({
           ticker: sym,
@@ -1093,4 +1176,4 @@
   window.InvestorPanel = InvestorPanel;
 })();
 
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768

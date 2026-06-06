@@ -712,6 +712,14 @@ function CioLifecycleStatsCard({
     label: "Investor rebalance trim",
     recordOnly: false
   }, {
+    key: "rebalance_add",
+    label: "Investor rebalance add/open",
+    recordOnly: false
+  }, {
+    key: "investor_lane_change",
+    label: "Investor lane change (audit)",
+    recordOnly: true
+  }, {
     key: "sl_move",
     label: "SL move",
     recordOnly: !!cfg.record_only?.sl_move
@@ -3788,6 +3796,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768
 
-// cache-bust:1780761647539:309504938
+// cache-bust:1780762645787:914846768
