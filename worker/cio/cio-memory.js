@@ -746,6 +746,32 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // CRO note enrichment is best-effort — never break CIO memory.
   }
 
+  // ── Layer 15e: Per-ticker FSD research-desk intel (2026-06-06) ───────────
+  // Surfaces recent Fundstrat Direct publications that mention this ticker
+  // (cashtag-tagged during CRO ingestion). Preloaded into
+  // memoryCache.fsdIntelByTicker by cio-memory-loader.js for Investor CIO
+  // and lifecycle calls that run outside the scoring cron.
+  try {
+    const intel = memoryCache?.fsdIntelByTicker?.[String(sym).toUpperCase()];
+    if (intel && Number(intel.count) > 0 && Array.isArray(intel.publications)) {
+      mem.fsd_research_desk = {
+        lookback_days: intel.lookback_days || 14,
+        count: intel.count,
+        publications: intel.publications.slice(0, 3).map((p) => ({
+          pub_id: p.pub_id,
+          title: String(p.title || p.headline || "").slice(0, 160),
+          category: p.category || p.post_type || null,
+          published_at: p.published_at || null,
+          summary: String(p.tt_summary || p.summary || "").slice(0, 280),
+          playbook_action: p.playbook_action || null,
+        })),
+        note: "Per-ticker FSD research-desk ingest. CONTEXT for Investor accumulate/trim timing — not a hard override.",
+      };
+    }
+  } catch (_) {
+    // FSD intel enrichment is best-effort — never break CIO memory.
+  }
+
   // ── Layer 15b-overlay: live desk tactical overlay headline (2026-06-04) ──
   // Even when no per-ticker tactical signal matches, surface the one-line
   // FSD-derived overlay that is currently live so the CIO always knows the

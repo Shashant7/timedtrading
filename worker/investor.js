@@ -580,6 +580,48 @@ export function computeMarketHealth(allTickerData, spyData = null, qqqData = nul
  * @param {object} opts - { rsRank, marketHealth, accumZone }
  * @returns {{ stage: string, reason: string }}
  */
+/**
+ * Pre-compute Kanban action tier for Accumulate / Reduce lanes.
+ * Surfaces which names are execution-ready vs lane-label-only when a lane
+ * has dozens of cards (operator report: ~79 in Accumulate).
+ *
+ * Tiers (sort priority: act_now → ready → monitor → stale):
+ *   act_now  — Buy zone + SuperTrend alignment (simulator gate passed)
+ *   ready    — simEligible OR in-zone with strong score (≥65)
+ *   monitor  — Lane signal only; auto-rebalance may still queue by score
+ *   stale    — Owned; signal active >7d without a matching lot action
+ */
+export function computeInvestorActionTier(row) {
+  const stage = String(row?.stage || "");
+  if (stage !== "accumulate" && stage !== "reduce") return null;
+
+  const owned = !!(row?.position?.owned);
+  const simEligible = row?.simEligible === true;
+  const inZone = !!(row?.accumZone?.inZone);
+  const score = Number(row?.score) || 0;
+
+  const STALE_MS = 7 * 24 * 3600 * 1000;
+  const lastActionTs = Number(row?.position?.last_action_ts) || 0;
+  const lastActionType = String(row?.position?.last_action_type || "");
+  const lastAgoMs = lastActionTs > 0 ? Date.now() - lastActionTs : 0;
+  const isStale = owned && lastActionTs > 0 && lastAgoMs > STALE_MS && (
+    (stage === "reduce" && lastActionType !== "SELL") ||
+    (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastActionType))
+  );
+  if (isStale) return "stale";
+
+  if (stage === "accumulate") {
+    if (inZone && simEligible) return "act_now";
+    if (simEligible || (inZone && score >= 65)) return "ready";
+    return "monitor";
+  }
+
+  // reduce — owned positions only reach this lane in the UI
+  if (simEligible) return "act_now";
+  if (owned) return "ready";
+  return "monitor";
+}
+
 export function classifyInvestorStage(tickerData, investorScore, existingPosition = null, opts = {}) {
   const { rsRank = 50, marketHealth = 50, accumZone = null, cfg = DEFAULT_INVESTOR_CONFIG } = opts;
   const mb = tickerData.monthly_bundle;
