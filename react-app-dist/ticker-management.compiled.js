@@ -1017,7 +1017,6 @@ function SectorRatingsManager() {
   }, msg.text))));
 }
 function App() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1666,285 +1665,19 @@ function App() {
   }
   return React.createElement("div", {
     className: "min-h-screen pb-16 bg-[#0a0a0f]"
-  }, React.createElement("nav", {
-    className: "sticky top-0 z-50 border-b border-white/[0.06]",
-    style: {
-      background: "rgba(10,10,15,0.95)",
-      backdropFilter: "blur(12px)"
-    }
   }, React.createElement("div", {
-    className: "flex items-center justify-between px-4 py-2.5"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3 md:gap-5 min-w-0"
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "flex items-center gap-2 no-underline shrink-0"
-  }, React.createElement("svg", {
-    width: "28",
-    height: "28",
-    viewBox: "0 0 48 48",
-    fill: "none"
-  }, React.createElement("defs", null, React.createElement("linearGradient", {
-    id: "tt-ring",
-    x1: "6",
-    y1: "42",
-    x2: "42",
-    y2: "6"
-  }, React.createElement("stop", {
-    offset: "0%",
-    stopColor: "#34d399"
-  }), React.createElement("stop", {
-    offset: "100%",
-    stopColor: "#67e8f9"
-  }))), React.createElement("rect", {
-    width: "48",
-    height: "48",
-    rx: "11",
-    fill: "#000"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "17",
-    stroke: "url(#tt-ring)",
-    strokeWidth: "2.5",
-    fill: "none"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "7.5",
-    x2: "24",
-    y2: "10.5",
-    stroke: "#34d399",
-    strokeWidth: "1.5",
-    strokeLinecap: "round",
-    opacity: "0.5"
-  }), React.createElement("line", {
-    x1: "7.5",
-    y1: "24",
-    x2: "10.5",
-    y2: "24",
-    stroke: "#34d399",
-    strokeWidth: "1.5",
-    strokeLinecap: "round",
-    opacity: "0.5"
-  }), React.createElement("line", {
-    x1: "19",
-    y1: "18.5",
-    x2: "16",
-    y2: "15.5",
-    stroke: "#636366",
-    strokeWidth: "1.2",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "24",
-    x2: "19",
-    y2: "18.5",
-    stroke: "#636366",
-    strokeWidth: "3.5",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "29.5",
-    y1: "16.5",
-    x2: "32",
-    y2: "12.9",
-    stroke: "#30d158",
-    strokeWidth: "1.2",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "24",
-    x2: "29.5",
-    y2: "16.5",
-    stroke: "#30d158",
-    strokeWidth: "4",
-    strokeLinecap: "round"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "3.2",
-    fill: "#30d158"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "1.3",
-    fill: "#000"
-  })), React.createElement("span", {
-    className: "text-[14px] md:text-[15px] font-bold text-white hidden sm:inline",
-    style: {
-      letterSpacing: "-0.03em"
-    }
-  }, "Timed Trading")), React.createElement("div", {
-    className: "hidden md:flex items-center gap-0.5"
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Analysis"), React.createElement("a", {
-    href: "/portfolio.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Trades"), React.createElement("a", {
-    href: "system-intelligence.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "System Intelligence"), React.createElement("a", {
-    href: "screener.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Screener"), React.createElement("a", {
-    href: "ticker-management.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium"
-  }, "Tickers"), React.createElement("a", {
-    href: "trade-autopsy.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] hover:bg-[#14b8a6]/[0.06] transition-all font-medium"
-  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin') && React.createElement("a", {
-    href: "admin-clients.html",
-    "data-admin-only": "true",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] hover:bg-[#a78bfa]/[0.06] transition-all font-medium"
-  }, "Admin"), React.createElement("a", {
-    href: "daily-brief.html",
-    id: "nav-daily-brief",
-    className: "relative px-3 py-1 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium"
-  }, "Daily Brief", React.createElement("span", {
-    id: "brief-badge",
-    className: "hidden absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#f59e0b]",
-    style: {
-      animation: "pulse-badge 2s ease-in-out infinite"
-    }
-  })))), React.createElement("div", {
-    className: "flex items-center gap-1.5 md:gap-2 shrink-0"
-  }, React.createElement("a", {
-    href: "/faq.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Guide"), React.createElement("a", {
-    href: "/today.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
-    title: "Restart tour"
-  }, "Tour"), React.createElement("a", {
-    href: "/faq.html",
-    className: "hidden md:inline-flex px-2 py-1 rounded-md text-[11px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), (summaryStats.total > 0 || data?.summary) && React.createElement("span", {
-    className: "hidden sm:inline text-[11px] text-[#6b7280]"
-  }, summaryStats.withData, " with data / ", summaryStats.total, " total"), React.createElement("button", {
-    onClick: fetchData,
-    disabled: loading,
-    className: "px-2 md:px-3 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
-  }, loading ? "Loading..." : "Refresh"), window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
-    apiBase: ""
-  }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
-    user: window.TimedAuthHelpers?.getStoredSession(),
-    compact: true
-  }), React.createElement("button", {
-    onClick: () => setMobileMenuOpen(v => !v),
-    className: "md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all",
-    "aria-label": "Toggle menu"
-  }, mobileMenuOpen ? React.createElement("svg", {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "18",
-    y1: "6",
-    x2: "6",
-    y2: "18"
-  }), React.createElement("line", {
-    x1: "6",
-    y1: "6",
-    x2: "18",
-    y2: "18"
-  })) : React.createElement("svg", {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "3",
-    y1: "6",
-    x2: "21",
-    y2: "6"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "12",
-    x2: "21",
-    y2: "12"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "18",
-    x2: "21",
-    y2: "18"
-  }))))), mobileMenuOpen && React.createElement("div", {
-    className: "md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5",
-    style: {
-      background: "rgba(10,10,15,0.98)"
-    }
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Analysis"), React.createElement("a", {
-    href: "/portfolio.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Trades"), React.createElement("a", {
-    href: "system-intelligence.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "System Intelligence"), React.createElement("a", {
-    href: "screener.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Screener"), React.createElement("a", {
-    href: "ticker-management.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Tickers"), React.createElement("a", {
-    href: "trade-autopsy.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#14b8a6]/80 hover:text-[#14b8a6] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Trade Autopsy"), (window.TimedAuthHelpers?.getStoredSession()?.role === 'admin' || window.TimedAuthHelpers?.getStoredSession()?.tier === 'admin') && React.createElement("a", {
-    href: "admin-clients.html",
-    "data-admin-only": "true",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#a78bfa]/80 hover:text-[#a78bfa] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Admin"), React.createElement("a", {
-    href: "daily-brief.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b]/80 hover:text-[#f59e0b] hover:bg-[#f59e0b]/[0.06] transition-all font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Daily Brief"), React.createElement("div", {
-    className: "border-t border-white/[0.06] mt-1 pt-1 flex items-center gap-2"
-  }, React.createElement("a", {
-    href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Guide"), React.createElement("a", {
-    href: "/today.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all",
-    title: "Restart tour"
-  }, "Tour"), React.createElement("a", {
-    href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "FAQ"), React.createElement("a", {
-    href: "mailto:support@timed-trading.com",
-    className: "px-3 py-2 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Contact")))), React.createElement("div", {
     className: "max-w-[1800px] mx-auto px-4 py-4 space-y-4"
   }, React.createElement("div", {
     className: "flex flex-wrap items-center gap-3"
   }, React.createElement("div", {
-    className: "w-full text-[11px] text-[#6b7280]"
-  }, "This page is the source of truth for the active ticker universe. Add or remove tickers here to update the live system list used across the app."), React.createElement("div", {
+    className: "flex-1 min-w-[200px] text-[11px] text-[#6b7280]"
+  }, "This page is the source of truth for the active ticker universe. Add or remove tickers here to update the live system list used across the app.", (summaryStats.total > 0 || data?.summary) && React.createElement("span", {
+    className: "ml-2 text-[#9ca3af]"
+  }, summaryStats.withData, " with data / ", summaryStats.total, " total")), React.createElement("button", {
+    onClick: fetchData,
+    disabled: loading,
+    className: "px-3 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
+  }, loading ? "Loading..." : "Refresh"), React.createElement("div", {
     className: "flex items-center gap-1.5"
   }, React.createElement("input", {
     ref: addRef,
@@ -2241,6 +1974,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1780721307573:768728117
+// cache-bust:1780721833965:388190282
 
-// cache-bust:1780721307573:768728117
+// cache-bust:1780721833965:388190282

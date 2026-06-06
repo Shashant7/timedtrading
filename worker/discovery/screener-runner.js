@@ -188,6 +188,19 @@ export async function runWeeklyScreenerScan(env, opts = {}) {
   };
 }
 
+const GITHUB_USER_AGENT = "TimedTrading-Screener/1.0 (+https://timed-trading.com)";
+
+function githubApiHeaders(token, extra = {}) {
+  return {
+    Authorization: `Bearer ${token}`,
+    Accept: "application/vnd.github+json",
+    "Content-Type": "application/json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": GITHUB_USER_AGENT,
+    ...extra,
+  };
+}
+
 /** Normalize owner/repo from GITHUB_REPO (accepts URL or bare slug). */
 export function normalizeGithubRepo(raw) {
   let s = String(raw || "").trim();
@@ -225,11 +238,7 @@ async function parseGithubErrorBody(text, status) {
  * Resolve workflow dispatch URL — try filename first, then list workflows.
  */
 async function resolveWorkflowDispatchUrl(token, owner, name) {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
+  const headers = githubApiHeaders(token);
   const filePath = "screener-daily.yml";
   const direct = `https://api.github.com/repos/${owner}/${name}/actions/workflows/${filePath}/dispatches`;
 
@@ -283,12 +292,7 @@ export async function triggerGithubScreenerWorkflow(env, mode = "all") {
   try {
     const resp = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "Content-Type": "application/json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
+      headers: githubApiHeaders(token),
       body: JSON.stringify({
         ref: "main",
         inputs: { mode: String(mode || "all") },
