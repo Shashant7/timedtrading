@@ -404,12 +404,11 @@
 
         if (!isAdmin) return null;
         const pending = proposals.filter((p) => p.status === "pending");
-        const rest = proposals.filter((p) => p.status !== "pending");
 
         return h("div", { className: "card" },
           h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
             h("h2", null, "Proposed changes"),
-            h("span", { className: "chip chip-blue" }, `${pending.length} pending · ${proposals.length} total`)
+            h("span", { className: "chip chip-blue" }, `${pending.length} pending`)
           ),
           h("div", { className: "muted", style: { marginBottom: 12 } },
             "Each card is what the AI extractor wants to apply to the playbook: tactical signals replace the full signal list; theme/sector notes append; structural proposals can revise stances. Approve to apply, Reject to discard."),
@@ -417,10 +416,10 @@
             h("span", { className: "spinner" }),
             h("span", { className: "muted" }, "Loading proposal details…")
           ),
-          proposals.length === 0
-            ? h("div", { className: "muted" }, "No proposals yet. Extract a publication to generate one.")
+          pending.length === 0
+            ? h("div", { className: "muted" }, "No proposals awaiting review. Approved and rejected items are hidden to reduce scrolling.")
             : h(React.Fragment, null,
-                pending.length > 0 && h("h3", null, "Needs review"),
+                h("h3", null, "Needs review"),
                 pending.map((p) => {
                   const row = details[p.proposal_id];
                   const canonApprove = `approve_${p.proposal_id}`;
@@ -455,21 +454,6 @@
                         onClick: () => onAction(`reject_${p.proposal_id}`, "POST", "/timed/admin/cro/proposal/reject", { proposal_id: p.proposal_id, note: "operator_rejected_via_research_desk" }),
                       }, "Reject")
                     )
-                  );
-                }),
-                rest.length > 0 && h("h3", { style: { marginTop: 16 } }, "History"),
-                rest.map((p) => {
-                  const row = details[p.proposal_id];
-                  return h("div", { key: p.proposal_id, className: `proposal-card ${p.status}` },
-                    h("div", { className: "proposal-head" },
-                      h("code", null, (p.proposal_id || "").slice(0, 28)),
-                      h("div", { className: "row" },
-                        h("span", { className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue" }, p.classification),
-                        h("span", { className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "dim" }, p.status),
-                        h("span", { className: "dim" }, fmtAgo(p.created_at))
-                      )
-                    ),
-                    renderProposalBody(row?.proposal)
                   );
                 })
               )

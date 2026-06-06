@@ -236,7 +236,6 @@ function ProposalsSection({
   }, [isAdmin, idsKey]);
   if (!isAdmin) return null;
   const pending = proposals.filter(p => p.status === "pending");
-  const rest = proposals.filter(p => p.status !== "pending");
   return h("div", {
     className: "card"
   }, h("div", {
@@ -247,7 +246,7 @@ function ProposalsSection({
     }
   }, h("h2", null, "Proposed changes"), h("span", {
     className: "chip chip-blue"
-  }, `${pending.length} pending · ${proposals.length} total`)), h("div", {
+  }, `${pending.length} pending`)), h("div", {
     className: "muted",
     style: {
       marginBottom: 12
@@ -261,9 +260,9 @@ function ProposalsSection({
     className: "spinner"
   }), h("span", {
     className: "muted"
-  }, "Loading proposal details…")), proposals.length === 0 ? h("div", {
+  }, "Loading proposal details…")), pending.length === 0 ? h("div", {
     className: "muted"
-  }, "No proposals yet. Extract a publication to generate one.") : h(React.Fragment, null, pending.length > 0 && h("h3", null, "Needs review"), pending.map(p => {
+  }, "No proposals awaiting review. Approved and rejected items are hidden to reduce scrolling.") : h(React.Fragment, null, h("h3", null, "Needs review"), pending.map(p => {
     const row = details[p.proposal_id];
     const canonApprove = `approve_${p.proposal_id}`;
     const canonReject = `reject_${p.proposal_id}`;
@@ -312,26 +311,6 @@ function ProposalsSection({
         note: "operator_rejected_via_research_desk"
       })
     }, "Reject")));
-  }), rest.length > 0 && h("h3", {
-    style: {
-      marginTop: 16
-    }
-  }, "History"), rest.map(p => {
-    const row = details[p.proposal_id];
-    return h("div", {
-      key: p.proposal_id,
-      className: `proposal-card ${p.status}`
-    }, h("div", {
-      className: "proposal-head"
-    }, h("code", null, (p.proposal_id || "").slice(0, 28)), h("div", {
-      className: "row"
-    }, h("span", {
-      className: p.classification === "structural" ? "chip chip-warn" : "chip chip-blue"
-    }, p.classification), h("span", {
-      className: p.status === "applied" ? "ok" : p.status === "rejected" ? "err" : "dim"
-    }, p.status), h("span", {
-      className: "dim"
-    }, fmtAgo(p.created_at)))), renderProposalBody(row?.proposal));
   })));
 }
 async function jget(path) {
@@ -1507,6 +1486,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780690270563:198003561
+// cache-bust:1780717206445:374814505
 
-// cache-bust:1780690270563:198003561
+// cache-bust:1780717206445:374814505
