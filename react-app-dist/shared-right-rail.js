@@ -4661,14 +4661,13 @@
            the new contract resolved a few hundred ms later. The user
            saw this as the chart "flickering on tab switch."
 
-           Fix: derive mode (investor|trader) from railTab and key the
-           effect on (mode, tickerSymbol) instead of (railTab, tickerSymbol).
-           Only the INVESTOR tab actually wants the investor contract;
-           every other tab returns the same trader contract, so we don't
-           need to refetch when going Snapshot → Setup → Technicals.
-           Also: don't pre-clear the contract on a refetch — let the
-           old data stay visible while the new one loads, then swap. */
-        const _predictionMode = railTab === "INVESTOR" ? "investor" : "trader";
+           Fix: key on tickerSymbol only and ALWAYS fetch trader mode.
+           investorPrediction (parallel effect below) owns the investor
+           lane. Mixing modes in one state caused Trade Plan / header
+           to show investor LONG while trader call was SHORT after an
+           Investor-tab visit (stale contract lingered until refetch).
+           Don't pre-clear on refetch — let old trader data stay visible
+           while the new ticker loads, then swap. */
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
           if (!sym) {
@@ -4686,8 +4685,12 @@
               setPredictionContractError(null);
               const qs = new URLSearchParams();
               qs.set("ticker", sym);
-              qs.set("mode", _predictionMode);
-              const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, { ttlMs: 60 * 1000, maxAgeMs: 5 * 60 * 1000 });
+              qs.set("mode", "trader");
+              const json = await _cachedJson(`${API_BASE}/timed/prediction-contract?${qs.toString()}`, {
+                ttlMs: 30 * 1000,
+                maxAgeMs: 2 * 60 * 1000,
+                fetchOpts: { cache: "no-store" },
+              });
               if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "prediction_contract_failed");
               if (!cancelled) setPredictionContract(json.contract || null);
@@ -4702,7 +4705,7 @@
           };
           fetchContract();
           return () => { cancelled = true; };
-        }, [_predictionMode, tickerSymbol]);
+        }, [tickerSymbol]);
 
         // 2026-06-03 — Parallel investor-mode prediction fetch. Runs on
         // ticker change regardless of which tab is open, so the
@@ -8201,20 +8204,41 @@
                         const pcSL = Number(predictionContract?.risk?.stop_loss);
                         const pcTargets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
                         const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
+                        const optionsTraderDir = String(optionsTabData?.contract?.direction || "").toUpperCase();
                         const tradeStatus = String(trade?.status || "").toUpperCase();
                         const tradeIsOpen = !!(trade && (
                           tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
                           (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
                         ));
-                        // 2026-05-28 — Direction priority REVERSED when a
-                        // trade is open. An open position's direction is
-                        // the committed reality; the prediction contract
-                        // may flip BIAS as the model re-scores and that
-                        // shouldn't visually invert the live trade plan.
-                        const dir = tradeIsOpen
-                          ? (String(trade?.direction || "").toUpperCase() || pcDirRaw)
-                          : ((pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null);
-                        if (!dir) return null;
+                        // 2026-06-06 — Trade Plan direction must match the
+                        // header TRADER call (v2Dir / trader contract), not
+                        // the 8-layer fusion lean or a stale investor contract.
+                        // Never default to LONG while the contract loads.
+                        const resolveTraderCallDir = (raw) => {
+                          const d = String(raw || "").toUpperCase();
+                          return d === "LONG" || d === "SHORT" ? d : "";
+                        };
+                        const traderCallDir = (() => {
+                          if (tradeIsOpen) {
+                            return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
+                          }
+                          return resolveTraderCallDir(pcDirRaw)
+                            || resolveTraderCallDir(optionsTraderDir)
+                            || resolveTraderCallDir(v2Dir);
+                        })();
+                        if (!traderCallDir) {
+                          if (predictionContractLoading) {
+                            return (
+                              <Panel title="Trade Plan">
+                                <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic" }}>
+                                  Loading trader call…
+                                </p>
+                              </Panel>
+                            );
+                          }
+                          return null;
+                        }
+                        const dir = traderCallDir;
                         const isLong = dir === "LONG";
 
                         // 2026-05-28 — SL priority REVERSED when a trade is
@@ -8334,7 +8358,7 @@
                         return (
                           <Panel title="Trade Plan" action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>
-                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Bias direction">{dir}</span>
+                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Trader call — matches header chip">{dir}</span>
                               {_rrChip}
                               <span style={{ color: eyebrowColor, fontWeight: 700 }}>{eyebrow}</span>
                             </span>
@@ -15919,4 +15943,4 @@
   };
 })();
 
-// cache-bust:1780778507820:245258155
+// cache-bust:1780779292334:337706872
