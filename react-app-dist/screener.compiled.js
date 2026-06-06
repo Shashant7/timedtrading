@@ -239,10 +239,12 @@ function App({
       const j = await res.json();
       if (j.ok) {
         const count = j.candidates ?? j.weekly?.candidates ?? j.stored ?? "?";
-        setScanMsg(`Scan complete · ${count} candidates`);
+        const ghWarn = j.github_warning || (j.github && !j.github.ok ? j.github.hint || j.github.detail || j.github.error : null);
+        setScanMsg(ghWarn ? `Scan complete · ${count} candidates (GitHub tvscreener skipped: ${ghWarn})` : `Scan complete · ${count} candidates`);
+        if (ghWarn) alert(`Weekly scan finished (${count} candidates).\n\nGitHub tvscreener was not dispatched:\n${ghWarn}`);
         await fetchCandidates(true);
       } else {
-        const hint = j.hint || j.error || j.github?.error || "unknown";
+        const hint = j.hint || j.detail || j.error || j.github?.hint || j.github?.detail || j.github?.error || "unknown";
         setScanMsg(`Scan failed: ${hint}`);
         alert(`Scan failed: ${hint}`);
       }
@@ -1110,6 +1112,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1780719611598:381920102
+// cache-bust:1780721307573:768728117
 
-// cache-bust:1780719611598:381920102
+// cache-bust:1780721307573:768728117

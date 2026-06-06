@@ -317,6 +317,8 @@ COO_SCREENER_DAILY_MAX = "3"
 # BROKER_BRIDGE_OPERATOR_KEY must be set separately via
 # `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production`.
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# GitHub Actions screener dispatch (tvscreener path). GITHUB_TOKEN is a secret.
+GITHUB_REPO = "Shashant7/timedtrading"
 # 2026-06-01 — Mirror Service Binding in production. Same rationale
 # as the top-level [[services]] block above — bypass worker-to-worker
 # loop detection (CF error 1042).

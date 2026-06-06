@@ -12393,7 +12393,7 @@
                 color: "var(--ds-text-body)",
                 lineHeight: 1.45
               }
-            }, "No FSD coverage shows yet for ", tickerSymbol, ". A background sync just kicked (", C.fsd_intel.diagnostics.heal_reason || "auto", "). Hard-refresh in 30-60 seconds \u2014 the panel will populate with TT-voice summaries + key-level chips from any FSD pub mentioning ", tickerSymbol, "."), React.createElement("div", {
+            }, "No research desk coverage shows yet for ", tickerSymbol, ". A background sync just kicked (", C.fsd_intel.diagnostics.heal_reason || "auto", "). Hard-refresh in 30-60 seconds \u2014 the panel will populate with TT-voice summaries + key-level chips from any research note mentioning ", tickerSymbol, "."), React.createElement("div", {
               style: {
                 marginTop: 6,
                 fontSize: 10,
@@ -12435,7 +12435,7 @@
               style: {
                 marginLeft: 6
               }
-            }, "No FSD publications mention ", tickerSymbol, " in the last 14 days. (", C.fsd_intel.diagnostics.pubs_total, " pubs scanned \xB7", " ", C.fsd_intel.diagnostics.tags_total, " tickers tagged universe-wide.)")), C.fsd_intel && C.fsd_intel.count === 0 && (C.fsd_intel.diagnostics?.pubs_total === 0 || C.fsd_intel.diagnostics?.pubs_total == null) && !C.fsd_intel.diagnostics?.heal_kicked && React.createElement("div", {
+            }, "No research desk notes mention ", tickerSymbol, " in the last 14 days. (", C.fsd_intel.diagnostics.pubs_total, " pubs scanned \xB7", " ", C.fsd_intel.diagnostics.tags_total, " tickers tagged universe-wide.)")), C.fsd_intel && C.fsd_intel.count === 0 && (C.fsd_intel.diagnostics?.pubs_total === 0 || C.fsd_intel.diagnostics?.pubs_total == null) && !C.fsd_intel.diagnostics?.heal_kicked && React.createElement("div", {
               style: {
                 padding: "10px 12px",
                 background: "rgba(245,158,11,0.06)",
@@ -12467,7 +12467,7 @@
                 color: "var(--ds-text-body)",
                 marginBottom: 8
               }
-            }, "No FSD publications have been ingested into the DB yet (pipeline cold-start). FSD ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now."), React.createElement("div", {
+            }, "No research notes have been ingested yet (pipeline cold-start). Research ingestion runs nightly at 22:00 UTC and hourly on weekday business hours; an admin can force-run it now."), React.createElement("div", {
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-faint)"
@@ -18411,4 +18411,4 @@
   };
 })();
 
-// cache-bust:1780717206445:374814505
+// cache-bust:1780721307573:768728117
