@@ -1073,20 +1073,31 @@
       if (err) return h(Panel, { title: "Options unavailable" },
         h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } }, "Couldn't load: ", err),
       );
-      if (!data || !data.primary) return h(Panel, { title: "No play yet" },
-        h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
-          "No Trader contract for ", sym, " yet. Options plays require an active scoring snapshot.",
-        ),
-      );
 
-      const verdict = data.confluence_verdict || {};
+      const verdict = data?.confluence_verdict || {};
       const mode = verdict.mode || "UNKNOWN";
       const modeMeta = MODE_META[mode] || MODE_META.UNKNOWN;
       const st = verdict.supertrend_trigger || {};
       const stFresh = FRESH_META[st.freshness] || st.freshness || "—";
-      const contract = data.contract || {};
-      const primary = data.primary;
-      const ladder = (data.ladder || []).slice(0, 6);
+      const contract = data?.contract || {};
+      const primary = data?.primary || dayTradeData?.play?.primary || null;
+      const ladder = (data?.ladder || []).slice(0, 6);
+      const _hasSwingPlay = !!data?.primary;
+      const _hasDayTradeSurface = !!(dayTradeData?.play || dayTradeData?.suppressed);
+      if (!data && !_hasDayTradeSurface && !loading) {
+        return h(Panel, { title: "No play yet" },
+          h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
+            "Couldn't load options for ", sym, ". Check connection or try again in a moment.",
+          ),
+        );
+      }
+      if (data && !_hasSwingPlay && !_hasDayTradeSurface && !loading) {
+        return h(Panel, { title: "No play yet" },
+          h("div", { style: { color: "var(--ds-text-muted)", fontSize: 13 } },
+            "No options play matched ", sym, " for ", String(profile || "speculator"), " right now. Try another profile or check back after the next scoring refresh.",
+          ),
+        );
+      }
 
       /* 2026-06-01 — Loading overlay during horizon/profile transitions.
          When the user flips horizon (Trader ↔ Investor) or profile
@@ -1274,7 +1285,7 @@
               },
             }, p.label)),
           ),
-          data.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
+          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
             data.profile_meta.one_liner,
           ),
         ),
@@ -1310,7 +1321,7 @@
         ),
 
         // 3. Primary play card — moonshot gets hero treatment
-        primary._moonshot_active && h("div", {
+        primary && primary._moonshot_active && h("div", {
           style: {
             background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
             border: "2px solid rgba(245,194,92,0.50)",
@@ -1326,10 +1337,10 @@
           ),
           h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", lineHeight: 1.5 } },
             "The fused 8-layer verdict has identified ", h("strong", null, "both direction AND moment"), ". Short-dated OTM gamma play — small position, multi-bagger potential if the move continues. ",
-            data.moonshot?.motion?.evidence && h("strong", { style: { color: "var(--ds-text-display)" } }, "Motion: " + data.moonshot.motion.evidence + "."),
+            data?.moonshot?.motion?.evidence && h("strong", { style: { color: "var(--ds-text-display)" } }, "Motion: " + data.moonshot.motion.evidence + "."),
           ),
         ),
-        h(Panel, {
+        primary && h(Panel, {
           title: primary._moonshot_active ? "🌙 Moonshot Play" : "🎯 Primary Play",
           color: primary._moonshot_active ? "#f5c25c" : "#f5c25c",
           action: primary._confluence_boost && !primary._moonshot_active && h("span", {
@@ -1676,7 +1687,7 @@
             primary.notes.map((n, i) => h("li", { key: i }, n)),
           ),
           // Caveat
-          data.estimated_premium_caveat && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic" } }, data.estimated_premium_caveat),
+          data?.estimated_premium_caveat && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic" } }, data.estimated_premium_caveat),
         ),
 
         // 4. Ladder of alternatives
@@ -1704,7 +1715,7 @@
 
         // Chain status footer
         h("div", { style: { fontSize: 10, color: "var(--ds-text-faint)", textAlign: "center", padding: 4 } },
-          "Chain: ", data.chain_status || "?", " · Vintage: ", verdict.strategy_vintage || "?",
+          "Chain: ", data?.chain_status || "?", " · Vintage: ", verdict.strategy_vintage || "?",
         ),
       );
     }
@@ -15802,3 +15813,5 @@
       }
   };
 })();
+
+// cache-bust:1780763676656:830196948
