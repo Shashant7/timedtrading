@@ -534,6 +534,60 @@ export async function sendSubscriptionEmail(env, email, isTrial) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// VIP Welcome Email (admin-granted complimentary access)
+// 2026-06-05 — Sent when an admin flips a user to the VIP tier. VIP is a
+// comped grant (no billing), so the copy emphasizes complimentary full
+// access rather than a purchase confirmation. Gold accent matches the VIP
+// badge in admin-clients. House style: avoid "you/your" in user-facing copy.
+// ═══════════════════════════════════════════════════════════════════════
+
+export async function sendVipWelcomeEmail(env, email) {
+  const GOLD = "#fbbf24";
+  const featureItem = (icon, title) => `
+    <tr>
+      <td style="padding:4px 0">
+        <span style="font-size:13px">${icon}</span>
+        <span style="margin-left:6px;font-size:13px;color:${BRAND.textSecondary}">${title}</span>
+      </td>
+    </tr>`;
+
+  const html = emailLayout(`
+    <div style="display:inline-block;padding:3px 10px;margin:0 0 14px;border:1px solid rgba(251,191,36,0.30);background:rgba(251,191,36,0.10);border-radius:999px">
+      <span style="font-size:11px;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;color:${GOLD}">&#x2728; VIP Access</span>
+    </div>
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:white">Welcome to VIP</h1>
+    <p style="margin:0 0 20px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6">
+      This account has been upgraded to <strong style="color:${GOLD}">VIP</strong> &mdash; complimentary, full access to everything Timed Trading offers, with no billing and nothing to manage.
+    </p>
+
+    <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">VIP access includes</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
+      ${featureItem("&#x1F4CA;", "Analysis Dashboard &mdash; multi-timeframe scoring &amp; sector rotation")}
+      ${featureItem("&#x26A1;", "Active Trader Board &mdash; tickers sorted by trade lane")}
+      ${featureItem("&#x1F4C8;", "Investor Dashboard &mdash; portfolio health &amp; market regime")}
+      ${featureItem("&#x1F4DD;", "Daily Brief &mdash; pre-market &amp; post-market reports")}
+      ${featureItem("&#x1F4BC;", "Trades &amp; Portfolio &mdash; live positions &amp; P&amp;L tracking")}
+      ${featureItem("&#x1F514;", "Trade Alerts &mdash; real-time entry, exit &amp; trim notifications")}
+      ${featureItem("&#x1F4AC;", "Discord Community &mdash; private server access")}
+    </table>
+
+    <p style="margin:0 0 24px;font-size:13px;color:${BRAND.textSecondary};line-height:1.6">
+      If a paid subscription was active, it has been canceled so there will be no further charges &mdash; VIP access stays on regardless.
+    </p>
+
+    <table role="presentation" cellpadding="0" cellspacing="0">
+      <tr><td style="background:${BRAND.green};border-radius:8px;padding:12px 28px">
+        <a href="https://timed-trading.com/today.html" style="color:white;font-size:14px;font-weight:600;text-decoration:none;display:inline-block">Go to Dashboard</a>
+      </td></tr>
+    </table>
+  `, { preheader: "This account has been upgraded to complimentary VIP access." });
+
+  const text = "Welcome to VIP.\n\nThis account has been upgraded to VIP — complimentary, full access to everything Timed Trading offers, with no billing and nothing to manage.\n\nVIP access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nIf a paid subscription was active, it has been canceled so there will be no further charges — VIP access stays on regardless.\n\nGo to the dashboard: https://timed-trading.com/today.html";
+
+  return sendEmail(env, { to: email, subject: "Welcome to VIP — Complimentary Access", html, text, category: "subscription" });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Farewell Email (subscription ended)
 // ═══════════════════════════════════════════════════════════════════════
 
