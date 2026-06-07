@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   applyInvestorTimingGate,
   classifyInvestorStage,
+  revalidateInvestorTickerAtRead,
   DEFAULT_INVESTOR_CONFIG,
 } from "./investor.js";
+import { computeTimingOverlay } from "./timing-signals.js";
 
 describe("applyInvestorTimingGate", () => {
   const cfg = DEFAULT_INVESTOR_CONFIG;
@@ -53,6 +55,45 @@ describe("applyInvestorTimingGate", () => {
       { existingPosition: { status: "OPEN" }, investorScore: 20, cfg },
     );
     expect(out.stage).toBe("reduce");
+  });
+});
+
+describe("revalidateInvestorTickerAtRead", () => {
+  it("overrides stale accumulate cache when TIME_TOP is live", () => {
+    const cached = {
+      ticker: "SPY",
+      score: 59,
+      stage: "accumulate",
+      stageReason: "momentum_runner",
+      rsRank: 55,
+      position: { owned: false },
+      actionTier: "act_now",
+    };
+    const latestTd = {
+      ticker: "SPY",
+      price: 737.55,
+      monthly_bundle: { supertrend_dir: -1, ema_structure: 1, rsi: 75 },
+      tf_tech: {
+        D: { atr: { xs: 1 }, stDir: -1, ema: { priceAboveEma21: true }, phase: { v: 90.96, z: "HIGH" }, rsi: { r5: 78 } },
+        W: { atr: { xs: 1 }, rsi: { r5: 72 } },
+      },
+      td_sequential: { per_tf: { D: { bearish_prep_count: 8 }, W: { bearish_prep_count: 8 } } },
+      regime_forecast: { p_1d: { HTF_BEAR_LTF_BEAR: 0.6, HTF_BULL_LTF_BULL: 0.1 } },
+      regime_exhausted: { sigma_above_mean: 23.4 },
+      _vix: 19.65,
+    };
+    const accumZone = { inZone: true, zoneType: "momentum_runner", confidence: 74 };
+    const { revalidated, data } = revalidateInvestorTickerAtRead(cached, latestTd, {
+      rsRank: 55,
+      marketHealth: 50,
+      cfg: DEFAULT_INVESTOR_CONFIG,
+    });
+    expect(revalidated).toBe(true);
+    expect(data.stage).toBe("watch");
+    expect(data.stageReason).toMatch(/timing_top/);
+    expect(data.timing_primary).toBe("TOP");
+    expect(data._stage_changed_from_cache?.stage).toBe("accumulate");
+    expect(computeTimingOverlay(latestTd).timing_primary).toBe("TOP");
   });
 });
 

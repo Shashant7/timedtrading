@@ -4477,10 +4477,13 @@
           setTradeChartSelection(null);
         }, [tickerSymbol]);
 
-        // Fetch investor data when INVESTOR tab is selected
+        // Revalidated investor lane — fetched on ticker change (not only
+        // INVESTOR tab). /timed/all investor_stage lags until hourly
+        // compute; GET /timed/investor/ticker re-runs stage at read time
+        // so Snapshot header chip + Investor tab stay aligned.
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
-          if (railTab !== "INVESTOR" || !sym) {
+          if (!sym) {
             setInvestorData(null);
             setInvestorError(null);
             setInvestorLoading(false);
@@ -4488,25 +4491,32 @@
           }
           let cancelled = false;
           const fetchInvestor = async () => {
+            const showLoading = railTab === "INVESTOR";
             try {
-              setInvestorLoading(true);
-              setInvestorError(null);
-              const json = await _cachedJson(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 });
+              if (showLoading) {
+                setInvestorLoading(true);
+                setInvestorError(null);
+              }
+              const json = await _cachedJson(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
+                ttlMs: 30 * 1000,
+                maxAgeMs: 2 * 60 * 1000,
+                fetchOpts: { cache: "no-store" },
+              });
               if (!json) throw new Error("network");
               if (!json.ok) throw new Error(json.error || "investor_failed");
               if (!cancelled) setInvestorData({ ticker: sym, ...json });
             } catch (e) {
               if (!cancelled) {
-                setInvestorData(null);
-                setInvestorError(String(e?.message || e));
+                if (showLoading) setInvestorData(null);
+                if (showLoading) setInvestorError(String(e?.message || e));
               }
             } finally {
-              if (!cancelled) setInvestorLoading(false);
+              if (!cancelled && showLoading) setInvestorLoading(false);
             }
           };
           fetchInvestor();
           return () => { cancelled = true; };
-        }, [railTab, tickerSymbol]);
+        }, [tickerSymbol, API_BASE]);
 
         // Fundamentals fetch — only when the Fundamentals tab is selected.
         // Cached per-ticker for 5 min in fundamentalsCacheRef so tab flips
@@ -5574,7 +5584,11 @@
                           SOFI TRADER:SHORT, INV:LONG is the divergence
                           we want to surface). */}
                       {(() => {
-                        const invStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+                        const invSym = String(tickerSymbol || "").trim().toUpperCase();
+                        const liveInvStage = (investorData?.ticker === invSym) ? investorData?.stage : null;
+                        const invStage = String(
+                          liveInvStage || ticker?.investor_stage || latestTicker?.investor_stage || ""
+                        ).toLowerCase();
                         if (!invStage || invStage === "—") return null;
                         const INV_LANE_META = {
                           accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor: Strong setup + favorable entry. Build a starter position." },
@@ -6631,6 +6645,23 @@
                         const ipReason = String(ip?.why_now || "").trim();
                         // Plain-English mapping for the action label.
                         const ipActionLine = (() => {
+                          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
+                          const liveStage = (investorData?.ticker === cardSym)
+                            ? String(investorData?.stage || "").toLowerCase()
+                            : "";
+                          if (liveStage) {
+                            const STAGE_ACTION = {
+                              watch: "Hold — no add, no trim. Monitor signals.",
+                              accumulate: "Accumulate — add to position on weakness.",
+                              core_hold: "Hold and DCA on dips — thesis intact.",
+                              reduce: "Reduce on strength — taking profits.",
+                              research_on_watch: "Monitor — on the radar, not actionable yet.",
+                              research_low: "Pass — low conviction for now.",
+                              research_avoid: "Avoid — investor lane sees no edge here.",
+                              exited: "Closed — monitor for re-entry conditions.",
+                            };
+                            if (STAGE_ACTION[liveStage]) return STAGE_ACTION[liveStage];
+                          }
                           const a = ipAction.toLowerCase();
                           if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
                           if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";

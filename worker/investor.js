@@ -697,6 +697,88 @@ export function applyInvestorTimingGate(stageResult, timing, ctx = {}) {
   return stageResult;
 }
 
+/**
+ * Read-time investor revalidation — applies fresh timing_overlay + stage gate
+ * against timed:latest snapshot so GET /timed/investor/ticker is never stale
+ * on timing_primary while KV scores await the next compute cron.
+ */
+export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
+  if (!cached || !latestTd || !(Number(latestTd.price) > 0)) {
+    return { revalidated: false, data: cached };
+  }
+
+  const {
+    rsRank = Number(cached?.rsRank) || 50,
+    marketHealth = Number(opts.marketHealth) || 50,
+    sectorRsRank = 50,
+    existingPosition = null,
+    cfg = DEFAULT_INVESTOR_CONFIG,
+  } = opts;
+
+  const td = { ...latestTd, ticker: String(latestTd.ticker || cached.ticker || "").toUpperCase() };
+  const { score, components, accumZone } = computeInvestorScore(td, {
+    rsRank,
+    sectorRsRank,
+    marketHealth,
+    cfg,
+  });
+  const stage = classifyInvestorStage(td, score, existingPosition, {
+    rsRank,
+    marketHealth,
+    accumZone,
+    cfg,
+  });
+  const timing = resolveInvestorTimingOverlay(td);
+
+  const posMeta = cached?.position && typeof cached.position === "object"
+    ? cached.position
+    : { owned: false };
+  const _stDirD = td?.tf_tech?.D?.stDir ?? 0;
+  const _stDirW = td?.tf_tech?.W?.stDir ?? 0;
+  const _stDirM = td?.monthly_bundle?.supertrend_dir ?? 0;
+  const _stDirBullCount = (_stDirD === -1 ? 1 : 0)
+    + (_stDirW === -1 ? 1 : 0)
+    + (_stDirM === -1 ? 1 : 0);
+  const simEligible = (_stDirM === -1) && (_stDirBullCount >= 2);
+  const actionTier = computeInvestorActionTier({
+    stage: stage.stage,
+    score,
+    simEligible,
+    accumZone,
+    position: posMeta,
+  });
+
+  const fresh = {
+    ...cached,
+    score,
+    components,
+    accumZone,
+    stage: stage.stage,
+    stageReason: stage.reason,
+    timing_primary: stage.timing_primary || timing?.timing_primary || null,
+    timing_playbook: stage.timing_playbook || timing?.playbook || null,
+    timing_overlay: timing,
+    _stDirD,
+    _stDirW,
+    _stDirM,
+    _stDirBullCount,
+    simEligible,
+    actionTier,
+    rebalanceCandidate: stage.stage === "accumulate" || stage.stage === "watch",
+    _stage_revalidated: true,
+    _stage_revalidated_at: Date.now(),
+  };
+
+  if (cached.stage !== stage.stage || cached.stageReason !== stage.reason) {
+    fresh._stage_changed_from_cache = {
+      stage: cached.stage,
+      stageReason: cached.stageReason,
+    };
+  }
+
+  return { revalidated: true, data: fresh };
+}
+
 export function computeInvestorActionTier(row) {
   const stage = String(row?.stage || "");
   if (stage !== "accumulate" && stage !== "reduce") return null;
