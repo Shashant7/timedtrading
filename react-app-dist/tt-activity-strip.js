@@ -343,6 +343,15 @@
     if (document.body?.dataset?.isPro === "true") return true;
     return false;
   }
+  function isAuthenticated() {
+    if (document.body?.dataset?.isAuthenticated === "true") return true;
+    try {
+      const session = window.TimedAuthHelpers?.getStoredSession?.();
+      return !!session;
+    } catch (_) {
+      return false;
+    }
+  }
 
   function setHostVisible(host, visible) {
     if (!host) return;
@@ -351,8 +360,9 @@
   }
 
   async function refresh(host) {
-    if (!isProOrAdmin()) {
-      // Free user — hide and bail. Re-evaluated on tt-auth-bootstrap-updated.
+    if (!isAuthenticated() || !isProOrAdmin()) {
+      // Logged-out or free user — hide and bail. Re-evaluated on
+      // tt-auth-bootstrap-updated when auth-gate clears dataset flags.
       _events = [];
       setHostVisible(host, false);
       return;
@@ -424,4 +434,4 @@
   else mount();
 })();
 
-// cache-bust:1780839194476:452032080
+// cache-bust:1780847640526:622432405
