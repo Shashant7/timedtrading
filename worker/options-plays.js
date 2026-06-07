@@ -578,6 +578,118 @@ export function buildOptionsSetupGuidance({
 }
 
 /**
+ * Plain-English model disposition for options UI — answers whether the
+ * system would size this play vs show it for education only.
+ */
+export function buildOptionsModelDisposition({
+  confluence,
+  contractDirection,
+  effectiveDirection,
+  directionFlipped,
+  directionAlignment,
+  setupGuidance,
+  primary,
+  moonshot,
+}) {
+  const score = Number(confluence?.score) || 0;
+  const mode = String(confluence?.mode || "WAIT").toUpperCase();
+  const side = String(confluence?.side || "NEUTRAL").toUpperCase();
+  const contractDir = String(contractDirection || "").toUpperCase() || null;
+  const effDir = String(effectiveDirection || contractDir || "").toUpperCase() || null;
+  const tier = String(setupGuidance?.tier || "not_good");
+  const hasPlay = !!primary;
+  const timingOverride = !!(directionAlignment?.timing_override || confluence?.timing_override);
+  const signalSplit = (contractDir === "LONG" || contractDir === "SHORT")
+    && (side === "LONG" || side === "SHORT")
+    && contractDir !== side;
+  const faded = !!directionFlipped;
+
+  const fusionBand = score >= 65 ? "strong" : score >= 40 ? "mixed" : "weak";
+  const fusionLabel = fusionBand === "strong"
+    ? "Strong fusion"
+    : fusionBand === "mixed"
+      ? "Mixed fusion"
+      : "Weak fusion";
+
+  let stance = "sit_out";
+  let stanceLabel = "MODEL SITS OUT";
+  let stanceColor = "#9ca3af";
+  let summary = "";
+  let detail = "";
+
+  if (!hasPlay) {
+    summary = "No options expression matched this setup.";
+    detail = setupGuidance?.why || "The model would not route capital here.";
+  } else if (tier === "good" && mode === "RIDE" && fusionBand === "strong") {
+    stance = "enter";
+    stanceLabel = "MODEL ALIGNED";
+    stanceColor = "#34d399";
+    summary = "High fusion and fresh timing — the model targets this expression on trigger.";
+    detail = moonshot?.activated
+      ? "Moonshot tier: direction and momentum agree. Size small; gamma decays fast."
+      : (setupGuidance?.why || "");
+  } else if (tier === "forming" || mode === "READY") {
+    stance = "stage";
+    stanceLabel = "WAIT FOR TRIGGER";
+    stanceColor = "#f5c25c";
+    summary = "Setup forming — stage the order; do not chase before SuperTrend confirms.";
+    detail = setupGuidance?.why || "";
+  } else if (tier === "valid" && (mode === "RIDE" || mode === "DRIFT") && fusionBand !== "weak") {
+    stance = "stage";
+    stanceLabel = "DEFINED-RISK OK";
+    stanceColor = "#60a5fa";
+    summary = "Valid expression with partial or late alignment — tight sizing only.";
+    detail = setupGuidance?.why || "";
+  } else if (hasPlay && tier !== "not_good" && (mode === "FADE" || timingOverride || faded || signalSplit)) {
+    stance = "fade_risk";
+    stanceLabel = faded || mode === "FADE" ? "COUNTER-TREND / TIMING" : "TIMING PLAY";
+    stanceColor = "#a78bfa";
+    if (faded && contractDir && effDir && contractDir !== effDir) {
+      summary = `Play expresses ${effDir} while trader contract reads ${contractDir} — intentional fade, not a data bug.`;
+    } else if (signalSplit) {
+      summary = `Layers lean ${side} while trader contract is ${contractDir} — timing-driven expression only.`;
+    } else {
+      summary = "Timing opened a narrow window despite weak or split layer fusion.";
+    }
+    detail = `${fusionLabel} (${score}/100). ${setupGuidance?.why || ""} Valid as small defined-risk — not a full-conviction trend entry.`.trim();
+  } else if (hasPlay && tier === "valid") {
+    stance = "fade_risk";
+    stanceLabel = "SMALL SIZE ONLY";
+    stanceColor = "#60a5fa";
+    summary = "Play is valid but fusion is not strong enough for a full conviction entry.";
+    detail = setupGuidance?.why || "";
+  } else if (hasPlay) {
+    stance = "educational";
+    stanceLabel = "EDUCATIONAL ONLY";
+    stanceColor = "#9ca3af";
+    summary = "Shown for context — the model would not size a directional entry here.";
+    detail = setupGuidance?.why || "";
+  }
+
+  return {
+    stance,
+    stance_label: stanceLabel,
+    stance_color: stanceColor,
+    summary,
+    detail: detail.trim(),
+    fusion_score: score,
+    fusion_band: fusionBand,
+    fusion_label: fusionLabel,
+    fusion_help: "Fusion is how strongly the 8 strategy layers agree (0–100). Low scores mean layers are split — not a win probability.",
+    contract_direction: contractDir,
+    effective_direction: effDir,
+    confluence_side: side,
+    confluence_mode: mode,
+    direction_flipped: faded,
+    signal_split: signalSplit,
+    timing_driven: timingOverride || mode === "FADE" || faded,
+    would_model_enter: stance === "enter",
+    would_model_stage: stance === "stage" || stance === "fade_risk",
+    valid_play: hasPlay && stance !== "sit_out" && stance !== "educational",
+  };
+}
+
+/**
  * Detect "underlying already in motion" — the moonshot ignition condition.
  * The fused TT call has identified BOTH direction AND moment; the move is
  * underway and we want to ride it via gamma.
@@ -2237,17 +2349,38 @@ export function buildOptionsLadder(contract, opts = {}) {
       reason: moonshotDecision.reason || null,
       motion: moonshotDecision.motion || null,
     },
-    setup_guidance: buildOptionsSetupGuidance({
-      confluence: verdict,
-      contract: { ticker: tickerSym, atr_pct: atrPct, direction },
-      directionAlignment: isIndexTrader ? indexAlign : null,
-      primary,
-      moonshot: {
-        activated: !!moonshotDecision.activate,
-        reason: moonshotDecision.reason || null,
-      },
-      isInvestorMode,
-    }),
+    ...(() => {
+      const setup_guidance = buildOptionsSetupGuidance({
+        confluence: verdict,
+        contract: { ticker: tickerSym, atr_pct: atrPct, direction },
+        directionAlignment: isIndexTrader ? indexAlign : null,
+        primary,
+        moonshot: {
+          activated: !!moonshotDecision.activate,
+          reason: moonshotDecision.reason || null,
+        },
+        isInvestorMode,
+      });
+      const model_disposition = buildOptionsModelDisposition({
+        confluence: verdict,
+        contractDirection: direction,
+        effectiveDirection,
+        directionFlipped: fadeFlipped,
+        directionAlignment: isIndexTrader ? indexAlign : null,
+        setupGuidance: setup_guidance,
+        primary,
+        moonshot: {
+          activated: !!moonshotDecision.activate,
+          reason: moonshotDecision.reason || null,
+        },
+      });
+      return {
+        setup_guidance,
+        contract_direction: direction,
+        effective_direction: effectiveDirection,
+        model_disposition,
+      };
+    })(),
     estimated_premium_caveat: opts.chain
       ? null
       : "Premium values are Black-Scholes estimates using ATR-implied volatility. Verify in your broker chain before executing.",

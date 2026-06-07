@@ -1765,6 +1765,10 @@
       const _layerSplitLabel = Number.isFinite(_longLayers) && Number.isFinite(_shortLayers) ? `${_longLayers}L · ${_shortLayers}S` : _layersRatio;
       const _callColor = _traderCall === "SHORT" ? "#fb7185" : _traderCall === "LONG" ? "#34d399" : "var(--ds-text-muted)";
       const _callVsLeanConflict = (_traderCall === "LONG" || _traderCall === "SHORT") && (_layerLean === "LONG" || _layerLean === "SHORT") && _traderCall !== _layerLean;
+      const _disp = data?.model_disposition || null;
+      const _effDir = String(_disp?.effective_direction || data?.effective_direction || _traderCall || "").toUpperCase();
+      const _contractDir = String(_disp?.contract_direction || contract?.direction || _traderCall || "").toUpperCase();
+      const _dirFlipped = !!(_disp?.direction_flipped || data?.direction_flipped_by_confluence);
       const _loadingOverlay = loading && data && h("div", {
         style: {
           position: "absolute",
@@ -2028,8 +2032,9 @@
           fontWeight: 700,
           color: "var(--ds-text-faint)",
           letterSpacing: "0.05em"
-        }
-      }, "CONFLUENCE"), h("div", {
+        },
+        title: _disp?.fusion_help || "8-layer fusion score — not win probability"
+      }, "FUSION"), h("div", {
         style: {
           fontFamily: "var(--tt-font-mono)",
           fontWeight: 700,
@@ -2049,7 +2054,7 @@
           color: "var(--ds-text-muted)",
           marginTop: 2
         }
-      }, Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak")), h("div", {
+      }, _disp?.fusion_label || (Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak"))), h("div", {
         style: {
           padding: "var(--ds-space-2)",
           background: "rgba(255,255,255,0.03)",
@@ -2080,8 +2085,8 @@
       }, "Fusion leans ", _layerLean || "—")), h("div", {
         style: {
           padding: "var(--ds-space-2)",
-          background: _traderCall === "SHORT" ? "rgba(248,113,113,0.06)" : _traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-          border: `1px solid ${_traderCall === "SHORT" ? "rgba(248,113,113,0.25)" : _traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
+          background: _effDir === "SHORT" ? "rgba(248,113,113,0.06)" : _effDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
+          border: `1px solid ${_effDir === "SHORT" ? "rgba(248,113,113,0.25)" : _effDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
           borderRadius: "var(--ds-radius-md)"
         }
       }, h("div", {
@@ -2091,21 +2096,85 @@
           color: "var(--ds-text-faint)",
           letterSpacing: "0.05em"
         }
-      }, "TRADER CALL"), h("div", {
+      }, "PLAY DIRECTION"), h("div", {
         style: {
           fontFamily: "var(--tt-font-mono)",
           fontWeight: 700,
           marginTop: 2,
           fontSize: 18,
-          color: _callColor
+          color: _effDir === "SHORT" ? "#fb7185" : _effDir === "LONG" ? "#34d399" : "var(--ds-text-muted)"
         }
-      }, _traderCall || "—"), h("div", {
+      }, _effDir || "—"), h("div", {
         style: {
           fontSize: 10,
           color: "var(--ds-text-muted)",
           marginTop: 2
         }
-      }, "ST: ", st.side || "—", " · ", stFresh))), (setupGuidance.why || setupGuidance.body) && h("div", {
+      }, _dirFlipped && _contractDir ? `Contract ${_contractDir} · faded to ${_effDir}` : "ST: " + (st.side || "—") + " · " + stFresh))), _disp && h("div", {
+        style: {
+          marginTop: "var(--ds-space-2)",
+          marginBottom: "var(--ds-space-2)",
+          padding: "var(--ds-space-2)",
+          background: (_disp.stance_color || "#9ca3af") + "14",
+          border: `1px solid ${_disp.stance_color || "#9ca3af"}44`,
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 4
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.06em"
+        }
+      }, "WOULD THE MODEL TAKE THIS?"), h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          padding: "2px 8px",
+          borderRadius: 999,
+          color: _disp.stance_color || "#9ca3af",
+          background: (_disp.stance_color || "#9ca3af") + "18",
+          border: `1px solid ${_disp.stance_color || "#9ca3af"}55`
+        }
+      }, _disp.stance_label || "—")), h("div", {
+        style: {
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.45,
+          fontWeight: 600
+        }
+      }, _disp.summary || "—"), _disp.detail && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45,
+          marginTop: 6
+        }
+      }, _disp.detail), _dirFlipped && _contractDir && _effDir && _contractDir !== _effDir && h("div", {
+        style: {
+          marginTop: 8,
+          fontSize: 10,
+          color: "var(--ds-text-faint)",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "Trader contract ", _contractDir, " → play expresses ", _effDir, " (FADE flip)"), _disp.valid_play === false && h("div", {
+        style: {
+          marginTop: 6,
+          fontSize: 10,
+          color: "#f87171",
+          fontWeight: 600
+        }
+      }, "Not a live entry recommendation — review only.")), (setupGuidance.why || setupGuidance.body) && h("div", {
         style: {
           marginTop: "var(--ds-space-2)",
           paddingTop: "var(--ds-space-2)",
@@ -2357,7 +2426,24 @@
       }, "Motion: " + data.moonshot.motion.evidence + "."))), primary && h(Panel, {
         title: primary._moonshot_active ? "🌙 Moonshot Play" : "🎯 Primary Play",
         color: primary._moonshot_active ? "#f5c25c" : "#f5c25c",
-        action: primary._confluence_boost && !primary._moonshot_active && h("span", {
+        action: h("div", {
+          style: {
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap"
+          }
+        }, _disp && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            color: _disp.stance_color || "#9ca3af",
+            background: (_disp.stance_color || "#9ca3af") + "18",
+            padding: "2px 8px",
+            borderRadius: 999,
+            border: `1px solid ${_disp.stance_color || "#9ca3af"}44`,
+            letterSpacing: "0.04em"
+          }
+        }, _disp.stance_label), primary._confluence_boost && !primary._moonshot_active && h("span", {
           style: {
             fontSize: 10,
             fontWeight: 700,
@@ -2367,8 +2453,19 @@
             borderRadius: 999,
             border: "1px solid rgba(52,211,153,0.30)"
           }
-        }, "⚡ CONFLUENCE BOOSTED")
-      }, h("div", {
+        }, "⚡ FUSION BOOSTED"))
+      }, _disp?.summary && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.45,
+          marginBottom: 8,
+          padding: "8px 10px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 8
+        }
+      }, _disp.summary), h("div", {
         style: {
           fontSize: 16,
           fontWeight: 700,
@@ -18823,4 +18920,4 @@
   };
 })();
 
-// cache-bust:1780835962708:141146928
+// cache-bust:1780839194476:452032080

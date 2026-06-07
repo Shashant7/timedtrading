@@ -1608,7 +1608,11 @@ function OptionsPlaysOfTheDay({
     style: containerStyle
   }, plays.map(p => {
     const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
-    const dirColor = p.direction === "SHORT" ? "#f87171" : "#34d399";
+    const disp = p.model_disposition || null;
+    const effDir = String(disp?.effective_direction || p.effective_direction || p.direction || "").toUpperCase();
+    const contractDir = String(disp?.contract_direction || p.contract_direction || p.direction || "").toUpperCase();
+    const dirFlipped = !!(disp?.direction_flipped || p.direction_flipped_by_confluence);
+    const dirColor = effDir === "SHORT" ? "#f87171" : effDir === "LONG" ? "#34d399" : "var(--tt-text-muted)";
     const isMoonshot = p.primary?._moonshot_active;
     const cardBg = isMoonshot ? "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))" : meta.bg;
     const cardBorder = isMoonshot ? "2px solid rgba(245,194,92,0.55)" : `1px solid ${meta.color}33`;
@@ -1659,21 +1663,47 @@ function OptionsPlaysOfTheDay({
       style: {
         display: "flex",
         alignItems: "baseline",
-        gap: 6
+        gap: 6,
+        flexWrap: "wrap"
       }
     }, h("strong", {
       style: {
         fontSize: isSidebar ? 14 : 16,
         color: "var(--tt-text)"
       }
-    }, p.ticker), h("span", {
+    }, p.ticker), effDir && h("span", {
       style: {
         fontSize: 10,
         fontWeight: 700,
         color: dirColor,
         letterSpacing: "0.05em"
       }
-    }, p.direction)), h("span", {
+    }, "PLAY ", effDir), dirFlipped && contractDir && contractDir !== effDir && h("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 600,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.04em"
+      },
+      title: "Trader contract direction — play faded intentionally"
+    }, "(contract ", contractDir, ")")), h("div", {
+      style: {
+        display: "flex",
+        gap: 4,
+        flexWrap: "wrap"
+      }
+    }, disp && h("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.05em",
+        color: disp.stance_color || "#9ca3af",
+        padding: "2px 7px",
+        borderRadius: 999,
+        background: (disp.stance_color || "#9ca3af") + "22",
+        border: `1px solid ${disp.stance_color || "#9ca3af"}44`
+      }
+    }, disp.stance_label), h("span", {
       style: {
         fontSize: 10,
         fontWeight: 700,
@@ -1683,7 +1713,7 @@ function OptionsPlaysOfTheDay({
         background: meta.color + "20",
         letterSpacing: "0.05em"
       }
-    }, meta.icon, " ", p.confluence_mode)), h("div", {
+    }, meta.icon, " ", p.confluence_mode))), h("div", {
       style: {
         fontSize: isSidebar ? 12 : 13,
         fontWeight: 700,
@@ -1708,18 +1738,25 @@ function OptionsPlaysOfTheDay({
       style: {
         color: "#34d399"
       }
-    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), !isSidebar && h("div", {
+    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), disp?.summary && h("div", {
+      style: {
+        marginTop: 6,
+        fontSize: isSidebar ? 10 : 11,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.4
+      }
+    }, disp.summary), !isSidebar && h("div", {
       style: {
         marginTop: 6,
         fontSize: 10,
         color: "var(--tt-text-faint)"
       }
-    }, "Conf ", h("strong", {
+    }, "Fusion ", h("strong", {
       style: {
         color: "var(--tt-text)",
         fontFamily: "var(--tt-font-mono)"
       }
-    }, p.confluence_score || 0, "/100"), " · ", p.setup_grade || "—"));
+    }, p.confluence_score || 0, "/100"), disp?.fusion_label ? " · " + disp.fusion_label : "", " · ", p.setup_grade || "—", disp?.valid_play === false ? " · educational only" : ""));
   }))));
 }
 function OpenPositionsPreview({
@@ -5583,6 +5620,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780835962708:141146928
+// cache-bust:1780839194476:452032080
 
-// cache-bust:1780835962708:141146928
+// cache-bust:1780839194476:452032080
