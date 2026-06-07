@@ -1,3 +1,5 @@
+import { detectExhaustionWarnings as _detectExhaustionWarningsFromTiming } from "./timing-signals.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Intelligence Module
 //
@@ -723,6 +725,13 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
     const _stgTdPerTf = tickerData?.td_sequential?.per_tf;
     const _stgTdW = _stgTdPerTf?.W || _stgTdPerTf?.["1W"];
+    const _stgTdD = _stgTdPerTf?.D || _stgTdPerTf?.["1D"];
+    if (_stgTdW?.bearish_prep_count >= 7 || _stgTdW?.td9_bearish) {
+      return { stage: "watch", reason: "weekly_buyer_exhaustion_td9" };
+    }
+    if (_stgTdD?.bearish_prep_count >= 8 || _stgTdD?.td9_bearish) {
+      return { stage: "watch", reason: "daily_buyer_exhaustion_td9" };
+    }
     if (_stgTdW?.bullish_prep_count >= 8) {
       return { stage: "watch", reason: "weekly_seller_exhaustion" };
     }
@@ -825,44 +834,7 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
  * @returns {string[]} array of warning identifiers; empty when no exhaustion.
  */
 export function detectExhaustionWarnings(tickerData) {
-  if (!tickerData || typeof tickerData !== "object") return [];
-  const mb = tickerData.monthly_bundle;
-  const tfD = tickerData.tf_tech?.D;
-  const tfW = tickerData.tf_tech?.W;
-  const out = [];
-
-  // 1. TD9 setup count >= 7 on Daily — sell signal within 2 bars
-  const _tdD = tfD?.td?.setup_count ?? tfD?.td?.tv_count ?? tickerData?.td_sequential?.D?.bearish_prep_count;
-  if (Number(_tdD) >= 7) out.push(`daily_td9_at_${Number(_tdD)}`);
-  // 2. TD9 setup count >= 7 on Weekly — same on a higher TF
-  const _tdW = tfW?.td?.setup_count ?? tfW?.td?.tv_count ?? tickerData?.td_sequential?.W?.bearish_prep_count;
-  if (Number(_tdW) >= 7) out.push(`weekly_td9_at_${Number(_tdW)}`);
-  // 3. Daily Phase EXTREME (>= 130 or zone === 'EXTREME')
-  const _phaseD = Number(tfD?.phase?.v ?? tickerData?.phase_pct);
-  const _phaseDZ = String(tfD?.phase?.z || "").toUpperCase();
-  if (_phaseDZ === "EXTREME" || _phaseD >= 130) out.push(`daily_phase_extreme_${Math.round(_phaseD || 0)}`);
-  // 4. Weekly Phase EXTREME
-  const _phaseW = Number(tfW?.phase?.v);
-  const _phaseWZ = String(tfW?.phase?.z || "").toUpperCase();
-  if (_phaseWZ === "EXTREME" || _phaseW >= 130) out.push(`weekly_phase_extreme_${Math.round(_phaseW || 0)}`);
-  // 5. Monthly RSI > 80 — extremely rare and historically marks tops
-  const _mRsi = Number(mb?.rsi);
-  if (_mRsi >= 80) out.push(`monthly_rsi_${_mRsi.toFixed(0)}`);
-  // 6. Weekly RSI > 85 — very overbought on the timeframe that matters most
-  const _wRsi5 = Number(tfW?.rsi?.r5);
-  if (Number.isFinite(_wRsi5) && _wRsi5 >= 85) out.push(`weekly_rsi_${_wRsi5.toFixed(0)}`);
-  // 7. Bearish divergence on Daily or Weekly
-  if (tickerData?.rsi_divergence?.D?.bear?.active || tfD?.rsiDiv?.bear?.active) out.push("daily_bearish_rsi_divergence");
-  if (tickerData?.rsi_divergence?.W?.bear?.active || tfW?.rsiDiv?.bear?.active) out.push("weekly_bearish_rsi_divergence");
-  // 8. RS rank below 30 — relative strength deteriorating despite price rally
-  //    (price up but lagging the broader market = momentum hiding distribution)
-  const _rsRank = Number(tickerData?.__rsRank ?? tickerData?.rsRank);
-  if (Number.isFinite(_rsRank) && _rsRank < 30) out.push(`rs_rank_${Math.round(_rsRank)}_below_30`);
-  // 9. Negative 1-month RS — short-window relative strength is bearish
-  const _rs1m = Number(tickerData?.rs?.rs1m);
-  if (Number.isFinite(_rs1m) && _rs1m < -3) out.push(`rs_1m_${_rs1m.toFixed(1)}pct`);
-
-  return out;
+  return _detectExhaustionWarningsFromTiming(tickerData);
 }
 
 /**

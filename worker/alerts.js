@@ -1,5 +1,11 @@
 // Alerts module — Discord notifications and proactive alert generation
 
+import {
+  BROAD_INDEX_TICKERS,
+  evaluateBroadIndexExtensionWatch,
+  evaluateBroadIndexCompressionWatch,
+} from "./timing-signals.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
 // ─────────────────────────────────────────────────────────────────────────────
@@ -519,6 +525,77 @@ export function generateProactiveAlerts(allTickers, allTrades) {
       })),
     });
   }
+
+  const indexSnapshots = {};
+  allTickers.forEach((t) => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    if (BROAD_INDEX_TICKERS.has(sym)) indexSnapshots[sym] = t;
+  });
+  const indexWatch = evaluateBroadIndexExtensionWatch(indexSnapshots);
+  if (indexWatch.active) {
+    alerts.push({
+      type: "INDEX_EXTENSION_WATCH",
+      priority: "high",
+      ticker: "INDEX",
+      message: indexWatch.headline || "Broad index extension watch active — trim winners, stage puts on confirm.",
+      breadth: indexWatch.breadth,
+      avg_score: indexWatch.avg_score,
+      detail: indexWatch.detail,
+    });
+  }
+
+  const compressionWatch = evaluateBroadIndexCompressionWatch(indexSnapshots);
+  if (compressionWatch.active) {
+    alerts.push({
+      type: "INDEX_COMPRESSION_WATCH",
+      priority: "high",
+      ticker: "INDEX",
+      message: compressionWatch.headline || "Broad index compression watch active — add on dips, stage calls on confirm.",
+      breadth: compressionWatch.breadth,
+      avg_score: compressionWatch.avg_score,
+      detail: compressionWatch.detail,
+    });
+  }
+
+  allTickers.forEach((ticker) => {
+    const sym = String(ticker?.ticker || "").toUpperCase();
+    const overlay = ticker?.timing_overlay;
+    if (!overlay) return;
+
+    if (overlay.trim_winners) {
+      const matchingTrade = openTrades.find((tr) => tr.ticker === sym && (tr.direction || "LONG") === "LONG");
+      if (matchingTrade) {
+        const posture = overlay.posture || "CAUTION";
+        if (posture === "DUMP_WATCH" || posture === "RISK_OFF" || (overlay.extension_score || 0) >= 50) {
+          alerts.push({
+            type: "TIMING_TRIM_WINNERS",
+            priority: posture === "DUMP_WATCH" ? "high" : "medium",
+            ticker: sym,
+            message: `${sym} TIME THE TOP (${posture}, ${overlay.extension_score || 0}/100) — trim open LONG into strength. ${overlay.flash_detail || ""}`.trim(),
+            extension_score: overlay.extension_score,
+            posture,
+          });
+        }
+      }
+    }
+
+    if (overlay.add_on_dips) {
+      const matchingShort = openTrades.find((tr) => tr.ticker === sym && (tr.direction || "LONG") === "SHORT");
+      if (matchingShort) {
+        const posture = overlay.posture || "ACCUMULATE_CAUTION";
+        if (posture === "RALLY_WATCH" || posture === "RISK_ON_BUY" || (overlay.compression_score || 0) >= 50) {
+          alerts.push({
+            type: "TIMING_ADD_ON_DIPS",
+            priority: posture === "RALLY_WATCH" ? "high" : "medium",
+            ticker: sym,
+            message: `${sym} TIME THE BOTTOM (${posture}, ${overlay.compression_score || 0}/100) — cover shorts / add LONG on weakness. ${overlay.flash_detail || ""}`.trim(),
+            compression_score: overlay.compression_score,
+            posture,
+          });
+        }
+      }
+    }
+  });
 
   return alerts.sort((a, b) => {
     const priorityOrder = { high: 3, medium: 2, low: 1 };

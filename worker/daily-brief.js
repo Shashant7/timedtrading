@@ -9,6 +9,11 @@ import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TIT
 import { getCROBriefAddendum, getFSDSynthesisAddendum } from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
+import {
+  formatIndexWatchFlashSection,
+  formatTimingFlashSection,
+  computeTimingOverlay,
+} from "./timing-signals.js";
 import { computeFuturesPairsState, summarizeFuturesPairs } from "./futures-pairs.js";
 import {
   SATY_FIBS,
@@ -4692,6 +4697,32 @@ async function buildIntradayPrompt(data, env) {
     const cto = await getCTOBriefAddendum(env);
     if (cto) { lines.push(cto); lines.push(""); }
   } catch (_) {}
+
+  // Structured timing signals (TD9 / extension / Markov / VIX) — not LLM-inferred
+  try {
+    if (env) {
+      const [watchRaw, compRaw] = await Promise.all([
+        env.KV_TIMED.get("timed:index:extension-watch"),
+        env.KV_TIMED.get("timed:index:compression-watch"),
+      ]);
+      if (watchRaw) {
+        const watch = JSON.parse(watchRaw);
+        const watchBlock = formatIndexWatchFlashSection(watch, "extension");
+        if (watchBlock) { lines.push(watchBlock); lines.push(""); }
+      }
+      if (compRaw) {
+        const compWatch = JSON.parse(compRaw);
+        const compBlock = formatIndexWatchFlashSection(compWatch, "compression");
+        if (compBlock) { lines.push(compBlock); lines.push(""); }
+      }
+    }
+  } catch (_) {}
+  for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+    const m = data.market?.[sym];
+    if (!m) continue;
+    const block = formatTimingFlashSection(m, m.timing_overlay || computeTimingOverlay(m));
+    if (block) { lines.push(block); lines.push(""); break; }
+  }
 
   // Cross-asset prices (crude, gold, VIX, yields, dollar, sectors)
   if (data.priceFeedCrossRef) {

@@ -7632,6 +7632,95 @@
                           </Panel>
                         );
                       })()}
+                      {(() => {
+                        const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+                        const verdict = optionsTabData?.confluence_verdict || null;
+                        if (!timing || !timing.flash_headline) return null;
+                        const bias = String(timing.bias || "EXTENSION").toUpperCase();
+                        const isBottom = bias === "COMPRESSION";
+                        const posture = String(timing.posture || "").toUpperCase();
+                        const postureColor = isBottom
+                          ? (posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af")
+                          : (posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af");
+                        const score = isBottom ? timing.compression_score : timing.extension_score;
+                        const signals = isBottom
+                          ? (Array.isArray(timing.compressions) ? timing.compressions : [])
+                          : (Array.isArray(timing.warnings) ? timing.warnings : []);
+                        const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
+                        const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
+                        const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
+                        const playbook = verdict?.playbook || timing.playbook || null;
+                        return (
+                          <Panel title={panelTitle} action={
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                              padding: "2px 8px", borderRadius: 999,
+                              color: postureColor, background: `${postureColor}18`,
+                              border: `1px solid ${postureColor}55`,
+                            }}>{posture.replace(/_/g, " ")} · {score}/100</span>
+                          }>
+                            <div style={{
+                              padding: "var(--ds-space-2)",
+                              background: panelBg,
+                              border: `1px solid ${panelBorder}`,
+                              borderRadius: "var(--ds-radius-md)",
+                              marginBottom: "var(--ds-space-2)",
+                            }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", lineHeight: 1.4 }}>
+                                {timing.flash_headline}
+                              </div>
+                              {timing.flash_detail && (
+                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
+                                  {timing.flash_detail}
+                                </div>
+                              )}
+                              {playbook === "TREND_CATCH" && (
+                                <div style={{ fontSize: 11, color: "var(--ds-text-faint)", marginTop: 6, lineHeight: 1.45 }}>
+                                  Trend catch (secondary) — primary edge is timing tops and bottoms.
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: signals.length ? 8 : 0 }}>
+                              {isBottom ? (
+                                <>
+                                  {timing.add_on_dips && <span className="ds-chip ds-chip--sm ds-chip--up">Add on dips</span>}
+                                  {timing.long_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Long / fade timing</span>}
+                                  {timing.call_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Call window</span>}
+                                  {(timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && (
+                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      TD D{timing.td_daily_bull}/W{timing.td_weekly_bull}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {timing.trim_winners && <span className="ds-chip ds-chip--sm ds-chip--accent">Trim winners</span>}
+                                  {timing.short_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Short / fade timing</span>}
+                                  {timing.put_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Put window</span>}
+                                  {(timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && (
+                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      TD D{timing.td_daily_bear}/W{timing.td_weekly_bear}
+                                    </span>
+                                  )}
+                                  {timing.vix != null && Number(timing.vix) >= 20 && (
+                                    <span className="ds-chip ds-chip--sm">VIX {Number(timing.vix).toFixed(1)}</span>
+                                  )}
+                                </>
+                              )}
+                              {timing.timing_primary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent">
+                                  Time {timing.timing_primary === "BOTTOM" ? "bottom" : "top"}
+                                </span>
+                              )}
+                            </div>
+                            {signals.length > 0 && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
+                                {signals.slice(0, 5).join(" · ")}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
                       {/* 2026-05-29 — B8: surface "Current Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors
@@ -15947,4 +16036,4 @@
   };
 })();
 
-// cache-bust:1780780155450:587855651
+// cache-bust:1780795177719:984512687

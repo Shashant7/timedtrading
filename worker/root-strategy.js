@@ -50,6 +50,10 @@
 
 import { STRATEGY_VINTAGE, getStrategyForTicker } from "./strategy-context.js";
 import { getThemesForTicker } from "./sector-mapping.js";
+import {
+  applyTimingOverlayToConfluence,
+  computeTimingOverlay,
+} from "./timing-signals.js";
 
 // ── Mode thresholds ────────────────────────────────────────────────────────
 // 8 layers identify the opportunity; SuperTrend slope ignites the trigger.
@@ -400,29 +404,26 @@ function scoreL5_Carter(t) {
 }
 
 function scoreL6_DeMark(t) {
-  // TD Sequential — wave maturity. Production shape:
-  //   t.td_sequential.per_tf.{tf} = {
-  //     td9_bullish, td9_bearish, td13_bullish, td13_bearish,
-  //     bullish_prep_count, bearish_prep_count,
-  //     tv_count, tv_count_side
-  //   }
-  // Mid-wave count (3-7) = continuation = ride. tv_count_side identifies
-  // dominant direction. Perfected 9 or 13 = exhaustion.
+  // TD Sequential — wave maturity. Weekly + Daily drive extension timing.
+  // td9_bullish = buy setup complete (seller exhaustion → bullish reversal risk).
+  // td9_bearish = sell setup complete (buyer exhaustion → bearish reversal / trim).
   const tdSeq = t?.td_sequential || t?.td_seq || t?._td_seq;
   const perTf = tdSeq?.per_tf || (tdSeq ? { D: tdSeq } : null);
   if (!perTf) return { side: "NEUTRAL", strength: 0, evidence: "Wave count unavailable" };
   let bull = 0, bear = 0, parts = [];
-  for (const tf of ["D", "4H", "240"]) {
-    const row = perTf[tf];
+  for (const tf of ["W", "D", "4H", "240"]) {
+    const row = perTf[tf] || (tf === "W" ? perTf["1W"] : null) || (tf === "D" ? perTf["1D"] : null);
     if (!row) continue;
+    const w = tf === "W" ? 1.2 : tf === "D" ? 1.0 : 0.7;
     const bullPrep = Number(row.bullish_prep_count || row.buy_setup || row.buyCount || 0);
     const bearPrep = Number(row.bearish_prep_count || row.sell_setup || row.sellCount || 0);
-    if (row.td9_bullish === true) { bear += 0.3; parts.push(`TD${tf} 9 bull (exhaustion)`); }
-    if (row.td9_bearish === true) { bull += 0.3; parts.push(`TD${tf} 9 bear (exhaustion)`); }
-    if (row.td13_bullish === true) { bear += 0.5; parts.push(`TD${tf} 13 bull (deep exhaustion)`); }
-    if (row.td13_bearish === true) { bull += 0.5; parts.push(`TD${tf} 13 bear (deep exhaustion)`); }
-    if (bullPrep >= 3 && bullPrep <= 7) { bull += 0.4; parts.push(`TD${tf} bull prep ${bullPrep}/9`); }
-    if (bearPrep >= 3 && bearPrep <= 7) { bear += 0.4; parts.push(`TD${tf} bear prep ${bearPrep}/9`); }
+    if (row.td9_bullish === true) { bull += 0.55 * w; parts.push(`TD${tf} 9 buy setup (seller exhaustion)`); }
+    if (row.td9_bearish === true) { bear += 0.55 * w; parts.push(`TD${tf} 9 sell setup (buyer exhaustion)`); }
+    if (row.td13_bullish === true) { bull += 0.7 * w; parts.push(`TD${tf} 13 buy setup`); }
+    if (row.td13_bearish === true) { bear += 0.7 * w; parts.push(`TD${tf} 13 sell setup`); }
+    if (bullPrep >= 3 && bullPrep <= 7) { bull += 0.35 * w; parts.push(`TD${tf} bull prep ${bullPrep}/9`); }
+    if (bearPrep >= 7 && bearPrep <= 8) { bear += 0.45 * w; parts.push(`TD${tf} bear prep ${bearPrep}/9 (near 9)`); }
+    else if (bearPrep >= 3 && bearPrep <= 6) { bear += 0.25 * w; parts.push(`TD${tf} bear prep ${bearPrep}/9`); }
     // tv_count is the TradingView-style live count (set in the current direction).
     if (row.tv_count_side === "bull" && row.tv_count >= 3 && row.tv_count <= 7) {
       bull += 0.3; parts.push(`TD${tf} tv ${row.tv_count} bull`);
@@ -784,7 +785,7 @@ export function scoreRootConfluence(t) {
     evidence: l.evidence,
   }));
 
-  return {
+  const base = {
     ok: true,
     ticker: String(t?.ticker || "").toUpperCase() || null,
     price: Number(t?.price) || null,
@@ -793,9 +794,7 @@ export function scoreRootConfluence(t) {
     score,
     side,
     mode,
-    // Flags for downstream consumers.
     ride, ready, drift, fade, wait,
-    // Layer-level tallies.
     layers_agreeing: dominantCount,
     layers_total: total,
     long_agree: longAgree,
@@ -803,13 +802,18 @@ export function scoreRootConfluence(t) {
     long_strength: Math.round(longStrength * 100) / 100,
     short_strength: Math.round(shortStrength * 100) / 100,
     layers: layerSummary,
-    // SuperTrend trigger gate detail.
     supertrend_trigger: stTrigger,
-    // Plain-English summary the UI can render verbatim.
     actionable_summary: _buildActionableSummary({
       mode, side, layers, score, longAgree, shortAgree, stTrigger,
     }),
   };
+
+  try {
+    const timing = computeTimingOverlay(t, base);
+    return applyTimingOverlayToConfluence(base, timing, t);
+  } catch (_) {
+    return base;
+  }
 }
 
 function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAgree, stTrigger }) {
