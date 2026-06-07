@@ -669,9 +669,30 @@
         market_health_high:        "Broader market is supportive of long exposure.",
         outside_scored_universe:   "Position held but ticker is outside the active scoring universe; managed by position rules only.",
       };
-      const reasonProse = stageReason
-        ? (REASON_TRANSLATIONS[stageReason] || String(stageReason).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()))
-        : null;
+      const reasonProse = (() => {
+        const r = String(stageReason || "");
+        if (!r) return null;
+        if (r.startsWith("timing_top_block_new_entry")) {
+          return "Timed top active — do not start new investor adds. Express bearish timing via Trader puts; hold existing core if the monthly thesis is intact.";
+        }
+        if (r.startsWith("timing_top_hold_no_adds")) {
+          return "Timed top — hold the core position but pause DCA and new tranches until extension clears.";
+        }
+        if (r.startsWith("timing_bottom_accumulate_on_dips") || r.startsWith("timing_bottom_promising_accumulate")) {
+          return "Timed bottom — accumulate on weakness with shares or LEAPs (investor lane), not short-dated puts.";
+        }
+        if (r.startsWith("timing_bottom_confirmed")) {
+          return "Timed bottom confirms the accumulation thesis — scale in on dips.";
+        }
+        if (r.startsWith("timing_bottom_hold_add_on_dips")) {
+          return "Timed bottom while owned — hold core and add on meaningful pullbacks.";
+        }
+        if (r.startsWith("timing_top:")) {
+          return "Extension timing is dominant — trim into strength; avoid new long exposure until the top resolves.";
+        }
+        return REASON_TRANSLATIONS[r]
+          || r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      })();
 
       const COMPONENT_DEFS = {
         weeklyTrend:        { label: "Weekly Trend",        max: 25, why: "Direction + slope of the weekly price action over recent weeks." },
@@ -16036,4 +16057,4 @@
   };
 })();
 
-// cache-bust:1780795177719:984512687
+// cache-bust:1780799398616:703856061
