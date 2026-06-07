@@ -1,4 +1,7 @@
-import { detectExhaustionWarnings as _detectExhaustionWarningsFromTiming } from "./timing-signals.js";
+import {
+  computeTimingOverlay,
+  detectExhaustionWarnings as _detectExhaustionWarningsFromTiming,
+} from "./timing-signals.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Intelligence Module
@@ -593,6 +596,107 @@ export function computeMarketHealth(allTickerData, spyData = null, qqqData = nul
  *   monitor  — Lane signal only; auto-rebalance may still queue by score
  *   stale    — Owned; signal active >7d without a matching lot action
  */
+/**
+ * Resolve timing overlay for investor stage gating (uses baked snapshot or computes).
+ */
+export function resolveInvestorTimingOverlay(tickerData) {
+  if (!tickerData || typeof tickerData !== "object") return null;
+  if (tickerData.timing_overlay && typeof tickerData.timing_overlay === "object") {
+    return tickerData.timing_overlay;
+  }
+  try {
+    return computeTimingOverlay(tickerData, tickerData.confluence_verdict || null);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Timed Trading investor gate — tops block new adds; bottoms boost accumulate-on-dips.
+ * Thesis-invalidating reduce paths are never overridden.
+ */
+export function applyInvestorTimingGate(stageResult, timing, ctx = {}) {
+  if (!stageResult || !timing) return stageResult;
+  const primary = timing.timing_primary || null;
+  if (!primary) return stageResult;
+
+  const {
+    existingPosition = null,
+    investorScore = 0,
+    accumZone = null,
+    marketHealth = 50,
+    cfg = DEFAULT_INVESTOR_CONFIG,
+  } = ctx;
+
+  const stage = String(stageResult.stage || "");
+  const owned = !!existingPosition;
+
+  if (primary === "TOP") {
+    if (!owned && stage === "accumulate") {
+      return {
+        stage: "watch",
+        reason: `timing_top_block_new_entry:${stageResult.reason}`,
+        timing_primary: "TOP",
+        timing_playbook: "TIME_TOP",
+      };
+    }
+    if (owned && stage === "core_hold") {
+      return {
+        stage: "watch",
+        reason: `timing_top_hold_no_adds:${stageResult.reason}`,
+        timing_primary: "TOP",
+        timing_playbook: "TIME_TOP",
+      };
+    }
+    if (stage === "watch" || stage === "reduce") {
+      return {
+        ...stageResult,
+        reason: String(stageResult.reason || "").startsWith("timing_top")
+          ? stageResult.reason
+          : `timing_top:${stageResult.reason}`,
+        timing_primary: "TOP",
+        timing_playbook: "TIME_TOP",
+      };
+    }
+    return { ...stageResult, timing_primary: "TOP", timing_playbook: "TIME_TOP" };
+  }
+
+  if (primary === "BOTTOM") {
+    if (!owned && stage === "watch"
+      && investorScore >= cfg.watch_promising_score_min
+      && marketHealth >= cfg.accumulate_inzone_market_health_min
+      && (timing.add_on_dips || accumZone?.inZone)) {
+      return {
+        stage: "accumulate",
+        reason: accumZone?.inZone
+          ? `timing_bottom_accumulate_on_dips:${accumZone.zoneType || "compression"}`
+          : "timing_bottom_promising_accumulate",
+        timing_primary: "BOTTOM",
+        timing_playbook: "TIME_BOTTOM",
+      };
+    }
+    if (!owned && stage === "accumulate") {
+      return {
+        ...stageResult,
+        reason: `timing_bottom_confirmed:${stageResult.reason}`,
+        timing_primary: "BOTTOM",
+        timing_playbook: "TIME_BOTTOM",
+      };
+    }
+    if (owned && stage === "watch" && investorScore >= cfg.watch_score_min) {
+      return {
+        stage: "core_hold",
+        reason: `timing_bottom_hold_add_on_dips:${stageResult.reason}`,
+        timing_primary: "BOTTOM",
+        timing_playbook: "TIME_BOTTOM",
+      };
+    }
+    return { ...stageResult, timing_primary: "BOTTOM", timing_playbook: "TIME_BOTTOM" };
+  }
+
+  return stageResult;
+}
+
 export function computeInvestorActionTier(row) {
   const stage = String(row?.stage || "");
   if (stage !== "accumulate" && stage !== "reduce") return null;
@@ -626,6 +730,10 @@ export function computeInvestorActionTier(row) {
 
 export function classifyInvestorStage(tickerData, investorScore, existingPosition = null, opts = {}) {
   const { rsRank = 50, marketHealth = 50, accumZone = null, cfg = DEFAULT_INVESTOR_CONFIG } = opts;
+  const timing = resolveInvestorTimingOverlay(tickerData);
+  const finalize = (result) => applyInvestorTimingGate(result, timing, {
+    existingPosition, investorScore, accumZone, marketHealth, cfg,
+  });
   const mb = tickerData.monthly_bundle;
   const wStDir = tickerData.tf_tech?.W?.atr?.xs;
   // 2026-06-01 — Surface tf_tech.D / tf_tech.W at function scope so the
@@ -638,12 +746,12 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
   // If position is closed or monthly trend invalidated
   if (existingPosition?.status === "CLOSED") {
-    return { stage: "exited", reason: "position_closed" };
+    return finalize({ stage: "exited", reason: "position_closed" });
   }
 
   // Monthly SuperTrend bearish (Pine +1) = thesis invalidation for any position
   if (existingPosition && mb && mb.supertrend_dir === 1) {
-    return { stage: "reduce", reason: "monthly_supertrend_bearish" };
+    return finalize({ stage: "reduce", reason: "monthly_supertrend_bearish" });
   }
 
   // ── v3: Regime + Ichimoku enrichment ──
@@ -659,13 +767,13 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     // v3: CHOPPY regime + significant loss → exit earlier
     // Relaxed from -5% to -8% to avoid premature exits on normal pullbacks
     if (tickerRegime === "CHOPPY" && posPnlPct < -8) {
-      return { stage: "reduce", reason: "choppy_regime_losing" };
+      return finalize({ stage: "reduce", reason: "choppy_regime_losing" });
     }
 
     // v3: Weekly Ichimoku price inside cloud + meaningful loss → reduce (trend uncertain)
     // Added -3% threshold to prevent exit on minor dips while in cloud
     if (ichW?.priceVsCloud === "inside" && posPnlPct < -3) {
-      return { stage: "reduce", reason: "weekly_ichimoku_inside_cloud" };
+      return finalize({ stage: "reduce", reason: "weekly_ichimoku_inside_cloud" });
     }
 
     // Reduce: investor score < 30 or weekly SuperTrend bearish or RS rank < 20th pct
@@ -674,21 +782,21 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     // Lowered all thresholds significantly and require weekly/monthly confirmation for sells.
     // The 2-consecutive-reduce-days gate in runInvestorDailyReplay provides additional protection.
     if (investorScore < 30 && wStDir !== 1) {
-      return { stage: "reduce", reason: "investor_score_very_low" };
+      return finalize({ stage: "reduce", reason: "investor_score_very_low" });
     }
     // wStDir is tf_tech.W.atr.xs (STANDARD convention: +1=bull, -1=bear).
     // mb.supertrend_dir is monthly_bundle.supertrend_dir (PINE convention: -1=bull).
     // "weekly bear AND monthly NOT bull" → reduce. Pine "not bull" = !== -1.
     if (wStDir === -1 && mb?.supertrend_dir !== -1) {
-      return { stage: "reduce", reason: "weekly_supertrend_bearish" };
+      return finalize({ stage: "reduce", reason: "weekly_supertrend_bearish" });
     }
     if (rsRank < 20 && investorScore < 40) {
-      return { stage: "reduce", reason: "rs_rank_declining" };
+      return finalize({ stage: "reduce", reason: "rs_rank_declining" });
     }
 
     // v3: CHOPPY regime with weak Weekly Ichimoku → downgrade to watch
     if (tickerRegime === "CHOPPY" && ichW?.priceVsCloud !== "above") {
-      return { stage: "watch", reason: "choppy_regime_ichimoku_weak" };
+      return finalize({ stage: "watch", reason: "choppy_regime_ichimoku_weak" });
     }
 
     // Watch: score dropping (50-65) or RS rank declining
@@ -696,9 +804,9 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
       // BUT: if weekly bullish divergence is active, selling pressure is weakening — hold, don't downgrade
       const _stgDivW = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
       if (_stgDivW?.bull?.active && investorScore >= 50) {
-        return { stage: "core_hold", reason: "bullish_divergence_hold" };
+        return finalize({ stage: "core_hold", reason: "bullish_divergence_hold" });
       }
-      return { stage: "watch", reason: investorScore < 65 ? "score_declining" : "rs_rank_moderate" };
+      return finalize({ stage: "watch", reason: investorScore < 65 ? "score_declining" : "rs_rank_moderate" });
     }
 
     // 2026-06-01 — Owned-position exhaustion gate. Uses the shared
@@ -711,41 +819,41 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     // before pulling the trigger.
     const _ownExhaustion = detectExhaustionWarnings(tickerData);
     if (_ownExhaustion.length >= 2) {
-      return {
+      return finalize({
         stage: "watch",
         reason: `exhaustion_detected:${_ownExhaustion.slice(0, 4).join("|")}`,
-      };
+      });
     }
 
     // Signal-based downgrades for core_hold positions
     const _stgDivWBear = tickerData?.rsi_divergence?.W || tickerData?.tf_tech?.W?.rsiDiv;
     if (_stgDivWBear?.bear?.active) {
-      return { stage: "watch", reason: "weekly_bearish_divergence" };
+      return finalize({ stage: "watch", reason: "weekly_bearish_divergence" });
     }
 
     const _stgTdPerTf = tickerData?.td_sequential?.per_tf;
     const _stgTdW = _stgTdPerTf?.W || _stgTdPerTf?.["1W"];
     const _stgTdD = _stgTdPerTf?.D || _stgTdPerTf?.["1D"];
     if (_stgTdW?.bearish_prep_count >= 7 || _stgTdW?.td9_bearish) {
-      return { stage: "watch", reason: "weekly_buyer_exhaustion_td9" };
+      return finalize({ stage: "watch", reason: "weekly_buyer_exhaustion_td9" });
     }
     if (_stgTdD?.bearish_prep_count >= 8 || _stgTdD?.td9_bearish) {
-      return { stage: "watch", reason: "daily_buyer_exhaustion_td9" };
+      return finalize({ stage: "watch", reason: "daily_buyer_exhaustion_td9" });
     }
     if (_stgTdW?.bullish_prep_count >= 8) {
-      return { stage: "watch", reason: "weekly_seller_exhaustion" };
+      return finalize({ stage: "watch", reason: "weekly_seller_exhaustion" });
     }
 
     const _stgSatyW = tickerData?.tf_tech?.W?.saty;
     if (_stgSatyW) {
       const wVal = Number(_stgSatyW.v) || 0;
       if ((_stgSatyW.z === "DISTRIBUTION" || wVal > 80) && _stgSatyW.l) {
-        return { stage: "watch", reason: "weekly_phase_distribution" };
+        return finalize({ stage: "watch", reason: "weekly_phase_distribution" });
       }
     }
 
     // Core Hold: weekly + monthly trends intact, RS rank > 50th pct
-    return { stage: "core_hold", reason: "trends_intact" };
+    return finalize({ stage: "core_hold", reason: "trends_intact" });
   }
 
   // ── Without position ──
@@ -762,10 +870,10 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // stageReason so the operator + thesis email can show WHY this isn't
   // an accumulate.
   if (accumZone?.zoneType === "momentum_runner_exhausted") {
-    return {
+    return finalize({
       stage: "watch",
       reason: `exhaustion_detected:${(accumZone.exhaustionWarnings || []).slice(0, 4).join("|")}`,
-    };
+    });
   }
 
   // Accumulate: in accumulation zone + decent score + market health okay
@@ -774,7 +882,7 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     investorScore >= cfg.accumulate_inzone_score_min &&
     marketHealth >= cfg.accumulate_inzone_market_health_min
   ) {
-    return { stage: "accumulate", reason: accumZone.zoneType || "accumulation_zone" };
+    return finalize({ stage: "accumulate", reason: accumZone.zoneType || "accumulation_zone" });
   }
 
   // Accumulate: strong score even without perfect zone.
@@ -785,25 +893,25 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     investorScore >= cfg.accumulate_strong_score_min &&
     marketHealth >= cfg.accumulate_strong_score_market_health_min
   ) {
-    return { stage: "accumulate", reason: "strong_score" };
+    return finalize({ stage: "accumulate", reason: "strong_score" });
   }
 
   // Watch: moderate-to-good score, worth monitoring closely
   if (investorScore >= cfg.watch_score_min) {
-    return {
+    return finalize({
       stage: "watch",
       reason: investorScore >= cfg.watch_promising_score_min ? "promising" : "monitoring",
-    };
+    });
   }
 
   // Research sub-classes: below watch — still in universe, conviction-level granularity
   if (investorScore >= cfg.research_on_watch_score_min) {
-    return { stage: "research_on_watch", reason: "moderate_score" };
+    return finalize({ stage: "research_on_watch", reason: "moderate_score" });
   }
   if (investorScore >= cfg.research_low_score_min) {
-    return { stage: "research_low", reason: "low_conviction" };
+    return finalize({ stage: "research_low", reason: "low_conviction" });
   }
-  return { stage: "research_avoid", reason: "low_score" };
+  return finalize({ stage: "research_avoid", reason: "low_score" });
 }
 
 
