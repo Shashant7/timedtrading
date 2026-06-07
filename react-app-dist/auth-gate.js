@@ -1084,6 +1084,7 @@
         document.body.dataset.userTier = user.tier || "free";
         document.body.dataset.isPro = isPro ? "true" : "false";
         document.body.dataset.isAdmin = isAdmin ? "true" : "false";
+        document.body.dataset.isAuthenticated = "true";
 
         // Expose globals for component-level gating
         Object.defineProperty(window, '_ttIsPro', { get() { return document.body.dataset.isPro === "true"; }, configurable: true });
@@ -1092,7 +1093,23 @@
         // Let nav extras (badges + admin dropdown) re-run after auth.
         try {
           window.dispatchEvent(new CustomEvent("tt-auth-bootstrap-updated", {
-            detail: { user, isAdmin, isPro },
+            detail: { user, isAdmin, isPro, isAuthenticated: true },
+          }));
+        } catch (_) {}
+      } else {
+        // 2026-06-06 — Clear stale Pro/Admin flags on logout. Previously
+        // dataset.isPro lingered after setUser(null), so tt-activity-strip
+        // kept polling /timed/activity on the LoginScreen.
+        document.body.dataset.isPro = "false";
+        document.body.dataset.isAdmin = "false";
+        document.body.dataset.isAuthenticated = "false";
+        delete document.body.dataset.userRole;
+        delete document.body.dataset.userTier;
+        Object.defineProperty(window, '_ttIsPro', { get() { return false; }, configurable: true });
+        Object.defineProperty(window, '_ttIsAdmin', { get() { return false; }, configurable: true });
+        try {
+          window.dispatchEvent(new CustomEvent("tt-auth-bootstrap-updated", {
+            detail: { user: null, isAdmin: false, isPro: false, isAuthenticated: false },
           }));
         } catch (_) {}
       }
@@ -2723,4 +2740,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1780839194476:452032080
+// cache-bust:1780847640526:622432405
