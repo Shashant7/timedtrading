@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Timing plumbing — extension dump orchestration (PR #509).**
+      Unified TD9/phase/RSI/Markov/VIX/FSD into `timing-signals.js`;
+      fixed broken `detectExhaustionWarnings` per_tf path; L6 DeMark bear
+      fix; confluence FADE SHORT overlay; index put gate; kanban trim;
+      Discord INDEX EXTENSION WATCH; proactive alerts; Trader tab Timing
+      panel; worker deployed default + production.
 - [x] **DIA day-trade archival — canonical scenario + grading (PR pending).**
       DIA morning triggers were NULL on 2026-06-05 because archival read
       `diaTechnical` (D-candles only) instead of `buildTickerScenario`.
