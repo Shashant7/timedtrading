@@ -9063,6 +9063,75 @@
             }
           }, whyLine)));
         })(), (() => {
+          const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+          if (!timing || !timing.flash_headline) return null;
+          const posture = String(timing.posture || "").toUpperCase();
+          const postureColor = posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af";
+          const warnings = Array.isArray(timing.warnings) ? timing.warnings : [];
+          return React.createElement(Panel, {
+            title: "Timing \u2014 Extension Watch",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: postureColor,
+                background: `${postureColor}18`,
+                border: `1px solid ${postureColor}55`
+              }
+            }, posture.replace(/_/g, " "), " \xB7 ", timing.extension_score, "/100")
+          }, React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(245,194,92,0.08)",
+              border: "1px solid rgba(245,194,92,0.28)",
+              borderRadius: "var(--ds-radius-md)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 14,
+              fontWeight: 700,
+              color: "var(--ds-text-display)",
+              lineHeight: 1.4
+            }
+          }, timing.flash_headline), timing.flash_detail && React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-muted)",
+              marginTop: 6,
+              lineHeight: 1.45
+            }
+          }, timing.flash_detail)), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              marginBottom: warnings.length ? 8 : 0
+            }
+          }, timing.trim_winners && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent"
+          }, "Trim winners"), timing.short_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "Short / fade timing"), timing.put_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "Put window"), (timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "TD D", timing.td_daily_bear, "/W", timing.td_weekly_bear), timing.vix != null && Number(timing.vix) >= 20 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm"
+          }, "VIX ", Number(timing.vix).toFixed(1))), warnings.length > 0 && React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.45
+            }
+          }, warnings.slice(0, 5).join(" · ")));
+        })(), (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
             const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && (() => {
@@ -18681,4 +18750,4 @@
   };
 })();
 
-// cache-bust:1780780155450:587855651
+// cache-bust:1780794357171:450527972

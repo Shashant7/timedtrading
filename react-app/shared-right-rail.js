@@ -7632,6 +7632,60 @@
                           </Panel>
                         );
                       })()}
+                      {(() => {
+                        const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+                        if (!timing || !timing.flash_headline) return null;
+                        const posture = String(timing.posture || "").toUpperCase();
+                        const postureColor = posture === "DUMP_WATCH" ? "#f87171"
+                          : posture === "RISK_OFF" ? "#fbbf24"
+                          : posture === "CAUTION" ? "#f5c25c" : "#9ca3af";
+                        const warnings = Array.isArray(timing.warnings) ? timing.warnings : [];
+                        return (
+                          <Panel title="Timing — Extension Watch" action={
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                              padding: "2px 8px", borderRadius: 999,
+                              color: postureColor, background: `${postureColor}18`,
+                              border: `1px solid ${postureColor}55`,
+                            }}>{posture.replace(/_/g, " ")} · {timing.extension_score}/100</span>
+                          }>
+                            <div style={{
+                              padding: "var(--ds-space-2)",
+                              background: "rgba(245,194,92,0.08)",
+                              border: "1px solid rgba(245,194,92,0.28)",
+                              borderRadius: "var(--ds-radius-md)",
+                              marginBottom: "var(--ds-space-2)",
+                            }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", lineHeight: 1.4 }}>
+                                {timing.flash_headline}
+                              </div>
+                              {timing.flash_detail && (
+                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
+                                  {timing.flash_detail}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: warnings.length ? 8 : 0 }}>
+                              {timing.trim_winners && <span className="ds-chip ds-chip--sm ds-chip--accent">Trim winners</span>}
+                              {timing.short_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Short / fade timing</span>}
+                              {timing.put_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Put window</span>}
+                              {(timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && (
+                                <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  TD D{timing.td_daily_bear}/W{timing.td_weekly_bear}
+                                </span>
+                              )}
+                              {timing.vix != null && Number(timing.vix) >= 20 && (
+                                <span className="ds-chip ds-chip--sm">VIX {Number(timing.vix).toFixed(1)}</span>
+                              )}
+                            </div>
+                            {warnings.length > 0 && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
+                                {warnings.slice(0, 5).join(" · ")}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
                       {/* 2026-05-29 — B8: surface "Current Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors

@@ -362,6 +362,8 @@ export function shouldAllowIndexDirectional({
   verdictSide,
   direction,
   effectiveDirection,
+  timingOverlay,
+  confluence,
 }) {
   const contractDir = resolveContractDirection(direction, effectiveDirection);
   if (!contractDir) {
@@ -369,6 +371,24 @@ export function shouldAllowIndexDirectional({
   }
   const mode = String(verdictMode || "WAIT").toUpperCase();
   const side = String(verdictSide || "NEUTRAL").toUpperCase();
+  const timing = timingOverlay || confluence?.timing || null;
+
+  // Extension timing: puts when trader contract is SHORT + exhaustion stack,
+  // even if layer fusion is still WAIT / LONG (signal split at index tops).
+  if (timing?.put_opportunity && contractDir === "SHORT") {
+    if (mode === "WAIT" || side === "LONG" || side === "NEUTRAL") {
+      return {
+        allow: true,
+        reason: "extension_put_timing",
+        contractDir,
+        side: "SHORT",
+        timing_override: true,
+      };
+    }
+  }
+  if (timing?.short_opportunity && contractDir === "SHORT" && mode === "FADE") {
+    return { allow: true, reason: "extension_fade_short", contractDir, side: "SHORT" };
+  }
 
   if (mode === "WAIT") {
     return { allow: false, reason: "wait_no_directional_bet", contractDir, side };
@@ -448,7 +468,14 @@ export function buildOptionsSetupGuidance({
   let tier = "not_good";
   let why = `Insufficient signal for directional options (${score}/100).`;
 
-  if (align && align.allow === false) {
+  const timing = confluence?.timing;
+  if (timing?.put_opportunity && align?.reason === "extension_put_timing") {
+    tier = "valid";
+    why = `Extension timing — trader call is SHORT while layers still lean ${side}. PUT window is open on defined risk only; theta punishes early entry. Wait for ST slope / ORB confirm before sizing.`;
+  } else if (timing?.trim_winners && mode === "WAIT") {
+    tier = "forming";
+    why = `Extension watch (${timing.extension_score}/100) — trim winners, do not add index longs. Directional puts stage on trigger; layers are split (${score}/100).`;
+  } else if (align && align.allow === false) {
     tier = "not_good";
     if (align.reason === "wait_no_directional_bet") {
       why = `Confluence is WAIT (${score}/100). Layers are split and SuperTrend has not confirmed. Directional calls and puts are suppressed on purpose — forcing a trade here invites whiplash.`;
@@ -1599,6 +1626,8 @@ export function buildDayTradePlay(ctx) {
     verdictSide,
     direction,
     effectiveDirection: direction,
+    confluence: ctx?.verdict,
+    timingOverlay: ctx?.verdict?.timing,
   });
 
   // Decide flavor.
@@ -1949,9 +1978,11 @@ export function buildOptionsLadder(contract, opts = {}) {
       verdictSide,
       direction,
       effectiveDirection,
+      confluence: ctx?.verdict,
+      timingOverlay: ctx?.verdict?.timing,
     })
     : null;
-  const suppressDirectional = (verdictMode === "WAIT" && !isInvestorMode)
+  const suppressDirectional = (verdictMode === "WAIT" && !isInvestorMode && !indexAlign?.timing_override)
     || (isIndexTrader && !indexAlign?.allow);
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
@@ -2219,6 +2250,8 @@ export function attachIndexDayTradeFallback(ladder, ctx) {
     verdictSide: ctx?.verdict?.side,
     direction: ctx?.direction,
     effectiveDirection: ctx?.direction,
+    confluence: ctx?.verdict,
+    timingOverlay: ctx?.verdict?.timing,
   });
   if (!align.allow) return ladder;
   const dt = buildDayTradePlay(ctx);

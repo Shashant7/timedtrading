@@ -346,7 +346,51 @@ describe("index ETF profile alignment", () => {
   });
 });
 
+describe("shouldAllowIndexDirectional — extension put timing", () => {
+  it("allows SHORT put when timing overlay fires on WAIT split", () => {
+    const align = shouldAllowIndexDirectional({
+      verdictMode: "WAIT",
+      verdictSide: "LONG",
+      direction: "SHORT",
+      effectiveDirection: "SHORT",
+      confluence: {
+        timing: {
+          put_opportunity: true,
+          short_opportunity: true,
+          extension_score: 65,
+          posture: "RISK_OFF",
+        },
+      },
+    });
+    expect(align.allow).toBe(true);
+    expect(align.reason).toBe("extension_put_timing");
+    expect(align.timing_override).toBe(true);
+  });
+});
+
 describe("buildOptionsSetupGuidance — setup quality tiers", () => {
+  it("extension put timing → valid with PUT window copy", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: {
+        mode: "WAIT",
+        side: "LONG",
+        score: 22,
+        timing: { put_opportunity: true, trim_winners: true, extension_score: 60 },
+      },
+      contract: { ticker: "SPY", atr_pct: 0.012 },
+      directionAlignment: {
+        allow: true,
+        reason: "extension_put_timing",
+        contractDir: "SHORT",
+        side: "SHORT",
+        timing_override: true,
+      },
+      primary: { archetype: "long_put" },
+    });
+    expect(g.tier).toBe("valid");
+    expect(g.why).toMatch(/PUT window/i);
+  });
+
   it("WAIT → not_good with timing emphasis", () => {
     const g = buildOptionsSetupGuidance({
       confluence: { mode: "WAIT", side: "LONG", score: 22 },
