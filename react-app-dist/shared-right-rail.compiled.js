@@ -5692,7 +5692,7 @@
       }, [tickerSymbol]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        if (railTab !== "INVESTOR" || !sym) {
+        if (!sym) {
           setInvestorData(null);
           setInvestorError(null);
           setInvestorLoading(false);
@@ -5700,12 +5700,18 @@
         }
         let cancelled = false;
         const fetchInvestor = async () => {
+          const showLoading = railTab === "INVESTOR";
           try {
-            setInvestorLoading(true);
-            setInvestorError(null);
+            if (showLoading) {
+              setInvestorLoading(true);
+              setInvestorError(null);
+            }
             const json = await _cachedJson(`${API_BASE}/timed/investor/ticker?ticker=${encodeURIComponent(sym)}`, {
-              ttlMs: 5 * 60 * 1000,
-              maxAgeMs: 30 * 60 * 1000
+              ttlMs: 30 * 1000,
+              maxAgeMs: 2 * 60 * 1000,
+              fetchOpts: {
+                cache: "no-store"
+              }
             });
             if (!json) throw new Error("network");
             if (!json.ok) throw new Error(json.error || "investor_failed");
@@ -5715,18 +5721,18 @@
             });
           } catch (e) {
             if (!cancelled) {
-              setInvestorData(null);
-              setInvestorError(String(e?.message || e));
+              if (showLoading) setInvestorData(null);
+              if (showLoading) setInvestorError(String(e?.message || e));
             }
           } finally {
-            if (!cancelled) setInvestorLoading(false);
+            if (!cancelled && showLoading) setInvestorLoading(false);
           }
         };
         fetchInvestor();
         return () => {
           cancelled = true;
         };
-      }, [railTab, tickerSymbol]);
+      }, [tickerSymbol, API_BASE]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -6626,7 +6632,9 @@
             className: `ds-chip ds-chip--sm ${v2DirChip}`,
             title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`
           }, "TRADER \xB7 ", _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir), (() => {
-            const invStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+            const invSym = String(tickerSymbol || "").trim().toUpperCase();
+            const liveInvStage = investorData?.ticker === invSym ? investorData?.stage : null;
+            const invStage = String(liveInvStage || ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
             if (!invStage || invStage === "—") return null;
             const INV_LANE_META = {
               accumulate: {
@@ -7663,6 +7671,21 @@
           const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
           const ipReason = String(ip?.why_now || "").trim();
           const ipActionLine = (() => {
+            const cardSym = String(tickerSymbol || "").trim().toUpperCase();
+            const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : "";
+            if (liveStage) {
+              const STAGE_ACTION = {
+                watch: "Hold — no add, no trim. Monitor signals.",
+                accumulate: "Accumulate — add to position on weakness.",
+                core_hold: "Hold and DCA on dips — thesis intact.",
+                reduce: "Reduce on strength — taking profits.",
+                research_on_watch: "Monitor — on the radar, not actionable yet.",
+                research_low: "Pass — low conviction for now.",
+                research_avoid: "Avoid — investor lane sees no edge here.",
+                exited: "Closed — monitor for re-entry conditions."
+              };
+              if (STAGE_ACTION[liveStage]) return STAGE_ACTION[liveStage];
+            }
             const a = ipAction.toLowerCase();
             if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
             if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";
@@ -18800,4 +18823,4 @@
   };
 })();
 
-// cache-bust:1780799398616:703856061
+// cache-bust:1780835962708:141146928
