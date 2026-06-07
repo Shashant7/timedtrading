@@ -33,6 +33,7 @@ import {
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
+  buildOptionsModelDisposition,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -494,6 +495,59 @@ describe("buildOptionsSetupGuidance — setup quality tiers", () => {
     expect(ladder.setup_guidance?.tier).toBe("good");
     expect(ladder.setup_guidance?.action).toBeTruthy();
     expect(ladder.setup_guidance?.why).toBeTruthy();
+  });
+
+  it("ladder includes model_disposition", () => {
+    const ladder = buildOptionsLadder(SPY_CONTRACT, {
+      profile: "speculator",
+      confluence: { mode: "RIDE", side: "LONG", score: 80, supertrend_trigger: { freshness: "fresh", side: "LONG" } },
+    });
+    expect(ladder.model_disposition?.stance).toBe("enter");
+    expect(ladder.model_disposition?.would_model_enter).toBe(true);
+    expect(ladder.effective_direction).toBe("LONG");
+  });
+});
+
+describe("buildOptionsModelDisposition — fade / weak fusion", () => {
+  it("FADE flip SHORT contract → LONG play is counter-trend timing", () => {
+    const sg = buildOptionsSetupGuidance({
+      confluence: { mode: "FADE", side: "LONG", score: 6, supertrend_trigger: { freshness: "in_motion", side: "SHORT" } },
+      contract: { ticker: "UHS", atr_pct: 0.03 },
+      primary: { archetype: "long_call" },
+    });
+    const d = buildOptionsModelDisposition({
+      confluence: { mode: "FADE", side: "LONG", score: 6 },
+      contractDirection: "SHORT",
+      effectiveDirection: "LONG",
+      directionFlipped: true,
+      setupGuidance: sg,
+      primary: { archetype: "long_call" },
+    });
+    expect(d.stance).toBe("fade_risk");
+    expect(d.stance_label).toMatch(/COUNTER-TREND/i);
+    expect(d.summary).toMatch(/SHORT/);
+    expect(d.summary).toMatch(/LONG/);
+    expect(d.fusion_band).toBe("weak");
+    expect(d.valid_play).toBe(true);
+    expect(d.would_model_enter).toBe(false);
+  });
+
+  it("WAIT with no play → sit out", () => {
+    const sg = buildOptionsSetupGuidance({
+      confluence: { mode: "WAIT", side: "NEUTRAL", score: 12 },
+      contract: { ticker: "XYZ", atr_pct: 0.02 },
+      primary: null,
+    });
+    const d = buildOptionsModelDisposition({
+      confluence: { mode: "WAIT", side: "NEUTRAL", score: 12 },
+      contractDirection: "LONG",
+      effectiveDirection: "LONG",
+      directionFlipped: false,
+      setupGuidance: sg,
+      primary: null,
+    });
+    expect(d.stance).toBe("sit_out");
+    expect(d.valid_play).toBe(false);
   });
 });
 
