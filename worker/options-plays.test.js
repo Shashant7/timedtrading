@@ -346,6 +346,29 @@ describe("index ETF profile alignment", () => {
   });
 });
 
+describe("shouldAllowIndexDirectional — compression call timing", () => {
+  it("allows LONG call when timing overlay fires on WAIT split", () => {
+    const align = shouldAllowIndexDirectional({
+      verdictMode: "WAIT",
+      verdictSide: "SHORT",
+      direction: "LONG",
+      effectiveDirection: "LONG",
+      confluence: {
+        timing: {
+          call_opportunity: true,
+          long_opportunity: true,
+          compression_score: 65,
+          bias: "COMPRESSION",
+          posture: "RISK_ON_BUY",
+        },
+      },
+    });
+    expect(align.allow).toBe(true);
+    expect(align.reason).toBe("compression_call_timing");
+    expect(align.timing_override).toBe(true);
+  });
+});
+
 describe("shouldAllowIndexDirectional — extension put timing", () => {
   it("allows SHORT put when timing overlay fires on WAIT split", () => {
     const align = shouldAllowIndexDirectional({
@@ -369,6 +392,28 @@ describe("shouldAllowIndexDirectional — extension put timing", () => {
 });
 
 describe("buildOptionsSetupGuidance — setup quality tiers", () => {
+  it("compression call timing → valid with CALL window copy", () => {
+    const g = buildOptionsSetupGuidance({
+      confluence: {
+        mode: "WAIT",
+        side: "SHORT",
+        score: 22,
+        timing: { call_opportunity: true, add_on_dips: true, compression_score: 60, bias: "COMPRESSION" },
+      },
+      contract: { ticker: "SPY", atr_pct: 0.012 },
+      directionAlignment: {
+        allow: true,
+        reason: "compression_call_timing",
+        contractDir: "LONG",
+        side: "LONG",
+        timing_override: true,
+      },
+      primary: { archetype: "long_call" },
+    });
+    expect(g.tier).toBe("valid");
+    expect(g.why).toMatch(/CALL window/i);
+  });
+
   it("extension put timing → valid with PUT window copy", () => {
     const g = buildOptionsSetupGuidance({
       confluence: {

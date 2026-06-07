@@ -4701,11 +4701,19 @@ async function buildIntradayPrompt(data, env) {
   // Structured timing signals (TD9 / extension / Markov / VIX) — not LLM-inferred
   try {
     if (env) {
-      const watchRaw = await env.KV_TIMED.get("timed:index:extension-watch");
+      const [watchRaw, compRaw] = await Promise.all([
+        env.KV_TIMED.get("timed:index:extension-watch"),
+        env.KV_TIMED.get("timed:index:compression-watch"),
+      ]);
       if (watchRaw) {
         const watch = JSON.parse(watchRaw);
-        const watchBlock = formatIndexWatchFlashSection(watch);
+        const watchBlock = formatIndexWatchFlashSection(watch, "extension");
         if (watchBlock) { lines.push(watchBlock); lines.push(""); }
+      }
+      if (compRaw) {
+        const compWatch = JSON.parse(compRaw);
+        const compBlock = formatIndexWatchFlashSection(compWatch, "compression");
+        if (compBlock) { lines.push(compBlock); lines.push(""); }
       }
     }
   } catch (_) {}

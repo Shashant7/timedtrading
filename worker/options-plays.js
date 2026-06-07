@@ -373,6 +373,23 @@ export function shouldAllowIndexDirectional({
   const side = String(verdictSide || "NEUTRAL").toUpperCase();
   const timing = timingOverlay || confluence?.timing || null;
 
+  // Compression timing: calls when trader contract is LONG + capitulation stack,
+  // even if layer fusion is still WAIT / SHORT (signal split at index bottoms).
+  if (timing?.call_opportunity && contractDir === "LONG") {
+    if (mode === "WAIT" || side === "SHORT" || side === "NEUTRAL") {
+      return {
+        allow: true,
+        reason: "compression_call_timing",
+        contractDir,
+        side: "LONG",
+        timing_override: true,
+      };
+    }
+  }
+  if (timing?.long_opportunity && contractDir === "LONG" && mode === "FADE") {
+    return { allow: true, reason: "compression_fade_long", contractDir, side: "LONG" };
+  }
+
   // Extension timing: puts when trader contract is SHORT + exhaustion stack,
   // even if layer fusion is still WAIT / LONG (signal split at index tops).
   if (timing?.put_opportunity && contractDir === "SHORT") {
@@ -469,9 +486,15 @@ export function buildOptionsSetupGuidance({
   let why = `Insufficient signal for directional options (${score}/100).`;
 
   const timing = confluence?.timing;
-  if (timing?.put_opportunity && align?.reason === "extension_put_timing") {
+  if (timing?.call_opportunity && align?.reason === "compression_call_timing") {
+    tier = "valid";
+    why = `Compression timing — trader call is LONG while layers still lean ${side}. CALL window is open on defined risk only; theta punishes early entry. Wait for ST slope / ORB confirm before sizing.`;
+  } else if (timing?.put_opportunity && align?.reason === "extension_put_timing") {
     tier = "valid";
     why = `Extension timing — trader call is SHORT while layers still lean ${side}. PUT window is open on defined risk only; theta punishes early entry. Wait for ST slope / ORB confirm before sizing.`;
+  } else if (timing?.add_on_dips && mode === "WAIT" && timing?.bias === "COMPRESSION") {
+    tier = "forming";
+    why = `Compression watch (${timing.compression_score}/100) — add on dips, do not add index shorts. Directional calls stage on trigger; layers are split (${score}/100).`;
   } else if (timing?.trim_winners && mode === "WAIT") {
     tier = "forming";
     why = `Extension watch (${timing.extension_score}/100) — trim winners, do not add index longs. Directional puts stage on trigger; layers are split (${score}/100).`;

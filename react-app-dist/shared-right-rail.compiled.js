@@ -9064,12 +9064,20 @@
           }, whyLine)));
         })(), (() => {
           const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+          const verdict = optionsTabData?.confluence_verdict || null;
           if (!timing || !timing.flash_headline) return null;
+          const bias = String(timing.bias || "EXTENSION").toUpperCase();
+          const isBottom = bias === "COMPRESSION";
           const posture = String(timing.posture || "").toUpperCase();
-          const postureColor = posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af";
-          const warnings = Array.isArray(timing.warnings) ? timing.warnings : [];
+          const postureColor = isBottom ? posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af" : posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af";
+          const score = isBottom ? timing.compression_score : timing.extension_score;
+          const signals = isBottom ? Array.isArray(timing.compressions) ? timing.compressions : [] : Array.isArray(timing.warnings) ? timing.warnings : [];
+          const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
+          const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
+          const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
+          const playbook = verdict?.playbook || timing.playbook || null;
           return React.createElement(Panel, {
-            title: "Timing \u2014 Extension Watch",
+            title: panelTitle,
             action: React.createElement("span", {
               style: {
                 fontSize: 10,
@@ -9081,12 +9089,12 @@
                 background: `${postureColor}18`,
                 border: `1px solid ${postureColor}55`
               }
-            }, posture.replace(/_/g, " "), " \xB7 ", timing.extension_score, "/100")
+            }, posture.replace(/_/g, " "), " \xB7 ", score, "/100")
           }, React.createElement("div", {
             style: {
               padding: "var(--ds-space-2)",
-              background: "rgba(245,194,92,0.08)",
-              border: "1px solid rgba(245,194,92,0.28)",
+              background: panelBg,
+              border: `1px solid ${panelBorder}`,
               borderRadius: "var(--ds-radius-md)",
               marginBottom: "var(--ds-space-2)"
             }
@@ -9104,14 +9112,32 @@
               marginTop: 6,
               lineHeight: 1.45
             }
-          }, timing.flash_detail)), React.createElement("div", {
+          }, timing.flash_detail), playbook === "TREND_CATCH" && React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-faint)",
+              marginTop: 6,
+              lineHeight: 1.45
+            }
+          }, "Trend catch (secondary) \u2014 primary edge is timing tops and bottoms.")), React.createElement("div", {
             style: {
               display: "flex",
               flexWrap: "wrap",
               gap: 6,
-              marginBottom: warnings.length ? 8 : 0
+              marginBottom: signals.length ? 8 : 0
             }
-          }, timing.trim_winners && React.createElement("span", {
+          }, isBottom ? React.createElement(React.Fragment, null, timing.add_on_dips && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Add on dips"), timing.long_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Long / fade timing"), timing.call_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Call window"), (timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "TD D", timing.td_daily_bull, "/W", timing.td_weekly_bull)) : React.createElement(React.Fragment, null, timing.trim_winners && React.createElement("span", {
             className: "ds-chip ds-chip--sm ds-chip--accent"
           }, "Trim winners"), timing.short_opportunity && React.createElement("span", {
             className: "ds-chip ds-chip--sm ds-chip--dn"
@@ -9124,13 +9150,15 @@
             }
           }, "TD D", timing.td_daily_bear, "/W", timing.td_weekly_bear), timing.vix != null && Number(timing.vix) >= 20 && React.createElement("span", {
             className: "ds-chip ds-chip--sm"
-          }, "VIX ", Number(timing.vix).toFixed(1))), warnings.length > 0 && React.createElement("div", {
+          }, "VIX ", Number(timing.vix).toFixed(1))), timing.timing_primary && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent"
+          }, "Time ", timing.timing_primary === "BOTTOM" ? "bottom" : "top")), signals.length > 0 && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-faint)",
               lineHeight: 1.45
             }
-          }, warnings.slice(0, 5).join(" · ")));
+          }, signals.slice(0, 5).join(" · ")));
         })(), (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
@@ -18750,4 +18778,4 @@
   };
 })();
 
-// cache-bust:1780794357171:450527972
+// cache-bust:1780795177719:984512687
