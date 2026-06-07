@@ -1,5 +1,10 @@
 // Alerts module — Discord notifications and proactive alert generation
 
+import {
+  BROAD_INDEX_TICKERS,
+  evaluateBroadIndexExtensionWatch,
+} from "./timing-signals.js";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
 // ─────────────────────────────────────────────────────────────────────────────
@@ -519,6 +524,42 @@ export function generateProactiveAlerts(allTickers, allTrades) {
       })),
     });
   }
+
+  const indexSnapshots = {};
+  allTickers.forEach((t) => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    if (BROAD_INDEX_TICKERS.has(sym)) indexSnapshots[sym] = t;
+  });
+  const indexWatch = evaluateBroadIndexExtensionWatch(indexSnapshots);
+  if (indexWatch.active) {
+    alerts.push({
+      type: "INDEX_EXTENSION_WATCH",
+      priority: "high",
+      ticker: "INDEX",
+      message: indexWatch.headline || "Broad index extension watch active — trim winners, stage puts on confirm.",
+      breadth: indexWatch.breadth,
+      avg_score: indexWatch.avg_score,
+      detail: indexWatch.detail,
+    });
+  }
+
+  allTickers.forEach((ticker) => {
+    const sym = String(ticker?.ticker || "").toUpperCase();
+    const overlay = ticker?.timing_overlay;
+    if (!overlay || !overlay.trim_winners) return;
+    const matchingTrade = openTrades.find((tr) => tr.ticker === sym && (tr.direction || "LONG") === "LONG");
+    if (!matchingTrade) return;
+    const posture = overlay.posture || "CAUTION";
+    if (posture !== "DUMP_WATCH" && posture !== "RISK_OFF" && (overlay.extension_score || 0) < 50) return;
+    alerts.push({
+      type: "TIMING_TRIM_WINNERS",
+      priority: posture === "DUMP_WATCH" ? "high" : "medium",
+      ticker: sym,
+      message: `${sym} timing overlay (${posture}, ${overlay.extension_score || 0}/100) — trim open LONG into strength. ${overlay.flash_detail || ""}`.trim(),
+      extension_score: overlay.extension_score,
+      posture,
+    });
+  });
 
   return alerts.sort((a, b) => {
     const priorityOrder = { high: 3, medium: 2, low: 1 };

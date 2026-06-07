@@ -4,7 +4,15 @@
 // phase, RSI, Markov, VIX, and macro context into actionable posture signals
 // (trim winners, short fade, put timing) — especially for broad index ETFs.
 
+import { ACTIVE_RISKS, TACTICAL_SIGNALS } from "./strategy-context.js";
+
 export const BROAD_INDEX_TICKERS = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP"]);
+
+const MACRO_RISK_OFF_DIRECTIONS = new Set([
+  "caution_mag7_short_term",
+  "bullish_stretched",
+  "short_term_caution_on_crypto",
+]);
 
 const INDEX_WATCH_MIN_HITS = 3;
 
@@ -57,11 +65,36 @@ function vixLevel(tickerData) {
 }
 
 function fsdRiskOffHint(tickerData) {
+  const sym = String(tickerData?.ticker || "").toUpperCase();
   const ctx = tickerData?.context || tickerData?.fsd_context || {};
-  const stance = String(ctx?.stance || ctx?.macro_stance || "").toLowerCase();
+  const stance = String(
+    ctx?.stance
+    || ctx?.macro_stance
+    || tickerData?.strategy_stance?.stance
+    || tickerData?._strategy_stance?.stance
+    || ""
+  ).toLowerCase();
   const tags = Array.isArray(ctx?.tags) ? ctx.tags.map((t) => String(t).toLowerCase()) : [];
   if (stance.includes("risk_off") || stance.includes("defensive") || stance.includes("underweight")) return true;
   if (tags.some((t) => t.includes("risk_off") || t.includes("war") || t.includes("inflation") || t.includes("vix"))) return true;
+
+  const highRisks = ACTIVE_RISKS.filter((r) => String(r?.severity || "").toLowerCase() === "high");
+  if (highRisks.length > 0) {
+    const riskText = highRisks.map((r) => `${r.name} ${r.note || ""}`.toLowerCase()).join(" ");
+    if (riskText.includes("war") || riskText.includes("inflation") || riskText.includes("vol")) return true;
+    if (BROAD_INDEX_TICKERS.has(sym)) return true;
+  }
+
+  if (BROAD_INDEX_TICKERS.has(sym)) {
+    const tactRiskOff = TACTICAL_SIGNALS.some((s) => {
+      const dir = String(s?.direction || "").toLowerCase();
+      if (MACRO_RISK_OFF_DIRECTIONS.has(dir)) return true;
+      const action = String(s?.playbook_action || "").toLowerCase();
+      return action.includes("trim") || action.includes("consolidation") || action.includes("de-risk");
+    });
+    if (tactRiskOff) return true;
+  }
+
   return false;
 }
 

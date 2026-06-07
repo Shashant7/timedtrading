@@ -110,3 +110,13 @@ describe("bearishTdPrepCount", () => {
     }, "D")).toBe(9);
   });
 });
+
+describe("fsd / macro risk-off hint", () => {
+  it("flags broad index ETFs when active playbook risks are elevated", () => {
+    const warnings = detectExhaustionWarnings({
+      ticker: "SPY",
+      td_sequential: { per_tf: { D: { bearish_prep_count: 6 } } },
+    });
+    expect(warnings).toContain("fsd_macro_risk_off");
+  });
+});
