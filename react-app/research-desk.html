@@ -509,7 +509,7 @@
         const stepChips = sum ? [
           sum.cto && h("span", { key: "cto", className: `chip ${sum.cto.ok ? "chip-on" : "chip-warn"}` }, `CTO ${sum.cto.tickers_ok}/${sum.cto.tickers_processed}`),
           sum.rotation && h("span", { key: "rot", className: `chip ${sum.rotation.ok ? "chip-on" : "chip-warn"}` }, `Rotation ${sum.rotation.ok ? "ok" : "fail"}`),
-          sum.fsd_ingestion && h("span", { key: "fsd", className: `chip ${sum.fsd_ingestion.ok ? "chip-on" : sum.fsd_ingestion.skipped ? "chip" : "chip-warn"}` }, sum.fsd_ingestion.skipped ? `FSD skipped (${sum.fsd_ingestion.skipped.slice(0,20)})` : `FSD ${sum.fsd_ingestion.ingested} ingested`),
+          sum.fsd_ingestion && h("span", { key: "fsd", className: `chip ${sum.fsd_ingestion.ok ? "chip-on" : sum.fsd_ingestion.skipped ? "chip" : "chip-warn"}` }, sum.fsd_ingestion.skipped ? `FSD skipped (${Array.isArray(sum.fsd_ingestion.skipped) ? sum.fsd_ingestion.skipped.slice(0, 20).join(", ") : String(sum.fsd_ingestion.skipped)})` : `FSD ${sum.fsd_ingestion.ingested} ingested`),
           sum.applies_count > 0 && h("span", { key: "app", className: "chip chip-blue" }, `${sum.applies_count} auto-applied`),
         ].filter(Boolean) : [];
         return h("div", { className: "card", style: { marginBottom: 14 } },

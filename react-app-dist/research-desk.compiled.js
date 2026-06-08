@@ -392,7 +392,7 @@ function StatusBanner({
   }, `Rotation ${sum.rotation.ok ? "ok" : "fail"}`), sum.fsd_ingestion && h("span", {
     key: "fsd",
     className: `chip ${sum.fsd_ingestion.ok ? "chip-on" : sum.fsd_ingestion.skipped ? "chip" : "chip-warn"}`
-  }, sum.fsd_ingestion.skipped ? `FSD skipped (${sum.fsd_ingestion.skipped.slice(0, 20)})` : `FSD ${sum.fsd_ingestion.ingested} ingested`), sum.applies_count > 0 && h("span", {
+  }, sum.fsd_ingestion.skipped ? `FSD skipped (${Array.isArray(sum.fsd_ingestion.skipped) ? sum.fsd_ingestion.skipped.slice(0, 20).join(", ") : String(sum.fsd_ingestion.skipped)})` : `FSD ${sum.fsd_ingestion.ingested} ingested`), sum.applies_count > 0 && h("span", {
     key: "app",
     className: "chip chip-blue"
   }, `${sum.applies_count} auto-applied`)].filter(Boolean) : [];
@@ -1486,6 +1486,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780924617297:832831318
+// cache-bust:1780942261931:455239393
 
-// cache-bust:1780924617297:832831318
+// cache-bust:1780942261931:455239393
