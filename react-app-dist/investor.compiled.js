@@ -469,7 +469,7 @@ function HowToReadCard() {
       flexDirection: "column",
       gap: 6
     }
-  }, el("Stage chip", "the model's stance: Accumulate, Core Hold, Hold & Watch, Reduce."), el("OWNED", "the simulated portfolio holds this name; shows shares, avg entry, and P&L."), el("BUY / RS HI", "in a Buy Zone / a relative-strength leader."), el("1M · 3M", "trailing returns; S = score, RS = relative-strength rank."), el("LAST", "the most recent model action (Buy / Sell / DCA) and when."))), h("div", null, h("div", {
+  }, el("OWNED", "the simulated portfolio holds this name; shows shares, avg entry, and P&L."), el("BUY / RS HI", "in a Buy Zone / a relative-strength leader."), el("1M · 3M", "trailing returns; S = score, RS = relative-strength rank."), el("LAST", "the most recent model action (Buy / Sell / DCA) and when."))), h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
@@ -789,6 +789,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780945663308:392991487
+// cache-bust:1780954549682:827963344
 
-// cache-bust:1780945663308:392991487
+// cache-bust:1780954549682:827963344
