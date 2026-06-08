@@ -137,11 +137,10 @@
 
             next[key] = {
               ...existing,
-              // Only overwrite the canonical price field DURING RTH.
-              // When market is closed, keep the RTH close (existing.price)
-              // intact; the live tick goes to _live_price only.
-              ...(marketOpen ? { price: feedP } : {}),
-              _live_price: feedP,
+              // Only overwrite canonical + live headline fields DURING RTH.
+              // Outside RTH, feedP may be a pre/post-market tick — keep the
+              // RTH close on price/_live_price; extended print goes to _ah_*.
+              ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
               _price_updated_at: feedTs,
               _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
@@ -230,7 +229,13 @@
               // already wrote row.price; if usePriceFeed has a more-recent
               // value we restore it.
               if (existing._price_updated_at && existing._price_updated_at > (row.ts || 0)) {
-                if (existing._live_price !== undefined) merged.price = existing._live_price;
+                const marketOpen = (() => {
+                  try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+                  catch (_) { return true; }
+                })();
+                if (marketOpen && existing._live_price !== undefined) {
+                  merged.price = existing._live_price;
+                }
                 if (existing.day_change !== undefined) merged.day_change = existing.day_change;
                 if (existing.day_change_pct !== undefined) merged.day_change_pct = existing.day_change_pct;
               }
@@ -258,4 +263,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh };
 })();
 
-// cache-bust:1780889681972:745210563
+// cache-bust:1780917565984:976154932

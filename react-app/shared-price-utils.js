@@ -77,26 +77,32 @@
   //   2. Scoring snapshot prev_close (from heartbeat/capture ingest)
   //   3. Derive from day_change fields:  prevClose = price - day_change
   //
-  // Priority for currentPrice:
-  //   1. Alpaca live price   (_live_price)
-  //   2. Ticker price field  (price)
-  //   3. Ticker close field  (close)
-  //
+  // Headline price for ticker cards — session-aware single source of truth.
+  // RTH open: live tick. Outside RTH: today's RTH close (close/price), never
+  // the pre/post-market print (_live_price may carry that after a price poll).
+  // Extended hours belong on the EXT line via getExtChange().
+  function getHeadlinePrice(t) {
+    if (!t || typeof t !== "object") return null;
+    var marketOpen = isNyRegularMarketOpen();
+    if (marketOpen) {
+      var live = Number(t._live_price);
+      if (live > 0) return live;
+      var openPx = Number(t.price ?? t.close);
+      return openPx > 0 ? openPx : null;
+    }
+    var close = Number(t.close);
+    if (close > 0) return close;
+    var px = Number(t.price);
+    if (px > 0) return px;
+    var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+    return prev > 0 ? prev : null;
+  }
+
   function getDailyChange(t) {
     var marketOpen = isNyRegularMarketOpen();
 
-    // ── Resolve current price ──
-    // _live_price mirrors timed:prices `p`, which is the live RTH price during
-    // the session and the RTH CLOSE while the market is closed (the extended
-    // print lives in `ahp` / _ah_price, surfaced separately on the EXT line).
-    // So _live_price is the correct headline source in both states. The
-    // snapshot `price` field can lag to a pre-market value, so it's a fallback.
-    var price = 0;
-    var priceKeys = ["_live_price", "price", "close"];
-    for (var pi = 0; pi < priceKeys.length; pi++) {
-      var pv = Number(t?.[priceKeys[pi]]);
-      if (Number.isFinite(pv) && pv > 0) { price = pv; break; }
-    }
+    // ── Resolve current price (session-aware) ──
+    var price = getHeadlinePrice(t) || 0;
     if (!(price > 0)) return { dayChg: null, dayPct: null, stale: { isStale: true }, marketOpen };
 
     // ── Resolve prevClose ──
@@ -439,6 +445,7 @@
     isNyRegularMarketOpen: isNyRegularMarketOpen,
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
+    getHeadlinePrice: getHeadlinePrice,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
