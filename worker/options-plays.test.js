@@ -30,6 +30,7 @@ import {
   buildOptionsLadder,
   buildDayTradePlay,
   pickExpirationForProfile,
+  pickDayTradeExpiration,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
@@ -220,6 +221,38 @@ describe("optionsPlayDiscordField — live-exit projection", () => {
   it("qualifies max loss as expiration-only", () => {
     const field = optionsPlayDiscordField(buildCompact());
     expect(field.value).toMatch(/Max loss \(if held to exp\)/);
+  });
+});
+
+describe("pickDayTradeExpiration", () => {
+  // Monday 2026-06-08 19:27 UTC = 3:27 PM ET (EDT)
+  const MON_327PM_ET = new Date("2026-06-08T19:27:00.000Z").getTime();
+  // Monday 2026-06-08 14:00 UTC = 10:00 AM ET
+  const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
+  // Monday 2026-06-08 21:00 UTC = 5:00 PM ET (after close)
+  const MON_5PM_ET = new Date("2026-06-08T21:00:00.000Z").getTime();
+
+  it("returns 0DTE before 3 PM ET on a weekday", () => {
+    const exp = pickDayTradeExpiration(MON_10AM_ET);
+    expect(exp.dte).toBe(0);
+    expect(exp.label).toMatch(/0DTE/);
+  });
+
+  it("returns 1DTE at 3:27 PM ET (final-hour theta cliff)", () => {
+    const exp = pickDayTradeExpiration(MON_327PM_ET);
+    expect(exp.dte).toBe(1);
+    expect(exp.label).toMatch(/1DTE/);
+    expect(exp.label).not.toMatch(/0DTE/);
+  });
+
+  it("returns 1DTE after market close", () => {
+    const exp = pickDayTradeExpiration(MON_5PM_ET);
+    expect(exp.dte).toBe(1);
+  });
+
+  it("forceTomorrow always returns 1DTE even mid-morning", () => {
+    const exp = pickDayTradeExpiration(MON_10AM_ET, { forceTomorrow: true });
+    expect(exp.dte).toBe(1);
   });
 });
 
