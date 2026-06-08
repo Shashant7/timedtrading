@@ -452,7 +452,6 @@
 
   // ── Paywall Screen ────────────────────────────────────────────────────────
   // Shown when user.tier === "free" and no active subscription.
-  // Founder's Charter offer: $60/mo locked for life vs $99/mo standard anchor.
   function PaywallScreen({ user, apiBase }) {
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState(null);
@@ -497,13 +496,6 @@
       "Browser push & in-app notifications",
     ];
 
-    const charterPerks = [
-      ["$60/mo locked for life", "never raised on you, even when standard hits $99+"],
-      ["Charter Member badge", "in the app, on your profile"],
-      ["Direct line to the team", "feature requests, bugs, roadmap input"],
-      ["Early access to new features", "options play paths, leveraged ETF setups, more"],
-    ];
-
     return h("div", {
       style: {
         // 2026-05-31 — Mobile bottom nav was being captured into the
@@ -526,50 +518,18 @@
         },
       },
         h("div", { style: { position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "linear-gradient(90deg, #34d399, #67e8f9)" } }),
-        h("span", {
-          style: {
-            display: "inline-flex", alignItems: "center", gap: "6px",
-            padding: "5px 14px", borderRadius: "20px", fontSize: "11px",
-            fontWeight: "700", color: "#00c853", background: "rgba(0,200,83,0.10)",
-            border: "1px solid rgba(0,200,83,0.28)", marginBottom: "18px", letterSpacing: "0.6px",
-            textTransform: "uppercase",
-          },
-        },
-          h("span", { style: { width: "6px", height: "6px", borderRadius: "50%", background: "#00c853", boxShadow: "0 0 8px rgba(0,200,83,0.6)" } }),
-          "Charter Pricing \u00b7 Limited Window",
-        ),
         h("h1", { style: { fontSize: "22px", fontWeight: "800", color: "#e5e7eb", margin: "0 0 4px", letterSpacing: "-0.02em" } },
-          "Timed Trading \u2014 Charter Member"),
+          "Timed Trading Pro"),
         h("p", { style: { fontSize: "13px", color: "#9ca3af", margin: "0 0 18px", lineHeight: "1.5" } },
-          "Full platform access. Founder's Charter perks. Locked rate."),
+          "Full platform access. Active Trader + Investor modes."),
         h("div", {
-          style: { display: "flex", alignItems: "baseline", justifyContent: "center", gap: "14px", marginBottom: "8px", flexWrap: "wrap" },
+          style: { display: "flex", alignItems: "baseline", justifyContent: "center", marginBottom: "8px" },
         },
-          h("span", {
-            style: {
-              fontSize: "22px", fontWeight: "600", color: "#6b7280",
-              textDecoration: "line-through", textDecorationThickness: "2px",
-              textDecorationColor: "rgba(239,68,68,0.55)",
-            },
-          }, "$99", h("span", { style: { fontSize: "13px", fontWeight: "400" } }, "/mo")),
           h("span", { style: { fontSize: "48px", fontWeight: "900", color: "#fff", letterSpacing: "-0.03em", lineHeight: "1" } },
             "$60", h("span", { style: { fontSize: "16px", color: "#9ca3af", fontWeight: "400" } }, "/month")),
         ),
-        h("div", {
-          style: {
-            display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px",
-            fontWeight: "600", color: "#00c853", background: "rgba(0,200,83,0.08)",
-            border: "1px solid rgba(0,200,83,0.22)", borderRadius: "999px", padding: "4px 12px", marginBottom: "12px",
-          },
-        },
-          h("svg", { width: "12", height: "12", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2.5", strokeLinecap: "round", strokeLinejoin: "round" },
-            h("rect", { x: "3", y: "11", width: "18", height: "11", rx: "2" }),
-            h("path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }),
-          ),
-          "Locked for life while your subscription stays active",
-        ),
         h("p", { style: { fontSize: "12px", color: "#6b7280", margin: "0 0 24px", lineHeight: "1.6" } },
-          "14-day free trial \u00b7 Cancel anytime \u00b7 Your rate is locked the moment you reserve a seat"),
+          "14-day free trial \u00b7 Cancel anytime"),
         h("div", { style: { textAlign: "left", marginBottom: "20px" } },
           h("div", {
             style: { fontSize: "10.5px", fontWeight: "700", letterSpacing: "0.10em", color: "#6b7280",
@@ -583,21 +543,6 @@
             ),
           ),
         ),
-        h("div", { style: { textAlign: "left", marginBottom: "24px" } },
-          h("div", {
-            style: { fontSize: "10.5px", fontWeight: "700", letterSpacing: "0.10em", color: "#6b7280",
-              textTransform: "uppercase", marginBottom: "10px", paddingTop: "16px",
-              borderTop: "1px solid rgba(255,255,255,0.06)" },
-          }, "Charter perks (founder phase only)"),
-          ...charterPerks.map(([title, desc]) =>
-            h("div", { key: title, style: { display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "8px" } },
-              h("span", { style: { color: "#fbbf24", fontSize: "13px", lineHeight: "20px", flexShrink: 0, fontWeight: 700 } }, "\u2605"),
-              h("span", { style: { fontSize: "12.5px", color: "#9ca3af", lineHeight: "1.5" } },
-                h("strong", { style: { color: "#e5e7eb", fontWeight: 600 } }, title), " \u2014 ", desc,
-              ),
-            ),
-          ),
-        ),
         h("button", {
           onClick: handleStartTrial,
           disabled: loading,
@@ -606,7 +551,7 @@
             color: "#fff", background: loading ? "#374151" : "linear-gradient(135deg, #00c853, #00a844)",
             border: "none", cursor: loading ? "wait" : "pointer", transition: "all 0.15s",
           },
-        }, loading ? "Redirecting to Stripe..." : "Reserve Your Charter Seat"),
+        }, loading ? "Redirecting to Stripe..." : "Start 14-day free trial"),
         error && h("p", { style: { color: "#ff5252", fontSize: "13px", marginTop: "12px" } }, error),
         h("a", {
           href: "/learn.html",
