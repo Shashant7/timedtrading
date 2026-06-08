@@ -4446,10 +4446,11 @@
           );
         }
 
-        // Price source: always use the ticker prop (same object the Card renders)
-        // for price/change display. latestTicker is only for context/scoring data.
-        // This guarantees the right rail shows identical values to the card.
-        const priceSrc = ticker || {};
+        // Price source: merge parent ticker row with /timed/latest so EXT fields
+        // from the freshness overlay win when newer than the card snapshot.
+        const priceSrc = (window.TimedPriceUtils?.mergePriceSrc
+          ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker)
+          : { ...(latestTicker || {}), ...(ticker || {}) });
         // 2026-05-29 — Stable RTH display price.
         //
         // Two layers of flicker the user saw outside RTH:
@@ -5492,7 +5493,10 @@
             return "";
           })();
           const v2Dir = v2BiasDirection;
-          const v2Price = resolveDisplayPrice(priceSrc);
+          const v2Price = Number(
+            window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
+            ?? resolveDisplayPrice(priceSrc)
+          ) || 0;
           const v2DayChange = (() => {
             const src = priceSrc;
             if (!src) return null;
@@ -5796,83 +5800,13 @@
                           RTH CLOSE
                         </span>
                       )}
-                      {/* 2026-05-29 — Extended-hours price + % chip.
-                          Shown OUTSIDE RTH whenever an AH quote exists
-                          and has a non-zero % change. During RTH the
-                          extended-hours fields go stale, so the chip is
-                          suppressed entirely (the RTH live price is the
-                          main number). Crypto excluded — no RTH/EXT
-                          distinction. */}
                       {(() => {
-                        const SYM = String(tickerSymbol || "").toUpperCase();
-                        if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
-                        const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-                        if (rthOpen) return null; // Hide chip during RTH
-                        const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
-                        const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
-                        const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
-                        // 2026-06-03 — Operator wanted to SEE the chip
-                        // outside RTH even when AH is quiet (so the
-                        // monitoring is visible). If we have no AH price
-                        // AT ALL, fall back to RTH close as a "AH quiet"
-                        // placeholder. The stale-drift guard below still
-                        // catches cross-session pollution like CRDO
-                        // 226.30 → -7% day.
-                        const _haveAhPrice = Number.isFinite(ahPrice) && ahPrice > 0;
-                        const _ahQuiet = !_haveAhPrice
-                          || (!Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05);
-                        // 2026-06-03 — Stale-EXT guard. TwelveData's
-                        // extended_price field is cached server-side
-                        // and doesn't always refresh after a big RTH
-                        // move. Symptom (CRDO 6/3/2026): RTH close
-                        // $214.56 (down -7.66%), but EXT chip stuck at
-                        // $226.30 — yesterday's premarket high
-                        // captured before today's selloff. The worker's
-                        // staleness check clears OUR derived _ah_price
-                        // but the frontend falls back to the raw
-                        // extended_price which is still stale.
-                        //
-                        // Defense: hide the chip when EXT price is
-                        // wildly off from today's RTH close. 4% is a
-                        // tight threshold — earnings AH moves can be
-                        // larger but those usually move IN THE SAME
-                        // DIRECTION as the closing pressure, not
-                        // against it. Combine drift magnitude with a
-                        // direction-disagreement check: hide if
-                        // drift > 4% AND (drift > 6% OR EXT direction
-                        // disagrees with today's RTH direction).
-                        let _ahStaleDrift = false;
-                        try {
-                          if (_haveAhPrice) {
-                            const _rthClose = Number(v2Price);
-                            if (Number.isFinite(_rthClose) && _rthClose > 0) {
-                              const _driftPct = ((ahPrice - _rthClose) / _rthClose) * 100;
-                              const _absDrift = Math.abs(_driftPct);
-                              const _todayPct = Number(v2DayPct);
-                              const _dirDisagree = Number.isFinite(_todayPct)
-                                && Math.abs(_todayPct) > 1.5
-                                && Math.sign(_todayPct) !== Math.sign(_driftPct);
-                              if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
-                                _ahStaleDrift = true; // mark, don't render
-                              }
-                            }
-                          }
-                        } catch (_) {}
-                        // When AH price is stale OR missing, render a "AH quiet"
-                        // placeholder using RTH close so the user sees the
-                        // monitoring is active. Real AH activity (when it
-                        // happens) replaces the placeholder on the next tick.
-                        const _displayAhPrice = (!_ahStaleDrift && _haveAhPrice) ? ahPrice : Number(v2Price);
-                        const _displayAhPct = (!_ahStaleDrift && _haveAhPrice && Number.isFinite(ahPct) && Math.abs(ahPct) >= 0.05) ? ahPct : 0;
-                        const _displayAhChg = (!_ahStaleDrift && _haveAhPrice && Number.isFinite(ahChg)) ? ahChg : 0;
-                        const _showQuietBadge = _ahStaleDrift || !_haveAhPrice || (Number.isFinite(ahPct) && Math.abs(ahPct) < 0.05);
-                        if (!Number.isFinite(_displayAhPrice) || _displayAhPrice <= 0) return null;
-                        const dir = _showQuietBadge ? "flat" : (!Number.isFinite(_displayAhPct) ? "flat" : _displayAhPct >= 0 ? "up" : "dn");
+                        const ext = window.TimedPriceUtils?.getExtChange?.(priceSrc);
+                        if (!ext) return null;
+                        const dir = ext.pct >= 0 ? "up" : "dn";
                         return (
                           <div
-                            title={_showQuietBadge
-                              ? "After-hours quiet — no fresh AH movement yet (or the upstream quote was flagged stale and filtered)."
-                              : "Extended-hours quote (pre-market / after-hours)"}
+                            title="Extended-hours quote (pre-market / after-hours)"
                             style={{
                               display: "inline-flex",
                               alignItems: "baseline",
@@ -5881,25 +5815,21 @@
                               borderRadius: 999,
                               fontFamily: "var(--tt-font-mono)",
                               fontSize: "var(--ds-fs-meta)",
-                              background: dir === "up" ? "rgba(52,211,153,0.08)" : dir === "dn" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)",
-                              border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : dir === "dn" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.08)"}`,
+                              background: dir === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+                              border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
                             }}
                           >
                             <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", color: "var(--ds-text-faint)" }}>EXT</span>
-                            <span style={{ color: "var(--ds-text-body)", fontWeight: 600 }}>${_displayAhPrice.toFixed(2)}</span>
-                            {_showQuietBadge ? (
-                              <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em", fontStyle: "italic" }}>quiet</span>
-                            ) : (
-                              <>
-                                <span style={{ color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)", fontWeight: 700 }}>
-                                  {_displayAhPct >= 0 ? "+" : ""}{_displayAhPct.toFixed(2)}%
-                                </span>
-                                {Number.isFinite(_displayAhChg) && Math.abs(_displayAhChg) > 0.001 && (
-                                  <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em" }}>
-                                    ({_displayAhChg >= 0 ? "+" : "−"}${Math.abs(_displayAhChg).toFixed(2)})
-                                  </span>
-                                )}
-                              </>
+                            {ext.price != null && (
+                              <span style={{ color: "var(--ds-text-body)", fontWeight: 600 }}>${ext.price.toFixed(2)}</span>
+                            )}
+                            <span style={{ color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)", fontWeight: 700 }}>
+                              {ext.pct >= 0 ? "+" : ""}{ext.pct.toFixed(2)}%
+                            </span>
+                            {Number.isFinite(ext.chg) && Math.abs(ext.chg) > 0.001 && (
+                              <span style={{ color: "var(--ds-text-muted)", fontSize: "0.85em" }}>
+                                ({ext.chg >= 0 ? "+" : "−"}${Math.abs(ext.chg).toFixed(2)})
+                              </span>
                             )}
                           </div>
                         );
@@ -16150,4 +16080,4 @@
   };
 })();
 
-// cache-bust:1780917565984:976154932
+// cache-bust:1780924617297:832831318

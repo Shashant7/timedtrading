@@ -5746,7 +5746,10 @@
           compact: true
         }))))));
       }
-      const priceSrc = ticker || {};
+      const priceSrc = window.TimedPriceUtils?.mergePriceSrc ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker) : {
+        ...(latestTicker || {}),
+        ...(ticker || {})
+      };
       const resolveDisplayPrice = src => {
         if (!src) return 0;
         const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
@@ -6559,7 +6562,7 @@
           return "";
         })();
         const v2Dir = v2BiasDirection;
-        const v2Price = resolveDisplayPrice(priceSrc);
+        const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
         const v2DayChange = (() => {
           const src = priceSrc;
           if (!src) return null;
@@ -6938,38 +6941,11 @@
                 color: "var(--ds-text-faint)"
               }
             }, "RTH CLOSE"), (() => {
-              const SYM = String(tickerSymbol || "").toUpperCase();
-              if (SYM === "BTCUSD" || SYM === "ETHUSD") return null;
-              const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-              if (rthOpen) return null;
-              const ahPrice = Number(ticker?._ah_price ?? ticker?.extended_price ?? latestTicker?._ah_price ?? latestTicker?.extended_price);
-              const ahPct = Number(ticker?._ah_change_pct ?? ticker?.extended_percent_change ?? latestTicker?._ah_change_pct ?? latestTicker?.extended_percent_change);
-              const ahChg = Number(ticker?._ah_change ?? ticker?.extended_change ?? latestTicker?._ah_change ?? latestTicker?.extended_change);
-              const _haveAhPrice = Number.isFinite(ahPrice) && ahPrice > 0;
-              const _ahQuiet = !_haveAhPrice || !Number.isFinite(ahPct) || Math.abs(ahPct) < 0.05;
-              let _ahStaleDrift = false;
-              try {
-                if (_haveAhPrice) {
-                  const _rthClose = Number(v2Price);
-                  if (Number.isFinite(_rthClose) && _rthClose > 0) {
-                    const _driftPct = (ahPrice - _rthClose) / _rthClose * 100;
-                    const _absDrift = Math.abs(_driftPct);
-                    const _todayPct = Number(v2DayPct);
-                    const _dirDisagree = Number.isFinite(_todayPct) && Math.abs(_todayPct) > 1.5 && Math.sign(_todayPct) !== Math.sign(_driftPct);
-                    if (_absDrift > 4 && (_absDrift > 6 || _dirDisagree)) {
-                      _ahStaleDrift = true;
-                    }
-                  }
-                }
-              } catch (_) {}
-              const _displayAhPrice = !_ahStaleDrift && _haveAhPrice ? ahPrice : Number(v2Price);
-              const _displayAhPct = !_ahStaleDrift && _haveAhPrice && Number.isFinite(ahPct) && Math.abs(ahPct) >= 0.05 ? ahPct : 0;
-              const _displayAhChg = !_ahStaleDrift && _haveAhPrice && Number.isFinite(ahChg) ? ahChg : 0;
-              const _showQuietBadge = _ahStaleDrift || !_haveAhPrice || Number.isFinite(ahPct) && Math.abs(ahPct) < 0.05;
-              if (!Number.isFinite(_displayAhPrice) || _displayAhPrice <= 0) return null;
-              const dir = _showQuietBadge ? "flat" : !Number.isFinite(_displayAhPct) ? "flat" : _displayAhPct >= 0 ? "up" : "dn";
+              const ext = window.TimedPriceUtils?.getExtChange?.(priceSrc);
+              if (!ext) return null;
+              const dir = ext.pct >= 0 ? "up" : "dn";
               return React.createElement("div", {
-                title: _showQuietBadge ? "After-hours quiet — no fresh AH movement yet (or the upstream quote was flagged stale and filtered)." : "Extended-hours quote (pre-market / after-hours)",
+                title: "Extended-hours quote (pre-market / after-hours)",
                 style: {
                   display: "inline-flex",
                   alignItems: "baseline",
@@ -6978,8 +6954,8 @@
                   borderRadius: 999,
                   fontFamily: "var(--tt-font-mono)",
                   fontSize: "var(--ds-fs-meta)",
-                  background: dir === "up" ? "rgba(52,211,153,0.08)" : dir === "dn" ? "rgba(248,113,113,0.08)" : "rgba(255,255,255,0.04)",
-                  border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : dir === "dn" ? "rgba(248,113,113,0.25)" : "rgba(255,255,255,0.08)"}`
+                  background: dir === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+                  border: `1px solid ${dir === "up" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`
                 }
               }, React.createElement("span", {
                 style: {
@@ -6988,28 +6964,22 @@
                   letterSpacing: "0.05em",
                   color: "var(--ds-text-faint)"
                 }
-              }, "EXT"), React.createElement("span", {
+              }, "EXT"), ext.price != null && React.createElement("span", {
                 style: {
                   color: "var(--ds-text-body)",
                   fontWeight: 600
                 }
-              }, "$", _displayAhPrice.toFixed(2)), _showQuietBadge ? React.createElement("span", {
+              }, "$", ext.price.toFixed(2)), React.createElement("span", {
                 style: {
-                  color: "var(--ds-text-muted)",
-                  fontSize: "0.85em",
-                  fontStyle: "italic"
-                }
-              }, "quiet") : React.createElement(React.Fragment, null, React.createElement("span", {
-                style: {
-                  color: dir === "up" ? "var(--ds-color-up, #34d399)" : dir === "dn" ? "var(--ds-color-down, #f87171)" : "var(--ds-text-muted)",
+                  color: dir === "up" ? "var(--ds-color-up, #34d399)" : "var(--ds-color-down, #f87171)",
                   fontWeight: 700
                 }
-              }, _displayAhPct >= 0 ? "+" : "", _displayAhPct.toFixed(2), "%"), Number.isFinite(_displayAhChg) && Math.abs(_displayAhChg) > 0.001 && React.createElement("span", {
+              }, ext.pct >= 0 ? "+" : "", ext.pct.toFixed(2), "%"), Number.isFinite(ext.chg) && Math.abs(ext.chg) > 0.001 && React.createElement("span", {
                 style: {
                   color: "var(--ds-text-muted)",
                   fontSize: "0.85em"
                 }
-              }, "(", _displayAhChg >= 0 ? "+" : "−", "$", Math.abs(_displayAhChg).toFixed(2), ")")));
+              }, "(", ext.chg >= 0 ? "+" : "−", "$", Math.abs(ext.chg).toFixed(2), ")"));
             })());
           })(), (() => {
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
@@ -18920,4 +18890,4 @@
   };
 })();
 
-// cache-bust:1780917565984:976154932
+// cache-bust:1780924617297:832831318

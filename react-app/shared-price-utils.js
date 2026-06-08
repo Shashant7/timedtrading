@@ -373,29 +373,88 @@
     };
   }
 
+  // Merge parent-page ticker row with /timed/latest payload for display.
+  // Prefer whichever source has the fresher price-feed overlay.
+  function mergePriceSrc(primary, secondary) {
+    var a = primary || {};
+    var b = secondary || {};
+    var out = {};
+    var k;
+    for (k in b) { if (Object.prototype.hasOwnProperty.call(b, k)) out[k] = b[k]; }
+    for (k in a) { if (Object.prototype.hasOwnProperty.call(a, k)) out[k] = a[k]; }
+    var aTs = Number(a._price_updated_at) || 0;
+    var bTs = Number(b._price_updated_at || b.ts) || 0;
+    var fresher = bTs > aTs ? b : a;
+    var liveKeys = [
+      "_live_price", "_live_prev_close", "_price_updated_at",
+      "_ah_price", "_ah_change", "_ah_change_pct",
+      "day_change", "day_change_pct", "price", "close",
+    ];
+    for (var i = 0; i < liveKeys.length; i++) {
+      var key = liveKeys[i];
+      if (fresher[key] != null) out[key] = fresher[key];
+    }
+    if (!out.ticker) out.ticker = a.ticker || b.ticker;
+    return out;
+  }
+
   // Extended-hours change resolver — single source of truth for
-  // pre-market / after-hours display across every ticker card. Returns
-  // { pct, price } or null if no EXT data should be shown right now.
-  //
-  // Rules (per price-data-pipeline.mdc workspace rule):
-  //   1. Hidden during RTH (isNyRegularMarketOpen() === true)
-  //   2. Crypto excluded — BTCUSD, ETHUSD are 24/7 markets
-  //   3. Read _ah_change_pct with extended_percent_change fallback
-  //      (canonical field chain used by MoverRow + FOCUS chips)
-  //   4. Minimum |move| >= 0.05 % to suppress noise
-  //   5. _ah_price is the optional AH/pre-market trade price; null when
-  //      we don't have one (caller renders pct only in that case)
+  // pre-market / after-hours display across cards + right rail.
+  // Returns { pct, price, chg } or null.
   function getExtChange(t) {
     if (isNyRegularMarketOpen()) return null;
     var sym = String(t && t.ticker || "").toUpperCase();
     if (sym === "BTCUSD" || sym === "ETHUSD") return null;
+
+    var headline = getHeadlinePrice(t) || 0;
     var pct = Number(
       t && t._ah_change_pct != null ? t._ah_change_pct :
-      t && t.extended_percent_change
+      t && t.extended_percent_change != null ? t.extended_percent_change :
+      NaN
     );
+    var px = Number(
+      t && t._ah_price != null ? t._ah_price :
+      t && t.extended_price != null ? t.extended_price :
+      NaN
+    );
+    var chg = Number(
+      t && t._ah_change != null ? t._ah_change :
+      t && t.extended_change != null ? t.extended_change :
+      NaN
+    );
+
+    // Canonical worker ahdp is vs today's RTH close — derive a consistent
+    // EXT print when upstream extended_price is stale but ahdp is fresh.
+    if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05) {
+      var derivedPx = Math.round(headline * (1 + pct / 100) * 100) / 100;
+      if (!(px > 0)) px = derivedPx;
+      if (!Number.isFinite(chg)) chg = Math.round((derivedPx - headline) * 100) / 100;
+      // Reject stale extended_price that disagrees with ahdp-derived print.
+      if (px > 0 && Math.abs(px - derivedPx) / derivedPx > 0.02) px = derivedPx;
+    } else if (headline > 0 && px > 0 && Math.abs(px - headline) > 0.001) {
+      if (!Number.isFinite(pct)) pct = Math.round(((px - headline) / headline) * 10000) / 100;
+      if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
+    }
+
     if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
-    var px = Number(t && t._ah_price);
-    return { pct: pct, price: Number.isFinite(px) && px > 0 ? px : null };
+    if (!(px > 0)) return { pct: pct, price: null, chg: Number.isFinite(chg) ? chg : null };
+
+    // Cross-session stale guard (e.g. CRDO/MU extended_price lagging RTH).
+    if (headline > 0) {
+      var driftPct = ((px - headline) / headline) * 100;
+      var absDrift = Math.abs(driftPct);
+      var dayPct = Number(getDailyChange(t)?.dayPct);
+      var dirDisagree = Number.isFinite(dayPct)
+        && Math.abs(dayPct) > 1.5
+        && Math.sign(dayPct) !== Math.sign(driftPct);
+      if (absDrift > 4 && (absDrift > 6 || dirDisagree)) return null;
+    }
+
+    return {
+      pct: pct,
+      price: px,
+      chg: Number.isFinite(chg) ? chg : null,
+    };
   }
 
   /**
@@ -446,6 +505,7 @@
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getHeadlinePrice: getHeadlinePrice,
+    mergePriceSrc: mergePriceSrc,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
