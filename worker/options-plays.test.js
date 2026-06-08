@@ -30,6 +30,10 @@ import {
   buildOptionsLadder,
   buildDayTradePlay,
   pickExpirationForProfile,
+  pickDayTradeExpiration,
+  validateDayTradePlay,
+  resolveDayTradeSpot,
+  DAY_TRADE_MAX_STRIKE_DRIFT_PCT,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
@@ -220,6 +224,105 @@ describe("optionsPlayDiscordField — live-exit projection", () => {
   it("qualifies max loss as expiration-only", () => {
     const field = optionsPlayDiscordField(buildCompact());
     expect(field.value).toMatch(/Max loss \(if held to exp\)/);
+  });
+});
+
+describe("validateDayTradePlay", () => {
+  const MON_327PM_ET = new Date("2026-06-08T19:27:00.000Z").getTime();
+  const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
+
+  it("accepts ATM strike within 2% on 0DTE before 3 PM ET", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 0,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+
+  it("rejects strike drift beyond 2% from spot", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 350,
+      expirationDte: 0,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(false);
+    expect(gate.reason).toMatch(/strike_drift/);
+  });
+
+  it("rejects 0DTE in the final hour (3:27 PM ET)", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 0,
+      now: MON_327PM_ET,
+    });
+    expect(gate.valid).toBe(false);
+    expect(gate.reason).toBe("0dte_final_hour_or_after_close");
+  });
+
+  it("accepts 1DTE in the final hour when strike is near spot", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 1,
+      now: MON_327PM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+});
+
+describe("resolveDayTradeSpot", () => {
+  it("uses ahp when market is closed", () => {
+    const spot = resolveDayTradeSpot(
+      { IWM: { p: 280, ahp: 283.91 } },
+      "IWM",
+      { marketOpen: false },
+    );
+    expect(spot).toBe(283.91);
+  });
+
+  it("uses p during RTH", () => {
+    const spot = resolveDayTradeSpot(
+      { IWM: { p: 283.91, ahp: 285 } },
+      "IWM",
+      { marketOpen: true },
+    );
+    expect(spot).toBe(283.91);
+  });
+});
+
+describe("pickDayTradeExpiration", () => {
+  // Monday 2026-06-08 19:27 UTC = 3:27 PM ET (EDT)
+  const MON_327PM_ET = new Date("2026-06-08T19:27:00.000Z").getTime();
+  // Monday 2026-06-08 14:00 UTC = 10:00 AM ET
+  const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
+  // Monday 2026-06-08 21:00 UTC = 5:00 PM ET (after close)
+  const MON_5PM_ET = new Date("2026-06-08T21:00:00.000Z").getTime();
+
+  it("returns 0DTE before 3 PM ET on a weekday", () => {
+    const exp = pickDayTradeExpiration(MON_10AM_ET);
+    expect(exp.dte).toBe(0);
+    expect(exp.label).toMatch(/0DTE/);
+  });
+
+  it("returns 1DTE at 3:27 PM ET (final-hour theta cliff)", () => {
+    const exp = pickDayTradeExpiration(MON_327PM_ET);
+    expect(exp.dte).toBe(1);
+    expect(exp.label).toMatch(/1DTE/);
+    expect(exp.label).not.toMatch(/0DTE/);
+  });
+
+  it("returns 1DTE after market close", () => {
+    const exp = pickDayTradeExpiration(MON_5PM_ET);
+    expect(exp.dte).toBe(1);
+  });
+
+  it("forceTomorrow always returns 1DTE even mid-morning", () => {
+    const exp = pickDayTradeExpiration(MON_10AM_ET, { forceTomorrow: true });
+    expect(exp.dte).toBe(1);
   });
 });
 

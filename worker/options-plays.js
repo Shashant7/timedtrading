@@ -283,44 +283,114 @@ export function pickLeapExpiration(now = Date.now(), { targetDte = 540 } = {}) {
    0DTE (same-day expiry, max gamma + max theta) or 1DTE (next-trading-
    day expiry, slightly more cushion). This picker:
 
-     - Before US market close (roughly < 4 PM ET): returns TODAY's
-       expiration as 0DTE.
-     - After close: returns the NEXT trading day's expiration as 1DTE.
-       Skips weekends (no expirations).
+     - Before 3 PM ET on a weekday: returns TODAY's expiration as 0DTE.
+     - At/after 3 PM ET OR after close: returns the NEXT trading day's
+       expiration as 1DTE. The final hour of RTH burns ~10% theta/hour
+       on 0DTE — new entries there are not actionable scalps.
+     - Skips weekends (no expirations).
      - Caller can force 1DTE via `{ forceTomorrow: true }` for the
-       conservative variant (avoids the final-hour theta cliff). */
+       conservative/moderate profiles. */
+function _nyEtClock(now = Date.now()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      weekday: "short",
+    }).formatToParts(new Date(now));
+    const map = {};
+    for (const p of parts) {
+      if (p.type === "weekday") map.weekday = p.value;
+      else map[p.type] = Number(p.value);
+    }
+    const mins = (map.hour || 0) * 60 + (map.minute || 0);
+    const wd = String(map.weekday || "");
+    const isWeekday = /^Mon|^Tue|^Wed|^Thu|^Fri/i.test(wd);
+    return { mins, isWeekday, weekday: wd };
+  } catch {
+    return { mins: 720, isWeekday: true, weekday: "Mon" };
+  }
+}
+
 export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false } = {}) {
-  const _isWeekend = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
+  const _isWeekendUtc = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
   const _nextTradingDay = (d) => {
     const next = new Date(d.getTime() + 86400000);
-    while (_isWeekend(next)) next.setUTCDate(next.getUTCDate() + 1);
+    while (_isWeekendUtc(next)) next.setUTCDate(next.getUTCDate() + 1);
     return next;
   };
   const nowDt = new Date(now);
-  // 4 PM ET = ~20:00 UTC during EDT, 21:00 during EST. Use 20:30 as a
-  // robust cutoff that covers both.
-  const _afterClose = nowDt.getUTCHours() >= 20 && (nowDt.getUTCHours() > 20 || nowDt.getUTCMinutes() >= 30);
+  const { mins: _etMins, isWeekday: _etWeekday } = _nyEtClock(now);
+  // 3 PM ET = 900 mins — final-hour theta cliff; 4 PM ET = 960 = RTH close.
+  const _finalHour = _etWeekday && _etMins >= 900 && _etMins < 960;
+  const _afterClose = !_etWeekday || _etMins >= 960 || _etMins < 240;
+  const useTomorrow = forceTomorrow || _afterClose || _finalHour || !_etWeekday;
 
-  let expiry;
-  if (_isWeekend(nowDt)) {
-    // Weekend: target Monday (next trading day after Friday).
-    expiry = _nextTradingDay(nowDt);
-    while (_isWeekend(expiry)) expiry = _nextTradingDay(expiry);
-  } else if (forceTomorrow || _afterClose) {
-    expiry = _nextTradingDay(nowDt);
-  } else {
-    expiry = new Date(nowDt);
+  let expiry = useTomorrow ? _nextTradingDay(nowDt) : new Date(nowDt);
+  if (useTomorrow) {
+    while (_isWeekendUtc(expiry)) expiry = _nextTradingDay(expiry);
   }
-  // Set to 4 PM ET (close to the actual expiration timestamp for the chain).
-  expiry.setUTCHours(20, 0, 0, 0);
-  const dte = Math.max(0, Math.round((expiry.getTime() - now) / 86400000));
+  const iso = expiry.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const labelDate = expiry.toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+  });
+  const dte = useTomorrow ? 1 : 0;
   return {
-    iso: expiry.toISOString().slice(0, 10),
+    iso,
     dte,
     label: dte === 0
-      ? `Today ${expiry.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (0DTE)`
-      : `${expiry.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${dte}DTE)`,
+      ? `Today ${labelDate} (0DTE)`
+      : `${labelDate} (1DTE)`,
   };
+}
+
+/** Max distance from live spot for 0/1 DTE index plays — beyond this,
+ *  gamma is negligible and theta burns premium without a realistic move. */
+export const DAY_TRADE_MAX_STRIKE_DRIFT_PCT = 0.02;
+
+/** Live spot for day-trade strike anchoring: EXT print when closed, else RTH. */
+export function resolveDayTradeSpot(pricesMap, ticker, { marketOpen = true } = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const rthP = Number(pricesMap?.[sym]?.p) || 0;
+  const ahP = Number(pricesMap?.[sym]?.ahp) || 0;
+  if (!marketOpen && ahP > 0) return ahP;
+  return rthP > 0 ? rthP : 0;
+}
+
+/** Validate short-dated index day-trade strike + DTE against live spot and ET clock.
+ *  Returns { valid, reason?, strike?, spot?, drift_pct? }. */
+export function validateDayTradePlay({
+  spot,
+  strike,
+  expirationDte,
+  now = Date.now(),
+} = {}) {
+  const px = Number(spot);
+  const k = Number(strike);
+  const dte = Number(expirationDte);
+  if (!(px > 0)) return { valid: false, reason: "no_live_spot" };
+  if (!(k > 0)) return { valid: false, reason: "no_strike" };
+  const drift = Math.abs(k - px) / px;
+  if (drift > DAY_TRADE_MAX_STRIKE_DRIFT_PCT) {
+    return {
+      valid: false,
+      reason: `strike_drift_${(drift * 100).toFixed(1)}pct_from_spot`,
+      strike: k,
+      spot: px,
+      drift_pct: drift * 100,
+    };
+  }
+  if (dte === 0) {
+    const { mins, isWeekday } = _nyEtClock(now);
+    // 0DTE new entries: weekday only, 4 AM–3 PM ET (final-hour theta cliff).
+    if (!isWeekday || mins >= 900 || mins < 240) {
+      return { valid: false, reason: "0dte_final_hour_or_after_close" };
+    }
+  }
+  return { valid: true, reason: null };
 }
 
 /* 2026-06-01 — Set of tickers that get day-trade options play coverage.
@@ -2412,6 +2482,11 @@ export function attachIndexDayTradeFallback(ladder, ctx) {
   if (!align.allow) return ladder;
   const dt = buildDayTradePlay(ctx);
   if (!dt) return ladder;
+  const spot = Number(ctx?.price) || 0;
+  const strike = Number(dt?.strikes?.primary) || 0;
+  const dte = Number(dt?.expiration?.dte ?? ctx?.expiration?.dte);
+  const gate = validateDayTradePlay({ spot, strike, expirationDte: dte });
+  if (!gate.valid) return ladder;
   return {
     ...ladder,
     primary: dt,
