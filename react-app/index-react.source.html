@@ -1425,7 +1425,8 @@
               for (const k of LIVE_KEYS) {
                 if (old[k] != null) merged[k] = old[k];
               }
-              merged.price = old._live_price;
+              const _mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+              if (_mktOpen) merged.price = old._live_price;
               result[sym] = merged;
             }
           }
@@ -1933,20 +1934,27 @@
                   : (existing._live_prev_close || existing.prev_close || undefined);
                 const feedDc = Number(priceInfo.dc);
                 const feedDp = Number(priceInfo.dp);
+                const ahp = Number(priceInfo.ahp);
+                const ahdc = Number(priceInfo.ahdc);
+                const ahdp = Number(priceInfo.ahdp);
+                const marketOpen = (() => {
+                  try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+                  catch (_) { return true; }
+                })();
                 updatedData[normalizedSym] = {
                   ...existing,
-                  price: priceInfo.p,
-                  _live_price: priceInfo.p,
+                  ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
                   ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
                   _live_daily_volume: priceInfo.dv,
                   _price_updated_at: feedTs,
+                  _market_open_at_feed: marketOpen,
                   ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                   ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                  ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
-                  ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
-                  ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
+                  ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
+                  ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
+                  ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
                 };
                 changed = true;
               }
@@ -2089,6 +2097,13 @@
                       : (existing._live_prev_close || existing.prev_close || undefined);
                     const feedDc = Number(priceInfo.dc);
                     const feedDp = Number(priceInfo.dp);
+                    const ahp = Number(priceInfo.ahp);
+                    const ahdc = Number(priceInfo.ahdc);
+                    const ahdp = Number(priceInfo.ahdp);
+                    const marketOpen = (() => {
+                      try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+                      catch (_) { return true; }
+                    })();
                     const _impulse = (() => {
                       if (!(curPrice > 0) || !(priceInfo.p > 0)) return {};
                       const pts = priceInfo.p - curPrice;
@@ -2096,18 +2111,18 @@
                       return { _price_impulse_y: clampV(-pts * 3, 15), _price_impulse_x: clampV(pts * 1.5, 8), _price_impulse_pts: pts };
                     })();
                     queueWsUpdate(normalizedSym, {
-                      price: priceInfo.p,
-                      _live_price: priceInfo.p,
+                      ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
                       ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                       _live_daily_high: priceInfo.dh,
                       _live_daily_low: priceInfo.dl,
                       _live_daily_volume: priceInfo.dv,
                       _price_updated_at: wsTs,
+                      _market_open_at_feed: marketOpen,
                       ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                       ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                      ...(Number.isFinite(Number(priceInfo.ahp)) && priceInfo.ahp > 0 ? { _ah_price: priceInfo.ahp } : {}),
-                      ...(Number.isFinite(Number(priceInfo.ahdc)) ? { _ah_change: priceInfo.ahdc } : {}),
-                      ...(Number.isFinite(Number(priceInfo.ahdp)) ? { _ah_change_pct: priceInfo.ahdp } : {}),
+                      ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
+                      ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
+                      ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
                       ..._impulse,
                     });
                   }
@@ -2132,13 +2147,18 @@
                       const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                       return { _price_impulse_y: clampV(-pts * 3, 15), _price_impulse_x: clampV(pts * 1.5, 8), _price_impulse_pts: pts };
                     })();
+                    const marketOpen = (() => {
+                      try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+                      catch (_) { return true; }
+                    })();
                     queueWsUpdate(normalizedSym, {
-                      price: u.last,
-                      _live_price: u.last,
+                      ...(marketOpen ? { price: u.last, _live_price: u.last } : {}),
                       _price_updated_at: u.lastTs || batchTs,
                       _session: u.session,
+                      _market_open_at_feed: marketOpen,
                       ...(Number.isFinite(u.dayChgPct) ? { day_change_pct: u.dayChgPct, change_pct: u.dayChgPct } : {}),
                       ...(Number.isFinite(u.dayChg) ? { day_change: u.dayChg, change: u.dayChg } : {}),
+                      ...(Number.isFinite(u.ahPrice) && u.ahPrice > 0 ? { _ah_price: u.ahPrice } : {}),
                       ...(Number.isFinite(u.ahChg) ? { _ah_change: u.ahChg } : {}),
                       ...(Number.isFinite(u.ahChgPct) ? { _ah_change_pct: u.ahChgPct } : {}),
                       ..._impulse2,
@@ -13055,7 +13075,11 @@
            User: "Add the option to Save a Ticker on the Cards and the
            Right Rail." */
         const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
-        const price = Number(t?.price ?? t?.close);
+        const price = Number(
+          (window.TimedPriceUtils?.getHeadlinePrice && window.TimedPriceUtils.getHeadlinePrice(t))
+          ?? t?.price
+          ?? t?.close
+        );
         const dc = (() => { try { return getDailyChange(t); } catch (_) { return null; } })();
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
         // P0.7.106 — also extract dayChg ($ amount) so the card can show
