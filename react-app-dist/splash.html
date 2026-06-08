@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Timed Trading — Stop Guessing. Start Timing.</title>
-  <meta name="description" content="Timed Trading tells you when to enter, trim, and exit — so winners stop turning into losers. Live ledger, bubble map, and Setup → Trim → Exit lanes. Active Trader + Investor modes. 14-day free trial." />
+  <meta name="description" content="Stop Guessing. Start Timing. Timed Trading fuses thousands of market inputs into one clear call — enter, hold, trim, or exit. Live proof ledger. 14-day free trial." />
   <meta property="og:title" content="Timed Trading — Stop Guessing. Start Timing." />
   <meta property="og:description" content="Lifecycle signals with clear levels — from entry through trim and exit. See the live trade ledger, then start a 14-day free trial." />
   <meta property="og:type" content="website" />
@@ -679,6 +679,93 @@
       color: var(--text-secondary);
       margin-top: 4px;
     }
+    /* ── Decker Grid (pitch structure — not a visual pyramid) ── */
+    .decker-section { padding: 56px 0 48px; }
+    .decker-intro { max-width: 680px; margin: 0 auto 28px; text-align: center; }
+    .decker-grid-opening,
+    .decker-grid-closing {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .decker-grid-closing { margin-bottom: 32px; }
+    .decker-cell {
+      padding: 20px 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+    }
+    .decker-cell-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .decker-cell h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin: 0 0 8px;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+    .decker-cell p, .decker-cell ul {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin: 0;
+      line-height: 1.55;
+    }
+    .decker-cell ul {
+      list-style: none;
+      padding: 0;
+    }
+    .decker-cell li {
+      padding: 4px 0;
+      padding-left: 14px;
+      position: relative;
+    }
+    .decker-cell li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 11px;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: 0.7;
+    }
+    .pain-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin: 20px 0 8px;
+    }
+    .pain-chip {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .signup-strip {
+      margin-top: 28px;
+      padding: 20px 22px;
+      border-radius: 12px;
+      border: 1px solid rgba(0,200,83,0.25);
+      background: rgba(0,200,83,0.05);
+      text-align: center;
+    }
+    .signup-strip p { font-size: 14px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.6; }
+    .signup-strip strong { color: var(--text-primary); }
+
     .proof-period {
       text-align: center;
       font-size: 12px;
@@ -1108,6 +1195,10 @@
       .pricing-price-row { gap: 10px; }
       .pricing-lock { font-size: 11px; padding: 4px 10px; }
       .pricing-features li, .pricing-charter-perks li { font-size: 12.5px; }
+      .decker-grid-opening,
+      .decker-grid-closing { grid-template-columns: 1fr; }
+      .pain-chips { gap: 8px; }
+      .pain-chip { font-size: 12px; padding: 6px 12px; }
     }
   </style>
 </head>
@@ -1140,14 +1231,21 @@
       <div class="hero-particles" id="heroParticles"></div>
     </div>
     <div class="hero-content">
-      <div class="hero-badge">Lifecycle signals &middot; Active Trader + Investor</div>
+      <div class="hero-badge">For retail traders who want a system, not more noise</div>
       <h1>Stop Guessing.<br />Start Timing.</h1>
       <p class="hero-oneliner">
-        Live signals. Clear levels. The moment to act.
+        Follow a proven model that turns thousands of inputs into one clear call.
       </p>
       <p class="hero-subline">
-        Timed Trading scores every major ticker in real time and tells you when conditions actually line up &mdash; so you stop chasing and start acting with a system.
+        Chased the move? Got in too early? Not sure whether to hold or cut?
+        Timed Trading fuses market data, rotation, and timing into a single answer:
+        <strong>what the model would do now</strong> &mdash; enter, hold, trim, or exit.
       </p>
+      <div class="pain-chips">
+        <span class="pain-chip">Chased?</span>
+        <span class="pain-chip">In too early?</span>
+        <span class="pain-chip">Hold or cut?</span>
+      </div>
       <div class="hero-cta-row">
         <a href="/proof.html" class="hero-cta">
           See live proof
@@ -1167,7 +1265,7 @@
       </p>
     </div>
 
-    <!-- Bubble Radar in Hero -->
+    <!-- Bubble map — shows what's in store -->
     <div class="hero-radar">
       <div class="hero-radar-label">Live momentum radar &mdash; every ticker scored and plotted</div>
       <div class="bmap-container">
@@ -1180,7 +1278,6 @@
         <span class="bmap-axis bmap-axis-y-hi">Strong</span>
         <span class="bmap-quadrant-label" style="top:16px;right:16px">HIGH MOMENTUM + STRONG TREND</span>
         <span class="bmap-quadrant-label" style="bottom:32px;left:50px">BUILDING</span>
-        <!-- Bubbles -->
         <div class="bmap-bubble green pulsing" style="left:76%;bottom:80%;width:56px;height:56px;font-size:11px">NVDA</div>
         <div class="bmap-bubble green pulsing" style="left:68%;bottom:72%;width:50px;height:50px;font-size:11px">XLK</div>
         <div class="bmap-bubble green" style="left:62%;bottom:65%;width:44px;height:44px">GS</div>
@@ -1200,74 +1297,50 @@
     </div>
   </section>
 
-  <!-- WHAT YOU GET (Benefits) -->
-  <section id="how-it-works">
+  <!-- Decker Grid opening — POV · Action · Benefit (pitch structure) -->
+  <section class="decker-section" id="how-it-works">
     <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">What You Get</span>
-        <h2 class="section-title">Everything you need to trade with conviction</h2>
+      <div class="reveal decker-intro">
+        <span class="section-label">Why timing</span>
+        <h2 class="section-title">One system. One clear next step.</h2>
+        <p class="section-desc" style="margin:12px auto 0">
+          Sharp hook up top, then point of view, what to do, and why it matters.
+          The radar and pipeline previews below show what that looks like inside the platform.
+        </p>
       </div>
-      <div class="benefits-grid reveal">
-        <div class="benefit-item">
-          <div class="benefit-check">&#10003;</div>
-          <div class="benefit-text">See which stocks are gaining momentum right now</div>
+      <div class="decker-grid-opening reveal">
+        <div class="decker-cell">
+          <div class="decker-cell-label">Point of view</div>
+          <h3>Stop guessing. Follow timing.</h3>
+          <p>Retail traders do not need another screener. They need a proven system that says when to act &mdash; and when to wait.</p>
         </div>
-        <div class="benefit-item">
-          <div class="benefit-check">&#10003;</div>
-          <div class="benefit-text">Know when to enter, trim, and exit every position</div>
+        <div class="decker-cell">
+          <div class="decker-cell-label">What to do</div>
+          <h3>Follow the model&rsquo;s insights</h3>
+          <p>Enter, hold, trim, or exit with clear levels. Thousands of inputs fused into one staged call per ticker &mdash; no emotion, no noise.</p>
         </div>
-        <div class="benefit-item">
-          <div class="benefit-check">&#10003;</div>
-          <div class="benefit-text">Get clear stop-loss and target levels on every setup</div>
-        </div>
-        <div class="benefit-item">
-          <div class="benefit-check">&#10003;</div>
-          <div class="benefit-text">Focus only on high-probability tickers &mdash; no noise</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- THE PROBLEM -->
-  <section class="pain-section">
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">The Problem</span>
-        <h2 class="section-title">Stop guessing. Start trading with a system.</h2>
-      </div>
-      <div class="pain-grid reveal">
-        <ul class="pain-list">
-          <li>Stop guessing if you're chasing or catching a move early.</li>
-          <li>Stop wondering where to set your stop and take-profit.</li>
-          <li>Stop scrolling through thousands of tickers for the one that matters.</li>
-          <li>Stop holding too long &mdash; or exiting too early.</li>
-        </ul>
-        <div class="solution-card">
-          <h3>One system. Every answer.</h3>
-          <p>
-            A curated universe of high-potential tickers, scored continuously, with
-            precise levels for every setup &mdash; entry, stop-loss, targets, and timing.
-          </p>
-          <ul class="solution-list">
-            <li>Curated universe, rotated to match the current market</li>
-            <li>Every ticker scored and ranked by conviction</li>
-            <li>Precise stop-loss and multi-tier take-profit levels</li>
-            <li>Clear stages: Setup, Enter, Hold, Trim, Exit</li>
+        <div class="decker-cell">
+          <div class="decker-cell-label">Benefit</div>
+          <h3>Catch the move. Cut before pain.</h3>
+          <ul>
+            <li>Know when timing lines up &mdash; not when the chart already ran</li>
+            <li>Find rotation beyond the usual Mag7</li>
+            <li>Keep up as the market shifts, with a daily brief and live ledger</li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- THE PIPELINE — Action Lanes + Investor View -->
+  <!-- THE PIPELINE — bubble map's companion: staged lanes -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
-        <span class="section-label">The Pipeline</span>
+        <span class="section-label">What&rsquo;s in store</span>
         <h2 class="section-title">From setup to exit. Every step is tracked.</h2>
         <p class="section-desc" style="margin:0 auto">
-          Tickers flow through stages. The model tracks each
-          position and signals when conditions shift. No more wondering what to do next.
+          The momentum radar finds what matters. The pipeline shows what to do with it.
+          Tickers flow through staged lanes &mdash; the model signals when conditions shift.
         </p>
       </div>
 
@@ -1416,172 +1489,43 @@
     </div>
   </section>
 
-  <!-- THE DETAIL — Right Rail Preview -->
-  <section>
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">The Detail</span>
-        <h2 class="section-title">Tap any ticker. See the full picture.</h2>
-        <p class="section-desc" style="margin:0 auto">
-          Computed levels, regime detection, entry quality scoring, and a full score breakdown &mdash; automatically generated for every ticker.
-        </p>
-      </div>
-      <div class="rail-mockup reveal">
-        <div class="rail-header">
-          <span class="rail-ticker">NVDA</span>
-          <span class="rail-price">$875.42</span>
-          <span class="rail-pill dir-long">LONG</span>
-          <span class="rail-pill regime-bull">Strong Bull</span>
-          <span class="rail-pill quality">Q:78</span>
-        </div>
-
-        <div class="rail-section">
-          <div class="rail-section-label">Computed Levels</div>
-          <div class="rail-level sl">
-            <span class="lbl">Stop Loss</span>
-            <span class="val">$842.10</span>
-            <span class="rr">3.8% risk</span>
-          </div>
-          <div class="rail-level tp">
-            <span class="lbl">TP1 &middot; Trim</span>
-            <span class="val">$910.50</span>
-            <span class="rr">R:R 1.1:1</span>
-          </div>
-          <div class="rail-level tp">
-            <span class="lbl">TP2 &middot; Exit</span>
-            <span class="val">$945.00</span>
-            <span class="rr">R:R 2.1:1</span>
-          </div>
-          <div class="rail-level tp">
-            <span class="lbl">TP3 &middot; Runner</span>
-            <span class="val">$980.00</span>
-            <span class="rr">R:R 3.1:1</span>
-          </div>
-        </div>
-
-        <div class="rail-section">
-          <div class="rail-section-label">Regime &amp; Profile</div>
-          <div class="rail-regime-grid">
-            <div class="rail-regime-cell">
-              <div class="rc-label">Regime</div>
-              <div class="rc-val" style="color:#34d399">STRONG BULL</div>
-            </div>
-            <div class="rail-regime-cell">
-              <div class="rc-label">Score</div>
-              <div class="rc-val" style="color:#34d399">+18</div>
-            </div>
-            <div class="rail-regime-cell">
-              <div class="rc-label">Trend</div>
-              <div class="rc-val" style="color:#34d399">Strong</div>
-            </div>
-            <div class="rail-regime-cell">
-              <div class="rc-label">Size</div>
-              <div class="rc-val" style="color:var(--text-primary)">1.2x</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="rail-section">
-          <div class="rail-section-label">Entry Quality</div>
-          <div style="display:flex;align-items:baseline;gap:8px">
-            <span style="font-size:22px;font-weight:800;color:#34d399">78</span>
-            <span style="font-size:12px;color:var(--text-muted)">/100</span>
-          </div>
-          <div class="rail-eq-bar"><div class="rail-eq-fill" style="width:78%"></div></div>
-          <div class="rail-eq-row"><span class="eq-label">Structure</span><span class="eq-val" style="color:#34d399">28/35</span></div>
-          <div class="rail-eq-row"><span class="eq-label">Momentum</span><span class="eq-val" style="color:#34d399">30/35</span></div>
-          <div class="rail-eq-row"><span class="eq-label">Confirmation</span><span class="eq-val" style="color:#fbbf24">20/30</span></div>
-        </div>
-      </div>
-      <p class="reveal" style="text-align:center;font-size:12px;color:var(--text-muted);margin-top:16px">
-        Analysis is one of four tabs. The platform also includes Technicals, Journey tracking, and Investor views.
-      </p>
-    </div>
-  </section>
-
-  <!-- HOW IT WORKS — Engine + AI (combined, simplified) -->
+  <!-- HOW IT WORKS — three steps -->
   <section>
     <div class="container">
       <div class="reveal" style="text-align:center">
         <span class="section-label">How It Works</span>
-        <h2 class="section-title">Built to find high-probability setups &mdash; automatically</h2>
+        <h2 class="section-title">Follow the model. Use the insights. Act on timing.</h2>
         <p class="section-desc" style="margin:0 auto">
-          The engine scans 8 timeframes simultaneously, grades every setup, and validates each trade against historical patterns before triggering.
+          Under the hood the engine scans eight timeframes, grades setups, and learns from every closed trade.
+          On the surface the trader sees one thing: what to do next.
         </p>
       </div>
-      <div class="engine-grid reveal">
+      <div class="engine-grid reveal" style="grid-template-columns:repeat(3,1fr);max-width:900px;margin:0 auto">
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg>
           </div>
-          <h3>8-Timeframe Scan</h3>
-          <p>Higher timeframes set direction. Lower timeframes find the entry. The system waits for alignment across all 8 before acting &mdash; no chasing.</p>
+          <h3>1. The model scans</h3>
+          <p>Rotation, regime, levels, and timing across a curated universe &mdash; updated continuously, not once a day.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           </div>
-          <h3>Ticker Intelligence</h3>
-          <p>Every ticker gets a deep profile: how it reacts to setups, preferred pullback patterns, and volatility behavior. Ticker-specific rules, not generic playbooks.</p>
+          <h3>2. The model narrows it</h3>
+          <p>Thousands of inputs collapse into staged lanes: Setup, Enter, Hold, Trim, Exit &mdash; plus a daily brief for context.</p>
         </div>
         <div class="engine-card">
           <div class="engine-icon">
             <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
-          <h3>Setup Grading</h3>
-          <p>Every trade gets a grade: Prime, Confirmed, or Early. Prime setups get wider stops and more time. Early setups are managed tightly.</p>
-        </div>
-        <div class="engine-card">
-          <div class="engine-icon">
-            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </div>
-          <h3>Self-Calibration</h3>
-          <p>Every outcome feeds back. Win rates, entry paths, exit patterns &mdash; the system continuously recalibrates parameters to evolving market conditions.</p>
-        </div>
-        <div class="engine-card">
-          <div class="engine-icon">
-            <svg viewBox="0 0 24 24"><path d="M12 2a4 4 0 0 1 4 4v1a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V6a4 4 0 0 1 4-4zM9 9h6v2a3 3 0 0 1-6 0V9z"/><path d="M4 14h16v1a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-1z"/></svg>
-          </div>
-          <h3>AI Trade Review</h3>
-          <p>Every setup is validated against historical patterns and market conditions before triggering. The AI reviews confidence, risk flags, and past outcomes &mdash; rejecting setups that don't meet the bar.</p>
+          <h3>3. The trader follows</h3>
+          <p>No emotion, no guesswork. See the live ledger, read the call, and align with a system that shows wins and losses.</p>
         </div>
       </div>
-    </div>
-  </section>
-
-  <!-- WHY THIS IS DIFFERENT — Differentiators -->
-  <section>
-    <div class="container">
-      <div class="reveal" style="text-align:center">
-        <span class="section-label">Why This Is Different</span>
-        <h2 class="section-title">Not another screener.</h2>
-      </div>
-      <div class="diff-grid reveal">
-        <div class="diff-card">
-          <h3>Curated Universe</h3>
-          <p>Hand-picked tickers, refreshed to match the current market. A living, evolving watchlist that rotates with momentum and relative strength.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Full Transparency</h3>
-          <p>Every trade shows: why we entered, what grade it earned, the risk %, and the exit reasoning. The model shows its entire thought process.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Daily Brief</h3>
-          <p>AI-generated market intelligence for SPY and QQQ. Key levels, ATR-based ranges, game plans, and cross-asset correlations &mdash; delivered before the bell.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Liquidity Zone Intelligence</h3>
-          <p>The model maps where institutional money clusters &mdash; buyside and sellside liquidity zones on 4H, Daily, and Weekly timeframes.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Setup Stalking</h3>
-          <p>The model doesn't chase. It waits for reversal signals, recovery patterns, and structural completions &mdash; then strikes when conditions align.</p>
-        </div>
-        <div class="diff-card">
-          <h3>Grade-Aware Exits</h3>
-          <p>Prime setups get 72 hours to develop. Early setups are cut at 36 hours. Management adapts to the quality of the setup, not a one-size-fits-all timer.</p>
-        </div>
-      </div>
+      <p class="reveal" style="text-align:center;font-size:13px;color:var(--text-muted);margin-top:20px">
+        Want the full tour? <a href="/learn.html" style="color:var(--accent);text-decoration:none;font-weight:600">How it works</a> walks through every screen.
+      </p>
     </div>
   </section>
 
@@ -1650,12 +1594,28 @@
     </div>
   </section>
 
-  <!-- CLOSING STATEMENT -->
+  <!-- CLOSING — Decker Grid: POV · Action · Benefit · SHARP -->
   <section class="cta-banner">
     <div class="container reveal">
+      <div class="decker-grid-closing">
+        <div class="decker-cell">
+          <div class="decker-cell-label">Point of view</div>
+          <h3>Timing beats guessing.</h3>
+          <p>Markets move fast. The noise is plenty. A proven model removes the emotion from every call.</p>
+        </div>
+        <div class="decker-cell">
+          <div class="decker-cell-label">Next step</div>
+          <h3>See the ledger. Start the trial.</h3>
+          <p>Review live wins and losses on proof, then follow the model on a 14-day trial.</p>
+        </div>
+        <div class="decker-cell">
+          <div class="decker-cell-label">Benefit</div>
+          <h3>Stay on the right side of the move.</h3>
+          <p>Enter when timing lines up. Cut before pain. Track rotation beyond the usual names.</p>
+        </div>
+      </div>
       <h2>Stop Guessing. Start Timing.</h2>
-      <p>See the live trade ledger first &mdash; wins and losses, updated every 5 minutes. Start a trial when the process fits how you trade.</p>
-      <div class="hero-cta-row" style="justify-content:center">
+      <div class="hero-cta-row" style="justify-content:center;margin-top:8px">
         <a href="/proof.html" class="hero-cta">
           See live proof
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1858,5 +1818,3 @@
 
 </body>
 </html>
-
-<!-- cache-bust:1780847640526:622432405 -->
