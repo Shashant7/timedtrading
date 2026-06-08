@@ -4101,7 +4101,10 @@ function extractTopThree(content) {
     picks.push({ n: num, label, body });
     if (picks.length === 3) break;
   }
-  return picks.length === 3 ? picks : null;
+  // 2026-06-06 — Accept 1-2 punchlines when the model omits the third TOC
+  // line. Previously required exactly 3 → Today hero fell back to a lone
+  // closing fragment ("; HOLD only if metals stabilize.") with no substance.
+  return picks.length > 0 ? picks : null;
 }
 
 /** Extract the closing one-liner ("Trade what's there, not what you hope for.") */
@@ -4128,8 +4131,8 @@ function extractClosingLine(content) {
     if (/^[-*]\s/.test(l)) continue;
     if (l.length < 20 || l.length > 140) continue;
     const cleaned = l.replace(/^\*+|\*+$/g, "").trim();
-    // Reject continuations of a previous sentence (the bug source).
-    if (/^[a-z]/.test(cleaned)) continue;
+    // Reject continuations / clause tails (e.g. "; HOLD only if metals stabilize.")
+    if (/^[a-z;,]/.test(cleaned)) continue;
     // Reject lines that don't end with terminal punctuation.
     if (!/[.!?'"”’)]$/.test(cleaned)) continue;
     // Reject pure level / range fragments that aren't real one-liners.
@@ -4138,6 +4141,41 @@ function extractClosingLine(content) {
     return cleaned;
   }
   return null;
+}
+
+/** First substantive paragraph from Section 1 ("The Bigger Picture" prose). */
+function extractBriefLead(content) {
+  if (!content || typeof content !== "string") return null;
+  const lines = content.split(/\r?\n/);
+  let capturing = false;
+  const parts = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (/^#{1,6}\s/.test(line)) {
+      if (/today'?s three/i.test(line)) {
+        capturing = false;
+        parts.length = 0;
+        continue;
+      }
+      if (capturing && parts.length > 0) break;
+      capturing = true;
+      parts.length = 0;
+      continue;
+    }
+    if (!capturing) continue;
+    if (!line) {
+      if (parts.length > 0) break;
+      continue;
+    }
+    if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
+    if (/^[a-z;,]/.test(line)) continue;
+    const cleaned = line.replace(/\*\*/g, "").trim();
+    if (cleaned.length < 20) continue;
+    parts.push(cleaned);
+    if (parts.join(" ").length >= 200) break;
+  }
+  const text = parts.join(" ").replace(/\s+/g, " ").trim();
+  return text.length >= 40 ? text.slice(0, 320) : null;
 }
 
 export async function generateDailyBrief(env, type, opts = {}) {
@@ -4297,6 +4335,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
       if (infographic) {
         infographic.topThree = extractTopThree(content);
         infographic.closingLine = extractClosingLine(content);
+        infographic.leadSummary = extractBriefLead(content);
       }
     } catch (e) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
