@@ -191,7 +191,8 @@
     <strong>July 1, 2025</strong> &mdash; the day the engine first deployed real-time. Built on a
     <strong>backtest of 600+ trades</strong> across 10 months of multi-regime market data, with the model
     <strong>self-learning</strong> from each closed trade. Numbers below are post-launch only &mdash; no cherry
-    picks, no hindsight. Both wins <strong>and losses</strong> shown. Updated daily after the close.
+    picks, no hindsight. Both wins <strong>and losses</strong> shown. The curve rebuilds from the live
+    <strong>account ledger</strong> after each close &mdash; not a static screenshot.
   </p>
 
   <div class="kpi-grid" id="kpiGrid">
@@ -361,7 +362,8 @@
 
       const first = points[0];
       const last = points[points.length - 1];
-      setText("curveRange", `${fmtDate(first.date)} → ${fmtDate(last.date)} · ${points.length} sessions`);
+      const src = j.trader?.curve_source === "ledger" ? " · live ledger" : "";
+      setText("curveRange", `${fmtDate(first.date)} → ${fmtDate(last.date)} · ${points.length} sessions${src}`);
 
       // Render LightweightCharts area chart
       const el = document.getElementById("equityChart");
@@ -578,4 +580,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1780847640526:622432405 -->
+<!-- cache-bust:1780880353749:177291105 -->
