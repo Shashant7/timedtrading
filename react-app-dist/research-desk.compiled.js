@@ -1486,6 +1486,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1780847640526:622432405
+// cache-bust:1780889681972:745210563
 
-// cache-bust:1780847640526:622432405
+// cache-bust:1780889681972:745210563
