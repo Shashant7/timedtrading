@@ -330,14 +330,22 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
   if (tickers.length === 0) {
     return { ok: false, reason: "could_not_extract_tickers_from_anomaly" };
   }
+  // Batch via alpaca-backfill (TD-primary, Alpaca fallback) — heals D+60
+  // in one shot per ticker instead of the older single-TF backfill-candles
+  // path that often left intraday gaps on open positions.
   const results = [];
   for (const sym of tickers) {
     try {
-      const r = await fetch(`${baseUrl}/timed/admin/backfill-candles?ticker=${sym}&tf=D&key=${encodeURIComponent(adminKey)}`, {
-        method: "POST",
-      });
-      const j = await r.json().catch(() => ({}));
-      results.push({ ticker: sym, ok: !!j?.ok, status: r.status });
+      let ok = false;
+      for (const tf of ["D", "60"]) {
+        const r = await fetch(
+          `${baseUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7&key=${encodeURIComponent(adminKey)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+        );
+        const j = await r.json().catch(() => ({}));
+        if (j?.ok && (j?.upserted || 0) > 0) ok = true;
+      }
+      results.push({ ticker: sym, ok, status: ok ? 200 : 0 });
     } catch (e) {
       results.push({ ticker: sym, ok: false, error: String(e?.message || e).slice(0, 120) });
     }

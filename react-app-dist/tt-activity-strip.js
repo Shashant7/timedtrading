@@ -133,9 +133,63 @@
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
   }
 
+  // Display-layer only — raw execution_actions.reason values stay unchanged
+  // in D1. Mirrors worker/email.js + Discord trimReasonMap so the strip
+  // never leaks indicator-author jargon ("ripster 5 12 lost confirmed").
+  const ACTIVITY_REASON_MAP = {
+    ripster_5_12_lost_confirmed: "5/12 cloud cross confirmed — momentum flipped",
+    ripster_5_12_lost: "5/12 cloud lost — momentum flipping",
+    ripster_5_12_defend_trim: "5/12 cloud lost — defensive trim",
+    ripster_5_12_pending: "5/12 cloud cross forming",
+    ripster_34_50_trim_then_hold: "34/50 cloud trim — runner held",
+    ripster_34_50_defer_to_72_89: "34/50 lost — deferring to 72/89",
+    ripster_72_89_1h_trim: "72/89 structural trim",
+    ripster_72_89_1h_structural_break: "72/89 structural break",
+    ripster_30m_9ema_trail_trim: "30m 9-EMA trail trim",
+    ripster_30m_9ema_trail_exit: "30m 9-EMA trail exit",
+    ripster_pdz_mfe_trim: "PDZ MFE trim",
+    atr_tp_ladder_tier1_fib0_382: "ATR ladder tier 1 trim",
+    atr_tp_ladder_tier2_fib0_618: "ATR ladder tier 2 trim",
+    atr_tp_ladder_tier3_fib1: "ATR ladder tier 3 trim",
+    atr_tp_ladder_tier4_fib1_236: "ATR ladder tier 4 trim",
+    atr_tp_ladder_runner_full: "ATR runner cap exit",
+    PRE_CPI_RISK_REDUCTION: "Pre-CPI risk reduction",
+    PRE_PPI_RISK_REDUCTION: "Pre-PPI risk reduction",
+    PRE_FOMC_RISK_REDUCTION: "Pre-FOMC risk reduction",
+    PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
+    PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
+    PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
+    MFE_SAFETY_TRIM: "Profit lock trim",
+    PHASE_LEAVE_100: "Momentum fade trim",
+    RUNNER_PEAK_TRAIL: "Peak trail trim",
+    PROFIT_PROTECT_TRIM: "Profit protect trim",
+    SOFT_FUSE_TRIM: "Momentum weaken trim",
+    SOFT_FUSE_CLOUD_TRIM: "Cloud-hold partial trim",
+    sl_breached: "Stop loss hit",
+    TP_FULL: "All targets hit",
+    RUNNER_MAX_DRAWDOWN_BREAKER: "Pullback from peak exit",
+    HARD_LOSS_CAP: "Hard loss cap exit",
+    STALL_FORCE_CLOSE: "Stalled — capital freed",
+  };
+
   function shortReason(reason) {
-    const s = String(reason || "").trim().replace(/_/g, " ");
-    return s.length > 36 ? s.slice(0, 34) + "…" : s;
+    const raw = String(reason || "").trim();
+    if (!raw) return "";
+    if (ACTIVITY_REASON_MAP[raw]) {
+      const label = ACTIVITY_REASON_MAP[raw];
+      return label.length > 40 ? label.slice(0, 38) + "…" : label;
+    }
+    const scrubbed = raw
+      .replace(/^TT\s+/i, "")
+      .replace(/^Tt[\s_]/i, "")
+      .replace(/^tt_/i, "")
+      .replace(/ripster[_\s-]*/gi, "")
+      .replace(/saty[_\s-]*/gi, "")
+      .replace(/_/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const titled = scrubbed.replace(/\b\w/g, (c) => c.toUpperCase());
+    return titled.length > 40 ? titled.slice(0, 38) + "…" : titled;
   }
 
   function classifyEvent(ev) {
@@ -434,4 +488,4 @@
   else mount();
 })();
 
-// cache-bust:1780924617297:832831318
+// cache-bust:1780943148998:30014137
