@@ -60,7 +60,8 @@
      language so Investor Mode reads like the Active Trader cards.
      Uses ds-tickercard / ds-chip / ds-caption / JBM mono numerals.
      Preserves the investor-specific data: Score, RS rank, 1M/3M %,
-     stage label, BUY ZONE / RS HIGH badges. Logo + monogram + 1H spark
+     BUY ZONE / RS HIGH badges. Stage is shown by lane, not on the card.
+     Logo + monogram + 1H spark
      borrowed from window.DS just like DsCompactCard. */
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
     const sym = String(t?.ticker || "").toUpperCase();
@@ -160,21 +161,8 @@
       return null;
     })();
 
-    /* Stage chip mapping — colors hint at action */
     const actionTier = deriveActionTier(t);
     const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
-
-    const stageChip = (() => {
-      if (stage === "accumulate")        return { label: "Accumulate", cls: "ds-chip--up" };
-      if (stage === "core_hold")         return { label: "Core Hold", cls: "ds-chip--accent" };
-      if (stage === "watch")             return { label: "Watch", cls: "ds-chip--solid" };
-      if (stage === "reduce")            return { label: "Reduce", cls: "ds-chip--dn" };
-      if (stage === "research_on_watch") return { label: "On Radar", cls: "ds-chip--solid" };
-      if (stage === "research_low")      return { label: "Low Conv", cls: "ds-chip--solid" };
-      if (stage === "research_avoid")    return { label: "Caution", cls: "ds-chip--dn" };
-      if (stage === "exited")            return { label: "Exited", cls: "ds-chip--solid" };
-      return null;
-    })();
 
     /* 1H sparkline: same shared cache the Active Trader cards use. */
     const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
@@ -317,17 +305,12 @@
           style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
           title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
         }, `EPS ${earnLabel}`),
-        // Stage chip — action-oriented
-        stageChip && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-          style: { marginLeft: "auto" },
-        }, stageChip.label),
         // Save toggle
         toggleSavedTicker && React.createElement("button", {
           onClick: (e) => { e.preventDefault(); e.stopPropagation(); toggleSavedTicker(sym); },
           className: "ds-chip ds-chip--sm",
           style: {
-            marginLeft: stageChip ? 4 : "auto",
+            marginLeft: "auto",
             padding: "0 6px",
             height: 18,
             color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
@@ -1176,4 +1159,4 @@
   window.InvestorPanel = InvestorPanel;
 })();
 
-// cache-bust:1780945663308:392991487
+// cache-bust:1780953099254:761039558
