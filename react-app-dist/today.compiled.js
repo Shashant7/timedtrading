@@ -325,60 +325,71 @@ function BriefPreview({
     if (label) return label;
     return fallback;
   };
-  let fallbackSummary = "";
-  if (top3.length === 0 && !closing && typeof brief?.content === "string") {
+  const leadSummary = typeof info.leadSummary === "string" ? info.leadSummary.trim() : "";
+  let fallbackSummary = leadSummary;
+  if (!fallbackSummary && typeof brief?.content === "string") {
     const lines = brief.content.split(/\r?\n/);
+    let pastToc = false;
     for (const raw of lines) {
       const line = raw.trim();
       if (!line) continue;
-      if (/^#{1,6}\s/.test(line)) continue;
-      if (/^[-*+]\s/.test(line)) continue;
-      if (/^\d+\.\s/.test(line)) continue;
-      if (/^[a-z]/.test(line)) continue;
-      const cleaned = line.replace(/^\*+|\*+$/g, "").trim();
+      if (/^#{1,6}\s/.test(line)) {
+        pastToc = !/today'?s three/i.test(line);
+        continue;
+      }
+      if (!pastToc) continue;
+      if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
+      if (/^[a-z;,]/.test(line)) continue;
+      const cleaned = line.replace(/^\*+|\*+$/g, "").replace(/\*\*/g, "").trim();
       if (cleaned.length < 30) continue;
       fallbackSummary = cleaned.length > 280 ? cleaned.slice(0, 277).trimEnd() + "…" : cleaned;
       break;
     }
   }
-  const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]*:\s*/, "").replace(/\s+/g, " ").trim();
-  const _cap = s => s.length > 200 ? s.slice(0, 197).trimEnd() + "…" : s;
-  const _twoLine = (() => {
+  const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]{0,48}:\s*/, "").replace(/^[;:,.\s]+/, "").replace(/\s+/g, " ").trim();
+  const _cap = (s, max = 220) => s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+  const _usableClosing = (() => {
+    const c = _plain(closing);
+    return c.length >= 24 && !/^[;,]/.test(c) ? c : "";
+  })();
+  const summarySentences = (() => {
     const cand = [];
     for (const it of top3.slice(0, 2)) {
       const b = _plain(itemText(it));
-      if (b && b.length > 20) cand.push(b);
+      if (b.length >= 16) cand.push(b);
     }
-    if (closing && _plain(closing).length > 20) cand.push(_plain(closing));
     if (cand.length === 0 && fallbackSummary) cand.push(_plain(fallbackSummary));
-    if (cand.length === 0 && headline) cand.push(headline);
+    if (cand.length === 0 && _usableClosing) cand.push(_usableClosing);
     const out = [];
     for (const c of cand) {
-      if (!out.some(o => o.slice(0, 40) === c.slice(0, 40))) out.push(c);
+      if (!out.some(o => o.slice(0, 48) === c.slice(0, 48))) out.push(_cap(c));
       if (out.length === 2) break;
     }
-    return out.map(_cap).join(" ");
+    return out;
   })();
+  const summaryText = summarySentences.join(". ").replace(/\.\s*\./g, ".");
+  const showClosingItalic = _usableClosing && !summarySentences.some(s => s.slice(0, 48) === _usableClosing.slice(0, 48)) && top3.length > 0;
   return h("section", {
     className: "tt-card tt-card-pad tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "DAILY BRIEF — MORNING READ"), h("div", {
     className: "tt-sec-h"
-  }, "What the model is watching today"), _twoLine && h("p", {
+  }, "What the model is watching today"), summaryText && h("p", {
     style: {
       fontSize: 14,
       lineHeight: 1.55,
       color: "var(--tt-text)",
       margin: "6px 0 10px"
     }
-  }, _twoLine), headline && h("p", {
+  }, summaryText), headline && h("p", {
     className: "brief-head",
     style: {
       fontSize: 12,
-      color: "var(--tt-text-muted)"
+      color: "var(--tt-text-muted)",
+      marginBottom: top3.length >= 3 ? 10 : 0
     }
-  }, headline), top3.length > 0 && h("div", {
+  }, headline), top3.length >= 3 && h("div", {
     className: "brief-three"
   }, top3.slice(0, 3).map((item, i) => {
     const text = itemText(item);
@@ -393,19 +404,14 @@ function BriefPreview({
         __html: marked.parseInline(text)
       }
     }));
-  })), fallbackSummary && h("p", {
-    className: "brief-fallback",
-    dangerouslySetInnerHTML: {
-      __html: marked.parseInline(fallbackSummary)
-    }
-  }), closing && h("p", {
+  })), showClosingItalic && h("p", {
     style: {
       fontSize: 13,
       color: "var(--tt-text-muted)",
       fontStyle: "italic",
       marginBottom: 14
     }
-  }, closing), h("div", {
+  }, _usableClosing), h("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -5619,6 +5625,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780943148998:30014137
+// cache-bust:1780945663308:392991487
 
-// cache-bust:1780943148998:30014137
+// cache-bust:1780945663308:392991487
