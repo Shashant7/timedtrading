@@ -31,6 +31,9 @@ import {
   buildDayTradePlay,
   pickExpirationForProfile,
   pickDayTradeExpiration,
+  validateDayTradePlay,
+  resolveDayTradeSpot,
+  DAY_TRADE_MAX_STRIKE_DRIFT_PCT,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
@@ -221,6 +224,73 @@ describe("optionsPlayDiscordField — live-exit projection", () => {
   it("qualifies max loss as expiration-only", () => {
     const field = optionsPlayDiscordField(buildCompact());
     expect(field.value).toMatch(/Max loss \(if held to exp\)/);
+  });
+});
+
+describe("validateDayTradePlay", () => {
+  const MON_327PM_ET = new Date("2026-06-08T19:27:00.000Z").getTime();
+  const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
+
+  it("accepts ATM strike within 2% on 0DTE before 3 PM ET", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 0,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+
+  it("rejects strike drift beyond 2% from spot", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 350,
+      expirationDte: 0,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(false);
+    expect(gate.reason).toMatch(/strike_drift/);
+  });
+
+  it("rejects 0DTE in the final hour (3:27 PM ET)", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 0,
+      now: MON_327PM_ET,
+    });
+    expect(gate.valid).toBe(false);
+    expect(gate.reason).toBe("0dte_final_hour_or_after_close");
+  });
+
+  it("accepts 1DTE in the final hour when strike is near spot", () => {
+    const gate = validateDayTradePlay({
+      spot: 283.91,
+      strike: 280,
+      expirationDte: 1,
+      now: MON_327PM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+});
+
+describe("resolveDayTradeSpot", () => {
+  it("uses ahp when market is closed", () => {
+    const spot = resolveDayTradeSpot(
+      { IWM: { p: 280, ahp: 283.91 } },
+      "IWM",
+      { marketOpen: false },
+    );
+    expect(spot).toBe(283.91);
+  });
+
+  it("uses p during RTH", () => {
+    const spot = resolveDayTradeSpot(
+      { IWM: { p: 283.91, ahp: 285 } },
+      "IWM",
+      { marketOpen: true },
+    );
+    expect(spot).toBe(283.91);
   });
 });
 
