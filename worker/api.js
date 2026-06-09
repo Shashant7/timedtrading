@@ -640,6 +640,87 @@ export async function requireUser(req, env, opts = {}) {
 }
 
 /**
+ * Compute the data-access tier for a (possibly null) authenticated user.
+ * Mirrors the canonical isPro predicate in skills/user-state-matrix.md —
+ * worker and frontend MUST stay in sync on this.
+ *
+ * Returns "admin" | "pro" | "free" | "anon".
+ */
+export function computeUserDataTier(user, env) {
+  if (!user) return "anon";
+  if (
+    user.role === "admin" ||
+    user.tier === "admin" ||
+    (env?.ADMIN_EMAIL && user.email === env.ADMIN_EMAIL)
+  ) {
+    return "admin";
+  }
+  const subStatus = user.subscription_status;
+  const isPastDueInGrace =
+    subStatus === "past_due" &&
+    Number.isFinite(Number(user.expires_at)) &&
+    Number(user.expires_at) > Date.now();
+  const isPro =
+    user.tier === "pro" ||
+    user.tier === "vip" ||
+    subStatus === "active" ||
+    subStatus === "trialing" ||
+    subStatus === "manual" ||
+    subStatus === "canceling" ||
+    isPastDueInGrace;
+  return isPro ? "pro" : "free";
+}
+
+// Licensed market-data + proprietary-model fields stripped from ticker
+// snapshot payloads for anon/free callers. Twelve Data licensing forbids
+// redistributing live prices to unauthenticated visitors, and scores /
+// SL / TP / ranks are the product's IP. Pro + admin receive everything;
+// the frontend keeps its existing display-level gating on top.
+const RESTRICTED_SNAPSHOT_FIELDS = new Set([
+  // Live price + change (licensed)
+  "price", "close", "open", "high", "low", "volume",
+  "prev_close", "prevClose", "p", "pc", "dc", "dp", "dh", "dl", "dv",
+  "day_change", "day_change_pct", "dailyChg", "dailyChgPct",
+  "ahp", "ahdc", "ahdp", "_ah_change_pct", "extended_price",
+  "_live_prev_close", "vwap",
+  // Proprietary model outputs
+  "sl", "tp", "tp1", "tp2", "tp3", "targets", "stop_loss", "take_profit",
+  "rank", "score", "dynamicScore", "entry_quality", "conviction",
+  "regime_forecast", "kanban_stage", "trade_plan",
+]);
+
+/**
+ * Redact a single ticker snapshot object for anon/free callers.
+ * Returns a shallow copy with restricted fields removed; ticker
+ * identity, sector, and timestamps survive so public UI skeletons
+ * still render.
+ */
+export function redactTickerSnapshot(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (RESTRICTED_SNAPSHOT_FIELDS.has(k)) continue;
+    out[k] = v;
+  }
+  out._redacted = true;
+  return out;
+}
+
+/**
+ * Redact a { SYM: snapshot } map in place-safe copy form for anon/free
+ * callers. "pro" and "admin" tiers pass through untouched.
+ */
+export function redactTickerMapForTier(dataMap, tier) {
+  if (tier === "admin" || tier === "pro") return dataMap;
+  if (!dataMap || typeof dataMap !== "object") return dataMap;
+  const out = {};
+  for (const [sym, payload] of Object.entries(dataMap)) {
+    out[sym] = redactTickerSnapshot(payload);
+  }
+  return out;
+}
+
+/**
  * Require auth via EITHER API key (?key=) OR Cloudflare Access JWT (admin role).
  * Use this for admin/debug endpoints to support both machine and human access.
  * Returns null if authorized, or a 401/403 Response if not.
