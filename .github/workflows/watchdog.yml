@@ -1,0 +1,94 @@
+name: Health watchdog
+
+# External watchdog that lives OUTSIDE the worker (full-system-review
+# R5). Until now all monitoring ran inside the worker being monitored —
+# when the worker was fully wedged, nothing paged until the operator
+# opened Mission Control.
+#
+# Every 30 minutes: hit /timed/health, check (a) it answers ok:true,
+# (b) the 5-min cron heartbeat is fresh during market hours, (c) the
+# tombstone count is sane. On failure the run goes red (GitHub emails
+# the repo owner) and, if DISCORD_SYSTEM_WEBHOOK_URL is configured as a
+# repo secret, posts to the system Discord lane.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: health-watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: probe /timed/health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe health
+        id: probe
+        run: |
+          FAILED=""
+          DETAIL=""
+
+          for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
+            HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+            OK=$(echo "$HEALTH" | jq -r '.ok // false')
+            TICK=$(echo "$HEALTH" | jq -r '.cronTickAgeMin // "null"')
+            FAILS=$(echo "$HEALTH" | jq -r '.cronFailures.count // 0')
+            OPS=$(echo "$HEALTH" | jq -r '(.cronFailures.ops // []) | join(",")')
+            SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING failures=$FAILS [$OPS]"
+
+            if [ "$OK" != "true" ]; then
+              FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
+              continue
+            fi
+
+            # Heartbeat freshness only matters when crons should run:
+            # weekdays 13:00–21:30 UTC (NY regular hours incl. open).
+            DOW=$(date -u +%u)   # 1=Mon … 7=Sun
+            HOUR=$(date -u +%H)
+            if [ "$DOW" -le 5 ] && [ "$HOUR" -ge 14 ] && [ "$HOUR" -le 20 ]; then
+              if [ "$TICK" != "null" ]; then
+                TICK_INT=$(printf "%.0f" "$TICK")
+                if [ "$TICK_INT" -gt 20 ]; then
+                  FAILED="yes"; DETAIL="$DETAIL $BASE: 5-min cron heartbeat is ${TICK_INT}min stale during RTH."
+                fi
+              fi
+            fi
+
+            if [ "$FAILS" -gt 5 ]; then
+              FAILED="yes"; DETAIL="$DETAIL $BASE: $FAILS cron tombstones active ($OPS)."
+            fi
+          done
+
+          if [ -n "$FAILED" ]; then
+            echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Watchdog failed:$DETAIL"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Page Discord
+        if: steps.probe.outputs.failed == 'true'
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_SYSTEM_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "No DISCORD_SYSTEM_WEBHOOK_URL secret — relying on red-run email."
+          else
+            DETAIL="${{ steps.probe.outputs.detail }}"
+            curl -s -m 15 -X POST "$WEBHOOK" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg d "$DETAIL" '{embeds:[{title:"🚨 External watchdog: Timed Trading health check failed",description:$d,color:15548997}]}')" || true
+          fi
+
+      - name: Fail run on probe failure
+        if: steps.probe.outputs.failed == 'true'
+        run: exit 1
