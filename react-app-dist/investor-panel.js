@@ -164,6 +164,8 @@
         (stage === "reduce" && lastActionType !== "SELL") ||
         (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastActionType))
       );
+    const actionTier = deriveActionTier(t);
+    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
     const watchingLabel = (() => {
       if (!isOwned) return null;
       // Execution-ready names should not read "monitoring for trigger"
@@ -185,9 +187,6 @@
       }
       return null;
     })();
-
-    const actionTier = deriveActionTier(t);
-    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
 
     /* 1H sparkline: same shared cache the Active Trader cards use. */
     const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
@@ -1167,4 +1166,4 @@
   window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage };
 })();
 
-// cache-bust:1781024687768:698903862
+// cache-bust:1781025845552:337396255
