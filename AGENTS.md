@@ -52,6 +52,8 @@ should read. It tells you what to look at, in what order, and why.
 | Sanity check an Investor zone vs Finnhub | [skills/sanity-check-investor.md](skills/sanity-check-investor.md) |
 | Frontend blank-page / build issue | [skills/frontend-build.md](skills/frontend-build.md) |
 | Force a cache-bust after a deploy | [skills/cache-bust-rail.md](skills/cache-bust-rail.md) |
+| Add a worker route / self-fetch / WS / render LLM HTML | [skills/security-auth-patterns.md](skills/security-auth-patterns.md) |
+| Any UI styling work or Verda design-system migration | [skills/verda-ui-migration.md](skills/verda-ui-migration.md) |
 
 If the operation you need isn't here, search the skills folder for
 keywords first, then [tasks/lessons.md](tasks/lessons.md). If you still
