@@ -80,6 +80,62 @@
         return null;
       }
     }
+    const INVESTOR_STAGE_GUIDANCE = {
+      accumulate: {
+        actionLine: "Accumulate — add to position on weakness.",
+        doNow: "Build in 2-3 tranches. Add on weakness inside the buy zone; do not chase extended moves.",
+        laneLabel: "Accumulate"
+      },
+      core_hold: {
+        actionLine: "Hold and DCA on dips — thesis intact.",
+        doNow: "Hold the core. Add only on meaningful pullbacks if the buy zone triggers again.",
+        laneLabel: "Core Hold"
+      },
+      watch: {
+        actionLine: "Hold — no add, no trim. Monitor signals.",
+        doNow: "Do not add. Hold the position and tighten the invalidation trigger.",
+        laneLabel: "Hold & Watch"
+      },
+      reduce: {
+        actionLine: "Reduce on strength — taking profits.",
+        doNow: "Trim 25-50% into strength now. Hold the remainder until invalidation confirms.",
+        laneLabel: "Reduce"
+      },
+      research_on_watch: {
+        actionLine: "Monitor — on the radar, not actionable yet.",
+        doNow: "Research only — wait for Accumulate before sizing a position.",
+        laneLabel: "On Watch"
+      },
+      research_low: {
+        actionLine: "Pass — low conviction for now.",
+        doNow: "No position change — better setups elsewhere.",
+        laneLabel: "Low Conviction"
+      },
+      research_avoid: {
+        actionLine: "Avoid — investor lane sees no edge here.",
+        doNow: "Skip — multiple red flags. Do not initiate or add.",
+        laneLabel: "Avoid"
+      },
+      exited: {
+        actionLine: "Closed — monitor for re-entry conditions.",
+        doNow: "Position closed. Watch for a fresh Accumulate signal.",
+        laneLabel: "Exited"
+      }
+    };
+    function investorGuidanceForStage(stage) {
+      const key = String(stage || "").toLowerCase();
+      return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
+    }
+    function investorEntryActionFromSetup(setupRaw) {
+      const s = String(setupRaw || "").toLowerCase();
+      if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce")) return "Accumulate on dips, trim into strength";
+      if (s.includes("hold") && !s.includes("watch")) return "Hold — no add, no trim. Let the thesis play out.";
+      if (s.includes("trim") || s.includes("reduce") || s.includes("sell")) return "Reduce on strength — taking profits";
+      if (s.includes("watch") || s.includes("monitor")) return "Monitor — no position change recommended";
+      if (s.includes("add") || s.includes("accumulate")) return "Accumulate — add to position on weakness";
+      if (s.includes("close") || s.includes("exit")) return "Exit recommended — close the position";
+      return setupRaw ? setupRaw.replace(/_/g, " ") : "Holding";
+    }
     const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross",
@@ -7628,16 +7684,13 @@
             }
           })();
           const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
-          const setupAction = (() => {
-            const s = setupRaw.toLowerCase();
-            if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce")) return "Accumulate on dips, trim into strength";
-            if (s.includes("hold") && !s.includes("watch")) return "Hold — no add, no trim. Let the thesis play out.";
-            if (s.includes("trim") || s.includes("reduce") || s.includes("sell")) return "Reduce on strength — taking profits";
-            if (s.includes("watch") || s.includes("monitor")) return "Monitor — no position change recommended";
-            if (s.includes("add") || s.includes("accumulate")) return "Accumulate — add to position on weakness";
-            if (s.includes("close") || s.includes("exit")) return "Exit recommended — close the position";
-            return setupRaw ? setupRaw.replace(/_/g, " ") : "Holding";
-          })();
+          const entryAction = investorEntryActionFromSetup(setupRaw);
+          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
+          const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+          const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
+          const currentAction = liveGuide?.actionLine || entryAction;
+          const doNow = liveGuide?.doNow || null;
+          const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
           return React.createElement("div", {
             style: {
               padding: "14px 14px 12px",
@@ -7700,9 +7753,38 @@
             style: {
               color: "var(--ds-text-faint)"
             }
-          }, " \xB7 entered ", entryWhen)), React.createElement("div", {
+          }, " \xB7 entered ", entryWhen)), doNow && React.createElement("div", {
             style: {
-              marginTop: 4
+              marginTop: 8,
+              padding: "10px 12px",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.06)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#f5c25c",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "WHAT TO DO NOW"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--ds-text-0)",
+              lineHeight: 1.45
+            }
+          }, doNow), liveGuide?.laneLabel && React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              marginTop: 6
+            }
+          }, "Current lane: ", liveGuide.laneLabel, stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : "")), React.createElement("div", {
+            style: {
+              marginTop: 8
             }
           }, React.createElement("div", {
             style: {
@@ -7718,7 +7800,14 @@
               color: "var(--ds-text-body)",
               lineHeight: 1.4
             }
-          }, setupAction)), React.createElement("div", {
+          }, currentAction), stageMoved && React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              marginTop: 4,
+              lineHeight: 1.4
+            }
+          }, "Entry thesis was ", entryAction, ". The model has since moved this name to ", liveGuide?.laneLabel || liveStage, " \u2014 follow current lane guidance above.")), React.createElement("div", {
             style: {
               marginTop: 10,
               paddingTop: 8,
@@ -7739,19 +7828,10 @@
           const ipReason = String(ip?.why_now || "").trim();
           const ipActionLine = (() => {
             const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-            const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : "";
+            const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
             if (liveStage) {
-              const STAGE_ACTION = {
-                watch: "Hold — no add, no trim. Monitor signals.",
-                accumulate: "Accumulate — add to position on weakness.",
-                core_hold: "Hold and DCA on dips — thesis intact.",
-                reduce: "Reduce on strength — taking profits.",
-                research_on_watch: "Monitor — on the radar, not actionable yet.",
-                research_low: "Pass — low conviction for now.",
-                research_avoid: "Avoid — investor lane sees no edge here.",
-                exited: "Closed — monitor for re-entry conditions."
-              };
-              if (STAGE_ACTION[liveStage]) return STAGE_ACTION[liveStage];
+              const g = investorGuidanceForStage(liveStage);
+              if (g?.actionLine) return g.actionLine;
             }
             const a = ipAction.toLowerCase();
             if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
@@ -18890,4 +18970,4 @@
   };
 })();
 
-// cache-bust:1781011633532:970344250
+// cache-bust:1781015904649:138080458
