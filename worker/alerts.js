@@ -776,6 +776,22 @@ export function deriveInvestorAlertAction(type, data = {}) {
       one_liner: "Portfolio composition may benefit from rebalancing based on current conditions. Review the suggestions in the dashboard before acting.",
     };
   }
+  if (type === "position_trim") {
+    return {
+      verb: "TRIM / REDUCE",
+      color: "#f59e0b",
+      tone: "warning",
+      one_liner: `The Investor portfolio trimmed ${data.shares ?? "?"} shares of ${data.ticker || "ticker"} at $${Number(data.price || 0).toFixed(2)}. Review the remaining position size and whether further reduction is warranted.`,
+    };
+  }
+  if (type === "position_close") {
+    return {
+      verb: "REDUCE / EXIT",
+      color: "#ef4444",
+      tone: "danger",
+      one_liner: `The Investor portfolio closed the ${data.ticker || "ticker"} position (${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}). Review whether the exit aligns with the current thesis and portfolio targets.`,
+    };
+  }
   return { verb: "INFO", color: "#9ca3af", tone: "info", one_liner: "" };
 }
 
@@ -856,6 +872,33 @@ export function createInvestorAlertEmbed(type, data) {
         value: s.message,
         inline: false,
       })),
+    },
+    position_trim: {
+      color: 0xf59e0b,
+      emoji: "🔻",
+      title: (d) => `${d.ticker}: Investor Position Trimmed`,
+      description: (d) => `**${d.ticker}** — partial sell executed by the Investor auto-rebalance engine.`,
+      fields: (d) => [
+        { name: "Shares Sold", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || 0).toFixed(2)}`, inline: true },
+        { name: "Realized P&L", value: d.pnl != null ? `$${Number(d.pnl).toFixed(2)}` : "—", inline: true },
+        { name: "Remaining", value: d.remaining != null ? `${Number(d.remaining).toFixed(2)} sh` : "—", inline: true },
+        { name: "Reason", value: String(d.reasonLabel || d.reason || "—").replace(/_/g, " "), inline: false },
+      ],
+    },
+    position_close: {
+      color: 0xef4444,
+      emoji: "🔴",
+      title: (d) => `${d.ticker}: Investor Position Closed`,
+      description: (d) => `**${d.ticker}** — full exit executed by the Investor portfolio engine.`,
+      fields: (d) => [
+        { name: "Shares Sold", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || 0).toFixed(2)}`, inline: true },
+        { name: "Realized P&L", value: d.pnl != null ? `$${Number(d.pnl).toFixed(2)}` : "—", inline: true },
+        { name: "Reason", value: String(d.reasonLabel || d.reason || "—").replace(/_/g, " "), inline: false },
+      ],
     },
   };
 

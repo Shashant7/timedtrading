@@ -1576,6 +1576,16 @@ export async function sendInvestorAlertEmails(env, alert) {
       headline: `Investment Thesis Invalidated`,
       lede: `One or more conditions that supported your investment in <strong>${data.ticker}</strong> are no longer valid: ${(data.reasons || []).join("; ")}.`,
     },
+    position_trim: {
+      subjectBase: `${data.ticker} — Investor Position Trimmed`,
+      headline: `Investor Position Trimmed`,
+      lede: `The Investor portfolio trimmed <strong>${data.ticker}</strong> (${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}).`,
+    },
+    position_close: {
+      subjectBase: `${data.ticker} — Investor Position Closed`,
+      headline: `Investor Position Closed`,
+      lede: `The Investor portfolio closed the <strong>${data.ticker}</strong> position (${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}).`,
+    },
   };
   const meta = TYPE_META[type];
   if (!meta) return { sent: 0, recipients: opted.length };
@@ -1588,6 +1598,11 @@ export async function sendInvestorAlertEmails(env, alert) {
     if (data.rsRank != null) rows.push(["RS Rank", `${data.rsRank}th percentile`]);
     if (data.zoneType) rows.push(["Zone Type", String(data.zoneType).replace(/_/g, " ")]);
     if (Array.isArray(data.signals) && data.signals.length) rows.push(["Signals", data.signals.map((s) => String(s).replace(/_/g, " ")).join(", ")]);
+    if (data.shares != null) rows.push(["Shares", `${Number(data.shares).toFixed(2)}`]);
+    if (data.price != null) rows.push(["Price", `$${Number(data.price).toFixed(2)}`]);
+    if (data.pnl != null) rows.push(["Realized P&L", `$${Number(data.pnl).toFixed(2)}`]);
+    if (data.remaining != null) rows.push(["Remaining", `${Number(data.remaining).toFixed(2)} shares`]);
+    if (data.reasonLabel || data.reason) rows.push(["Reason", String(data.reasonLabel || data.reason).replace(/_/g, " ")]);
     return rows.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#9ca3af;font-size:12px;vertical-align:top">${k}</td><td style="padding:6px 0;color:#e5e7eb;font-size:13px;font-weight:600">${v}</td></tr>`).join("");
   })();
 
