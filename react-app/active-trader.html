@@ -767,11 +767,12 @@
           const trade = tradeByTicker?.get?.(sym) || null;
           const status = trade ? String(trade.status || "").toUpperCase() : "";
           const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
+          const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
           const isClosed =
             status === "WIN" || status === "LOSS" || status === "FLAT" ||
             status === "CLOSED" || status === "CANCELED" ||
-            !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-          const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
+            (!isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs)) || trimmedPct >= 0.9999;
+          const isOpen = !isClosed && isOpenStatus;
 
           // Open-trade override (priority order matches AT exactly):
           //   exit → DEFEND, defend → DEFEND, TP_HIT_TRIM → TRIM,

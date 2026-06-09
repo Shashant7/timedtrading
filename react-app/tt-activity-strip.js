@@ -195,8 +195,9 @@
   function classifyEvent(ev) {
     const t = String(ev?.type || ev?.event || "").toUpperCase();
     if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY" };
-    if (t === "TRADE_EXIT") return { cls: "ev-exit", label: "EXIT", evType: "EXIT" };
+    if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT" };
     if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };
+    if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase(), evType: "INVESTOR_SIGNAL" };
     if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY" };
     if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY" };
     if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };

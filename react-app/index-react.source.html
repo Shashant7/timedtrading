@@ -13974,10 +13974,11 @@
               const trimPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
               // V15 P0.7.73: tighten closed/open. Empty status used to count
               // as open which let CLOSED orphan positions inflate HOLD.
+              const isOpenStatus = st === "OPEN" || st === "TP_HIT_TRIM";
               const isClosed = st === "WIN" || st === "LOSS" || st === "FLAT"
                 || st === "CLOSED" || st === "CANCELED"
-                || !!(trade?.exit_ts ?? trade?.exitTs) || trimPct >= 0.9999;
-              const isOpen = !isClosed && (st === "OPEN" || st === "TP_HIT_TRIM");
+                || (!isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs)) || trimPct >= 0.9999;
+              const isOpen = !isClosed && isOpenStatus;
               if (isOpen) {
                 // P0.7.175 (2026-05-15) — Engine EXIT/DEFEND wins over the
                 // static TP_HIT_TRIM check. See lane categorizer at ~14985.
@@ -14340,8 +14341,10 @@
             const trade = tradeByTicker.get(sym);
             const status = trade ? String(trade.status || "").toUpperCase() : "";
             const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-            const isClosed = status === "WIN" || status === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
+            const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+            const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED"
+              || (!isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs)) || trimmedPct >= 0.9999;
+            const isOpen = !isClosed && (isOpenStatus || !status);
             if (trade && isOpen) {
               if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
               else if (!["defend", "trim", "exit", "hold", "active", "just_entered"].includes(stage)) stage = "hold";
@@ -15040,15 +15043,16 @@
             // positions force their tickers into the HOLD lane. Now an
             // empty status counts as closed (we can't promote into a
             // management lane on missing data).
+            const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
             const isClosed =
               status === "WIN" ||
               status === "LOSS" ||
               status === "FLAT" ||
               status === "CLOSED" ||
               status === "CANCELED" ||
-              !!(trade?.exit_ts ?? trade?.exitTs) ||
+              (!isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs)) ||
               trimmedPct >= 0.9999;
-            const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
+            const isOpen = !isClosed && isOpenStatus;
 
             // ═══════════════════════════════════════════════════════════════
             // TRADE LIFECYCLE OVERRIDE — open trades NEVER fall back to
