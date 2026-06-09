@@ -63,6 +63,22 @@ import { runMoveDiscovery } from "../discovery/move-discovery.js";
 
 const COO_KV_PREFIX = "coo:actions";
 
+// P1.8 (2026-06-09) — prefer the cron's in-process dispatcher
+// (env._selfDispatch, set in worker/index.js scheduled()) over a real
+// network self-fetch. In-process avoids Cloudflare loopback rejection
+// (error 1042), subrequest budget, and edge 503s. Falls back to network
+// fetch with the X-API-Key header when invoked outside the cron (e.g.
+// the admin POST /timed/admin/coo/run route).
+async function _dispatch(env, path, init = {}) {
+  if (typeof env?._selfDispatch === "function") {
+    return env._selfDispatch(path, init);
+  }
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  const adminKey = env?.TIMED_API_KEY || env?.TIMED_INGEST_API_KEY || env?.TIMED_TRADING_API_KEY;
+  const headers = { ...(init.headers || {}), ...(adminKey ? { "X-API-Key": adminKey } : {}) };
+  return fetch(`${baseUrl}${path}`, { ...init, headers });
+}
+
 // ── Audit log helpers ─────────────────────────────────────────────────
 
 async function recordAction(env, action) {
@@ -139,9 +155,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
   //    handles the no-autopsy-rows case.
   let runRes;
   try {
-    const r = await fetch(`${baseUrl}/timed/calibration/run`, {
+    const r = await _dispatch(env, `/timed/calibration/run`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": adminKey },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         scope_id: options.scopeId || `coo-auto-${new Date().toISOString().slice(0, 10)}`,
         analysis_only: false,
@@ -185,9 +201,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
   //    baseline weighted by sample-size confidence).
   let applyRes;
   try {
-    const r = await fetch(`${baseUrl}/timed/calibration/apply`, {
+    const r = await _dispatch(env, `/timed/calibration/apply`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": adminKey },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ report_id: reportId }),
     });
     applyRes = await r.json();
@@ -310,9 +326,8 @@ export async function runSelfHealing(env, options = {}) {
 
 async function _healPortfolioReconcile(env, baseUrl, adminKey) {
   try {
-    const r = await fetch(`${baseUrl}/timed/admin/ledger/repair?mode=investor&dryRun=false`, {
+    const r = await _dispatch(env, `/timed/admin/ledger/repair?mode=investor&dryRun=false`, {
       method: "POST",
-      headers: { "X-API-Key": adminKey },
     });
     const j = await r.json();
     return j?.ok
@@ -339,9 +354,10 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
     try {
       let ok = false;
       for (const tf of ["D", "60"]) {
-        const r = await fetch(
-          `${baseUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7`,
-          { method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": adminKey }, body: "{}" },
+        const r = await _dispatch(
+          env,
+          `/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
         );
         const j = await r.json().catch(() => ({}));
         if (j?.ok && (j?.upserted || 0) > 0) ok = true;
