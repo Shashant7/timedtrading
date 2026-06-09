@@ -7765,10 +7765,10 @@ function App() {
       });
     };
     const formatInlineMarkdown = text => {
-      let formatted = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "").replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, "").replace(/<object\b[^>]*>.*?<\/object>/gi, "").replace(/<embed\b[^>]*>/gi, "").replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "").replace(/\bon\w+\s*=\s*[^\s>]*/gi, "").replace(/javascript\s*:/gi, "").replace(/data\s*:\s*text\/html/gi, "");
+      let formatted = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-white">$1</strong>');
       formatted = formatted.replace(/`([^`]+)`/g, '<code class="bg-[var(--tt-bg-elevated)] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>');
-      formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noopener noreferrer">$1</a>');
+      formatted = formatted.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" class="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noopener noreferrer">$1</a>');
       formatted = formatted.replace(/\b([A-Z]{2,5})\b/g, '<span class="font-semibold text-blue-300">$1</span>');
       formatted = formatted.replace(/\$(\d+\.?\d*)/g, '<span class="text-green-400 font-medium">$$1</span>');
       formatted = formatted.replace(/(\d+\.?\d*)%/g, '<span class="text-yellow-400 font-medium">$1%</span>');
@@ -7882,6 +7882,6 @@ try {
           </div>`;
   }
 }
-// cache-bust:1781032510480:577489154
+// cache-bust:1781034283364:212633335
 
-// cache-bust:1781032510480:577489154
+// cache-bust:1781034283364:212633335

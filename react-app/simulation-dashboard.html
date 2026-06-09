@@ -9310,16 +9310,15 @@
 
                             // Format inline markdown (bold, code, links, etc.)
                             const formatInlineMarkdown = (text) => {
-                              // Sanitize: strip dangerous HTML tags and event handlers
-                              let formatted = text
-                                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-                                .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, "")
-                                .replace(/<object\b[^>]*>.*?<\/object>/gi, "")
-                                .replace(/<embed\b[^>]*>/gi, "")
-                                .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi, "")
-                                .replace(/\bon\w+\s*=\s*[^\s>]*/gi, "")
-                                .replace(/javascript\s*:/gi, "")
-                                .replace(/data\s*:\s*text\/html/gi, "");
+                              // 2026-06-09 (security) — escape ALL HTML first
+                              // (the old blocklist regexes were bypassable),
+                              // then layer markdown spans on the escaped text.
+                              // LLM output can carry prompt-injected payloads.
+                              let formatted = String(text)
+                                .replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;")
+                                .replace(/"/g, "&quot;");
 
                               // Bold (**text**)
                               formatted = formatted.replace(
@@ -9333,9 +9332,9 @@
                                 '<code class="bg-[var(--tt-bg-elevated)] px-1.5 py-0.5 rounded text-xs font-mono text-blue-300">$1</code>',
                               );
 
-                              // Links [text](url) - not common in AI responses but good to have
+                              // Links [text](url) — http(s) only, post-escape
                               formatted = formatted.replace(
-                                /\[([^\]]+)\]\(([^)]+)\)/g,
+                                /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
                                 '<a href="$2" class="text-blue-400 hover:text-blue-300 underline" target="_blank" rel="noopener noreferrer">$1</a>',
                               );
 

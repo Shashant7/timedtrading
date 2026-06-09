@@ -92,16 +92,21 @@ export default function ChatInterface({ isOpen, onClose, tickerData, activityDat
   };
 
   const formatMessage = (content) => {
-    // Simple markdown-like formatting
+    // Simple markdown-like formatting. LLM output is untrusted —
+    // escape HTML FIRST, then layer the markdown spans on the escaped
+    // text so a prompt-injected <img onerror=…> can never execute.
+    const escapeHtml = (s) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     return content
       .split('\n')
       .map((line, i) => {
+        line = escapeHtml(line);
         // Bold
         line = line.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
         // Code blocks
         line = line.replace(/`(.+?)`/g, '<code class="bg-[#26325f] px-1 py-0.5 rounded text-xs">$1</code>');
-        // Links
-        line = line.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" class="text-blue-400 hover:underline">$1</a>');
+        // Links — only allow http(s) targets
+        line = line.replace(/\[(.+?)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">$1</a>');
         return <p key={i} dangerouslySetInnerHTML={{ __html: line }} />;
       });
   };

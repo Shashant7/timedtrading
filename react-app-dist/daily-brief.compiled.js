@@ -20,13 +20,19 @@ function renderMarkdown(md) {
   }
   cleaned = cleaned.replace(/\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi, "\n");
   cleaned = cleaned.replace(/\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
-  if (typeof marked !== "undefined" && marked.parse) {
-    return marked.parse(cleaned, {
-      breaks: true,
-      gfm: true
+  const _toHtml = typeof marked !== "undefined" && marked.parse ? marked.parse(cleaned, {
+    breaks: true,
+    gfm: true
+  }) : cleaned.replace(/\n/g, "<br/>");
+  if (typeof DOMPurify !== "undefined" && DOMPurify.sanitize) {
+    return DOMPurify.sanitize(_toHtml, {
+      FORBID_TAGS: ["style", "form", "input"],
+      FORBID_ATTR: ["style"]
     });
   }
-  return cleaned.replace(/\n/g, "<br/>");
+  const _esc = document.createElement("div");
+  _esc.textContent = cleaned;
+  return _esc.innerHTML.replace(/\n/g, "<br/>");
 }
 function LiveKeyLevelsPanel({
   entries,
@@ -2753,6 +2759,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781032510480:577489154
+// cache-bust:1781034283364:212633335
 
-// cache-bust:1781032510480:577489154
+// cache-bust:1781034283364:212633335
