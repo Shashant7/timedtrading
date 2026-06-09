@@ -6,6 +6,32 @@
 
 ---
 
+## Proxy allowlists silently strip new auth headers — audit EVERY hop when changing an auth scheme [2026-06-09]
+
+Minutes after the header-API-key migration (PR #543) deployed,
+`brief_accuracy_eval` and `investor_hourly_compute` started 401ing.
+The key rotation looked like the obvious suspect — it wasn't.
+
+Cron self-fetches deliberately route through the custom domain
+(`WORKER_URL=https://timed-trading.com`; workers.dev self-fetch trips
+CF error 1042). That path goes through the **Pages proxy**
+(`react-app/_worker.js`), which forwards an allowlist of headers.
+Query strings passed through untouched (so `?key=` always worked);
+the new `X-API-Key` header was silently dropped — the ingest worker
+correctly rejected the keyless request.
+
+Durable rules:
+1. **When changing how auth is carried, enumerate every hop on every
+   path** (direct, proxied, service-bound) and check each one forwards
+   the new carrier. An allowlist proxy is a silent stripper by design.
+2. **The Pages proxy must forward `X-API-Key` + `Authorization`** —
+   fixed in PR #545; don't remove them from the allowlist.
+3. Topology-only bugs (Pages→worker hop) are invisible to unit tests —
+   the post-deploy smoke + cron tombstones are the detection layer, and
+   they worked (operator paged within 10 minutes).
+4. In-process dispatch (PR #544 `_selfDispatch`) eliminates this class
+   for cron self-calls entirely — no hop, no allowlist.
+
 ## Third-party design bundles: audit first, never let them land at repo root [2026-06-09]
 
 Operator downloaded the **Verda Finance** design system from a design
