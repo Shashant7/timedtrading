@@ -249,7 +249,18 @@ async function getAccessPublicKeys(teamDomain) {
     );
     if (!resp.ok) throw new Error(`JWKS fetch failed: ${resp.status}`);
     const data = await resp.json();
-    _jwksCache = { keys: data.keys || data.public_certs, ts: now };
+    // Only keep keys usable for RS256 verification (JWK with modulus +
+    // exponent). PEM `public_certs` entries cannot be imported via
+    // crypto.subtle without ASN.1 parsing and previously caused the
+    // verifier to silently skip the signature check entirely.
+    const usable = (Array.isArray(data.keys) ? data.keys : []).filter(
+      (k) => k && k.n && k.e,
+    );
+    if (usable.length > 0) {
+      _jwksCache = { keys: usable, ts: now };
+    } else {
+      console.warn("[AUTH] JWKS endpoint returned no usable RSA keys");
+    }
     return _jwksCache.keys;
   } catch (e) {
     console.warn("[AUTH] Failed to fetch JWKS:", String(e?.message || e));
@@ -284,41 +295,47 @@ async function verifyAccessJWT(token, teamDomain, expectedAud) {
       if (!audArray.includes(expectedAud)) return null;
     }
 
-    // Verify signature using JWKS
+    // Verify signature using JWKS — FAIL CLOSED. A JWT whose signature
+    // cannot be verified must never yield an identity: the assertion
+    // header is attacker-controllable on any path that reaches the
+    // worker without passing through Access (workers.dev, service
+    // misconfig). Operators retain the API-key path if JWKS is down.
     const keys = await getAccessPublicKeys(teamDomain);
     if (!keys || keys.length === 0) {
-      console.warn("[AUTH] No JWKS keys available, skipping signature check");
-      return payload; // Degrade gracefully — still extract identity
+      console.warn("[AUTH] No JWKS keys available — rejecting JWT (fail closed)");
+      return null;
     }
 
-    // Find the matching key by kid
-    const kid = header.kid;
-    let matchingKey = keys.find((k) => k.kid === kid);
-    if (!matchingKey && keys.length > 0) matchingKey = keys[0]; // fallback
+    const signatureBytes = Uint8Array.from(
+      atob(parts[2].replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+    const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
 
-    if (matchingKey) {
-      // If keys have 'cert' field (Cloudflare format), we can't easily verify
-      // with crypto.subtle. If they have JWK fields (n, e), we can.
-      if (matchingKey.n && matchingKey.e) {
-        const cryptoKey = await importPublicKey(matchingKey);
-        const signatureBytes = Uint8Array.from(
-          atob(parts[2].replace(/-/g, "+").replace(/_/g, "/")),
-          (c) => c.charCodeAt(0),
-        );
-        const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    // Try the kid-matched key first, then any remaining keys (rotation
+    // windows can briefly desync kid ordering).
+    const kid = header.kid;
+    const ordered = [
+      ...keys.filter((k) => k.kid === kid),
+      ...keys.filter((k) => k.kid !== kid),
+    ];
+    for (const key of ordered) {
+      try {
+        const cryptoKey = await importPublicKey(key);
         const valid = await crypto.subtle.verify(
           "RSASSA-PKCS1-v1_5",
           cryptoKey,
           signatureBytes,
           dataBytes,
         );
-        if (!valid) return null;
+        if (valid) return payload;
+      } catch {
+        // Malformed key — try the next one
       }
-      // If cert-based verification isn't possible, trust Cloudflare's edge
-      // (the JWT was set by Access middleware, not user-controlled)
     }
 
-    return payload;
+    console.warn("[AUTH] JWT signature verification failed for all JWKS keys");
+    return null;
   } catch (e) {
     console.warn("[AUTH] JWT verification error:", String(e?.message || e));
     return null;
