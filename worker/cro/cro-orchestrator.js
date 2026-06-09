@@ -22,7 +22,7 @@ import { runFSDIngestion, ensureCROIngestionSchema, listRecentPublications } fro
 import { extractPublicationToProposal, ensureCROProposalSchema } from "./fsd-extractor.js";
 import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled } from "./cro-apply.js";
 import { runRotationSnapshot } from "./rotation-engine.js";
-import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote } from "./cro-service.js";
+import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote, getCROEtDate } from "./cro-service.js";
 import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
 import { rewritePendingPublications, ensureRewriteSchema } from "./fsd-rewriter.js";
 import { backfillCashtagsForExistingPublications } from "./fsd-ingestion.js";
@@ -154,7 +154,7 @@ async function maybeRefreshCRODailyNote(env, { hadNewExtractions = false, hadNew
     const recent = await listRecentPublications(env, { limit: 5 });
     const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
     const note = await loadLatestCRONote(env);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getCROEtDate();
     if (note?.as_of_date === today && Number(note.produced_at || 0) >= newestFetched) {
       return { ok: true, skipped: "note_fresh_enough", note_id: note.note_id || null };
     }

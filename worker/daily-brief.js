@@ -6,7 +6,7 @@ import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-cale
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
 import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
-import { getCROBriefAddendum, getFSDSynthesisAddendum } from "./cro/cro-service.js";
+import { getCROBriefAddendum, getFSDSynthesisAddendum, ensureCRONoteForBriefCadence } from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import {
@@ -4187,6 +4187,20 @@ export async function generateDailyBrief(env, type, opts = {}) {
   const start = Date.now();
 
   try {
+    // Refresh CRO daily note on the same cadence as this brief so prompts
+    // and the Research Desk panel never show a multi-day-stale synthesis.
+    try {
+      const croSlot = type === "morning" ? "morning" : "evening";
+      const croR = await ensureCRONoteForBriefCadence(env, croSlot);
+      if (croR?.cadence_refresh) {
+        console.log(`[DAILY BRIEF] CRO note refreshed (${croSlot}) note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
+      } else if (croR?.skipped) {
+        console.log(`[DAILY BRIEF] CRO note: ${croR.skipped}`);
+      }
+    } catch (e) {
+      console.warn(`[DAILY BRIEF] CRO cadence refresh failed (${type}):`, String(e?.message || e).slice(0, 200));
+    }
+
     // 1. Gather data
     const data = await gatherDailyBriefData(env, type, opts);
     if (data.error) return { ok: false, error: data.error };
@@ -4882,6 +4896,15 @@ export async function generateIntradayBrief(env, opts = {}) {
   const start = Date.now();
 
   try {
+    try {
+      const croR = await ensureCRONoteForBriefCadence(env, "intraday");
+      if (croR?.cadence_refresh) {
+        console.log(`[INTRADAY BRIEF] CRO note refreshed note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
+      }
+    } catch (e) {
+      console.warn("[INTRADAY BRIEF] CRO cadence refresh failed:", String(e?.message || e).slice(0, 200));
+    }
+
     const data = await gatherDailyBriefData(env, "intraday", opts);
     if (data.error) return { ok: false, error: data.error };
 

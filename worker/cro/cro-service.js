@@ -32,6 +32,28 @@ const KV_LATEST_KEY = "timed:cro:latest";
 const SYNTH_TIMEOUT_MS = 60_000;        // synthesis call can take 30-50s
 const DEFAULT_MODEL = "gpt-4o-mini";
 
+function croKvStore(env) {
+  return env?.KV_TIMED || env?.KV || null;
+}
+
+/** ET trading date (YYYY-MM-DD) — matches Daily Brief date semantics. */
+export function getCROEtDate(nowMs = Date.now()) {
+  return new Date(nowMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+function parseCRONoteRow(row) {
+  if (!row) return null;
+  return {
+    note_id: row.note_id,
+    as_of_date: row.as_of_date,
+    produced_at: row.produced_at,
+    model_used: row.model_used,
+    verdict: row.verdict,
+    observations: (() => { try { return JSON.parse(row.observations_json || "[]"); } catch (_) { return []; } })(),
+    full_note_md: row.full_note_md,
+  };
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 export async function ensureCRODailyNoteSchema(env) {
   const db = env?.DB;
@@ -337,7 +359,8 @@ async function callOpenAI(env, messages, { model = DEFAULT_MODEL, maxTokens = 25
 // ── Public: run a daily synthesis ─────────────────────────────────────────────
 export async function runCRODaily(env, { asOfDate = null, force = false, model = null } = {}) {
   await ensureCRODailyNoteSchema(env);
-  const today = asOfDate || new Date().toISOString().slice(0, 10);
+  const today = asOfDate || getCROEtDate();
+  const KV = croKvStore(env);
 
   // Idempotency — skip if today's note already exists unless force=true.
   if (!force) {
@@ -346,7 +369,7 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
         `SELECT note_id, produced_at FROM ${DAILY_TABLE} WHERE as_of_date = ? ORDER BY produced_at DESC LIMIT 1`,
       ).bind(today).first();
       if (existing) {
-        const cached = await env?.KV?.get(KV_LATEST_KEY);
+        const cached = KV ? await KV.get(KV_LATEST_KEY) : null;
         return { ok: true, skipped: "already_produced", note_id: existing.note_id, latest_json: cached };
       }
     } catch (_) {}
@@ -427,34 +450,92 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
   };
 
   try {
-    await env?.KV?.put(KV_LATEST_KEY, JSON.stringify(latestPayload), { expirationTtl: 48 * 3600 });
+    if (KV) await KV.put(KV_LATEST_KEY, JSON.stringify(latestPayload), { expirationTtl: 48 * 3600 });
   } catch (_) {}
 
   return { ok: true, note_id: noteId, elapsed_ms: Date.now() - t0, ...latestPayload };
 }
 
+/**
+ * Refresh the CRO daily note on the same cadence as published briefs.
+ * Called before Morning / Intraday Flash / Evening brief generation so
+ * prompts and the Research Desk panel always see today's synthesis.
+ *
+ * @param env
+ * @param slot {"morning"|"intraday"|"evening"}
+ */
+export async function ensureCRONoteForBriefCadence(env, slot = "morning") {
+  const etToday = getCROEtDate();
+  const note = await loadLatestCRONote(env);
+  let force = false;
+
+  if (slot === "morning" || slot === "evening") {
+    // Day-open and day-close bookends always get a fresh synthesis.
+    force = true;
+  } else if (slot === "intraday") {
+    if (!note || note.as_of_date !== etToday) {
+      force = true;
+    } else {
+      const ageMs = Date.now() - Number(note.produced_at || 0);
+      if (ageMs > 2 * 3600000) force = true;
+      if (!force) {
+        try {
+          const recent = await listRecentPublications(env, { limit: 8 });
+          const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
+          if (newestFetched > Number(note.produced_at || 0)) force = true;
+        } catch (_) { /* keep force as-is */ }
+      }
+    }
+  }
+
+  if (!force && note?.as_of_date === etToday) {
+    return { ok: true, skipped: "note_fresh_for_cadence", slot, note_id: note.note_id };
+  }
+
+  console.log(`[CRO_DAILY] Brief-cadence refresh (${slot}) for ${etToday} force=${force}`);
+  const r = await runCRODaily(env, { asOfDate: etToday, force });
+  return { ...r, slot, cadence_refresh: !r.skipped };
+}
+
 // ── Read helpers (used by Layer 15c + Daily Brief + admin endpoints) ──────────
 export async function loadLatestCRONote(env) {
+  const etToday = getCROEtDate();
+  let best = null;
+
+  // Prefer today's ET note from D1 (authoritative when KV is stale/missing).
   try {
-    const raw = await env?.KV?.get(KV_LATEST_KEY);
-    if (raw) return JSON.parse(raw);
+    const todayRow = await env.DB.prepare(
+      `SELECT note_id, as_of_date, produced_at, model_used, verdict, observations_json, full_note_md
+         FROM ${DAILY_TABLE} WHERE as_of_date = ? ORDER BY produced_at DESC LIMIT 1`,
+    ).bind(etToday).first();
+    best = parseCRONoteRow(todayRow);
   } catch (_) {}
-  // KV miss — fall back to D1 last row.
+
+  // KV cache — use when it matches today and is at least as fresh as D1.
+  try {
+    const KV = croKvStore(env);
+    const raw = KV ? await KV.get(KV_LATEST_KEY) : null;
+    if (raw) {
+      const cached = JSON.parse(raw);
+      if (cached?.as_of_date === etToday) {
+        if (!best || Number(cached.produced_at || 0) >= Number(best.produced_at || 0)) {
+          best = cached;
+        }
+      } else if (!best) {
+        best = cached;
+      }
+    }
+  } catch (_) {}
+
+  if (best) return best;
+
+  // Fall back to most recent D1 row.
   try {
     const row = await env.DB.prepare(
       `SELECT note_id, as_of_date, produced_at, model_used, verdict, observations_json, full_note_md
          FROM ${DAILY_TABLE} ORDER BY produced_at DESC LIMIT 1`,
     ).first();
-    if (!row) return null;
-    return {
-      note_id: row.note_id,
-      as_of_date: row.as_of_date,
-      produced_at: row.produced_at,
-      model_used: row.model_used,
-      verdict: row.verdict,
-      observations: (() => { try { return JSON.parse(row.observations_json || "[]"); } catch (_) { return []; } })(),
-      full_note_md: row.full_note_md,
-    };
+    return parseCRONoteRow(row);
   } catch (_) { return null; }
 }
 
