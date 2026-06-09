@@ -220,8 +220,9 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
     const trade = tradeByTicker?.get?.(sym) || null;
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-    const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM");
+    const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+    const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+    const isOpen = !isClosed && isOpenStatus;
     if (trade && isOpen) {
       if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
@@ -1667,6 +1668,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781022444927:724816208
+// cache-bust:1781023910333:659519596
 
-// cache-bust:1781022444927:724816208
+// cache-bust:1781023910333:659519596

@@ -3868,6 +3868,35 @@
           return lines.map((l) => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
         }, [subtleKeyLevelLines]);
 
+        const chartLivePrice = useMemo(() => {
+          const src = (window.TimedPriceUtils?.mergePriceSrc
+            ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker)
+            : { ...(latestTicker || {}), ...(ticker || {}) });
+          const px = Number(
+            window.TimedPriceUtils?.getHeadlinePrice?.(src)
+            ?? (() => {
+              if (!src) return 0;
+              const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
+              if (rthOpen) {
+                const live = Number(src._live_price);
+                if (Number.isFinite(live) && live > 0) return live;
+                return Number(src.price ?? src.close) || 0;
+              }
+              const close = Number(src.close);
+              if (Number.isFinite(close) && close > 0) return close;
+              return Number(src.price ?? src.prev_close ?? src.pc) || 0;
+            })(),
+          );
+          return Number.isFinite(px) && px > 0 ? px : null;
+        }, [
+          ticker?._live_price,
+          ticker?.price,
+          ticker?.close,
+          latestTicker?._live_price,
+          latestTicker?.price,
+          latestTicker?.close,
+        ]);
+
         const _railChartElement = useMemo(
           () => React.createElement(LWChart, {
             candles: chartCandles,
@@ -3876,7 +3905,7 @@
             priceLines: subtleKeyLevelLines,
             ticker,
             hideOverlayToggles: true,
-            livePrice: v2Price > 0 ? v2Price : null,
+            livePrice: chartLivePrice,
           }),
           [
             chartCandles,
@@ -3884,7 +3913,7 @@
             chartOverlays,
             _priceLinesSig,
             ticker?.ticker,
-            v2Price,
+            chartLivePrice,
           ],
         );
 
@@ -16404,4 +16433,4 @@
   };
 })();
 
-// cache-bust:1781022444927:724816208
+// cache-bust:1781023910333:659519596
