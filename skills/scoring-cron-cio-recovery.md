@@ -90,22 +90,27 @@ curl -s -X POST "https://timed-trading-ingest.shashant.workers.dev/timed/admin/c
 
 ---
 
-## Step 3 — Fix CIO config (recommended safe state)
+## Step 3 — Fix CIO config (full live)
 
-Until all 14 go-live gates are green, use **lifecycle-only live**:
+**Blocking gates** (2026-06-06): only timeout-related — `fallback_rate`,
+`entry_latency`, `lifecycle_latency`. Sample/edge/operator gates are
+informational (backtest history pollutes counts).
 
-| Key | Value | Effect |
-|-----|-------|--------|
-| `ai_cio_shadow_mode` | `true` | Entry CIO logged only |
-| `ai_cio_lifecycle_enforce` | `true` | TRIM/EXIT/SL CIO **enforced** |
+Lifecycle gate default timeout is **8000ms** (was 2500ms — was timing out
+>95% of gpt-5.4 calls). Entry API timeout defaults to **20000ms**
+(`ai_cio_entry_timeout_ms`).
+
+**Full live** (entries + lifecycle enforced):
 
 ```bash
 curl -s -X POST "https://timed-trading-ingest.shashant.workers.dev/timed/admin/model-config?key=$KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "updates": [
-      {"key": "ai_cio_shadow_mode", "value": "true"},
-      {"key": "ai_cio_lifecycle_enforce", "value": "true"}
+      {"key": "ai_cio_shadow_mode", "value": "false"},
+      {"key": "ai_cio_lifecycle_enforce", "value": "true"},
+      {"key": "ai_cio_lifecycle_timeout_ms", "value": "8000"},
+      {"key": "ai_cio_entry_timeout_ms", "value": "20000"}
     ]
   }' | python3 -m json.tool
 ```
@@ -118,15 +123,21 @@ curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/ai-cio/go
 import json,sys
 d=json.load(sys.stdin)
 e=d.get('enforcement',{})
+print('ready_for_live:', d.get('ready_for_live'))
 print('config_mismatch:', e.get('config_mismatch'))
 print('entry_enforced:', e.get('entry_enforced'))
 print('lifecycle_enforced:', e.get('lifecycle_enforced'))
-print('recommendation:', d.get('recommendation','')[:100])
+print('recommendation:', d.get('recommendation','')[:120])
 "
-# Expect: config_mismatch=False, lifecycle_enforced=True, entry_enforced=False
+# Expect: ready_for_live=True, config_mismatch=False, entry_enforced=True, lifecycle_enforced=True
 ```
 
-**Do NOT** set `ai_cio_shadow_mode=false` until `ready_for_live: true` on the same endpoint.
+**Lifecycle-only** (entries shadow, lifecycle enforced) — interim state only:
+
+| Key | Value |
+|-----|-------|
+| `ai_cio_shadow_mode` | `true` |
+| `ai_cio_lifecycle_enforce` | `true` |
 
 ---
 

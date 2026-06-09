@@ -62,7 +62,24 @@ export function resolveCioModel(env, lane = "entry", useVision = false, modelOve
 // operator's model selection without needing the */5 scoring cron to have run
 // first. The cache is per-isolate and TTL'd at 5 minutes so model_config
 // flips propagate to running isolates within one CIO cycle.
+const DEFAULT_ENTRY_TIMEOUT_MS = 20000;
 const CIO_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// Resolve per-lane API timeout from model_config / env. Entry defaults
+// higher (20s) because gpt-5.4 entry calls average ~5-6s. Lifecycle API
+// keeps the legacy 15s default; the tighter lifecycle-gate Promise.race
+// cap is separate (ai_cio_lifecycle_timeout_ms in cio-lifecycle-gate.js).
+export function resolveCioTimeoutMs(env, lane = "entry") {
+  const fromDaCfg = env?._deepAuditConfig || {};
+  const fromCioCache = env?._cioModelCache || {};
+  const merged = { ...fromCioCache, ...fromDaCfg };
+  const key = lane === "entry" ? "ai_cio_entry_timeout_ms" : "ai_cio_lifecycle_api_timeout_ms";
+  const raw = merged?.[key];
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  return lane === "entry" ? DEFAULT_ENTRY_TIMEOUT_MS : AI_CIO_TIMEOUT_MS;
+}
+
 async function ensureCioModelCache(env) {
   try {
     if (!env?.DB) return;
@@ -72,7 +89,10 @@ async function ensureCioModelCache(env) {
     }
     const rows = await env.DB.prepare(
       `SELECT config_key, config_value FROM model_config
-        WHERE config_key IN ('ai_cio_entry_model','ai_cio_lifecycle_model','ai_cio_vision_model')`
+        WHERE config_key IN (
+          'ai_cio_entry_model','ai_cio_lifecycle_model','ai_cio_vision_model',
+          'ai_cio_entry_timeout_ms','ai_cio_lifecycle_timeout_ms','ai_cio_lifecycle_api_timeout_ms'
+        )`
     ).all().catch(() => ({ results: [] }));
     const out = { _loadedAt: Date.now() };
     for (const r of (rows?.results || [])) {
@@ -742,8 +762,9 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
   if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
   try {
+    const entryTimeoutMs = resolveCioTimeoutMs(env, "entry");
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), entryTimeoutMs);
 
     const useVision = !!chartSvg;
     // 2026-05-28 — resolved model: explicit override → model_config → env var
@@ -845,9 +866,10 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
   // 2026-05-28 — populate per-isolate model_config cache (see evaluateWithAICIO).
   if (env?.DB && !modelOverride) await ensureCioModelCache(env);
 
+  const lifecycleTimeoutMs = resolveCioTimeoutMs(env, "lifecycle");
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_CIO_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), lifecycleTimeoutMs);
 
     const useVision = !!chartSvg;
     // 2026-05-28 — lifecycle decisions are loss-bearing (per-position) and
@@ -923,7 +945,7 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
     };
   } catch (err) {
     if (err?.name === "AbortError") {
-      console.warn(`[AI_CIO_LIFECYCLE] Timeout (${AI_CIO_TIMEOUT_MS}ms)`);
+      console.warn(`[AI_CIO_LIFECYCLE] Timeout (${lifecycleTimeoutMs}ms)`);
       return { decision: "PROCEED", fallback: true, reason: "timeout" };
     }
     console.warn(`[AI_CIO_LIFECYCLE] Error: ${String(err).slice(0, 150)}`);
