@@ -436,7 +436,14 @@
       if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
     }
 
-    if (!Number.isFinite(pct) || Math.abs(pct) < 0.05) return null;
+    // Show EXT when extended print differs from RTH headline — even tiny
+    // index moves (SPY ~0.03% AH) must render on Market Pulse chips.
+    var hasDistinctExtPx = headline > 0 && px > 0 && Math.abs(px - headline) > 0.001;
+    if (hasDistinctExtPx && (!Number.isFinite(pct) || Math.abs(pct) < 0.05)) {
+      pct = Math.round(((px - headline) / headline) * 10000) / 100;
+      if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
+    }
+    if (!hasDistinctExtPx && (!Number.isFinite(pct) || Math.abs(pct) < 0.05)) return null;
     if (!(px > 0)) return { pct: pct, price: null, chg: Number.isFinite(chg) ? chg : null };
 
     // Cross-session stale guard (e.g. CRDO/MU extended_price lagging RTH).
