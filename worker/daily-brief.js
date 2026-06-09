@@ -4339,6 +4339,56 @@ function extractClosingLine(content) {
   return null;
 }
 
+/** Rewrite per-index prediction prose when LLM cites stale "inside range" vs live price. */
+function patchIndexPredictionProse(pred, sym, idx) {
+  if (!pred || !idx?.levels) return pred;
+  const lv = idx.levels;
+  const cp = Number(idx.price ?? lv.currentPrice);
+  const dn = Number(lv.levels?.["-38.2%"]);
+  const up = Number(lv.levels?.["+38.2%"]);
+  const anchor = Number(lv.anchor);
+  const gp = lv.gamePlan || {};
+  const bullT = Number(gp.bullTrigger);
+  const bullTgt = Number(gp.bullTarget);
+  const bearT = Number(gp.bearTrigger);
+  const bearTgt = Number(gp.bearTarget);
+  const wgg = idx.weeklyLevels?.goldenGate;
+  if (!Number.isFinite(cp) || !Number.isFinite(dn) || !Number.isFinite(up)) return pred;
+
+  const _f = (n) => (Number.isFinite(n) ? n.toFixed(2) : null);
+  const weekNote = wgg && wgg !== lv.goldenGate
+    ? ` Weekly backdrop: ${String(wgg).replace(/_/g, " ").toLowerCase()}.`
+    : "";
+
+  const staleInside = /\b(inside|stays inside|within)\b.*\brange\b/i.test(pred)
+    && (cp > up + 0.01 || cp < dn - 0.01);
+  let prose = null;
+  if (cp > up + 0.01 || staleInside && cp > up) {
+    prose = `${sym} is already above today's Day Gate high ($${_f(up)}) at $${_f(cp)}`
+      + (Number.isFinite(bullT) ? ` — holds above $${_f(bullT)} target $${_f(bullTgt)}` : " — extension bias")
+      + (Number.isFinite(bearT) ? `; fade risk below $${_f(bearT)} toward $${_f(bearTgt)}` : "")
+      + `.${weekNote}`;
+  } else if (cp < dn - 0.01 || staleInside && cp < dn) {
+    prose = `${sym} is below today's Day Gate low ($${_f(dn)}) at $${_f(cp)}`
+      + (Number.isFinite(bearT) ? ` — bear below $${_f(bearT)} targets $${_f(bearTgt)}` : " — breakdown bias")
+      + (Number.isFinite(bullT) ? `; reclaim $${_f(bullT)} to stabilize` : "")
+      + `.${weekNote}`;
+  } else if (staleInside) {
+    prose = `${sym} at $${_f(cp)} trades the Day Gate ($${_f(dn)}–$${_f(up)})`
+      + (Number.isFinite(anchor) ? ` around pivot $${_f(anchor)}` : "")
+      + (Number.isFinite(bullT) ? ` — bull above $${_f(bullT)} → $${_f(bullTgt)}` : "")
+      + (Number.isFinite(bearT) ? `; bear below $${_f(bearT)} → $${_f(bearTgt)}` : "")
+      + `.${weekNote}`;
+  }
+  if (!prose) return pred;
+
+  const blockB = pred.match(
+    new RegExp(`\\*\\*${sym}\\s*@\\s*\\$[\\d.,]+[\\s\\S]*?Lean:\\s*[A-Z]+[^\\n]*`, "i"),
+  );
+  const blockA = `**${sym} Prediction**: ${prose}`;
+  return blockB ? `${blockA}\n\n${blockB[0]}` : blockA;
+}
+
 /** First substantive paragraph from Section 1 ("The Bigger Picture" prose). */
 function extractBriefLead(content) {
   if (!content || typeof content !== "string") return null;
@@ -4501,10 +4551,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
       return null;
     }
-    const esPrediction  = extractPredictionLine("ES");
-    const spyPrediction = extractPredictionLine("SPY");
-    const qqqPrediction = extractPredictionLine("QQQ");
-    const iwmPrediction = extractPredictionLine("IWM");
+    let esPrediction  = extractPredictionLine("ES");
+    let spyPrediction = extractPredictionLine("SPY");
+    let qqqPrediction = extractPredictionLine("QQQ");
+    let iwmPrediction = extractPredictionLine("IWM");
 
     // 4. For evening brief, get ES close and score morning prediction
     let esClose = null;
@@ -4546,6 +4596,12 @@ export async function generateDailyBrief(env, type, opts = {}) {
         infographic.topThree = extractTopThree(content);
         infographic.closingLine = extractClosingLine(content);
         infographic.leadSummary = extractBriefLead(content);
+        const idxMap = Object.fromEntries(
+          (infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
+        );
+        if (spyPrediction) spyPrediction = patchIndexPredictionProse(spyPrediction, "SPY", idxMap.SPY);
+        if (qqqPrediction) qqqPrediction = patchIndexPredictionProse(qqqPrediction, "QQQ", idxMap.QQQ);
+        if (iwmPrediction) iwmPrediction = patchIndexPredictionProse(iwmPrediction, "IWM", idxMap.IWM);
       }
     } catch (e) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
@@ -4866,6 +4922,12 @@ export async function handleGetBrief(env) {
     if (slot?.infographic) {
       try {
         await refreshInfographicLivePrices(slot.infographic, env);
+        const idxMap = Object.fromEntries(
+          (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
+        );
+        if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY);
+        if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ);
+        if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM);
       } catch (e) {
         console.warn("[DAILY BRIEF] live infographic refresh failed:", String(e?.message || e).slice(0, 120));
       }
