@@ -922,7 +922,7 @@ function PublicationsCard({
     style: {
       color: "#34d399"
     }
-  }, "Fully automated — no action needed. "), "Ingestion runs hourly (13:00–21:00 UTC) + nightly; each new publication is auto-extracted and, if the proposal is confident + on-theme, auto-applied. Off-theme / low-confidence ones surface in “Proposed changes” for review. ", h("strong", null, "The Extract / Re-fetch / Approve buttons are manual overrides"), " to expedite a single item — you don't need to click them."), h("div", {
+  }, "Fully automated — no action needed. "), "Ingestion runs hourly (13:00–21:00 UTC) + nightly; FSD publications are trusted and auto-extracted + auto-applied on each cycle (CIO tactical overlay updates immediately). Only schema/taxonomy failures queue for review. ", h("strong", null, "The Extract / Re-fetch / Approve buttons are manual overrides"), " to expedite a single item — you don't need to click them."), h("div", {
     className: "muted",
     style: {
       marginBottom: 8
@@ -1486,6 +1486,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1781023910333:659519596
+// cache-bust:1781025272124:301987740
 
-// cache-bust:1781023910333:659519596
+// cache-bust:1781025272124:301987740

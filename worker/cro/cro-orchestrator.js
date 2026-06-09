@@ -20,7 +20,7 @@
 
 import { runFSDIngestion, ensureCROIngestionSchema, listRecentPublications } from "./fsd-ingestion.js";
 import { extractPublicationToProposal, ensureCROProposalSchema } from "./fsd-extractor.js";
-import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled } from "./cro-apply.js";
+import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled, isTrustedFsdAutoApplyEnabled } from "./cro-apply.js";
 import { runRotationSnapshot } from "./rotation-engine.js";
 import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote, getCROEtDate } from "./cro-service.js";
 import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
@@ -55,9 +55,26 @@ async function ensureMacroFreshness(env) {
 // has to review proposals that are off-theme or that the model is unsure about.
 const PROPOSALS_TABLE = "cro_playbook_proposals";
 
-async function decideAutoApply(env, ext, { autoApply, autoApplyStructural }) {
-  // Global kill-switches (operator can disable all auto-apply).
+async function decideAutoApply(env, ext, { autoApply, autoApplyStructural, trustedFsd = false }) {
   const isStructural = ext.category === "structural" || ext.classification === "structural";
+  const reason = String(ext.auto_apply_reason || "");
+  const blockedTaxonomy = reason.includes("off_taxonomy")
+    || reason.includes("unknown_theme")
+    || reason.includes("unknown_sector");
+
+  // 2026-06-09 — Trusted FSD: apply unless taxonomy validation failed.
+  if (trustedFsd) {
+    if (blockedTaxonomy) return { apply: false, reason };
+    if (isStructural && !autoApplyStructural) {
+      return { apply: false, reason: "structural_review_required" };
+    }
+    if (!isStructural && !autoApply) {
+      return { apply: false, reason: "tactical_auto_apply_disabled" };
+    }
+    return { apply: true, reason: "trusted_fsd_source" };
+  }
+
+  // Global kill-switches (operator can disable all auto-apply).
   if (isStructural && !autoApplyStructural) {
     return { apply: false, reason: ext.auto_apply_reason || "structural_review_required" };
   }
@@ -69,6 +86,57 @@ async function decideAutoApply(env, ext, { autoApply, autoApplyStructural }) {
     return { apply: false, reason: ext.auto_apply_reason || "needs_review" };
   }
   return { apply: true, reason: ext.auto_apply_reason || "confident_on_theme" };
+}
+
+// 2026-06-09 — Fix stuck "Extracted but not Applied" publications. The
+// extract→apply loop only runs on pubs without extracted_at; if apply failed
+// or the cycle was interrupted, proposals sat pending forever (LITE-style FSD
+// lag). Sweep pending proposals whose publication has no applied_at.
+async function sweepUnappliedProposals(env, summary, { autoApply, autoApplyStructural, trustedFsd }) {
+  if (!env?.DB) return { swept: 0 };
+  if (!autoApply && !trustedFsd) return { swept: 0 };
+
+  const rows = await env.DB.prepare(
+    `SELECT p.proposal_id, p.pub_id, p.classification, p.category, p.confidence,
+            p.on_theme, p.review_status, p.auto_apply_reason
+       FROM ${PROPOSALS_TABLE} p
+      INNER JOIN cro_publications pub ON pub.pub_id = p.pub_id AND pub.applied_at IS NULL
+      WHERE p.status = 'pending'
+      ORDER BY p.created_at ASC
+      LIMIT 30`,
+  ).all().catch(() => ({ results: [] }));
+
+  let swept = 0;
+  for (const row of rows?.results || []) {
+    const ext = {
+      proposal_id: row.proposal_id,
+      classification: row.classification,
+      category: row.category,
+      confidence: row.confidence,
+      auto_apply_recommended: row.review_status === "auto_applied" || !!trustedFsd,
+      review_status: row.review_status,
+      auto_apply_reason: row.auto_apply_reason,
+    };
+    const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural, trustedFsd });
+    if (!decision.apply) {
+      await markProposalNeedsReview(env, row.proposal_id, decision.reason);
+      continue;
+    }
+    const apply = await applyProposal(env, row.proposal_id, {
+      autoApproved: true,
+      decidedBy: trustedFsd ? "cro_trusted_sweep" : "cro_unapplied_sweep",
+    });
+    summary.applies.push({
+      pub_id: row.pub_id,
+      proposal_id: row.proposal_id,
+      applied: !!apply.ok,
+      reason: decision.reason,
+      review_status: "sweep_applied",
+      error_kind: apply.error_kind || null,
+    });
+    if (apply.ok) swept += 1;
+  }
+  return { swept };
 }
 
 async function markProposalNeedsReview(env, proposalId, reason) {
@@ -225,6 +293,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     const recent = await listRecentPublications(env, { limit: 15, sourceFilter: null });
     const autoApply = await isAutoApplyEnabled(env);
     const autoApplyStructural = await isAutoApplyStructuralEnabled(env);
+    const trustedFsd = await isTrustedFsdAutoApplyEnabled(env);
     for (const p of recent) {
       if (p.fetch_status !== "ok" || p.extracted_at) continue;
       try {
@@ -239,7 +308,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
           error_kind: ext.error_kind || null,
         });
         if (!ext.ok || !ext.proposal_id) continue;
-        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural });
+        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural, trustedFsd });
         if (!decision.apply) {
           summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: decision.reason, review_status: "needs_review" });
           await markProposalNeedsReview(env, ext.proposal_id, decision.reason);
@@ -257,6 +326,7 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
         summary.errors.push(`extract_apply_failed:${p.pub_id}: ${String(e?.message || e).slice(0, 200)}`);
       }
     }
+    summary.unapplied_sweep = await sweepUnappliedProposals(env, summary, { autoApply, autoApplyStructural, trustedFsd });
   } catch (e) {
     summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
   }
@@ -394,6 +464,7 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     const recent = await listRecentPublications(env, { limit: 15, sourceFilter: null });
     const autoApply = await isAutoApplyEnabled(env);
     const autoApplyStructural = await isAutoApplyStructuralEnabled(env);
+    const trustedFsd = await isTrustedFsdAutoApplyEnabled(env);
     for (const p of recent) {
       // Only process publications that have been ingested OK but not yet extracted.
       if (p.fetch_status !== "ok") continue;
@@ -411,9 +482,8 @@ export async function runCROFullCycle(env, { force = false } = {}) {
           error_kind: ext.error_kind || null,
         });
         if (!ext.ok || !ext.proposal_id) continue;
-        // Auto-apply gate: confident + on-theme proposals apply; off-theme /
-        // low-confidence / structural ones are held for operator review.
-        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural });
+        // Auto-apply gate: trusted FSD flows through; else confident + on-theme.
+        const decision = await decideAutoApply(env, ext, { autoApply, autoApplyStructural, trustedFsd });
         if (!decision.apply) {
           summary.applies.push({ pub_id: p.pub_id, proposal_id: ext.proposal_id, applied: false, reason: decision.reason, review_status: "needs_review" });
           await markProposalNeedsReview(env, ext.proposal_id, decision.reason);
@@ -432,6 +502,7 @@ export async function runCROFullCycle(env, { force = false } = {}) {
         summary.errors.push(`extract_apply_failed:${p.pub_id}: ${String(e?.message || e).slice(0, 200)}`);
       }
     }
+    summary.unapplied_sweep = await sweepUnappliedProposals(env, summary, { autoApply, autoApplyStructural, trustedFsd });
   } catch (e) {
     summary.errors.push(`extract_apply_loop: ${String(e?.message || e).slice(0, 200)}`);
   }
@@ -585,6 +656,7 @@ export async function runCROProbe(env) {
     fsd_ingestion_gate: await isFSDIngestionEnabled(env),
     auto_apply_tactical: await isAutoApplyEnabled(env),
     auto_apply_structural: await isAutoApplyStructuralEnabled(env),
+    auto_apply_trusted_fsd: await isTrustedFsdAutoApplyEnabled(env),
     openai_credentials_present: !!env?.OPENAI_API_KEY,
   };
   try {
