@@ -17,6 +17,28 @@
     monitor: { label: "MONITOR", color: "#6b7280", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
   };
+  function isExecuteReady(t) {
+    const tier = deriveActionTier(t);
+    return tier === "act_now" || tier === "ready";
+  }
+
+  /* 2026-06-06 — Kanban lane placement. Accumulate means buy-now only:
+     stage accumulate + act_now/ready tier. Monitor/stale demote to
+     On Radar (unowned) or Hold & Watch (owned) so lane matches detail. */
+  function resolveKanbanStage(t) {
+    let stage = String(t?.stage || "research_avoid");
+    if (stage === "research") stage = "research_avoid";
+    const owned = !!(t?.position?.owned);
+    if (!owned) {
+      if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
+      else if (stage === "reduce") stage = "research_low";
+    }
+    if (stage === "accumulate" && !isExecuteReady(t)) {
+      stage = owned ? "watch" : "research_on_watch";
+    }
+    return stage;
+  }
+
   function deriveActionTier(t) {
     if (t?.actionTier && ACTION_TIER_META[t.actionTier]) return t.actionTier;
     const stage = String(t?.stage || "");
@@ -144,6 +166,9 @@
       );
     const watchingLabel = (() => {
       if (!isOwned) return null;
+      // Execution-ready names should not read "monitoring for trigger"
+      // when the lane badge already says ACT NOW / READY.
+      if (actionTier === "act_now" || actionTier === "ready") return null;
       if (stage === "reduce") {
         if (lastActionType !== "SELL" || lastActionAgoMs > 24 * 3600 * 1000) {
           return isStaleSignal
@@ -537,7 +562,7 @@
     */
     const stageMeta = {
       research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#9ca3af", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
-      accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Owned or on radar — price entered a favorable zone. Model says: consider buying or adding here." },
+      accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
       core_hold:         { label: "Core Hold", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
       watch:             { label: "Hold & Watch", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
       reduce:            { label: "Reduce", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
@@ -546,31 +571,8 @@
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
-    /* 2026-06-01 — Demote unowned tickers out of HOLDING lanes.
-       classifyInvestorStage (worker/investor.js:700) returns `watch` for
-       UNOWNED tickers with investor_score >= watch_score_min. The panel
-       renders the `watch` lane as "Hold & Watch" with action chip
-       "HOLDING", which falsely implies all rows in that lane are held.
-       Real-world impact: ~30 tickers landed in `watch` with `position:
-       owned=false`, lane gutter said "HOLDING 29", visible tiles showed
-       "Watch" not "OWNED" — user reasonably asked "why does Core Hold
-       (sic) say HOLDING when I don't own these?".
-
-       Fix: any HOLDING-lane stage on an unowned ticker is remapped to a
-       not-owned lane:
-         core_hold (not owned) → research_on_watch  (rare; stale signal)
-         watch     (not owned) → research_on_watch  (line-700 case above)
-         reduce    (not owned) → research_low       (engine showed risk but
-                                                     we never bought)
-       Owned tickers retain their original stage. */
     for (const t of tickers) {
-      let stage = t.stage || "research_avoid";
-      if (stage === "research") stage = "research_avoid";
-      const owned = !!(t?.position?.owned);
-      if (!owned) {
-        if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
-        else if (stage === "reduce") stage = "research_low";
-      }
+      const stage = resolveKanbanStage(t);
       if (grouped[stage]) grouped[stage].push(t);
     }
     // Phase 3.9l — within each lane, push owned positions to the front so
@@ -902,9 +904,11 @@
         list = list.filter(t => savedTickers.has(t.ticker));
       }
       if (filterGroup === "INVESTOR_ACTIONABLE") {
-        list = list.filter(t => {
-          const stage = String(t?.stage || "").toLowerCase();
-          return stage === "accumulate" || stage === "reduce";
+        list = list.filter((t) => {
+          const raw = String(t?.stage || "").toLowerCase();
+          if (raw === "reduce") return true;
+          if (raw === "accumulate") return isExecuteReady(t);
+          return false;
         });
       }
       // 2026-06-01 — Sim-eligible: Actionable + D/W/M SuperTrend
@@ -984,7 +988,10 @@
       return list;
     }, [scores, memberTickers, memberTickersLoaded, tickerData, searchQuery, filterGroup, savedTickers, allowedTickerSet, pendingTickerSymbols]);
 
-    const actionCount = useMemo(() => allTickers.filter(t => t.stage && !t.stage.startsWith("research_")).length, [allTickers]);
+    const actionCount = useMemo(() => allTickers.filter((t) => {
+      const s = resolveKanbanStage(t);
+      return s === "accumulate" || s === "reduce" || s === "core_hold" || s === "watch";
+    }).length, [allTickers]);
 
     /* V2.1 round 5 (2026-05-01) — Investor narrative.
        Per user: "we need to provide some additional narrative, much like the
@@ -1006,7 +1013,7 @@
       const rsHigh = [];
       const recentActions = [];
       for (const t of allTickers) {
-        const s = String(t.stage || "research_avoid");
+        const s = resolveKanbanStage(t);
         if (counts[s] != null) counts[s] += 1;
         // V15 P0.7.155 (2026-05-14) — align "Buy Zone" in the brief with
         // the Accumulate lane in the kanban. Previously listed any ticker
@@ -1019,7 +1026,7 @@
         // positions — model handles adds via auto-rebalance, suggesting
         // them as fresh buys is misleading.
         const _isOwned = !!t.position?.owned;
-        if (s === "accumulate" && t.accumZone?.inZone && !_isOwned) {
+        if (s === "accumulate" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
           buyZone.push(t.ticker);
         }
         // RS-new-high stays as-is (pure technical watchlist signal,
@@ -1157,6 +1164,7 @@
   }
 
   window.InvestorPanel = InvestorPanel;
+  window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage };
 })();
 
-// cache-bust:1781023910333:659519596
+// cache-bust:1781024687768:698903862
