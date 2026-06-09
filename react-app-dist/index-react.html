@@ -1162,15 +1162,15 @@
       </div>
     </div>
 
-    <script src="auth-gate.js?v=1781029281155"></script>
-    <script src="tt-fetch-cache.js?v=1781029281155"></script>
-    <script src="tt-bottom-nav.js?v=1781029281155" defer></script>
-    <script src="shared-price-utils.js?v=1781029281155"></script>
-    <script src="ds-components.js?v=1781029281155"></script>
-    <script src="investor-panel.js?v=1781029281155"></script>
+    <script src="auth-gate.js?v=1781035595191"></script>
+    <script src="tt-fetch-cache.js?v=1781035595191"></script>
+    <script src="tt-bottom-nav.js?v=1781035595191" defer></script>
+    <script src="shared-price-utils.js?v=1781035595191"></script>
+    <script src="ds-components.js?v=1781035595191"></script>
+    <script src="investor-panel.js?v=1781035595191"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=1781029281155"></script>
-    <script src="ticker-spider-chart.js?v=1781029281155"></script>
+    <script src="shared-right-rail.compiled.js?v=1781035595191"></script>
+    <script src="ticker-spider-chart.js?v=1781035595191"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
@@ -2044,14 +2044,26 @@
           }
         }, [flushWsPending]);
 
-        const connect = useCallback(() => {
+        const connect = useCallback(async () => {
           // Don't connect if already connected or during SSR
           if (wsRef.current && wsRef.current.readyState <= 1) return;
 
           try {
-            // Connect to workers.dev subdomain to bypass Cloudflare Access
-            // (Access blocks WebSocket upgrades on the custom domain)
-            const wsUrl = `wss://timed-trading-ingest.shashant.workers.dev/timed/ws`;
+            // P0.6 — the WS now requires a short-lived auth ticket.
+            // Fetch it via the same-origin proxy (carries CF Access
+            // auth), then connect to workers.dev with ?ticket=…
+            // (Access blocks WebSocket upgrades on the custom domain.)
+            let ticket = null;
+            try {
+              const tRes = await fetch(`${API_BASE}/timed/ws-ticket`, { credentials: "include" });
+              const tJson = await tRes.json().catch(() => null);
+              if (tJson?.ok && tJson.ticket) ticket = tJson.ticket;
+            } catch (_) { /* fall through — server rejects without ticket */ }
+            if (!ticket) {
+              debugLog("[WS] No ticket (not Pro/admin?) — skipping live stream");
+              return;
+            }
+            const wsUrl = `wss://timed-trading-ingest.shashant.workers.dev/timed/ws?ticket=${encodeURIComponent(ticket)}`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
@@ -16241,4 +16253,4 @@
                   <div className="mt-2 space-y-1">
                     <Bar label="Phase" p={phaseP} color={phaseColor} />
                     <Bar label="Completion" p={compP} 
-<!-- cache-bust:1781029281155:59208170 -->
+<!-- cache-bust:1781035595191:116208886 -->

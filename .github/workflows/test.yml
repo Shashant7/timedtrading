@@ -1,0 +1,50 @@
+name: Tests
+
+# Runs the vitest suite on every PR and on pushes to main. The suite
+# existed for months but CI never executed it — deploys could ship
+# broken modules (full-system-review P1.7).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "worker-bridge/**"
+      - "scripts/**"
+      - "tests/**"
+      - "react-app/**"
+      - "package.json"
+      - "vitest.config.js"
+      - ".github/workflows/test.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    name: vitest run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: npm install --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+      - name: Syntax-check worker entry points
+        run: |
+          node --check worker/index.js
+          node --check worker/api.js
+          node --check worker-bridge/bridge-index.js
+          node --check react-app/_worker.js

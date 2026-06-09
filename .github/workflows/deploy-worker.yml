@@ -100,6 +100,12 @@ jobs:
         # native postinstall (e.g. better-sqlite3) we don't need for deploy.
         run: npm install --no-audit --no-fund --ignore-scripts
 
+      # Gate the deploy on the test suite — broken modules must never
+      # ship just because they bundle (full-system-review P1.7).
+      - name: Run tests
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: npm test
+
       - name: Build frontend + embed dashboard
         if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
@@ -136,6 +142,26 @@ jobs:
           wranglerVersion: "4.92.0"
           workingDirectory: worker
           command: deploy --env production
+
+      # Post-deploy smoke: the worker must answer /timed/health with
+      # ok:true on both the workers.dev URL and the custom domain.
+      # Catches the "deployed but instantly broken" class (missing
+      # secrets in one env, bundle-time import failures).
+      - name: Post-deploy smoke
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          sleep 5
+          for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
+            HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+            OK=$(echo "$HEALTH" | jq -r '.ok // false')
+            TICK=$(echo "$HEALTH" | jq -r '.cronTickAgeMin // "null"')
+            FAILS=$(echo "$HEALTH" | jq -r '.cronFailures.count // "null"')
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK cronFailures=$FAILS"
+            if [ "$OK" != "true" ]; then
+              echo "::error::$BASE/timed/health did not return ok:true after deploy"
+              exit 1
+            fi
+          done
 
       - name: Deploy skipped notice
         if: steps.cfsec.outputs.secrets-ok != 'true'

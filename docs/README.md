@@ -12,6 +12,11 @@
 
 - [CONTEXT.md](CONTEXT.md) — pointer to the root [`../CONTEXT.md`](../CONTEXT.md). Read first.
 
+## Design
+
+- Root [`../DESIGN.md`](../DESIGN.md) — **the normative UI spec** for everything currently shipped.
+- [`../design/verda/`](../design/verda/README.md) — incoming Verda design-system bundle (audited; migration via [`../skills/verda-ui-migration.md`](../skills/verda-ui-migration.md)). Design bundles live under `design/<name>/`, never in this folder.
+
 ## Getting started / Deployment
 
 - [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) — full deployment walkthrough

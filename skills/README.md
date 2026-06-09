@@ -23,6 +23,8 @@ answer here, and reinventing them is the #1 source of regressions.
 | Bridge / IBKR / Robinhood automation work | [broker-bridge.md](broker-bridge.md) |
 | New page failing to load OR blank-screen JSX bug | [frontend-build.md](frontend-build.md) |
 | Touching paywall, auth-gate, Stripe webhook, or any Pro-gated UI | [user-state-matrix.md](user-state-matrix.md) |
+| **Adding a worker route, self-fetch, WS consumer, or LLM-rendered HTML** | [security-auth-patterns.md](security-auth-patterns.md) |
+| **Any UI styling work / porting a page to the Verda design system** | [verda-ui-migration.md](verda-ui-migration.md) |
 | Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
 | Cron tombstones / missed trims / CIO shadow vs live mismatch | [scoring-cron-cio-recovery.md](scoring-cron-cio-recovery.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |

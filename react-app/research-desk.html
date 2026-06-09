@@ -16,6 +16,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
     <script src="tt-bottom-nav.js?v=20260601-ios-urlbar" defer></script>
@@ -562,7 +563,11 @@
         const drifts = Array.isArray(n.notable_drifts) ? n.notable_drifts : [];
         const indicators = Array.isArray(n.early_indicators) ? n.early_indicators : [];
         const gaps = Array.isArray(n.data_gaps) ? n.data_gaps : [];
-        const md = n.full_note_md ? marked.parse(n.full_note_md) : "";
+        // Sanitize LLM-generated markdown before innerHTML (stored-XSS guard)
+        const _mdRaw = n.full_note_md ? marked.parse(n.full_note_md) : "";
+        const md = (typeof DOMPurify !== "undefined" && DOMPurify.sanitize)
+          ? DOMPurify.sanitize(_mdRaw, { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] })
+          : "";
         return h("div", { className: "card" },
           h("div", { className: "row", style: { justifyContent: "space-between", marginBottom: 8 } },
             h("h2", null, "🧠 CRO Daily Research Note"),
