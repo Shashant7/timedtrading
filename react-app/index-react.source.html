@@ -2053,14 +2053,26 @@
           }
         }, [flushWsPending]);
 
-        const connect = useCallback(() => {
+        const connect = useCallback(async () => {
           // Don't connect if already connected or during SSR
           if (wsRef.current && wsRef.current.readyState <= 1) return;
 
           try {
-            // Connect to workers.dev subdomain to bypass Cloudflare Access
-            // (Access blocks WebSocket upgrades on the custom domain)
-            const wsUrl = `wss://timed-trading-ingest.shashant.workers.dev/timed/ws`;
+            // P0.6 — the WS now requires a short-lived auth ticket.
+            // Fetch it via the same-origin proxy (carries CF Access
+            // auth), then connect to workers.dev with ?ticket=…
+            // (Access blocks WebSocket upgrades on the custom domain.)
+            let ticket = null;
+            try {
+              const tRes = await fetch(`${API_BASE}/timed/ws-ticket`, { credentials: "include" });
+              const tJson = await tRes.json().catch(() => null);
+              if (tJson?.ok && tJson.ticket) ticket = tJson.ticket;
+            } catch (_) { /* fall through — server rejects without ticket */ }
+            if (!ticket) {
+              debugLog("[WS] No ticket (not Pro/admin?) — skipping live stream");
+              return;
+            }
+            const wsUrl = `wss://timed-trading-ingest.shashant.workers.dev/timed/ws?ticket=${encodeURIComponent(ticket)}`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 

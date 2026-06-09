@@ -132,9 +132,28 @@ export function requireKeyOr401(req, env) {
       corsHeaders(env, req),
     );
   }
-  const url = new URL(req.url);
-  const qKey = url.searchParams.get("key");
-  if (qKey && qKey === expected) return null;
+
+  // Preferred: API key via header. Headers don't end up in access logs,
+  // browser history, or Referer chains the way query strings do.
+  const headerKey =
+    req.headers.get("X-API-Key") ||
+    (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (headerKey && headerKey === expected) return null;
+
+  // Legacy: ?key= query param. Accepted during migration unless the
+  // operator flips ALLOW_QUERY_API_KEY=false (do that AFTER rotating
+  // TIMED_API_KEY and migrating external scripts to headers).
+  if (String(env.ALLOW_QUERY_API_KEY || "true") !== "false") {
+    const url = new URL(req.url);
+    const qKey = url.searchParams.get("key");
+    if (qKey && qKey === expected) {
+      console.warn(
+        `[AUTH] Deprecated ?key= auth used on ${url.pathname} — migrate caller to X-API-Key header`,
+      );
+      return null;
+    }
+  }
+
   return sendJSON(
     { ok: false, error: "unauthorized" },
     401,
@@ -249,7 +268,18 @@ async function getAccessPublicKeys(teamDomain) {
     );
     if (!resp.ok) throw new Error(`JWKS fetch failed: ${resp.status}`);
     const data = await resp.json();
-    _jwksCache = { keys: data.keys || data.public_certs, ts: now };
+    // Only keep keys usable for RS256 verification (JWK with modulus +
+    // exponent). PEM `public_certs` entries cannot be imported via
+    // crypto.subtle without ASN.1 parsing and previously caused the
+    // verifier to silently skip the signature check entirely.
+    const usable = (Array.isArray(data.keys) ? data.keys : []).filter(
+      (k) => k && k.n && k.e,
+    );
+    if (usable.length > 0) {
+      _jwksCache = { keys: usable, ts: now };
+    } else {
+      console.warn("[AUTH] JWKS endpoint returned no usable RSA keys");
+    }
     return _jwksCache.keys;
   } catch (e) {
     console.warn("[AUTH] Failed to fetch JWKS:", String(e?.message || e));
@@ -284,41 +314,47 @@ async function verifyAccessJWT(token, teamDomain, expectedAud) {
       if (!audArray.includes(expectedAud)) return null;
     }
 
-    // Verify signature using JWKS
+    // Verify signature using JWKS — FAIL CLOSED. A JWT whose signature
+    // cannot be verified must never yield an identity: the assertion
+    // header is attacker-controllable on any path that reaches the
+    // worker without passing through Access (workers.dev, service
+    // misconfig). Operators retain the API-key path if JWKS is down.
     const keys = await getAccessPublicKeys(teamDomain);
     if (!keys || keys.length === 0) {
-      console.warn("[AUTH] No JWKS keys available, skipping signature check");
-      return payload; // Degrade gracefully — still extract identity
+      console.warn("[AUTH] No JWKS keys available — rejecting JWT (fail closed)");
+      return null;
     }
 
-    // Find the matching key by kid
-    const kid = header.kid;
-    let matchingKey = keys.find((k) => k.kid === kid);
-    if (!matchingKey && keys.length > 0) matchingKey = keys[0]; // fallback
+    const signatureBytes = Uint8Array.from(
+      atob(parts[2].replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+    const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
 
-    if (matchingKey) {
-      // If keys have 'cert' field (Cloudflare format), we can't easily verify
-      // with crypto.subtle. If they have JWK fields (n, e), we can.
-      if (matchingKey.n && matchingKey.e) {
-        const cryptoKey = await importPublicKey(matchingKey);
-        const signatureBytes = Uint8Array.from(
-          atob(parts[2].replace(/-/g, "+").replace(/_/g, "/")),
-          (c) => c.charCodeAt(0),
-        );
-        const dataBytes = new TextEncoder().encode(`${parts[0]}.${parts[1]}`);
+    // Try the kid-matched key first, then any remaining keys (rotation
+    // windows can briefly desync kid ordering).
+    const kid = header.kid;
+    const ordered = [
+      ...keys.filter((k) => k.kid === kid),
+      ...keys.filter((k) => k.kid !== kid),
+    ];
+    for (const key of ordered) {
+      try {
+        const cryptoKey = await importPublicKey(key);
         const valid = await crypto.subtle.verify(
           "RSASSA-PKCS1-v1_5",
           cryptoKey,
           signatureBytes,
           dataBytes,
         );
-        if (!valid) return null;
+        if (valid) return payload;
+      } catch {
+        // Malformed key — try the next one
       }
-      // If cert-based verification isn't possible, trust Cloudflare's edge
-      // (the JWT was set by Access middleware, not user-controlled)
     }
 
-    return payload;
+    console.warn("[AUTH] JWT signature verification failed for all JWKS keys");
+    return null;
   } catch (e) {
     console.warn("[AUTH] JWT verification error:", String(e?.message || e));
     return null;
@@ -601,6 +637,87 @@ export async function requireUser(req, env, opts = {}) {
   }
 
   return [user, null];
+}
+
+/**
+ * Compute the data-access tier for a (possibly null) authenticated user.
+ * Mirrors the canonical isPro predicate in skills/user-state-matrix.md —
+ * worker and frontend MUST stay in sync on this.
+ *
+ * Returns "admin" | "pro" | "free" | "anon".
+ */
+export function computeUserDataTier(user, env) {
+  if (!user) return "anon";
+  if (
+    user.role === "admin" ||
+    user.tier === "admin" ||
+    (env?.ADMIN_EMAIL && user.email === env.ADMIN_EMAIL)
+  ) {
+    return "admin";
+  }
+  const subStatus = user.subscription_status;
+  const isPastDueInGrace =
+    subStatus === "past_due" &&
+    Number.isFinite(Number(user.expires_at)) &&
+    Number(user.expires_at) > Date.now();
+  const isPro =
+    user.tier === "pro" ||
+    user.tier === "vip" ||
+    subStatus === "active" ||
+    subStatus === "trialing" ||
+    subStatus === "manual" ||
+    subStatus === "canceling" ||
+    isPastDueInGrace;
+  return isPro ? "pro" : "free";
+}
+
+// Licensed market-data + proprietary-model fields stripped from ticker
+// snapshot payloads for anon/free callers. Twelve Data licensing forbids
+// redistributing live prices to unauthenticated visitors, and scores /
+// SL / TP / ranks are the product's IP. Pro + admin receive everything;
+// the frontend keeps its existing display-level gating on top.
+const RESTRICTED_SNAPSHOT_FIELDS = new Set([
+  // Live price + change (licensed)
+  "price", "close", "open", "high", "low", "volume",
+  "prev_close", "prevClose", "p", "pc", "dc", "dp", "dh", "dl", "dv",
+  "day_change", "day_change_pct", "dailyChg", "dailyChgPct",
+  "ahp", "ahdc", "ahdp", "_ah_change_pct", "extended_price",
+  "_live_prev_close", "vwap",
+  // Proprietary model outputs
+  "sl", "tp", "tp1", "tp2", "tp3", "targets", "stop_loss", "take_profit",
+  "rank", "score", "dynamicScore", "entry_quality", "conviction",
+  "regime_forecast", "kanban_stage", "trade_plan",
+]);
+
+/**
+ * Redact a single ticker snapshot object for anon/free callers.
+ * Returns a shallow copy with restricted fields removed; ticker
+ * identity, sector, and timestamps survive so public UI skeletons
+ * still render.
+ */
+export function redactTickerSnapshot(obj) {
+  if (!obj || typeof obj !== "object") return obj;
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (RESTRICTED_SNAPSHOT_FIELDS.has(k)) continue;
+    out[k] = v;
+  }
+  out._redacted = true;
+  return out;
+}
+
+/**
+ * Redact a { SYM: snapshot } map in place-safe copy form for anon/free
+ * callers. "pro" and "admin" tiers pass through untouched.
+ */
+export function redactTickerMapForTier(dataMap, tier) {
+  if (tier === "admin" || tier === "pro") return dataMap;
+  if (!dataMap || typeof dataMap !== "object") return dataMap;
+  const out = {};
+  for (const [sym, payload] of Object.entries(dataMap)) {
+    out[sym] = redactTickerSnapshot(payload);
+  }
+  return out;
 }
 
 /**

@@ -460,7 +460,11 @@ function CRONoteCard({
   const drifts = Array.isArray(n.notable_drifts) ? n.notable_drifts : [];
   const indicators = Array.isArray(n.early_indicators) ? n.early_indicators : [];
   const gaps = Array.isArray(n.data_gaps) ? n.data_gaps : [];
-  const md = n.full_note_md ? marked.parse(n.full_note_md) : "";
+  const _mdRaw = n.full_note_md ? marked.parse(n.full_note_md) : "";
+  const md = typeof DOMPurify !== "undefined" && DOMPurify.sanitize ? DOMPurify.sanitize(_mdRaw, {
+    FORBID_TAGS: ["style", "form", "input"],
+    FORBID_ATTR: ["style"]
+  }) : "";
   return h("div", {
     className: "card"
   }, h("div", {
@@ -1486,6 +1490,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1781029281155:59208170
+// cache-bust:1781035595191:116208886
 
-// cache-bust:1781029281155:59208170
+// cache-bust:1781035595191:116208886

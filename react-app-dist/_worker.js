@@ -41,6 +41,10 @@ const ADMIN_ONLY_PAGES = new Set([
   "/debug-dashboard.html",
   "/model-dashboard.html",
   "/brand-kit.html",
+  "/calibration.html",
+  "/simulation-dashboard.html",
+  "/bridge-audit.html",
+  "/move-discovery.html",
 ]);
 
 /**

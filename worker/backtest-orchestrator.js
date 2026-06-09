@@ -415,7 +415,7 @@ async function advanceManagedRun(env, run, { baseUrl, apiKey, logger }) {
 async function initializeRun(run, { baseUrl, apiKey, logger }) {
   // Register the run so trade_autopsy and other systems see it.
   const tickersCount = run.tickers_csv.split(",").length;
-  const registerUrl = `${baseUrl}/timed/admin/runs/register?key=${apiKey}`;
+  const registerUrl = `${baseUrl}/timed/admin/runs/register`;
   const payload = {
     run_id: run.run_id,
     label: run.run_id,
@@ -438,7 +438,7 @@ async function initializeRun(run, { baseUrl, apiKey, logger }) {
   try {
     await withTimeout(fetch(registerUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: JSON.stringify(payload),
     }), 15000, "register");
   } catch (err) {
@@ -449,9 +449,9 @@ async function initializeRun(run, { baseUrl, apiKey, logger }) {
   // separately — the enqueue-er is expected to have configured them before
   // calling enqueue (via /timed/admin/model-config).
   try {
-    await withTimeout(fetch(`${baseUrl}/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1&key=${apiKey}`, {
+    await withTimeout(fetch(`${baseUrl}/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
       body: "{}",
     }), 45000, "reset");
   } catch (err) {
@@ -470,9 +470,9 @@ async function finalizeRun(env, run, status, noteSuffix) {
 
 async function acquireReplayLock(runId, { baseUrl, apiKey, logger }) {
   const tag = `orchestrator_${runId}`;
-  const url = `${baseUrl}/timed/admin/replay-lock?reason=${encodeURIComponent(tag)}&key=${apiKey}`;
+  const url = `${baseUrl}/timed/admin/replay-lock?reason=${encodeURIComponent(tag)}`;
   try {
-    await withTimeout(fetch(url, { method: "POST" }), 10000, "replay-lock");
+    await withTimeout(fetch(url, { method: "POST", headers: { "X-API-Key": apiKey } }), 10000, "replay-lock");
   } catch (err) {
     logger?.warn?.(`[ORCH] replay-lock acquire failed (continuing): ${String(err).slice(0, 200)}`);
   }

@@ -1,0 +1,84 @@
+name: Deploy bridge worker
+
+# Auto-deploys worker-bridge/ (tt-broker-bridge) whenever bridge source
+# changes on main. Before this workflow existed the bridge had NO CI
+# deploy — main-worker and bridge code could silently drift
+# (full-system-review P1.7 / R4).
+#
+# Uses the same Cloudflare secrets as deploy-worker.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker-bridge/**"
+      - ".github/workflows/deploy-bridge.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-bridge
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy (bridge)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve Cloudflare secrets
+        id: cfsec
+        env:
+          CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
+          CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          CF_TOKEN=""
+          CF_ACCT=""
+          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A";
+          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B";
+          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C";
+          fi
+          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";
+          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";
+          fi
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::warning::Cloudflare secrets not configured — bridge deploy SKIPPED."
+            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
+          } >> "$GITHUB_ENV"
+
+      - name: Deploy bridge worker
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.92.0"
+          workingDirectory: worker-bridge
+          command: deploy
+
+      - name: Post-deploy smoke
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          sleep 5
+          HEALTH=$(curl -s -m 15 "https://tt-broker-bridge.shashant.workers.dev/bridge/health" || echo "{}")
+          echo "bridge health: $HEALTH"
+          OK=$(echo "$HEALTH" | jq -r '.ok // false')
+          if [ "$OK" != "true" ]; then
+            echo "::error::Bridge /bridge/health did not return ok:true after deploy"
+            exit 1
+          fi

@@ -1126,17 +1126,17 @@ export async function decideOnCandidate(env, opts = {}) {
           const _apiKey = env?.TIMED_API_KEY;
           if (_apiKey) {
             const _enc = encodeURIComponent(ticker);
-            const _k = encodeURIComponent(_apiKey);
+            const _hdrs = { "X-API-Key": _apiKey };
             // 1. Intraday + daily, 1 year (~250 D bars).
             fetch(
-              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365&key=${_k}`,
-              { method: "POST" },
+              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365`,
+              { method: "POST", headers: _hdrs },
             ).catch(() => {});
             // 2. Weekly, 2 years (~100 W bars). Separate call so the
             // W backfill doesn't get cut off by the all-tf time budget.
             fetch(
-              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730&key=${_k}`,
-              { method: "POST" },
+              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730`,
+              { method: "POST", headers: _hdrs },
             ).catch(() => {});
           }
         } catch (_) { /* best-effort */ }

@@ -110,16 +110,19 @@ function queryD1(sql, retries = 3) {
 }
 
 async function apiPost(endpoint, body) {
-  const resp = await fetch(`${API_BASE}${endpoint}?key=${API_KEY}`, {
+  const resp = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
     body: JSON.stringify(body),
   });
   return resp.json();
 }
 
 async function apiGet(endpoint) {
-  const resp = await fetch(`${API_BASE}${endpoint}?key=${API_KEY}`, { method: "GET" });
+  const resp = await fetch(`${API_BASE}${endpoint}`, {
+    method: "GET",
+    headers: { "X-API-Key": API_KEY },
+  });
   return resp.json();
 }
 
