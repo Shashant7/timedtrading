@@ -1162,6 +1162,22 @@
     );
   }
 
+  /* Nav badge + chip counts: execution-ready accumulate + all reduce.
+     Raw stage=accumulate monitor-tier names (e.g. GLD, DCI) are On Radar,
+     not buy-now — they must not inflate the tab badge. */
+  function countInvestorNavBadge(list) {
+    let n = 0;
+    const rows = Array.isArray(list) ? list : [];
+    for (const t of rows) {
+      if (!t || typeof t !== "object") continue;
+      const stage = String(t.stage || t.investor_stage || "").toLowerCase();
+      if (stage === "reduce") { n++; continue; }
+      if (stage === "accumulate" && isExecuteReady(t)) n++;
+    }
+    return n;
+  }
+
   window.InvestorPanel = InvestorPanel;
-  window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage };
+  window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage, countInvestorNavBadge };
+  window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();

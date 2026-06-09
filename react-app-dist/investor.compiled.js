@@ -650,10 +650,19 @@ function InvestorApp() {
       simUnknown = 0,
       executeReady = 0;
     const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
+    const countNav = window.TTCountInvestorNavBadge;
+    if (typeof countNav === "function") {
+      actionable = countNav(list);
+    }
     for (const row of list) {
       const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
       if (stage !== "accumulate" && stage !== "reduce") continue;
-      actionable++;
+      if (typeof countNav !== "function") {
+        if (stage === "reduce") actionable++;else if (stage === "accumulate") {
+          const tier = String(row?.actionTier || "").toLowerCase();
+          if (tier === "act_now" || tier === "ready") actionable++;
+        }
+      }
       const tier = row?.actionTier;
       if (tier === "act_now" || tier === "ready") executeReady++;
       if (row?.simEligible === true) simEligible++;else if (row?.simEligible == null) simUnknown++;
@@ -789,6 +798,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781025845552:337396255
+// cache-bust:1781027148851:558934919
 
-// cache-bust:1781025845552:337396255
+// cache-bust:1781027148851:558934919

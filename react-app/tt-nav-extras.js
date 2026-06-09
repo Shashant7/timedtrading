@@ -252,12 +252,21 @@
         : Array.isArray(j?.data)
         ? j.data
         : (j?.scores && typeof j.scores === "object" ? Object.values(j.scores) : []);
-      // Actionable = Accumulate or Reduce stage (per investor-panel).
+      // Execution-ready accumulate (act_now/ready) + all reduce — matches
+      // INVESTOR_ACTIONABLE filter and kanban lanes (not raw monitor-tier
+      // accumulate names that sit in On Radar).
+      if (typeof window.TTCountInvestorNavBadge === "function") {
+        return window.TTCountInvestorNavBadge(list);
+      }
       let n = 0;
       for (const v of list) {
         if (!v || typeof v !== "object") continue;
         const stage = String(v.stage || v.investor_stage || "").toLowerCase();
-        if (stage === "accumulate" || stage === "reduce") n += 1;
+        if (stage === "reduce") { n++; continue; }
+        if (stage === "accumulate") {
+          const tier = String(v.actionTier || "").toLowerCase();
+          if (tier === "act_now" || tier === "ready") n++;
+        }
       }
       return n;
     } catch (_) { return null; }
