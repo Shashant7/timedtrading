@@ -2,11 +2,15 @@
 // Publishes to KV (current brief) and D1 (archive), with Finnhub data enrichment.
 
 import { kvGetJSON, kvPutJSON } from "./storage.js";
-import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-calendar.js";
+import { loadCalendar, isEquityHoliday, isEquityEarlyClose, isNyRegularMarketOpen } from "./market-calendar.js";
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
 import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
-import { getCROBriefAddendum, getFSDSynthesisAddendum, ensureCRONoteForBriefCadence } from "./cro/cro-service.js";
+import {
+  getCROBriefAddendum,
+  getFSDSynthesisAddendum,
+  ensureCRONoteForBriefCadenceWithTimeout,
+} from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import {
@@ -1929,6 +1933,157 @@ function _satyGoldenGateState(anchor, atr, curPx) {
   };
 }
 
+/** Recompute Golden Gate state + close-prob when live price drifts from generation-time anchor. */
+function _recomputeGateBlock(block, livePrice, { atrKey = "dayAtr", isWeek = false } = {}) {
+  if (!block || !Number.isFinite(livePrice) || livePrice <= 0) return block;
+  const anchor = Number(block.anchor);
+  const atr = Number(block[atrKey] ?? block.weekAtr ?? block.dayAtr);
+  if (!Number.isFinite(anchor) || anchor <= 0 || !Number.isFinite(atr) || atr <= 0) {
+    return { ...block, currentPrice: Math.round(livePrice * 100) / 100 };
+  }
+  const gg = _satyGoldenGateState(anchor, atr, livePrice);
+  const rnd = (v) => Math.round(v * 100) / 100;
+  const _l = gg.ggLevels;
+  const goldenGateNote = (() => {
+    const px = rnd(livePrice);
+    if (gg.state === "COMPLETE_UP") return `Price ${px} has touched the +61.8% GG completion at ${rnd(_l.completionUp)} — Saty ${isWeek ? "week" : "day"} long Golden Gate is COMPLETE.`;
+    if (gg.state === "OPEN_UP") return `Price ${px} above the +38.2% Golden Gate at ${rnd(_l.gateUp)} — long GG OPEN. Completion target +61.8% ${rnd(_l.completionUp)}.`;
+    if (gg.state === "COMPLETE_DN") return `Price ${px} has touched the -61.8% GG completion at ${rnd(_l.completionDn)} — Saty ${isWeek ? "week" : "day"} short Golden Gate is COMPLETE.`;
+    if (gg.state === "OPEN_DOWN") return `Price ${px} below the -38.2% Golden Gate at ${rnd(_l.gateDn)} — short GG OPEN. Completion target -61.8% ${rnd(_l.completionDn)}.`;
+    return `Price ${px} inside the ${isWeek ? "weekly" : "daily"} Golden Gate (±38.2% gates ${rnd(_l.gateDn)} – ${rnd(_l.gateUp)}).`;
+  })();
+
+  const _atrUsedAbs = Math.abs(livePrice - anchor);
+  const _atrUsed = atr > 0 ? _atrUsedAbs / atr : 0;
+  let prob = 0;
+  let probLabel = "LOW";
+  if (isWeek) {
+    const dow = _nyDayOfWeek(Date.now());
+    const _daysRemaining = dow == null ? 1 : Math.max(1, 6 - Math.max(1, Math.min(5, dow)));
+    const _weekTimeRemaining = _daysRemaining / 5;
+    const wggUpProb = (() => {
+      if (livePrice <= _l.gateUp) return 0;
+      const target = _l.completionUp;
+      if (livePrice >= target) return 1;
+      const dist = (target - livePrice) / atr;
+      return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+    })();
+    const wggDnProb = (() => {
+      if (livePrice >= _l.gateDn) return 0;
+      const target = _l.completionDn;
+      if (livePrice <= target) return 1;
+      const dist = (livePrice - target) / atr;
+      return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
+    })();
+    prob = gg.direction === "UP" ? wggUpProb : gg.direction === "DOWN" ? wggDnProb : 0;
+    probLabel = prob >= 0.6 ? "HIGH" : prob >= 0.3 ? "MODERATE" : "LOW";
+    return {
+      ...block,
+      currentPrice: rnd(livePrice),
+      goldenGate: gg.state,
+      goldenGateState: gg.state,
+      goldenGateDirection: gg.direction,
+      goldenGateOpen: gg.gateOpen,
+      goldenGateComplete: gg.gateComplete,
+      goldenGateNote,
+      goldenGateProbability: {
+        ...(block.goldenGateProbability || {}),
+        week: rnd(prob),
+        weekLabel: probLabel,
+        weekAtrUsedPct: Math.round(_atrUsed * 100),
+        daysRemaining: _daysRemaining,
+      },
+    };
+  }
+
+  const _now = new Date();
+  const _utcHour = _now.getUTCHours() + _now.getUTCMinutes() / 60;
+  let _sessionFrac = (_utcHour - 13.5) / (20 - 13.5);
+  _sessionFrac = Math.max(0, Math.min(1, _sessionFrac));
+  const upGate = _l.gateUp;
+  const dnGate = _l.gateDn;
+  const _ggUpProb = (() => {
+    if (livePrice <= upGate) return 0;
+    const targetPrice = anchor + atr * 0.5;
+    if (livePrice >= targetPrice) return 1;
+    const distToTarget = (targetPrice - livePrice) / atr;
+    const timeRemaining = 1 - _sessionFrac;
+    return Math.max(0, Math.min(1, 0.5 + (timeRemaining - distToTarget) * 0.5));
+  })();
+  const _ggDnProb = (() => {
+    if (livePrice >= dnGate) return 0;
+    const targetPrice = anchor - atr * 0.5;
+    if (livePrice <= targetPrice) return 1;
+    const distToTarget = (livePrice - targetPrice) / atr;
+    const timeRemaining = 1 - _sessionFrac;
+    return Math.max(0, Math.min(1, 0.5 + (timeRemaining - distToTarget) * 0.5));
+  })();
+  prob = gg.state === "OPEN_UP" ? _ggUpProb : gg.state === "OPEN_DOWN" ? _ggDnProb : 0;
+  probLabel = prob >= 0.6 ? "HIGH" : prob >= 0.3 ? "MODERATE" : "LOW";
+
+  return {
+    ...block,
+    currentPrice: rnd(livePrice),
+    goldenGate: gg.state,
+    goldenGateState: gg.state,
+    goldenGateDirection: gg.direction,
+    goldenGateOpen: gg.gateOpen,
+    goldenGateComplete: gg.gateComplete,
+    goldenGateNote,
+    goldenGateProbability: {
+      ...(block.goldenGateProbability || {}),
+      day: rnd(prob),
+      dayLabel: probLabel,
+      atrUsedPct: Math.round(_atrUsed * 100),
+      sessionElapsedPct: Math.round(_sessionFrac * 100),
+    },
+  };
+}
+
+/** Overlay live timed:prices onto infographic index cards (GG state + current price). */
+export async function refreshInfographicLivePrices(infographic, env, priceMap = null) {
+  if (!infographic || !Array.isArray(infographic.indices)) return infographic;
+  let pf = priceMap;
+  if (!pf) {
+    try {
+      const raw = env?.KV_TIMED ? await env.KV_TIMED.get("timed:prices") : null;
+      pf = raw ? (JSON.parse(raw)?.prices || JSON.parse(raw)) : null;
+    } catch (_) {
+      pf = null;
+    }
+  }
+  if (!pf || typeof pf !== "object") return infographic;
+
+  const cal = env ? await loadCalendar(env).catch(() => null) : null;
+  const mktOpen = isNyRegularMarketOpen(cal, new Date());
+  const liveSpotFor = (sym) => {
+    const s = String(sym || "").toUpperCase();
+    const key = s === "ES" ? (pf["ES1!"] ? "ES1!" : "ES") : s;
+    const r = pf[key];
+    if (!r) return null;
+    const ext = Number(r.ahp), p = Number(r.p);
+    if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
+    return Number.isFinite(p) && p > 0 ? p : null;
+  };
+
+  infographic.indices = infographic.indices.map((idx) => {
+    const sym = String(idx?.sym || "").toUpperCase();
+    const live = liveSpotFor(sym);
+    if (!Number.isFinite(live)) return idx;
+    const levels = idx.levels ? _recomputeGateBlock(idx.levels, live, { atrKey: "dayAtr", isWeek: false }) : idx.levels;
+    const weeklyLevels = idx.weeklyLevels
+      ? _recomputeGateBlock(idx.weeklyLevels, live, { atrKey: "weekAtr", isWeek: true })
+      : idx.weeklyLevels;
+    return {
+      ...idx,
+      price: Math.round(live * 100) / 100,
+      levels,
+      weeklyLevels,
+    };
+  });
+  return infographic;
+}
+
 function computeSatyMultiDayLevels({ weeklyCandles, dailyCandles, currentPrice, dayAtr14Fallback }) {
   const weekly = Array.isArray(weeklyCandles) ? weeklyCandles : [];
   const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
@@ -2898,7 +3053,7 @@ function buildRetailFriendlyOutputSpec(type) {
 5. **SPY Prediction** (same shape as ES)
 6. **QQQ Prediction** (same shape as ES)
 7. **IWM Prediction** (same shape as ES)
-8. **Key Levels & Game Plan** (combined — bullets per index with structure + scenario alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
+8. **Key Levels & Game Plan** (combined — per index: current $X vs Day Gate, today's bull/bear triggers, weekly GG undertone, SMC levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
 9. **Risk Factors** (1-2 key risks, ≤20 words each)
 10. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
 11. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`;
@@ -3234,11 +3389,11 @@ STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a t
    - Bull/Bear/Base case with specific levels.
    - Futures equivalent (ES/NQ) in parentheses.
 
-3. **Key Levels & Game Plan** (~80 words) — Specific numbers for today:
-   - Lead with SMC support/resistance levels (these are where price actually reacted). ATR levels are secondary targets.
-   - ORB levels add intraday context after the open.
-   - Golden Gate status if applicable.
-   - Game plan: bull/bear triggers and targets. ABSOLUTE RULE: bearish targets MUST be LOWER than triggers, bullish targets MUST be HIGHER.
+3. **Key Levels & Game Plan** (~100 words) — Specific numbers for today WITH weekly undertone:
+   - For EACH index (SPY, QQQ, IWM), open with "current $X vs Day Gate $low–$high" using the LIVE current price from the Game Plan block — NOT yesterday's pivot as the current price.
+   - State where price sits RIGHT NOW relative to today's Day Gate (inside / above / below) and the weekly Golden Gate (day vs week tension is valuable — e.g. "day GG OPEN_UP but week GG OPEN_DOWN").
+   - Lead with SMC support/resistance levels (where price actually reacted). ATR Day Gate bounds are secondary but MUST match the Game Plan block verbatim.
+   - Game plan: bull/bear triggers and targets framed as TODAY's intraday rotation, with one clause on how the weekly GG colors the backdrop. ABSOLUTE RULE: bearish targets MUST be LOWER than triggers, bullish targets MUST be HIGHER.
    - Note major data release timing.
 
 4. **Earnings Watch** (~60 words, only if material) — Key earnings today/this week with current price and daily change.
@@ -3961,16 +4116,18 @@ function buildBriefInfographic(data, type) {
     // Scenario uses the same module but technical also carries overnightRange.
     const _etfOvernightGp = INDEX_DAY_TRADE_ETFS.has(sym) && baseLevels?.gamePlan;
     if (_etfOvernightGp) {
-      mergedLevels = {
-        ...(baseLevels || {}),
-        currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
-      };
+      mergedLevels = Number.isFinite(livePrice) && livePrice > 0
+        ? _recomputeGateBlock(baseLevels, livePrice, { atrKey: "dayAtr", isWeek: false })
+        : {
+          ...(baseLevels || {}),
+          currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
+        };
     } else if (scenario?.ok && scenario?.game_plan) {
       // Use scenario's game plan + current price; keep tech's fib map
       // (anchor/levels object) for the DAY GATE bar so we don't lose
       // the existing visualization, but override the gamePlan + currentPrice.
       const gp = scenario.game_plan;
-      mergedLevels = {
+      const withGp = {
         ...(baseLevels || {}),
         currentPrice: Number.isFinite(livePrice) ? livePrice : (baseLevels?.currentPrice ?? null),
         gamePlan: {
@@ -3980,6 +4137,9 @@ function buildBriefInfographic(data, type) {
           bearTarget:  Number(gp.bear_target)  || null,
         },
       };
+      mergedLevels = Number.isFinite(livePrice) && livePrice > 0
+        ? _recomputeGateBlock(withGp, livePrice, { atrKey: "dayAtr", isWeek: false })
+        : withGp;
     } else if (baseLevels?.gamePlan) {
       // Fallback: validate the legacy game-plan and drop it if the
       // bull/bear sides are inverted (target on the wrong side of trigger).
@@ -3990,13 +4150,17 @@ function buildBriefInfographic(data, type) {
         mergedLevels = { ...baseLevels, gamePlan: null };
       }
     }
+    const weeklyBase = _normWeeklyLevels(tech);
+    const weeklyLevels = (weeklyBase && Number.isFinite(livePrice) && livePrice > 0)
+      ? _recomputeGateBlock(weeklyBase, livePrice, { atrKey: "weekAtr", isWeek: true })
+      : weeklyBase;
     return {
       sym,
       price: Number.isFinite(livePrice) ? Math.round(livePrice * 100) / 100 : null,
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
       atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
       levels: mergedLevels,
-      weeklyLevels: _normWeeklyLevels(tech),
+      weeklyLevels,
       bias: scenario?.bias || null,
     };
   };
@@ -4134,7 +4298,11 @@ function extractTopThree(content) {
 /** Extract the closing one-liner ("Trade what's there, not what you hope for.") */
 function extractClosingLine(content) {
   if (!content || typeof content !== "string") return null;
-  const tail = content.slice(-800);
+  // Never scan Active Trader / Investor sections — action lines like
+  // "**TRIM aggressively**" were leaking into the infographic quote.
+  const traderCut = content.search(/\n\s*#{1,3}\s+\*?\*?(?:Active Trader|Investor Portfolio)/i);
+  const body = traderCut > 0 ? content.slice(0, traderCut) : content;
+  const tail = body.slice(-1200);
   // Look for a line after a section 8 header or directly before P.S.
   const psIdx = tail.search(/\n\s*\*?\*?P\.S\.?/i);
   const zone = psIdx > 0 ? tail.slice(0, psIdx) : tail;
@@ -4154,17 +4322,71 @@ function extractClosingLine(content) {
     if (/^#{1,6}\s/.test(l)) continue;
     if (/^[-*]\s/.test(l)) continue;
     if (l.length < 20 || l.length > 140) continue;
-    const cleaned = l.replace(/^\*+|\*+$/g, "").trim();
+    const cleaned = l.replace(/^\*+|\*+$/g, "").replace(/\*\*/g, "").trim();
     // Reject continuations / clause tails (e.g. "; HOLD only if metals stabilize.")
     if (/^[a-z;,]/.test(cleaned)) continue;
+    // Reject trader-book action fragments (TRIM/HOLD/EXIT/TIGHTEN/DCA).
+    if (/\b(TRIM|HOLD|EXIT|TIGHTEN|DCA)\b/i.test(cleaned)) continue;
     // Reject lines that don't end with terminal punctuation.
     if (!/[.!?'"”’)]$/.test(cleaned)) continue;
     // Reject pure level / range fragments that aren't real one-liners.
     if (/^Expected range\s*:/i.test(cleaned)) continue;
     if (/^\$?\d[\d.,\s$–\-]*$/.test(cleaned)) continue;
+    // Reject position-row patterns: "TICKER LONG @ $X · P&L ..."
+    if (/\b(LONG|SHORT)\s*@/i.test(cleaned)) continue;
     return cleaned;
   }
   return null;
+}
+
+/** Rewrite per-index prediction prose when LLM cites stale "inside range" vs live price. */
+function patchIndexPredictionProse(pred, sym, idx) {
+  if (!pred || !idx?.levels) return pred;
+  const lv = idx.levels;
+  const cp = Number(idx.price ?? lv.currentPrice);
+  const dn = Number(lv.levels?.["-38.2%"]);
+  const up = Number(lv.levels?.["+38.2%"]);
+  const anchor = Number(lv.anchor);
+  const gp = lv.gamePlan || {};
+  const bullT = Number(gp.bullTrigger);
+  const bullTgt = Number(gp.bullTarget);
+  const bearT = Number(gp.bearTrigger);
+  const bearTgt = Number(gp.bearTarget);
+  const wgg = idx.weeklyLevels?.goldenGate;
+  if (!Number.isFinite(cp) || !Number.isFinite(dn) || !Number.isFinite(up)) return pred;
+
+  const _f = (n) => (Number.isFinite(n) ? n.toFixed(2) : null);
+  const weekNote = wgg && wgg !== lv.goldenGate
+    ? ` Weekly backdrop: ${String(wgg).replace(/_/g, " ").toLowerCase()}.`
+    : "";
+
+  const staleInside = /\b(inside|stays inside|within)\b.*\brange\b/i.test(pred)
+    && (cp > up + 0.01 || cp < dn - 0.01);
+  let prose = null;
+  if (cp > up + 0.01 || staleInside && cp > up) {
+    prose = `${sym} is already above today's Day Gate high ($${_f(up)}) at $${_f(cp)}`
+      + (Number.isFinite(bullT) ? ` — holds above $${_f(bullT)} target $${_f(bullTgt)}` : " — extension bias")
+      + (Number.isFinite(bearT) ? `; fade risk below $${_f(bearT)} toward $${_f(bearTgt)}` : "")
+      + `.${weekNote}`;
+  } else if (cp < dn - 0.01 || staleInside && cp < dn) {
+    prose = `${sym} is below today's Day Gate low ($${_f(dn)}) at $${_f(cp)}`
+      + (Number.isFinite(bearT) ? ` — bear below $${_f(bearT)} targets $${_f(bearTgt)}` : " — breakdown bias")
+      + (Number.isFinite(bullT) ? `; reclaim $${_f(bullT)} to stabilize` : "")
+      + `.${weekNote}`;
+  } else if (staleInside) {
+    prose = `${sym} at $${_f(cp)} trades the Day Gate ($${_f(dn)}–$${_f(up)})`
+      + (Number.isFinite(anchor) ? ` around pivot $${_f(anchor)}` : "")
+      + (Number.isFinite(bullT) ? ` — bull above $${_f(bullT)} → $${_f(bullTgt)}` : "")
+      + (Number.isFinite(bearT) ? `; bear below $${_f(bearT)} → $${_f(bearTgt)}` : "")
+      + `.${weekNote}`;
+  }
+  if (!prose) return pred;
+
+  const blockB = pred.match(
+    new RegExp(`\\*\\*${sym}\\s*@\\s*\\$[\\d.,]+[\\s\\S]*?Lean:\\s*[A-Z]+[^\\n]*`, "i"),
+  );
+  const blockA = `**${sym} Prediction**: ${prose}`;
+  return blockB ? `${blockA}\n\n${blockB[0]}` : blockA;
 }
 
 /** First substantive paragraph from Section 1 ("The Bigger Picture" prose). */
@@ -4301,22 +4523,22 @@ export async function generateDailyBrief(env, type, opts = {}) {
   const start = Date.now();
 
   try {
-    // Refresh CRO daily note on the same cadence as this brief so prompts
-    // and the Research Desk panel never show a multi-day-stale synthesis.
-    try {
-      const croSlot = type === "morning" ? "morning" : "evening";
-      const croR = await ensureCRONoteForBriefCadence(env, croSlot);
-      if (croR?.cadence_refresh) {
-        console.log(`[DAILY BRIEF] CRO note refreshed (${croSlot}) note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
-      } else if (croR?.skipped) {
-        console.log(`[DAILY BRIEF] CRO note: ${croR.skipped}`);
-      }
-    } catch (e) {
-      console.warn(`[DAILY BRIEF] CRO cadence refresh failed (${type}):`, String(e?.message || e).slice(0, 200));
+    // CRO refresh runs IN PARALLEL with data gather (was sequential and
+    // added 30-60s before the brief, causing morning cron misses).
+    const croSlot = type === "morning" ? "morning" : "evening";
+    const [data, croR] = await Promise.all([
+      gatherDailyBriefData(env, type, opts),
+      ensureCRONoteForBriefCadenceWithTimeout(env, croSlot, 55_000).catch((e) => ({
+        ok: false,
+        skipped: "cro_refresh_failed",
+        hint: String(e?.message || e).slice(0, 200),
+      })),
+    ]);
+    if (croR?.cadence_refresh) {
+      console.log(`[DAILY BRIEF] CRO note refreshed (${croSlot}) note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
+    } else if (croR?.skipped) {
+      console.log(`[DAILY BRIEF] CRO note: ${croR.skipped}`);
     }
-
-    // 1. Gather data
-    const data = await gatherDailyBriefData(env, type, opts);
     if (data.error) return { ok: false, error: data.error };
 
     // 2. Build prompt and call AI
@@ -4419,10 +4641,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
       return null;
     }
-    const esPrediction  = extractPredictionLine("ES");
-    const spyPrediction = extractPredictionLine("SPY");
-    const qqqPrediction = extractPredictionLine("QQQ");
-    const iwmPrediction = extractPredictionLine("IWM");
+    let esPrediction  = extractPredictionLine("ES");
+    let spyPrediction = extractPredictionLine("SPY");
+    let qqqPrediction = extractPredictionLine("QQQ");
+    let iwmPrediction = extractPredictionLine("IWM");
 
     // 4. For evening brief, get ES close and score morning prediction
     let esClose = null;
@@ -4464,6 +4686,12 @@ export async function generateDailyBrief(env, type, opts = {}) {
         infographic.topThree = extractTopThree(content);
         infographic.closingLine = extractClosingLine(content);
         infographic.leadSummary = extractBriefLead(content);
+        const idxMap = Object.fromEntries(
+          (infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
+        );
+        if (spyPrediction) spyPrediction = patchIndexPredictionProse(spyPrediction, "SPY", idxMap.SPY);
+        if (qqqPrediction) qqqPrediction = patchIndexPredictionProse(qqqPrediction, "QQQ", idxMap.QQQ);
+        if (iwmPrediction) iwmPrediction = patchIndexPredictionProse(iwmPrediction, "IWM", idxMap.IWM);
       }
     } catch (e) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
@@ -4653,11 +4881,69 @@ export async function cleanupDailyBrief(env) {
 // API Helpers (called from index.js route handlers)
 // ═══════════════════════════════════════════════════════════════════════
 
-/** GET /timed/daily-brief — returns current brief from KV */
+function d1RowToBriefPayload(row) {
+  if (!row?.content) return null;
+  return {
+    id: row.id,
+    date: row.date,
+    type: row.type,
+    content: row.content,
+    esPrediction: row.es_prediction || null,
+    publishedAt: Number(row.published_at) || null,
+    _source: "d1_fallback",
+  };
+}
+
+/** GET /timed/daily-brief — returns current brief from KV with D1 fallback */
 export async function handleGetBrief(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "no_kv" };
   const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
+  const etToday = getETDate();
+  const db = env?.DB;
+
+  if (db) {
+    try {
+      await d1EnsureBriefSchema(env);
+      for (const type of ["morning", "evening"]) {
+        if (current[type]?.content) continue;
+        const row = await db.prepare(
+          `SELECT id, date, type, content, es_prediction, published_at
+             FROM daily_briefs
+            WHERE date = ?1 AND type = ?2
+            ORDER BY published_at DESC LIMIT 1`,
+        ).bind(etToday, type).first();
+        const payload = d1RowToBriefPayload(row);
+        if (payload) {
+          current[type] = payload;
+          // Best-effort rehydrate KV so the next read is fast.
+          kvPutJSON(KV, "timed:daily-brief:current", current).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn("[DAILY BRIEF] D1 fallback failed:", String(e?.message || e).slice(0, 200));
+    }
+  }
+
+  // Recompute Golden Gate state from live prices so index cards don't
+  // show "inside range" when the live quote is already above the gate.
+  for (const type of ["morning", "evening"]) {
+    const slot = current[type];
+    if (slot?.infographic) {
+      try {
+        await refreshInfographicLivePrices(slot.infographic, env);
+        const idxMap = Object.fromEntries(
+          (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
+        );
+        if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY);
+        if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ);
+        if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM);
+      } catch (e) {
+        console.warn("[DAILY BRIEF] live infographic refresh failed:", String(e?.message || e).slice(0, 120));
+      }
+    }
+  }
+
   return { ok: true, brief: current };
 }
 
@@ -4930,16 +5216,18 @@ export async function generateIntradayBrief(env, opts = {}) {
   const start = Date.now();
 
   try {
-    try {
-      const croR = await ensureCRONoteForBriefCadence(env, "intraday");
-      if (croR?.cadence_refresh) {
-        console.log(`[INTRADAY BRIEF] CRO note refreshed note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
-      }
-    } catch (e) {
-      console.warn("[INTRADAY BRIEF] CRO cadence refresh failed:", String(e?.message || e).slice(0, 200));
+    const [data, croR] = await Promise.all([
+      gatherDailyBriefData(env, "intraday", opts),
+      ensureCRONoteForBriefCadenceWithTimeout(env, "intraday", 45_000).catch((e) => ({
+        ok: false,
+        skipped: "cro_refresh_failed",
+        hint: String(e?.message || e).slice(0, 200),
+      })),
+    ]);
+    if (croR?.cadence_refresh) {
+      console.log(`[INTRADAY BRIEF] CRO note refreshed note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
     }
 
-    const data = await gatherDailyBriefData(env, "intraday", opts);
     if (data.error) return { ok: false, error: data.error };
 
     const nowET = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
