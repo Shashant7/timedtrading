@@ -79,8 +79,20 @@ function BriefInfographic({
       color: color || "#e5e7eb"
     }
   }, value));
-  const ggColor = gg => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#9ca3af";
+  const ggColor = gg => gg === "OPEN_UP" || gg === "COMPLETE_UP" ? "#34d399" : gg === "OPEN_DOWN" || gg === "COMPLETE_DN" ? "#ef4444" : "#9ca3af";
   const pctColor = p => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+  const effectiveGg = (stored, cp, lvls) => {
+    if (cp == null || !lvls?.levels) return stored || "NEUTRAL";
+    const up382 = lvls.levels["+38.2%"];
+    const dn382 = lvls.levels["-38.2%"];
+    const up618 = lvls.levels["+61.8%"];
+    const dn618 = lvls.levels["-61.8%"];
+    if (up618 != null && cp >= up618) return "COMPLETE_UP";
+    if (cp > up382) return "OPEN_UP";
+    if (dn618 != null && cp <= dn618) return "COMPLETE_DN";
+    if (cp < dn382) return "OPEN_DOWN";
+    return "NEUTRAL";
+  };
   const indicies = Array.isArray(data.indices) ? data.indices : [];
   const sectors = Array.isArray(data.sectors) ? data.sectors : [];
   const macro = Array.isArray(data.macro) ? data.macro : [];
@@ -166,12 +178,12 @@ function BriefInfographic({
   }, indicies.map(idx => {
     const lvls = idx.levels || {};
     const wlvls = idx.weeklyLevels || null;
-    const gg = lvls.goldenGate || "NEUTRAL";
-    const wgg = wlvls?.goldenGate || "NEUTRAL";
+    const cp = liveFor(idx.sym, lvls.currentPrice ?? idx.price);
+    const gg = effectiveGg(lvls.goldenGate, cp, lvls);
+    const wgg = effectiveGg(wlvls?.goldenGate, cp, wlvls);
     const dayProb = lvls.goldenGateProbability;
     const weekProb = wlvls?.goldenGateProbability;
     const anchor = lvls.anchor;
-    const cp = liveFor(idx.sym, lvls.currentPrice ?? idx.price);
     const _dispPx = liveFor(idx.sym, idx.price);
     const _isLivePx = livePx && cp != null && idx.price != null && Math.abs(cp - idx.price) > 0.001;
     const up382 = lvls.levels?.["+38.2%"];
@@ -193,7 +205,7 @@ function BriefInfographic({
       style: {
         color: ggColor(gg)
       }
-    }, gg === "OPEN_UP" ? "▲ Bullish" : gg === "OPEN_DOWN" ? "▼ Bearish" : "◆ Neutral")), React.createElement("div", {
+    }, gg === "OPEN_UP" || gg === "COMPLETE_UP" ? "▲ Bullish" : gg === "OPEN_DOWN" || gg === "COMPLETE_DN" ? "▼ Bearish" : "◆ Neutral")), React.createElement("div", {
       className: "flex items-baseline gap-2 mb-2"
     }, React.createElement("span", {
       className: "text-lg font-bold text-white tabular-nums"
@@ -216,16 +228,26 @@ function BriefInfographic({
       const up618 = lvls.levels?.["+61.8%"];
       const dn50 = lvls.levels?.["-50%"];
       const dn618 = lvls.levels?.["-61.8%"];
-      const ggBiasText = g => g === "OPEN_UP" ? "Bullish bias" : g === "OPEN_DOWN" ? "Bearish bias" : "Mixed signal";
-      const ggBiasIcon = g => g === "OPEN_UP" ? "▲" : g === "OPEN_DOWN" ? "▼" : "◆";
-      const ggBiasColor = g => g === "OPEN_UP" ? "#34d399" : g === "OPEN_DOWN" ? "#fb7185" : "#9ca3af";
+      const ggBiasText = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "Bullish bias" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "Bearish bias" : "Mixed signal";
+      const ggBiasIcon = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "▲" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "▼" : "◆";
+      const ggBiasColor = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "#34d399" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "#fb7185" : "#9ca3af";
       const dayStatusLine = (() => {
-        if (gg === "NEUTRAL") return cp != null && up382 != null && dn382 != null ? `Trading inside today's expected range ($${dn382.toFixed(2)}–$${up382.toFixed(2)})` : "Inside today's expected range";
-        if (gg === "OPEN_UP" && up618 != null) {
+        if (gg === "NEUTRAL") {
+          if (cp != null && up382 != null && cp > up382) {
+            const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+            return `Above today's expected high ($${up382.toFixed(2)}) — ${p} extends toward $${(up618 ?? up382 + (lvls.dayAtr || 0) * 0.24).toFixed(2)} by close`;
+          }
+          if (cp != null && dn382 != null && cp < dn382) {
+            const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
+            return `Below today's expected low ($${dn382.toFixed(2)}) — ${p} tests $${(dn618 ?? dn382 - (lvls.dayAtr || 0) * 0.24).toFixed(2)} by close`;
+          }
+          return cp != null && up382 != null && dn382 != null ? `Trading inside today's expected range ($${dn382.toFixed(2)}–$${up382.toFixed(2)})` : "Inside today's expected range";
+        }
+        if ((gg === "OPEN_UP" || gg === "COMPLETE_UP") && up618 != null) {
           const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
           return `Pushing above today's expected high — ${p} closes above $${up618.toFixed(2)} by today's close`;
         }
-        if (gg === "OPEN_DOWN" && dn618 != null) {
+        if ((gg === "OPEN_DOWN" || gg === "COMPLETE_DN") && dn618 != null) {
           const p = dayProb ? `${(dayProb.day * 100).toFixed(0)}% chance` : "Likely";
           return `Breaking below today's expected low — ${p} closes below $${dn618.toFixed(2)} by today's close`;
         }
@@ -237,12 +259,22 @@ function BriefInfographic({
         const wDn618 = wlvls.levels?.["-61.8%"];
         const dr = weekProb?.daysRemaining;
         const drText = dr != null ? ` · ${dr}d left this week` : "";
-        if (wgg === "NEUTRAL") return wDn382 != null && wUp382 != null ? `Inside this week's range ($${wDn382.toFixed(2)}–$${wUp382.toFixed(2)})${drText}` : `Inside this week's range${drText}`;
-        if (wgg === "OPEN_UP" && wUp618 != null) {
+        if (wgg === "NEUTRAL") {
+          if (cp != null && wUp382 != null && cp > wUp382) {
+            const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+            return `Above this week's expected high ($${wUp382.toFixed(2)}) — ${p} extends by Friday${drText}`;
+          }
+          if (cp != null && wDn382 != null && cp < wDn382) {
+            const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
+            return `Below this week's expected low ($${wDn382.toFixed(2)}) — ${p} tests downside by Friday${drText}`;
+          }
+          return wDn382 != null && wUp382 != null ? `Inside this week's range ($${wDn382.toFixed(2)}–$${wUp382.toFixed(2)})${drText}` : `Inside this week's range${drText}`;
+        }
+        if ((wgg === "OPEN_UP" || wgg === "COMPLETE_UP") && wUp618 != null) {
           const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
           return `Tracking toward $${wUp618.toFixed(2)} target — ${p} hits by Friday${drText}`;
         }
-        if (wgg === "OPEN_DOWN" && wDn618 != null) {
+        if ((wgg === "OPEN_DOWN" || wgg === "COMPLETE_DN") && wDn618 != null) {
           const p = weekProb ? `${(weekProb.week * 100).toFixed(0)}% chance` : "Likely";
           return `Heading toward $${wDn618.toFixed(2)} downside target — ${p} hits by Friday${drText}`;
         }
@@ -2676,6 +2708,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781010429431:78296554
+// cache-bust:1781010765478:580182696
 
-// cache-bust:1781010429431:78296554
+// cache-bust:1781010765478:580182696
