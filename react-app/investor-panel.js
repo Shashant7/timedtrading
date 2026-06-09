@@ -164,6 +164,8 @@
         (stage === "reduce" && lastActionType !== "SELL") ||
         (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastActionType))
       );
+    const actionTier = deriveActionTier(t);
+    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
     const watchingLabel = (() => {
       if (!isOwned) return null;
       // Execution-ready names should not read "monitoring for trigger"
@@ -185,9 +187,6 @@
       }
       return null;
     })();
-
-    const actionTier = deriveActionTier(t);
-    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
 
     /* 1H sparkline: same shared cache the Active Trader cards use. */
     const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
