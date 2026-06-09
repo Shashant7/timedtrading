@@ -35,6 +35,12 @@ function makeDb(state) {
       Object.assign(p, { proposed_value: proposed, evidence_json: evidence, tier, current_value: current, created_at: ts, note });
       return {};
     }
+    if (sql.startsWith("UPDATE learning_proposals SET notified_at =")) {
+      const p = state.proposals.find((x) => x.id === binds[1]);
+      p.notified_at = binds[0];
+      return {};
+    }
+    if (sql.startsWith("ALTER TABLE learning_proposals")) return {};
     if (sql.startsWith("INSERT INTO learning_proposals")) {
       const [ts, source, kind, key, current, proposed, evidence, tier, note] = binds;
       const id = state.proposals.length + 1;
@@ -59,9 +65,12 @@ function makeDb(state) {
     }
     if (sql.startsWith("INSERT INTO model_config")) {
       // upsert: key + value are the first two binds for the bus's write;
-      // the authority auto-demote write has description first — handle both.
-      if (sql.includes("'ai_cio_shadow_mode'")) {
+      // the authority autoscale writes inline the key + literal value —
+      // handle both shapes.
+      if (sql.includes("'ai_cio_shadow_mode', 'true'")) {
         state.config.set("ai_cio_shadow_mode", "true");
+      } else if (sql.includes("'ai_cio_shadow_mode', 'false'")) {
+        state.config.set("ai_cio_shadow_mode", "false");
       } else {
         state.config.set(binds[0], binds[1]);
       }
@@ -157,17 +166,59 @@ describe("learning-proposals bus", () => {
     expect(state.config.get("rank_min")).toBe("50");
   });
 
-  it("tier-2 NEVER auto-applies; operator approve applies it verbatim", async () => {
-    state.config.set("ai_cio_shadow_mode", "true");
+  it("tier-2 notify-then-apply: first pass notifies, window-open waits, elapsed applies", async () => {
+    state.config.set("some_structural_flag", "true");
     const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
-    await submitProposal(env, { source: "cio_authority", kind: "flag_flip", config_key: "ai_cio_shadow_mode", proposed_value: "false", tier: "tier2" });
-    const nightly = await processProposals(env);
-    expect(nightly.applied.length).toBe(0);
-    expect(nightly.awaiting_operator.length).toBe(1);
+    const discord = vi.fn(async () => {});
+    await submitProposal(env, { source: "cio_authority", kind: "flag_flip", config_key: "some_structural_flag", proposed_value: "false", tier: "tier2" });
+
+    // Pass 1 — notice goes out, objection clock starts, nothing applied.
+    const pass1 = await processProposals(env, { notifyDiscord: discord });
+    expect(pass1.applied.length).toBe(0);
+    expect(pass1.awaiting_operator[0].mode).toBe("window_started");
+    expect(discord).toHaveBeenCalledOnce();
+    expect(state.proposals[0].notified_at).toBeTruthy();
+
+    // Pass 2 — window still open, still pending.
+    const pass2 = await processProposals(env, { notifyDiscord: discord });
+    expect(pass2.applied.length).toBe(0);
+    expect(pass2.awaiting_operator[0].mode).toBe("window_open");
+
+    // Pass 3 — backdate the notice past the 48h window → applies + pages.
+    state.proposals[0].notified_at = Date.now() - 49 * 3600000;
+    const pass3 = await processProposals(env, { notifyDiscord: discord });
+    expect(pass3.applied.length).toBe(1);
+    expect(pass3.applied[0].tier).toBe("tier2");
+    expect(state.config.get("some_structural_flag")).toBe("false");
+    expect(state.proposals[0].rollback_value).toBe("true");
+  });
+
+  it("tier-2 operator rejection inside the window prevents the apply", async () => {
+    state.config.set("flag_x", "on");
+    const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
+    await submitProposal(env, { source: "s", kind: "flag_flip", config_key: "flag_x", proposed_value: "off", tier: "tier2" });
+    await processProposals(env, { notifyDiscord: vi.fn(async () => {}) }); // window starts
+    await decideProposal(env, 1, "reject");
+    state.proposals[0].notified_at = Date.now() - 49 * 3600000; // backdate anyway
+    const after = await processProposals(env, { notifyDiscord: vi.fn(async () => {}) });
+    expect(after.applied.length).toBe(0); // rejected rows are no longer pending
+    expect(state.config.get("flag_x")).toBe("on");
+  });
+
+  it("LEARNING_TIER2_AUTO=false restores approve-required mode", async () => {
+    state.config.set("flag_y", "1");
+    const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true", LEARNING_TIER2_AUTO: "false" });
+    const discord = vi.fn(async () => {});
+    await submitProposal(env, { source: "s", kind: "flag_flip", config_key: "flag_y", proposed_value: "2", tier: "tier2" });
+    const r = await processProposals(env, { notifyDiscord: discord });
+    expect(r.applied.length).toBe(0);
+    expect(r.awaiting_operator[0].mode).toBe("approve_required");
+    expect(discord).not.toHaveBeenCalled();
+    expect(state.proposals[0].notified_at).toBeUndefined();
 
     const decided = await decideProposal(env, 1, "approve");
     expect(decided.ok).toBe(true);
-    expect(state.config.get("ai_cio_shadow_mode")).toBe("false");
+    expect(state.config.get("flag_y")).toBe("2");
   });
 
   it("operator reject closes the proposal without touching config", async () => {
@@ -200,20 +251,34 @@ describe("CIO authority evaluator", () => {
     expect(card.lifecycle.hold_save_rate).toBe(1);
   });
 
-  it("proposes promotion (tier-2) when shadow + precision above floors", async () => {
+  it("AUTO-PROMOTES shadow→live under default autoscale when precision clears floors", async () => {
     state.cioDecisions = [
       ...Array(15).fill(0).map(() => mkDecision("APPROVE", "WIN")),
       ...Array(10).fill(0).map(() => mkDecision("REJECT", "LOSS")),
     ];
-    const env = makeEnv(state, { _deepAuditConfig: { ai_cio_shadow_mode: "true" } });
+    const env = makeEnv(state, { _deepAuditConfig: { ai_cio_shadow_mode: "true" } }); // autoscale defaults true
+    const discord = vi.fn(async () => {});
+    const r = await evaluateCioAuthority(env, { submitProposal: vi.fn(), notifyDiscord: discord });
+    expect(r.sampled).toBe(true);
+    expect(r.actions[0].action).toBe("auto_promoted_to_live");
+    expect(state.config.get("ai_cio_shadow_mode")).toBe("false");
+    expect(discord).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to a tier-2 proposal when autoscale is explicitly off", async () => {
+    state.cioDecisions = [
+      ...Array(15).fill(0).map(() => mkDecision("APPROVE", "WIN")),
+      ...Array(10).fill(0).map(() => mkDecision("REJECT", "LOSS")),
+    ];
+    const env = makeEnv(state, { _deepAuditConfig: { ai_cio_shadow_mode: "true", ai_cio_authority_autoscale: "false" } });
     const submit = vi.fn(async () => ({ ok: true, id: 7 }));
     const r = await evaluateCioAuthority(env, { submitProposal: submit });
-    expect(r.sampled).toBe(true);
     expect(submit).toHaveBeenCalledOnce();
     expect(submit.mock.calls[0][1].config_key).toBe("ai_cio_shadow_mode");
     expect(submit.mock.calls[0][1].proposed_value).toBe("false");
     expect(submit.mock.calls[0][1].tier).toBe("tier2");
     expect(r.actions[0].action).toBe("promote_proposed");
+    expect(state.config.get("ai_cio_shadow_mode")).toBeUndefined();
   });
 
   it("auto-demotes live→shadow on degradation ONLY with autoscale=true", async () => {

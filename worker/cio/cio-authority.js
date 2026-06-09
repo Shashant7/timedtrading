@@ -108,7 +108,11 @@ export async function evaluateCioAuthority(env, deps = {}) {
   const cfg = env?._deepAuditConfig || {};
   const minSample = _cfgNum(env, "cio_authority_min_sample", DEFAULTS.min_sample);
   const shadowOn = String(cfg.ai_cio_shadow_mode ?? "true") === "true";
-  const autoscale = String(cfg.ai_cio_authority_autoscale ?? "false") === "true";
+  // 2026-06-09 operator decision: autoscale defaults ON ("informed, not
+  // responsible") — measured accuracy moves authority in BOTH directions
+  // with a Discord page on every change. Set ai_cio_authority_autoscale
+  // to "false" in model_config to fall back to proposal-only.
+  const autoscale = String(cfg.ai_cio_authority_autoscale ?? "true") === "true";
 
   const actions = [];
   const e = card.entry;
@@ -122,17 +126,43 @@ export async function evaluateCioAuthority(env, deps = {}) {
       (e.reject_precision ?? 1) < _cfgNum(env, "cio_authority_demote_reject_precision", DEFAULTS.demote_reject_precision) ||
       (e.approve_wr ?? 1) < _cfgNum(env, "cio_authority_demote_approve_wr", DEFAULTS.demote_approve_wr);
 
-    if (shadowOn && promoteOk && deps.submitProposal) {
-      const r = await deps.submitProposal(env, {
-        source: "cio_authority",
-        kind: "flag_flip",
-        config_key: "ai_cio_shadow_mode",
-        proposed_value: "false",
-        tier: "tier2",
-        evidence: card,
-        note: `Promotion: reject_precision=${e.reject_precision}, approve_wr=${e.approve_wr} over ${e.approved + e.rejects} attributed decisions (${card.window_days}d)`,
-      });
-      actions.push({ action: "promote_proposed", proposal_id: r?.id ?? null });
+    if (shadowOn && promoteOk) {
+      if (autoscale && env?.DB) {
+        // Autoscale ON: promotion is self-acting too — the operator is
+        // INFORMED via Discord, not asked. Demotion symmetry below means
+        // a wrong promotion self-corrects on the next nightly eval.
+        await env.DB.prepare(
+          `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+           VALUES ('ai_cio_shadow_mode', 'false', ?1, ?2, 'cio_authority_autoscale')
+           ON CONFLICT(config_key) DO UPDATE SET
+             config_value = excluded.config_value,
+             description = excluded.description,
+             updated_at = excluded.updated_at,
+             updated_by = excluded.updated_by`
+        ).bind(
+          `auto-promoted: reject_precision=${e.reject_precision}, approve_wr=${e.approve_wr}`,
+          Date.now(),
+        ).run();
+        actions.push({ action: "auto_promoted_to_live" });
+        if (deps.notifyDiscord) {
+          deps.notifyDiscord(env, {
+            title: "🟢 AI CIO auto-promoted to LIVE",
+            description: `Measured over ${card.window_days}d: reject precision **${e.reject_precision}**, approve WR **${e.approve_wr}** (${e.approved + e.rejects} attributed decisions). Entry REJECTs now block trades. Auto-reverts to shadow if precision degrades; set \`ai_cio_authority_autoscale=false\` to require manual approval instead.`,
+            color: 0x34d399,
+          }, "system").catch(() => {});
+        }
+      } else if (deps.submitProposal) {
+        const r = await deps.submitProposal(env, {
+          source: "cio_authority",
+          kind: "flag_flip",
+          config_key: "ai_cio_shadow_mode",
+          proposed_value: "false",
+          tier: "tier2",
+          evidence: card,
+          note: `Promotion: reject_precision=${e.reject_precision}, approve_wr=${e.approve_wr} over ${e.approved + e.rejects} attributed decisions (${card.window_days}d)`,
+        });
+        actions.push({ action: "promote_proposed", proposal_id: r?.id ?? null });
+      }
     }
 
     if (!shadowOn && demote) {

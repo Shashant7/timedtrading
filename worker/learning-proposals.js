@@ -21,7 +21,12 @@
 //           keys with explicit bounds). Auto-applied when
 //           COO_AUTO_APPLY_TIER1=true; logged dry-run otherwise.
 //   tier2 — anything structural (flag flips, bans, disables, >10%
-//           moves). NEVER auto-applied; pending until operator decides.
+//           moves). NOTIFY-THEN-APPLY: announced on Discord the night
+//           it appears, then auto-applied after an objection window
+//           (default 48h, `learning_tier2_objection_hours`) unless the
+//           operator rejects it first. 2026-06-09 operator decision:
+//           "informed, not responsible" — set
+//           LEARNING_TIER2_AUTO=false to restore approve-required mode.
 //
 // Every apply writes the previous value into the proposal row
 // (rollback_value) and stamps model_config.updated_by =
@@ -52,6 +57,13 @@ export async function ensureLearningProposalsSchema(env) {
     await env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_learning_proposals_status ON learning_proposals(status, created_at DESC)`
     ).run();
+    // notified_at: when the tier-2 objection-window Discord notice went
+    // out. The window counts from here, not from created_at, so a
+    // proposal created during a Discord outage still gets its full
+    // objection period.
+    try {
+      await env.DB.prepare(`ALTER TABLE learning_proposals ADD COLUMN notified_at INTEGER`).run();
+    } catch { /* column may already exist */ }
     _schemaReady = true;
   } catch (e) {
     console.warn("[LEARN_BUS] schema ensure failed:", String(e?.message || e).slice(0, 150));
@@ -188,25 +200,84 @@ async function _applyProposal(env, row, decidedBy) {
 }
 
 /**
- * Nightly processor. Tier-1 pending proposals auto-apply when
- * COO_AUTO_APPLY_TIER1=true (the operator's existing trust flag);
- * otherwise they're marked dry-run in the response but stay pending.
- * Tier-2 always stays pending for the operator.
+ * Nightly processor.
+ *
+ * tier-1: auto-apply (clamped ±10%) when COO_AUTO_APPLY_TIER1=true;
+ *         dry-run otherwise.
+ * tier-2: notify-then-apply. First nightly pass after submission sends
+ *         a Discord notice ("auto-applies in Nh unless rejected") and
+ *         stamps notified_at; once the objection window has elapsed
+ *         with no operator rejection, it applies. Disable the auto
+ *         path entirely with LEARNING_TIER2_AUTO=false (proposals then
+ *         wait for an explicit approve).
+ *
+ * @param {object} deps { notifyDiscord } — injected to stay testable.
  */
-export async function processProposals(env) {
+export async function processProposals(env, deps = {}) {
   if (!env?.DB) return { ok: false, error: "no_db" };
   await ensureLearningProposalsSchema(env);
   const autoApply = String(env?.COO_AUTO_APPLY_TIER1 || "false").toLowerCase() === "true";
+  const tier2Auto = String(env?.LEARNING_TIER2_AUTO ?? "true").toLowerCase() !== "false";
+  const objectionHours = Number(env?._deepAuditConfig?.learning_tier2_objection_hours) || 48;
+  const now = Date.now();
   const pending = (await env.DB.prepare(
     `SELECT * FROM learning_proposals WHERE status = 'pending' ORDER BY created_at ASC LIMIT 50`
   ).all().catch(() => ({ results: [] })))?.results || [];
 
   const applied = [];
   const dryRun = [];
-  const awaitingOperator = [];
+  const awaitingWindow = [];
   for (const row of pending) {
     if (row.tier !== "tier1") {
-      awaitingOperator.push({ id: row.id, source: row.source, config_key: row.config_key });
+      if (!tier2Auto) {
+        awaitingWindow.push({ id: row.id, source: row.source, config_key: row.config_key, mode: "approve_required" });
+        continue;
+      }
+      if (!row.notified_at) {
+        // First sighting: announce + start the objection clock.
+        try {
+          await env.DB.prepare(
+            `UPDATE learning_proposals SET notified_at = ?1 WHERE id = ?2`
+          ).bind(now, row.id).run();
+          if (deps.notifyDiscord) {
+            deps.notifyDiscord(env, {
+              title: "📋 Learning bus: structural change queued",
+              description:
+                `**${row.source}** proposes \`${row.config_key}\` → **${row.proposed_value}** (currently ${row.current_value ?? "unset"}).\n` +
+                `${row.note ? row.note + "\n" : ""}` +
+                `Auto-applies in **${objectionHours}h** unless rejected:\n` +
+                `\`POST /timed/admin/learning/proposals/decide {"id":${row.id},"action":"reject"}\``,
+              color: 0xf59e0b,
+            }, "system").catch(() => {});
+          }
+        } catch (e) {
+          console.warn(`[LEARN_BUS] notify #${row.id} failed:`, String(e?.message || e).slice(0, 120));
+        }
+        awaitingWindow.push({ id: row.id, source: row.source, config_key: row.config_key, mode: "window_started" });
+        continue;
+      }
+      const windowElapsed = now - Number(row.notified_at) >= objectionHours * 3600000;
+      if (!windowElapsed) {
+        awaitingWindow.push({ id: row.id, source: row.source, config_key: row.config_key, mode: "window_open" });
+        continue;
+      }
+      try {
+        const r = await _applyProposal(env, row, "objection_window_elapsed");
+        if (r.ok) {
+          applied.push({ id: row.id, config_key: row.config_key, written: r.written, tier: "tier2" });
+          if (deps.notifyDiscord) {
+            deps.notifyDiscord(env, {
+              title: "✅ Learning bus: structural change applied",
+              description: `\`${row.config_key}\` → **${r.written}** (proposal #${row.id} from ${row.source}; ${objectionHours}h objection window elapsed). Rollback value preserved on the proposal row.`,
+              color: 0x14b8a6,
+            }, "system").catch(() => {});
+          }
+        } else {
+          dryRun.push({ id: row.id, config_key: row.config_key, blocked: r.reason });
+        }
+      } catch (e) {
+        console.warn(`[LEARN_BUS] tier2 apply #${row.id} threw:`, String(e?.message || e).slice(0, 120));
+      }
       continue;
     }
     if (!autoApply) {
@@ -221,7 +292,7 @@ export async function processProposals(env) {
       console.warn(`[LEARN_BUS] apply #${row.id} threw:`, String(e?.message || e).slice(0, 120));
     }
   }
-  return { ok: true, scanned: pending.length, applied, dry_run: dryRun, awaiting_operator: awaitingOperator, auto_apply: autoApply };
+  return { ok: true, scanned: pending.length, applied, dry_run: dryRun, awaiting_operator: awaitingWindow, auto_apply: autoApply, tier2_auto: tier2Auto, objection_hours: objectionHours };
 }
 
 /**

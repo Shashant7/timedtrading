@@ -72,7 +72,7 @@ describe("evaluatePortfolioRisk", () => {
     expect(state.block_new_entries).toBe(false);
   });
 
-  it("trips DD in SHADOW (no block) when threshold exceeded but flag off", async () => {
+  it("blocks entries on DD trip by DEFAULT (2026-06-09: enforcement defaults ON)", async () => {
     // Seed 6 days of equity history peaking at 100k.
     const days = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05", "2026-06-08"];
     const kv = makeKV({
@@ -82,20 +82,6 @@ describe("evaluatePortfolioRisk", () => {
     const state = await evaluatePortfolioRisk(env, baseArgs({ realizedPnl: -8000 })); // equity 92k → 8% DD
     expect(state.dd_pct).toBeGreaterThanOrEqual(8);
     expect(state.dd_trip).toBe(true);
-    expect(state.block_new_entries).toBe(false); // shadow
-    expect(state.block_reason).toBeNull();
-  });
-
-  it("blocks entries when DD trips AND portfolio_dd_breaker_enabled=true", async () => {
-    const days = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05", "2026-06-08"];
-    const kv = makeKV({
-      "phase-c:equity-samples": JSON.stringify(days.map((day) => ({ day, equity: 100000 }))),
-    });
-    const env = { KV_TIMED: kv };
-    const state = await evaluatePortfolioRisk(env, baseArgs({
-      realizedPnl: -8000,
-      daCfg: { portfolio_dd_breaker_enabled: "true" },
-    }));
     expect(state.block_new_entries).toBe(true);
     expect(state.block_reason).toMatch(/^portfolio_dd_/);
     // …and the state round-trips through KV for the scoring preload.
@@ -103,21 +89,37 @@ describe("evaluatePortfolioRisk", () => {
     expect(read.block_new_entries).toBe(true);
   });
 
-  it("trips the capital budget when deployed notional exceeds the threshold", async () => {
+  it("falls back to SHADOW (trip without block) when the operator sets the flag to false", async () => {
+    const days = ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05", "2026-06-08"];
+    const kv = makeKV({
+      "phase-c:equity-samples": JSON.stringify(days.map((day) => ({ day, equity: 100000 }))),
+    });
+    const env = { KV_TIMED: kv };
+    const state = await evaluatePortfolioRisk(env, baseArgs({
+      realizedPnl: -8000,
+      daCfg: { portfolio_dd_breaker_enabled: "false" },
+    }));
+    expect(state.dd_trip).toBe(true);
+    expect(state.block_new_entries).toBe(false);
+    expect(state.block_reason).toBeNull();
+  });
+
+  it("trips + blocks the capital budget by default; shadow when flag set false", async () => {
     const env = { KV_TIMED: makeKV() };
     // 100k equity, 120k deployed → 120% > default 100%
     const open = [{ ticker: "NVDA", direction: "LONG", shares: 100, entry_price: 1200 }];
     const prices = { NVDA: { p: 1200 } };
-    const shadow = await evaluatePortfolioRisk(env, baseArgs({ openRows: open, priceMap: prices }));
-    expect(shadow.budget_trip).toBe(true);
-    expect(shadow.block_new_entries).toBe(false);
-
-    const enforced = await evaluatePortfolioRisk(env, baseArgs({
-      openRows: open, priceMap: prices,
-      daCfg: { portfolio_risk_budget_enabled: "true" },
-    }));
+    const enforced = await evaluatePortfolioRisk(env, baseArgs({ openRows: open, priceMap: prices }));
+    expect(enforced.budget_trip).toBe(true);
     expect(enforced.block_new_entries).toBe(true);
     expect(enforced.block_reason).toMatch(/^capital_budget_/);
+
+    const shadow = await evaluatePortfolioRisk(env, baseArgs({
+      openRows: open, priceMap: prices,
+      daCfg: { portfolio_risk_budget_enabled: "false" },
+    }));
+    expect(shadow.budget_trip).toBe(true);
+    expect(shadow.block_new_entries).toBe(false);
   });
 
   it("stays quiet on a healthy book", async () => {

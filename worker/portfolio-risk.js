@@ -131,8 +131,11 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
 
   const ddThreshold = _num(daCfg.portfolio_dd_breaker_pct, DEFAULTS.dd_breaker_pct);
   const notionalThreshold = _num(daCfg.portfolio_max_open_notional_pct, DEFAULTS.max_open_notional_pct);
-  const ddEnforced = String(daCfg.portfolio_dd_breaker_enabled ?? "false") === "true";
-  const budgetEnforced = String(daCfg.portfolio_risk_budget_enabled ?? "false") === "true";
+  // 2026-06-09 operator decision: enforcement defaults ON ("informed,
+  // not responsible") — a trip blocks new entries and pages Discord.
+  // Set the model_config keys to "false" to drop back to shadow mode.
+  const ddEnforced = String(daCfg.portfolio_dd_breaker_enabled ?? "true") === "true";
+  const budgetEnforced = String(daCfg.portfolio_risk_budget_enabled ?? "true") === "true";
 
   // DD trip needs at least 5 daily samples — a fresh ring would treat
   // the first red day as a 100%-confidence drawdown signal.
