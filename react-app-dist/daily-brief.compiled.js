@@ -19,6 +19,7 @@ function renderMarkdown(md) {
     }
   }
   cleaned = cleaned.replace(/\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
   if (typeof marked !== "undefined" && marked.parse) {
     return marked.parse(cleaned, {
       breaks: true,
@@ -26,6 +27,40 @@ function renderMarkdown(md) {
     });
   }
   return cleaned.replace(/\n/g, "<br/>");
+}
+function LiveKeyLevelsPanel({
+  entries,
+  refreshedAt
+}) {
+  if (!entries || entries.length === 0) return null;
+  const ts = refreshedAt ? new Date(refreshedAt).toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }) : null;
+  return React.createElement("div", {
+    className: "mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"
+  }, React.createElement("div", {
+    className: "flex items-baseline justify-between gap-3 mb-3"
+  }, React.createElement("h3", {
+    className: "tt-editorial m-0 text-[18px]",
+    style: {
+      color: "var(--tt-text-0)"
+    }
+  }, "Key Levels & Game Plan"), ts && React.createElement("span", {
+    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+  }, "Live refresh ", ts, " ET")), React.createElement("div", {
+    className: "space-y-3"
+  }, entries.map(e => React.createElement("p", {
+    key: e.sym,
+    className: "text-[13px] leading-relaxed m-0",
+    style: {
+      color: "var(--tt-text-1)"
+    }
+  }, React.createElement("span", {
+    className: "font-semibold text-white"
+  }, e.sym), " — ", String(e.text || "").replace(new RegExp(`^${e.sym}\\s*—\\s*`, "i"), "")))));
 }
 function BriefInfographic({
   data
@@ -186,11 +221,16 @@ function BriefInfographic({
     const anchor = lvls.anchor;
     const _dispPx = liveFor(idx.sym, idx.price);
     const _isLivePx = livePx && cp != null && idx.price != null && Math.abs(cp - idx.price) > 0.001;
-    const up382 = lvls.levels?.["+38.2%"];
-    const dn382 = lvls.levels?.["-38.2%"];
+    const lr = lvls.liveDayRange || null;
+    const morningUp382 = lvls.levels?.["+38.2%"];
+    const morningDn382 = lvls.levels?.["-38.2%"];
+    const up382 = lr?.up382 ?? morningUp382;
+    const dn382 = lr?.dn382 ?? morningDn382;
+    const displayAnchor = lr?.anchor ?? anchor;
+    const rangeStale = !!lr?.morningStale;
     const wUp382 = wlvls?.levels?.["+38.2%"];
     const wDn382 = wlvls?.levels?.["-38.2%"];
-    const barProgress = cp != null && up382 != null && dn382 != null ? Math.max(0, Math.min(100, (cp - dn382) / (up382 - dn382) * 100)) : 50;
+    const barProgress = cp != null && up382 != null && dn382 != null && up382 !== dn382 ? Math.max(0, Math.min(100, (cp - dn382) / (up382 - dn382) * 100)) : 50;
     const wBarProgress = cp != null && wUp382 != null && wDn382 != null ? Math.max(0, Math.min(100, (cp - wDn382) / (wUp382 - wDn382) * 100)) : 50;
     const probColor = lbl => lbl === "HIGH" ? "#34d399" : lbl === "MODERATE" ? "#fbbf24" : "#9ca3af";
     return React.createElement("div", {
@@ -282,27 +322,29 @@ function BriefInfographic({
       })();
       return React.createElement(React.Fragment, null, React.createElement("div", {
         className: "text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between"
-      }, React.createElement("span", null, "Today's Range"), React.createElement("span", {
+      }, React.createElement("span", null, rangeStale ? "Live Day Range" : "Today's Range"), React.createElement("span", {
         className: "tabular-nums normal-case",
         style: {
           color: ggBiasColor(gg)
         }
-      }, ggBiasIcon(gg), " ", ggBiasText(gg), dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "")), dn382 != null && up382 != null && React.createElement("div", {
+      }, ggBiasIcon(gg), " ", ggBiasText(gg), dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "")), rangeStale && morningDn382 != null && morningUp382 != null && React.createElement("div", {
+        className: "text-[9px] text-[#6b7280] tabular-nums mb-1 line-through opacity-60"
+      }, "Morning estimate: $", morningDn382.toFixed(2), "\u2013$", morningUp382.toFixed(2)), dn382 != null && up382 != null && React.createElement("div", {
         className: "relative h-3 rounded bg-white/[0.05] overflow-hidden mb-1.5",
-        title: `Saty Day Mode: prior daily close ± ATR × 0.382`
+        title: rangeStale ? `Live range: current price ± ATR × 0.382` : `Saty Day Mode: prior daily close ± ATR × 0.382`
       }, React.createElement("div", {
         className: "absolute inset-0",
         style: {
           background: "linear-gradient(90deg, rgba(239,68,68,0.30) 0%, rgba(239,68,68,0.18) 35%, rgba(107,114,128,0.20) 50%, rgba(52,211,153,0.18) 65%, rgba(52,211,153,0.30) 100%)"
         }
-      }), anchor != null && React.createElement("div", {
+      }), displayAnchor != null && React.createElement("div", {
         className: "absolute top-0 bottom-0",
         style: {
-          left: `${Math.max(0, Math.min(100, (anchor - dn382) / (up382 - dn382) * 100))}%`,
+          left: `${Math.max(0, Math.min(100, (displayAnchor - dn382) / (up382 - dn382) * 100))}%`,
           width: 1.5,
           background: "rgba(156,163,175,0.6)"
         },
-        title: `Pivot (prior close) $${anchor.toFixed(2)}`
+        title: rangeStale ? `Live anchor $${displayAnchor.toFixed(2)}` : `Pivot (prior close) $${displayAnchor.toFixed(2)}`
       }), cp != null && React.createElement("div", {
         className: "absolute top-[-3px] bottom-[-3px] flex items-center",
         style: {
@@ -328,7 +370,7 @@ function BriefInfographic({
         className: "text-center text-[#9ca3af]"
       }, React.createElement("span", {
         className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
-      }, "Pivot"), anchor != null ? `$${anchor.toFixed(2)}` : "—"), React.createElement("span", {
+      }, rangeStale ? "Live Anchor" : "Pivot"), displayAnchor != null ? `$${displayAnchor.toFixed(2)}` : "—"), React.createElement("span", {
         className: "text-right text-[#34d399]/80"
       }, React.createElement("span", {
         className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
@@ -768,6 +810,9 @@ function BriefCard({
     }
   }), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
+  }), brief.liveKeyLevels?.length > 0 && React.createElement(LiveKeyLevelsPanel, {
+    entries: brief.liveKeyLevels,
+    refreshedAt: brief.liveKeyLevelsAt
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
@@ -2708,6 +2753,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781011125785:154784631
+// cache-bust:1781015904649:138080458
 
-// cache-bust:1781011125785:154784631
+// cache-bust:1781015904649:138080458

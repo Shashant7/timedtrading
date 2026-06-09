@@ -1975,7 +1975,11 @@ function _recomputeGateBlock(block, livePrice, { atrKey = "dayAtr", isWeek = fal
       const dist = (livePrice - target) / atr;
       return Math.max(0, Math.min(1, 0.5 + (_weekTimeRemaining - dist) * 0.5));
     })();
-    prob = gg.direction === "UP" ? wggUpProb : gg.direction === "DOWN" ? wggDnProb : 0;
+    if (gg.state === "COMPLETE_UP") prob = 1;
+    else if (gg.state === "COMPLETE_DN") prob = 1;
+    else if (gg.direction === "UP") prob = wggUpProb;
+    else if (gg.direction === "DOWN") prob = wggDnProb;
+    else prob = 0;
     probLabel = prob >= 0.6 ? "HIGH" : prob >= 0.3 ? "MODERATE" : "LOW";
     return {
       ...block,
@@ -2018,7 +2022,11 @@ function _recomputeGateBlock(block, livePrice, { atrKey = "dayAtr", isWeek = fal
     const timeRemaining = 1 - _sessionFrac;
     return Math.max(0, Math.min(1, 0.5 + (timeRemaining - distToTarget) * 0.5));
   })();
-  prob = gg.state === "OPEN_UP" ? _ggUpProb : gg.state === "OPEN_DOWN" ? _ggDnProb : 0;
+  if (gg.state === "COMPLETE_UP") prob = 1;
+  else if (gg.state === "COMPLETE_DN") prob = 1;
+  else if (gg.state === "OPEN_UP") prob = _ggUpProb;
+  else if (gg.state === "OPEN_DOWN") prob = _ggDnProb;
+  else prob = 0;
   probLabel = prob >= 0.6 ? "HIGH" : prob >= 0.3 ? "MODERATE" : "LOW";
 
   return {
@@ -2038,6 +2046,138 @@ function _recomputeGateBlock(block, livePrice, { atrKey = "dayAtr", isWeek = fal
       sessionElapsedPct: Math.round(_sessionFrac * 100),
     },
   };
+}
+
+/** When live price has left the morning pivot gate, re-anchor today's display range to current price. */
+function _computeLiveDayRange(cp, dayAtr, block) {
+  if (!block || !Number.isFinite(cp) || cp <= 0 || !Number.isFinite(dayAtr) || dayAtr <= 0) return null;
+  const rnd = (v) => Math.round(v * 100) / 100;
+  const morningDn = Number(block.levels?.["-38.2%"]);
+  const morningUp = Number(block.levels?.["+38.2%"]);
+  const morningAnchor = Number(block.anchor);
+  const buffer = dayAtr * 0.02;
+  const outOfBand = Number.isFinite(morningUp) && Number.isFinite(morningDn)
+    && (cp > morningUp + buffer || cp < morningDn - buffer);
+
+  if (!outOfBand) {
+    return {
+      source: "morning",
+      anchor: Number.isFinite(morningAnchor) ? rnd(morningAnchor) : null,
+      dn382: rnd(morningDn),
+      up382: rnd(morningUp),
+      morningStale: false,
+    };
+  }
+
+  return {
+    source: "live",
+    anchor: rnd(cp),
+    dn382: rnd(cp - dayAtr * 0.382),
+    up382: rnd(cp + dayAtr * 0.382),
+    morningStale: true,
+    morningDn: rnd(morningDn),
+    morningUp: rnd(morningUp),
+    morningAnchor: Number.isFinite(morningAnchor) ? rnd(morningAnchor) : null,
+  };
+}
+
+/** Refresh bull/bear triggers from buildTickerScenario anchored to the live quote. */
+export async function refreshInfographicLiveGamePlans(infographic, env, priceMap = null) {
+  if (!infographic || !Array.isArray(infographic.indices) || !env) return infographic;
+  let pf = priceMap;
+  if (!pf) {
+    try {
+      const raw = env?.KV_TIMED ? await env.KV_TIMED.get("timed:prices") : null;
+      pf = raw ? (JSON.parse(raw)?.prices || JSON.parse(raw)) : null;
+    } catch (_) {
+      pf = null;
+    }
+  }
+  if (!pf || typeof pf !== "object") return infographic;
+
+  const cal = await loadCalendar(env).catch(() => null);
+  const mktOpen = isNyRegularMarketOpen(cal, new Date());
+  const liveSpotFor = (sym) => {
+    const s = String(sym || "").toUpperCase();
+    const r = pf[s];
+    if (!r) return null;
+    const ext = Number(r.ahp), p = Number(r.p);
+    if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
+    return Number.isFinite(p) && p > 0 ? p : null;
+  };
+
+  const { buildTickerScenario } = await import("./ticker-scenario.js");
+  const fmt = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n) * 100) / 100 : null);
+
+  infographic.indices = await Promise.all(infographic.indices.map(async (idx) => {
+    const sym = String(idx?.sym || "").toUpperCase();
+    if (!INDEX_DAY_TRADE_ETFS.has(sym)) return idx;
+    const live = liveSpotFor(sym);
+    if (!Number.isFinite(live)) return idx;
+    try {
+      const scn = await buildTickerScenario(env, sym, { priceOverride: live });
+      const gp = scn?.game_plan;
+      if (!gp) return idx;
+      const levels = {
+        ...(idx.levels || {}),
+        gamePlan: {
+          bullTrigger: fmt(gp.bull_trigger),
+          bullTarget: fmt(gp.bull_target),
+          bearTrigger: fmt(gp.bear_trigger),
+          bearTarget: fmt(gp.bear_target),
+        },
+        gamePlanSource: mktOpen ? "live" : "live_ext",
+      };
+      return { ...idx, levels };
+    } catch (_) {
+      return idx;
+    }
+  }));
+  return infographic;
+}
+
+/** Mechanical Key Levels & Game Plan copy from the live infographic (replaces stale LLM section). */
+export function buildLiveKeyLevelsEntries(indices) {
+  const want = new Set(["SPY", "QQQ", "IWM"]);
+  return (Array.isArray(indices) ? indices : [])
+    .filter((idx) => want.has(String(idx?.sym || "").toUpperCase()))
+    .map((idx) => {
+      const sym = String(idx.sym).toUpperCase();
+      const lv = idx.levels || {};
+      const wv = idx.weeklyLevels || {};
+      const cp = Number(idx.price ?? lv.currentPrice);
+      const lr = lv.liveDayRange;
+      const dn = lr?.dn382 ?? lv.levels?.["-38.2%"];
+      const up = lr?.up382 ?? lv.levels?.["+38.2%"];
+      const gp = lv.gamePlan || {};
+      const dayGg = String(lv.goldenGate || "NEUTRAL").replace(/_/g, " ").toLowerCase();
+      const weekGg = String(wv?.goldenGate || "NEUTRAL").replace(/_/g, " ").toLowerCase();
+      const weekProb = wv?.goldenGateProbability?.week;
+      const _f = (n) => (Number.isFinite(Number(n)) ? Number(n).toFixed(2) : "—");
+
+      let posVsGate = "inside the gate";
+      if (Number.isFinite(cp) && Number.isFinite(up) && cp > up) posVsGate = "above the gate";
+      else if (Number.isFinite(cp) && Number.isFinite(dn) && cp < dn) posVsGate = "below the gate";
+
+      const rangeText = lr?.morningStale
+        ? `live Day Gate $${_f(dn)}–$${_f(up)} (re-anchored to $${_f(cp)}; morning estimate was $${_f(lr.morningDn)}–$${_f(lr.morningUp)})`
+        : `Day Gate $${_f(dn)}–$${_f(up)}`;
+
+      const weekClause = weekGg !== "neutral"
+        ? ` Week GG is ${weekGg}${weekProb != null ? ` (${Math.round(weekProb * 100)}% prob)` : ""} — frame today's action against that weekly backdrop.`
+        : " Week GG is neutral — intraday rotation dominates.";
+
+      const gpClause = (Number.isFinite(gp.bullTrigger) || Number.isFinite(gp.bearTrigger))
+        ? ` Bull break above $${_f(gp.bullTrigger)} → $${_f(gp.bullTarget)}; bear break below $${_f(gp.bearTrigger)} → $${_f(gp.bearTarget)}.`
+        : "";
+
+      return {
+        sym,
+        price: Number.isFinite(cp) ? Math.round(cp * 100) / 100 : null,
+        text: `${sym} — current $${_f(cp)}, ${posVsGate} (${rangeText}). Day GG is ${dayGg}.${weekClause}${gpClause}`,
+        refreshedAt: Date.now(),
+      };
+    });
 }
 
 /** Overlay live timed:prices onto infographic index cards (GG state + current price). */
@@ -2070,7 +2210,11 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
     const sym = String(idx?.sym || "").toUpperCase();
     const live = liveSpotFor(sym);
     if (!Number.isFinite(live)) return idx;
-    const levels = idx.levels ? _recomputeGateBlock(idx.levels, live, { atrKey: "dayAtr", isWeek: false }) : idx.levels;
+    let levels = idx.levels ? _recomputeGateBlock(idx.levels, live, { atrKey: "dayAtr", isWeek: false }) : idx.levels;
+    const dayAtr = Number(levels?.dayAtr) || Number(idx.atr);
+    if (levels) {
+      levels = { ...levels, liveDayRange: _computeLiveDayRange(live, dayAtr, levels) };
+    }
     const weeklyLevels = idx.weeklyLevels
       ? _recomputeGateBlock(idx.weeklyLevels, live, { atrKey: "weekAtr", isWeek: true })
       : idx.weeklyLevels;
@@ -4932,12 +5076,15 @@ export async function handleGetBrief(env) {
     if (slot?.infographic) {
       try {
         await refreshInfographicLivePrices(slot.infographic, env);
+        await refreshInfographicLiveGamePlans(slot.infographic, env);
         const idxMap = Object.fromEntries(
           (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
         );
         if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY);
         if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ);
         if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM);
+        slot.liveKeyLevels = buildLiveKeyLevelsEntries(slot.infographic.indices);
+        slot.liveKeyLevelsAt = Date.now();
       } catch (e) {
         console.warn("[DAILY BRIEF] live infographic refresh failed:", String(e?.message || e).slice(0, 120));
       }
