@@ -5155,12 +5155,19 @@
               qs.set("ticker", sym);
               qs.set("tf", tf);
               qs.set("limit", String(limit));
-              const res = await fetch(`${API_BASE}/timed/candles?${qs.toString()}`, {
-                cache: "no-store",
-              });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
-              if (!json.ok) throw new Error(json.error || "candles_failed");
+              const candleUrl = `${API_BASE}/timed/candles?${qs.toString()}`;
+              const fetchCandlesWithRetry = async (attempt = 0) => {
+                const res = await fetch(candleUrl, { cache: "no-store" });
+                if (!res.ok && attempt < 2 && (res.status === 500 || res.status === 503 || res.status === 429)) {
+                  await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+                  return fetchCandlesWithRetry(attempt + 1);
+                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const json = await res.json();
+                if (!json.ok) throw new Error(json.error || "candles_failed");
+                return json;
+              };
+              const json = await fetchCandlesWithRetry();
               const candles = Array.isArray(json.candles) ? json.candles : [];
               // Store in cache
               candleCacheRef.current[cacheKey] = { data: candles, ts: Date.now() };
@@ -16433,4 +16440,4 @@
   };
 })();
 
-// cache-bust:1781027148851:558934919
+// cache-bust:1781029281155:59208170
