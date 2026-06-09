@@ -52,6 +52,17 @@ const CASHTAG_RE = /\$([A-Z][A-Z0-9]{0,4}(?:\.[A-Z])?)\b/g;
 // in financial publication prose and almost never a false positive.
 const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9]{1,4})\)/g;
 
+/** True when title or excerpt actually references the requested ticker. */
+export function publicationMentionsTicker(title, excerpt, ticker) {
+  const sym = String(ticker || "").toUpperCase().trim();
+  if (!sym) return false;
+  const blob = `${title || ""}\n${excerpt || ""}`;
+  if (!blob.trim()) return false;
+  // Cashtag, parenthetical, or bare uppercase token with word boundaries.
+  const re = new RegExp(`(?:\\$${sym}\\b|\\(${sym}\\)|\\b${sym}\\b)`, "i");
+  return re.test(blob);
+}
+
 export function extractCashtagsFromText(text) {
   if (!text) return [];
   const seen = new Set();
@@ -383,7 +394,7 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
        ORDER BY p.fetched_at DESC
        LIMIT ?3
     `).bind(sym, since, limit).all();
-    const publications = (rows?.results || []).map((r) => ({
+    let publications = (rows?.results || []).map((r) => ({
       pub_id: r.pub_id,
       title: r.title,
       source: r.source,
@@ -411,6 +422,10 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
         p.excerpt = raw ? sanitizeFsdPlainText(raw).slice(0, 2000) || null : null;
       }
     }
+    // Drop cross-tagged pubs (e.g. ETHA article tagged AAPL via macro cashtag scan).
+    publications = publications.filter((p) =>
+      publicationMentionsTicker(p.title, p.excerpt, sym),
+    );
     return {
       ticker: sym,
       count: publications.length,
