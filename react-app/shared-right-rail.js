@@ -1995,7 +1995,7 @@
       );
     }
 
-    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false }) {
+    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -2051,13 +2051,37 @@
           .sort((a, b) => a.time - b.time)
           .filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
 
-        // P0.7.145 (2026-05-13) — only draw confirmed intraday candles.
-        // The candle endpoint can briefly expose the still-forming bar while
-        // the upstream feed is reconciling OHLC. Those transient bars were
-        // the "random candle flashes then reverts" symptom on the right rail.
-        // Keep the rail chart stable by excluding the currently-open bucket;
-        // the live price strip remains the source for tick-by-tick movement.
-        if (isIntradayTf && raw.length > 2) {
+        // 2026-06-09 — When livePrice is available, merge it into the
+        // current TF bucket so the chart tracks the header quote. Without
+        // this, charts lagged hours behind timed:prices (MU incident).
+        const livePx = Number(livePrice);
+        if (isIntradayTf && Number.isFinite(livePx) && livePx > 0 && raw.length > 0) {
+          const tfSec = tfMinutes * 60;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
+          const last = raw[raw.length - 1];
+          if (last && last.time >= bucketStartSec - 2) {
+            raw = raw.slice();
+            const idx = raw.length - 1;
+            const prev = raw[idx];
+            raw[idx] = {
+              ...prev,
+              close: livePx,
+              high: Math.max(Number(prev.high), livePx),
+              low: Math.min(Number(prev.low), livePx),
+            };
+          } else {
+            raw = raw.concat([{
+              time: bucketStartSec,
+              open: livePx,
+              high: livePx,
+              low: livePx,
+              close: livePx,
+            }]);
+          }
+        } else if (isIntradayTf && raw.length > 2) {
+          // P0.7.145 — without livePrice, drop the still-forming bar to
+          // avoid transient upstream reconciliation flashes.
           const tfSec = tfMinutes * 60;
           const nowSec = Math.floor(Date.now() / 1000);
           const last = raw[raw.length - 1];
@@ -2092,7 +2116,7 @@
         }
 
         return raw;
-      }, [rawCandles, chartTf]);
+      }, [rawCandles, chartTf, livePrice]);
 
       // Compute indicator overlays
       const indicatorData = useMemo(() => {
@@ -2821,6 +2845,10 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      const prevLive = Number(prev.livePrice);
+      const nextLive = Number(next.livePrice);
+      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && Math.abs(prevLive - nextLive) > 0.005) return false;
+      if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
@@ -3688,6 +3716,7 @@
            reads cleanly first; toggles available to enable. */
         const [chartTf, setChartTf] = useState("30");
         const [chartCandles, setChartCandles] = useState([]);
+        const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
         const [crosshair, setCrosshair] = useState(null);
@@ -3839,6 +3868,35 @@
           return lines.map((l) => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
         }, [subtleKeyLevelLines]);
 
+        const chartLivePrice = useMemo(() => {
+          const src = (window.TimedPriceUtils?.mergePriceSrc
+            ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker)
+            : { ...(latestTicker || {}), ...(ticker || {}) });
+          const px = Number(
+            window.TimedPriceUtils?.getHeadlinePrice?.(src)
+            ?? (() => {
+              if (!src) return 0;
+              const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
+              if (rthOpen) {
+                const live = Number(src._live_price);
+                if (Number.isFinite(live) && live > 0) return live;
+                return Number(src.price ?? src.close) || 0;
+              }
+              const close = Number(src.close);
+              if (Number.isFinite(close) && close > 0) return close;
+              return Number(src.price ?? src.prev_close ?? src.pc) || 0;
+            })(),
+          );
+          return Number.isFinite(px) && px > 0 ? px : null;
+        }, [
+          ticker?._live_price,
+          ticker?.price,
+          ticker?.close,
+          latestTicker?._live_price,
+          latestTicker?.price,
+          latestTicker?.close,
+        ]);
+
         const _railChartElement = useMemo(
           () => React.createElement(LWChart, {
             candles: chartCandles,
@@ -3847,6 +3905,7 @@
             priceLines: subtleKeyLevelLines,
             ticker,
             hideOverlayToggles: true,
+            livePrice: chartLivePrice,
           }),
           [
             chartCandles,
@@ -3854,6 +3913,7 @@
             chartOverlays,
             _priceLinesSig,
             ticker?.ticker,
+            chartLivePrice,
           ],
         );
 
@@ -5035,6 +5095,23 @@
         // In-memory candle cache: key = "TICKER:TF", value = { data, ts }
         const candleCacheRef = useRef({});
 
+        // 2026-06-09 — During RTH, poll /timed/candles every 30s so the
+        // rail chart does not sit on a 60s+ stale D1 snapshot while the
+        // header streams live quotes.
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) return undefined;
+          const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+          if (!rthOpen) return undefined;
+          const pollMs = 30 * 1000;
+          const id = setInterval(() => {
+            const tf = String(chartTf || "30");
+            delete candleCacheRef.current[`${sym}:${tf}`];
+            setChartRefreshNonce((n) => n + 1);
+          }, pollMs);
+          return () => clearInterval(id);
+        }, [tickerSymbol, chartTf]);
+
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
@@ -5054,10 +5131,12 @@
               setChartError(null);
               const tf = String(chartTf || "30");
               const cacheKey = `${sym}:${tf}`;
+              const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+              const cacheTtlMs = rthOpen ? 15000 : 60000;
 
-              // Check cache (60-second TTL)
+              // Check cache (15s TTL during RTH, 60s otherwise)
               const cached = candleCacheRef.current[cacheKey];
-              const haveCached = cached && Date.now() - cached.ts < 60000 && Array.isArray(cached.data) && cached.data.length >= 2;
+              const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2;
               if (haveCached) {
                 if (!cancelled) setChartCandles(cached.data);
                 if (!cancelled) setChartLoading(false);
@@ -5099,7 +5178,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol, chartTf]);
+        }, [tickerSymbol, chartTf, chartRefreshNonce]);
 
         // P0.7.101 — derive contextReady from STABLE primitive values
         // (not the ticker object reference). Was: deps included the

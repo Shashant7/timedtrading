@@ -3194,7 +3194,8 @@
       priceLines: propPriceLines,
       markers: propMarkers,
       ticker: propTicker,
-      hideOverlayToggles = false
+      hideOverlayToggles = false,
+      livePrice = null
     }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -3235,7 +3236,32 @@
             close: cl
           };
         }).filter(Boolean).sort((a, b) => a.time - b.time).filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
-        if (isIntradayTf && raw.length > 2) {
+        const livePx = Number(livePrice);
+        if (isIntradayTf && Number.isFinite(livePx) && livePx > 0 && raw.length > 0) {
+          const tfSec = tfMinutes * 60;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
+          const last = raw[raw.length - 1];
+          if (last && last.time >= bucketStartSec - 2) {
+            raw = raw.slice();
+            const idx = raw.length - 1;
+            const prev = raw[idx];
+            raw[idx] = {
+              ...prev,
+              close: livePx,
+              high: Math.max(Number(prev.high), livePx),
+              low: Math.min(Number(prev.low), livePx)
+            };
+          } else {
+            raw = raw.concat([{
+              time: bucketStartSec,
+              open: livePx,
+              high: livePx,
+              low: livePx,
+              close: livePx
+            }]);
+          }
+        } else if (isIntradayTf && raw.length > 2) {
           const tfSec = tfMinutes * 60;
           const nowSec = Math.floor(Date.now() / 1000);
           const last = raw[raw.length - 1];
@@ -3271,7 +3297,7 @@
           }
         }
         return raw;
-      }, [rawCandles, chartTf]);
+      }, [rawCandles, chartTf, livePrice]);
       const indicatorData = useMemo(() => {
         if (mapped.length < 5) return {};
         const closes = mapped.map(c => c.close);
@@ -3933,6 +3959,10 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      const prevLive = Number(prev.livePrice);
+      const nextLive = Number(next.livePrice);
+      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && Math.abs(prevLive - nextLive) > 0.005) return false;
+      if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
@@ -5073,6 +5103,7 @@
       const [catalystsFetchNonce, setCatalystsFetchNonce] = useState(0);
       const [chartTf, setChartTf] = useState("30");
       const [chartCandles, setChartCandles] = useState([]);
+      const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
       const [chartLoading, setChartLoading] = useState(false);
       const [chartError, setChartError] = useState(null);
       const [crosshair, setCrosshair] = useState(null);
@@ -5209,8 +5240,9 @@
         overlays: chartOverlays,
         priceLines: subtleKeyLevelLines,
         ticker,
-        hideOverlayToggles: true
-      }), [chartCandles, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker]);
+        hideOverlayToggles: true,
+        livePrice: v2Price > 0 ? v2Price : null
+      }), [chartCandles, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, v2Price]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         if (chartCandles.length >= 2) {
@@ -6273,6 +6305,19 @@
       const candleCacheRef = useRef({});
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym) return undefined;
+        const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+        if (!rthOpen) return undefined;
+        const pollMs = 30 * 1000;
+        const id = setInterval(() => {
+          const tf = String(chartTf || "30");
+          delete candleCacheRef.current[`${sym}:${tf}`];
+          setChartRefreshNonce(n => n + 1);
+        }, pollMs);
+        return () => clearInterval(id);
+      }, [tickerSymbol, chartTf]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) return;
         let cancelled = false;
         const run = async () => {
@@ -6280,8 +6325,10 @@
             setChartError(null);
             const tf = String(chartTf || "30");
             const cacheKey = `${sym}:${tf}`;
+            const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+            const cacheTtlMs = rthOpen ? 15000 : 60000;
             const cached = candleCacheRef.current[cacheKey];
-            const haveCached = cached && Date.now() - cached.ts < 60000 && Array.isArray(cached.data) && cached.data.length >= 2;
+            const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2;
             if (haveCached) {
               if (!cancelled) setChartCandles(cached.data);
               if (!cancelled) setChartLoading(false);
@@ -6327,7 +6374,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, chartTf]);
+      }, [tickerSymbol, chartTf, chartRefreshNonce]);
       const _contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -19260,4 +19307,4 @@
   };
 })();
 
-// cache-bust:1781019752445:543032288
+// cache-bust:1781022444927:724816208
