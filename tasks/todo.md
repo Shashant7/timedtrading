@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Accumulate lane clarity — execution-ready only (PR pending).**
+      LITE/ASTS showed in ACCUMULATE (BUY NOW) but detail panel said
+      WATCH. Fix: kanban demotes monitor/stale accumulate rows to On
+      Radar / Hold & Watch; scores GET revalidates accumulate/reduce
+      rows at read time; hide "monitoring for trigger" on act_now/ready.
 - [x] **Timing plumbing — extension dump orchestration (PR #509).**
       Unified TD9/phase/RSI/Markov/VIX/FSD into `timing-signals.js`;
       fixed broken `detectExhaustionWarnings` per_tf path; L6 DeMark bear
