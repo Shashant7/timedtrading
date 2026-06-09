@@ -1126,18 +1126,21 @@ export async function decideOnCandidate(env, opts = {}) {
           const _apiKey = env?.TIMED_API_KEY;
           if (_apiKey) {
             const _enc = encodeURIComponent(ticker);
-            const _hdrs = { "X-API-Key": _apiKey };
+            // P1.8 — prefer in-process dispatch (cron path) over network
+            // self-fetch; fall back to fetch+header for HTTP-invoked paths.
+            const _fire = (path) => {
+              if (typeof env?._selfDispatch === "function") {
+                return env._selfDispatch(path, { method: "POST" }).catch(() => {});
+              }
+              return fetch(`${_workerUrl}${path}`, {
+                method: "POST", headers: { "X-API-Key": _apiKey },
+              }).catch(() => {});
+            };
             // 1. Intraday + daily, 1 year (~250 D bars).
-            fetch(
-              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365`,
-              { method: "POST", headers: _hdrs },
-            ).catch(() => {});
+            _fire(`/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365`);
             // 2. Weekly, 2 years (~100 W bars). Separate call so the
             // W backfill doesn't get cut off by the all-tf time budget.
-            fetch(
-              `${_workerUrl}/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730`,
-              { method: "POST", headers: _hdrs },
-            ).catch(() => {});
+            _fire(`/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730`);
           }
         } catch (_) { /* best-effort */ }
       } catch (e) {
