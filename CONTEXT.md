@@ -311,6 +311,7 @@ Full report: `data/cross-run-analysis-report.md`. 12 backtests, **2,301 closed t
 
 Pre-execution AI review of every trade. Receives structured proposal + 7-layer memory context → returns APPROVE/ADJUST/REJECT.
 - **Toggle**: `ai_cio_enabled` in `model_config`. Replay: also requires `ai_cio_replay_enabled`.
+- **Shadow vs live**: `ai_cio_shadow_mode=true` logs entry CIO only; `ai_cio_lifecycle_enforce=true` enforces TRIM/EXIT while entries stay shadow. Recovery runbook: `skills/scoring-cron-cio-recovery.md`.
 - **Timeout**: 15s hard limit (scoring cycles are 5 min). Fallback = APPROVE (model's original intent proceeds).
 - **Model**: `gpt-4o-mini`, temperature 0.1, JSON response format.
 - **REJECT**: Blocks trade, persists to D1, sends Discord alert with reasoning.
