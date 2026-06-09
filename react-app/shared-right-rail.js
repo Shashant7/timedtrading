@@ -140,6 +140,36 @@
       return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
     }
 
+    function investorInvalidationDisplay(investorData, livePx) {
+      const inv = investorData?.primaryInvalidation;
+      const price = Number(inv?.price ?? investorData?.thesisInvalidationPrice);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const label = inv?.label || "Invalidation";
+      const dist = Number.isFinite(livePx) && livePx > 0
+        ? ((livePx - price) / livePx) * 100
+        : inv?.distancePct;
+      const distText = Number.isFinite(dist) ? `${dist.toFixed(1)}% below current` : null;
+      const thesis = inv?.thesisLevel;
+      const thesisDistText = thesis && Number.isFinite(livePx) && livePx > 0
+        ? `${((livePx - thesis.price) / livePx * 100).toFixed(1)}% below current`
+        : (thesis?.distancePct != null ? `${thesis.distancePct.toFixed(1)}% below current` : null);
+      return {
+        price,
+        label,
+        tier: inv?.tier || null,
+        condition: inv?.condition || `Exit remainder if price closes below $${price.toFixed(2)} (${label})`,
+        distText,
+        thesisLevel: thesis ? {
+          price: thesis.price,
+          label: thesis.label,
+          distText: thesisDistText,
+          note: thesis.note,
+        } : null,
+        lines: Array.isArray(inv?.invalidationLines) ? inv.invalidationLines
+          : Array.isArray(investorData?.thesisInvalidation) ? investorData.thesisInvalidation : [],
+      };
+    }
+
     function investorEntryActionFromSetup(setupRaw) {
       const s = String(setupRaw || "").toLowerCase();
       if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce"))
@@ -708,6 +738,8 @@
       const sector = detail?.sector || ticker?._sector || null;
       const thesis = detail?.thesis || null;
       const invalidation = detail?.thesisInvalidation || null;
+      const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+      const invDisplay = investorInvalidationDisplay(detail, livePx);
 
       const STAGE_LABEL = {
         accumulate: { label: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
@@ -843,7 +875,35 @@
           h("div", { style: { padding: "var(--ds-space-2)", background: stageInfo.bg, border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" } },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
             h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, stageInfo.action),
-            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, stageInfo.desc),
+            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } },
+              stageInfo.desc,
+              invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold")
+                ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`
+                : "",
+            ),
+          ),
+          invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
+            style: {
+              marginBottom: "var(--ds-space-2)",
+              padding: "10px 12px",
+              background: "rgba(248,113,113,0.06)",
+              border: "1px solid rgba(248,113,113,0.22)",
+              borderRadius: "var(--ds-radius-md)",
+            },
+          },
+            h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 } }, "INVALIDATION LEVEL"),
+            h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-0)" } },
+              `$${invDisplay.price.toFixed(2)}`,
+              h("span", { style: { fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 } },
+                invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "",
+              ),
+            ),
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.45 } }, invDisplay.condition),
+            invDisplay.thesisLevel && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45 } },
+              h("span", { style: { fontWeight: 700, color: "var(--ds-text-faint)" } }, "THESIS FLOOR "),
+              `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`,
+              invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "",
+            ),
           ),
           Number.isFinite(score) && h("div", { style: { display: "flex", gap: "var(--ds-space-2)" } },
             h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
@@ -3486,12 +3546,14 @@
             });
           }
           // Invalidation — orange dashed.
-          const inv = Number(investorData.thesisInvalidationPrice ?? pos?.invalidation_price);
+          const invMeta = investorInvalidationDisplay(investorData, Number(ticker?._live_price || ticker?.price || latestTicker?.price));
+          const inv = Number(invMeta?.price ?? investorData?.thesisInvalidationPrice ?? pos?.invalidation_price);
           if (Number.isFinite(inv) && inv > 0) {
+            const invLabel = invMeta?.label || "Invalidation";
             out.push({
               price: inv,
               color: "rgba(251,146,60,0.75)", lineWidth: 1, lineStyle: 2,
-              axisLabelVisible: true, title: `Invalidation $${inv.toFixed(2)}`,
+              axisLabelVisible: true, title: `${invLabel} $${inv.toFixed(2)}`,
             });
           }
           return out.length > 0 ? out : EMPTY_PRICE_LINES;
@@ -6620,7 +6682,15 @@
                           : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
                         const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
                         const currentAction = liveGuide?.actionLine || entryAction;
-                        const doNow = liveGuide?.doNow || null;
+                        const invDisplay = investorInvalidationDisplay(investorData, live);
+                        const doNow = (() => {
+                          const base = liveGuide?.doNow || null;
+                          if (!base) return null;
+                          if (invDisplay && (liveStage === "reduce" || liveStage === "watch" || liveStage === "core_hold")) {
+                            return `${base} Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`;
+                          }
+                          return base;
+                        })();
                         const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
                         return (
                           <div style={{
@@ -6674,6 +6744,42 @@
                                 )}
                               </div>
                             )}
+                            {invDisplay && (
+                              <div style={{
+                                marginTop: 8, padding: "10px 12px",
+                                background: "rgba(248,113,113,0.06)",
+                                borderRadius: 8,
+                                border: "1px solid rgba(248,113,113,0.22)",
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 }}>
+                                  INVALIDATION LEVEL
+                                </div>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ds-text-0)", fontFamily: "var(--tt-font-mono)" }}>
+                                  ${invDisplay.price.toFixed(2)}
+                                  <span style={{ fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 }}>
+                                    {invDisplay.label}{invDisplay.distText ? ` · ${invDisplay.distText}` : ""}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.45 }}>
+                                  {invDisplay.condition}
+                                </div>
+                                {invDisplay.thesisLevel && (
+                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                    <span style={{ fontWeight: 700, color: "var(--ds-text-faint)" }}>THESIS FLOOR </span>
+                                    ${invDisplay.thesisLevel.price.toFixed(2)} ({invDisplay.thesisLevel.label}
+                                    {invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})
+                                    {invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""}
+                                  </div>
+                                )}
+                                {invDisplay.lines.length > 0 && (
+                                  <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 10, color: "var(--ds-text-faint)", lineHeight: 1.4 }}>
+                                    {invDisplay.lines.slice(0, 2).map((line, i) => (
+                                      <li key={i}>{line}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            )}
                             <div style={{ marginTop: 8 }}>
                               <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>
                                 INVESTOR ACTION
@@ -6693,6 +6799,97 @@
                               fontSize: 10, color: "var(--ds-text-faint)",
                             }}>
                               The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running.
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── TRADER PORTFOLIO CARD (2026-06-06) ───────────────
+                          Mirror of Investor Portfolio — shows the active
+                          trader-lane position on Snapshot so both holdings
+                          are visible without switching tabs. */}
+                      {effectiveTraderTrade && (() => {
+                        const tt = effectiveTraderTrade;
+                        const st = String(tt?.status || "").toUpperCase();
+                        const isOpen = st === "OPEN" || st === "TP_HIT_TRIM"
+                          || (!(tt?.exit_ts ?? tt?.exitTs) && st !== "WIN" && st !== "LOSS" && st !== "FLAT" && st !== "ARCHIVED");
+                        if (!isOpen) return null;
+                        const dir = String(tt?.direction || "LONG").toUpperCase();
+                        const isLong = dir !== "SHORT";
+                        const entry = Number(tt?.entryPrice ?? tt?.entry_price);
+                        const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const pnlPct = (entry > 0 && live > 0)
+                          ? ((isLong ? (live - entry) : (entry - live)) / entry) * 100
+                          : null;
+                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+                        const sl = Number(tt?.sl ?? ticker?.sl);
+                        const stage = String(ticker?.kanban_stage || "").toLowerCase();
+                        const stageWord = stage === "trim" ? "TRIM NOW"
+                          : stage === "defend" ? "DEFEND — tighten stop"
+                          : stage === "exit" ? "EXIT — close position"
+                          : "HOLDING — watch stop + targets";
+                        const entryWhen = (() => {
+                          const t = Number(tt?.entry_ts);
+                          if (!Number.isFinite(t)) return null;
+                          try {
+                            return new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+                          } catch (_) { return null; }
+                        })();
+                        return (
+                          <div style={{
+                            padding: "14px 14px 12px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: "rgba(52,211,153,0.06)",
+                            border: "1px solid rgba(52,211,153,0.28)",
+                            borderRadius: 12,
+                          }}>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: "#6ee7b7", background: "rgba(52,211,153,0.12)",
+                                  letterSpacing: "0.06em",
+                                }}>TRADER PORTFOLIO</span>
+                                <span style={{
+                                  fontSize: 13, fontWeight: 800, color: isLong ? "#34d399" : "#f87171",
+                                  letterSpacing: "0.02em",
+                                }}>{dir} · {st === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN"}</span>
+                              </div>
+                              {pnlPct != null && (
+                                <span style={{
+                                  fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor,
+                                }}>{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8 }}>
+                              Entry {entry > 0 ? `$${entry.toFixed(2)}` : "—"}
+                              {live > 0 ? <> → <span style={{ color: pnlColor }}>${live.toFixed(2)}</span></> : null}
+                              {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
+                            </div>
+                            <div style={{
+                              marginTop: 8, padding: "10px 12px",
+                              background: "rgba(255,255,255,0.04)",
+                              borderRadius: 8,
+                              border: "1px solid rgba(255,255,255,0.06)",
+                            }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#6ee7b7", letterSpacing: "0.06em", marginBottom: 4 }}>
+                                WHAT TO DO NOW
+                              </div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ds-text-0)", lineHeight: 1.45 }}>
+                                {stageWord}
+                                {sl > 0 && <> · Stop ${sl.toFixed(2)}</>}
+                              </div>
+                            </div>
+                            <div style={{
+                              marginTop: 10, paddingTop: 8,
+                              borderTop: "1px solid rgba(255,255,255,0.04)",
+                              fontSize: 10, color: "var(--ds-text-faint)",
+                            }}>
+                              Switch to the <button
+                                type="button"
+                                onClick={() => setRailTab("SETUP")}
+                                style={{ display: "inline", background: "transparent", border: 0, padding: 0, color: "#6ee7b7", cursor: "pointer", textDecoration: "underline", fontSize: 10 }}
+                              >Trader tab</button> for the full trade plan and timing signals.
                             </div>
                           </div>
                         );
@@ -7628,219 +7825,6 @@
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
-                      {/* 2026-06-03 — Trader Root Verdict restructured to
-                          mirror the Investor Lane Guidance pattern (Panel +
-                          "WHAT TO DO" hero block + metric grid + "WHY" line).
-                          Operator feedback: "Make the Trader tab top text
-                          Strategy / Root Verdict more like the Investor tab".
-                          Single-line chip was too dense — the trader needs
-                          the same "what to do, what's the score, why this
-                          mode" framing the investor tab already has. */}
-                      {(() => {
-                        const conf = optionsTabData?.confluence_verdict || null;
-                        if (!conf || !conf.mode) return null;
-                        // Header chip uses predictionContract.direction (trader call).
-                        // conf.side is the 8-layer fusion lean — can diverge (e.g.
-                        // contract SHORT + 4L/1S layer split). Show BOTH honestly.
-                        const traderCall = String(predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
-                        const layerLean = String(conf.side || "").toUpperCase();
-                        const traderCallIsShort = traderCall === "SHORT";
-                        const layerLeanIsShort = layerLean === "SHORT";
-                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#9ca3af";
-                        const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#9ca3af";
-                        const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT")
-                          && (layerLean === "LONG" || layerLean === "SHORT")
-                          && traderCall !== layerLean;
-                        const longLayers = Number(conf.long_agree);
-                        const shortLayers = Number(conf.short_agree);
-                        const layerSplitLabel = (Number.isFinite(longLayers) && Number.isFinite(shortLayers))
-                          ? `${longLayers}L · ${shortLayers}S`
-                          : "—";
-                        // Mode metadata: color, background, icon, plain-English
-                        // "WHAT TO DO" action and one-line description.
-                        const META = {
-                          RIDE:  { c: "#34d399", b: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", i: "🚀",
-                                   action: traderCallIsShort ? "Ride the short" : "Ride the trend",
-                                   desc: traderCallIsShort
-                                     ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops."
-                                     : "Trader call is LONG with aligned layers. Press while structure holds; trail stops." },
-                          READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", i: "⏳",
-                                   action: "Setup forming",
-                                   desc: "Confluence building but the entry trigger has not fired. Wait — do not chase." },
-                          DRIFT: { c: "#60a5fa", b: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", i: "🌊",
-                                   action: "Drift — chop",
-                                   desc: "Mixed signals, no clean directional edge. Fade extremes or sit out." },
-                          FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", i: "↩️",
-                                   action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
-                                   desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only." },
-                          WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
-                                   action: "Wait — no trade",
-                                   desc: "Layers disagree, no edge from the engine right now. Pass on this name." },
-                        };
-                        const m = META[conf.mode] || META.WAIT;
-                        const scoreNum = Number(conf.score);
-                        const summary = String(conf.actionable_summary || "").trim();
-                        // Try to extract a one-line "why" — first 140 chars of
-                        // actionable_summary, falling back to a generic line.
-                        const whyLine = summary && summary.length > 0
-                          ? (summary.length > 160 ? summary.slice(0, 158) + "…" : summary)
-                          : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 · layer split ${layerSplitLabel}.`;
-                        return (
-                          <Panel title="📡 Trader Root Verdict" action={
-                            <span style={{
-                              fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
-                              padding: "2px 8px", borderRadius: 999,
-                              color: m.c, background: m.b, border: `1px solid ${m.border}`,
-                            }}>{m.i} {conf.mode}</span>
-                          }>
-                            {/* "WHAT TO DO" hero block — mirrors Investor Lane Guidance */}
-                            <div style={{
-                              padding: "var(--ds-space-2)",
-                              background: m.b,
-                              border: `1px solid ${m.border}`,
-                              borderRadius: "var(--ds-radius-md)",
-                              marginBottom: "var(--ds-space-2)",
-                            }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>WHAT TO DO</div>
-                              <div style={{ fontSize: 15, fontWeight: 700, color: m.c }}>{m.action}</div>
-                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>{m.desc}</div>
-                            </div>
-                            {callVsLeanConflict && (
-                              <div style={{
-                                marginBottom: "var(--ds-space-2)",
-                                padding: "var(--ds-space-2)",
-                                background: "rgba(245,194,92,0.08)",
-                                border: "1px solid rgba(245,194,92,0.30)",
-                                borderRadius: "var(--ds-radius-md)",
-                                fontSize: 12,
-                                color: "var(--ds-text-body)",
-                                lineHeight: 1.45,
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
-                                Trader call is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
-                              </div>
-                            )}
-                            {/* Metric grid: Confluence / Layer split / Trader call (header-aligned) */}
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
-                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>CONFLUENCE</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171" }}>
-                                  {Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}
-                                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>/100</span>
-                                </div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak"}</div>
-                              </div>
-                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>LAYER SPLIT</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" }}>{layerSplitLabel}</div>
-                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
-                                  Fusion leans {layerLean || "—"}
-                                </div>
-                              </div>
-                              <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER CALL</div>
-                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: callColor }}>{traderCall || "—"}</div>
-                              </div>
-                            </div>
-                            {/* "WHY" line — engine-emitted summary or computed fallback */}
-                            {whyLine && (
-                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>WHY</div>
-                                <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 }}>{whyLine}</div>
-                              </div>
-                            )}
-                          </Panel>
-                        );
-                      })()}
-                      {(() => {
-                        const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
-                        const verdict = optionsTabData?.confluence_verdict || null;
-                        if (!timing || !timing.flash_headline) return null;
-                        const bias = String(timing.bias || "EXTENSION").toUpperCase();
-                        const isBottom = bias === "COMPRESSION";
-                        const posture = String(timing.posture || "").toUpperCase();
-                        const postureColor = isBottom
-                          ? (posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af")
-                          : (posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af");
-                        const score = isBottom ? timing.compression_score : timing.extension_score;
-                        const signals = isBottom
-                          ? (Array.isArray(timing.compressions) ? timing.compressions : [])
-                          : (Array.isArray(timing.warnings) ? timing.warnings : []);
-                        const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
-                        const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
-                        const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
-                        const playbook = verdict?.playbook || timing.playbook || null;
-                        return (
-                          <Panel title={panelTitle} action={
-                            <span style={{
-                              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
-                              padding: "2px 8px", borderRadius: 999,
-                              color: postureColor, background: `${postureColor}18`,
-                              border: `1px solid ${postureColor}55`,
-                            }}>{posture.replace(/_/g, " ")} · {score}/100</span>
-                          }>
-                            <div style={{
-                              padding: "var(--ds-space-2)",
-                              background: panelBg,
-                              border: `1px solid ${panelBorder}`,
-                              borderRadius: "var(--ds-radius-md)",
-                              marginBottom: "var(--ds-space-2)",
-                            }}>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", lineHeight: 1.4 }}>
-                                {timing.flash_headline}
-                              </div>
-                              {timing.flash_detail && (
-                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
-                                  {timing.flash_detail}
-                                </div>
-                              )}
-                              {playbook === "TREND_CATCH" && (
-                                <div style={{ fontSize: 11, color: "var(--ds-text-faint)", marginTop: 6, lineHeight: 1.45 }}>
-                                  Trend catch (secondary) — primary edge is timing tops and bottoms.
-                                </div>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: signals.length ? 8 : 0 }}>
-                              {isBottom ? (
-                                <>
-                                  {timing.add_on_dips && <span className="ds-chip ds-chip--sm ds-chip--up">Add on dips</span>}
-                                  {timing.long_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Long / fade timing</span>}
-                                  {timing.call_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Call window</span>}
-                                  {(timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && (
-                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                      TD D{timing.td_daily_bull}/W{timing.td_weekly_bull}
-                                    </span>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  {timing.trim_winners && <span className="ds-chip ds-chip--sm ds-chip--accent">Trim winners</span>}
-                                  {timing.short_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Short / fade timing</span>}
-                                  {timing.put_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Put window</span>}
-                                  {(timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && (
-                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                      TD D{timing.td_daily_bear}/W{timing.td_weekly_bear}
-                                    </span>
-                                  )}
-                                  {timing.vix != null && Number(timing.vix) >= 20 && (
-                                    <span className="ds-chip ds-chip--sm">VIX {Number(timing.vix).toFixed(1)}</span>
-                                  )}
-                                </>
-                              )}
-                              {timing.timing_primary && (
-                                <span className="ds-chip ds-chip--sm ds-chip--accent">
-                                  Time {timing.timing_primary === "BOTTOM" ? "bottom" : "top"}
-                                </span>
-                              )}
-                            </div>
-                            {signals.length > 0 && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
-                                {signals.slice(0, 5).join(" · ")}
-                              </div>
-                            )}
-                          </Panel>
-                        );
-                      })()}
                       {/* 2026-05-29 — B8: surface "Current Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors
@@ -8124,6 +8108,220 @@
                             })()}
                           </Panel>
                         );
+
+                      {/* 2026-06-03 — Trader Root Verdict restructured to
+                          mirror the Investor Lane Guidance pattern (Panel +
+                          "WHAT TO DO" hero block + metric grid + "WHY" line).
+                          Operator feedback: "Make the Trader tab top text
+                          Strategy / Root Verdict more like the Investor tab".
+                          Single-line chip was too dense — the trader needs
+                          the same "what to do, what's the score, why this
+                          mode" framing the investor tab already has. */}
+                      {(() => {
+                        const conf = optionsTabData?.confluence_verdict || null;
+                        if (!conf || !conf.mode) return null;
+                        // Header chip uses predictionContract.direction (trader call).
+                        // conf.side is the 8-layer fusion lean — can diverge (e.g.
+                        // contract SHORT + 4L/1S layer split). Show BOTH honestly.
+                        const traderCall = String(predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+                        const layerLean = String(conf.side || "").toUpperCase();
+                        const traderCallIsShort = traderCall === "SHORT";
+                        const layerLeanIsShort = layerLean === "SHORT";
+                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#9ca3af";
+                        const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#9ca3af";
+                        const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT")
+                          && (layerLean === "LONG" || layerLean === "SHORT")
+                          && traderCall !== layerLean;
+                        const longLayers = Number(conf.long_agree);
+                        const shortLayers = Number(conf.short_agree);
+                        const layerSplitLabel = (Number.isFinite(longLayers) && Number.isFinite(shortLayers))
+                          ? `${longLayers}L · ${shortLayers}S`
+                          : "—";
+                        // Mode metadata: color, background, icon, plain-English
+                        // "WHAT TO DO" action and one-line description.
+                        const META = {
+                          RIDE:  { c: "#34d399", b: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", i: "🚀",
+                                   action: traderCallIsShort ? "Ride the short" : "Ride the trend",
+                                   desc: traderCallIsShort
+                                     ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops."
+                                     : "Trader call is LONG with aligned layers. Press while structure holds; trail stops." },
+                          READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", i: "⏳",
+                                   action: "Setup forming",
+                                   desc: "Confluence building but the entry trigger has not fired. Wait — do not chase." },
+                          DRIFT: { c: "#60a5fa", b: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", i: "🌊",
+                                   action: "Drift — chop",
+                                   desc: "Mixed signals, no clean directional edge. Fade extremes or sit out." },
+                          FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", i: "↩️",
+                                   action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
+                                   desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only." },
+                          WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
+                                   action: "Wait — no trade",
+                                   desc: "Layers disagree, no edge from the engine right now. Pass on this name." },
+                        };
+                        const m = META[conf.mode] || META.WAIT;
+                        const scoreNum = Number(conf.score);
+                        const summary = String(conf.actionable_summary || "").trim();
+                        // Try to extract a one-line "why" — first 140 chars of
+                        // actionable_summary, falling back to a generic line.
+                        const whyLine = summary && summary.length > 0
+                          ? (summary.length > 160 ? summary.slice(0, 158) + "…" : summary)
+                          : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 · layer split ${layerSplitLabel}.`;
+                        return (
+                          <Panel title="📡 Trader Root Verdict" action={
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                              padding: "2px 8px", borderRadius: 999,
+                              color: m.c, background: m.b, border: `1px solid ${m.border}`,
+                            }}>{m.i} {conf.mode}</span>
+                          }>
+                            {/* "WHAT TO DO" hero block — mirrors Investor Lane Guidance */}
+                            <div style={{
+                              padding: "var(--ds-space-2)",
+                              background: m.b,
+                              border: `1px solid ${m.border}`,
+                              borderRadius: "var(--ds-radius-md)",
+                              marginBottom: "var(--ds-space-2)",
+                            }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 }}>WHAT TO DO</div>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: m.c }}>{m.action}</div>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 }}>{m.desc}</div>
+                            </div>
+                            {callVsLeanConflict && (
+                              <div style={{
+                                marginBottom: "var(--ds-space-2)",
+                                padding: "var(--ds-space-2)",
+                                background: "rgba(245,194,92,0.08)",
+                                border: "1px solid rgba(245,194,92,0.30)",
+                                borderRadius: "var(--ds-radius-md)",
+                                fontSize: 12,
+                                color: "var(--ds-text-body)",
+                                lineHeight: 1.45,
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
+                                Trader call is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
+                              </div>
+                            )}
+                            {/* Metric grid: Confluence / Layer split / Trader call (header-aligned) */}
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
+                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>CONFLUENCE</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171" }}>
+                                  {Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}
+                                  <span style={{ fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" }}>/100</span>
+                                </div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>{Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak"}</div>
+                              </div>
+                              <div style={{ padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>LAYER SPLIT</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" }}>{layerSplitLabel}</div>
+                                <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                  Fusion leans {layerLean || "—"}
+                                </div>
+                              </div>
+                              <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER CALL</div>
+                                <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: callColor }}>{traderCall || "—"}</div>
+                              </div>
+                            </div>
+                            {/* "WHY" line — engine-emitted summary or computed fallback */}
+                            {whyLine && (
+                              <div style={{ marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>WHY</div>
+                                <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 }}>{whyLine}</div>
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
+                      {(() => {
+                        const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+                        const verdict = optionsTabData?.confluence_verdict || null;
+                        if (!timing || !timing.flash_headline) return null;
+                        const bias = String(timing.bias || "EXTENSION").toUpperCase();
+                        const isBottom = bias === "COMPRESSION";
+                        const posture = String(timing.posture || "").toUpperCase();
+                        const postureColor = isBottom
+                          ? (posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af")
+                          : (posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af");
+                        const score = isBottom ? timing.compression_score : timing.extension_score;
+                        const signals = isBottom
+                          ? (Array.isArray(timing.compressions) ? timing.compressions : [])
+                          : (Array.isArray(timing.warnings) ? timing.warnings : []);
+                        const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
+                        const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
+                        const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
+                        const playbook = verdict?.playbook || timing.playbook || null;
+                        return (
+                          <Panel title={panelTitle} action={
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, letterSpacing: "0.06em",
+                              padding: "2px 8px", borderRadius: 999,
+                              color: postureColor, background: `${postureColor}18`,
+                              border: `1px solid ${postureColor}55`,
+                            }}>{posture.replace(/_/g, " ")} · {score}/100</span>
+                          }>
+                            <div style={{
+                              padding: "var(--ds-space-2)",
+                              background: panelBg,
+                              border: `1px solid ${panelBorder}`,
+                              borderRadius: "var(--ds-radius-md)",
+                              marginBottom: "var(--ds-space-2)",
+                            }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-display)", lineHeight: 1.4 }}>
+                                {timing.flash_headline}
+                              </div>
+                              {timing.flash_detail && (
+                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
+                                  {timing.flash_detail}
+                                </div>
+                              )}
+                              {playbook === "TREND_CATCH" && (
+                                <div style={{ fontSize: 11, color: "var(--ds-text-faint)", marginTop: 6, lineHeight: 1.45 }}>
+                                  Trend catch (secondary) — primary edge is timing tops and bottoms.
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: signals.length ? 8 : 0 }}>
+                              {isBottom ? (
+                                <>
+                                  {timing.add_on_dips && <span className="ds-chip ds-chip--sm ds-chip--up">Add on dips</span>}
+                                  {timing.long_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Long / fade timing</span>}
+                                  {timing.call_opportunity && <span className="ds-chip ds-chip--sm ds-chip--up">Call window</span>}
+                                  {(timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && (
+                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      TD D{timing.td_daily_bull}/W{timing.td_weekly_bull}
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  {timing.trim_winners && <span className="ds-chip ds-chip--sm ds-chip--accent">Trim winners</span>}
+                                  {timing.short_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Short / fade timing</span>}
+                                  {timing.put_opportunity && <span className="ds-chip ds-chip--sm ds-chip--dn">Put window</span>}
+                                  {(timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && (
+                                    <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                      TD D{timing.td_daily_bear}/W{timing.td_weekly_bear}
+                                    </span>
+                                  )}
+                                  {timing.vix != null && Number(timing.vix) >= 20 && (
+                                    <span className="ds-chip ds-chip--sm">VIX {Number(timing.vix).toFixed(1)}</span>
+                                  )}
+                                </>
+                              )}
+                              {timing.timing_primary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent">
+                                  Time {timing.timing_primary === "BOTTOM" ? "bottom" : "top"}
+                                </span>
+                              )}
+                            </div>
+                            {signals.length > 0 && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
+                                {signals.slice(0, 5).join(" · ")}
+                              </div>
+                            )}
+                          </Panel>
+                        );
+                      })()}
                       })()}
 
                       {(ticker?.entry_path || ticker?.setup_name) && (

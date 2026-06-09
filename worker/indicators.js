@@ -4670,6 +4670,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         structure: Math.round((b.emaStructure || 0) * 1000) / 1000,
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
         priceAboveEma21,
+        ema21: Number.isFinite(b.e21) ? Math.round(b.e21 * 100) / 100 : undefined,
+        ema200: Number.isFinite(b.e200) ? Math.round(b.e200 * 100) / 100 : undefined,
       },
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
@@ -5066,8 +5068,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
        are the two referenced in worker/investor.js generateThesis. */
     weekly_bundle: bW ? {
       supertrend_dir: bW.stDir,
-      supertrend_line: bW.stLine ? Math.round(bW.stLine * 100) / 100 : undefined,
-      ema200: bW.e200 ? Math.round(bW.e200 * 100) / 100 : undefined,
+      supertrend_line: Number.isFinite(bW.stLine) ? Math.round(bW.stLine * 100) / 100 : undefined,
+      ema200: Number.isFinite(bW.e200) ? Math.round(bW.e200 * 100) / 100 : undefined,
+      ema21: Number.isFinite(bW.e21) ? Math.round(bW.e21 * 100) / 100 : undefined,
       rsi: bW.rsi ? Math.round(bW.rsi * 10) / 10 : undefined,
       px: bW.px ? Math.round(bW.px * 100) / 100 : undefined,
     } : undefined,
@@ -6538,10 +6541,16 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       // Deduplicate candles BEFORE any computation (fixes duplicate daily bars
       // from multiple Alpaca backfill runs that store two entries per date)
       const deduped = deduplicateCandles(result.candles, tf);
+      let bundleInput = deduped;
+      // Weekly/monthly EMA(200) needs 200 unique bars; deduped D1 history is
+      // often shorter. Use raw series so investor invalidation can quote a level.
+      if ((tf === "W" || tf === "M") && deduped.length < 200 && result.candles.length >= 200) {
+        bundleInput = result.candles;
+      }
 
       // Scoring bundles (need 50+ candles for indicator computation)
-      if (scoringTfs.includes(tf) && deduped.length >= 50) {
-        bundles[tf] = computeTfBundle(deduped);
+      if (scoringTfs.includes(tf) && bundleInput.length >= 50) {
+        bundles[tf] = computeTfBundle(bundleInput);
         if (bundles[tf]) hasData = true;
       }
       // TD Sequential candles (need 14+ for minimal computation)

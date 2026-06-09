@@ -748,6 +748,9 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     position: posMeta,
   });
 
+  const thesis = generateThesis(td, rsRank);
+  const primaryInvalidation = pickPrimaryInvalidationPrice(td, thesis.criteria, thesis.invalidation);
+
   const fresh = {
     ...cached,
     score,
@@ -758,6 +761,10 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     timing_primary: stage.timing_primary || timing?.timing_primary || null,
     timing_playbook: stage.timing_playbook || timing?.playbook || null,
     timing_overlay: timing,
+    thesis: thesis.thesis,
+    thesisInvalidation: thesis.invalidation,
+    thesisInvalidationPrice: primaryInvalidation?.price ?? null,
+    primaryInvalidation,
     _stDirD,
     _stDirW,
     _stDirM,
@@ -1261,9 +1268,34 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
  * @param {number} rsRank - relative strength percentile rank
  * @returns {{ thesis: string, invalidation: string[], criteria: object }}
  */
+export function horizonBundlePatchFromTfBundle(b) {
+  if (!b) return null;
+  const patch = {};
+  if (Number.isFinite(b.e200) && b.e200 > 0) patch.ema200 = Math.round(b.e200 * 100) / 100;
+  if (Number.isFinite(b.e21) && b.e21 > 0) patch.ema21 = Math.round(b.e21 * 100) / 100;
+  if (Number.isFinite(b.stLine) && b.stLine > 0) patch.supertrend_line = Math.round(b.stLine * 100) / 100;
+  if (Number.isFinite(b.stDir)) patch.supertrend_dir = b.stDir;
+  if (Number.isFinite(b.rsi)) patch.rsi = Math.round(b.rsi * 10) / 10;
+  if (Number.isFinite(b.px)) patch.px = Math.round(b.px * 100) / 100;
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function resolveInvestorHorizonBundles(tickerData) {
+  const wb = { ...(tickerData?.weekly_bundle || {}) };
+  const mb = { ...(tickerData?.monthly_bundle || {}) };
+  if (!(Number.isFinite(wb.ema21) && wb.ema21 > 0)) {
+    const e21 = Number(tickerData?.tf_tech?.W?.ema?.ema21);
+    if (Number.isFinite(e21) && e21 > 0) wb.ema21 = e21;
+  }
+  if (!(Number.isFinite(wb.ema200) && wb.ema200 > 0)) {
+    const e200 = Number(tickerData?.tf_tech?.W?.ema?.ema200);
+    if (Number.isFinite(e200) && e200 > 0) wb.ema200 = e200;
+  }
+  return { wb, mb };
+}
+
 export function generateThesis(tickerData, rsRank = 50) {
-  const mb = tickerData.monthly_bundle;
-  const wb = tickerData.weekly_bundle; // 2026-06-01 — added in indicators.js
+  const { wb, mb } = resolveInvestorHorizonBundles(tickerData);
   const emaW = tickerData.ema_map?.W;
   const tfW = tickerData.tf_tech?.W;
   const ticker = tickerData.ticker || "???";
@@ -1427,6 +1459,104 @@ export function generateThesis(tickerData, rsRank = 50) {
       weeklyST: tfW?.atr?.xs === 1,             // STANDARD convention for atr.xs: +1 = up-cross / bull
       rsRank,
     },
+  };
+}
+
+/**
+ * Pick the single actionable invalidation price for UI/chart overlays.
+ * Prefers the nearest structural floor below live price (Weekly EMA200,
+ * Weekly ST, Monthly ST) within a practical drawdown band.
+ */
+export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalidationStrings = []) {
+  const livePx = Number(tickerData?._live_price || tickerData?.price) || 0;
+  if (!(livePx > 0)) return null;
+
+  const { wb, mb } = resolveInvestorHorizonBundles(tickerData);
+  const ema21W = Number(wb?.ema21 || tickerData?.tf_tech?.W?.ema?.ema21 || tickerData?.ema_map?.W?.ema21);
+  const ema200W = Number(wb?.ema200);
+  // Actionable band: prefer a nearer floor the operator can actually defend.
+  // Weekly EMA(200) stays in the thesis list but is demoted when >12% below.
+  const ACTIONABLE_MAX_DD_PCT = 12;
+  const THESIS_DD_PCT = 25;
+  const rnd = (v) => Math.round(v * 100) / 100;
+  const ddPctOf = (lvl) => ((livePx - Number(lvl)) / livePx) * 100;
+
+  const candidates = [];
+  const add = (price, label, tier) => {
+    const lvl = Number(price);
+    if (!Number.isFinite(lvl) || lvl <= 0 || lvl >= livePx) return;
+    const ddPct = ddPctOf(lvl);
+    if (ddPct >= ACTIONABLE_MAX_DD_PCT) return;
+    candidates.push({ price: rnd(lvl), label, tier, distancePct: rnd(ddPct) });
+  };
+
+  // Nearest structural floors first — not long-horizon thesis trails.
+  if (Number.isFinite(ema21W) && ema21W > 0 && ema21W < livePx) {
+    add(ema21W, "Weekly EMA(21)", "tactical");
+  }
+  for (const [horizon, label] of [
+    ["week", "Weekly ATR support"],
+    ["day", "Daily ATR support"],
+  ]) {
+    const levels = tickerData?.atr_levels?.[horizon]?.levels_dn;
+    if (!Array.isArray(levels)) continue;
+    const nearest = levels
+      .map((l) => ({ price: Number(l.price), tag: l.label }))
+      .filter((l) => Number.isFinite(l.price) && l.price > 0 && l.price < livePx)
+      .sort((a, b) => b.price - a.price)[0];
+    if (nearest) {
+      add(nearest.price, nearest.tag ? `${label} (${nearest.tag})` : label, "tactical");
+    }
+  }
+  if (criteria.weeklyST) add(wb?.supertrend_line, "Weekly SuperTrend", "structural");
+  if (criteria.monthlyST) add(mb?.supertrend_line, "Monthly SuperTrend", "structural");
+  if (criteria.weeklyAbove200) add(wb?.ema200, "Weekly EMA(200)", "thesis");
+
+  // Pick the nearest actionable level (highest price below live).
+  candidates.sort((a, b) => b.price - a.price);
+  const best = candidates[0];
+
+  // Long-horizon thesis anchor — shown separately when too far for tactical use.
+  let thesisLevel = null;
+  if (criteria.weeklyAbove200 && Number.isFinite(ema200W) && ema200W > 0 && ema200W < livePx) {
+    const thesisDd = rnd(ddPctOf(ema200W));
+    if (thesisDd >= ACTIONABLE_MAX_DD_PCT && thesisDd < THESIS_DD_PCT) {
+      thesisLevel = {
+        price: rnd(ema200W),
+        label: "Weekly EMA(200)",
+        distancePct: thesisDd,
+        note: "Long-horizon thesis floor — wider drawdown before structural trend breaks",
+      };
+    }
+  }
+
+  if (best) {
+    const estNote = best.label.includes("EMA(200)") && !(Number.isFinite(ema200W) && ema200W > 0)
+      ? " — estimated from available weekly bars"
+      : "";
+    const tacticalNote = best.tier === "thesis"
+      ? " — thesis-level trail; consider a tighter stop for active management"
+      : "";
+    return {
+      price: best.price,
+      label: best.label,
+      distancePct: best.distancePct,
+      tier: best.tier,
+      thesisLevel,
+      condition: `Exit remainder if price closes below $${best.price.toFixed(2)} (${best.label}${estNote}${tacticalNote})`,
+      invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
+    };
+  }
+
+  const fallback = rnd(livePx * 0.88);
+  return {
+    price: fallback,
+    label: "12% trailing stop",
+    distancePct: 12,
+    tier: "fallback",
+    thesisLevel,
+    condition: `Exit remainder if price closes below $${fallback.toFixed(2)} (12% from current — no nearer structural floor found)`,
+    invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
   };
 }
 
