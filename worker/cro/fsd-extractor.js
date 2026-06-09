@@ -185,15 +185,17 @@ const DEFAULT_MIN_CONFIDENCE = 0.7;
 
 // Reads the operator-tunable auto-apply config from model_config.
 //   cro_auto_apply_min_confidence  (default 0.7)
-//   cro_auto_apply_structural      (default false — structural always reviewed)
+//   cro_auto_apply_structural      (default true)
+//   cro_auto_apply_trusted_fsd     (default true — FSD is trusted)
 async function readAutoApplyConfig(env) {
   let minConfidence = DEFAULT_MIN_CONFIDENCE;
   let allowStructural = true; // 2026-06-05 — operator flipped structural auto-apply ON by default.
+  let trustedFsd = true; // 2026-06-09 — FSD publications flow through without manual gate.
   try {
     if (env?.DB) {
       const rows = await env.DB.prepare(
         `SELECT config_key, config_value FROM model_config
-          WHERE config_key IN ('cro_auto_apply_min_confidence','cro_auto_apply_structural')`,
+          WHERE config_key IN ('cro_auto_apply_min_confidence','cro_auto_apply_structural','cro_auto_apply_trusted_fsd')`,
       ).all();
       for (const r of (rows?.results || [])) {
         if (r.config_key === "cro_auto_apply_min_confidence") {
@@ -202,11 +204,14 @@ async function readAutoApplyConfig(env) {
         } else if (r.config_key === "cro_auto_apply_structural") {
           const v = String(r.config_value).toLowerCase();
           allowStructural = !(v === "false" || v === "0");
+        } else if (r.config_key === "cro_auto_apply_trusted_fsd") {
+          const v = String(r.config_value).toLowerCase();
+          trustedFsd = !(v === "false" || v === "0");
         }
       }
     }
   } catch (_) { /* defaults */ }
-  return { minConfidence, allowStructural };
+  return { minConfidence, allowStructural, trustedFsd };
 }
 
 export function categorizeProposal(parsed) {
@@ -228,6 +233,7 @@ export function categorizeProposal(parsed) {
 export function assessProposalAutoApply(parsed, warnings, {
   minConfidence = DEFAULT_MIN_CONFIDENCE,
   allowStructural = false,
+  trustedFsd = false,
 } = {}) {
   const category = categorizeProposal(parsed);
   const sa = (parsed && typeof parsed.self_assessment === "object") ? parsed.self_assessment : {};
@@ -238,6 +244,29 @@ export function assessProposalAutoApply(parsed, warnings, {
   const hasUnknownTaxonomy = (warnings || []).some((w) =>
     String(w).startsWith("unknown_theme") || String(w).startsWith("unknown_sector")
     || String(w).startsWith("theme_update_unknown") || String(w).startsWith("sector_update_unknown"));
+
+  // 2026-06-09 — Trusted FSD: auto-apply unless taxonomy validation failed.
+  // Operator directive: FSD is trusted; timing matters; no manual gate.
+  if (trustedFsd && !hasUnknownTaxonomy) {
+    if (category === "structural" && !allowStructural) {
+      return {
+        auto: false,
+        review_status: "needs_review",
+        reason: "structural_review_required",
+        confidence,
+        on_theme: onTheme,
+        category,
+      };
+    }
+    return {
+      auto: true,
+      review_status: "auto_applied",
+      reason: "trusted_fsd_source",
+      confidence,
+      on_theme: onTheme,
+      category,
+    };
+  }
 
   const flags = [];
   if (category === "structural") flags.push("structural");

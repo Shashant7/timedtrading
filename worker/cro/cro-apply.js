@@ -217,3 +217,24 @@ export async function isAutoApplyStructuralEnabled(env) {
     return !(v === false || String(v).toLowerCase() === "false" || String(v) === "0");
   } catch (_) { return true; }
 }
+
+/**
+ * 2026-06-09 — FSD publications are a trusted source. When enabled (default
+ * ON), proposals auto-apply unless they fail schema/taxonomy validation.
+ * Operator opt-out: model_config cro_auto_apply_trusted_fsd = "false".
+ */
+export async function isTrustedFsdAutoApplyEnabled(env) {
+  const cached = env?._deepAuditConfig?.cro_auto_apply_trusted_fsd;
+  if (cached === false || String(cached).toLowerCase() === "false" || String(cached) === "0") return false;
+  if (cached === true || String(cached).toLowerCase() === "true") return true;
+  if (!env?.DB) return true;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'cro_auto_apply_trusted_fsd'`,
+    ).first();
+    if (!row) return true;
+    const v = row.config_value;
+    if (v === false || String(v).toLowerCase() === "false" || String(v) === "0") return false;
+    return true;
+  } catch (_) { return true; }
+}
