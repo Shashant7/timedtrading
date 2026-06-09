@@ -877,7 +877,7 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
         // tighter). Lifecycle decisions still need 1-2 paragraphs of
         // reasoning so the operator/trader understands why we held,
         // proceeded, or pulled the trigger.
-        900,
+        1500,
         { temperature: 0.1, responseFormat: { type: "json_object" } },
       )),
       signal: controller.signal,

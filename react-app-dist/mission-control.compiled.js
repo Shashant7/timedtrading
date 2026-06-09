@@ -3520,7 +3520,9 @@ function MissionControl({
       className: `mc-kpi-value text-[15px] ${String(cfg.ai_cio_shadow_mode) === "true" ? "mc-warn" : "mc-pos"}`
     }, String(cfg.ai_cio_shadow_mode) === "true" ? "ON" : "OFF (LIVE)"), React.createElement("div", {
       className: "mc-kpi-sub"
-    }, "Decisions ", String(cfg.ai_cio_shadow_mode) === "true" ? "logged only" : "ENFORCED")), React.createElement("div", {
+    }, "Entries ", String(cfg.ai_cio_shadow_mode) === "true" ? "shadow" : "ENFORCED", " · ", "Lifecycle ", String(cfg.ai_cio_lifecycle_enforce) === "true" || String(cfg.ai_cio_shadow_mode) !== "true" ? "ENFORCED" : "shadow"), cioReadiness.enforcement?.config_mismatch && React.createElement("div", {
+      className: "text-[10px] text-amber-400 mt-1"
+    }, "Config mismatch \u2014 gates not green")), React.createElement("div", {
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
@@ -3796,6 +3798,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1781018688102:162001607
+// cache-bust:1781019752445:543032288
 
-// cache-bust:1781018688102:162001607
+// cache-bust:1781019752445:543032288

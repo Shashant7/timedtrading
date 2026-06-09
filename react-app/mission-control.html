@@ -3391,7 +3391,14 @@
                         <div className={`mc-kpi-value text-[15px] ${String(cfg.ai_cio_shadow_mode) === "true" ? "mc-warn" : "mc-pos"}`}>
                           {String(cfg.ai_cio_shadow_mode) === "true" ? "ON" : "OFF (LIVE)"}
                         </div>
-                        <div className="mc-kpi-sub">Decisions {String(cfg.ai_cio_shadow_mode) === "true" ? "logged only" : "ENFORCED"}</div>
+                        <div className="mc-kpi-sub">
+                          Entries {String(cfg.ai_cio_shadow_mode) === "true" ? "shadow" : "ENFORCED"}
+                          {" · "}
+                          Lifecycle {(String(cfg.ai_cio_lifecycle_enforce) === "true" || String(cfg.ai_cio_shadow_mode) !== "true") ? "ENFORCED" : "shadow"}
+                        </div>
+                        {cioReadiness.enforcement?.config_mismatch && (
+                          <div className="text-[10px] text-amber-400 mt-1">Config mismatch — gates not green</div>
+                        )}
                       </div>
                       <div className="mc-kpi">
                         <div className="mc-kpi-label">Entry Model</div>
