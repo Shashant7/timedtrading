@@ -1668,6 +1668,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781025845552:337396255
+// cache-bust:1781027148851:558934919
 
-// cache-bust:1781025845552:337396255
+// cache-bust:1781027148851:558934919

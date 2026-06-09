@@ -323,9 +323,17 @@
                 : Array.isArray(j?.scores)  ? j.scores
                 : Array.isArray(j)          ? j
                 : [];
+      if (typeof window.TTCountInvestorNavBadge === "function") {
+        return window.TTCountInvestorNavBadge(arr);
+      }
       return arr.filter(s => {
-        const v = String(s?.verdict || s?.stage || "").toLowerCase();
-        return v === "accumulate" || v === "reduce";
+        const stage = String(s?.stage || s?.investor_stage || s?.verdict || "").toLowerCase();
+        if (stage === "reduce") return true;
+        if (stage === "accumulate") {
+          const tier = String(s?.actionTier || "").toLowerCase();
+          return tier === "act_now" || tier === "ready";
+        }
+        return false;
       }).length;
     } catch { return null; }
   }
@@ -414,4 +422,4 @@
   setTimeout(syncNavToVisualViewport, 400);
 })();
 
-// cache-bust:1781025845552:337396255
+// cache-bust:1781027148851:558934919
