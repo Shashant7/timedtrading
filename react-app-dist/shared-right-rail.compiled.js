@@ -126,6 +126,21 @@
       const key = String(stage || "").toLowerCase();
       return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
     }
+    function investorInvalidationDisplay(investorData, livePx) {
+      const inv = investorData?.primaryInvalidation;
+      const price = Number(inv?.price ?? investorData?.thesisInvalidationPrice);
+      if (!Number.isFinite(price) || price <= 0) return null;
+      const label = inv?.label || "Invalidation";
+      const dist = Number.isFinite(livePx) && livePx > 0 ? (livePx - price) / livePx * 100 : inv?.distancePct;
+      const distText = Number.isFinite(dist) ? `${dist.toFixed(1)}% below current` : null;
+      return {
+        price,
+        label,
+        condition: inv?.condition || `Exit remainder if price closes below $${price.toFixed(2)} (${label})`,
+        distText,
+        lines: Array.isArray(inv?.invalidationLines) ? inv.invalidationLines : Array.isArray(investorData?.thesisInvalidation) ? investorData.thesisInvalidation : []
+      };
+    }
     function investorEntryActionFromSetup(setupRaw) {
       const s = String(setupRaw || "").toLowerCase();
       if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce")) return "Accumulate on dips, trim into strength";
@@ -872,6 +887,8 @@
       const sector = detail?.sector || ticker?._sector || null;
       const thesis = detail?.thesis || null;
       const invalidation = detail?.thesisInvalidation || null;
+      const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+      const invDisplay = investorInvalidationDisplay(detail, livePx);
       const STAGE_LABEL = {
         accumulate: {
           label: "ACCUMULATE",
@@ -1134,7 +1151,44 @@
           marginTop: 4,
           lineHeight: 1.4
         }
-      }, stageInfo.desc)), Number.isFinite(score) && h("div", {
+      }, stageInfo.desc, invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).` : "")), invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
+        style: {
+          marginBottom: "var(--ds-space-2)",
+          padding: "10px 12px",
+          background: "rgba(248,113,113,0.06)",
+          border: "1px solid rgba(248,113,113,0.22)",
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "#f87171",
+          letterSpacing: "0.06em",
+          marginBottom: 4
+        }
+      }, "INVALIDATION LEVEL"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--ds-text-0)"
+        }
+      }, `$${invDisplay.price.toFixed(2)}`, h("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 500,
+          color: "var(--ds-text-muted)",
+          marginLeft: 8
+        }
+      }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-body)",
+          marginTop: 4,
+          lineHeight: 1.45
+        }
+      }, invDisplay.condition)), Number.isFinite(score) && h("div", {
         style: {
           display: "flex",
           gap: "var(--ds-space-2)"
@@ -4834,15 +4888,17 @@
             title: `Buy Zone $${Number(az.entryPrice).toFixed(2)}`
           });
         }
-        const inv = Number(investorData.thesisInvalidationPrice ?? pos?.invalidation_price);
+        const invMeta = investorInvalidationDisplay(investorData, Number(ticker?._live_price || ticker?.price || latestTicker?.price));
+        const inv = Number(invMeta?.price ?? investorData?.thesisInvalidationPrice ?? pos?.invalidation_price);
         if (Number.isFinite(inv) && inv > 0) {
+          const invLabel = invMeta?.label || "Invalidation";
           out.push({
             price: inv,
             color: "rgba(251,146,60,0.75)",
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,
-            title: `Invalidation $${inv.toFixed(2)}`
+            title: `${invLabel} $${inv.toFixed(2)}`
           });
         }
         return out.length > 0 ? out : EMPTY_PRICE_LINES;
@@ -7689,7 +7745,15 @@
           const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
           const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
           const currentAction = liveGuide?.actionLine || entryAction;
-          const doNow = liveGuide?.doNow || null;
+          const invDisplay = investorInvalidationDisplay(investorData, live);
+          const doNow = (() => {
+            const base = liveGuide?.doNow || null;
+            if (!base) return null;
+            if (invDisplay && (liveStage === "reduce" || liveStage === "watch" || liveStage === "core_hold")) {
+              return `${base} Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`;
+            }
+            return base;
+          })();
           const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
           return React.createElement("div", {
             style: {
@@ -7782,7 +7846,54 @@
               color: "var(--ds-text-faint)",
               marginTop: 6
             }
-          }, "Current lane: ", liveGuide.laneLabel, stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : "")), React.createElement("div", {
+          }, "Current lane: ", liveGuide.laneLabel, stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : "")), invDisplay && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              padding: "10px 12px",
+              background: "rgba(248,113,113,0.06)",
+              borderRadius: 8,
+              border: "1px solid rgba(248,113,113,0.22)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#f87171",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "INVALIDATION LEVEL"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 700,
+              color: "var(--ds-text-0)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "$", invDisplay.price.toFixed(2), React.createElement("span", {
+            style: {
+              fontSize: 11,
+              fontWeight: 500,
+              color: "var(--ds-text-muted)",
+              marginLeft: 8
+            }
+          }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-body)",
+              marginTop: 4,
+              lineHeight: 1.45
+            }
+          }, invDisplay.condition), invDisplay.lines.length > 0 && React.createElement("ul", {
+            style: {
+              margin: "6px 0 0",
+              paddingLeft: 16,
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.4
+            }
+          }, invDisplay.lines.slice(0, 2).map((line, i) => React.createElement("li", {
+            key: i
+          }, line)))), React.createElement("div", {
             style: {
               marginTop: 8
             }
@@ -18970,4 +19081,4 @@
   };
 })();
 
-// cache-bust:1781015904649:138080458
+// cache-bust:1781018271287:8402556
