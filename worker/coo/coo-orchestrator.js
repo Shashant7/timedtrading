@@ -139,9 +139,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
   //    handles the no-autopsy-rows case.
   let runRes;
   try {
-    const r = await fetch(`${baseUrl}/timed/calibration/run?key=${encodeURIComponent(adminKey)}`, {
+    const r = await fetch(`${baseUrl}/timed/calibration/run`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": adminKey },
       body: JSON.stringify({
         scope_id: options.scopeId || `coo-auto-${new Date().toISOString().slice(0, 10)}`,
         analysis_only: false,
@@ -185,9 +185,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
   //    baseline weighted by sample-size confidence).
   let applyRes;
   try {
-    const r = await fetch(`${baseUrl}/timed/calibration/apply?key=${encodeURIComponent(adminKey)}`, {
+    const r = await fetch(`${baseUrl}/timed/calibration/apply`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-API-Key": adminKey },
       body: JSON.stringify({ report_id: reportId }),
     });
     applyRes = await r.json();
@@ -310,8 +310,9 @@ export async function runSelfHealing(env, options = {}) {
 
 async function _healPortfolioReconcile(env, baseUrl, adminKey) {
   try {
-    const r = await fetch(`${baseUrl}/timed/admin/ledger/repair?mode=investor&dryRun=false&key=${encodeURIComponent(adminKey)}`, {
+    const r = await fetch(`${baseUrl}/timed/admin/ledger/repair?mode=investor&dryRun=false`, {
       method: "POST",
+      headers: { "X-API-Key": adminKey },
     });
     const j = await r.json();
     return j?.ok
@@ -339,8 +340,8 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
       let ok = false;
       for (const tf of ["D", "60"]) {
         const r = await fetch(
-          `${baseUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7&key=${encodeURIComponent(adminKey)}`,
-          { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+          `${baseUrl}/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7`,
+          { method: "POST", headers: { "Content-Type": "application/json", "X-API-Key": adminKey }, body: "{}" },
         );
         const j = await r.json().catch(() => ({}));
         if (j?.ok && (j?.upserted || 0) > 0) ok = true;

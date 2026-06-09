@@ -132,9 +132,28 @@ export function requireKeyOr401(req, env) {
       corsHeaders(env, req),
     );
   }
-  const url = new URL(req.url);
-  const qKey = url.searchParams.get("key");
-  if (qKey && qKey === expected) return null;
+
+  // Preferred: API key via header. Headers don't end up in access logs,
+  // browser history, or Referer chains the way query strings do.
+  const headerKey =
+    req.headers.get("X-API-Key") ||
+    (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (headerKey && headerKey === expected) return null;
+
+  // Legacy: ?key= query param. Accepted during migration unless the
+  // operator flips ALLOW_QUERY_API_KEY=false (do that AFTER rotating
+  // TIMED_API_KEY and migrating external scripts to headers).
+  if (String(env.ALLOW_QUERY_API_KEY || "true") !== "false") {
+    const url = new URL(req.url);
+    const qKey = url.searchParams.get("key");
+    if (qKey && qKey === expected) {
+      console.warn(
+        `[AUTH] Deprecated ?key= auth used on ${url.pathname} — migrate caller to X-API-Key header`,
+      );
+      return null;
+    }
+  }
+
   return sendJSON(
     { ok: false, error: "unauthorized" },
     401,
