@@ -91,7 +91,8 @@ emergency rollback flip the master:
 | `ai_cio_sl_move_authoritative` | false | Flip SL gate from record-only to authoritative |
 | `ai_cio_entry_skip_min_edge` | 0.7 | Min CIO confidence to override a Loop 2 skip |
 | `ai_cio_rebalance_min_hold_edge` | 0.6 | Min CIO confidence to skip a rebalance trim |
-| `ai_cio_lifecycle_timeout_ms` | 1500 | Per-call timeout cap (Promise.race) |
+| `ai_cio_lifecycle_timeout_ms` | 8000 | Per-call timeout cap (Promise.race) |
+| `ai_cio_entry_timeout_ms` | 20000 | Entry CIO API AbortController timeout |
 | `ai_cio_monthly_usd_cap` | 50 | Hard-stop spend cap; estimated per call |
 
 Env-var equivalents (UPPER_SNAKE_CASE) work too — model_config wins on conflict.

@@ -51,15 +51,13 @@ import { buildInvestorCioMemory } from "./cio-memory-loader.js";
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
-// 2026-06-02 — Bumped 1500→2500ms. The 1500ms ceiling was timing out
-// EVERY rebalance_trim call in production (3/3 in the first 24h of live
-// data) because CIO responses typically land in the 800-2000ms window
-// and even occasional 2000-2500ms calls were valid. The gate's purpose
-// is to never BLOCK trade management on a slow LLM — 2500ms still
-// honors that (engine-default returned on timeout) while giving CIO
-// enough headroom to actually contribute to typical calls. Operator
-// can re-tune via model_config { ai_cio_lifecycle_timeout_ms: "..." }.
-const DEFAULT_TIMEOUT_MS = 2500;
+// 2026-06-06 — Bumped 2500→8000ms. Production gpt-5.4 lifecycle calls
+// average ~5s (readiness gate lifecycle_latency ~5169ms) but the 2500ms
+// gate ceiling was timing out >95% of defend_record / rebalance calls —
+// CIO never got to vote. 8000ms still returns engine-default on timeout
+// (trade management never stalls) while matching observed p95 latency.
+// Operator can re-tune via model_config { ai_cio_lifecycle_timeout_ms: "..." }.
+const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_MONTHLY_USD_CAP = 50; // operator override via env / model_config
 const DEDUP_TTL_MS = 60 * 1000; // 60s — collapse multiple ticks on the same (sym, type) decision into one CIO call
 const DEDUP_CACHE_MAX = 200;
