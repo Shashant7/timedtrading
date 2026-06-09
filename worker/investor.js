@@ -748,6 +748,9 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     position: posMeta,
   });
 
+  const thesis = generateThesis(td, rsRank);
+  const primaryInvalidation = pickPrimaryInvalidationPrice(td, thesis.criteria, thesis.invalidation);
+
   const fresh = {
     ...cached,
     score,
@@ -758,6 +761,10 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     timing_primary: stage.timing_primary || timing?.timing_primary || null,
     timing_playbook: stage.timing_playbook || timing?.playbook || null,
     timing_overlay: timing,
+    thesis: thesis.thesis,
+    thesisInvalidation: thesis.invalidation,
+    thesisInvalidationPrice: primaryInvalidation?.price ?? null,
+    primaryInvalidation,
     _stDirD,
     _stDirW,
     _stDirM,
@@ -1261,9 +1268,34 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
  * @param {number} rsRank - relative strength percentile rank
  * @returns {{ thesis: string, invalidation: string[], criteria: object }}
  */
+export function horizonBundlePatchFromTfBundle(b) {
+  if (!b) return null;
+  const patch = {};
+  if (Number.isFinite(b.e200) && b.e200 > 0) patch.ema200 = Math.round(b.e200 * 100) / 100;
+  if (Number.isFinite(b.e21) && b.e21 > 0) patch.ema21 = Math.round(b.e21 * 100) / 100;
+  if (Number.isFinite(b.stLine) && b.stLine > 0) patch.supertrend_line = Math.round(b.stLine * 100) / 100;
+  if (Number.isFinite(b.stDir)) patch.supertrend_dir = b.stDir;
+  if (Number.isFinite(b.rsi)) patch.rsi = Math.round(b.rsi * 10) / 10;
+  if (Number.isFinite(b.px)) patch.px = Math.round(b.px * 100) / 100;
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function resolveInvestorHorizonBundles(tickerData) {
+  const wb = { ...(tickerData?.weekly_bundle || {}) };
+  const mb = { ...(tickerData?.monthly_bundle || {}) };
+  if (!(Number.isFinite(wb.ema21) && wb.ema21 > 0)) {
+    const e21 = Number(tickerData?.tf_tech?.W?.ema?.ema21);
+    if (Number.isFinite(e21) && e21 > 0) wb.ema21 = e21;
+  }
+  if (!(Number.isFinite(wb.ema200) && wb.ema200 > 0)) {
+    const e200 = Number(tickerData?.tf_tech?.W?.ema?.ema200);
+    if (Number.isFinite(e200) && e200 > 0) wb.ema200 = e200;
+  }
+  return { wb, mb };
+}
+
 export function generateThesis(tickerData, rsRank = 50) {
-  const mb = tickerData.monthly_bundle;
-  const wb = tickerData.weekly_bundle; // 2026-06-01 — added in indicators.js
+  const { wb, mb } = resolveInvestorHorizonBundles(tickerData);
   const emaW = tickerData.ema_map?.W;
   const tfW = tickerData.tf_tech?.W;
   const ticker = tickerData.ticker || "???";
@@ -1427,6 +1459,76 @@ export function generateThesis(tickerData, rsRank = 50) {
       weeklyST: tfW?.atr?.xs === 1,             // STANDARD convention for atr.xs: +1 = up-cross / bull
       rsRank,
     },
+  };
+}
+
+/**
+ * Pick the single actionable invalidation price for UI/chart overlays.
+ * Prefers the nearest structural floor below live price (Weekly EMA200,
+ * Weekly ST, Monthly ST) within a practical drawdown band.
+ */
+export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalidationStrings = []) {
+  const livePx = Number(tickerData?._live_price || tickerData?.price) || 0;
+  if (!(livePx > 0)) return null;
+
+  const { wb, mb } = resolveInvestorHorizonBundles(tickerData);
+  const ema21W = Number(wb?.ema21 || tickerData?.tf_tech?.W?.ema?.ema21 || tickerData?.ema_map?.W?.ema21);
+  const EXTREME_DD_PCT = 25;
+  const rnd = (v) => Math.round(v * 100) / 100;
+
+  const candidates = [];
+  const add = (price, label, priority) => {
+    const lvl = Number(price);
+    if (!Number.isFinite(lvl) || lvl <= 0 || lvl >= livePx) return;
+    const ddPct = ((livePx - lvl) / livePx) * 100;
+    if (ddPct >= EXTREME_DD_PCT) return;
+    candidates.push({ price: rnd(lvl), label, priority, distancePct: rnd(ddPct) });
+  };
+
+  if (criteria.weeklyAbove200) add(wb?.ema200, "Weekly EMA(200)", 1);
+  if (criteria.weeklyST) add(wb?.supertrend_line, "Weekly SuperTrend", 2);
+  if (criteria.monthlyST) add(mb?.supertrend_line, "Monthly SuperTrend", 3);
+  if (Number.isFinite(ema21W) && ema21W > 0 && ema21W < livePx) {
+    add(ema21W, "Weekly EMA(21)", 4);
+  }
+
+  for (const [horizon, label, priority] of [
+    ["week", "Weekly ATR support", 5],
+    ["day", "Daily ATR support", 6],
+  ]) {
+    const levels = tickerData?.atr_levels?.[horizon]?.levels_dn;
+    if (!Array.isArray(levels)) continue;
+    const nearest = levels
+      .map((l) => ({ price: Number(l.price), tag: l.label }))
+      .filter((l) => Number.isFinite(l.price) && l.price > 0 && l.price < livePx)
+      .sort((a, b) => b.price - a.price)[0];
+    if (nearest) {
+      add(nearest.price, nearest.tag ? `${label} (${nearest.tag})` : label, priority);
+    }
+  }
+
+  candidates.sort((a, b) => a.priority - b.priority || b.price - a.price);
+  const best = candidates[0];
+  if (best) {
+    const estNote = best.label.includes("EMA(200)") && !(Number.isFinite(wb?.ema200) && wb.ema200 > 0)
+      ? " — estimated from available weekly bars"
+      : "";
+    return {
+      price: best.price,
+      label: best.label,
+      distancePct: best.distancePct,
+      condition: `Exit remainder if price closes below $${best.price.toFixed(2)} (${best.label}${estNote})`,
+      invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
+    };
+  }
+
+  const fallback = rnd(livePx * 0.85);
+  return {
+    price: fallback,
+    label: "15% trailing stop",
+    distancePct: 15,
+    condition: `Exit remainder if price closes below $${fallback.toFixed(2)} (15% from current — long-horizon trails too far)`,
+    invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
   };
 }
 
