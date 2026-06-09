@@ -6,7 +6,11 @@ import { loadCalendar, isEquityHoliday, isEquityEarlyClose } from "./market-cale
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
 import { tdFetchQuote } from "./twelvedata.js";
 import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
-import { getCROBriefAddendum, getFSDSynthesisAddendum, ensureCRONoteForBriefCadence } from "./cro/cro-service.js";
+import {
+  getCROBriefAddendum,
+  getFSDSynthesisAddendum,
+  ensureCRONoteForBriefCadenceWithTimeout,
+} from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import {
@@ -3516,14 +3520,38 @@ End with TWO sections:
 ${buildRetailFriendlyOutputSpec("evening")}`;
 }
 
+/** OpenAI wall-clock limits per brief type (evening prompt is larger). */
+const BRIEF_OPENAI_TIMEOUT_MS = {
+  morning: 120_000,
+  evening: 240_000,
+  intraday: 90_000,
+};
+const BRIEF_MAX_COMPLETION_TOKENS = {
+  morning: 5000,
+  evening: 6000,
+  intraday: 1200,
+};
+
+function resolveBriefOpenAiTimeoutMs(env, type = "morning") {
+  const t = String(type || "morning").toLowerCase();
+  const perType = Number(env?.[`DAILY_BRIEF_${t.toUpperCase()}_TIMEOUT_MS`]);
+  if (Number.isFinite(perType) && perType > 0) return perType;
+  const global = Number(env?.DAILY_BRIEF_OPENAI_TIMEOUT_MS);
+  if (Number.isFinite(global) && global > 0) return global;
+  return BRIEF_OPENAI_TIMEOUT_MS[t] || BRIEF_OPENAI_TIMEOUT_MS.morning;
+}
+
 /**
  * Call OpenAI to generate a daily brief.
  * @returns {string} Markdown content
  */
-async function callOpenAI(env, systemPrompt, userPrompt) {
+async function callOpenAI(env, systemPrompt, userPrompt, { type = "morning" } = {}) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
+  const briefType = String(type || "morning").toLowerCase();
+  const timeoutMs = resolveBriefOpenAiTimeoutMs(env, briefType);
+  const maxTokens = BRIEF_MAX_COMPLETION_TOKENS[briefType] || BRIEF_MAX_COMPLETION_TOKENS.morning;
   const model = env?.DAILY_BRIEF_MODEL || "gpt-5.4";
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -3538,9 +3566,9 @@ async function callOpenAI(env, systemPrompt, userPrompt) {
         { role: "user", content: userPrompt },
       ],
       temperature: 0.35,
-      max_completion_tokens: 4000,
+      max_completion_tokens: maxTokens,
     }),
-    signal: AbortSignal.timeout(90000), // 90s timeout for larger model
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!resp.ok) {
@@ -4187,27 +4215,27 @@ export async function generateDailyBrief(env, type, opts = {}) {
   const start = Date.now();
 
   try {
-    // Refresh CRO daily note on the same cadence as this brief so prompts
-    // and the Research Desk panel never show a multi-day-stale synthesis.
-    try {
-      const croSlot = type === "morning" ? "morning" : "evening";
-      const croR = await ensureCRONoteForBriefCadence(env, croSlot);
-      if (croR?.cadence_refresh) {
-        console.log(`[DAILY BRIEF] CRO note refreshed (${croSlot}) note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
-      } else if (croR?.skipped) {
-        console.log(`[DAILY BRIEF] CRO note: ${croR.skipped}`);
-      }
-    } catch (e) {
-      console.warn(`[DAILY BRIEF] CRO cadence refresh failed (${type}):`, String(e?.message || e).slice(0, 200));
+    // CRO refresh runs IN PARALLEL with data gather (was sequential and
+    // added 30-60s before the brief, causing morning cron misses).
+    const croSlot = type === "morning" ? "morning" : "evening";
+    const [data, croR] = await Promise.all([
+      gatherDailyBriefData(env, type, opts),
+      ensureCRONoteForBriefCadenceWithTimeout(env, croSlot, 55_000).catch((e) => ({
+        ok: false,
+        skipped: "cro_refresh_failed",
+        hint: String(e?.message || e).slice(0, 200),
+      })),
+    ]);
+    if (croR?.cadence_refresh) {
+      console.log(`[DAILY BRIEF] CRO note refreshed (${croSlot}) note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
+    } else if (croR?.skipped) {
+      console.log(`[DAILY BRIEF] CRO note: ${croR.skipped}`);
     }
-
-    // 1. Gather data
-    const data = await gatherDailyBriefData(env, type, opts);
     if (data.error) return { ok: false, error: data.error };
 
     // 2. Build prompt and call AI
     const prompt = type === "morning" ? await buildMorningPrompt(data, env) : await buildEveningPrompt(data, env);
-    const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt);
+    const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt, { type });
     if (!content || content.length < 100) {
       // P0.7.154 (2026-05-14) — persist a stub so the operator has a
       // forensic artifact when the brief silently doesn't generate.
@@ -4619,11 +4647,50 @@ export async function cleanupDailyBrief(env) {
 // API Helpers (called from index.js route handlers)
 // ═══════════════════════════════════════════════════════════════════════
 
-/** GET /timed/daily-brief — returns current brief from KV */
+function d1RowToBriefPayload(row) {
+  if (!row?.content) return null;
+  return {
+    id: row.id,
+    date: row.date,
+    type: row.type,
+    content: row.content,
+    esPrediction: row.es_prediction || null,
+    publishedAt: Number(row.published_at) || null,
+    _source: "d1_fallback",
+  };
+}
+
+/** GET /timed/daily-brief — returns current brief from KV with D1 fallback */
 export async function handleGetBrief(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "no_kv" };
   const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
+  const etToday = getETDate();
+  const db = env?.DB;
+
+  if (db) {
+    try {
+      await d1EnsureBriefSchema(env);
+      for (const type of ["morning", "evening"]) {
+        if (current[type]?.content) continue;
+        const row = await db.prepare(
+          `SELECT id, date, type, content, es_prediction, published_at
+             FROM daily_briefs
+            WHERE date = ?1 AND type = ?2
+            ORDER BY published_at DESC LIMIT 1`,
+        ).bind(etToday, type).first();
+        const payload = d1RowToBriefPayload(row);
+        if (payload) {
+          current[type] = payload;
+          // Best-effort rehydrate KV so the next read is fast.
+          kvPutJSON(KV, "timed:daily-brief:current", current).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.warn("[DAILY BRIEF] D1 fallback failed:", String(e?.message || e).slice(0, 200));
+    }
+  }
+
   return { ok: true, brief: current };
 }
 
@@ -4896,16 +4963,18 @@ export async function generateIntradayBrief(env, opts = {}) {
   const start = Date.now();
 
   try {
-    try {
-      const croR = await ensureCRONoteForBriefCadence(env, "intraday");
-      if (croR?.cadence_refresh) {
-        console.log(`[INTRADAY BRIEF] CRO note refreshed note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
-      }
-    } catch (e) {
-      console.warn("[INTRADAY BRIEF] CRO cadence refresh failed:", String(e?.message || e).slice(0, 200));
+    const [data, croR] = await Promise.all([
+      gatherDailyBriefData(env, "intraday", opts),
+      ensureCRONoteForBriefCadenceWithTimeout(env, "intraday", 45_000).catch((e) => ({
+        ok: false,
+        skipped: "cro_refresh_failed",
+        hint: String(e?.message || e).slice(0, 200),
+      })),
+    ]);
+    if (croR?.cadence_refresh) {
+      console.log(`[INTRADAY BRIEF] CRO note refreshed note=${croR.note_id || "?"} ${croR.elapsed_ms || 0}ms`);
     }
 
-    const data = await gatherDailyBriefData(env, "intraday", opts);
     if (data.error) return { ok: false, error: data.error };
 
     const nowET = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
@@ -4964,7 +5033,7 @@ export async function generateIntradayBrief(env, opts = {}) {
     } catch (_) {}
 
     const prompt = await buildIntradayPrompt(data, env);
-    const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt);
+    const content = await callOpenAI(env, INTRADAY_SYSTEM_PROMPT, prompt, { type: "intraday" });
     if (!content || content.length < 50) {
       // P0.7.154 (2026-05-14) — persist a stub so silent intraday-flash
       // failures leave a forensic trail. Same pattern as morning brief.

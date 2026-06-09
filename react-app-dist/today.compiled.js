@@ -161,15 +161,17 @@ async function fetchTickerUniverse() {
 async function fetchBrief() {
   if (CACHE) {
     return CACHE.get(`${API_BASE}/timed/daily-brief`, {
-      ttlMs: 10 * 60 * 1000,
-      maxAgeMs: 12 * 60 * 60 * 1000,
+      ttlMs: 2 * 60 * 1000,
+      maxAgeMs: 5 * 60 * 1000,
       fetchOpts: {
-        credentials: "include"
+        credentials: "include",
+        cache: "no-store"
       }
     });
   }
   const r = await fetch(`${API_BASE}/timed/daily-brief`, {
-    credentials: "include"
+    credentials: "include",
+    cache: "no-store"
   });
   return r.ok ? r.json() : {
     ok: false
@@ -5625,6 +5627,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1780945663308:392991487
+// cache-bust:1781010429431:78296554
 
-// cache-bust:1780945663308:392991487
+// cache-bust:1781010429431:78296554

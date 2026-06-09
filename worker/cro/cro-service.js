@@ -464,6 +464,17 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
  * @param env
  * @param slot {"morning"|"intraday"|"evening"}
  */
+/** Race CRO synthesis against a wall clock so brief generation is not blocked. */
+export async function ensureCRONoteForBriefCadenceWithTimeout(env, slot = "morning", maxWaitMs = 55_000) {
+  const timeoutMs = Math.max(5000, Number(maxWaitMs) || 55_000);
+  return Promise.race([
+    ensureCRONoteForBriefCadence(env, slot),
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ ok: true, skipped: "cro_refresh_timeout", slot }), timeoutMs);
+    }),
+  ]);
+}
+
 export async function ensureCRONoteForBriefCadence(env, slot = "morning") {
   const etToday = getCROEtDate();
   const note = await loadLatestCRONote(env);

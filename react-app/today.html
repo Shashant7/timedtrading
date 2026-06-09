@@ -1605,14 +1605,16 @@
         return Array.isArray(j?.tickers) ? j.tickers : null;
       }
       async function fetchBrief() {
+        // Brief must never sit in a 12h client cache — a failed 9 AM cron
+        // (or 3 AM KV cleanup before regen) would show empty all morning.
         if (CACHE) {
           return CACHE.get(`${API_BASE}/timed/daily-brief`, {
-            ttlMs: 10 * 60 * 1000,
-            maxAgeMs: 12 * 60 * 60 * 1000,
-            fetchOpts: { credentials: "include" },
+            ttlMs: 2 * 60 * 1000,
+            maxAgeMs: 5 * 60 * 1000,
+            fetchOpts: { credentials: "include", cache: "no-store" },
           });
         }
-        const r = await fetch(`${API_BASE}/timed/daily-brief`, { credentials: "include" });
+        const r = await fetch(`${API_BASE}/timed/daily-brief`, { credentials: "include", cache: "no-store" });
         return r.ok ? r.json() : { ok: false };
       }
       async function fetchEarnings() {
