@@ -380,18 +380,26 @@ export async function readVehicleCountersToday(env, userEmail) {
 
 /**
  * Fire the auto-mirror webhook to the broker bridge.
- * The bridge endpoint expects an HMAC-signed POST.
+ *
+ * Contract (must match worker-bridge/bridge-index.js
+ * `requireWebhookSignature` + bridge-crypto.js `hmacVerify`):
+ *   - header `x-bridge-signature`
+ *   - BASE64-encoded HMAC-SHA256 over the raw body
+ *   - main-worker secret name is BROKER_BRIDGE_HMAC_KEY (same value as
+ *     the bridge's BRIDGE_INTERNAL_HMAC_KEY)
+ *
+ * The original implementation used the bridge-side env var name, a hex
+ * digest, and a different header — every call 401'd at the bridge.
  */
 export async function fireAutoMirror(env, userEmail, payload) {
-  const bridgeUrl = env.BRIDGE_URL || "https://tt-broker-bridge.shashant.workers.dev";
-  const hmacKey = env.BRIDGE_INTERNAL_HMAC_KEY;
+  const bridgeUrl = (env.BROKER_BRIDGE_URL || env.BRIDGE_URL || "https://tt-broker-bridge.shashant.workers.dev").replace(/\/$/, "");
+  const hmacKey = env.BROKER_BRIDGE_HMAC_KEY || env.BRIDGE_INTERNAL_HMAC_KEY;
   if (!hmacKey) return { ok: false, error: "missing_hmac_key" };
   const body = JSON.stringify({
     user_id: userEmail,
     ...payload,
     ts: Date.now(),
   });
-  // HMAC-SHA256 over body.
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw", enc.encode(hmacKey),
@@ -399,13 +407,15 @@ export async function fireAutoMirror(env, userEmail, payload) {
     false, ["sign"],
   );
   const sigBuf = await crypto.subtle.sign("HMAC", key, enc.encode(body));
-  const sig = Array.from(new Uint8Array(sigBuf))
-    .map(b => b.toString(16).padStart(2, "0")).join("");
+  let sigStr = "";
+  const sigArr = new Uint8Array(sigBuf);
+  for (let i = 0; i < sigArr.length; i++) sigStr += String.fromCharCode(sigArr[i]);
+  const sig = btoa(sigStr);
   const r = await fetch(`${bridgeUrl}/bridge/options/order`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-TT-Bridge-Signature": sig,
+      "x-bridge-signature": sig,
     },
     body,
   });
