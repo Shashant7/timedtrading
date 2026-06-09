@@ -186,6 +186,19 @@ export default {
       const jwt = extractJwt(request);
       if (jwt) headers.set("CF-Access-JWT-Assertion", jwt);
 
+      // HOTFIX 2026-06-09 — forward API-key auth headers. The P0.3
+      // migration moved internal callers from ?key= query strings (which
+      // this proxy preserved via url.search) to X-API-Key headers (which
+      // this allowlist silently DROPPED). Cron self-fetches route through
+      // the custom domain (wrangler.toml WORKER_URL — workers.dev
+      // self-fetch trips CF error 1042), i.e. through THIS proxy — so
+      // every header-authed self-call 401'd within minutes of the deploy
+      // (brief_accuracy_eval, investor_hourly_compute tombstones).
+      const apiKey = request.headers.get("X-API-Key");
+      if (apiKey) headers.set("X-API-Key", apiKey);
+      const authz = request.headers.get("Authorization");
+      if (authz) headers.set("Authorization", authz);
+
       // Forward content type (important for POST with JSON body)
       const ct = request.headers.get("Content-Type");
       if (ct) headers.set("Content-Type", ct);
