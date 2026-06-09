@@ -550,6 +550,37 @@ with the existing smoke-test skill as the verification gate.
 
 ---
 
+## Implementation status (updated 2026-06-09, same branch)
+
+Shipped on `cursor/full-system-review-0920` in commit order:
+
+| Item | Status | Commit subject |
+|---|---|---|
+| P0.1 calibration route auth | DONE | Security P0.1: require key-or-admin auth on all calibration routes |
+| P0.2 fail-closed JWT + 6 regression tests | DONE | Security P0.2: fail-closed CF Access JWT verification |
+| P0.3 header API key + internal-caller migration | DONE | Security P0.3 + P0.3b (all worker self-fetches off `?key=`) |
+| P0.4 ADMIN_ONLY_PAGES completion | DONE | calibration / simulation-dashboard / bridge-audit / move-discovery |
+| P0.5 bridge HMAC contract fix | DONE | options auto-mirror header/encoding/env-var corrected |
+| P0.6 server-side tier gating + WS tickets | DONE | /timed/all (4 paths), /timed/prices, /timed/investor/scores, /timed/latest, /timed/ws + /timed/ws-ticket |
+| P0.7 LLM-HTML sanitization | DONE | DOMPurify + escape-first formatting on brief/CRO/chat/sim pages |
+| P1.7 CI: tests gate deploy, bridge deploy wf, post-deploy smoke | DONE | test.yml + deploy-bridge.yml + smoke steps |
+| R5/R6 external watchdog + unified health | DONE | watchdog.yml + cronTickAgeMin/cronFailures on /timed/health |
+| P1.9 CIO memory integrity (4 fixes) | DONE | live Layer-5 preload, Loop-2 override memory, ref_trade_id attribution, nightly backfill |
+
+**Operator actions required after merge:**
+1. Rotate `TIMED_API_KEY` in BOTH worker envs (old key appeared in URLs/logs), update any personal scripts to send `X-API-Key`, then set `ALLOW_QUERY_API_KEY=false`.
+2. Optionally add repo secret `DISCORD_SYSTEM_WEBHOOK_URL` so the external watchdog pages Discord (red-run emails work without it).
+3. Watch the first nightly `cio_outcome_backfill` tombstone in MC.
+
+**Next up (not yet started):** P1.8 structural self-fetch elimination
+(extract investor compute/rebalance into directly-callable functions),
+P2 monolith decomposition (tt-feed → tt-research → tt-engine),
+P3 learning_proposals apply bus + accuracy-scaled CIO authority +
+automated profile builds, P4 strategy items (capital-aware book risk,
+correlation guard, equity-curve breaker, confluence wiring).
+
+---
+
 ## Appendix — audit method
 
 Four parallel deep-exploration passes (reliability/cron, AI+learning,
