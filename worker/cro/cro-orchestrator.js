@@ -286,6 +286,14 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     summary.errors.push(`cro_daily_refresh_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  // Always refresh the public Research Desk KV cache — even when no new pubs
+  // were ingested this tick (operator reported stale Today feed).
+  try {
+    summary.research_feed = await refreshResearchFeedKv(env);
+  } catch (e) {
+    summary.errors.push(`research_feed_refresh_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
   await notifyPendingReviewDigest(env).catch(() => {});
   summary.elapsed_ms = Date.now() - t0;
   await writeTombstone(env, summary).catch(() => {});
@@ -494,11 +502,15 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     summary.errors.push(`cro_daily_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  try {
+    summary.research_feed = await refreshResearchFeedKv(env);
+  } catch (e) {
+    summary.errors.push(`research_feed_refresh_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
   await notifyPendingReviewDigest(env).catch(() => {});
   summary.elapsed_ms = Date.now() - t0;
   await writeTombstone(env, summary).catch(() => {});
-
-  await writeTombstone(env, summary);
 
   // Best-effort Discord notification on critical failures. We notify if
   // EITHER the CRO daily synthesis failed OR FSD ingestion failed with a
@@ -590,9 +602,21 @@ export async function runCROProbe(env) {
 // major step. Operator's window into the orchestrator without admin auth
 // — even when later steps fail or get killed by CPU limits, the previous
 // steps' health is visible. 7-day TTL.
+export async function refreshResearchFeedKv(env) {
+  const { buildPublicFSDFeed } = await import("./influence-ledger.js");
+  const feed = await buildPublicFSDFeed(env, { limit: 50, lookbackHours: 7 * 24 });
+  return {
+    ok: !!feed.ok,
+    count: feed.count || 0,
+    kv_sync: feed.kv_sync || null,
+    error_kind: feed.error_kind || null,
+  };
+}
+
 async function writeTombstone(env, summary) {
   try {
-    if (!env?.KV) return;
+    const KV = env?.KV_TIMED || env?.KV;
+    if (!KV) return;
     const tombstone = {
       started_at: summary.started_at,
       finished_at: Date.now(),
@@ -634,7 +658,7 @@ async function writeTombstone(env, summary) {
       } : null,
       errors: Array.isArray(summary.errors) ? summary.errors.slice(0, 8) : [],
     };
-    await env.KV.put("timed:cro:last_summary", JSON.stringify(tombstone), { expirationTtl: 7 * 24 * 3600 });
+    await KV.put("timed:cro:last_summary", JSON.stringify(tombstone), { expirationTtl: 7 * 24 * 3600 });
   } catch (e) {
     // Log but never block the cycle on tombstone write
     try { console.warn("[CRO TOMBSTONE] write failed:", String(e?.message || e).slice(0, 200)); } catch (_) {}

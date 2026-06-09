@@ -3671,7 +3671,7 @@ End with TWO sections:
 ${buildRetailFriendlyOutputSpec("evening")}`;
 }
 
-/** OpenAI wall-clock limits per brief type (evening prompt is larger). */
+/** OpenAI wall-clock limits per brief type (evening prompt is ~2× morning). */
 const BRIEF_OPENAI_TIMEOUT_MS = {
   morning: 120_000,
   evening: 240_000,
@@ -4424,6 +4424,96 @@ function extractBriefLead(content) {
   return text.length >= 40 ? text.slice(0, 320) : null;
 }
 
+/** Discord + in-app + email side effects (non-blocking for cron). */
+async function dispatchDailyBriefNotifications(env, {
+  type,
+  data,
+  content,
+  esPrediction,
+  spyPrediction,
+  qqqPrediction,
+  iwmPrediction,
+  infographic,
+  opts = {},
+}) {
+  if (opts.notifyDiscord) {
+    const embed = buildDiscordBriefEmbed(
+      type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic,
+    );
+    await opts.notifyDiscord(env, embed, "general").catch((e) =>
+      console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100)),
+    );
+  }
+
+  if (opts.d1InsertNotification) {
+    const notifBody = spyPrediction || esPrediction
+      || `${type === "morning" ? "Morning" : "Evening"} brief published.`;
+    await opts.d1InsertNotification(env, {
+      email: null,
+      type: "daily_brief",
+      title: `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
+      body: notifBody,
+      link: "/daily-brief.html",
+    }).catch(() => {});
+  }
+
+  const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
+  let _emailReport = { ok: false, recipients: 0, sent: 0, failed: 0, reason: "not_attempted" };
+  try {
+    const optedInUsers = await getEmailOptedInUsers(env, prefKey);
+    _emailReport.recipients = optedInUsers.length;
+    if (!optedInUsers.length) {
+      _emailReport.reason = "no_opted_in_users";
+      console.log(`[DAILY BRIEF] ${prefKey} emails: 0 recipients — nobody is currently opted in to this brief`);
+    } else {
+      const briefPayload = { type, content, date: data.today, esPrediction, infographic };
+      const results = await Promise.allSettled(
+        optedInUsers.map((u) => sendDailyBriefEmail(env, u.email, briefPayload)),
+      );
+      const sent = results.filter((r) => r.status === "fulfilled" && r.value?.ok).length;
+      const failed = results.length - sent;
+      _emailReport.sent = sent;
+      _emailReport.failed = failed;
+      _emailReport.ok = sent > 0 && failed === 0;
+      _emailReport.reason = sent > 0 ? (failed === 0 ? "ok" : "partial_failure") : "all_failed";
+      const failures = [];
+      for (let i = 0; i < results.length && failures.length < 5; i++) {
+        const r = results[i];
+        const u = optedInUsers[i];
+        if (r.status === "rejected") {
+          failures.push({ to: u?.email, error: String(r.reason).slice(0, 200) });
+        } else if (r.value && !r.value.ok) {
+          failures.push({
+            to: u?.email,
+            error: r.value.error || "unknown",
+            details: r.value.details ? String(r.value.details).slice(0, 300) : undefined,
+          });
+        }
+      }
+      if (failures.length) _emailReport.failure_samples = failures;
+      console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);
+    }
+  } catch (e) {
+    _emailReport.reason = "exception";
+    _emailReport.error = String(e?.message || e).slice(0, 200);
+    console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
+  }
+  try {
+    const snap = {
+      type,
+      prefKey,
+      date: data?.today || null,
+      finishedAt: Date.now(),
+      ..._emailReport,
+    };
+    await env?.KV_TIMED?.put(`timed:email:daily_brief:lastrun:${type}`, JSON.stringify(snap), {
+      expirationTtl: 30 * 24 * 3600,
+    });
+  } catch (e) {
+    console.warn("[DAILY BRIEF] failed to persist email lastrun snapshot:", String(e?.message || e).slice(0, 120));
+  }
+}
+
 export async function generateDailyBrief(env, type, opts = {}) {
   const KV = env?.KV_TIMED;
   const db = env?.DB;
@@ -4748,103 +4838,23 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const elapsed = Date.now() - start;
     console.log(`[DAILY BRIEF] ${type} brief generated in ${elapsed}ms (${content.length} chars)`);
 
-    // 8. Send Discord notification (structured embed)
-    if (opts.notifyDiscord) {
-      // Pass infographic so topThree/closingLine appear in the description.
-      const embed = buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic);
-      await opts.notifyDiscord(env, embed, "general").catch(e =>
-        console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100))
-      );
-    }
+    // Discord / in-app / email run fire-and-forget — KV + D1 are already
+    // committed. Evening brief email blasts must not extend cron wall time.
+    dispatchDailyBriefNotifications(env, {
+      type,
+      data,
+      content,
+      esPrediction,
+      spyPrediction,
+      qqqPrediction,
+      iwmPrediction,
+      infographic,
+      opts,
+    }).catch((e) =>
+      console.warn("[DAILY BRIEF] notification dispatch failed:", String(e?.message || e).slice(0, 150)),
+    );
 
-    // 9. In-app notification (broadcast to all users)
-    if (opts.d1InsertNotification) {
-      // P0.7.129 — prefer the SPY prediction (broadest reach) for the
-      // notification body. Falls back to ES, then a generic message.
-      const notifBody = spyPrediction || esPrediction
-        || `${type === "morning" ? "Morning" : "Evening"} brief published.`;
-      await opts.d1InsertNotification(env, {
-        email: null, type: "daily_brief",
-        title: `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
-        body: notifBody,
-        link: "/daily-brief.html",
-      }).catch(() => {});
-    }
-
-    // 10. Email daily brief to opted-in users
-    const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
-    // 2026-05-21 — Observability. The user reported "I haven't received the
-    // Daily Brief via email in a few days." Without runtime access there's
-    // no way to tell whether (a) the cron never fired, (b) the recipient
-    // set was empty, or (c) SendGrid rejected. Stash a compact snapshot of
-    // the last send attempt in KV so the admin Mission Control / Email
-    // Diagnostic endpoint can show exactly what happened and when.
-    let _emailReport = { ok: false, recipients: 0, sent: 0, failed: 0, reason: "not_attempted" };
-    try {
-      const optedInUsers = await getEmailOptedInUsers(env, prefKey);
-      _emailReport.recipients = optedInUsers.length;
-      if (!optedInUsers.length) {
-        _emailReport.reason = "no_opted_in_users";
-        console.log(`[DAILY BRIEF] ${prefKey} emails: 0 recipients — nobody is currently opted in to this brief`);
-      } else {
-        // 2026-04-23: pass the structured infographic snapshot so the email
-        // renders the same Today's-Three / headline badges / index cards /
-        // events / risks / closing-line treatment as the web Daily Brief.
-        const briefPayload = { type, content, date: data.today, esPrediction, infographic };
-        const results = await Promise.allSettled(
-          optedInUsers.map(u => sendDailyBriefEmail(env, u.email, briefPayload))
-        );
-        const sent = results.filter(r => r.status === "fulfilled" && r.value?.ok).length;
-        const failed = results.length - sent;
-        _emailReport.sent = sent;
-        _emailReport.failed = failed;
-        _emailReport.ok = sent > 0 && failed === 0;
-        _emailReport.reason = sent > 0 ? (failed === 0 ? "ok" : "partial_failure") : "all_failed";
-        // Capture up to 5 failure reasons so the admin can spot bad emails
-        // / sendgrid rejects without grepping logs. Include `details`
-        // (SendGrid response body, first 300 chars) so a 401 can be
-        // distinguished between "key revoked" / "scope missing" /
-        // "from address unverified" without needing wrangler tail.
-        const failures = [];
-        for (let i = 0; i < results.length && failures.length < 5; i++) {
-          const r = results[i];
-          const u = optedInUsers[i];
-          if (r.status === "rejected") {
-            failures.push({ to: u?.email, error: String(r.reason).slice(0, 200) });
-          } else if (r.value && !r.value.ok) {
-            failures.push({
-              to: u?.email,
-              error: r.value.error || "unknown",
-              details: r.value.details ? String(r.value.details).slice(0, 300) : undefined,
-            });
-          }
-        }
-        if (failures.length) _emailReport.failure_samples = failures;
-        console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);
-      }
-    } catch (e) {
-      _emailReport.reason = "exception";
-      _emailReport.error = String(e?.message || e).slice(0, 200);
-      console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
-    }
-    // Persist the last-run snapshot. Admin endpoint reads this to render
-    // a "Daily Brief Email Health" panel without needing tail access.
-    try {
-      const snap = {
-        type, prefKey, date: data?.today || null,
-        finishedAt: Date.now(),
-        ..._emailReport,
-      };
-      await env?.KV_TIMED?.put(`timed:email:daily_brief:lastrun:${type}`, JSON.stringify(snap), {
-        // Keep a month of history for the admin panel (overwritten on every
-        // run, but TTL guards against an indefinitely-stuck stale value).
-        expirationTtl: 30 * 24 * 3600,
-      });
-    } catch (e) {
-      console.warn("[DAILY BRIEF] failed to persist email lastrun snapshot:", String(e?.message || e).slice(0, 120));
-    }
-
-    return { ok: true, id: briefId, elapsed, chars: content.length, email: _emailReport };
+    return { ok: true, id: briefId, elapsed, chars: content.length, notifications: "async" };
   } catch (e) {
     console.error(`[DAILY BRIEF] ${type} generation failed:`, String(e).slice(0, 300));
     return { ok: false, error: String(e).slice(0, 200) };
