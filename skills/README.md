@@ -24,6 +24,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | New page failing to load OR blank-screen JSX bug | [frontend-build.md](frontend-build.md) |
 | Touching paywall, auth-gate, Stripe webhook, or any Pro-gated UI | [user-state-matrix.md](user-state-matrix.md) |
 | Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
+| Cron tombstones / missed trims / CIO shadow vs live mismatch | [scoring-cron-cio-recovery.md](scoring-cron-cio-recovery.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
 
 ## When to ADD a new skill
