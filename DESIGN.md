@@ -327,12 +327,67 @@ components:
 > custom properties (Ink `#0B1410` / Bark `#13201A` / Moss `#1F3128` /
 > Mint `#38F2A1` / Cream / Sage) plus a minimal `vf-*` component set
 > (`vf-btn`, `vf-card`, `vf-tabs`, `vf-badge`, `vf-stat`, `vf-divider`,
-> `vf-display`) and the Manrope display face. **today.html is the first
-> migrated page** — it re-points its page-local `--tt-*` / `--ds-*`
-> values at the Verda palette (no `vf-*` classes mixed in). Carried
-> trading rules: `success`/`danger` data colors and JetBrains-Mono
-> numerals are unchanged; Mint is the CTA/brand accent only and is NEVER
-> used as a "price up" color.
+> `vf-display`) and the Manrope display face. **Site-wide migration is
+> COMPLETE** — see the tracker in `skills/verda-ui-migration.md`.
+> today.html, active-trader.html, and investor.html carry the full
+> page-local `:root` repoint (the deepest treatment); all other pages
+> migrate via `body.vf-page` cascade overrides. Carried trading rules:
+> `success`/`danger` data colors and JetBrains-Mono numerals are
+> unchanged; Mint is the CTA/brand accent only and is NEVER used as a
+> "price up" color.
+
+## Verda canonical page patterns (normative for journey pages)
+
+Every journey page (today, active-trader, investor, portfolio, insights)
+composes from FOUR patterns. All four ship as shared classes in
+`react-app/tt-tokens.css` — never re-invent them per page.
+
+**1. Tier-1 status header** — page identity strip at the top.
+
+```jsx
+<section class="tt-status tt-row">
+  <div>
+    <div class="label">TODAY</div>            {/* eyebrow */}
+    <div class="greeting">Manrope headline</div>
+    <div class="date">subline</div>
+  </div>
+  <div class="session">{/* .tt-pill session/state pills */}</div>
+</section>
+```
+
+**2. Section card** — eyebrow + Manrope headline on a bark surface.
+
+```jsx
+<section class="tt-card tt-card-pad tt-row">
+  <div class="tt-sec-title">SECTION EYEBROW — SUBLABEL</div>
+  <div class="tt-sec-h">What this section says</div>
+  {/* body */}
+</section>
+```
+
+**3. Progressive disclosure** — anything instructional or secondary is
+collapsed by default (`<details class="tt-disclose">`, open state
+persisted in localStorage). Never ship a default-open explainer wall.
+
+```jsx
+<details class="tt-disclose" open={open} onToggle={...}>
+  <summary>
+    <span class="tt-disclose-title">Title</span>
+    <span class="tt-disclose-sub">one-line subcopy</span>
+    <span class="tt-disclose-caret">▼</span>
+  </summary>
+  <div class="tt-disclose-body">{/* content */}</div>
+</details>
+```
+
+**4. Surfaces & radii** — solid Verda fills only (Ink page → Bark cards →
+Bark-hi tiles); card radius `var(--vf-radius-md, 18px)`; KPI tiles 10px;
+borders are 1px Moss. No alpha-overlay surfaces, no gradients on data
+surfaces.
+
+Typography pairing: eyebrows are Inter 11px uppercase `0.10em`; headlines
+are Manrope 800 (`--tt-font-display`); every comparable number is
+JetBrains Mono.
 
 ## Overview
 
