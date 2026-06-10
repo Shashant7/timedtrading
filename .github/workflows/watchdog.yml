@@ -89,6 +89,16 @@ jobs:
               if [ "$FEEDAGE" != "null" ] && [ "$FEEDAGE" -gt 600 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during RTH."
               fi
+              # 2026-06-10 (SMCI incident) — PER-SYMBOL staleness. The
+              # global age was fresh while 29 symbols served 5-day-old
+              # prices. The feed's stale sweep self-heals; symbols that
+              # survive it surface in staleSymbolCount — alarm when more
+              # than a handful stay stale during RTH.
+              STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
+              if [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 5 ]; then
+                STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
+              fi
               # Scoring staleness — REQUIRED once the */5 trade path moves
               # to the dedicated tt-engine worker (Step 3 role split): the
               # monolith's */1 keeps the generic heartbeat fresh, so a dead

@@ -493,12 +493,84 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           } catch (_) {}
         }
 
+        // ── 2026-06-10 — PER-SYMBOL STALE SWEEP (SMCI incident) ────────────
+        // A VIP user caught SMCI displayed at $41.64 while the real price
+        // was $29.27: its KV entry was 5.4 DAYS old. Census showed 29
+        // symbols frozen at the same moment — the AlpacaStream DO wasn't
+        // ticking them, the REST fallback only fires when prices are
+        // GLOBALLY stale (>3 min for the whole blob), and every per-symbol
+        // failure path is a silent `continue`. The KV merge then preserved
+        // the corpse forever. Every health signal is global, so 29 stale
+        // symbols among 260 fresh ones alarmed nothing.
+        //
+        // This sweep makes per-symbol staleness self-healing: any symbol
+        // whose trade timestamp is >30 min old during the full pipeline
+        // gets a targeted REST snapshot refresh (capped per run to bound
+        // API credits). Symbols that STILL fail are surfaced in the KV
+        // blob (stale_symbols) so /timed/health + the watchdog can alarm
+        // instead of staying silent.
+        let _stillStale = [];
+        try {
+          const _sweepNow = Date.now();
+          const STALE_SWEEP_MS = 30 * 60 * 1000;
+          const SWEEP_CAP = 48;
+          const _staleList = allTickers.filter((sym) => {
+            const e = prices[sym];
+            if (!e) return true;
+            const t = Number(e.t) || 0;
+            return (_sweepNow - t) > STALE_SWEEP_MS;
+          });
+          if (_staleList.length > 0) {
+            const _sweepSyms = _staleList.slice(0, SWEEP_CAP);
+            const _sweepRes = await deps.dataFetchSnapshots(env, _sweepSyms);
+            const _sweepSnaps = _sweepRes?.snapshots || {};
+            let _healed = 0;
+            for (const sym of _sweepSyms) {
+              const snap = _sweepSnaps[sym];
+              const price = Number(snap?.dailyClose || snap?.price) || 0;
+              if (!(price > 0)) continue;
+              const pc = Number(snap.prevDailyClose) || 0;
+              const prev = prices[sym] || {};
+              const nativeDc = Number(snap.change);
+              const nativeDp = Number(snap.percentChange);
+              prices[sym] = {
+                ...prev,
+                p: Math.round(price * 100) / 100,
+                pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
+                dc: (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
+                  : (pc > 0 ? Math.round((price - pc) * 100) / 100 : (prev.dc ?? 0)),
+                dp: (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
+                  : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : (prev.dp ?? 0)),
+                dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
+                dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
+                dv: snap.dailyVolume || prev.dv || 0,
+                t: snap.trade_ts || _sweepNow,
+              };
+              _healed++;
+            }
+            _stillStale = _staleList.filter((sym) => {
+              const e = prices[sym];
+              return !e || (_sweepNow - (Number(e.t) || 0)) > STALE_SWEEP_MS;
+            });
+            console.warn(
+              `[PRICE FEED] STALE SWEEP: ${_staleList.length} symbols >30m stale, refreshed ${_healed}/${_sweepSyms.length}` +
+              (_stillStale.length > 0 ? ` — STILL STALE (${_stillStale.length}): ${_stillStale.slice(0, 12).join(", ")}` : ""),
+            );
+          }
+        } catch (e) {
+          console.warn("[PRICE FEED] stale sweep error:", String(e?.message || e).slice(0, 200));
+        }
+
         const priceUpdateTs = Date.now();
         await kvPutJSON(KV, "timed:prices", {
           prices,
           updated_at: priceUpdateTs,
           ticker_count: Object.keys(prices).length,
           _source: pricesSource,
+          // Symbols that survived the stale sweep un-healed — the health
+          // endpoint + watchdog surface these (count + samples).
+          stale_symbols: _stillStale.slice(0, 30),
+          stale_symbol_count: _stillStale.length,
         });
         ctx.waitUntil(deps.notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
 
