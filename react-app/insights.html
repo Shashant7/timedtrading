@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -102,7 +102,38 @@
         border-radius: 14px;
         margin-bottom: 24px;
       }
-      .ins-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .ins-hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
+      /* Progressive-disclosure sections (Beat 3 — context on demand).
+         Mirrors today.html's tt-disclose pattern. */
+      .ins-disclose { margin-bottom: 18px; }
+      .ins-disclose > summary {
+        list-style: none;
+        display: flex; align-items: center; gap: 10px;
+        cursor: pointer; user-select: none;
+        padding: 12px 16px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+        transition: border-color .12s, background .12s;
+      }
+      .ins-disclose > summary::-webkit-details-marker { display: none; }
+      .ins-disclose > summary:hover { border-color: var(--tt-border-hi); background: var(--tt-bg-elev); }
+      .ins-disclose-title {
+        font-family: var(--tt-font-display, "Manrope", sans-serif);
+        font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em;
+        color: var(--tt-text);
+      }
+      .ins-disclose-sub { font-size: 11.5px; color: var(--tt-text-dim); }
+      .ins-disclose-caret { margin-left: auto; color: var(--tt-text-dim); font-size: 11px; transition: transform .15s ease; }
+      .ins-disclose[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+      .ins-disclose[open] > summary .ins-disclose-caret { transform: rotate(180deg); }
+      .ins-disclose-body {
+        border: 1px solid var(--tt-border); border-top: 0;
+        border-bottom-left-radius: var(--vf-radius-md, 18px);
+        border-bottom-right-radius: var(--vf-radius-md, 18px);
+        padding: 14px 14px 6px;
+        background: rgba(19,32,26,0.45);
+      }
       .ins-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .ins-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
       @media (max-width: 720px) {
@@ -1652,6 +1683,36 @@
         );
       }
 
+      // ── Disclosure — progressive-disclosure section wrapper ────
+      // 2026-06-10 — same pattern as today.html: deep context panels sit
+      // behind a one-line header (collapsed by default, localStorage-
+      // persisted, lazy-mounted) so the page reads numbers-first instead
+      // of as a wall of stacked panels. Operator: "Insights is an
+      // undervalued page and could use sprucing up so users can better
+      // digest it."
+      function Disclosure({ id, title, sub, defaultOpen = false, children }) {
+        const storageKey = `tt-insights-disclose:${id}`;
+        const [open, setOpen] = useState(() => {
+          try {
+            const v = window.localStorage.getItem(storageKey);
+            return v == null ? defaultOpen : v === "1";
+          } catch { return defaultOpen; }
+        });
+        const onToggle = (e) => {
+          const isOpen = !!e.currentTarget.open;
+          setOpen(isOpen);
+          try { window.localStorage.setItem(storageKey, isOpen ? "1" : "0"); } catch {}
+        };
+        return h("details", { className: "ins-disclose", open, onToggle },
+          h("summary", null,
+            h("span", { className: "ins-disclose-title" }, title),
+            sub && h("span", { className: "ins-disclose-sub" }, sub),
+            h("span", { className: "ins-disclose-caret" }, "▼"),
+          ),
+          open ? h("div", { className: "ins-disclose-body" }, children) : null,
+        );
+      }
+
       function InsightsApp() {
         const [allMeta, setAllMeta] = useState(null);
         const [history, setHistory] = useState(null);
@@ -1703,35 +1764,28 @@
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Insights" }),
           h("main", null,
+            // 2026-06-10 — Digestible reorder. The page now reads in three
+            // beats instead of six stacked walls:
+            //   1. Hero + the NUMBERS (ModelStatus KPIs) — the headline
+            //      question "how is the model doing?" answered first.
+            //   2. The actionable core — CIO watchlist + setup breakdown.
+            //   3. Context, collapsed — strategy playbook, research note,
+            //      stretched names, universe changes (open on demand,
+            //      state remembered).
             h("section", { className: "ins-hero" },
               h("div", null,
                 h("div", { className: "label" }, "INSIGHTS"),
                 h("h1", null, "System Intelligence"),
                 h("div", { className: "sub" },
-                  "How the model is performing under the hood. The engine analyses each setup type and learns from outcomes; this page surfaces a high-level view. ",
-                  "Every closed trade contributes back to the AI CIO's weekly retrospective — patterns that work get more weight, patterns that don't get tightened.",
+                  "How the model is performing under the hood — and what it is learning. ",
+                  "Every closed trade feeds the AI CIO's retrospective: patterns that work get more weight, patterns that don't get tightened.",
                 ),
               ),
             ),
-            // 2026-05-30 — Active Strategy panel (FSD 2026 playbook).
-            // Renders first so users immediately understand the framing
-            // the AI CIO and Daily Brief are working from.
-            h(ActiveStrategyPanel, { data: strategy }),
-            // 2026-06-04 — Research Desk daily read + concept education,
-            // surfaced to users in TT voice right under the playbook.
-            h(ResearchNotePanel, { note: croNote, education }),
+            // Beat 1 — the numbers.
             h(ModelStatus, { allMeta, history, summary }),
-            // User feedback: AI CIO commentary should NOT duplicate
-            // the Daily Brief. Render a CIO-specific watchlist
-            // instead — active board + what's being watched + what
-            // the model has learned from the breakdown. The Daily
-            // Brief stays accessible from Today / Learn pages.
+            // Beat 2 — the actionable core.
             h(CIOWatchlist, { allMeta, summary, history }),
-            // 2026-06-02 — Stretched names = exhausted-momentum tickers
-            // the auto-rebalance is NOT adding to. Surfaced right after
-            // the CIO watchlist (which says what IS being added) so the
-            // user sees both sides of the conviction map.
-            h(StretchedNamesPanel, { apiBase: API_BASE }),
             h("section", { className: "tt-row" },
               h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 } },
                 h("div", { className: "tt-sec-title" }, "VIEW"),
@@ -1745,9 +1799,29 @@
             history !== null
               ? h(SetupBreakdown, { history, dim })
               : h("div", { className: "sk", style: { height: 280, borderRadius: 12 } }),
-            universeChanges !== null
+            // Beat 3 — context on demand.
+            h(Disclosure, {
+              id: "strategy",
+              title: "Active Strategy Playbook",
+              sub: "the FSD-informed framing the AI CIO + Daily Brief work from",
+            }, h(ActiveStrategyPanel, { data: strategy })),
+            h(Disclosure, {
+              id: "research-note",
+              title: "Research Desk Daily Read",
+              sub: "CRO note in TT voice + concept education",
+            }, h(ResearchNotePanel, { note: croNote, education })),
+            h(Disclosure, {
+              id: "stretched",
+              title: "Stretched Names",
+              sub: "exhausted-momentum tickers the auto-rebalance is NOT adding",
+            }, h(StretchedNamesPanel, { apiBase: API_BASE })),
+            h(Disclosure, {
+              id: "universe",
+              title: "Universe Changes",
+              sub: "tickers added / removed and why",
+            }, universeChanges !== null
               ? h(UniverseChanges, { events: universeChanges })
-              : h("div", { className: "sk", style: { height: 180, borderRadius: 12 } }),
+              : h("div", { className: "sk", style: { height: 120, borderRadius: 12 } })),
             error && h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-dn-soft)" } },
               "Couldn't load some data: " + error,
             ),
