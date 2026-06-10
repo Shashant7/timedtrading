@@ -31365,13 +31365,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 17.6733
+        "sql_duration_ms": 40.0751
       },
-      "duration": 17.6733,
+      "duration": 40.0751,
       "changes": 0,
-      "last_row_id": 52910571,
+      "last_row_id": 37837,
       "changed_db": false,
-      "size_after": 3966697472,
+      "size_after": 3819339776,
       "rows_read": 3484,
       "rows_written": 0,
       "total_attempts": 1
