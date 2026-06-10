@@ -100,11 +100,16 @@ styling, or root `DESIGN.md`.
 | portfolio.html | **DONE 2026-06-10** (vf-page; equity-curve data colors kept) |
 | insights.html | **DONE 2026-06-10** (vf-page + gold→mint inline sweeps) |
 | learn.html / faq.html / proof.html / terms.html | **DONE 2026-06-10** (vf-page; proof got tokens link + full `:root` retheme; serif headings → Manrope 700/800) |
-| daily-brief.html | **PARTIAL 2026-06-10** (vf-page + nav/loader/accent; ~100 Tailwind arbitrary greys remain — dedicated sweep PR) |
+| daily-brief.html | **DONE 2026-06-10** (vf-page + full grey/teal sweep — Tailwind arbitrary greys remapped to Verda neutrals) |
 | research-desk.html | **DONE 2026-06-10** (vf-page + declutter: collapses, ledger cap) |
 | mission-control.html | **DONE 2026-06-10** (vf-page + declutter: McCollapse sub-accordions) |
-| shared nav + right rail + bottom nav | LAST — single dedicated PR (rail inherits `--ds-*` overrides via vf-page already) |
-| admin pages (system-intelligence, screener, ticker-management, …) | remaining — add `vf-page` + Manrope per page |
+| shared nav + right rail + bottom nav + activity strip + global search | **DONE 2026-06-10** (chrome hex sweep: Ink bg, Verda neutrals, gold→mint; data colors — candles, up/dn, lane stages — untouched) |
+| investor-panel.js / trades-performance.js | **DONE 2026-06-10** (same chrome sweep) |
+| admin pages (system-intelligence, screener, ticker-management, calibration, alerts, trade-autopsy, investor-dashboard, model-dashboard, debug-dashboard, brand-kit, admin-clients, simulation-dashboard, index-react) | **DONE 2026-06-10** (vf-page + Manrope mechanical pass) |
+
+**Migration COMPLETE 2026-06-10** — every page that links `tt-tokens.css`
+now carries `vf-page` (or its own Verda `:root` in today/proof). Future
+pages: add `class="vf-page"` to `<body>` + Manrope font + use tokens.
 
 ## How to verify
 
