@@ -1320,7 +1320,9 @@ function OpenPositionsPreview({
             const j = traderJ;
             if (j?.ok && Array.isArray(j.trades)) {
               for (const t of j.trades) {
-                const key = `T:${String(t?.ticker || "").toUpperCase()}`;
+                const sym = String(t?.ticker || "").toUpperCase();
+                const tid = String(t?.trade_id || t?.tradeId || t?.id || "").trim();
+                const key = tid ? `T:${tid}` : `T:${sym}:${Number(t?.entry_ts || t?.entryTs || 0)}`;
                 if (seen.has(key)) continue;
                 seen.add(key);
                 all.push({
@@ -4827,6 +4829,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781096909956:652419840
+// cache-bust:1781097478268:837507007
 
-// cache-bust:1781096909956:652419840
+// cache-bust:1781097478268:837507007
