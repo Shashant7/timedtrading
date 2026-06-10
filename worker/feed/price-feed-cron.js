@@ -512,7 +512,15 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         let _stillStale = [];
         try {
           const _sweepNow = Date.now();
-          const STALE_SWEEP_MS = 30 * 60 * 1000;
+          // 2026-06-10 v2 — SESSION-AWARE threshold. v1 used a flat 30 min,
+          // which after the close flagged the ENTIRE universe (last trades
+          // are hours old once RTH ends — live probe showed 244 "stale"
+          // symbols at 23:30 UTC). Market open: 30 min is real staleness.
+          // Market closed: only a trade timestamp older than 26 HOURS is a
+          // corpse (normal overnight age is ≤ ~18h; 26h spans a full
+          // session + overnight without false-flagging weekends' first
+          // ticks either, since the sweep just re-confirms them cheaply).
+          const STALE_SWEEP_MS = _marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
           const SWEEP_CAP = 48;
           const _staleList = allTickers.filter((sym) => {
             const e = prices[sym];
@@ -521,6 +529,13 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             return (_sweepNow - t) > STALE_SWEEP_MS;
           });
           if (_staleList.length > 0) {
+            // 2026-06-10 v2 — OLDEST FIRST. v1 sliced the list in stable
+            // universe order, so with more stale symbols than the cap the
+            // sweep churned the same head every run and never reached the
+            // worst corpses (SMCI sat 5.4 days stale behind ~100
+            // fresher entries). The most-stale symbols are the most
+            // user-visible damage — heal them first.
+            _staleList.sort((a, b) => (Number(prices[a]?.t) || 0) - (Number(prices[b]?.t) || 0));
             const _sweepSyms = _staleList.slice(0, SWEEP_CAP);
             const _sweepRes = await deps.dataFetchSnapshots(env, _sweepSyms);
             const _sweepSnaps = _sweepRes?.snapshots || {};
