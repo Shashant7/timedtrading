@@ -2455,8 +2455,9 @@
           return h;
         }, []);
 
-        const hasMorning = brief?.morning?.content;
-        const hasEvening = brief?.evening?.content;
+        const todayEtKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        const hasMorning = brief?.morning?.content && String(brief.morning.date || "") === todayEtKey;
+        const hasEvening = brief?.evening?.content && String(brief.evening.date || "") === todayEtKey;
         const today = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
         return (

@@ -1340,6 +1340,33 @@
           return new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "America/New_York" });
         } catch { return new Date().toDateString(); }
       }
+      function nyEtDateKey() {
+        try {
+          return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        } catch { return ""; }
+      }
+      function nyEtMinutes() {
+        try {
+          const parts = new Intl.DateTimeFormat("en-US", {
+            timeZone: "America/New_York", hour: "numeric", minute: "numeric", hour12: false,
+          }).formatToParts(new Date());
+          const hh = Number(parts.find((p) => p.type === "hour")?.value || 0);
+          const mm = Number(parts.find((p) => p.type === "minute")?.value || 0);
+          return hh * 60 + mm;
+        } catch { return 0; }
+      }
+      /** Match worker/daily-brief.js pickBriefSlotForSession — never surface yesterday's brief. */
+      function pickTodayBriefSlot(briefWrap) {
+        if (!briefWrap || typeof briefWrap !== "object") return null;
+        const today = nyEtDateKey();
+        const isToday = (slot) => slot && String(slot.date || "") === today;
+        const morning = isToday(briefWrap.morning) ? briefWrap.morning : null;
+        const evening = isToday(briefWrap.evening) ? briefWrap.evening : null;
+        const etMin = nyEtMinutes();
+        if (etMin < 9 * 60) return null;
+        if (etMin >= 16 * 60) return evening || morning || null;
+        return morning || null;
+      }
       function isNyRegularMarketOpen() {
         try {
           const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit" });
@@ -4659,10 +4686,7 @@
                 setData(merged);
               }
               if (b?.ok) {
-                const _now = new Date();
-                const _ny = new Date(_now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-                const past4 = _ny.getHours() >= 16;
-                setBrief(past4 ? (b.brief?.evening || b.brief?.morning) : (b.brief?.morning || b.brief?.evening));
+                setBrief(pickTodayBriefSlot(b.brief));
               }
               if (e?.ok) setEarnings(e);
               if (c?.ok) setCal(c);
@@ -5032,10 +5056,14 @@
                 h("span", { className: "bp-countdown-lbl" }, " " + (sessionInfo.countdownLabel || "")),
               ),
               h("span", { className: "bp-loading" },
-                h("span", { className: "bp-dots" },
-                  h("i", null), h("i", null), h("i", null),
-                ),
-                "Daily brief loading",
+                nyEtMinutes() < 9 * 60
+                  ? "Morning brief publishes ~9:00 AM ET"
+                  : h(React.Fragment, null,
+                    h("span", { className: "bp-dots" },
+                      h("i", null), h("i", null), h("i", null),
+                    ),
+                    "Daily brief loading",
+                  ),
               ),
             ),
             // Section title — mirror BriefPreview's "EARLY READ" feel.
