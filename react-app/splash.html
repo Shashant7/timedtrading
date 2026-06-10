@@ -15,8 +15,8 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%277.5%27%20x2%3D%2724%27%20y2%3D%2710.5%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%277.5%27%20y1%3D%2724%27%20x2%3D%2710.5%27%20y2%3D%2724%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%271.5%27%20stroke-linecap%3D%27round%27%20opacity%3D%270.5%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda2" />
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -29,9 +29,9 @@
       --text-primary: #e5e7eb;
       --text-secondary: #9ca3af;
       --text-muted: #6b7280;
-      --accent: #00c853;
-      --accent-glow: rgba(0,200,83,0.15);
-      --accent-subtle: rgba(0,200,83,0.08);
+      --accent: #38F2A1;
+      --accent-glow: rgba(56,242,161,0.15);
+      --accent-subtle: rgba(56,242,161,0.08);
       --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
@@ -85,8 +85,8 @@
       100% { transform: translateY(-100vh) translateX(40px); opacity: 0; }
     }
     @keyframes bubble-pulse {
-      0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(0,200,83,0.3); }
-      50% { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 0 20px 4px rgba(0,200,83,0.15); }
+      0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: 0 0 0 0 rgba(56,242,161,0.3); }
+      50% { transform: translate(-50%, -50%) scale(1.12); box-shadow: 0 0 20px 4px rgba(56,242,161,0.15); }
     }
     @keyframes globe-rotate {
       from { transform: rotate(0deg); }
@@ -152,13 +152,14 @@
     }
     .nav-links a:hover { color: var(--text-primary); background: var(--bg-surface); }
     .nav-links .btn-signin {
-      color: var(--bg-base);
+      color: #06241A;
       background: var(--accent);
       font-weight: 600;
       padding: 8px 20px;
+      border-radius: 999px;
     }
     .nav-links .btn-signin:hover {
-      background: #00e676;
+      background: #A6F7CF;
       color: var(--bg-base);
       transform: translateY(-1px);
     }
@@ -187,14 +188,14 @@
     }
     .hero-orb-1 {
       width: 700px; height: 700px;
-      background: radial-gradient(circle, rgba(0,200,83,0.14) 0%, rgba(0,200,83,0.03) 50%, transparent 70%);
+      background: radial-gradient(circle, rgba(56,242,161,0.14) 0%, rgba(56,242,161,0.03) 50%, transparent 70%);
       top: 30%; left: 50%;
       transform: translate(-50%, -50%);
       animation: float-slow 12s ease-in-out infinite;
     }
     .hero-orb-2 {
       width: 400px; height: 400px;
-      background: radial-gradient(circle, rgba(0,230,118,0.10) 0%, rgba(0,230,118,0.02) 60%, transparent 80%);
+      background: radial-gradient(circle, rgba(166,247,207,0.10) 0%, rgba(166,247,207,0.02) 60%, transparent 80%);
       top: 20%; left: 15%;
       animation: float-reverse 15s ease-in-out infinite;
     }
@@ -234,7 +235,7 @@
       padding: 6px 14px;
       border-radius: 100px;
       background: var(--accent-subtle);
-      border: 1px solid rgba(0,200,83,0.15);
+      border: 1px solid rgba(56,242,161,0.15);
       color: var(--accent);
       font-size: 12px;
       font-weight: 600;
@@ -249,15 +250,25 @@
       animation: pulse-glow 2s ease-in-out infinite;
     }
     .hero h1 {
+      /* Verda: oversized tight Manrope display, solid Cream — no gradient
+         text clips. The inline mint highlight pill carries the emphasis. */
+      font-family: "Manrope", var(--font);
       font-size: clamp(2.5rem, 5vw, 3.8rem);
       font-weight: 800;
-      line-height: 1.1;
-      letter-spacing: -0.04em;
+      line-height: 1.06;
+      letter-spacing: -0.03em;
       margin-bottom: 20px;
-      background: linear-gradient(180deg, #ffffff 30%, #9ca3af 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: var(--text-primary);
+    }
+    .hero h1 .vf-hl {
+      /* Verda signature: inline highlight pill on the key phrase. */
+      display: inline-block;
+      background: var(--accent);
+      color: #06241A;
+      padding: 0 0.32em 0.04em;
+      border-radius: 999px;
+      line-height: 1.05;
+      white-space: nowrap;
     }
     .hero-oneliner {
       font-size: clamp(1.15rem, 2.2vw, 1.5rem);
@@ -293,7 +304,7 @@
       align-items: center;
       gap: 6px;
       padding: 14px 22px;
-      border-radius: 12px;
+      border-radius: 999px;
       background: transparent;
       color: var(--text-primary);
       border: 1px solid var(--border-hover);
@@ -304,8 +315,8 @@
       transition: all 0.2s;
     }
     .hero-cta-secondary:hover {
-      background: var(--bg-surface);
-      border-color: rgba(255,255,255,0.20);
+      color: var(--accent);
+      border-color: var(--accent);
       transform: translateY(-1px);
     }
     .hero-cta {
@@ -313,9 +324,9 @@
       align-items: center;
       gap: 8px;
       padding: 14px 32px;
-      border-radius: 12px;
+      border-radius: 999px;
       background: var(--accent);
-      color: var(--bg-base);
+      color: #06241A;
       font-size: 15px;
       font-weight: 700;
       text-decoration: none;
@@ -324,9 +335,9 @@
       box-shadow: 0 0 32px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.3);
     }
     .hero-cta:hover {
-      background: #00e676;
+      background: #A6F7CF;
       transform: translateY(-2px);
-      box-shadow: 0 0 48px rgba(0,200,83,0.25), 0 8px 24px rgba(0,0,0,0.3);
+      box-shadow: 0 0 48px rgba(56,242,161,0.25), 0 8px 24px rgba(0,0,0,0.3);
     }
     .hero-cta svg { transition: transform 0.2s; }
     .hero-cta:hover svg { transform: translateX(3px); }
@@ -395,7 +406,7 @@
       transition: transform 0.3s;
       cursor: default;
     }
-    .bmap-bubble.green { background: rgba(0,200,83,0.25); border: 1.5px solid rgba(0,200,83,0.5); }
+    .bmap-bubble.green { background: rgba(56,242,161,0.25); border: 1.5px solid rgba(56,242,161,0.5); }
     .bmap-bubble.red { background: rgba(239,68,68,0.2); border: 1.5px solid rgba(239,68,68,0.4); color: #fca5a5; }
     .bmap-bubble.yellow { background: rgba(234,179,8,0.15); border: 1.5px solid rgba(234,179,8,0.35); color: #fde68a; }
     .bmap-bubble.pulsing { animation: bubble-pulse 2.5s ease-in-out infinite; }
@@ -420,6 +431,7 @@
       margin-bottom: 12px;
     }
     .section-title {
+      font-family: "Manrope", var(--font);
       font-size: clamp(1.75rem, 3vw, 2.5rem);
       font-weight: 800;
       letter-spacing: -0.03em;
@@ -459,8 +471,8 @@
       flex-shrink: 0;
       width: 22px; height: 22px;
       border-radius: 50%;
-      background: rgba(0,200,83,0.12);
-      border: 1px solid rgba(0,200,83,0.3);
+      background: rgba(56,242,161,0.12);
+      border: 1px solid rgba(56,242,161,0.3);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -479,7 +491,7 @@
     .pain-section {
       border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border);
-      background: linear-gradient(180deg, transparent 0%, rgba(0,200,83,0.01) 50%, transparent 100%);
+      background: linear-gradient(180deg, transparent 0%, rgba(56,242,161,0.01) 50%, transparent 100%);
     }
     .pain-grid {
       display: grid;
@@ -511,7 +523,7 @@
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, var(--accent), #00e676);
+      background: linear-gradient(90deg, var(--accent), #A6F7CF);
     }
     .solution-card h3 {
       font-size: 20px;
@@ -759,8 +771,8 @@
       margin-top: 28px;
       padding: 20px 22px;
       border-radius: 12px;
-      border: 1px solid rgba(0,200,83,0.25);
-      background: rgba(0,200,83,0.05);
+      border: 1px solid rgba(56,242,161,0.25);
+      background: rgba(56,242,161,0.05);
       text-align: center;
     }
     .signup-strip p { font-size: 14px; color: var(--text-secondary); margin: 0 0 14px; line-height: 1.6; }
@@ -819,8 +831,8 @@
       letter-spacing: 0.02em;
     }
     .rail-pill.dir-long { color: #34d399; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); }
-    .rail-pill.regime-bull { color: #69f0ae; background: rgba(0,200,83,0.12); border: 1px solid rgba(0,200,83,0.25); }
-    .rail-pill.quality { color: #69f0ae; background: rgba(0,200,83,0.12); border: 1px solid rgba(0,200,83,0.25); }
+    .rail-pill.regime-bull { color: #69f0ae; background: rgba(56,242,161,0.12); border: 1px solid rgba(56,242,161,0.25); }
+    .rail-pill.quality { color: #69f0ae; background: rgba(56,242,161,0.12); border: 1px solid rgba(56,242,161,0.25); }
     .rail-section { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
     .rail-section-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
     .rail-level {
@@ -939,21 +951,21 @@
     .pricing-card {
       max-width: 520px;
       margin: 48px auto 0;
-      background: linear-gradient(180deg, rgba(0,200,83,0.04) 0%, var(--bg-surface) 60%);
-      border: 1px solid rgba(0,200,83,0.22);
+      background: linear-gradient(180deg, rgba(56,242,161,0.04) 0%, var(--bg-surface) 60%);
+      border: 1px solid rgba(56,242,161,0.22);
       border-radius: 20px;
       padding: 40px 32px 32px;
       text-align: center;
       position: relative;
       overflow: hidden;
-      box-shadow: 0 0 40px rgba(0,200,83,0.04);
+      box-shadow: 0 0 40px rgba(56,242,161,0.04);
     }
     .pricing-card::before {
       content: "";
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, #34d399, #67e8f9);
+      background: var(--accent);
     }
     .pricing-badge {
       display: inline-flex;
@@ -965,8 +977,8 @@
       font-weight: 700;
       letter-spacing: 0.6px;
       color: var(--accent);
-      background: rgba(0,200,83,0.10);
-      border: 1px solid rgba(0,200,83,0.28);
+      background: rgba(56,242,161,0.10);
+      border: 1px solid rgba(56,242,161,0.28);
       margin-bottom: 18px;
       text-transform: uppercase;
     }
@@ -975,7 +987,7 @@
       width: 6px; height: 6px;
       border-radius: 50%;
       background: var(--accent);
-      box-shadow: 0 0 8px rgba(0,200,83,0.6);
+      box-shadow: 0 0 8px rgba(56,242,161,0.6);
       animation: pulse-glow 2s ease-in-out infinite;
     }
     .pricing-name {
@@ -1031,8 +1043,8 @@
       font-size: 12px;
       font-weight: 600;
       color: var(--accent);
-      background: rgba(0,200,83,0.08);
-      border: 1px solid rgba(0,200,83,0.22);
+      background: rgba(56,242,161,0.08);
+      border: 1px solid rgba(56,242,161,0.22);
       border-radius: 999px;
       padding: 4px 12px;
       margin-bottom: 10px;
@@ -1202,7 +1214,7 @@
     }
   </style>
 </head>
-<body>
+<body class="vf-page">
 
   <!-- NAV -->
   <nav>
@@ -1232,7 +1244,7 @@
     </div>
     <div class="hero-content">
       <div class="hero-badge">For retail traders who want a system, not more noise</div>
-      <h1>Stop Guessing.<br />Start Timing.</h1>
+      <h1>Stop Guessing.<br />Start <span class="vf-hl">Timing.</span></h1>
       <p class="hero-oneliner">
         Follow a proven model that turns thousands of inputs into one clear call.
       </p>

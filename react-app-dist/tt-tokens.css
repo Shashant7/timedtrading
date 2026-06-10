@@ -1190,6 +1190,118 @@ input, button, select, textarea {
   color: var(--vf-on-surface);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * .vf-page — one-class Verda migration scope (2026-06-10).
+ *
+ * Add class="vf-page" to <body> and every shared token family the app's
+ * pages use (--ds-*, the legacy --tt-* palette names, and the marketing
+ * pages' --bg-*/--text-*/--accent names) re-points at the Verda palette.
+ * Because these are set on <body>, they override page-local `:root`
+ * blocks for every element on the page (nearest-ancestor wins for custom
+ * properties) — so a page migrates without deleting its local tokens.
+ *
+ * NOT remapped (data semantics stay): --tt-up/--tt-dn/--ds-up/--ds-dn,
+ * --tt-success/--tt-danger/--tt-warning and their dims. Mint is the
+ * CTA/brand accent only.
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+body.vf-page {
+  /* — journey/cockpit family (--tt-*) — */
+  --tt-bg-base: var(--vf-ink);
+  --tt-bg-0: var(--vf-ink);
+  --tt-bg-surface: var(--vf-bark);
+  --tt-bg-1: var(--vf-bark);
+  --tt-bg-elev: var(--vf-bark-hi);
+  --tt-bg-elevated: var(--vf-bark-hi);
+  --tt-bg-2: var(--vf-bark-hi);
+  --tt-bg-3: #20342A;
+  --tt-bg-hover: #20342A;
+  --tt-border: var(--vf-moss);
+  --tt-border-weak: var(--vf-moss);
+  --tt-border-hi: var(--vf-moss-hi);
+  --tt-border-strong: var(--vf-moss-hi);
+  --tt-text: var(--vf-cream);
+  --tt-text-0: #F2FAF5;
+  --tt-text-1: var(--vf-cream);
+  --tt-text-muted: var(--vf-sage);
+  --tt-text-2: var(--vf-sage);
+  --tt-text-dim: #6E867D;
+  --tt-text-3: #6E867D;
+  --tt-text-faint: #51635A;
+  --tt-text-4: #51635A;
+  --tt-accent: var(--vf-mint);
+  --tt-accent-dim: var(--vf-mint-dim);
+  --tt-brand: var(--vf-mint);
+  --tt-brand-dim: var(--vf-mint-dim);
+  /* Verda is single-accent: secondary hues collapse toward Spring. */
+  --tt-violet: var(--vf-spring);
+  --tt-violet-dim: rgba(166, 247, 207, 0.12);
+  --tt-editorial: var(--vf-spring);
+  --tt-editorial-dim: rgba(166, 247, 207, 0.12);
+  --tt-cyan: var(--vf-spring);
+  --tt-cyan-dim: rgba(166, 247, 207, 0.10);
+  --tt-font-display: var(--vf-font-display);
+  --tt-font-editorial: var(--vf-font-display);
+
+  /* — design-system v2 family (--ds-*) — */
+  --ds-bg-canvas: var(--vf-ink);
+  --ds-bg-surface: var(--vf-bark);
+  --ds-bg-surface-hi: var(--vf-bark-hi);
+  --ds-bg-glass: rgba(56, 242, 161, 0.035);
+  --ds-bg-glass-hi: rgba(56, 242, 161, 0.07);
+  --ds-text-display: #F2FAF5;
+  --ds-text-body: #CFDED6;
+  --ds-text-muted: var(--vf-sage);
+  --ds-text-faint: #51635A;
+  --ds-accent: var(--vf-mint);
+  --ds-accent-hi: var(--vf-spring);
+  --ds-accent-soft: #5BE8AB;
+  --ds-accent-dim: var(--vf-mint-dim);
+  --ds-accent-glow: rgba(56, 242, 161, 0.40);
+  --ds-stroke-soft: rgba(166, 247, 207, 0.06);
+  --ds-stroke: var(--vf-moss);
+  --ds-stroke-hi: var(--vf-moss-hi);
+  --ds-violet: var(--vf-spring);
+
+  /* — marketing-page family (splash/faq/learn/terms local names) — */
+  --bg-base: var(--vf-ink);
+  --bg-surface: var(--vf-bark);
+  --bg-hover: var(--vf-bark-hi);
+  --border: var(--vf-moss);
+  --border-hover: var(--vf-moss-hi);
+  --text-primary: var(--vf-cream);
+  --text-secondary: var(--vf-sage);
+  --text-muted: #6E867D;
+  --accent: var(--vf-mint);
+  --accent-glow: rgba(56, 242, 161, 0.14);
+  --accent-subtle: rgba(56, 242, 161, 0.07);
+
+  /* — proof.html family — */
+  --bg-canvas: var(--vf-ink);
+  --bg-glass: rgba(56, 242, 161, 0.035);
+  --text-0: #F2FAF5;
+  --text-1: var(--vf-cream);
+  --text-2: #CFDED6;
+  --text-3: var(--vf-sage);
+  --text-4: #6E867D;
+
+  background: var(--vf-ink);
+  color: var(--vf-cream);
+}
+
+/* Verda chrome touch-ups that every migrated page wants:
+   flat Bark sticky nav (no blue-black glass) + Manrope headings on the
+   shared section-typography classes. */
+body.vf-page nav.topnav {
+  background: rgba(11, 20, 16, 0.92);
+  border-bottom: 1px solid var(--vf-moss);
+}
+body.vf-page .tt-sec-h,
+body.vf-page .tt-sec-h2 {
+  font-family: var(--vf-font-display);
+  letter-spacing: -0.02em;
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════
  * V2 CARD-LIGHTENING LAYER (2026-05-01)

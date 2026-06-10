@@ -83,19 +83,28 @@ styling, or root `DESIGN.md`.
 
 ## Migration tracker
 
+> **Mechanism since 2026-06-10:** `body.vf-page` in `tt-tokens.css`
+> re-points every shared token family (`--ds-*`, legacy `--tt-*`, and the
+> marketing pages' `--bg-*/--text-*/--accent` names) at the Verda palette.
+> A page migrates by adding `class="vf-page"` to `<body>` + Manrope font
+> link + targeted hex fixes (heroes, CTAs, gold→mint). Custom properties
+> set on `<body>` override page-local `:root` blocks (nearest ancestor
+> wins), so local token blocks don't need deleting.
+
 | Page | Status |
 |---|---|
-| splash.html | not started |
-| today.html | **DONE 2026-06-10** (PR: UI refresh — token integration in `tt-tokens.css` VERDA section; page migrated by re-pointing its page-local `--tt-*`/`--ds-*` values at the Verda palette + Manrope headings; no `vf-*` class mixing) |
-| active-trader.html | not started |
-| investor.html | not started |
-| portfolio.html | not started |
-| insights.html | not started |
-| learn.html / faq.html / proof.html / terms.html | not started |
-| daily-brief.html | not started |
-| research-desk.html | not started |
-| shared nav + right rail + bottom nav | LAST — single dedicated PR |
-| admin pages (mission-control, system-intelligence, …) | after user pages |
+| splash.html | **DONE 2026-06-10** (vf-page + Manrope hero w/ mint highlight pill, pill CTAs, mint accent) |
+| today.html | **DONE 2026-06-10** (first migration — page-local `:root` repoint) |
+| active-trader.html | **DONE 2026-06-10** (vf-page; lane stage colors kept as data semantics) |
+| investor.html | **DONE 2026-06-10** (vf-page; `investor-panel.js` card chrome still pre-Verda — follow-up) |
+| portfolio.html | **DONE 2026-06-10** (vf-page; equity-curve data colors kept) |
+| insights.html | **DONE 2026-06-10** (vf-page + gold→mint inline sweeps) |
+| learn.html / faq.html / proof.html / terms.html | **DONE 2026-06-10** (vf-page; proof got tokens link + full `:root` retheme; serif headings → Manrope 700/800) |
+| daily-brief.html | **PARTIAL 2026-06-10** (vf-page + nav/loader/accent; ~100 Tailwind arbitrary greys remain — dedicated sweep PR) |
+| research-desk.html | **DONE 2026-06-10** (vf-page + declutter: collapses, ledger cap) |
+| mission-control.html | **DONE 2026-06-10** (vf-page + declutter: McCollapse sub-accordions) |
+| shared nav + right rail + bottom nav | LAST — single dedicated PR (rail inherits `--ds-*` overrides via vf-page already) |
+| admin pages (system-intelligence, screener, ticker-management, …) | remaining — add `vf-page` + Manrope per page |
 
 ## How to verify
 

@@ -232,7 +232,7 @@ function InvBubbleMap({
   }), "Bull aligned"), h("span", null, h("span", {
     className: "bdot",
     style: {
-      background: "#f5c25c"
+      background: "#38F2A1"
     }
   }), "Pullback"), h("span", null, h("span", {
     className: "bdot",
@@ -798,6 +798,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068

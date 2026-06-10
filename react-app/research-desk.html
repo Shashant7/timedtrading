@@ -9,8 +9,8 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260603-cro" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -210,7 +210,7 @@
       .cat-fetch_failed { color: #fb7185; border-color: rgba(244,63,94,0.4); background: rgba(244,63,94,0.08); }
     </style>
   </head>
-  <body>
+  <body class="vf-page">
     <nav class="topnav">
       <div class="nav-row">
         <a href="/today.html" class="nav-brand">
@@ -544,6 +544,40 @@
         );
       }
 
+      // ── RdCollapse (2026-06-10 declutter) ─────────────────────────────
+      // One-line collapsible header for dense blocks. Collapsed by
+      // default; remembers state per id in localStorage. Operator
+      // feedback: "Research Desk is cluttered and hard to consume."
+      function RdCollapse({ id, title, sub, defaultOpen = false, children }) {
+        const storageKey = `rd-collapse:${id}`;
+        const [open, setOpen] = useState(() => {
+          try {
+            const v = window.localStorage.getItem(storageKey);
+            return v == null ? defaultOpen : v === "1";
+          } catch (_) { return defaultOpen; }
+        });
+        const toggle = () => setOpen((o) => {
+          try { window.localStorage.setItem(storageKey, o ? "0" : "1"); } catch (_) {}
+          return !o;
+        });
+        return h("div", { style: { margin: "10px 0", border: "1px solid var(--tt-border)", borderRadius: 10, overflow: "hidden" } },
+          h("button", {
+            onClick: toggle,
+            style: {
+              width: "100%", display: "flex", alignItems: "center", gap: 8,
+              padding: "9px 12px", background: "var(--tt-bg-elev)",
+              border: "none", cursor: "pointer", textAlign: "left", color: "var(--tt-text)",
+              font: "inherit",
+            },
+          },
+            h("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" } }, title),
+            sub && h("span", { style: { fontSize: 10.5, color: "var(--tt-text-dim)" } }, sub),
+            h("span", { style: { marginLeft: "auto", fontSize: 10, color: "var(--tt-text-dim)" } }, open ? "▲" : "▼"),
+          ),
+          open && h("div", { style: { padding: "4px 10px 10px" } }, children),
+        );
+      }
+
       function CRONoteCard({ data }) {
         const cro = data?.cro;
         // 2026-06-03 — Also gate on inner body.ok (the endpoint returns 200 +
@@ -605,8 +639,10 @@
             h("h3", null, "Data gaps"),
             h("div", { className: "muted" }, gaps.join(" · "))
           ),
-          md && h("div", { style: { marginTop: 16 } },
-            h("h3", null, "Full note"),
+          // 2026-06-10 declutter — the full markdown repeats everything the
+          // structured sections above already show; keep it for citation
+          // depth but behind a collapse so the card reads verdict-first.
+          md && h(RdCollapse, { id: "cro-full-note", title: "Full note", sub: "complete markdown — repeats the sections above with citations" },
             h("div", { className: "markdown", dangerouslySetInnerHTML: { __html: md } })
           )
         );
@@ -733,6 +769,9 @@
       }
 
       function InfluenceLedgerCard({ ledger, isAdmin, onAction, inFlightSet }) {
+        // 2026-06-10 declutter — the ledger used to render EVERY item
+        // (unbounded scroll). Cap at 5 with an explicit "Show N more".
+        const [showAllItems, setShowAllItems] = useState(false);
         if (!isAdmin) return null;
         if (!ledger) {
           return h("div", { className: "card" },
@@ -787,7 +826,7 @@
                 "No tactical overlay is live right now — the model is reading the in-code playbook unchanged."),
           items.length === 0
             ? h("div", { className: "muted" }, "Nothing ingested yet. Use Force Pull to fetch the latest FSD publications.")
-            : items.map((it) => h("div", { key: it.pub_id, className: `flow-card ${it.is_live ? "live" : ""}` },
+            : (showAllItems ? items : items.slice(0, 5)).map((it) => h("div", { key: it.pub_id, className: `flow-card ${it.is_live ? "live" : ""}` },
                 h("div", { className: "flow-head" },
                   h("div", { style: { flex: 1, minWidth: 200 } },
                     h("span", { className: `tag cat-${it.category}` }, it.category_label),
@@ -838,6 +877,11 @@
                 it.influenced_surfaces.length > 0 && h("div", { className: "dim", style: { marginTop: 8, fontSize: 11 } },
                   "Reaching: ", it.influenced_surfaces.map((s) => s.label).join(" · "))
               )),
+          items.length > 5 && h("button", {
+            className: "btn btn-sm",
+            style: { marginTop: 8 },
+            onClick: () => setShowAllItems((v) => !v),
+          }, showAllItems ? "Show fewer" : `Show ${items.length - 5} more`),
           h("div", { className: "dim", style: { marginTop: 8 } },
             "TT-voice summaries are paraphrased from the source; full attribution renders on the Catalysts panel. Source: Fundstrat Direct.")
         );
@@ -1267,14 +1311,26 @@
           isAdmin && h("div", { style: { marginTop: 14 } },
             h(ProposalsSection, { proposals, isAdmin, onAction, inFlightSet })
           ),
-          h("div", { style: { marginTop: 14 } },
-            h(PublicationsCard, { data, isAdmin, onAction, inFlightSet })
-          ),
-          h("div", { style: { marginTop: 14 } },
-            h(ActionsCard, { isAdmin, onAction, lastAction, inFlightSet, busyCount: busyKeys.size })
+          // 2026-06-10 declutter — the publications table, raw admin
+          // actions, and the API reference triple-cover the pipeline the
+          // Influence Ledger + Proposals already tell. Keep them, but
+          // behind one-line collapses so the page reads:
+          //   verdict → CRO note → CTO/rotation → override → ledger →
+          //   needs-review proposals → (reference material collapsed).
+          isAdmin && h("div", { style: { marginTop: 14 } },
+            h(RdCollapse, { id: "rd-publications", title: "FSD Publications Table", sub: "raw ingest rows + manual override buttons" },
+              h(PublicationsCard, { data, isAdmin, onAction, inFlightSet })
+            )
           ),
           isAdmin && h("div", { style: { marginTop: 14 } },
-            h(AICIOActionsCard)
+            h(RdCollapse, { id: "rd-actions", title: "Admin Actions", sub: "manual pipeline triggers + last-action response" },
+              h(ActionsCard, { isAdmin, onAction, lastAction, inFlightSet, busyCount: busyKeys.size })
+            )
+          ),
+          isAdmin && h("div", { style: { marginTop: 14 } },
+            h(RdCollapse, { id: "rd-api-ref", title: "AI CIO API Reference", sub: "endpoint catalog — documentation, not status" },
+              h(AICIOActionsCard)
+            )
           )
         );
       }

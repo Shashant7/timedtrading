@@ -443,6 +443,74 @@ function StatusBanner({
     }
   }, `errors: ${sum.errors.slice(0, 3).join("; ").slice(0, 300)}`));
 }
+function RdCollapse({
+  id,
+  title,
+  sub,
+  defaultOpen = false,
+  children
+}) {
+  const storageKey = `rd-collapse:${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(storageKey);
+      return v == null ? defaultOpen : v === "1";
+    } catch (_) {
+      return defaultOpen;
+    }
+  });
+  const toggle = () => setOpen(o => {
+    try {
+      window.localStorage.setItem(storageKey, o ? "0" : "1");
+    } catch (_) {}
+    return !o;
+  });
+  return h("div", {
+    style: {
+      margin: "10px 0",
+      border: "1px solid var(--tt-border)",
+      borderRadius: 10,
+      overflow: "hidden"
+    }
+  }, h("button", {
+    onClick: toggle,
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "9px 12px",
+      background: "var(--tt-bg-elev)",
+      border: "none",
+      cursor: "pointer",
+      textAlign: "left",
+      color: "var(--tt-text)",
+      font: "inherit"
+    }
+  }, h("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      textTransform: "uppercase"
+    }
+  }, title), sub && h("span", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-dim)"
+    }
+  }, sub), h("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 10,
+      color: "var(--tt-text-dim)"
+    }
+  }, open ? "▲" : "▼")), open && h("div", {
+    style: {
+      padding: "4px 10px 10px"
+    }
+  }, children));
+}
 function CRONoteCard({
   data
 }) {
@@ -531,11 +599,11 @@ function CRONoteCard({
     }
   }, h("h3", null, "Data gaps"), h("div", {
     className: "muted"
-  }, gaps.join(" · "))), md && h("div", {
-    style: {
-      marginTop: 16
-    }
-  }, h("h3", null, "Full note"), h("div", {
+  }, gaps.join(" · "))), md && h(RdCollapse, {
+    id: "cro-full-note",
+    title: "Full note",
+    sub: "complete markdown — repeats the sections above with citations"
+  }, h("div", {
     className: "markdown",
     dangerouslySetInnerHTML: {
       __html: md
@@ -688,6 +756,7 @@ function InfluenceLedgerCard({
   onAction,
   inFlightSet
 }) {
+  const [showAllItems, setShowAllItems] = useState(false);
   if (!isAdmin) return null;
   if (!ledger) {
     return h("div", {
@@ -780,7 +849,7 @@ function InfluenceLedgerCard({
     }
   }, "No tactical overlay is live right now — the model is reading the in-code playbook unchanged."), items.length === 0 ? h("div", {
     className: "muted"
-  }, "Nothing ingested yet. Use Force Pull to fetch the latest FSD publications.") : items.map(it => h("div", {
+  }, "Nothing ingested yet. Use Force Pull to fetch the latest FSD publications.") : (showAllItems ? items : items.slice(0, 5)).map(it => h("div", {
     key: it.pub_id,
     className: `flow-card ${it.is_live ? "live" : ""}`
   }, h("div", {
@@ -886,7 +955,13 @@ function InfluenceLedgerCard({
       marginTop: 8,
       fontSize: 11
     }
-  }, "Reaching: ", it.influenced_surfaces.map(s => s.label).join(" · ")))), h("div", {
+  }, "Reaching: ", it.influenced_surfaces.map(s => s.label).join(" · ")))), items.length > 5 && h("button", {
+    className: "btn btn-sm",
+    style: {
+      marginTop: 8
+    },
+    onClick: () => setShowAllItems(v => !v)
+  }, showAllItems ? "Show fewer" : `Show ${items.length - 5} more`), h("div", {
     className: "dim",
     style: {
       marginTop: 8
@@ -1459,30 +1534,42 @@ function App() {
     isAdmin,
     onAction,
     inFlightSet
-  })), h("div", {
+  })), isAdmin && h("div", {
     style: {
       marginTop: 14
     }
+  }, h(RdCollapse, {
+    id: "rd-publications",
+    title: "FSD Publications Table",
+    sub: "raw ingest rows + manual override buttons"
   }, h(PublicationsCard, {
     data,
     isAdmin,
     onAction,
     inFlightSet
-  })), h("div", {
+  }))), isAdmin && h("div", {
     style: {
       marginTop: 14
     }
+  }, h(RdCollapse, {
+    id: "rd-actions",
+    title: "Admin Actions",
+    sub: "manual pipeline triggers + last-action response"
   }, h(ActionsCard, {
     isAdmin,
     onAction,
     lastAction,
     inFlightSet,
     busyCount: busyKeys.size
-  })), isAdmin && h("div", {
+  }))), isAdmin && h("div", {
     style: {
       marginTop: 14
     }
-  }, h(AICIOActionsCard)));
+  }, h(RdCollapse, {
+    id: "rd-api-ref",
+    title: "AI CIO API Reference",
+    sub: "endpoint catalog — documentation, not status"
+  }, h(AICIOActionsCard))));
 }
 const AuthGate = window.TimedAuthGate;
 const root = ReactDOM.createRoot(document.getElementById("root"));
@@ -1490,6 +1577,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
