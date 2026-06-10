@@ -1210,15 +1210,33 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // ETFs get pre-market refresh consistently.
   iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true);
 
-  // Process sector performance
+  // Process sector performance — prefer timed:prices over stale timed:latest
+  // day_change_pct. SPY/QQQ/IWM already get validateMarketData(); sector
+  // ETFs were still reading yesterday's scoring snapshot (XLK showed green
+  // after an intraday selloff because day_change_pct lagged change_pct).
   const sectors = SECTOR_ETFS.map(sym => {
-    const d = sectorDataArr.find(s => s.sym === sym)?.data;
+    const d = sectorDataArr.find(s => s.sym === sym)?.data || {};
+    const pfRow = _pf?.[sym];
+    const pfPct = Number(pfRow?.dp);
+    const pfPrice = Number(pfRow?.p);
+    const pfDc = Number(pfRow?.dc);
+    const scoredPct = Number(d?.day_change_pct ?? d?.change_pct);
+    const dayChangePct = Number.isFinite(pfPct)
+      ? pfPct
+      : (Number.isFinite(scoredPct) ? scoredPct : 0);
+    const price = Number.isFinite(pfPrice) && pfPrice > 0
+      ? pfPrice
+      : (Number(d?.price ?? d?._live_price) || 0);
+    const dayChange = Number.isFinite(pfDc)
+      ? pfDc
+      : (Number(d?.day_change ?? d?.change) || 0);
     return {
       sym,
-      price: Number(d?.price) || 0,
-      dayChangePct: Number(d?.day_change_pct) || 0,
-      dayChange: Number(d?.day_change) || 0,
+      price,
+      dayChangePct,
+      dayChange,
       state: d?.state || "",
+      _price_source: Number.isFinite(pfPct) ? "timed:prices" : "timed:latest",
     };
   }).sort((a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct));
 
@@ -2223,6 +2241,39 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
       price: Math.round(live * 100) / 100,
       levels,
       weeklyLevels,
+    };
+  });
+  return infographic;
+}
+
+/** Overlay live timed:prices onto infographic sector chips (Today cross-asset row). */
+export async function refreshInfographicLiveSectors(infographic, env, priceMap = null) {
+  if (!infographic || !Array.isArray(infographic.sectors)) return infographic;
+  let pf = priceMap;
+  if (!pf) {
+    try {
+      const raw = env?.KV_TIMED ? await env.KV_TIMED.get("timed:prices") : null;
+      pf = raw ? (JSON.parse(raw)?.prices || JSON.parse(raw)) : null;
+    } catch (_) {
+      pf = null;
+    }
+  }
+  if (!pf || typeof pf !== "object") return infographic;
+
+  infographic.sectors = infographic.sectors.map((s) => {
+    const sym = String(s?.sym || "").toUpperCase();
+    const row = pf[sym];
+    if (!row) return s;
+    const pct = Number(row.dp);
+    const price = Number(row.p);
+    const dc = Number(row.dc);
+    if (!Number.isFinite(pct) && !Number.isFinite(price)) return s;
+    return {
+      ...s,
+      ...(Number.isFinite(price) && price > 0 ? { price: Math.round(price * 100) / 100 } : {}),
+      ...(Number.isFinite(pct) ? { chgPct: Math.round(pct * 100) / 100, dayChangePct: pct } : {}),
+      ...(Number.isFinite(dc) ? { dayChange: dc } : {}),
+      _price_source: "timed:prices",
     };
   });
   return infographic;
@@ -5076,6 +5127,7 @@ export async function handleGetBrief(env) {
     if (slot?.infographic) {
       try {
         await refreshInfographicLivePrices(slot.infographic, env);
+        await refreshInfographicLiveSectors(slot.infographic, env);
         await refreshInfographicLiveGamePlans(slot.infographic, env);
         const idxMap = Object.fromEntries(
           (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
