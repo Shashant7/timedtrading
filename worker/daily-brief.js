@@ -916,6 +916,163 @@ function getETMinutes(nowMs = Date.now()) {
   return hh * 60 + mm;
 }
 
+/** Matches /timed/ledger/trades?status=open — OPEN, TP_HIT_TRIM, and other non-closed rows. */
+export function isBriefOpenTradeStatus(status) {
+  const s = String(status || "").toUpperCase();
+  if (!s) return true;
+  if (s === "OPEN" || s === "TP_HIT_TRIM") return true;
+  return !["WIN", "LOSS", "FLAT"].includes(s);
+}
+
+/** Normalize a trade row (D1 snake_case or legacy KV camelCase) for brief prompts + infographic. */
+export function mapBriefOpenTradeRow(t) {
+  if (!t || typeof t !== "object") return null;
+  const ticker = String(t.ticker || "").toUpperCase();
+  if (!ticker) return null;
+  return {
+    tradeId: t.trade_id || t.tradeId || t.id || null,
+    ticker,
+    direction: t.direction || null,
+    pnlPct: t.pnlPct != null ? Number(t.pnlPct) : (t.pnl_pct != null ? Number(t.pnl_pct) : null),
+    entryPrice: t.entryPrice != null ? Number(t.entryPrice) : (t.entry_price != null ? Number(t.entry_price) : null),
+    status: t.status || null,
+    setupName: t.setupName || t.setup_name || "",
+    setupGrade: t.setupGrade || t.setup_grade || "",
+    shares: Number(t.shares) || 0,
+    riskBudget: t.riskBudget != null ? Number(t.riskBudget) : (t.risk_budget != null ? Number(t.risk_budget) : 0),
+    trimmedPct: t.trimmedPct != null ? Number(t.trimmedPct) : (t.trimmed_pct != null ? Number(t.trimmed_pct) : 0),
+    sl: t.sl != null ? Number(t.sl) : (t.stop_loss != null ? Number(t.stop_loss) : 0),
+    tp: t.tp != null ? Number(t.tp) : (t.take_profit != null ? Number(t.take_profit) : 0),
+  };
+}
+
+/** Authoritative open Active Trader book from D1 (same filter as /timed/ledger/trades?status=open). */
+export async function fetchBriefOpenTradesFromD1(db) {
+  if (!db) return [];
+  try {
+    const sql = `SELECT
+        t.trade_id, t.ticker, t.direction, t.entry_price, t.status,
+        t.pnl_pct, t.trimmed_pct, t.shares, t.setup_name, t.setup_grade, t.risk_budget,
+        p.stop_loss AS sl, p.take_profit AS tp
+      FROM trades t
+      LEFT JOIN positions p ON p.position_id = t.trade_id
+      WHERE t.run_id IS NULL
+        AND (t.status IS NULL OR UPPER(t.status) NOT IN ('WIN','LOSS','FLAT'))
+      ORDER BY t.entry_ts DESC
+      LIMIT 30`;
+    const res = await db.prepare(sql).all();
+    return (res?.results || [])
+      .map(mapBriefOpenTradeRow)
+      .filter(Boolean);
+  } catch (e) {
+    console.warn("[BRIEF] D1 open-trades fetch failed:", String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+/** Open investor holdings from D1 (canonical /timed/investor/positions source). */
+export async function fetchBriefInvestorPositionsFromD1(db) {
+  if (!db) return [];
+  try {
+    const res = await db.prepare(
+      `SELECT * FROM investor_positions
+       WHERE status = 'OPEN' AND COALESCE(total_shares, 0) > 0
+       ORDER BY total_shares * COALESCE(avg_entry, 0) DESC
+       LIMIT 20`,
+    ).all();
+    return res?.results || [];
+  } catch (e) {
+    console.warn("[BRIEF] D1 investor-positions fetch failed:", String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+function mapBriefInvestorPositionRow(p, investorProfileMap = {}) {
+  const learned = investorProfileMap[String(p.ticker || "").toUpperCase()] || {};
+  return {
+    ticker: p.ticker,
+    shares: p.total_shares,
+    avgEntry: p.avg_entry,
+    costBasis: p.cost_basis,
+    thesis: p.thesis,
+    stage: p.investor_stage,
+    archetype: learned.longArchetype || null,
+    policy: learned.stance || null,
+    addOn: learned.addOn || null,
+    riskNote: learned.risk || null,
+  };
+}
+
+/** Compact rows for infographic UI (trader + investor open books). */
+export function buildInfographicPositionRows(openTrades = [], investorPositions = [], priceFeedRaw = {}) {
+  const pf = priceFeedRaw && typeof priceFeedRaw === "object" ? priceFeedRaw : {};
+  const traderPositions = (openTrades || []).map((t) => {
+    const td = pf[t.ticker] || {};
+    const dayPct = Number(td.dp);
+    const price = Number(td.p);
+    return {
+      mode: "trader",
+      tradeId: t.tradeId || null,
+      ticker: t.ticker,
+      direction: t.direction,
+      entryPrice: t.entryPrice,
+      pnlPct: t.pnlPct,
+      dayPct: Number.isFinite(dayPct) ? dayPct : null,
+      price: Number.isFinite(price) && price > 0 ? price : null,
+      status: t.status,
+      setupGrade: t.setupGrade || null,
+    };
+  });
+  const investorHoldings = (investorPositions || []).map((p) => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const td = pf[sym] || {};
+    const dayPct = Number(td.dp);
+    const price = Number(td.p);
+    const avgEntry = Number(p.avgEntry ?? p.avg_entry);
+    const unrealPct = (price > 0 && avgEntry > 0) ? ((price - avgEntry) / avgEntry) * 100 : null;
+    return {
+      mode: "investor",
+      ticker: sym,
+      shares: Number(p.shares ?? p.total_shares) || 0,
+      avgEntry: Number.isFinite(avgEntry) ? avgEntry : null,
+      stage: p.stage || p.investor_stage || null,
+      dayPct: Number.isFinite(dayPct) ? dayPct : null,
+      price: Number.isFinite(price) && price > 0 ? price : null,
+      unrealPct: Number.isFinite(unrealPct) ? unrealPct : null,
+    };
+  });
+  return { traderPositions, investorHoldings };
+}
+
+/** Overlay live open books onto a stored brief infographic at read time. */
+export async function refreshInfographicLivePositions(infographic, env, priceMap = null) {
+  if (!infographic || !env?.DB) return infographic;
+  const db = env.DB;
+  let pf = priceMap;
+  if (!pf || typeof pf !== "object") {
+    try {
+      const raw = await kvGetJSON(env.KV_TIMED, "timed:prices");
+      pf = raw?.prices || raw || {};
+    } catch (_) {
+      pf = {};
+    }
+  }
+  const [openTrades, investorRaw] = await Promise.all([
+    fetchBriefOpenTradesFromD1(db),
+    fetchBriefInvestorPositionsFromD1(db),
+  ]);
+  const investorPositions = investorRaw.map((p) => mapBriefInvestorPositionRow(p));
+  const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf);
+  infographic.traderPositions = traderPositions;
+  infographic.investorHoldings = investorHoldings;
+  if (!infographic.headline || typeof infographic.headline !== "object") {
+    infographic.headline = {};
+  }
+  infographic.headline.openTrades = traderPositions.length;
+  infographic.headline.investorPositions = investorHoldings.length;
+  return infographic;
+}
+
 /** Drop brief slots whose `date` is not today's ET calendar day. */
 export function sanitizeBriefCurrent(current = {}, nowMs = Date.now()) {
   const etToday = getETDate(nowMs);
@@ -1415,9 +1572,20 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   console.log(`[ECON] Sources: Finnhub today=${todayEcon.length}, yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Finnhub news=${(finnhubEconNews || []).length}`);
 
-  // Open trades summary
-  const trades = Array.isArray(tradesRaw) ? tradesRaw : [];
-  const openTrades = trades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
+  // Open trades summary — D1 is authoritative (supports multiple open
+  // rows per ticker, e.g. three SNDK legs). Legacy timed:trades:all KV is
+  // fallback only when D1 is unavailable.
+  let openTrades = [];
+  if (db) {
+    openTrades = await fetchBriefOpenTradesFromD1(db);
+  }
+  if (openTrades.length === 0) {
+    const trades = Array.isArray(tradesRaw) ? tradesRaw : [];
+    openTrades = trades
+      .filter((t) => isBriefOpenTradeStatus(t?.status))
+      .map(mapBriefOpenTradeRow)
+      .filter(Boolean);
+  }
 
   // ── Today's trade activity from D1 (for brief enrichment) ──────────
   let todayTradeEntries = [];
@@ -1441,14 +1609,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
         db.prepare(
           "SELECT te.*, t.ticker, t.direction, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type IN ('TRIM', 'DEFEND') AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
         ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
-        db.prepare(
-          "SELECT * FROM investor_positions WHERE status = 'OPEN' ORDER BY total_shares * COALESCE(avg_entry, 0) DESC LIMIT 20"
-        ).all().catch(() => ({ results: [] })),
+        fetchBriefInvestorPositionsFromD1(db),
       ]);
       todayTradeEntries = (entryRes?.results || []).slice(0, 10);
       todayTradeExits = (exitRes?.results || []).slice(0, 10);
       todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
-      investorPositions = (investorRes?.results || []).slice(0, 20);
+      investorPositions = Array.isArray(investorRes) ? investorRes : (investorRes?.results || []);
       const investorTickers = [...new Set(investorPositions.map(p => String(p.ticker || '').toUpperCase()).filter(Boolean))];
       if (investorTickers.length > 0) {
         const inClause = investorTickers.map(t => `'${t.replace(/'/g, "''")}'`).join(',');
@@ -1602,17 +1768,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     todayEconomicEvents: todayEcon.slice(0, 10),
     yesterdayEconomicEvents: yesterdayEcon.slice(0, 10),
     economicEvents: weekEcon.slice(0, 15),
-    openTrades: openTrades.map(t => ({
-      ticker: t.ticker, direction: t.direction, pnlPct: t.pnlPct,
-      entryPrice: t.entryPrice, status: t.status,
-      setupName: t.setupName || t.setup_name || "",
-      setupGrade: t.setupGrade || t.setup_grade || "",
-      shares: t.shares || 0,
-      riskBudget: t.riskBudget || t.risk_budget || 0,
-      trimmedPct: t.trimmedPct || t.trimmed_pct || 0,
-      sl: t.sl || t.stop_loss || 0,
-      tp: t.tp || t.take_profit || 0,
-    })).slice(0, 15),
+    openTrades: openTrades.slice(0, 15),
     // Today's trade activity (Active Trader)
     todayEntries: todayTradeEntries.map(e => ({
       ticker: e.ticker, direction: e.direction, price: e.price,
@@ -1630,21 +1786,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       reason: e.reason,
     })),
     // Investor portfolio positions
-    investorPositions: investorPositions.map(p => {
-      const learned = investorProfileMap[String(p.ticker || '').toUpperCase()] || {};
-      return {
-        ticker: p.ticker,
-        shares: p.total_shares,
-        avgEntry: p.avg_entry,
-        costBasis: p.cost_basis,
-        thesis: p.thesis,
-        stage: p.investor_stage,
-        archetype: learned.longArchetype || null,
-        policy: learned.stance || null,
-        addOn: learned.addOn || null,
-        riskNote: learned.risk || null,
-      };
-    }),
+    investorPositions: investorPositions.map((p) => mapBriefInvestorPositionRow(p, investorProfileMap)),
     econNews: (finnhubEconNews || []).slice(0, 10),
     // 2026-05-22 — Broad market headlines for the brief infographic.
     topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
@@ -4463,7 +4605,13 @@ function buildBriefInfographic(data, type) {
   }
 
   const openCount = (data.openTrades || []).length;
+  const investorCount = (data.investorPositions || []).length;
   const regime = data.market?.SPY?.regime_class || data.regime_class || null;
+  const { traderPositions, investorHoldings } = buildInfographicPositionRows(
+    data.openTrades || [],
+    data.investorPositions || [],
+    data.priceFeedRaw || {},
+  );
 
   return {
     date: today,
@@ -4476,7 +4624,10 @@ function buildBriefInfographic(data, type) {
       vix: vixLevel != null ? { level: vixLevel, bucket: vixBucket } : null,
       breadth: breadthTotal > 0 ? { green: breadthGreen, total: breadthTotal } : null,
       openTrades: openCount,
+      investorPositions: investorCount,
     },
+    traderPositions,
+    investorHoldings,
     indices,
     sectors: sectorMini,
     macro,
@@ -5176,6 +5327,7 @@ export async function handleGetBrief(env) {
         await refreshInfographicLivePrices(slot.infographic, env);
         await refreshInfographicLiveSectors(slot.infographic, env);
         await refreshInfographicLiveGamePlans(slot.infographic, env);
+        await refreshInfographicLivePositions(slot.infographic, env);
         const idxMap = Object.fromEntries(
           (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
         );

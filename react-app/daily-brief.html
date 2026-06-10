@@ -437,7 +437,73 @@
                   </div>
                 </div>
               )}
+              {hl.investorPositions != null && hl.investorPositions > 0 && (
+                <div className="ds-metric">
+                  <div className="ds-metric__label">Investor</div>
+                  <div className="ds-metric__row">
+                    <div className="ds-metric__value">{hl.investorPositions}</div>
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Open positions — live-refreshed at read time (D1 authoritative). */}
+            {((Array.isArray(data.traderPositions) && data.traderPositions.length > 0)
+              || (Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0)) && (
+              <div className="pt-1 border-t border-white/[0.06]">
+                <div className="text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold">Open Positions</div>
+                {Array.isArray(data.traderPositions) && data.traderPositions.length > 0 && (
+                  <div className="mb-2">
+                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Active Trader</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.traderPositions.map((p) => {
+                        const sym = String(p.ticker || "").toUpperCase();
+                        const pnl = Number(p.pnlPct);
+                        const day = Number(p.dayPct);
+                        const pnlColor = !Number.isFinite(pnl) ? "#8AA39A" : pnl >= 0 ? "#34d399" : "#fb7185";
+                        return (
+                          <a key={p.tradeId || sym + (p.entryPrice || "")} href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
+                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
+                             style={{ fontFamily: "var(--tt-font-mono)" }}>
+                            <span className="font-bold text-white">{sym}</span>
+                            <span className="text-[#8AA39A]">{String(p.direction || "").toUpperCase()}</span>
+                            {Number.isFinite(pnl) && <span style={{ color: pnlColor }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(1)}%</span>}
+                            {Number.isFinite(day) && Math.abs(day) >= 0.01 && (
+                              <span className="text-[#6E867D]">({day >= 0 ? "+" : ""}{day.toFixed(2)}% today)</span>
+                            )}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0 && (
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Investor</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {data.investorHoldings.map((p) => {
+                        const sym = String(p.ticker || "").toUpperCase();
+                        const unreal = Number(p.unrealPct);
+                        const day = Number(p.dayPct);
+                        const pnlColor = !Number.isFinite(unreal) ? "#8AA39A" : unreal >= 0 ? "#34d399" : "#fb7185";
+                        return (
+                          <a key={sym} href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
+                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
+                             style={{ fontFamily: "var(--tt-font-mono)" }}>
+                            <span className="font-bold text-white">{sym}</span>
+                            {p.stage && <span className="text-[#8AA39A]">{String(p.stage).replace(/_/g, " ")}</span>}
+                            {Number.isFinite(unreal) && <span style={{ color: pnlColor }}>{unreal >= 0 ? "+" : ""}{unreal.toFixed(1)}%</span>}
+                            {Number.isFinite(day) && Math.abs(day) >= 0.01 && (
+                              <span className="text-[#6E867D]">({day >= 0 ? "+" : ""}{day.toFixed(2)}% today)</span>
+                            )}
+                          </a>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Index cards (V15 P0.7.42 — Day & Week GG with close-prob) */}
             {indicies.length > 0 && (

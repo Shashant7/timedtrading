@@ -214,7 +214,75 @@ function BriefInfographic({
     className: "ds-metric__row"
   }, React.createElement("div", {
     className: "ds-metric__value"
-  }, hl.openTrades)))), indicies.length > 0 && React.createElement("div", {
+  }, hl.openTrades))), hl.investorPositions != null && hl.investorPositions > 0 && React.createElement("div", {
+    className: "ds-metric"
+  }, React.createElement("div", {
+    className: "ds-metric__label"
+  }, "Investor"), React.createElement("div", {
+    className: "ds-metric__row"
+  }, React.createElement("div", {
+    className: "ds-metric__value"
+  }, hl.investorPositions)))), (Array.isArray(data.traderPositions) && data.traderPositions.length > 0 || Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0) && React.createElement("div", {
+    className: "pt-1 border-t border-white/[0.06]"
+  }, React.createElement("div", {
+    className: "text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold"
+  }, "Open Positions"), Array.isArray(data.traderPositions) && data.traderPositions.length > 0 && React.createElement("div", {
+    className: "mb-2"
+  }, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
+  }, "Active Trader"), React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, data.traderPositions.map(p => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const pnl = Number(p.pnlPct);
+    const day = Number(p.dayPct);
+    const pnlColor = !Number.isFinite(pnl) ? "#8AA39A" : pnl >= 0 ? "#34d399" : "#fb7185";
+    return React.createElement("a", {
+      key: p.tradeId || sym + (p.entryPrice || ""),
+      href: `/active-trader.html?ticker=${encodeURIComponent(sym)}`,
+      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, React.createElement("span", {
+      className: "font-bold text-white"
+    }, sym), React.createElement("span", {
+      className: "text-[#8AA39A]"
+    }, String(p.direction || "").toUpperCase()), Number.isFinite(pnl) && React.createElement("span", {
+      style: {
+        color: pnlColor
+      }
+    }, pnl >= 0 ? "+" : "", pnl.toFixed(1), "%"), Number.isFinite(day) && Math.abs(day) >= 0.01 && React.createElement("span", {
+      className: "text-[#6E867D]"
+    }, "(", day >= 0 ? "+" : "", day.toFixed(2), "% today)"));
+  }))), Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
+  }, "Investor"), React.createElement("div", {
+    className: "flex flex-wrap gap-1.5"
+  }, data.investorHoldings.map(p => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const unreal = Number(p.unrealPct);
+    const day = Number(p.dayPct);
+    const pnlColor = !Number.isFinite(unreal) ? "#8AA39A" : unreal >= 0 ? "#34d399" : "#fb7185";
+    return React.createElement("a", {
+      key: sym,
+      href: `/investor.html?ticker=${encodeURIComponent(sym)}`,
+      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, React.createElement("span", {
+      className: "font-bold text-white"
+    }, sym), p.stage && React.createElement("span", {
+      className: "text-[#8AA39A]"
+    }, String(p.stage).replace(/_/g, " ")), Number.isFinite(unreal) && React.createElement("span", {
+      style: {
+        color: pnlColor
+      }
+    }, unreal >= 0 ? "+" : "", unreal.toFixed(1), "%"), Number.isFinite(day) && Math.abs(day) >= 0.01 && React.createElement("span", {
+      className: "text-[#6E867D]"
+    }, "(", day >= 0 ? "+" : "", day.toFixed(2), "% today)"));
+  })))), indicies.length > 0 && React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.map(idx => {
     const lvls = idx.levels || {};
@@ -2762,6 +2830,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781096909956:652419840
+// cache-bust:1781097478268:837507007
 
-// cache-bust:1781096909956:652419840
+// cache-bust:1781097478268:837507007
