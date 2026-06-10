@@ -22,6 +22,11 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
 
+/* Verda Finance display face — Manrope 700/800 replaces Instrument Serif
+   for display/editorial headings on MIGRATED pages only (see the VERDA
+   section at the bottom of this file + skills/verda-ui-migration.md). */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
+
 /* ═══════════════════════════════════════════════════════════════════════
  * ROOT TOKENS
  * ═══════════════════════════════════════════════════════════════════════ */
@@ -974,6 +979,215 @@ input, button, select, textarea {
   height: 1px;
   background: var(--ds-stroke-soft);
   margin: var(--ds-space-3) 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * VERDA (2026-06-10) — Verda Finance design-system integration point.
+ *
+ * Source bundle: design/verda/system.css (audited 2026-06-09). Per
+ * skills/verda-ui-migration.md, Verda tokens enter the app through THIS
+ * file only — never a second <link>. Pages migrate one at a time by
+ * re-pointing their page-local --tt-*/--ds-* values at these tokens
+ * (today.html is the first). Component classes below are the minimal
+ * set future page PRs may use; never mix vf-* and tt-* component
+ * classes on the same page.
+ *
+ * HARD RULES (carried from the skill):
+ *  - --tt-success/--tt-danger/--ds-up/--ds-dn keep data semantics.
+ *    Mint (#38F2A1) is the CTA/brand accent, NOT a "price up" color.
+ *  - Numbers a user compares stay JetBrains Mono tabular (Verda's
+ *    Manrope numeral-xl is for hero stat cards only).
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Palette */
+  --vf-ink: #0B1410;            /* page background (surface) */
+  --vf-bark: #13201A;           /* raised surface — SOLID fill, not alpha */
+  --vf-bark-hi: #1A2B22;        /* hover / elevated bark */
+  --vf-moss: #1F3128;           /* the ONE border strength, always 1px */
+  --vf-moss-hi: #2A4136;        /* hover border */
+  --vf-mint: #38F2A1;           /* primary accent — CTAs, focus, key numerals */
+  --vf-mint-dim: rgba(56, 242, 161, 0.14);
+  --vf-spring: #A6F7CF;         /* soft halos, hover lighten, focus ring */
+  --vf-cream: #E8F2EC;          /* primary text */
+  --vf-sage: #8AA39A;           /* muted text, captions */
+  --vf-sage-dim: #5E7A6E;       /* faint text on Verda pages */
+  --vf-charcoal-ink: #06241A;   /* text ON mint — never white on mint */
+  --vf-error: #F26F6F;
+  --vf-focus-ring: rgba(166, 247, 207, 0.32);
+
+  /* Semantic aliases */
+  --vf-surface: var(--vf-ink);
+  --vf-surface-raised: var(--vf-bark);
+  --vf-border: var(--vf-moss);
+  --vf-primary: var(--vf-mint);
+  --vf-on-surface: var(--vf-cream);
+  --vf-on-primary: var(--vf-charcoal-ink);
+  --vf-muted: var(--vf-sage);
+
+  /* Type */
+  --vf-font-display: "Manrope", var(--tt-font-ui);
+  --vf-font-body: "Inter", var(--tt-font-ui);
+
+  /* Radii — generous; pills for buttons/tabs/chips */
+  --vf-radius-sm: 10px;
+  --vf-radius-md: 18px;
+  --vf-radius-lg: 28px;
+  --vf-radius-xl: 40px;
+  --vf-radius-pill: 999px;
+
+  /* Elevation — mostly flat; depth from Ink → Bark → mint inner glow */
+  --vf-shadow-card: 0 18px 40px -28px rgba(0, 0, 0, 0.75);
+  --vf-shadow-accent-glow: inset 0 0 0 1px rgba(56, 242, 161, 0.16);
+  --vf-shadow-focus: 0 0 0 3px var(--vf-focus-ring);
+
+  /* Motion */
+  --vf-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --vf-duration: 180ms;
+}
+
+/* Verda component classes — copied from design/verda/system.css.
+   Only use on FULLY migrated pages. */
+
+.vf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--vf-font-body);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1;
+  border-radius: var(--vf-radius-pill);
+  border: 1px solid transparent;
+  padding: 12px 24px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--vf-duration) var(--vf-ease),
+    color var(--vf-duration) var(--vf-ease),
+    border-color var(--vf-duration) var(--vf-ease),
+    box-shadow var(--vf-duration) var(--vf-ease);
+  user-select: none;
+  white-space: nowrap;
+}
+.vf-btn--primary {
+  background-color: var(--vf-mint);
+  color: var(--vf-charcoal-ink);
+  border-color: var(--vf-mint);
+}
+.vf-btn--primary:hover {
+  background-color: var(--vf-spring);
+  border-color: var(--vf-spring);
+  box-shadow: var(--vf-shadow-accent-glow);
+}
+.vf-btn--secondary {
+  background-color: transparent;
+  color: var(--vf-on-surface);
+  border-color: var(--vf-border);
+}
+.vf-btn--secondary:hover {
+  color: var(--vf-mint);
+  border-color: var(--vf-mint);
+}
+
+.vf-card {
+  background-color: var(--vf-bark);
+  border: 1px solid var(--vf-border);
+  border-radius: var(--vf-radius-lg);
+  padding: 24px;
+  color: var(--vf-on-surface);
+}
+
+.vf-tabs {
+  display: inline-flex;
+  background-color: var(--vf-bark);
+  border: 1px solid var(--vf-border);
+  border-radius: var(--vf-radius-pill);
+  padding: 5px;
+  gap: 4px;
+}
+.vf-tabs__tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--vf-on-surface);
+  font-family: var(--vf-font-body);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--vf-radius-pill);
+  cursor: pointer;
+  transition: background-color var(--vf-duration) var(--vf-ease),
+    color var(--vf-duration) var(--vf-ease);
+}
+.vf-tabs__tab:hover { color: var(--vf-spring); }
+.vf-tabs__tab[aria-selected="true"],
+.vf-tabs__tab.is-active {
+  background-color: var(--vf-mint);
+  color: var(--vf-charcoal-ink);
+}
+
+.vf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--vf-font-body);
+  font-weight: 500;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: var(--vf-radius-pill);
+  background-color: var(--vf-bark);
+  color: var(--vf-on-surface);
+  border: 1px solid var(--vf-border);
+}
+.vf-badge--accent {
+  background-color: var(--vf-mint);
+  color: var(--vf-charcoal-ink);
+  border-color: var(--vf-mint);
+}
+
+.vf-divider {
+  border: none;
+  background-color: var(--vf-border);
+  height: 1px;
+  width: 100%;
+  margin: 0;
+}
+
+.vf-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+.vf-stat__numeral {
+  /* Trading adaptation: data numerals stay JetBrains Mono tabular
+     (Verda's Manrope-800 numeral is reserved for marketing hero cards). */
+  font-family: var(--tt-font-mono);
+  font-weight: 700;
+  font-size: clamp(1.5rem, 2.5vw, 2rem);
+  line-height: 1;
+  letter-spacing: -0.015em;
+  color: var(--vf-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+.vf-stat__label {
+  font-family: var(--vf-font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vf-muted);
+}
+
+/* Display heading utility for migrated pages (Manrope replaces
+   Instrument Serif; never mix Manrope and Inter on one element). */
+.vf-display {
+  font-family: var(--vf-font-display);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--vf-on-surface);
 }
 
 

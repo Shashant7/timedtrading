@@ -257,9 +257,107 @@ function SessionPill({
     className: "dot"
   }), label);
 }
+const REGIME_TONE = {
+  RISK_ON: "var(--tt-up-soft)",
+  BULL: "var(--tt-up-soft)",
+  BULL_TREND: "var(--tt-up-soft)",
+  STRONG_BULL: "var(--tt-up-soft)",
+  EARLY_BULL: "var(--tt-up-soft)",
+  LATE_BULL: "var(--tt-up-soft)",
+  NEUTRAL: "var(--tt-accent)",
+  CHOP: "var(--tt-accent)",
+  RISK_OFF: "var(--tt-dn-soft)",
+  BEAR: "var(--tt-dn-soft)",
+  BEAR_TREND: "var(--tt-dn-soft)",
+  STRONG_BEAR: "var(--tt-dn-soft)",
+  EARLY_BEAR: "var(--tt-dn-soft)",
+  LATE_BEAR: "var(--tt-dn-soft)"
+};
+function computeRegimeRead(brief, data) {
+  const info = brief?.infographic || {};
+  const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
+  const briefRegime = headline?.regime || info?.regime || null;
+  const breadth = headline?.breadth || info?.breadth || null;
+  const breadthGreen = Number(breadth?.green);
+  const breadthTotal = Number(breadth?.total);
+  const breadthPct = Number.isFinite(breadthGreen) && Number.isFinite(breadthTotal) && breadthTotal > 0 ? breadthGreen / breadthTotal * 100 : null;
+  let latent = null;
+  if (data) {
+    for (const t of Object.values(data)) {
+      if (t?.latent_regime?.state) {
+        latent = t.latent_regime;
+        break;
+      }
+    }
+  }
+  let regime = briefRegime;
+  if (!regime) {
+    const latentState = String(latent?.state || "").toUpperCase();
+    if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") regime = latentState;else if (Number.isFinite(breadthPct)) regime = breadthPct >= 70 ? "RISK_ON" : breadthPct <= 30 ? "RISK_OFF" : "CHOP";else regime = latentState || null;
+  }
+  return {
+    regime,
+    latent,
+    breadthPct,
+    breadthGreen,
+    breadthTotal
+  };
+}
+function RegimeLine({
+  brief,
+  data
+}) {
+  const read = useMemo(() => computeRegimeRead(brief, data), [brief, data]);
+  const quote = sym => {
+    const t = data?.[sym];
+    if (!t) return null;
+    const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
+    const pct = Number(dc?.dayPct);
+    return Number.isFinite(pct) ? pct : null;
+  };
+  const spyPct = quote("SPY");
+  const vixT = data?.VIX || data?.["VX1!"];
+  const vixPx = vixT ? Number(vixT._live_price ?? vixT.price ?? vixT.close) : null;
+  const {
+    regime,
+    latent,
+    breadthPct
+  } = read;
+  if (!regime && !latent && breadthPct == null && spyPct == null) return null;
+  const tone = REGIME_TONE[String(regime || "").toUpperCase()] || "var(--tt-text-muted)";
+  const latentTone = REGIME_TONE[String(latent?.state || "").toUpperCase()] || "var(--tt-text-muted)";
+  const seg = (label, value, color) => h("span", {
+    className: "seg"
+  }, label, h("b", {
+    style: color ? {
+      color
+    } : null
+  }, value));
+  const parts = [];
+  if (regime) parts.push(seg("Regime", String(regime).replace(/_/g, " "), tone));
+  if (latent?.state) parts.push(seg("HMM", String(latent.state).replace(/_/g, " "), latentTone));
+  if (breadthPct != null) parts.push(seg("Breadth", `${breadthPct.toFixed(0)}% green`, breadthPct >= 55 ? "var(--tt-up-soft)" : breadthPct <= 45 ? "var(--tt-dn-soft)" : "var(--tt-accent)"));
+  if (spyPct != null) parts.push(seg("SPY", `${spyPct >= 0 ? "+" : ""}${spyPct.toFixed(2)}%`, spyPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"));
+  if (Number.isFinite(vixPx) && vixPx > 0) parts.push(seg("VIX", vixPx.toFixed(2), null));
+  const out = [];
+  parts.forEach((p, i) => {
+    if (i > 0) out.push(h("span", {
+      key: `sep-${i}`,
+      className: "sep"
+    }, "·"));
+    out.push(h(React.Fragment, {
+      key: `seg-${i}`
+    }, p));
+  });
+  return h("div", {
+    className: "tt-regime-line"
+  }, out);
+}
 function StatusHeader({
   cal,
-  briefDate
+  briefDate,
+  brief,
+  data
 }) {
   const hour = new Date().getHours();
   const greeting = hour < 5 ? "Up early" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -282,7 +380,10 @@ function StatusHeader({
     style: {
       background: "var(--tt-accent)"
     }
-  }), "Brief: " + briefDate)));
+  }), "Brief: " + briefDate)), h(RegimeLine, {
+    brief,
+    data
+  }));
 }
 function BriefPreview({
   brief
@@ -564,607 +665,6 @@ function MarketPulseTile({
       __html: sparkSvg
     }
   }));
-}
-function BriefIndexCard({
-  idx,
-  briefType,
-  livePx,
-  dayPct,
-  onSelectTicker,
-  prose
-}) {
-  const SYM = String(idx?.sym || "").toUpperCase();
-  const briefPx = Number(idx?.price);
-  const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-  const lev = idx?.levels || {};
-  const gp = lev.gamePlan || {};
-  const bullT = Number(gp.bullTrigger);
-  const bullTgt = Number(gp.bullTarget);
-  const bearT = Number(gp.bearTrigger);
-  const bearTgt = Number(gp.bearTarget);
-  const dayAtr = Number(lev.dayAtr ?? idx?.atr);
-  const _rng = (() => {
-    const note = String(lev.goldenGateNote || "");
-    const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
-    if (!m) return null;
-    const lo = Number(m[1]);
-    const hi = Number(m[2]);
-    return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? {
-      lo,
-      hi
-    } : null;
-  })();
-  const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
-  const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
-  const biasMeta = bullActive ? {
-    label: "BULL ACTIVE",
-    color: "var(--tt-up, #34d399)",
-    bg: "rgba(52,211,153,0.10)"
-  } : bearActive ? {
-    label: "BEAR ACTIVE",
-    color: "var(--tt-dn, #f87171)",
-    bg: "rgba(248,113,113,0.10)"
-  } : {
-    label: "WATCHING TRIGGERS",
-    color: "var(--tt-text-muted, #9ca3af)",
-    bg: "rgba(156,163,175,0.08)"
-  };
-  const _fmt = n => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
-  const _pctMove = (from, to) => Number.isFinite(from) && Number.isFinite(to) && from > 0 ? (to - from) / from * 100 : null;
-  const bullR = _pctMove(bullT, bullTgt);
-  const bearR = _pctMove(bearT, bearTgt);
-  let scorecard = null;
-  if (briefType === "evening" && Number.isFinite(price)) {
-    if (Number.isFinite(bullT) && price >= bullTgt && bullTgt > 0) {
-      scorecard = {
-        label: "BULL TARGET HIT",
-        color: "var(--tt-up)"
-      };
-    } else if (Number.isFinite(bearT) && price <= bearTgt && bearTgt > 0) {
-      scorecard = {
-        label: "BEAR TARGET HIT",
-        color: "var(--tt-dn)"
-      };
-    } else if (Number.isFinite(bullT) && price >= bullT) {
-      scorecard = {
-        label: "BULL TRIGGERED · WORKING",
-        color: "var(--tt-up)"
-      };
-    } else if (Number.isFinite(bearT) && price <= bearT) {
-      scorecard = {
-        label: "BEAR TRIGGERED · WORKING",
-        color: "var(--tt-dn)"
-      };
-    } else {
-      scorecard = {
-        label: "NEITHER SIDE TRIGGERED",
-        color: "var(--tt-text-muted)"
-      };
-    }
-  }
-  const onClick = e => {
-    e.preventDefault();
-    if (typeof onSelectTicker === "function") onSelectTicker(SYM);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
-  };
-  const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
-  const _dirColor = dayPct == null ? "var(--tt-text-muted)" : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
-  return h("button", {
-    onClick,
-    className: "tt-card ds-tickercard",
-    style: {
-      textAlign: "left",
-      padding: "var(--ds-space-3, 12px)",
-      width: "100%",
-      background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
-      border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
-      borderRadius: 10,
-      cursor: "pointer",
-      display: "flex",
-      flexDirection: "column",
-      gap: 8,
-      transition: "border-color 0.15s, transform 0.05s"
-    },
-    onMouseEnter: e => {
-      e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))";
-    },
-    onMouseLeave: e => {
-      e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
-    },
-    title: `${SYM} — open in detail`
-  }, h("div", {
-    className: "ds-tickercard__head",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8
-    }
-  }, h("div", {
-    className: "ds-tickercard__logo",
-    ref: el => {
-      if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
-        el.dataset.dsInit = "1";
-        try {
-          el.replaceWith(window.DS.tickerLogo(SYM, {
-            size: 22
-          }));
-        } catch (_) {}
-      }
-    },
-    style: {
-      width: 22,
-      height: 22,
-      flexShrink: 0
-    }
-  }, SYM.slice(0, 2)), h("span", {
-    className: "ds-tickercard__symbol",
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      letterSpacing: "0.02em",
-      color: "var(--tt-text)"
-    }
-  }, SYM), h("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text-muted)"
-    }
-  }, _fmt(price) || "—"), dayPct != null && h("span", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 11,
-      fontWeight: 600,
-      color: _dirColor,
-      marginLeft: "auto"
-    }
-  }, `${_dirGlyph} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`)), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: 6
-    }
-  }, h("span", {
-    style: {
-      padding: "2px 8px",
-      borderRadius: 999,
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.08em",
-      fontFamily: "var(--tt-font-mono)",
-      background: biasMeta.bg,
-      color: biasMeta.color,
-      border: `1px solid ${biasMeta.color}55`
-    }
-  }, biasMeta.label), scorecard && h("span", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.08em",
-      fontFamily: "var(--tt-font-mono)",
-      color: scorecard.color
-    }
-  }, "· " + scorecard.label)), Number.isFinite(price) && _rng && (() => {
-    const above = price > _rng.hi;
-    const below = price < _rng.lo;
-    const inside = !above && !below;
-    const banner = inside ? {
-      text: `Inside early range — ${biasMeta.label.toLowerCase()}`,
-      color: "var(--tt-text-muted)",
-      bg: "rgba(255,255,255,0.04)",
-      border: "rgba(255,255,255,0.10)"
-    } : above ? {
-      text: bullActive ? `⚡ Above early range — bull trigger $${bullT?.toFixed(2)} ${price >= bullTgt ? "TARGET HIT" : "armed"}` : `⚡ Above early range ($${_rng.hi.toFixed(2)}) — extension watch`,
-      color: "var(--tt-up, #34d399)",
-      bg: "rgba(52,211,153,0.08)",
-      border: "rgba(52,211,153,0.30)"
-    } : {
-      text: bearActive ? `⚠ Below early range — bear trigger $${bearT?.toFixed(2)} ${price <= bearTgt ? "TARGET HIT" : "armed"}` : `⚠ Below early range ($${_rng.lo.toFixed(2)}) — breakdown watch`,
-      color: "var(--tt-dn, #f87171)",
-      bg: "rgba(248,113,113,0.08)",
-      border: "rgba(248,113,113,0.30)"
-    };
-    return h("div", {
-      style: {
-        fontSize: 11,
-        fontWeight: 600,
-        lineHeight: 1.4,
-        padding: "6px 10px",
-        borderRadius: 6,
-        color: banner.color,
-        background: banner.bg,
-        border: `1px solid ${banner.border}`,
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, banner.text);
-  })(), prose && h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text)",
-      lineHeight: 1.55,
-      margin: 0,
-      padding: "6px 10px",
-      background: "rgba(245,194,92,0.05)",
-      borderLeft: "2px solid var(--tt-accent, #f5c25c)",
-      borderRadius: "0 4px 4px 0"
-    }
-  }, prose), _rng && (() => {
-    const morningOutOfBand = Number.isFinite(price) && Number.isFinite(dayAtr) && dayAtr > 0 && (price > _rng.hi + dayAtr * 0.05 || price < _rng.lo - dayAtr * 0.05);
-    const liveRange = morningOutOfBand && Number.isFinite(price) && dayAtr > 0 ? {
-      lo: price - dayAtr * 0.5,
-      hi: price + dayAtr * 0.5
-    } : null;
-    return h(React.Fragment, null, h("div", {
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 10.5,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.5
-      }
-    }, h("span", {
-      style: {
-        color: "var(--tt-text-faint)"
-      }
-    }, morningOutOfBand ? "Morning estimate: " : "Today's range: "), h("span", {
-      style: {
-        color: "var(--tt-text)",
-        textDecoration: morningOutOfBand ? "line-through" : "none",
-        opacity: morningOutOfBand ? 0.6 : 1
-      }
-    }, `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`), Number.isFinite(dayAtr) && dayAtr > 0 && h("span", {
-      style: {
-        color: "var(--tt-text-faint)"
-      }
-    }, ` · typical move ±$${dayAtr.toFixed(2)}`)), liveRange && h("div", {
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 11,
-        color: "var(--tt-up)",
-        lineHeight: 1.5,
-        fontWeight: 600
-      }
-    }, h("span", {
-      style: {
-        color: "var(--tt-text-faint)"
-      }
-    }, "Live range now: "), h("span", null, `$${liveRange.lo.toFixed(2)} – $${liveRange.hi.toFixed(2)}`), h("span", {
-      style: {
-        color: "var(--tt-text-faint)",
-        fontWeight: 500
-      }
-    }, ` · re-anchored to $${price.toFixed(2)}`)));
-  })(), (_fmt(bullT) || _fmt(bearT)) && h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 10.5,
-      color: "var(--tt-text-muted)",
-      display: "flex",
-      flexDirection: "column",
-      gap: 3
-    }
-  }, _fmt(bullT) && h("div", null, h("span", {
-    style: {
-      color: "var(--tt-up)"
-    }
-  }, `▲ `), h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, "Bull above "), h("span", {
-    style: {
-      color: "var(--tt-up)"
-    }
-  }, _fmt(bullT)), _fmt(bullTgt) && h(React.Fragment, null, h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, " → "), h("span", {
-    style: {
-      color: "var(--tt-up)"
-    }
-  }, _fmt(bullTgt)), Number.isFinite(bullR) && bullR > 0 && h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, ` (+${bullR.toFixed(1)}%)`))), _fmt(bearT) && h("div", null, h("span", {
-    style: {
-      color: "var(--tt-dn)"
-    }
-  }, `▼ `), h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, "Bear below "), h("span", {
-    style: {
-      color: "var(--tt-dn)"
-    }
-  }, _fmt(bearT)), _fmt(bearTgt) && h(React.Fragment, null, h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, " → "), h("span", {
-    style: {
-      color: "var(--tt-dn)"
-    }
-  }, _fmt(bearTgt)), Number.isFinite(bearR) && bearR < 0 && h("span", {
-    style: {
-      color: "var(--tt-text-faint)"
-    }
-  }, ` (${bearR.toFixed(1)}%)`)))));
-}
-function IndexPredictionsStrip({
-  brief,
-  data,
-  onSelectTicker,
-  layout = "full"
-}) {
-  const morning = brief?.morning || (brief?.type === "morning" ? brief : null);
-  const evening = brief?.evening || (brief?.type === "evening" ? brief : null);
-  const active = evening || morning;
-  if (!active) return null;
-  const briefType = active.type || (evening ? "evening" : "morning");
-  const _wantOrder = ["ES", "ES1!", "SPY", "QQQ", "IWM", "DIA"];
-  const indices = (active?.infographic?.indices || []).filter(i => _wantOrder.includes(String(i?.sym || "").toUpperCase())).sort((a, b) => _wantOrder.indexOf(String(a?.sym || "").toUpperCase()) - _wantOrder.indexOf(String(b?.sym || "").toUpperCase()));
-  if (indices.length === 0) return null;
-  const briefDate = active?.date || morning?.date || null;
-  const _label = briefType === "evening" ? "Today's Day-Trade Scorecard" : "Today's Day-Trade Plan";
-  const _isCompact = layout === "compact";
-  return h("aside", {
-    className: "tt-card tt-card-pad",
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: _isCompact ? 6 : 10,
-      height: "100%",
-      padding: _isCompact ? "12px 14px" : undefined
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, h("div", {
-    className: "tt-sec-title",
-    style: {
-      margin: 0
-    }
-  }, _isCompact ? `${_label.toUpperCase()} · ${indices.length} INDICES` : "DAY-TRADE PREDICTIONS"), briefDate && h("span", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 10,
-      color: "var(--tt-text-faint)"
-    }
-  }, briefDate)), !_isCompact && h("div", {
-    className: "tt-sec-h",
-    style: {
-      fontSize: 16,
-      margin: 0
-    }
-  }, _label), !_isCompact && h("p", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      fontStyle: "italic",
-      margin: "0",
-      lineHeight: 1.5
-    }
-  }, "Intraday triggers + targets — same Golden-Gate game plan the brief publishes for ES."), h("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: _isCompact ? 4 : 8,
-      marginTop: _isCompact ? 0 : 4
-    }
-  }, indices.map(idx => {
-    const sym = String(idx?.sym || "").toUpperCase();
-    const live = data?.[sym] || null;
-    const liveDc = live ? getDailyChange({
-      ticker: sym,
-      ...live
-    }) : null;
-    const proseRaw = sym === "SPY" ? active?.spyPrediction : sym === "QQQ" ? active?.qqqPrediction : sym === "IWM" ? active?.iwmPrediction : null;
-    const proseFallback = (() => {
-      if (proseRaw) return null;
-      const content = active?.content || "";
-      if (!content) return null;
-      const re = new RegExp(`\\*\\*${sym}\\s*@\\s*\\$([\\d.,]+)\\*\\*\\s*·\\s*Range today\\s+\\$([\\d.,]+)[–-]\\$([\\d.,]+)[\\s\\S]*?Bull above\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Bear below\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Lean:\\s*([A-Z]+)\\s*[—\\-]\\s*([^\\n.]+)`, "i");
-      const m = content.match(re);
-      if (!m) return null;
-      const [, px, lo, hi, bullT, bullTgt, bearT, bearTgt, lean, why] = m;
-      const leanLc = String(lean).toLowerCase();
-      if (leanLc === "bull") {
-        return `${sym} stays inside the expected day range of $${lo}–$${hi} early; resolves higher only if it reclaims $${bullT} (target $${bullTgt}). ${why.trim()}.`;
-      } else if (leanLc === "bear") {
-        return `${sym} stays inside the expected day range of $${lo}–$${hi} early; risk skews lower on a break of $${bearT} (target $${bearTgt}). ${why.trim()}.`;
-      }
-      return `${sym} stays inside the expected day range of $${lo}–$${hi} early; only resolves higher above $${bullT} (target $${bullTgt}) or lower below $${bearT} (target $${bearTgt}). ${why.trim()}.`;
-    })();
-    const prose = proseRaw ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim() : proseFallback;
-    if (_isCompact) {
-      return h(BriefIndexRowCompact, {
-        key: sym,
-        idx,
-        briefType,
-        livePx: Number(live?.price),
-        dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-        onSelectTicker,
-        prose
-      });
-    }
-    return h(BriefIndexCard, {
-      key: sym,
-      idx,
-      briefType,
-      livePx: Number(live?.price),
-      dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-      onSelectTicker,
-      prose
-    });
-  })), h("a", {
-    href: "/daily-brief.html",
-    style: {
-      fontSize: 11,
-      color: "var(--tt-accent, #f5c25c)",
-      textDecoration: "none",
-      marginTop: _isCompact ? 2 : 4,
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 4
-    }
-  }, _isCompact ? "Full plan + scorecard →" : "Read the full brief →"));
-}
-function BriefIndexRowCompact({
-  idx,
-  briefType,
-  livePx,
-  dayPct,
-  onSelectTicker,
-  prose
-}) {
-  const SYM = String(idx?.sym || "").toUpperCase();
-  const briefPx = Number(idx?.price);
-  const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-  const lev = idx?.levels || {};
-  const gp = lev.gamePlan || {};
-  const bullT = Number(gp.bullTrigger);
-  const bullTgt = Number(gp.bullTarget);
-  const bearT = Number(gp.bearTrigger);
-  const bearTgt = Number(gp.bearTarget);
-  const _rng = (() => {
-    const note = String(lev.goldenGateNote || "");
-    const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
-    if (!m) return null;
-    const lo = Number(m[1]);
-    const hi = Number(m[2]);
-    return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? {
-      lo,
-      hi
-    } : null;
-  })();
-  const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
-  const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
-  const biasMeta = bullActive ? {
-    label: "BULL",
-    color: "#34d399",
-    bg: "rgba(52,211,153,0.12)"
-  } : bearActive ? {
-    label: "BEAR",
-    color: "#f87171",
-    bg: "rgba(248,113,113,0.12)"
-  } : {
-    label: "WAIT",
-    color: "#9ca3af",
-    bg: "rgba(156,163,175,0.10)"
-  };
-  const _fmt = n => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
-  const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
-  const _dirColor = dayPct == null ? "var(--tt-text-muted)" : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
-  const onClick = e => {
-    e.preventDefault();
-    if (typeof onSelectTicker === "function") onSelectTicker(SYM);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
-  };
-  const trimmedProse = prose ? String(prose).replace(/\s+/g, " ").trim() : null;
-  return h("button", {
-    onClick,
-    style: {
-      textAlign: "left",
-      padding: "10px 12px",
-      width: "100%",
-      background: "rgba(255,255,255,0.02)",
-      border: "1px solid rgba(255,255,255,0.06)",
-      borderRadius: 8,
-      cursor: "pointer",
-      display: "flex",
-      flexDirection: "column",
-      gap: 6,
-      transition: "border-color 0.15s, background 0.05s"
-    },
-    onMouseEnter: e => {
-      e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)";
-      e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-    },
-    onMouseLeave: e => {
-      e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
-    },
-    title: `${SYM} — open detail`
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, h("strong", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text)",
-      letterSpacing: "0.02em"
-    }
-  }, SYM), h("span", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text-muted)",
-      fontFamily: "var(--tt-font-mono)"
-    }
-  }, _fmt(price) || "—"), dayPct != null && h("span", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 10,
-      fontWeight: 600,
-      color: _dirColor
-    }
-  }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`), h("span", {
-    style: {
-      padding: "1px 7px",
-      borderRadius: 999,
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.08em",
-      fontFamily: "var(--tt-font-mono)",
-      background: biasMeta.bg,
-      color: biasMeta.color,
-      border: `1px solid ${biasMeta.color}55`
-    }
-  }, biasMeta.label), _rng && h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-muted)",
-      fontFamily: "var(--tt-font-mono)",
-      marginLeft: "auto"
-    }
-  }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`)), trimmedProse && h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text)",
-      lineHeight: 1.5,
-      margin: 0,
-      display: "-webkit-box",
-      WebkitLineClamp: 3,
-      WebkitBoxOrient: "vertical",
-      overflow: "hidden"
-    }
-  }, trimmedProse), (Number.isFinite(bullT) || Number.isFinite(bearT)) && h("div", {
-    style: {
-      display: "flex",
-      gap: 14,
-      flexWrap: "wrap",
-      fontSize: 10,
-      fontFamily: "var(--tt-font-mono)"
-    }
-  }, Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
-    style: {
-      color: "var(--tt-up, #34d399)",
-      whiteSpace: "nowrap"
-    }
-  }, `▲ Bull ${_fmt(bullT)} → ${_fmt(bullTgt)}`), Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
-    style: {
-      color: "var(--tt-dn, #f87171)",
-      whiteSpace: "nowrap"
-    }
-  }, `▼ Bear ${_fmt(bearT)} → ${_fmt(bearTgt)}`)));
 }
 function OptionsPlaysOfTheDay({
   onSelectTicker,
@@ -2356,10 +1856,6 @@ function TodayHero({
     data,
     earnings,
     onSelectTicker
-  }), h(QuickGlance, {
-    brief,
-    data,
-    onSelectTicker
   })), h("div", {
     style: {
       minWidth: 0
@@ -2367,160 +1863,6 @@ function TodayHero({
   }, h(ResearchDeskPanel, {
     onSelectTicker
   })));
-}
-function QuickGlance({
-  brief,
-  data,
-  onSelectTicker
-}) {
-  const info = brief?.infographic || {};
-  const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
-  const briefRegime = headline?.regime || info?.regime || null;
-  const breadth = headline?.breadth || info?.breadth || null;
-  const breadthGreen = Number(breadth?.green);
-  const breadthTotal = Number(breadth?.total);
-  const breadthPct = Number.isFinite(breadthGreen) && Number.isFinite(breadthTotal) && breadthTotal > 0 ? breadthGreen / breadthTotal * 100 : null;
-  const topMover = useMemo(() => {
-    if (!data) return null;
-    let best = null;
-    for (const t of Object.values(data)) {
-      if (!t?.ticker) continue;
-      const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
-      const pct = Number(dc?.dayPct);
-      if (!Number.isFinite(pct)) continue;
-      if (!best || pct > best.pct) best = {
-        sym: t.ticker,
-        pct
-      };
-    }
-    return best;
-  }, [data]);
-  const latent = useMemo(() => {
-    if (!data) return null;
-    for (const t of Object.values(data)) {
-      if (t?.latent_regime?.state) return t.latent_regime;
-    }
-    return null;
-  }, [data]);
-  const regime = useMemo(() => {
-    if (briefRegime) return briefRegime;
-    const latentState = String(latent?.state || "").toUpperCase();
-    if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") return latentState;
-    if (Number.isFinite(breadthPct)) {
-      if (breadthPct >= 70) return "RISK_ON";
-      if (breadthPct <= 30) return "RISK_OFF";
-      return "CHOP";
-    }
-    return latentState || null;
-  }, [briefRegime, latent, breadthPct]);
-  const REGIME_TONE = {
-    RISK_ON: "#34d399",
-    BULL: "#34d399",
-    BULL_TREND: "#34d399",
-    NEUTRAL: "#f5c25c",
-    CHOP: "#f5c25c",
-    RISK_OFF: "#f87171",
-    BEAR: "#f87171",
-    BEAR_TREND: "#f87171"
-  };
-  const regimeTone = REGIME_TONE[String(regime || "").toUpperCase()] || "var(--tt-text-muted)";
-  const latentTone = REGIME_TONE[String(latent?.state || "").toUpperCase()] || "var(--tt-text-muted)";
-  const Tile = ({
-    label,
-    value,
-    sub,
-    color
-  }) => h("div", {
-    style: {
-      flex: 1,
-      minWidth: 120,
-      padding: 10,
-      background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
-      border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
-      borderRadius: 8
-    }
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: "var(--tt-text-faint)",
-      textTransform: "uppercase"
-    }
-  }, label), h("div", {
-    style: {
-      marginTop: 4,
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 16,
-      fontWeight: 700,
-      color: color || "var(--tt-text)"
-    }
-  }, value || "—"), sub && h("div", {
-    style: {
-      marginTop: 2,
-      fontSize: 10.5,
-      color: "var(--tt-text-muted)"
-    }
-  }, sub));
-  return h("section", {
-    className: "tt-card tt-card-pad"
-  }, h("div", {
-    className: "tt-sec-title",
-    style: {
-      marginBottom: 8
-    }
-  }, "QUICK GLANCE"), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, h(Tile, {
-    label: "Daily Regime",
-    value: regime ? String(regime).replace(/_/g, " ") : "—",
-    sub: breadthPct != null ? `Breadth ${breadthPct.toFixed(0)}% green (${breadthGreen}/${breadthTotal})` : null,
-    color: regimeTone
-  }), latent && h(Tile, {
-    label: "Latent Regime · HMM",
-    value: String(latent.state || "—").replace(/_/g, " "),
-    sub: latent.posterior ? Object.entries(latent.posterior).map(([k, v]) => `${k.replace(/_/g, " ").toLowerCase()} ${(v * 100).toFixed(0)}%`).join(" · ") : null,
-    color: latentTone
-  }), topMover && h("div", {
-    style: {
-      flex: 1,
-      minWidth: 120,
-      padding: 10,
-      background: topMover.pct >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
-      border: `1px solid ${topMover.pct >= 0 ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-      borderRadius: 8,
-      cursor: "pointer",
-      transition: "border-color 0.12s"
-    },
-    onClick: () => typeof onSelectTicker === "function" && onSelectTicker(topMover.sym),
-    title: `Open ${topMover.sym} in the right rail`
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: "var(--tt-text-faint)",
-      textTransform: "uppercase"
-    }
-  }, "Top Mover · RTH"), h("div", {
-    style: {
-      marginTop: 4,
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 16,
-      fontWeight: 700,
-      color: topMover.pct >= 0 ? "var(--tt-up)" : "var(--tt-dn)"
-    }
-  }, topMover.sym, " ", topMover.pct >= 0 ? "+" : "", topMover.pct.toFixed(2), "%"), h("div", {
-    style: {
-      marginTop: 2,
-      fontSize: 10.5,
-      color: "var(--tt-text-muted)"
-    }
-  }, "Click to open detail"))));
 }
 function MarketState({
   data,
@@ -2730,10 +2072,9 @@ function MacroStrip({
 }
 function FocusRail({
   data,
-  onSelectTicker,
-  strip
+  onSelectTicker
 }) {
-  const lanes = useMemo(() => {
+  const items = useMemo(() => {
     if (!data) return [];
     const all = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
       ticker: String(k).toUpperCase(),
@@ -2743,205 +2084,47 @@ function FocusRail({
     const entryType = TT.entryType || (() => ({
       corridor: false
     }));
-    const completionForSize = TT.completionForSize || (t => Number(t?.completion) || 0);
-    const topRank = all.filter(t => Number(t.rank_position) > 0).sort((a, b) => Number(a.rank_position) - Number(b.rank_position)).slice(0, 8);
-    const highRr = all.filter(t => {
-      const rr = Number(t.rr) || 0;
-      const comp = completionForSize(t);
-      const flags = t.flags || {};
-      const ent = entryType(t);
-      const timing = ent?.corridor || flags.flip_watch || flags.sq30_release;
-      return rr >= 2.0 && comp <= 0.45 && timing;
-    }).sort((a, b) => (Number(b.rr) || 0) - (Number(a.rr) || 0)).slice(0, 8);
-    const squeeze = all.filter(t => {
-      const flags = t.flags || {};
-      return flags.sq30_on || flags.sq30_release;
-    }).sort((a, b) => {
-      const ra = a.flags?.sq30_release ? 1 : 0;
-      const rb = b.flags?.sq30_release ? 1 : 0;
-      if (ra !== rb) return rb - ra;
-      return (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0);
-    }).slice(0, 8);
     const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
-    const earlySetup = all.filter(t => {
+    return all.filter(t => {
       const ent = entryType(t);
       const stage = String(t.kanban_stage || "").toLowerCase();
       return ent?.corridor && ENTRY_STAGES.has(stage);
     }).sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0)).slice(0, 8);
-    return [{
-      id: "rank",
-      label: "TOP RANK",
-      sub: "Best composite score",
-      items: topRank,
-      accent: "accent"
-    }, {
-      id: "rr",
-      label: "HIGH R:R",
-      sub: "RR ≥ 2.0 + early",
-      items: highRr,
-      accent: "up"
-    }, {
-      id: "squeeze",
-      label: "SQUEEZE",
-      sub: "On / released — primed to break",
-      items: squeeze,
-      accent: "cyan"
-    }, {
-      id: "setup",
-      label: "ENTRY ZONE",
-      sub: "In corridor + entry stage",
-      items: earlySetup,
-      accent: "violet"
-    }].filter(lane => lane.items.length > 0);
   }, [data]);
-  if (lanes.length === 0) return null;
-  const marketOpen = isNyRegularMarketOpen();
-  const CRYPTO_NO_EXT = new Set(["BTCUSD", "ETHUSD"]);
-  const fmtMetric = (t, laneId) => {
-    if (laneId === "rank") {
-      const r = Number(t.rank_position);
-      return Number.isFinite(r) ? `R${r}` : "";
-    }
-    if (laneId === "rr") {
-      const rr = Number(t.rr);
-      return Number.isFinite(rr) ? `${rr.toFixed(1)}R` : "";
-    }
-    if (laneId === "squeeze") {
-      const f = t.flags || {};
-      return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
-    }
-    return "";
-  };
-  if (strip) {
-    const stripLanes = lanes.filter(l => l.id !== "rank");
-    if (stripLanes.length === 0) return null;
-    return h(React.Fragment, null, stripLanes.map(lane => h("section", {
-      key: lane.id,
-      className: "tt-row"
-    }, h("div", {
-      className: "tt-sec-title"
-    }, lane.label), h("div", {
-      className: "tt-strip-scroll"
-    }, lane.items.map(t => {
-      const sym = String(t.ticker || "").toUpperCase();
-      const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
-      const pct = Number(dc?.dayPct);
-      const metric = fmtMetric(t, lane.id);
-      return h("button", {
-        key: sym,
-        onClick: () => onSelectTicker && onSelectTicker(sym),
-        className: "tt-strip-chip",
-        title: sym
-      }, h(TickerLogo, {
-        sym,
-        size: 18
-      }), h("span", {
-        style: {
-          fontWeight: 700,
-          fontSize: 12,
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, sym), metric && h("span", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "var(--tt-text-dim)"
-        }
-      }, metric), Number.isFinite(pct) && h("span", {
-        style: {
-          fontSize: 11,
-          fontWeight: 700,
-          color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`));
-    })))));
-  }
-  const computeBias = t => {
-    const raw = String(t?.bias_direction || "").toUpperCase();
-    if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
-    if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
-    const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
-    if (md === "LONG") return "L";
-    if (md === "SHORT") return "S";
-    return null;
-  };
+  if (items.length === 0) return null;
   return h("section", {
-    className: "tt-row focus-rail"
+    className: "tt-row"
   }, h("div", {
-    className: "focus-rail-head"
-  }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "FOCUS"), h("h2", {
-    className: "tt-sec-h2"
-  }, "Actionable tickers worth a look"), h("p", {
-    className: "tt-sec-sub"
-  }, "Top ranks · best R:R · squeeze candidates · corridor entries — straight from the scoring snapshot."))), h("div", {
-    className: "focus-rail-grid"
-  }, lanes.map(lane => h("div", {
-    key: lane.id,
-    className: `focus-lane focus-lane--${lane.accent}`
-  }, h("div", {
-    className: "focus-lane-head"
-  }, h("span", {
-    className: "focus-lane-label"
-  }, lane.label), h("span", {
-    className: "focus-lane-count"
-  }, lane.items.length)), h("div", {
-    className: "focus-lane-sub"
-  }, lane.sub), h("div", {
-    className: "focus-lane-chips"
-  }, lane.items.slice(0, 6).map(t => {
+  }, "ENTRY ZONE"), h("div", {
+    className: "tt-strip-scroll"
+  }, items.map(t => {
     const sym = String(t.ticker || "").toUpperCase();
-    const metric = fmtMetric(t, lane.id);
-    const dc = getDailyChange(t);
-    const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-    const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
-    const livePx = Number(t?.price ?? t?.close);
-    const extPct = !marketOpen && !CRYPTO_NO_EXT.has(sym) ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : NaN;
-    const showExt = Number.isFinite(extPct) && Math.abs(extPct) >= 0.05;
-    const extCls = !showExt ? "" : extPct >= 0 ? "up" : "dn";
-    const titleParts = [sym];
-    if (metric) titleParts.push(metric);
-    if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
-    if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
-    const bias = computeBias(t);
-    const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
-    const hasPrice = Number.isFinite(livePx) && livePx > 0;
-    const hasPctOrExt = pct != null || showExt;
+    const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
+    const pct = Number(dc?.dayPct);
     return h("button", {
-      key: `${lane.id}-${sym}`,
-      className: "focus-chip",
-      onClick: () => {
-        if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-      },
-      title: titleParts.join(" · ") + (bias ? ` · ${bias === "L" ? "LONG bias" : "SHORT bias"}` : "")
-    }, h("span", {
-      className: `focus-chip-bias ${biasCls}`,
-      style: bias ? null : {
-        visibility: "hidden"
-      }
-    }, bias || "·"), h("div", {
-      className: "focus-chip-main"
+      key: sym,
+      onClick: () => onSelectTicker && onSelectTicker(sym),
+      className: "tt-strip-chip",
+      title: `${sym} — in corridor + entry stage`
     }, h(TickerLogo, {
       sym,
       size: 18
     }), h("span", {
-      className: "focus-chip-sym"
-    }, sym), metric && h("span", {
-      className: "focus-chip-metric"
-    }, metric)), (hasPrice || hasPctOrExt) && h("div", {
-      className: "focus-chip-right"
-    }, hasPrice && h("span", {
-      className: "focus-chip-px"
-    }, fmtUsd(livePx)), hasPctOrExt && h("div", {
-      className: "focus-chip-pct-wrap"
-    }, pct != null && h("span", {
-      className: `focus-chip-pct ${pctCls}`
-    }, (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%"), showExt && h("span", {
-      className: `focus-chip-pct-ext ${extCls}`
-    }, (extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT"))));
-  }))))));
+      style: {
+        fontWeight: 700,
+        fontSize: 12,
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, sym), Number.isFinite(pct) && h("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 700,
+        color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`));
+  })));
 }
 function TickerLogo({
   sym,
@@ -3561,33 +2744,6 @@ function computeInsightChips(allTickers, opts) {
     row: "focus",
     tooltip: "LTF score in the optimal entry zone for the HTF trend direction."
   });
-  const highRrEarly = all.filter(t => {
-    const rr = Number(t?.rr) || 0;
-    const comp = completionForSize(t);
-    const flags = t?.flags || {};
-    const ent = entryType(t);
-    const staleness = String(t?.staleness || "").toUpperCase();
-    const actionableTiming = ent?.corridor || flags.flip_watch || flags.sq30_release;
-    if (staleness && staleness !== "FRESH") return false;
-    return rr >= 2.0 && comp <= 0.45 && actionableTiming;
-  });
-  chips.push({
-    id: "high_rr_early",
-    label: "High R:R Early",
-    count: highRrEarly.length,
-    tickers: highRrEarly.map(t => t.ticker),
-    row: "focus",
-    tooltip: "R:R ≥ 2.0, completion ≤ 45%, plus corridor / flip / release timing."
-  });
-  const squeeze = all.filter(t => t.flags?.sq30_on === true);
-  chips.push({
-    id: "squeeze",
-    label: "Squeeze",
-    count: squeeze.length,
-    tickers: squeeze.map(t => t.ticker),
-    row: "momentum",
-    tooltip: "Bollinger Bands inside Keltner Channels on 30m — volatility contracting."
-  });
   const breakout = all.filter(t => {
     const ks = String(t.kanban_stage || "").toLowerCase();
     return t.flags?.sq30_release === true || ks === "just_entered" || ks === "just_flipped";
@@ -4034,7 +3190,6 @@ function ViewportCard({
     return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
   })();
   const rank = Number(t?.rank_position ?? t?.rp) || null;
-  const rr = Number(t?.rr) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const _modelDir = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
@@ -4069,37 +3224,6 @@ function ViewportCard({
     return null;
   })();
   const isTTSel = typeof window !== "undefined" && typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
-  const sqChipInfo = (() => {
-    const tfm = t?.tf_tech || {};
-    const tfList = ["10", "15", "30", "1H", "60", "4H", "240"];
-    for (const tfk of tfList) {
-      const row = tfm[tfk];
-      if (!row?.sq) continue;
-      if (row.sq.r) return {
-        state: "release",
-        tf: tfk,
-        label: "SQ RLS",
-        cls: "ds-chip--accent"
-      };
-    }
-    for (const tfk of tfList) {
-      const row = tfm[tfk];
-      if (!row?.sq) continue;
-      if (row.sq.s) return {
-        state: "on",
-        tf: tfk,
-        label: "SQ ON",
-        cls: ""
-      };
-      if (row.sq.c) return {
-        state: "compressed",
-        tf: tfk,
-        label: "SQ CMP",
-        cls: "ds-chip--solid"
-      };
-    }
-    return null;
-  })();
   const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
@@ -4232,19 +3356,7 @@ function ViewportCard({
       fontFamily: "var(--tt-font-mono)"
     },
     title: "Conviction tier · focus score"
-  }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
-    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Risk:Reward"
-  }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
-    className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
-  }, sqChipInfo.label)));
+  }, `${tier || "C"}·${Math.round(conv)}`)));
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
@@ -5002,6 +4114,41 @@ function EndCTA() {
     href: "/portfolio.html"
   }, "Open Portfolio"));
 }
+function Disclosure({
+  id,
+  title,
+  sub,
+  children
+}) {
+  const storageKey = `tt-today-disclose:${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const onToggle = e => {
+    const isOpen = !!e.currentTarget.open;
+    setOpen(isOpen);
+    try {
+      window.localStorage.setItem(storageKey, isOpen ? "1" : "0");
+    } catch {}
+  };
+  return h("details", {
+    className: "tt-disclose",
+    open,
+    onToggle
+  }, h("summary", null, h("span", {
+    className: "tt-disclose-title"
+  }, title), sub && h("span", {
+    className: "tt-disclose-sub"
+  }, sub), h("span", {
+    className: "tt-disclose-caret"
+  }, "▼")), open ? h("div", {
+    className: "tt-disclose-body"
+  }, children) : null);
+}
 function TodayApp() {
   const [data, setData] = useState(null);
   const [brief, setBrief] = useState(null);
@@ -5184,23 +4331,20 @@ function TodayApp() {
     "aria-label": "Loading today's data"
   }), h("main", null, h(StatusHeader, {
     cal,
-    briefDate: brief?.date
-  }), data ? h(MarketState, {
-    data,
-    onSelectTicker
-  }) : h(MarketStateSkeleton, null), h(TodayHero, {
+    briefDate: brief?.date,
+    brief,
+    data
+  }), h(TodayHero, {
     brief,
     data,
     earnings,
     onSelectTicker
-  }), h(DayTradePredictions, {
-    onSelectTicker
-  }), h(OptionsPlaysOfTheDay, {
-    onSelectTicker,
-    layout: "row"
   }), h(OpenPositionsPreview, {
     onSelectTicker
-  }), brief && h(MacroStrip, {
+  }), data ? h(MarketState, {
+    data,
+    onSelectTicker
+  }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
     brief,
     data
   }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
@@ -5210,14 +4354,26 @@ function TodayApp() {
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
   }), data && h(FocusRail, {
     data,
-    onSelectTicker,
-    strip: true
+    onSelectTicker
   }), data && h(TopMovers, {
     data,
     onSelectTicker,
     strip: true,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), data ? h(AnalysisControls, {
+  }), h(Disclosure, {
+    id: "daytrade",
+    title: "Day-Trade Game Plan",
+    sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
+  }, h(DayTradePredictions, {
+    onSelectTicker
+  })), h(Disclosure, {
+    id: "options",
+    title: "Options Plays of the Day",
+    sub: "0/1DTE index plays + top swing structures"
+  }, h(OptionsPlaysOfTheDay, {
+    onSelectTicker,
+    layout: "row"
+  })), data ? h(AnalysisControls, {
     chips,
     totalCount: allTickers.length,
     visibleCount: visible.length,
@@ -5233,11 +4389,15 @@ function TodayApp() {
     sparkCache,
     ensureSpark,
     onSelectTicker
-  }) : h(BubbleViewportSkeleton, null), data ? h(UniverseHeatmap, {
+  }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
+    id: "heatmap",
+    title: "Universe Heat Map",
+    sub: "HTF-scored grid of the full universe"
+  }, h(UniverseHeatmap, {
     visible,
     query: filters.query,
     onSelectTicker
-  }) : h(HeatmapSkeleton, null), h(EndCTA, null)), RailOverlay && railTickerObj && h(RailOverlay, {
+  })), h(EndCTA, null)), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: data,
     onClose: onCloseRail,
@@ -5595,30 +4755,6 @@ function BubbleViewportSkeleton() {
     className: "sk sk-bubble-pane"
   })));
 }
-function HeatmapSkeleton() {
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, h("div", {
-    className: "sk",
-    style: {
-      width: 80,
-      height: 10,
-      marginBottom: 8
-    }
-  }), h("div", {
-    className: "sk",
-    style: {
-      width: 220,
-      height: 16
-    }
-  })), h("div", {
-    className: "sk sk-heat"
-  }));
-}
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
@@ -5627,6 +4763,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781035595191:116208886
+// cache-bust:1781052774502:822183837
 
-// cache-bust:1781035595191:116208886
+// cache-bust:1781052774502:822183837
