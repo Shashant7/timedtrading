@@ -53,8 +53,8 @@ function inferContentType(row) {
 }
 
 const CONTENT_TYPE_LABEL = {
-  flash: "FlashInsight",
-  flash_crypto: "Crypto FlashInsight",
+  flash: "Market Intel",
+  flash_crypto: "Crypto Intel",
   video: "Video / macro",
   earnings: "Earnings update",
   note: "Research note",

@@ -718,7 +718,7 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
     `SELECT title, source_url FROM ${PUBLICATIONS_TABLE} WHERE pub_id = ?`,
   ).bind(pubId).first().catch(() => null);
 
-  let summary_title = meta?.title || "FSD FlashInsight";
+  let summary_title = meta?.title || "Market Intel update";
   let summary_body = null;
   try {
     const { rewriteFSDPublication } = await import("./fsd-rewriter.js");
@@ -737,7 +737,7 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
   try {
     const { notifyDiscord } = await import("../alerts.js");
     await notifyDiscord(env, {
-      title: `📡 FSD FlashInsight — ${matched.slice(0, 3).join(", ")}${matched.length > 3 ? ` +${matched.length - 3}` : ""}`,
+      title: `📡 Market Intel — ${matched.slice(0, 3).join(", ")}${matched.length > 3 ? ` +${matched.length - 3}` : ""}`,
       description: summary_title.slice(0, 220),
       color: 0xa855f7,
       fields: [
@@ -746,7 +746,7 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
         ...(meta?.source_url ? [{ name: "Source", value: `[Read on fundstratdirect.com](${meta.source_url})`, inline: false }] : []),
         { name: "View in app", value: `Open the ticker's right-rail → Catalysts tab (Intel panel)`, inline: false },
       ],
-      footer: { text: `pub_id=${pubId} · auto-routed by CRO ingestion` },
+      footer: { text: `pub_id=${pubId} · Timed Trading intel routing` },
       timestamp: new Date().toISOString(),
     }, "general");
   } catch (_) {}
