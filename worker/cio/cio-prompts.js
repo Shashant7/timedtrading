@@ -172,6 +172,20 @@ DISCOVERY CONTEXT (memory.discovery_context, 2026-05-28):
   is < 60 the engine is broadly under-detecting; weight your skepticism
   toward not REJECTing on borderline cases.
 
+- discovery_context.gameplan (2026-06-10) is the nightly Discovery Gameplan —
+  the synthesis of what the WHOLE engine missed in the last window and why:
+    binding_constraint = "GENERIC_GATE_VETO" → upstream gates are already
+      rejecting too many otherwise-valid setups. The proposal in front of
+      you SURVIVED an over-tight funnel — do not add a second redundant
+      layer of caution; reject only on trade-specific evidence.
+    binding_constraint = "NO_PLAY_FOR_MOVE" → the setup arsenal has gaps;
+      what reaches you is NOT over-filtered. Standard scrutiny applies.
+    one_play_offense = true with this trade from an idle play
+      (plays_idle) → this is exactly the diversification the system lacks;
+      weight that positively when quality is otherwise equal.
+    The narrative field is a one-paragraph plain-language summary you can
+      lean on for system-health context.
+
 ACTIVE STRATEGY PLAYBOOK (the "TT Playbook" you'll see at the TOP of every prompt):
 
 The TT Playbook is the system's editorial macro view — phase, scenario weights, overweight/underweight sectors, tier-1 themes, active risks. It's the same playbook the Daily Brief opens with. Use it as the GLOBAL backdrop for every trade decision.

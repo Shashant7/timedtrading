@@ -543,6 +543,30 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         discovery.universe_capture_rate_pct = gapsSummary.universe_capture_rate_pct;
       }
     }
+    // 2026-06-10 — Discovery Gameplan (worker/discovery/gameplan.js).
+    // The nightly synthesis of WHAT the engine missed and WHY. Gives
+    // the CIO system-level context for entry decisions:
+    //   - binding_constraint = GENERIC_GATE_VETO → upstream gates are
+    //     already rejecting too many valid setups; a borderline entry
+    //     that reached the CIO survived an over-tight funnel — lean
+    //     APPROVE on otherwise-sound proposals.
+    //   - binding_constraint = NO_PLAY_FOR_MOVE → the arsenal itself
+    //     has gaps; the proposals the CIO sees are NOT over-filtered.
+    //   - one_play_offense → flow is concentrated in one entry path;
+    //     value diversification of setups when quality is equal.
+    const gameplan = memoryCache?.discoveryGameplan;
+    if (gameplan && typeof gameplan === "object") {
+      discovery.gameplan = {
+        generated: gameplan.generated || null,
+        narrative: (gameplan.narrative || "").slice(0, 700),
+        binding_constraint: gameplan.binding_constraint || null,
+        binding_constraint_pct: gameplan.binding_constraint_pct ?? null,
+        capture_rate: gameplan.capture?.capture_rate ?? null,
+        one_play_offense: gameplan.playbook_usage?.one_play_offense || false,
+        plays_idle: (gameplan.playbook_usage?.plays_idle || []).slice(0, 6),
+        top_miss_archetype: gameplan.miss_archetypes?.[0]?.archetype || null,
+      };
+    }
     if (Object.keys(discovery).length > 0) {
       mem.discovery_context = discovery;
     }

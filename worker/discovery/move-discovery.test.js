@@ -27,7 +27,7 @@
 //   • capsTickers — 250 tickers → only top 200 by recent magnitude.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { runMoveDiscovery } from "./move-discovery.js";
+import { runMoveDiscovery, computeMovePatterns } from "./move-discovery.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -446,5 +446,30 @@ describe("runMoveDiscovery", () => {
     const db = makeDb({ "ticker_candles": candles, "trades": [] });
     const result = await runMoveDiscovery(makeEnv({ db, kv: makeKv() }));
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("computeMovePatterns", () => {
+  it("aggregates captured vs missed move magnitudes (2026-06-10 zeros fix)", () => {
+    const moves = [
+      { capture: "FULL", move_pct: 10, move_atr: 4 },
+      { capture: "PARTIAL", move_pct: -6, move_atr: 3 },
+      { capture: "MISSED", move_pct: 12, move_atr: 5 },
+      { capture: "MISSED", move_pct: -8, move_atr: 3 },
+      { capture: "CHURNED", move_pct: 20, move_atr: 6 }, // excluded from both groups
+    ];
+    const p = computeMovePatterns(moves);
+    expect(p.captured.count).toBe(2);
+    expect(p.captured.avg_move_pct).toBe(8);
+    expect(p.captured.avg_move_atr).toBe(3.5);
+    expect(p.missed.count).toBe(2);
+    expect(p.missed.avg_move_pct).toBe(10);
+  });
+
+  it("returns null aggregates (not zeros) for empty groups", () => {
+    const p = computeMovePatterns([]);
+    expect(p.captured.count).toBe(0);
+    expect(p.captured.avg_move_pct).toBe(null);
+    expect(p.missed.avg_move_pct).toBe(null);
   });
 });
