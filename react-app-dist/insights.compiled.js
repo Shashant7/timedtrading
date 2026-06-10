@@ -1574,6 +1574,43 @@ function ResearchNotePanel({
     }
   }, "The desk's daily synthesis blends external research with this account's own model state. Educational context — not investment advice.")));
 }
+function Disclosure({
+  id,
+  title,
+  sub,
+  defaultOpen = false,
+  children
+}) {
+  const storageKey = `tt-insights-disclose:${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(storageKey);
+      return v == null ? defaultOpen : v === "1";
+    } catch {
+      return defaultOpen;
+    }
+  });
+  const onToggle = e => {
+    const isOpen = !!e.currentTarget.open;
+    setOpen(isOpen);
+    try {
+      window.localStorage.setItem(storageKey, isOpen ? "1" : "0");
+    } catch {}
+  };
+  return h("details", {
+    className: "ins-disclose",
+    open,
+    onToggle
+  }, h("summary", null, h("span", {
+    className: "ins-disclose-title"
+  }, title), sub && h("span", {
+    className: "ins-disclose-sub"
+  }, sub), h("span", {
+    className: "ins-disclose-caret"
+  }, "▼")), open ? h("div", {
+    className: "ins-disclose-body"
+  }, children) : null);
+}
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
@@ -1624,12 +1661,7 @@ function InsightsApp() {
     className: "label"
   }, "INSIGHTS"), h("h1", null, "System Intelligence"), h("div", {
     className: "sub"
-  }, "How the model is performing under the hood. The engine analyses each setup type and learns from outcomes; this page surfaces a high-level view. ", "Every closed trade contributes back to the AI CIO's weekly retrospective — patterns that work get more weight, patterns that don't get tightened."))), h(ActiveStrategyPanel, {
-    data: strategy
-  }), h(ResearchNotePanel, {
-    note: croNote,
-    education
-  }), h(ModelStatus, {
+  }, "How the model is performing under the hood — and what it is learning. ", "Every closed trade feeds the AI CIO's retrospective: patterns that work get more weight, patterns that don't get tightened."))), h(ModelStatus, {
     allMeta,
     history,
     summary
@@ -1637,8 +1669,6 @@ function InsightsApp() {
     allMeta,
     summary,
     history
-  }), h(StretchedNamesPanel, {
-    apiBase: API_BASE
   }), h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1672,15 +1702,38 @@ function InsightsApp() {
       height: 280,
       borderRadius: 12
     }
-  }), universeChanges !== null ? h(UniverseChanges, {
+  }), h(Disclosure, {
+    id: "strategy",
+    title: "Active Strategy Playbook",
+    sub: "the FSD-informed framing the AI CIO + Daily Brief work from"
+  }, h(ActiveStrategyPanel, {
+    data: strategy
+  })), h(Disclosure, {
+    id: "research-note",
+    title: "Research Desk Daily Read",
+    sub: "CRO note in TT voice + concept education"
+  }, h(ResearchNotePanel, {
+    note: croNote,
+    education
+  })), h(Disclosure, {
+    id: "stretched",
+    title: "Stretched Names",
+    sub: "exhausted-momentum tickers the auto-rebalance is NOT adding"
+  }, h(StretchedNamesPanel, {
+    apiBase: API_BASE
+  })), h(Disclosure, {
+    id: "universe",
+    title: "Universe Changes",
+    sub: "tickers added / removed and why"
+  }, universeChanges !== null ? h(UniverseChanges, {
     events: universeChanges
   }) : h("div", {
     className: "sk",
     style: {
-      height: 180,
+      height: 120,
       borderRadius: 12
     }
-  }), error && h("div", {
+  })), error && h("div", {
     className: "tt-card tt-card-pad",
     style: {
       color: "var(--tt-dn-soft)"
@@ -1695,6 +1748,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781060589806:760011620
+// cache-bust:1781070905754:363639545
 
-// cache-bust:1781060589806:760011620
+// cache-bust:1781070905754:363639545

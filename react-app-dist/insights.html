@@ -10,16 +10,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda3" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="auth-gate.js?v=1781060589806"></script>
-    <script src="tt-fetch-cache.js?v=1781060589806"></script>
-    <script src="tt-bottom-nav.js?v=1781060589806" defer></script>
-    <script src="tt-nav-extras.js?v=1781060589806" defer></script>
-    <script src="tt-global-search.js?v=1781060589806" defer></script>
+    <script src="auth-gate.js?v=1781070905754"></script>
+    <script src="tt-fetch-cache.js?v=1781070905754"></script>
+    <script src="tt-bottom-nav.js?v=1781070905754" defer></script>
+    <script src="tt-nav-extras.js?v=1781070905754" defer></script>
+    <script src="tt-global-search.js?v=1781070905754" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -101,7 +101,38 @@
         border-radius: 14px;
         margin-bottom: 24px;
       }
-      .ins-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .ins-hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
+      /* Progressive-disclosure sections (Beat 3 — context on demand).
+         Mirrors today.html's tt-disclose pattern. */
+      .ins-disclose { margin-bottom: 18px; }
+      .ins-disclose > summary {
+        list-style: none;
+        display: flex; align-items: center; gap: 10px;
+        cursor: pointer; user-select: none;
+        padding: 12px 16px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+        transition: border-color .12s, background .12s;
+      }
+      .ins-disclose > summary::-webkit-details-marker { display: none; }
+      .ins-disclose > summary:hover { border-color: var(--tt-border-hi); background: var(--tt-bg-elev); }
+      .ins-disclose-title {
+        font-family: var(--tt-font-display, "Manrope", sans-serif);
+        font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em;
+        color: var(--tt-text);
+      }
+      .ins-disclose-sub { font-size: 11.5px; color: var(--tt-text-dim); }
+      .ins-disclose-caret { margin-left: auto; color: var(--tt-text-dim); font-size: 11px; transition: transform .15s ease; }
+      .ins-disclose[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+      .ins-disclose[open] > summary .ins-disclose-caret { transform: rotate(180deg); }
+      .ins-disclose-body {
+        border: 1px solid var(--tt-border); border-top: 0;
+        border-bottom-left-radius: var(--vf-radius-md, 18px);
+        border-bottom-right-radius: var(--vf-radius-md, 18px);
+        padding: 14px 14px 6px;
+        background: rgba(19,32,26,0.45);
+      }
       .ins-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .ins-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
       @media (max-width: 720px) {
@@ -544,7 +575,7 @@
       </main>
     </div>
 
-    <script src="insights.compiled.js?v=1781060589806"></script>
+    <script src="insights.compiled.js?v=1781070905754"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -552,4 +583,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781060589806:760011620 -->
+<!-- cache-bust:1781070905754:363639545 -->

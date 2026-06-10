@@ -1302,6 +1302,32 @@ body.vf-page .tt-sec-h2 {
   letter-spacing: -0.02em;
 }
 
+/* 2026-06-10 (visibility pass) — operator: migrated pages "look like the
+   old design system". The token repoint changed values that are
+   perceptually close (Ink ≈ old near-black, Bark ≈ old surface), so the
+   Verda identity needs CARRIERS, not just substrates:
+   1. Manrope on ALL display headings — pages use page-local heading
+      classes (.at-*, .inv-*, .ins-hero h1, FAQ h2, …) that the
+      class-level rules above never reached. Element-level h1-h3 covers
+      every page in one rule; JetBrains-Mono numerals inside headings are
+      unaffected (font-family on children wins).
+   2. Verda md radius (18px) on the shared card classes — the old 12-14px
+      radii read as the previous system. Page-local rules lose to the
+      higher-specificity body.vf-page selector regardless of order. */
+body.vf-page h1,
+body.vf-page h2,
+body.vf-page h3 {
+  font-family: var(--vf-font-display);
+  letter-spacing: -0.02em;
+}
+body.vf-page .tt-card,
+body.vf-page .idx-card,
+body.vf-page .ds-card,
+body.vf-page .ds-glass,
+body.vf-page .ds-tickercard {
+  border-radius: var(--vf-radius-md);
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════════
  * V2 CARD-LIGHTENING LAYER (2026-05-01)
