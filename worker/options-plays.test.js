@@ -34,6 +34,7 @@ import {
   validateDayTradePlay,
   resolveDayTradeSpot,
   DAY_TRADE_MAX_STRIKE_DRIFT_PCT,
+  dayTradeMaxDriftPct,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
@@ -231,11 +232,40 @@ describe("validateDayTradePlay", () => {
   const MON_327PM_ET = new Date("2026-06-08T19:27:00.000Z").getTime();
   const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
 
-  it("accepts ATM strike within 2% on 0DTE before 3 PM ET", () => {
+  it("accepts a near-ATM strike on 0DTE before 3 PM ET", () => {
+    // 2026-06-10 — 0DTE cap is now ATR-aware (~60% of the day's typical
+    // range). 285 vs 283.91 = 0.38% — inside even a quiet-tape cap.
     const gate = validateDayTradePlay({
       spot: 283.91,
-      strike: 280,
+      strike: 285,
       expirationDte: 0,
+      atrPct: 0.009,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+
+  it("rejects the DIA incident shape: 1.4% OTM strike on a 0DTE", () => {
+    // 2026-06-10 — operator screenshot: "$510 call (spot $502.92), 0DTE,
+    // 1.4% from spot" on DIA with ~0.8% daily ATR. Old 2% cap let it
+    // through; the ATR-aware cap (0.6 × 0.8% = 0.48%) rejects it.
+    const gate = validateDayTradePlay({
+      spot: 502.92,
+      strike: 510,
+      expirationDte: 0,
+      atrPct: 0.008,
+      now: MON_10AM_ET,
+    });
+    expect(gate.valid).toBe(false);
+    expect(gate.reason).toMatch(/strike_drift_1\.4pct/);
+  });
+
+  it("keeps the looser 2% cap for 1DTE (overnight gap room)", () => {
+    const gate = validateDayTradePlay({
+      spot: 502.92,
+      strike: 510,
+      expirationDte: 1,
+      atrPct: 0.008,
       now: MON_10AM_ET,
     });
     expect(gate.valid).toBe(true);
@@ -252,11 +282,22 @@ describe("validateDayTradePlay", () => {
     expect(gate.reason).toMatch(/strike_drift/);
   });
 
+  it("dayTradeMaxDriftPct: ATR-scaled for 0DTE with floor/ceiling, 2% otherwise", () => {
+    expect(dayTradeMaxDriftPct(0, 0.008)).toBeCloseTo(0.0048, 4);
+    expect(dayTradeMaxDriftPct(0, 0.001)).toBe(0.003);   // floor
+    expect(dayTradeMaxDriftPct(0, 0.05)).toBe(0.01);     // ceiling
+    expect(dayTradeMaxDriftPct(1, 0.008)).toBe(0.02);
+    expect(dayTradeMaxDriftPct(0, null)).toBeCloseTo(0.0048, 4); // default ATR
+  });
+
   it("rejects 0DTE in the final hour (3:27 PM ET)", () => {
+    // Near-ATM strike (0.38%) so the time gate — not the drift gate —
+    // is what fires.
     const gate = validateDayTradePlay({
       spot: 283.91,
-      strike: 280,
+      strike: 285,
       expirationDte: 0,
+      atrPct: 0.009,
       now: MON_327PM_ET,
     });
     expect(gate.valid).toBe(false);
@@ -269,6 +310,33 @@ describe("validateDayTradePlay", () => {
       strike: 280,
       expirationDte: 1,
       now: MON_327PM_ET,
+    });
+    expect(gate.valid).toBe(true);
+  });
+});
+
+describe("buildDayTradePlay strike grid (DIA $510 incident)", () => {
+  const MON_10AM_ET = new Date("2026-06-08T14:00:00.000Z").getTime();
+
+  it("snaps day-trade index strikes on the real $1 grid, not the $10 stock grid", () => {
+    // DIA at $502.92, speculator LONG: old code snapped 1.005×502.92 =
+    // 505.43 onto the >$500 stock grid ($10) → $510 (1.4% OTM on 0DTE).
+    // Index ETFs list $1 strikes — correct snap is $505 (0.4% OTM).
+    const play = buildDayTradePlay({
+      ticker: "DIA",
+      price: 502.92,
+      direction: "LONG",
+      atrPct: 0.008,
+      expiration: pickDayTradeExpiration(MON_10AM_ET),
+      verdict: { mode: "RIDE", side: "LONG" },
+      profile: "speculator",
+    });
+    expect(play).toBeTruthy();
+    expect(play.strikes.primary).toBe(505);
+    // And the rebuilt play passes the new ATR-aware 0DTE gate.
+    const gate = validateDayTradePlay({
+      spot: 502.92, strike: play.strikes.primary, expirationDte: 0,
+      atrPct: 0.008, now: MON_10AM_ET,
     });
     expect(gate.valid).toBe(true);
   });
