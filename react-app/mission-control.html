@@ -7,8 +7,8 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260507-r5" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -172,7 +172,7 @@
       .mc-loading { animation: pulse 1.4s ease-in-out infinite; }
     </style>
   </head>
-  <body>
+  <body class="vf-page">
     <!-- 2026-05-30 — Updated to mirror the canonical journey nav from
          today.html. Was running the legacy Analysis/Trades/System
          Intelligence/Screener/Tickers/Trade Autopsy/Daily Brief list
@@ -290,6 +290,44 @@
             }, open ? "▲ Collapse all" : "▼ Expand all"),
           ),
           open && children,
+        );
+      }
+
+      // ── McCollapse (2026-06-10 declutter) ──────────────────────────────
+      // Sub-section accordion for the dense blocks INSIDE detail sections
+      // (CIO ops cards, bridge tables, accuracy detail, retro markdown).
+      // Collapsed by default; remembers state per id in localStorage.
+      // Operator feedback: "Mission Control is cluttered and hard to
+      // consume" — the fat tables/feeds now sit behind one-line headers
+      // so an expanded section reads as a scannable list first.
+      function McCollapse({ id, title, sub, defaultOpen = false, children }) {
+        const storageKey = `mc-collapse:${id}`;
+        const [open, setOpen] = useState(() => {
+          try {
+            const v = window.localStorage.getItem(storageKey);
+            return v == null ? defaultOpen : v === "1";
+          } catch (_) { return defaultOpen; }
+        });
+        const toggle = () => {
+          setOpen((o) => {
+            try { window.localStorage.setItem(storageKey, o ? "0" : "1"); } catch (_) {}
+            return !o;
+          });
+        };
+        return h("div", { style: { margin: "10px 0", border: "1px solid var(--ds-stroke, rgba(255,255,255,0.08))", borderRadius: 10, overflow: "hidden" } },
+          h("button", {
+            onClick: toggle,
+            style: {
+              width: "100%", display: "flex", alignItems: "center", gap: 8,
+              padding: "9px 12px", background: "var(--ds-bg-glass, rgba(255,255,255,0.03))",
+              border: "none", cursor: "pointer", textAlign: "left",
+            },
+          },
+            h("span", { style: { fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--ds-text-body, #d1d5db)" } }, title),
+            sub && h("span", { style: { fontSize: 10.5, color: "var(--ds-text-muted, #6b7280)" } }, sub),
+            h("span", { style: { marginLeft: "auto", fontSize: 10, color: "var(--ds-text-muted, #6b7280)" } }, open ? "▲" : "▼"),
+          ),
+          open && h("div", { style: { padding: "4px 10px 10px" } }, children),
         );
       }
 
@@ -2111,8 +2149,7 @@
                 })()}
 
                 {users.length > 0 && (
-                  <>
-                    <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">Per-User Status</div>
+                  <McCollapse id="bridge-users" title="Per-User Status" sub={`${users.length} user(s)`}>
                     <table className="mc-table mb-4">
                       <thead><tr><th>User</th><th>Status</th><th>RH Account</th><th>Enabled</th><th style={{textAlign:"right"}}>Today</th><th style={{textAlign:"right"}}>Total</th><th>Last Order</th></tr></thead>
                       <tbody>
@@ -2137,7 +2174,7 @@
                         ))}
                       </tbody>
                     </table>
-                  </>
+                  </McCollapse>
                 )}
 
                 {/* 2026-06-01 — Phase A/C/E: mirror_trade_manifest
@@ -2146,9 +2183,16 @@
                     / Unsuppress / Mark Closed / Mark Manual / Force
                     Re-Sync from Broker). sync_state column drives
                     operator action (in_sync → green, pending → amber,
-                    rejected/mirror_suppressed/orphan → red). */}
+                    rejected/mirror_suppressed/orphan → red).
+                    2026-06-10 declutter: 11-column table sits behind a
+                    collapse; the sync_state count pills stay visible in
+                    the collapse header line. */}
                 {manifest && (
-                  <>
+                  <McCollapse
+                    id="bridge-manifest"
+                    title="Mirror Trade Manifest"
+                    sub={Object.entries(manifest.counts || {}).map(([k, v]) => `${k}:${v}`).join(" · ") || `${(manifest.rows || []).length} rows`}
+                  >
                     <div className="flex items-baseline justify-between mb-2 mt-3 flex-wrap gap-2">
                       <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold">
                         Mirror Trade Manifest ({(manifest.rows || []).length}
@@ -2318,12 +2362,11 @@
                         No manifest rows yet — populated on every successful ENTRY/ADD via the bridge.
                       </div>
                     )}
-                  </>
+                  </McCollapse>
                 )}
 
                 {audit.length > 0 && (
-                  <>
-                    <div className="text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold">Recent Audit Log ({audit.length})</div>
+                  <McCollapse id="bridge-audit" title="Recent Audit Log" sub={`${audit.length} events`}>
                     <table className="mc-table mb-2">
                       <thead><tr><th>When</th><th>Ticker</th><th>Action</th><th>Side</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Est $</th><th>Status</th><th>Reason / RH Order</th></tr></thead>
                       <tbody>
@@ -2351,7 +2394,7 @@
                         ))}
                       </tbody>
                     </table>
-                  </>
+                  </McCollapse>
                 )}
               </>
             )}
@@ -3312,10 +3355,12 @@
                       <div className="mc-kpi-sub">{wr.stats?.brief?.total || 0} predictions scored</div>
                     </div>
                   </div>
-                  <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">
-                    Markdown Report
-                  </div>
-                  <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug" style={{ maxHeight: 380, overflowY: "auto", background: "rgba(0,0,0,0.3)", padding: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>{wr.markdown}</pre>
+                  {/* 2026-06-10 declutter — the full markdown report sits
+                      behind a collapse; the KPI row above carries the
+                      glance read. */}
+                  <McCollapse id="retro-markdown" title="Markdown Report" sub={`${Math.round((wr.markdown || "").length / 1000)}k chars`}>
+                    <pre className="text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug" style={{ maxHeight: 380, overflowY: "auto", background: "rgba(0,0,0,0.3)", padding: 12, borderRadius: 8, border: "1px solid rgba(255,255,255,0.04)" }}>{wr.markdown}</pre>
+                  </McCollapse>
                 </>
               )}
             </div>
@@ -3539,12 +3584,11 @@
                 );
               })()}
 
-              {/* CIO accuracy detail table */}
+              {/* CIO accuracy detail table — collapsed by default (2026-06-10
+                  declutter): 10 columns of all-time outcomes is reference
+                  material, not a glance read. */}
               {cioAccuracy?.summary && cioAccuracy.summary.length > 0 && (
-                <>
-                  <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
-                    Decision Detail — All-Time Outcomes
-                  </div>
+                <McCollapse id="cio-accuracy" title="Decision Detail — All-Time Outcomes" sub={`${cioAccuracy.summary.length} decision types`}>
                   <div className="mc-table-scroll">
                   <table className="mc-table">
                     <thead>
@@ -3600,39 +3644,35 @@
                     </tbody>
                   </table>
                   </div>
-                </>
+                </McCollapse>
               )}
 
-              {/* 2026-06-01 — CIO Lifecycle Coverage card. Shows the
-                  "going all in" gate stats — per-decision-type counts,
-                  override rate, monthly $ spend, timeout count. Read-only;
-                  operator changes happen via model_config flags. */}
               {/* 2026-06-02 — Sanity-sweep status card. Renders FIRST
                   of the CIO/system cards so any failing check is the
-                  first thing the operator sees on MC load. */}
+                  first thing the operator sees on MC load. Stays
+                  un-collapsed: it IS the health summary. */}
               <SanitySweepCard apiBase={API_BASE} />
 
-              {/* 2026-06-02 — AI COO status card. Shows what the COO
-                  did recently + Run Now button + lastCycle summary. */}
-              <CooStatusCard apiBase={API_BASE} />
-              <ScreenerPromotionsCard apiBase={API_BASE} />
-
-              <CioLifecycleStatsCard apiBase={API_BASE} />
-
-              {/* 2026-05-30 (Q2) — Decision Review queue. User asked:
-                  "Where can I actually review the decisions and provide
-                  my feedback?" Pulls unreviewed CIO decisions from
-                  /timed/admin/ai-cio/decisions?unreviewed=1, lets the
-                  operator rate good/bad/meh with notes. Hitting 20
-                  reviews in 14d auto-flips the manual_review gate. */}
-              <CioDecisionReview apiBase={API_BASE} onReviewSaved={fetchCio} />
+              {/* 2026-06-10 declutter — the ops cards each sit behind a
+                  one-line collapsible header. Collapsed cards don't mount,
+                  so their mount-time fetches are also deferred until the
+                  operator actually opens them. */}
+              <McCollapse id="cio-coo" title="AI COO — Calibration & Self-Heal" sub="recent actions + Run Now">
+                <CooStatusCard apiBase={API_BASE} />
+              </McCollapse>
+              <McCollapse id="cio-screener" title="Screener Auto-Promotions" sub="last 14 days + undo">
+                <ScreenerPromotionsCard apiBase={API_BASE} />
+              </McCollapse>
+              <McCollapse id="cio-lifecycle" title="CIO Lifecycle Coverage" sub="per-type counts, override rate, spend">
+                <CioLifecycleStatsCard apiBase={API_BASE} />
+              </McCollapse>
+              <McCollapse id="cio-review" title="Decision Review Queue" sub="rate CIO calls good / bad / meh" defaultOpen={true}>
+                <CioDecisionReview apiBase={API_BASE} onReviewSaved={fetchCio} />
+              </McCollapse>
 
               {/* Recent rejections — top 5 most recent */}
               {cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && (
-                <>
-                  <div className="text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold">
-                    Recent CIO Rejections (latest 5)
-                  </div>
+                <McCollapse id="cio-rejections" title="Recent CIO Rejections" sub="latest 5">
                   <div className="mc-table-scroll">
                     <table className="mc-table">
                       <thead>
@@ -3672,7 +3712,7 @@
                       </tbody>
                     </table>
                   </div>
-                </>
+                </McCollapse>
               )}
 
               <div className="text-[10px] mc-mute mt-4">
