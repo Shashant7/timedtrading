@@ -862,7 +862,7 @@ function PredictionBadge({
   value
 }) {
   if (value === 1) return React.createElement("span", {
-    className: "text-[11px] font-medium text-[#00c853]",
+    className: "text-[11px] font-medium text-[#38F2A1]",
     title: "ES prediction correct"
   }, "\u2713");
   if (value === 0) return React.createElement("span", {
@@ -984,7 +984,7 @@ const _isAdminCharts = () => document.body.dataset.userRole === "admin";
 const CHART_SYMBOLS_PRIMARY_ADMIN = [{
   sym: "SPY",
   label: "SPY",
-  color: "#00c853"
+  color: "#38F2A1"
 }, {
   sym: "QQQ",
   label: "QQQ",
@@ -1001,7 +1001,7 @@ const CHART_SYMBOLS_PRIMARY_ADMIN = [{
 const CHART_SYMBOLS_PRIMARY_USER = [{
   sym: "SPY",
   label: "SPY",
-  color: "#00c853"
+  color: "#38F2A1"
 }, {
   sym: "QQQ",
   label: "QQQ",
@@ -2667,7 +2667,7 @@ function App({
     className: "text-[11px] text-[#4b5563]"
   }, "ES Prediction:"), React.createElement("button", {
     onClick: () => markPrediction(selectedArchive, 1),
-    className: "text-[11px] px-2 py-0.5 rounded bg-[#00c853]/10 text-[#00c853] hover:bg-[#00c853]/20 transition-all"
+    className: "text-[11px] px-2 py-0.5 rounded bg-[#38F2A1]/10 text-[#38F2A1] hover:bg-[#38F2A1]/20 transition-all"
   }, "Correct"), React.createElement("button", {
     onClick: () => markPrediction(selectedArchive, 0),
     className: "text-[11px] px-2 py-0.5 rounded bg-[#ff5252]/10 text-[#ff5252] hover:bg-[#ff5252]/20 transition-all"
@@ -2759,6 +2759,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068

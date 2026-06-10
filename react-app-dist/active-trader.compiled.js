@@ -455,7 +455,7 @@ function ATCard({
     padding: "var(--ds-space-3)",
     ...(isTTSel ? {
       borderColor: "var(--ds-accent-dim)",
-      boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
+      boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)"
     } : {})
   };
   return h("button", {
@@ -500,7 +500,7 @@ function ATCard({
       height: 6,
       borderRadius: "50%",
       background: "var(--ds-accent)",
-      boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+      boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
       marginLeft: 4,
       flexShrink: 0
     }
@@ -631,7 +631,7 @@ function ATCard({
         height: 10,
         borderRadius: "50%",
         background: "var(--ds-accent)",
-        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(245,194,92,0.40))",
+        boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(56,242,161,0.40))",
         cursor: "help"
       }
     })), h("div", {
@@ -1033,7 +1033,7 @@ function ATBubbleMap({
   }), "Bull aligned"), h("span", null, h("span", {
     className: "bdot",
     style: {
-      background: "#f5c25c"
+      background: "#38F2A1"
     }
   }), "Pullback"), h("span", null, h("span", {
     className: "bdot",
@@ -1668,6 +1668,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068

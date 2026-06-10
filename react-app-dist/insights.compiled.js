@@ -799,7 +799,7 @@ function UniverseChanges({
       borderRadius: 4,
       color: "var(--tt-accent)",
       background: "var(--tt-accent-dim)",
-      border: "1px solid rgba(245,194,92,0.30)",
+      border: "1px solid rgba(56,242,161,0.30)",
       textTransform: "uppercase"
     }
   }, "Universe Rebalance"), h("span", {
@@ -1186,8 +1186,8 @@ function ActiveStrategyPanel({
   }, phase.label && h("div", {
     style: {
       padding: 12,
-      background: "rgba(245,194,92,0.06)",
-      border: "1px solid rgba(245,194,92,0.20)",
+      background: "rgba(56,242,161,0.06)",
+      border: "1px solid rgba(56,242,161,0.20)",
       borderRadius: 8
     }
   }, h("div", {
@@ -1366,8 +1366,8 @@ function ActiveStrategyPanel({
     style: {
       padding: 10,
       borderRadius: 8,
-      background: "rgba(245,194,92,0.04)",
-      border: "1px solid rgba(245,194,92,0.18)"
+      background: "rgba(56,242,161,0.04)",
+      border: "1px solid rgba(56,242,161,0.18)"
     }
   }, h("div", {
     style: {
@@ -1695,6 +1695,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068

@@ -106,6 +106,75 @@ function DetailSectionsToggle({
     onClick: () => setOpen(!open)
   }, open ? "▲ Collapse all" : "▼ Expand all")), open && children);
 }
+function McCollapse({
+  id,
+  title,
+  sub,
+  defaultOpen = false,
+  children
+}) {
+  const storageKey = `mc-collapse:${id}`;
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(storageKey);
+      return v == null ? defaultOpen : v === "1";
+    } catch (_) {
+      return defaultOpen;
+    }
+  });
+  const toggle = () => {
+    setOpen(o => {
+      try {
+        window.localStorage.setItem(storageKey, o ? "0" : "1");
+      } catch (_) {}
+      return !o;
+    });
+  };
+  return h("div", {
+    style: {
+      margin: "10px 0",
+      border: "1px solid var(--ds-stroke, rgba(255,255,255,0.08))",
+      borderRadius: 10,
+      overflow: "hidden"
+    }
+  }, h("button", {
+    onClick: toggle,
+    style: {
+      width: "100%",
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "9px 12px",
+      background: "var(--ds-bg-glass, rgba(255,255,255,0.03))",
+      border: "none",
+      cursor: "pointer",
+      textAlign: "left"
+    }
+  }, h("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      color: "var(--ds-text-body, #d1d5db)"
+    }
+  }, title), sub && h("span", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--ds-text-muted, #6b7280)"
+    }
+  }, sub), h("span", {
+    style: {
+      marginLeft: "auto",
+      fontSize: 10,
+      color: "var(--ds-text-muted, #6b7280)"
+    }
+  }, open ? "▲" : "▼")), open && h("div", {
+    style: {
+      padding: "4px 10px 10px"
+    }
+  }, children));
+}
 function StatusGrid({
   mp,
   dc,
@@ -2253,9 +2322,11 @@ function BridgeSection({
     }, "Apply small-account defaults \u26A1")), isSmallAccount && oversized && React.createElement("div", {
       className: "text-[11px] text-amber-300 italic"
     }, "Current options caps are oversized for a $", Math.round(equity).toLocaleString(), " account. The equity-cap layer above already enforces $300/order on equities, but options auto-mirror has its own caps that still allow up to $", Number(prefs.max_notional_per_order_usd).toLocaleString(), "notional. Tap ", React.createElement("strong", null, "Apply small-account defaults \u26A1"), " to bring them in line."));
-  })(), users.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
-  }, "Per-User Status"), React.createElement("table", {
+  })(), users.length > 0 && React.createElement(McCollapse, {
+    id: "bridge-users",
+    title: "Per-User Status",
+    sub: `${users.length} user(s)`
+  }, React.createElement("table", {
     className: "mc-table mb-4"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "User"), React.createElement("th", null, "Status"), React.createElement("th", null, "RH Account"), React.createElement("th", null, "Enabled"), React.createElement("th", {
     style: {
@@ -2290,7 +2361,11 @@ function BridgeSection({
     day: "numeric",
     hour: "numeric",
     minute: "2-digit"
-  }) : "—")))))), manifest && React.createElement(React.Fragment, null, React.createElement("div", {
+  }) : "—")))))), manifest && React.createElement(McCollapse, {
+    id: "bridge-manifest",
+    title: "Mirror Trade Manifest",
+    sub: Object.entries(manifest.counts || {}).map(([k, v]) => `${k}:${v}`).join(" · ") || `${(manifest.rows || []).length} rows`
+  }, React.createElement("div", {
     className: "flex items-baseline justify-between mb-2 mt-3 flex-wrap gap-2"
   }, React.createElement("div", {
     className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
@@ -2508,9 +2583,11 @@ function BridgeSection({
     }, "\u2298")));
   })))) : manifest.ok && React.createElement("div", {
     className: "text-[11px] mc-mute italic mb-2"
-  }, "No manifest rows yet \u2014 populated on every successful ENTRY/ADD via the bridge.")), audit.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 mt-3 uppercase tracking-wider font-semibold"
-  }, "Recent Audit Log (", audit.length, ")"), React.createElement("table", {
+  }, "No manifest rows yet \u2014 populated on every successful ENTRY/ADD via the bridge.")), audit.length > 0 && React.createElement(McCollapse, {
+    id: "bridge-audit",
+    title: "Recent Audit Log",
+    sub: `${audit.length} events`
+  }, React.createElement("table", {
     className: "mc-table mb-2"
   }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "When"), React.createElement("th", null, "Ticker"), React.createElement("th", null, "Action"), React.createElement("th", null, "Side"), React.createElement("th", {
     style: {
@@ -3433,9 +3510,11 @@ function MissionControl({
     className: "mc-kpi-value"
   }, Number.isFinite(wr.stats?.brief?.mean) ? `${Math.round(wr.stats.brief.mean * 100)}%` : "—"), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, wr.stats?.brief?.total || 0, " predictions scored"))), React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
-  }, "Markdown Report"), React.createElement("pre", {
+  }, wr.stats?.brief?.total || 0, " predictions scored"))), React.createElement(McCollapse, {
+    id: "retro-markdown",
+    title: "Markdown Report",
+    sub: `${Math.round((wr.markdown || "").length / 1000)}k chars`
+  }, React.createElement("pre", {
     className: "text-[11px] text-[#d1d5db] whitespace-pre-wrap font-mono leading-snug",
     style: {
       maxHeight: 380,
@@ -3445,7 +3524,7 @@ function MissionControl({
       borderRadius: 8,
       border: "1px solid rgba(255,255,255,0.04)"
     }
-  }, wr.markdown))), React.createElement("div", {
+  }, wr.markdown)))), React.createElement("div", {
     id: "cio",
     style: {
       scrollMarginTop: 80
@@ -3657,9 +3736,11 @@ function MissionControl({
     }, "Recommendation: "), cioReadiness.recommendation), cioReadiness.note && React.createElement("div", {
       className: "text-[10px] mc-mute mt-2 italic"
     }, cioReadiness.note));
-  })(), cioAccuracy?.summary && cioAccuracy.summary.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold"
-  }, "Decision Detail \u2014 All-Time Outcomes"), React.createElement("div", {
+  })(), cioAccuracy?.summary && cioAccuracy.summary.length > 0 && React.createElement(McCollapse, {
+    id: "cio-accuracy",
+    title: "Decision Detail \u2014 All-Time Outcomes",
+    sub: `${cioAccuracy.summary.length} decision types`
+  }, React.createElement("div", {
     className: "mc-table-scroll"
   }, React.createElement("table", {
     className: "mc-table"
@@ -3750,18 +3831,37 @@ function MissionControl({
     }, Number.isFinite(lat) ? `${Math.round(lat)}ms` : "—"));
   }))))), React.createElement(SanitySweepCard, {
     apiBase: API_BASE
-  }), React.createElement(CooStatusCard, {
+  }), React.createElement(McCollapse, {
+    id: "cio-coo",
+    title: "AI COO \u2014 Calibration & Self-Heal",
+    sub: "recent actions + Run Now"
+  }, React.createElement(CooStatusCard, {
     apiBase: API_BASE
-  }), React.createElement(ScreenerPromotionsCard, {
+  })), React.createElement(McCollapse, {
+    id: "cio-screener",
+    title: "Screener Auto-Promotions",
+    sub: "last 14 days + undo"
+  }, React.createElement(ScreenerPromotionsCard, {
     apiBase: API_BASE
-  }), React.createElement(CioLifecycleStatsCard, {
+  })), React.createElement(McCollapse, {
+    id: "cio-lifecycle",
+    title: "CIO Lifecycle Coverage",
+    sub: "per-type counts, override rate, spend"
+  }, React.createElement(CioLifecycleStatsCard, {
     apiBase: API_BASE
-  }), React.createElement(CioDecisionReview, {
+  })), React.createElement(McCollapse, {
+    id: "cio-review",
+    title: "Decision Review Queue",
+    sub: "rate CIO calls good / bad / meh",
+    defaultOpen: true
+  }, React.createElement(CioDecisionReview, {
     apiBase: API_BASE,
     onReviewSaved: fetchCio
-  }), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 mt-5 uppercase tracking-wider font-semibold"
-  }, "Recent CIO Rejections (latest 5)"), React.createElement("div", {
+  })), cioAccuracy?.recent_rejections && cioAccuracy.recent_rejections.length > 0 && React.createElement(McCollapse, {
+    id: "cio-rejections",
+    title: "Recent CIO Rejections",
+    sub: "latest 5"
+  }, React.createElement("div", {
     className: "mc-table-scroll"
   }, React.createElement("table", {
     className: "mc-table"
@@ -3798,6 +3898,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068
 
-// cache-bust:1781052774502:822183837
+// cache-bust:1781056791808:305552068

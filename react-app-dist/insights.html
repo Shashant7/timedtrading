@@ -9,17 +9,17 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-ins8" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda2" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <link rel="stylesheet" href="tailwind.generated.css" />
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="auth-gate.js?v=1781052774502"></script>
-    <script src="tt-fetch-cache.js?v=1781052774502"></script>
-    <script src="tt-bottom-nav.js?v=1781052774502" defer></script>
-    <script src="tt-nav-extras.js?v=1781052774502" defer></script>
-    <script src="tt-global-search.js?v=1781052774502" defer></script>
+    <script src="auth-gate.js?v=1781056791808"></script>
+    <script src="tt-fetch-cache.js?v=1781056791808"></script>
+    <script src="tt-bottom-nav.js?v=1781056791808" defer></script>
+    <script src="tt-nav-extras.js?v=1781056791808" defer></script>
+    <script src="tt-global-search.js?v=1781056791808" defer></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -37,8 +37,8 @@
         --tt-dn: #f43f5e;
         --tt-dn-soft: #fb7185;
         --tt-dn-bg: rgba(244,63,94,0.10);
-        --tt-accent: #f5c25c;
-        --tt-accent-dim: rgba(245,194,92,0.14);
+        --tt-accent: #38F2A1;
+        --tt-accent-dim: rgba(56,242,161,0.14);
         --tt-violet: #a78bfa;
         --tt-violet-dim: rgba(167,139,250,0.14);
         --tt-cyan: #22d3ee;
@@ -119,7 +119,7 @@
       }
       .health-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
       .health-pill.ok { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.30); }
-      .health-pill.warn { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .health-pill.warn { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(56,242,161,0.30); }
       .health-pill.err  { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.30); }
 
       /* Status grid */
@@ -346,7 +346,7 @@
       }
 
       .cio-stage--setup  { color: #93c5fd; background: rgba(96,165,250,0.08); border-color: rgba(96,165,250,0.24); }
-      .cio-stage--enter  { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
+      .cio-stage--enter  { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(56,242,161,0.30); }
       .cio-stage--hold   { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.25); }
       .cio-stage--defend { color: #fb923c; background: rgba(251,146,60,0.10); border-color: rgba(251,146,60,0.30); }
       .cio-stage--trim   { color: #facc15; background: rgba(250,204,21,0.10); border-color: rgba(250,204,21,0.30); }
@@ -480,7 +480,7 @@
       .tt-loadbar {
         position: fixed; top: 0; left: 0; right: 0;
         height: 2px;
-        background: rgba(245,194,92,0.12);
+        background: rgba(56,242,161,0.12);
         z-index: 9000;
         overflow: hidden;
       }
@@ -519,7 +519,7 @@
       }
     </style>
   </head>
-  <body>
+  <body class="vf-page">
     <nav class="topnav">
       <div class="nav-row">
         <a href="/today.html" class="nav-brand">
@@ -544,7 +544,7 @@
       </main>
     </div>
 
-    <script src="insights.compiled.js?v=1781052774502"></script>
+    <script src="insights.compiled.js?v=1781056791808"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -552,4 +552,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781052774502:822183837 -->
+<!-- cache-bust:1781056791808:305552068 -->
