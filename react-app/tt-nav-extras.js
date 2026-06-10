@@ -40,8 +40,8 @@
         font-family: var(--tt-font-mono);
         font-size: 10px;
         font-weight: 700;
-        background: var(--tt-accent-dim, rgba(245,194,92,0.16));
-        color: var(--tt-accent, #f5c25c);
+        background: var(--tt-accent-dim, rgba(56,242,161,0.16));
+        color: var(--tt-accent, #38F2A1);
         vertical-align: middle;
       }
       .nav-link .nav-badge.up { background: var(--tt-up-bg, rgba(34,197,94,0.10)); color: var(--tt-up-soft, #34d399); }
@@ -54,7 +54,7 @@
       .nav-admin-toggle {
         font-size: 12.5px;
         font-weight: 500;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         background: transparent;
         border: none;
         padding: 6px 11px;
@@ -67,11 +67,11 @@
         transition: background 120ms ease, color 120ms ease;
       }
       .nav-admin-toggle:hover {
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         background: var(--tt-bg-surface, rgba(255,255,255,0.025));
       }
       .nav-admin.open .nav-admin-toggle {
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         background: var(--tt-bg-surface, rgba(255,255,255,0.025));
       }
       .nav-admin-toggle .caret {
@@ -84,7 +84,7 @@
         top: calc(100% + 6px);
         right: 0;
         min-width: 200px;
-        background: var(--tt-bg-base, #0b0e11);
+        background: var(--tt-bg-base, #0B1410);
         border: 1px solid var(--tt-border-hi, rgba(255,255,255,0.12));
         border-radius: 10px;
         box-shadow: 0 12px 32px rgba(0,0,0,0.45);
@@ -97,12 +97,12 @@
         display: block;
         padding: 8px 14px;
         font-size: 12.5px;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         text-decoration: none;
         transition: background 120ms ease, color 120ms ease;
       }
       .nav-admin-menu a:hover {
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
       }
       .nav-admin-menu .nav-admin-group {
@@ -110,7 +110,7 @@
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: var(--tt-text-faint, #4b5563);
+        color: var(--tt-text-faint, #51635A);
         padding: 8px 14px 4px;
       }
 
@@ -127,14 +127,14 @@
       }
       .tt-nav-widget-fallback {
         font-size: 12px;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         text-decoration: none;
         padding: 6px 10px;
         border-radius: 8px;
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
       }
       .tt-nav-widget-fallback:hover {
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         background: var(--tt-bg-surface, rgba(255,255,255,0.025));
       }
 
@@ -145,29 +145,29 @@
         gap: 4px;
         padding: 10px 16px;
         border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
-        background: rgba(10,12,16,0.65);
+        background: rgba(11,20,16,0.65);
         flex-wrap: wrap;
       }
       .tt-journey-link {
         font-size: 12.5px;
         font-weight: 500;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         text-decoration: none;
         padding: 5px 10px;
         border-radius: 7px;
         transition: background 120ms ease, color 120ms ease;
       }
       .tt-journey-link:hover {
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         background: var(--tt-bg-surface, rgba(255,255,255,0.025));
       }
       .tt-journey-link.active {
-        color: var(--tt-accent, #f5c25c);
-        background: var(--tt-accent-dim, rgba(245,194,92,0.14));
+        color: var(--tt-accent, #38F2A1);
+        background: var(--tt-accent-dim, rgba(56,242,161,0.14));
         font-weight: 600;
       }
       .tt-journey-link--learn { color: var(--tt-up-soft, #34d399); }
-      .tt-journey-link--faq   { color: var(--tt-cyan, #22d3ee); }
+      .tt-journey-link--faq   { color: var(--tt-cyan, #A6F7CF); }
     `;
     document.head.appendChild(el);
   }

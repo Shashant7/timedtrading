@@ -415,7 +415,7 @@
     if (state.startsWith("HTF_BEAR")) return { text: "SHORT", color: "text-rose-400", bg: "bg-rose-500/20" };
     if (state.includes("BULL"))       return { text: "LONG",  color: "text-teal-400", bg: "bg-teal-500/20" };
     if (state.includes("BEAR"))       return { text: "SHORT", color: "text-rose-400", bg: "bg-rose-500/20" };
-    return { text: "—", color: "text-[#6b7280]", bg: "bg-white/[0.04]" };
+    return { text: "—", color: "text-[#6E867D]", bg: "bg-white/[0.04]" };
   }
 
   // ── getProtectionStageInfo (verbatim from line 8011) ──
@@ -706,11 +706,11 @@
     if (isPrime) {
       return { action: "Wait for Entry - Prime Setup",
         description: `This is a Prime (high-quality) setup, but entry conditions are not yet aligned. ${momentumElite ? "Momentum Elite status is positive. " : ""}${!inCorridor ? "Price needs to enter entry corridor. " : ""}${!isAligned ? "Timeframes need better alignment. " : ""}${comp > 0.5 ? `Completion is high (${(comp * 100).toFixed(0)}%), reducing upside potential. ` : ""}Wait for corridor alignment, confirmation patterns, or better timing before entering.`,
-        color: "text-[#6b7280]", bg: "bg-white/[0.04]" };
+        color: "text-[#6E867D]", bg: "bg-white/[0.04]" };
     }
     return { action: "Wait - Setup Not Optimal",
       description: `Setup not yet optimal for entry. ${momentumElite ? "Momentum Elite status is positive, but " : ""}Technical conditions need improvement. ${!inCorridor ? "Price needs to enter entry corridor. " : ""}${!isAligned ? "Timeframes need better alignment. " : ""}${comp > 0.5 ? `Completion is high (${(comp * 100).toFixed(0)}%), reducing upside potential. ` : ""}Wait for better conditions, confirmation patterns, or entry corridor alignment before considering position.`,
-      color: "text-[#6b7280]", bg: "bg-white/[0.04]" };
+      color: "text-[#6E867D]", bg: "bg-white/[0.04]" };
   }
 
   window.TimedRailHelpers = {

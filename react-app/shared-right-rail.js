@@ -256,9 +256,9 @@
     }
     function _signalValueColor(key, value) {
       if (key === "ema_cross") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
-      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#9ca3af]";
-      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#d1d5db]";
-      return "text-[#d1d5db]";
+      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#8AA39A]";
+      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#CFDED6]";
+      return "text-[#CFDED6]";
     }
     function _fmtPct(n, digits = 1) {
       if (!Number.isFinite(Number(n))) return "\u2014";
@@ -744,12 +744,12 @@
       const STAGE_LABEL = {
         accumulate: { label: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
         core_hold:  { label: "CORE HOLD",  color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", action: "Hold and DCA on dips", desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks." },
-        watch:      { label: "WATCH",      color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
+        watch:      { label: "WATCH",      color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
         reduce:     { label: "REDUCE",     color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Trim into strength", desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms." },
         research_on_watch: { label: "RESEARCH · ON WATCH", color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", action: "Research only", desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire." },
-        research_low: { label: "RESEARCH · LOW", color: "#9ca3af", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
+        research_low: { label: "RESEARCH · LOW", color: "#8AA39A", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
         research_avoid: { label: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
-        exited:     { label: "EXITED",     color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
+        exited:     { label: "EXITED",     color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
       };
       const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
 
@@ -818,7 +818,7 @@
         },
       },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--ds-space-2, 8px)" } },
-          h("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--ds-text-faint, #6b7280)", letterSpacing: "0.06em", textTransform: "uppercase" } }, title),
+          h("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--ds-text-faint, #6E867D)", letterSpacing: "0.06em", textTransform: "uppercase" } }, title),
           action || null,
         ),
         children,
@@ -936,7 +936,7 @@
             Object.entries(COMPONENT_DEFS).map(([key, def]) => {
               const val = Number(components[key]) || 0;
               const pct = Math.max(0, Math.min(100, (val / def.max) * 100));
-              const tone = pct >= 70 ? "#34d399" : pct >= 40 ? "#f5c25c" : "#f87171";
+              const tone = pct >= 70 ? "#34d399" : pct >= 40 ? "#38F2A1" : "#f87171";
               return h("div", { key },
                 h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 } },
                   h("span", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)" } }, def.label),
@@ -1179,7 +1179,7 @@
         },
       },
         h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--ds-space-2, 8px)" } },
-          h("div", { style: { fontSize: 11, fontWeight: 700, color: color || "var(--ds-text-faint, #6b7280)", letterSpacing: "0.06em", textTransform: "uppercase" } }, title),
+          h("div", { style: { fontSize: 11, fontWeight: 700, color: color || "var(--ds-text-faint, #6E867D)", letterSpacing: "0.06em", textTransform: "uppercase" } }, title),
           action || null,
         ),
         children,
@@ -1190,11 +1190,11 @@
       // Mode colors
       const MODE_META = {
         RIDE:  { color: "#34d399", bg: "rgba(52,211,153,0.10)", icon: "🚀", label: "RIDE" },
-        READY: { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", icon: "⏳", label: "READY" },
+        READY: { color: "#38F2A1", bg: "rgba(56,242,161,0.10)", icon: "⏳", label: "READY" },
         DRIFT: { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", icon: "🌊", label: "DRIFT" },
         FADE:  { color: "#a78bfa", bg: "rgba(167,139,250,0.10)", icon: "↩️", label: "FADE" },
-        WAIT:  { color: "#9ca3af", bg: "rgba(156,163,175,0.10)", icon: "⏸", label: "WAIT" },
-        UNKNOWN:{ color: "#9ca3af", bg: "rgba(156,163,175,0.05)", icon: "?", label: "—" },
+        WAIT:  { color: "#8AA39A", bg: "rgba(156,163,175,0.10)", icon: "⏸", label: "WAIT" },
+        UNKNOWN:{ color: "#8AA39A", bg: "rgba(156,163,175,0.05)", icon: "?", label: "—" },
       };
       const FRESH_META = {
         fresh: "🟢 fresh (last 3 bars)",
@@ -1238,7 +1238,7 @@
         const _tier = _mode === "RIDE" ? "good" : _mode === "READY" ? "forming" : _mode === "DRIFT" || _mode === "FADE" ? "valid" : "not_good";
         const _colors = {
           not_good: { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", label: "NOT A GOOD SETUP", action: "Sit out — no options entry", desc: "Timing or alignment does not support a directional options bet." },
-          forming:  { color: "#f5c25c", bg: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", label: "SETUP FORMING", action: "Prepare only — do not enter yet", desc: "Layers are leaning but the entry trigger has not fired." },
+          forming:  { color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.30)", label: "SETUP FORMING", action: "Prepare only — do not enter yet", desc: "Layers are leaning but the entry trigger has not fired." },
           valid:    { color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", label: "VALID SETUP", action: "Defined-risk only if entering", desc: "A play may exist, but timing is not ideal." },
           good:     { color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", label: "GOOD SETUP", action: "Timing aligned — size for theta", desc: "Direction and trigger agree." },
         };
@@ -1305,9 +1305,9 @@
           style: {
             display: "inline-flex", alignItems: "center", gap: 8,
             padding: "6px 14px", borderRadius: 999,
-            background: "rgba(245,194,92,0.18)",
-            border: "1px solid rgba(245,194,92,0.55)",
-            color: "#f5c25c",
+            background: "rgba(56,242,161,0.18)",
+            border: "1px solid rgba(56,242,161,0.55)",
+            color: "#38F2A1",
             fontSize: 11, fontWeight: 700, letterSpacing: "0.04em",
             fontFamily: "var(--tt-font-mono)",
             boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
@@ -1316,8 +1316,8 @@
           h("span", {
             style: {
               width: 10, height: 10, borderRadius: "50%",
-              border: "2px solid rgba(245,194,92,0.4)",
-              borderTopColor: "#f5c25c",
+              border: "2px solid rgba(56,242,161,0.4)",
+              borderTopColor: "#38F2A1",
               animation: "spin 0.7s linear infinite",
             },
           }),
@@ -1332,7 +1332,7 @@
         if (!dayTradeData) return null;
         const { play, suppressed, expiration } = dayTradeData;
         if (!play && !suppressed) return null;
-        const headerColor = "#f5c25c";
+        const headerColor = "#38F2A1";
         if (play) {
           const flavor = play.primary?._day_trade_flavor || "call";
           const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
@@ -1365,9 +1365,9 @@
         // Suppressed — show explicit "why we're not showing one today"
         return h(Panel, {
           title: `DAY TRADE · ${expiration?.dte ?? "?"}DTE`,
-          color: "#6b7280",
+          color: "#6E867D",
           action: h("span", {
-            style: { padding: "2px 8px", borderRadius: 999, background: "rgba(107,114,128,0.18)", color: "#9ca3af", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", border: "1px solid rgba(107,114,128,0.45)" },
+            style: { padding: "2px 8px", borderRadius: 999, background: "rgba(107,114,128,0.18)", color: "#8AA39A", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", border: "1px solid rgba(107,114,128,0.45)" },
           }, "SUPPRESSED"),
         },
           h("div", { style: { fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.55 } },
@@ -1418,9 +1418,9 @@
             h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, setupGuidance.desc || ""),
           ),
           _callVsLeanConflict && h("div", {
-            style: { marginBottom: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.08)", border: "1px solid rgba(245,194,92,0.30)", borderRadius: "var(--ds-radius-md)", fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 },
+            style: { marginBottom: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.08)", border: "1px solid rgba(56,242,161,0.30)", borderRadius: "var(--ds-radius-md)", fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 },
           },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 } }, "SIGNAL SPLIT — NOT STALE"),
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.05em", marginBottom: 4 } }, "SIGNAL SPLIT — NOT STALE"),
             "Trader contract is ", h("strong", { style: { color: _callColor } }, _traderCall),
             " but layers lean ", h("strong", null, _layerLean), " (", _layerSplitLabel, "). Directional options are gated until timing aligns.",
           ),
@@ -1455,8 +1455,8 @@
               marginTop: "var(--ds-space-2)",
               marginBottom: "var(--ds-space-2)",
               padding: "var(--ds-space-2)",
-              background: (_disp.stance_color || "#9ca3af") + "14",
-              border: `1px solid ${(_disp.stance_color || "#9ca3af")}44`,
+              background: (_disp.stance_color || "#8AA39A") + "14",
+              border: `1px solid ${(_disp.stance_color || "#8AA39A")}44`,
               borderRadius: "var(--ds-radius-md)",
             },
           },
@@ -1466,9 +1466,9 @@
                 style: {
                   fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
                   padding: "2px 8px", borderRadius: 999,
-                  color: _disp.stance_color || "#9ca3af",
-                  background: (_disp.stance_color || "#9ca3af") + "18",
-                  border: `1px solid ${(_disp.stance_color || "#9ca3af")}55`,
+                  color: _disp.stance_color || "#8AA39A",
+                  background: (_disp.stance_color || "#8AA39A") + "18",
+                  border: `1px solid ${(_disp.stance_color || "#8AA39A")}55`,
                 },
               }, _disp.stance_label || "—"),
             ),
@@ -1498,7 +1498,7 @@
           }, showLayers ? "Hide layer breakdown" : "Show layer breakdown (8 layers)"),
           showLayers && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4 } },
             (verdict.layers || []).map((l) => {
-              const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
+              const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#8AA39A";
               const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
               const LAYER_LABEL = {
                 L1_macro:  "L1 · Macro Regime",
@@ -1577,8 +1577,8 @@
 
         primary && primary._moonshot_active && h("div", {
           style: {
-            background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
-            border: "2px solid rgba(245,194,92,0.50)",
+            background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(56,242,161,0.12))",
+            border: "2px solid rgba(56,242,161,0.50)",
             borderRadius: 14,
             padding: 14,
             marginBottom: 12,
@@ -1586,7 +1586,7 @@
           },
         },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 } },
-            h("div", { style: { fontSize: 11, fontWeight: 800, letterSpacing: "0.10em", color: "#f5c25c" } }, "🌙 THE GEM · MOONSHOT ACTIVATED"),
+            h("div", { style: { fontSize: 11, fontWeight: 800, letterSpacing: "0.10em", color: "#38F2A1" } }, "🌙 THE GEM · MOONSHOT ACTIVATED"),
             h("span", { style: { fontSize: 10, fontWeight: 700, color: "#34d399", padding: "2px 8px", borderRadius: 999, background: "rgba(52,211,153,0.15)", border: "1px solid rgba(52,211,153,0.40)" } }, "RIDE+FRESH+MOTION"),
           ),
           h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", lineHeight: 1.5 } },
@@ -1596,15 +1596,15 @@
         ),
         primary && h(Panel, {
           title: primary._moonshot_active ? "🌙 Moonshot Play" : "🎯 Primary Play",
-          color: primary._moonshot_active ? "#f5c25c" : "#f5c25c",
+          color: primary._moonshot_active ? "#38F2A1" : "#38F2A1",
           action: h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
             _disp && h("span", {
               style: {
                 fontSize: 10, fontWeight: 700,
-                color: _disp.stance_color || "#9ca3af",
-                background: (_disp.stance_color || "#9ca3af") + "18",
+                color: _disp.stance_color || "#8AA39A",
+                background: (_disp.stance_color || "#8AA39A") + "18",
                 padding: "2px 8px", borderRadius: 999,
-                border: `1px solid ${(_disp.stance_color || "#9ca3af")}44`,
+                border: `1px solid ${(_disp.stance_color || "#8AA39A")}44`,
                 letterSpacing: "0.04em",
               },
             }, _disp.stance_label),
@@ -1929,8 +1929,8 @@
             );
           })(),
           // Warnings (chain-derived)
-          primary.warnings && primary.warnings.length > 0 && h("div", { style: { marginTop: 8, padding: 8, background: "rgba(245,194,92,0.06)", border: "1px solid rgba(245,194,92,0.20)", borderRadius: 6 } },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-accent, #f5c25c)", letterSpacing: "0.05em", marginBottom: 4 } }, "⚠ WARNINGS"),
+          primary.warnings && primary.warnings.length > 0 && h("div", { style: { marginTop: 8, padding: 8, background: "rgba(56,242,161,0.06)", border: "1px solid rgba(56,242,161,0.20)", borderRadius: 6 } },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-accent, #38F2A1)", letterSpacing: "0.05em", marginBottom: 4 } }, "⚠ WARNINGS"),
             primary.warnings.map((w, i) => h("div", { key: i, style: { fontSize: 11, color: "var(--ds-text-muted)" } }, "• ", w)),
           ),
           // Moonshot multi-bagger targets
@@ -2204,7 +2204,7 @@
         /* V2.1 round 5 (2026-05-01) — LWChart styled to match the Daily
            Brief chart per user feedback ("nice and clean"). Changes:
            - Lighter grid (38,50,95,0.20 vs 0.35) — less visual noise
-           - Lighter text (#7c8493 vs #6b7280) — same as Daily Brief
+           - Lighter text (#7c8493 vs #6E867D) — same as Daily Brief
            - Larger font (11 vs 10) so axis labels are legible
            - Right-axis padding (0.08 top/bot vs 0.05) so candles don't kiss
              the panel edges
@@ -2225,7 +2225,7 @@
           width: containerRef.current.clientWidth,
           height: chartHeight,
           layout: {
-            background: { type: "solid", color: "#0b0e11" },
+            background: { type: "solid", color: "#0B1410" },
             textColor: "#7c8493",
             fontSize: 11,
           },
@@ -2862,7 +2862,7 @@
       }, [_propPriceLinesSig, chartEpoch]);
 
       if (!LWC) {
-        return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
+        return React.createElement("div", { className: "text-xs text-[#6E867D]" }, "Charts library not loaded.");
       }
 
       // OHLC header data
@@ -2914,7 +2914,7 @@
               className: `px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${
                 overlays[ov.key]
                   ? "border-white/20 text-white"
-                  : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"
+                  : "border-white/[0.06] text-[#555] hover:text-[#6E867D]"
               }`,
               style: overlays[ov.key] ? { borderColor: ov.color + "80", color: ov.color, background: ov.color + "15" } : {},
             }, ov.label)
@@ -2922,11 +2922,11 @@
         ),
         // OHLC header
         hdr && React.createElement("div", { className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none" },
-          React.createElement("span", { className: "text-[#6b7280]" }, hdrTimeStr),
-          React.createElement("span", { className: "text-[#6b7280]" }, "O"), React.createElement("span", { className: "text-white" }, hdr.o?.toFixed(2)),
-          React.createElement("span", { className: "text-[#6b7280]" }, "H"), React.createElement("span", { className: "text-sky-300" }, hdr.h?.toFixed(2)),
-          React.createElement("span", { className: "text-[#6b7280]" }, "L"), React.createElement("span", { className: "text-orange-300" }, hdr.l?.toFixed(2)),
-          React.createElement("span", { className: "text-[#6b7280]" }, "C"),
+          React.createElement("span", { className: "text-[#6E867D]" }, hdrTimeStr),
+          React.createElement("span", { className: "text-[#6E867D]" }, "O"), React.createElement("span", { className: "text-white" }, hdr.o?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6E867D]" }, "H"), React.createElement("span", { className: "text-sky-300" }, hdr.h?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6E867D]" }, "L"), React.createElement("span", { className: "text-orange-300" }, hdr.l?.toFixed(2)),
+          React.createElement("span", { className: "text-[#6E867D]" }, "C"),
           React.createElement("span", { className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold" }, hdr.c?.toFixed(2)),
           React.createElement("span", { className: hdrUp ? "text-teal-400" : "text-rose-400" },
             `${hdrUp ? "+" : ""}${hdrChg.toFixed(2)} (${hdrUp ? "+" : ""}${hdrPct.toFixed(2)}%)`),
@@ -2949,11 +2949,11 @@
             height: propHeight ? propHeight : "auto",
             flex: propHeight ? "0 0 auto" : "1 1 auto",
             minHeight: propHeight ? propHeight : 0,
-            background: "#0b0e11",
+            background: "#0B1410",
           },
         }),
         // Status bar
-        React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
+        React.createElement("div", { className: "mt-1 text-[10px] text-[#6E867D] flex items-center justify-between" },
           React.createElement("span", null,
             `${["D","W","M"].includes(String(chartTf)) ? (chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly") : Number(chartTf) >= 60 ? `${Number(chartTf)/60}H` : `${chartTf}m`} • ${mapped.length} bars`),
           React.createElement("div", { className: "flex items-center gap-2" },
@@ -3117,7 +3117,7 @@
 
         const chart = LWC.createChart(container, {
           width: initialWidth, height: chartH,
-          layout: { background: { type: "solid", color: "#0b0e11" }, textColor: "#6b7280", fontSize: 10 },
+          layout: { background: { type: "solid", color: "#0B1410" }, textColor: "#6E867D", fontSize: 10 },
           grid: { vertLines: { color: "rgba(38,50,95,0.35)" }, horzLines: { color: "rgba(38,50,95,0.35)" } },
           crosshair: { mode: LWC.CrosshairMode.Normal, vertLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" }, horzLine: { color: "rgba(255,255,255,0.15)", width: 1, style: 2, labelBackgroundColor: "#1e293b" } },
           rightPriceScale: { borderColor: "rgba(38,50,95,0.5)", scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
@@ -3290,10 +3290,10 @@
       }, [showIndicators]);
 
       if (!ticker) {
-        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]" style={{ minHeight: height }}>Select a trade to view chart</div>);
+        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6E867D]" style={{ minHeight: height }}>Select a trade to view chart</div>);
       }
       return (
-        <div className="rounded-lg border border-white/[0.06] bg-[#0b0e11] flex flex-col" style={{ minHeight: compact ? 220 : undefined }}>
+        <div className="rounded-lg border border-white/[0.06] bg-[#0B1410] flex flex-col" style={{ minHeight: compact ? 220 : undefined }}>
           <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
             <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
             <div className="flex items-center gap-0.5">
@@ -3301,15 +3301,15 @@
                   noisy for a post-mortem view; 15m is the leading LTF the
                   engine actually reads against. */}
               {["15", "30", "60", "D"].map(t => (
-                <button key={t} onClick={() => setTf(t)} className={`px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`}>{t === "D" ? "1D" : t + "m"}</button>
+                <button key={t} onClick={() => setTf(t)} className={`px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6E867D] hover:text-white"}`}>{t === "D" ? "1D" : t + "m"}</button>
               ))}
             </div>
           </div>
           <div ref={containerRef} style={{ minHeight: compact ? 180 : Math.max(height * 0.4, 180), minWidth: 200, width: "100%" }} className="w-full flex-1 min-h-0">
-            {error && !loading && (<div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>)}
+            {error && !loading && (<div className="flex items-center justify-center h-full text-[#6E867D] text-[13px]">{error}</div>)}
             {loading && (<div className="flex items-center justify-center h-full"><div className="loading-spinner" style={{ width: 24, height: 24 }} /></div>)}
           </div>
-          <div className="shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#9ca3af]">
+          <div className="shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#8AA39A]">
             <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
             <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
             {!compact && INDICATOR_KEYS.map(key => {
@@ -3328,7 +3328,7 @@
     // Wrapper that accepts a `trade` prop (backward-compatible with old TradeEventChart callers)
     function TradeEventChart({ trade, currentPrice, height = 260, apiBase }) {
       if (!trade?.ticker) {
-        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]" style={{ minHeight: height }}>Select a trade to view chart</div>);
+        return (<div className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6E867D]" style={{ minHeight: height }}>Select a trade to view chart</div>);
       }
       return (<AutopsyChart
         ticker={trade.ticker}
@@ -3807,7 +3807,7 @@
           const beDn = p.breakeven_down;
           const isCall = p.archetype && p.archetype.includes("call");
           const isPut = p.archetype && p.archetype.includes("put");
-          const stColor = isCall ? "rgba(52,211,153,0.85)" : isPut ? "rgba(248,113,113,0.85)" : "rgba(245,194,92,0.85)";
+          const stColor = isCall ? "rgba(52,211,153,0.85)" : isPut ? "rgba(248,113,113,0.85)" : "rgba(56,242,161,0.85)";
           if (Number.isFinite(Number(strike)) && strike > 0) {
             out.push({
               price: Number(strike), color: stColor, lineWidth: 2, lineStyle: 0,
@@ -3816,7 +3816,7 @@
           }
           if (Number.isFinite(Number(shortK)) && shortK > 0 && shortK !== strike) {
             out.push({
-              price: Number(shortK), color: "rgba(245,194,92,0.75)", lineWidth: 1, lineStyle: 2,
+              price: Number(shortK), color: "rgba(56,242,161,0.75)", lineWidth: 1, lineStyle: 2,
               axisLabelVisible: true, title: `Short Strike $${Number(shortK).toFixed(2)}`,
             });
           }
@@ -4345,14 +4345,14 @@
               onClick={closeAutopsyModal}
             >
               <div
-                className="w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl"
+                className="w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0B1410] shadow-2xl"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0b0e11)" }}>
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0B1410)" }}>
                   <h2 className="text-[15px] font-semibold text-white truncate mr-2">
                     {_ticker} {_dir} — Trade Review
                   </h2>
-                  <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
+                  <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
                 </div>
                 {autopsyModalLoading ? (
                   React.createElement("div", { className: "p-4 flex-1" }, React.createElement(SkeletonBlock, { height: 200, lines: 6 }))
@@ -4390,7 +4390,7 @@
                         );
                       })()}
                       <div className="flex items-center gap-3">
-                        <div className="text-[12px] text-[#9ca3af]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
+                        <div className="text-[12px] text-[#8AA39A]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
                         {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
                         {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
                       </div>
@@ -4573,13 +4573,13 @@
                       return (
                         <div className="rounded-lg border border-white/[0.08] bg-white/[0.015] shrink-0">
                           <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                            <span className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-[0.14em]">Event Log · Receipt</span>
-                            <span className="text-[10px] text-[#6b7280]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
+                            <span className="text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]">Event Log · Receipt</span>
+                            <span className="text-[10px] text-[#6E867D]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
                           </div>
                           <div style={{ overflowX: "auto" }}>
                             <table className="w-full text-[12px] tabular-nums" style={{ fontVariantNumeric: "tabular-nums", borderCollapse: "collapse", minWidth: 560 }}>
                               <thead>
-                                <tr className="text-[10px] uppercase tracking-wider text-[#6b7280]">
+                                <tr className="text-[10px] uppercase tracking-wider text-[#6E867D]">
                                   <th className="text-left px-3 py-1.5 font-medium">When (ET)</th>
                                   <th className="text-left px-2 py-1.5 font-medium">Event</th>
                                   <th className="text-right px-2 py-1.5 font-medium">Shares</th>
@@ -4592,24 +4592,24 @@
                               <tbody>
                                 {displayRows.map((r, i) => {
                                   const pnlCls = r.type === "ENTRY"
-                                    ? "text-[#6b7280]"
+                                    ? "text-[#6E867D]"
                                     : r.realized_pnl >= 0
                                       ? "text-[#22c55e]"
                                       : "text-[#ef4444]";
                                   return (
                                     <React.Fragment key={`evlog-${i}`}>
                                       <tr className="border-t border-white/[0.04]">
-                                        <td className="px-3 py-2 text-[#9ca3af] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
+                                        <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
                                         <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
                                         <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
                                         <td className="px-2 py-2 text-right text-white">{Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"}</td>
-                                        <td className="px-2 py-2 text-right text-[#9ca3af]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
+                                        <td className="px-2 py-2 text-right text-[#8AA39A]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
                                         <td className={`px-2 py-2 text-right font-semibold ${pnlCls}`}>{r.type === "ENTRY" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)}</td>
-                                        <td className="px-3 py-2 text-right text-[#6b7280]">{_fmtShares(r.running_shares)}</td>
+                                        <td className="px-3 py-2 text-right text-[#6E867D]">{_fmtShares(r.running_shares)}</td>
                                       </tr>
                                       {r.reason && (
                                         <tr className="border-t-0">
-                                          <td colSpan="7" className="px-3 pb-2 -mt-1 text-[10px] text-[#6b7280] italic">↳ {String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}</td>
+                                          <td colSpan="7" className="px-3 pb-2 -mt-1 text-[10px] text-[#6E867D] italic">↳ {String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}</td>
                                         </tr>
                                       )}
                                     </React.Fragment>
@@ -4617,15 +4617,15 @@
                                 })}
                                 {/* Total realized row */}
                                 <tr className="border-t border-white/[0.12] bg-white/[0.02]">
-                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af] font-semibold" colSpan="5">Total realized</td>
+                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold" colSpan="5">Total realized</td>
                                   <td className={`px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)}</td>
-                                  <td className="px-3 py-2 text-right text-[11px] text-[#6b7280]">{_fmtShares(runningShares)} held</td>
+                                  <td className="px-3 py-2 text-right text-[11px] text-[#6E867D]">{_fmtShares(runningShares)} held</td>
                                 </tr>
                                 {_isOpenStatus && unrealized !== 0 && (
                                   <tr className="bg-[#22c55e]/[0.04]">
-                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af]" colSpan="5">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
+                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]" colSpan="5">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
                                     <td className={`px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)}</td>
-                                    <td className="px-3 py-2 text-right text-[10px] text-[#6b7280]">open</td>
+                                    <td className="px-3 py-2 text-right text-[10px] text-[#6E867D]">open</td>
                                   </tr>
                                 )}
                                 {_isOpenStatus && unrealized !== 0 && (
@@ -4649,24 +4649,24 @@
                             <div className="text-[11px] font-semibold text-[#14b8a6] uppercase tracking-wider mb-2">Signal snapshot at entry</div>
                             {(_entryPath || _grade) && (
                               <div className="mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20">
-                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider">Setup</span>
+                                <span className="text-[10px] text-[#8AA39A] uppercase tracking-wider">Setup</span>
                                 <div className="text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap">
                                   {_entryPath ? _formatPath(_entryPath) : (mt.setup_name ? _formatPath(mt.setup_name) : null)}
                                   {_grade && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`}>TT {_grade}</span>}
-                                  {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6b7280]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
+                                  {Number(_riskBudget) > 0.001 && <span className="text-[10px] text-[#6E867D]">{Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`}</span>}
                                 </div>
                               </div>
                             )}
                             {tfStack && tfStack.length > 0 && (
                               <div className="mb-3">
-                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
+                                <span className="text-[10px] text-[#8AA39A] uppercase tracking-wider block mb-1.5">Timeframe bias</span>
                                 <div className="flex flex-wrap gap-1.5">
                                   {tfStack.map(({ tf: tfLabel, bias }) => {
                                     const b = String(bias || "").toLowerCase();
                                     const isBull = b === "bullish";
                                     const isBear = b === "bearish";
                                     const label = isBull ? "Bullish" : isBear ? "Bearish" : (bias || "\u2014");
-                                    const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+                                    const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#8AA39A]";
                                     return (<span key={tfLabel} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`}><span className="opacity-80">{tfLabel}</span><span>{label}</span></span>);
                                   })}
                                 </div>
@@ -4674,15 +4674,15 @@
                             )}
                             {entrySnap && entrySnap.length > 0 && (
                               <div>
-                                <span className="text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
+                                <span className="text-[10px] text-[#8AA39A] uppercase tracking-wider block mb-1.5">Indicators by timeframe</span>
                                 <div className="space-y-2">
                                   {entrySnap.map(({ tf: tfLabel, signals }) => (
                                     <div key={tfLabel} className="px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]">
-                                      <div className="text-[10px] font-medium text-[#9ca3af] mb-1">{tfLabel}</div>
+                                      <div className="text-[10px] font-medium text-[#8AA39A] mb-1">{tfLabel}</div>
                                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
                                         {Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => (
                                           <span key={k} className="flex items-center gap-1">
-                                            <span className="text-[#6b7280]">{SIGNAL_LABELS[k] || k}:</span>
+                                            <span className="text-[#6E867D]">{SIGNAL_LABELS[k] || k}:</span>
                                             <span className={_signalValueColor(k, v)}>{_signalValueLabel(k, v)}</span>
                                           </span>
                                         ))}
@@ -4700,39 +4700,39 @@
                             <div className="grid grid-cols-2 gap-2 text-[12px]">
                               {_lineage.regime_class && (() => {
                                 const rc = _lineage.regime_class;
-                                const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+                                const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#8AA39A";
                                 return (
                                   <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                    <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Regime</div>
+                                    <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">Regime</div>
                                     <div className="mt-0.5"><span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: rcColor + "22", color: rcColor, border: `1px solid ${rcColor}44` }}>{rc}</span></div>
-                                    {_lineage.regime_score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.regime_score}</div>}
+                                    {_lineage.regime_score != null && <div className="text-[10px] text-[#6E867D] mt-1">Score: {_lineage.regime_score}</div>}
                                   </div>
                                 );
                               })()}
                               {_lineage.execution_profile && (
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Execution Profile</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">Execution Profile</div>
                                   <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.execution_profile.active_profile || "").replace(/_/g, " ")}</div>
-                                  {_lineage.execution_profile.confidence && <div className="text-[10px] text-[#6b7280] mt-1">{Math.round(_lineage.execution_profile.confidence * 100)}% conf</div>}
+                                  {_lineage.execution_profile.confidence && <div className="text-[10px] text-[#6E867D] mt-1">{Math.round(_lineage.execution_profile.confidence * 100)}% conf</div>}
                                 </div>
                               )}
                               {_lineage.market_internals && (
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Market State</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">Market State</div>
                                   <div className="text-white font-semibold mt-0.5 text-[11px]">{(_lineage.market_internals.overall || "").replace(/_/g, " ")}</div>
-                                  {_lineage.market_internals.score != null && <div className="text-[10px] text-[#6b7280] mt-1">Score: {_lineage.market_internals.score}</div>}
+                                  {_lineage.market_internals.score != null && <div className="text-[10px] text-[#6E867D] mt-1">Score: {_lineage.market_internals.score}</div>}
                                 </div>
                               )}
                               {_lineage.vix_at_entry && (
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">VIX at Entry</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">VIX at Entry</div>
                                   <div className="text-white font-semibold mt-0.5">{Number(_lineage.vix_at_entry).toFixed(1)}</div>
-                                  <div className="text-[10px] text-[#6b7280] mt-1">{_lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme"}</div>
+                                  <div className="text-[10px] text-[#6E867D] mt-1">{_lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme"}</div>
                                 </div>
                               )}
                               {_lineage.state && (
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">HTF/LTF State</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">HTF/LTF State</div>
                                   <div className="text-white font-semibold mt-0.5 text-[11px]">{_lineage.state.replace(/_/g, " ")}</div>
                                 </div>
                               )}
@@ -4742,15 +4742,15 @@
                         {learningCtx && (
                           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
                             <div className="text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2">Ticker Learning Profile</div>
-                            <div className="text-[12px] text-[#d1d5db] space-y-1.5">
+                            <div className="text-[12px] text-[#CFDED6] space-y-1.5">
                               {learningCtx.personality && (() => {
                                 const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
-                                return (<div className="flex items-center gap-2"><span className="text-[#9ca3af]">Personality:</span><span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{learningCtx.personality.replace(/_/g, " ")}</span></div>);
+                                return (<div className="flex items-center gap-2"><span className="text-[#8AA39A]">Personality:</span><span className="px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ background: pColor + "22", color: pColor, border: `1px solid ${pColor}44` }}>{learningCtx.personality.replace(/_/g, " ")}</span></div>);
                               })()}
-                              {learningCtx.trail_style && <div><span className="text-[#9ca3af]">Trail style:</span> {learningCtx.trail_style}</div>}
-                              {learningCtx.tp_mult && <div><span className="text-[#9ca3af]">Expected TP:</span> {learningCtx.tp_mult}x ATR</div>}
-                              {learningCtx.sl_mult && <div><span className="text-[#9ca3af]">Expected SL:</span> {learningCtx.sl_mult}x ATR</div>}
-                              {learningCtx.boost != null && learningCtx.boost !== 0 && <div><span className="text-[#9ca3af]">Learning boost:</span> <span className={learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{learningCtx.boost > 0 ? "+" : ""}{learningCtx.boost}</span></div>}
+                              {learningCtx.trail_style && <div><span className="text-[#8AA39A]">Trail style:</span> {learningCtx.trail_style}</div>}
+                              {learningCtx.tp_mult && <div><span className="text-[#8AA39A]">Expected TP:</span> {learningCtx.tp_mult}x ATR</div>}
+                              {learningCtx.sl_mult && <div><span className="text-[#8AA39A]">Expected SL:</span> {learningCtx.sl_mult}x ATR</div>}
+                              {learningCtx.boost != null && learningCtx.boost !== 0 && <div><span className="text-[#8AA39A]">Learning boost:</span> <span className={learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"}>{learningCtx.boost > 0 ? "+" : ""}{learningCtx.boost}</span></div>}
                             </div>
                           </div>
                         )}
@@ -4760,14 +4760,14 @@
                             <div className="space-y-2">
                               <div className="grid grid-cols-2 gap-2 text-[12px]">
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Personality</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">Personality</div>
                                   <div className="text-white font-semibold mt-0.5">{(autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")}</div>
-                                  <div className="text-[10px] text-[#6b7280] mt-1">{(autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " ")}</div>
+                                  <div className="text-[10px] text-[#6E867D] mt-1">{(autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " ")}</div>
                                 </div>
                                 <div className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
-                                  <div className="text-[10px] text-[#6b7280] uppercase tracking-wider">Context sample</div>
+                                  <div className="text-[10px] text-[#6E867D] uppercase tracking-wider">Context sample</div>
                                   <div className="text-white font-semibold mt-0.5">{autopsyModalProfile.contract?.context?.sample_count ?? "\u2014"} trades</div>
-                                  <div className="text-[10px] text-[#6b7280] mt-1">{_fmtPct(autopsyModalProfile.contract?.context?.win_rate)} WR</div>
+                                  <div className="text-[10px] text-[#6E867D] mt-1">{_fmtPct(autopsyModalProfile.contract?.context?.win_rate)} WR</div>
                                 </div>
                               </div>
                               {(() => {
@@ -4791,10 +4791,10 @@
                         {(_exitReason || Number.isFinite(_mfe) || Number.isFinite(_mae)) && (
                           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 shrink-0">
                             <div className="text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2">Exit context</div>
-                            <div className="text-[12px] text-[#d1d5db] space-y-1">
-                              {_exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#9ca3af]">Reason:</span> {_exitReason.replace(/,/g, ", ")}</div>}
-                              {Number.isFinite(_mfe) && <div><span className="text-[#9ca3af]">MFE:</span> <span className="text-[#22c55e]">{_mfe.toFixed(2)}%</span></div>}
-                              {Number.isFinite(_mae) && <div><span className="text-[#9ca3af]">MAE:</span> <span className="text-[#ef4444]">{_mae.toFixed(2)}%</span></div>}
+                            <div className="text-[12px] text-[#CFDED6] space-y-1">
+                              {_exitReason && <div style={{ overflowWrap: "anywhere" }}><span className="text-[#8AA39A]">Reason:</span> {_exitReason.replace(/,/g, ", ")}</div>}
+                              {Number.isFinite(_mfe) && <div><span className="text-[#8AA39A]">MFE:</span> <span className="text-[#22c55e]">{_mfe.toFixed(2)}%</span></div>}
+                              {Number.isFinite(_mae) && <div><span className="text-[#8AA39A]">MAE:</span> <span className="text-[#ef4444]">{_mae.toFixed(2)}%</span></div>}
                             </div>
                           </div>
                         )}
@@ -6066,13 +6066,13 @@
                         const INV_LANE_META = {
                           accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor: Strong setup + favorable entry. Build a starter position." },
                           core_hold:         { label: "CORE HOLD",  chip: "ds-chip--solid", title: "Investor: Hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
-                          watch:             { label: "WATCH",      chip: "ds-chip--solid", title: "Investor: Mixed signals — hold; don't add.", style: { color: "#f5c25c", borderColor: "rgba(245,194,92,0.30)", background: "rgba(245,194,92,0.10)" } },
+                          watch:             { label: "WATCH",      chip: "ds-chip--solid", title: "Investor: Mixed signals — hold; don't add.", style: { color: "#38F2A1", borderColor: "rgba(56,242,161,0.30)", background: "rgba(56,242,161,0.10)" } },
                           reduce:            { label: "REDUCE",     chip: "ds-chip--dn",    title: "Investor: Thesis weakening — trim into strength." },
                           research_on_watch: { label: "ON WATCH",   chip: "ds-chip--solid", title: "Investor: On the radar — not actionable yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
-                          research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor: Low conviction — pass for now.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+                          research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor: Low conviction — pass for now.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
                           research_avoid:    { label: "AVOID",      chip: "ds-chip--dn",    title: "Investor: Multiple red flags — skip." },
-                          research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor: Under evaluation.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
-                          exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor: Position closed; monitor for re-entry.", style: { color: "#9ca3af", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
+                          research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor: Under evaluation.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+                          exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor: Position closed; monitor for re-entry.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
                         };
                         const meta = INV_LANE_META[invStage] || INV_LANE_META.watch;
                         return (
@@ -6089,7 +6089,7 @@
                         <span title="TT Selected" style={{
                           width: 6, height: 6, borderRadius: "50%",
                           background: "var(--ds-accent)",
-                          boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+                          boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
                           flexShrink: 0,
                         }} />
                       )}
@@ -6345,9 +6345,9 @@
                               fontSize: 9,
                               fontFamily: "var(--tt-font-mono)",
                               letterSpacing: "0.04em",
-                              color: "var(--ds-accent, #f5c25c)",
-                              background: "rgba(245,194,92,0.08)",
-                              border: "1px solid rgba(245,194,92,0.20)",
+                              color: "var(--ds-accent, #38F2A1)",
+                              background: "rgba(56,242,161,0.08)",
+                              border: "1px solid rgba(56,242,161,0.20)",
                               marginLeft: 2,
                             }}
                           >
@@ -6552,7 +6552,7 @@
                     const buildLines = () => {
                       const lines = [];
                       const ep = Number(ticker?.entry_price);
-                      if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(245,194,92,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
+                      if (Number.isFinite(ep) && ep > 0 && trade) lines.push({ price: ep, color: "rgba(56,242,161,0.85)", title: "Entry", lineStyle: 0, lineWidth: 2 });
                       if (Number.isFinite(_pcSlChart) && _pcSlChart > 0) lines.push({ price: _pcSlChart, color: "rgba(244,63,94,0.85)", title: "Stop", lineStyle: 2, lineWidth: 2 });
                       const tps = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
                       tps.slice(0, 3).forEach((tp, i) => {
@@ -6830,8 +6830,8 @@
                             alignItems: "center",
                             padding: "8px 8px",
                             borderRadius: "var(--ds-radius-xs)",
-                            background: "rgba(245,194,92,0.10)",
-                            border: "1px solid rgba(245,194,92,0.30)",
+                            background: "rgba(56,242,161,0.10)",
+                            border: "1px solid rgba(56,242,161,0.30)",
                             margin: "2px 0",
                           }}>
                             <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
@@ -7040,12 +7040,12 @@
                             return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
                           }
                           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
-                            return { word: "WATCH", color: "#f5c25c", bg: "rgba(245,194,92,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            return { word: "WATCH", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
                           }
                           if (pcDir) {
                             return { word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG", color: pcDir === "SHORT" ? "#fb7185" : "#34d399", bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`, urgency: "context" };
                           }
-                          return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
+                          return { word: "NO TRADE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
                         })();
 
                         // ── Pull specific levels from predictionContract ────
@@ -7326,7 +7326,7 @@
                                 borderRadius: 8,
                                 border: "1px solid rgba(255,255,255,0.06)",
                               }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.06em", marginBottom: 4 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
                                   WHAT TO DO NOW
                                 </div>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ds-text-0)", lineHeight: 1.45 }}>
@@ -7538,7 +7538,7 @@
                         })();
                         const ipColor = ipDir === "LONG"  ? "#34d399"
                                       : ipDir === "SHORT" ? "#fb7185"
-                                      : "#9ca3af";
+                                      : "#8AA39A";
                         return (
                           <div style={{
                             padding: "12px 14px",
@@ -7619,11 +7619,11 @@
                         const status = String(discoveryThesis.status || "").toLowerCase();
                         const statusMeta = status === "approved"     ? { label: "APPROVED",     color: "#34d399" }
                                          : status === "ready_to_add" ? { label: "READY",        color: "#22c55e" }
-                                         : status === "needs_review" ? { label: "NEEDS REVIEW", color: "#f5c25c" }
+                                         : status === "needs_review" ? { label: "NEEDS REVIEW", color: "#38F2A1" }
                                          : status === "declined"     ? { label: "DECLINED",     color: "#f87171" }
-                                         : status === "rejected"     ? { label: "REJECTED",     color: "#9ca3af" }
-                                         :                             { label: status.toUpperCase() || "—", color: "#9ca3af" };
-                        const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#f5c25c" : "#6b7280";
+                                         : status === "rejected"     ? { label: "REJECTED",     color: "#8AA39A" }
+                                         :                             { label: status.toUpperCase() || "—", color: "#8AA39A" };
+                        const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#38F2A1" : "#6E867D";
                         const decidedAt = Number(discoveryThesis.decided_at) || 0;
                         // 2026-06-03 — Operator: 'the decision approved has my email
                         // on it, let's remove that from the UI'. Strip
@@ -8459,8 +8459,8 @@
                         const layerLean = String(conf.side || "").toUpperCase();
                         const traderCallIsShort = traderCall === "SHORT";
                         const layerLeanIsShort = layerLean === "SHORT";
-                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#9ca3af";
-                        const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#9ca3af";
+                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#8AA39A";
+                        const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
                         const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT")
                           && (layerLean === "LONG" || layerLean === "SHORT")
                           && traderCall !== layerLean;
@@ -8477,7 +8477,7 @@
                                    desc: traderCallIsShort
                                      ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops."
                                      : "Trader call is LONG with aligned layers. Press while structure holds; trail stops." },
-                          READY: { c: "#f5c25c", b: "rgba(245,194,92,0.10)", border: "rgba(245,194,92,0.30)", i: "⏳",
+                          READY: { c: "#38F2A1", b: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.30)", i: "⏳",
                                    action: "Setup forming",
                                    desc: "Confluence building but the entry trigger has not fired. Wait — do not chase." },
                           DRIFT: { c: "#60a5fa", b: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", i: "🌊",
@@ -8486,7 +8486,7 @@
                           FADE:  { c: "#a78bfa", b: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", i: "↩️",
                                    action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
                                    desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only." },
-                          WAIT:  { c: "#9ca3af", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
+                          WAIT:  { c: "#8AA39A", b: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", i: "⏸",
                                    action: "Wait — no trade",
                                    desc: "Layers disagree, no edge from the engine right now. Pass on this name." },
                         };
@@ -8522,14 +8522,14 @@
                               <div style={{
                                 marginBottom: "var(--ds-space-2)",
                                 padding: "var(--ds-space-2)",
-                                background: "rgba(245,194,92,0.08)",
-                                border: "1px solid rgba(245,194,92,0.30)",
+                                background: "rgba(56,242,161,0.08)",
+                                border: "1px solid rgba(56,242,161,0.30)",
                                 borderRadius: "var(--ds-radius-md)",
                                 fontSize: 12,
                                 color: "var(--ds-text-body)",
                                 lineHeight: 1.45,
                               }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f5c25c", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
                                 Trader call is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
                               </div>
                             )}
@@ -8573,15 +8573,15 @@
                         const isBottom = bias === "COMPRESSION";
                         const posture = String(timing.posture || "").toUpperCase();
                         const postureColor = isBottom
-                          ? (posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af")
-                          : (posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af");
+                          ? (posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#8AA39A")
+                          : (posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#38F2A1" : "#8AA39A");
                         const score = isBottom ? timing.compression_score : timing.extension_score;
                         const signals = isBottom
                           ? (Array.isArray(timing.compressions) ? timing.compressions : [])
                           : (Array.isArray(timing.warnings) ? timing.warnings : []);
                         const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
-                        const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
-                        const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
+                        const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(56,242,161,0.08)";
+                        const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(56,242,161,0.28)";
                         const playbook = verdict?.playbook || timing.playbook || null;
                         return (
                           <Panel title={panelTitle} action={
@@ -9126,8 +9126,8 @@
                                 alignItems: "center",
                                 padding: "8px 8px",
                                 borderRadius: "var(--ds-radius-xs)",
-                                background: "rgba(245,194,92,0.10)",
-                                border: "1px solid rgba(245,194,92,0.30)",
+                                background: "rgba(56,242,161,0.10)",
+                                border: "1px solid rgba(56,242,161,0.30)",
                                 margin: "2px 0",
                               }}>
                                 <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
@@ -9488,8 +9488,8 @@
                                 alignItems: "center",
                                 padding: "8px 8px",
                                 borderRadius: "var(--ds-radius-xs)",
-                                background: "rgba(245,194,92,0.10)",
-                                border: "1px solid rgba(245,194,92,0.30)",
+                                background: "rgba(56,242,161,0.10)",
+                                border: "1px solid rgba(56,242,161,0.30)",
                                 margin: "2px 0",
                               }}>
                                 <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
@@ -9621,7 +9621,7 @@
                           ? { cls: "ds-chip--up", color: "var(--ds-up)", bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.30)", lead: "ALIGNED", txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.` }
                           : status === "conflict"
                           ? { cls: "ds-chip--dn", color: "var(--ds-dn)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.30)", lead: "CONFLICT", txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.` }
-                          : { cls: "ds-chip--accent", color: "var(--ds-accent)", bg: "rgba(245,194,92,0.06)", border: "rgba(245,194,92,0.30)", lead: "MIXED", txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.` };
+                          : { cls: "ds-chip--accent", color: "var(--ds-accent)", bg: "rgba(56,242,161,0.06)", border: "rgba(56,242,161,0.30)", lead: "MIXED", txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.` };
                         return (
                           <div className="ds-glass" style={{
                             marginBottom: "var(--ds-space-3)",
@@ -10123,7 +10123,7 @@
                             <div style={{
                               position: "absolute", top: 0, bottom: 0, left: 0,
                               width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
-                              background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)",
+                              background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(56,242,161,0.35)",
                             }} />
                             <div style={{ position: "absolute", left: "30%", top: 0, bottom: 0, width: 1, background: "var(--ds-stroke-hi)" }} />
                             <div style={{ position: "absolute", left: "70%", top: 0, bottom: 0, width: 1, background: "var(--ds-stroke-hi)" }} />
@@ -10330,7 +10330,7 @@
                     };
                     const growthChip = (cls) => {
                       switch (cls) {
-                        case "explosive": return { label: "EXPLOSIVE", color: "var(--ds-accent)", bg: "rgba(245,194,92,0.18)", border: "rgba(245,194,92,0.45)" };
+                        case "explosive": return { label: "EXPLOSIVE", color: "var(--ds-accent)", bg: "rgba(56,242,161,0.18)", border: "rgba(56,242,161,0.45)" };
                         case "exploding": return { label: "EXPLODING", color: "#fbbf24", bg: "rgba(251,191,36,0.14)", border: "rgba(251,191,36,0.40)" };
                         case "strong":    return { label: "STRONG",    color: "#34d399", bg: "rgba(52,211,153,0.14)",  border: "rgba(52,211,153,0.40)" };
                         case "positive":  return { label: "POSITIVE",  color: "#86efac", bg: "rgba(134,239,172,0.10)", border: "rgba(134,239,172,0.30)" };
@@ -10359,7 +10359,7 @@
                       return (
                         <Panel title="Fundamentals">
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "var(--ds-space-3)", color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-meta)" }}>
-                            <span className="loading-spinner loading-spinner-sm" style={{ width: 14, height: 14, borderWidth: 2, borderColor: "rgba(245,194,92,0.20)", borderTopColor: "var(--ds-accent)" }} />
+                            <span className="loading-spinner loading-spinner-sm" style={{ width: 14, height: 14, borderWidth: 2, borderColor: "rgba(56,242,161,0.20)", borderTopColor: "var(--ds-accent)" }} />
                             Loading fundamentals from TwelveData…
                           </div>
                         </Panel>
@@ -10569,7 +10569,7 @@
                             color: fairColor,
                             background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)"
                                        : val.fair_value_class === "premium"  ? "rgba(244,63,94,0.12)"
-                                                                              : "rgba(245,194,92,0.12)",
+                                                                              : "rgba(56,242,161,0.12)",
                             border: `1px solid ${fairColor}`,
                             fontFamily: "var(--tt-font-mono)",
                             letterSpacing: "0.08em",
@@ -11438,8 +11438,8 @@
                                 </div>
                               )}
                               {hasRD && spike >= 2 && (
-                                <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245, 194, 92, 0.06)", border: "1px solid rgba(245, 194, 92, 0.25)", borderRadius: "var(--ds-radius-md)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)" }}>
-                                  <span style={{ fontWeight: 700, color: "var(--ds-color-accent, #f5c25c)" }}>⚡ Reddit mention spike:</span>{" "}
+                                <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56, 242, 161, 0.06)", border: "1px solid rgba(56, 242, 161, 0.25)", borderRadius: "var(--ds-radius-md)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)" }}>
+                                  <span style={{ fontWeight: 700, color: "var(--ds-color-accent, #38F2A1)" }}>⚡ Reddit mention spike:</span>{" "}
                                   {S.reddit.mentions_24h} posts today vs {S.reddit.mentions_prev || "~0"} yesterday ({spikeStr}) — early trader-interest signal.
                                 </div>
                               )}
@@ -11665,7 +11665,7 @@
                                   </div>
                                 )}
                                 {traderOpen > 0 && (
-                                  <div style={{ padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.06)", border: "1px solid rgba(245,194,92,0.20)", borderRadius: "var(--ds-radius-sm)" }}>
+                                  <div style={{ padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.06)", border: "1px solid rgba(56,242,161,0.20)", borderRadius: "var(--ds-radius-sm)" }}>
                                     <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER · OPEN</div>
                                     <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-accent)", marginTop: 2 }}>{traderOpen}</div>
                                     <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>active</div>
@@ -11707,7 +11707,7 @@
                           <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
                             No prior trades on this ticker.
                             {(ticker?.has_open_position || latestTicker?.has_open_position) && (
-                              <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(245,194,92,0.08)", border: "1px solid rgba(245,194,92,0.25)", borderRadius: "var(--ds-radius-xs)", color: "var(--ds-accent)", fontSize: "var(--ds-fs-caption)" }}>
+                              <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.08)", border: "1px solid rgba(56,242,161,0.25)", borderRadius: "var(--ds-radius-xs)", color: "var(--ds-accent)", fontSize: "var(--ds-fs-caption)" }}>
                                 ⚠ This ticker shows an open position but no trade row was found in the ledger.
                                 The trade row may not have been written yet (entry signal stamped but execution didn't persist).
                                 Check Mission Control → Recent Trades for the actual write status.
@@ -11946,12 +11946,12 @@
           <>
           <div className="w-full h-full flex flex-col" style={modalOnly ? { position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0, pointerEvents: "none" } : undefined}>
             <div
-              className="bg-[#0b0e11] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl"
+              className="bg-[#0B1410] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto">
-                <div className="sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3">
+                <div className="sticky top-0 z-30 bg-[#0B1410] border-b border-white/[0.04] px-5 py-3">
                   {/* ── Row 1: Ticker + Direction (left) | Close/Share (right) ── */}
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2 min-w-0">
@@ -11959,7 +11959,7 @@
                       {(() => {
                         const d = resolvedDir;
                         return (
-                          <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6b7280]"}`}>
+                          <span className={`inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6E867D]"}`}>
                             {d || "—"}
                           </span>
                         );
@@ -11984,14 +11984,14 @@
                           } catch (_) {}
                         }}
                         id="share-toast-btn"
-                        className="text-[#6b7280] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]"
+                        className="text-[#6E867D] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]"
                         title="Share this ticker"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
                       </button>
                       <button
                         onClick={onClose}
-                        className="text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
+                        className="text-[#6E867D] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
                       >
                         ✕
                       </button>
@@ -12125,7 +12125,7 @@
                         : kanbanStage === "DEFEND" ? "bg-orange-500/15 text-orange-300 border-orange-500/40"
                         : kanbanStage === "HOLD" ? "bg-blue-500/15 text-blue-300 border-blue-500/40"
                         : kanbanStage === "ENTER_NOW" ? "bg-green-500/15 text-green-300 border-green-500/40"
-                        : "bg-white/5 text-[#6b7280] border-white/10";
+                        : "bg-white/5 text-[#6E867D] border-white/10";
                       const stageLabel = {
                         "WATCH": "Watch", "SETUP_WATCH": "Setup Watch", "SETUP": "Setup",
                         "FLIP_WATCH": "Flip Watch", "JUST_FLIPPED": "Just Flipped",
@@ -12166,7 +12166,7 @@
                       if (flags.saty_compression_multi_tf) badges.push({ icon: "🗜️", label: "Phase Coil", tip: `Phase Coil: trend-phase oscillator near zero across ${flags.saty_compression_count || ""}/${flags.saty_compression_total || ""} timeframes — momentum coiled, expansion in either direction expected. Distinct from the volatility-squeeze badge: phase coil = trend-direction indecision; volatility squeeze = Bollinger / Keltner bands compressed.` });
                       if (badges.length === 0) return null;
                       return badges.map((b, i) => (
-                        <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
+                        <span key={`ib-${i}`} className="px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#CFDED6] font-semibold cursor-default" title={b.tip}>{b.icon} {b.label}</span>
                       ));
                     })()}
                   </div>
@@ -12210,7 +12210,7 @@
                               ? "border-blue-400 bg-blue-500/20 text-blue-200"
                               : locked
                                 ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300"
-                                : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"
+                                : "border-white/[0.06] bg-white/[0.03] text-[#6E867D] hover:text-white"
                           }`}
                         >
                           {t.label}
@@ -12323,12 +12323,12 @@
                       if (investorError) {
                         const is404 = investorError.includes("404");
                         return <div className="py-8 text-center">
-                          <p className="text-[#6b7280] text-sm mb-2">{is404 ? "This ticker is not in the investor universe." : investorError}</p>
-                          <p className="text-[#6b7280] text-xs">{is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."}</p>
+                          <p className="text-[#6E867D] text-sm mb-2">{is404 ? "This ticker is not in the investor universe." : investorError}</p>
+                          <p className="text-[#6E867D] text-xs">{is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."}</p>
                         </div>;
                       }
                       const d = investorData;
-                      if (!d) return <div className="py-8 text-center text-[#6b7280] text-sm">No investor data for this ticker yet.</div>;
+                      if (!d) return <div className="py-8 text-center text-[#6E867D] text-sm">No investor data for this ticker yet.</div>;
 
                       const merged = { ...ticker, ...d };
                       const price = merged.price ?? ticker?.price ?? d?.price;
@@ -12339,7 +12339,7 @@
                       const scoreCls = score >= 70 ? "text-[#00e676]" : score >= 50 ? "text-amber-400" : "text-red-400";
                       const summary = getTickerSummary(score, d.stage);
                       const INVESTOR_STAGE_LABELS = { accumulate: "Accumulate", core_hold: "Core Hold", watch: "Watch", reduce: "Reduce", research_on_watch: "On Watch", research_low: "Low Conviction", research_avoid: "Avoid", research: "Research", exited: "Exited" };
-                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30", research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", research_avoid: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", research: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30", exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
+                      const stageCls = { accumulate: "bg-[#00c853]/15 text-[#34d399] border-[#00c853]/30", core_hold: "bg-blue-500/15 text-[#60a5fa] border-blue-500/30", watch: "bg-amber-500/15 text-[#fbbf24] border-amber-500/30", reduce: "bg-red-500/15 text-[#f87171] border-red-500/30", research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30", research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30", research_avoid: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30", research: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30", exited: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30" }[d.stage] || "bg-gray-500/15 text-[#8AA39A] border-gray-500/30";
 
                       // 2026-05-29 — LANE GUIDANCE card per user ask:
                       // "make sure it maps to the Kanban lanes for Investor
@@ -12386,13 +12386,13 @@
                         },
                         research_avoid: {
                           label: "AVOID",
-                          color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "#6b7280",
+                          color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "#6E867D",
                           action: "Skip",
                           guidance: "Weak across the board. The system advises caution — better risk/reward elsewhere.",
                         },
                         exited: {
                           label: "EXITED",
-                          color: "#9ca3af", bg: "rgba(156,163,175,0.08)", border: "#6b7280",
+                          color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "#6E867D",
                           action: "Closed",
                           guidance: "Position closed. Monitor for re-entry conditions if the thesis improves.",
                         },
@@ -12409,15 +12409,15 @@
                             <div className="flex items-center justify-between mb-1">
                               <div>
                                 <div className="text-lg font-bold text-white">{d.ticker}</div>
-                                {d.companyName && <div className="text-xs text-[#9ca3af]">{d.companyName}</div>}
-                                <div className="text-[10px] text-[#6b7280]">{d.sector || "Unknown"}</div>
+                                {d.companyName && <div className="text-xs text-[#8AA39A]">{d.companyName}</div>}
+                                <div className="text-[10px] text-[#6E867D]">{d.sector || "Unknown"}</div>
                               </div>
                               <div className="text-right">
                                 <div className={`flex items-baseline gap-1.5 justify-end text-2xl font-bold ${scoreCls}`}>{score} <span className="text-xs font-semibold">{getScoreLabel(score)}</span></div>
-                                <div className="text-[10px] text-[#6b7280]">Investor Score</div>
+                                <div className="text-[10px] text-[#6E867D]">Investor Score</div>
                               </div>
                             </div>
-                            <div className="text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed">{summary}</div>
+                            <div className="text-[11px] text-[#8AA39A] mt-2 italic leading-relaxed">{summary}</div>
                           </div>
 
                           {/* LANE GUIDANCE — explicit kanban-lane mapping with action + position context */}
@@ -12431,25 +12431,25 @@
                               </span>
                               <span className="text-[12px] font-semibold" style={{ color: lane.color }}>{lane.action}</span>
                             </div>
-                            <div className="text-[12px] text-[#d1d5db] leading-relaxed">
+                            <div className="text-[12px] text-[#CFDED6] leading-relaxed">
                               {lane.guidance}
                             </div>
                             {d.stageReason && (
-                              <div className="text-[10px] text-[#6b7280] mt-1.5 italic">
+                              <div className="text-[10px] text-[#6E867D] mt-1.5 italic">
                                 Why this stage: {String(d.stageReason).replace(/_/g, " ")}
                               </div>
                             )}
                             {/* Position-aware section — visible when the user owns this name */}
                             {owned && Number(pos?.shares) > 0 && (
                               <div className="mt-3 pt-3 border-t" style={{ borderColor: lane.color + "30" }}>
-                                <div className="text-[10px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1">Your Position</div>
-                                <div className="text-[12px] text-[#d1d5db] flex items-baseline gap-3 flex-wrap">
-                                  <span><span className="text-[#6b7280]">Shares:</span> <span className="font-mono">{Number(pos.shares).toFixed(2)}</span></span>
-                                  <span><span className="text-[#6b7280]">Avg entry:</span> <span className="font-mono">${Number(pos.avg_entry).toFixed(2)}</span></span>
-                                  <span><span className="text-[#6b7280]">Cost basis:</span> <span className="font-mono">${Number(pos.cost_basis).toFixed(0)}</span></span>
+                                <div className="text-[10px] tracking-wider font-semibold uppercase text-[#6E867D] mb-1">Your Position</div>
+                                <div className="text-[12px] text-[#CFDED6] flex items-baseline gap-3 flex-wrap">
+                                  <span><span className="text-[#6E867D]">Shares:</span> <span className="font-mono">{Number(pos.shares).toFixed(2)}</span></span>
+                                  <span><span className="text-[#6E867D]">Avg entry:</span> <span className="font-mono">${Number(pos.avg_entry).toFixed(2)}</span></span>
+                                  <span><span className="text-[#6E867D]">Cost basis:</span> <span className="font-mono">${Number(pos.cost_basis).toFixed(0)}</span></span>
                                   {Number.isFinite(unrlPct) && (
                                     <span>
-                                      <span className="text-[#6b7280]">Unrealized:</span>{" "}
+                                      <span className="text-[#6E867D]">Unrealized:</span>{" "}
                                       <span className="font-mono font-semibold" style={{ color: unrlPct >= 0 ? "#34d399" : "#f87171" }}>
                                         {unrlPct >= 0 ? "+" : ""}{unrlPct.toFixed(2)}%
                                       </span>
@@ -12457,8 +12457,8 @@
                                   )}
                                 </div>
                                 {pos.last_action_ts && pos.last_action_type && (
-                                  <div className="text-[10px] text-[#6b7280] mt-1">
-                                    Last action: <span className="text-[#9ca3af]">{pos.last_action_type}</span> {Number(pos.last_action_shares).toFixed(2)} shares
+                                  <div className="text-[10px] text-[#6E867D] mt-1">
+                                    Last action: <span className="text-[#8AA39A]">{pos.last_action_type}</span> {Number(pos.last_action_shares).toFixed(2)} shares
                                     {" "}{new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                                   </div>
                                 )}
@@ -12470,7 +12470,7 @@
                                 <div className="text-[10px] tracking-wider font-semibold uppercase text-[#34d399] mb-1">
                                   🎯 Buy Zone Active ({d.accumZone.confidence}% confidence)
                                 </div>
-                                <div className="text-[11px] text-[#d1d5db] leading-relaxed">
+                                <div className="text-[11px] text-[#CFDED6] leading-relaxed">
                                   The stock pulled back to a favorable price without breaking its uptrend. Good entry window for the next tranche.
                                 </div>
                                 {Array.isArray(d.accumZone.signals) && d.accumZone.signals.length > 0 && (
@@ -12499,7 +12499,7 @@
                             <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                               <div className="flex items-start justify-between gap-3">
                                 <div>
-                                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
+                                  <div className="text-[10px] uppercase tracking-[0.16em] text-[#6E867D]">Model Guidance</div>
                                   <div className="mt-1 text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</div>
                                 </div>
                                 <div className="flex flex-wrap items-center justify-end gap-1.5">
@@ -12513,22 +12513,22 @@
                                     {String(predictionContract.confidence || "low").toUpperCase()}
                                   </span>
                                   {predictionContract.horizon && (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#9ca3af]">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#8AA39A]">
                                       {String(predictionContract.horizon).replace(/_/g, " ")}
                                     </span>
                                   )}
                                 </div>
                               </div>
                               {predictionContract.thesis && (
-                                <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
+                                <div className="mt-2 text-[12px] text-[#CFDED6] leading-relaxed">{predictionContract.thesis}</div>
                               )}
                               {predictionContract.why_now && (
-                                <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed">{predictionContract.why_now}</div>
+                                <div className="mt-2 text-[11px] text-[#8AA39A] leading-relaxed">{predictionContract.why_now}</div>
                               )}
                               {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
                                 <div className="mt-2 flex flex-wrap gap-1.5">
                                   {predictionContract.supporting.map((item, idx) => (
-                                    <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
+                                    <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#8AA39A] border border-white/[0.05]">
                                       {item}
                                     </span>
                                   ))}
@@ -12536,7 +12536,7 @@
                               )}
                               {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
                                 <div className="mt-2">
-                                  <div className="text-[10px] text-[#6b7280] mb-1">Invalidation</div>
+                                  <div className="text-[10px] text-[#6E867D] mb-1">Invalidation</div>
                                   {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
                                     <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
                                   ))}
@@ -12544,16 +12544,16 @@
                               )}
                             </div>
                           ) : predictionContractError ? (
-                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]">
+                            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6E867D]">
                               Prediction contract unavailable.
                             </div>
                           ) : null}
 
                           {price != null && Number.isFinite(price) && (
                             <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between">
-                              <div><div className="text-[10px] text-[#6b7280] uppercase">Price</div><div className="text-lg font-bold text-white tabular-nums">${Number(price).toFixed(2)}</div></div>
-                              {(chgPct != null && Number.isFinite(chgPct)) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Today</div><div className={`text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{chgPct >= 0 ? "+" : ""}{chgPct.toFixed(2)}%</div>{Number.isFinite(chgVal) && <div className={`text-[11px] ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}`}>{chgVal >= 0 ? "+" : "-"}${Math.abs(chgVal).toFixed(2)}</div>}</div>}
-                              {d.prevClose != null && Number.isFinite(d.prevClose) && <div className="text-right"><div className="text-[10px] text-[#6b7280] uppercase">Prev Close</div><div className="text-sm font-semibold text-[#9ca3af] tabular-nums">${d.prevClose.toFixed(2)}</div></div>}
+                              <div><div className="text-[10px] text-[#6E867D] uppercase">Price</div><div className="text-lg font-bold text-white tabular-nums">${Number(price).toFixed(2)}</div></div>
+                              {(chgPct != null && Number.isFinite(chgPct)) && <div className="text-right"><div className="text-[10px] text-[#6E867D] uppercase">Today</div><div className={`text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{chgPct >= 0 ? "+" : ""}{chgPct.toFixed(2)}%</div>{Number.isFinite(chgVal) && <div className={`text-[11px] ${chgVal >= 0 ? "text-[#00e676]/70" : "text-red-400/70"}`}>{chgVal >= 0 ? "+" : "-"}${Math.abs(chgVal).toFixed(2)}</div>}</div>}
+                              {d.prevClose != null && Number.isFinite(d.prevClose) && <div className="text-right"><div className="text-[10px] text-[#6E867D] uppercase">Prev Close</div><div className="text-sm font-semibold text-[#8AA39A] tabular-nums">${d.prevClose.toFixed(2)}</div></div>}
                             </div>
                           )}
 
@@ -12564,13 +12564,13 @@
                               {d.stage === "watch" && <span className="text-[10px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">The system suggests a small starter position</span>}
                               {d.stage === "reduce" && <span className="text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">Reduce signal — the system recommends trimming</span>}
                             </div>
-                            {d.stageReason && <div className="text-[10px] text-[#6b7280]">{d.stageReason}</div>}
+                            {d.stageReason && <div className="text-[10px] text-[#6E867D]">{d.stageReason}</div>}
                           </div>
 
                           {d.components && Object.keys(d.components).length > 0 && (
                             <div>
-                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Score Breakdown</h3>
-                              <div className="text-[10px] text-[#4b5563] mb-2.5">How the system arrived at this stock's overall score.</div>
+                              <h3 className="text-xs font-semibold text-[#8AA39A] mb-1 uppercase">Score Breakdown</h3>
+                              <div className="text-[10px] text-[#51635A] mb-2.5">How the system arrived at this stock's overall score.</div>
                               {/* 2026-05-30 (P3) — When a component is 0 the
                                   upstream signal genuinely returned zero OR
                                   the underlying TF data hasn't been computed
@@ -12602,7 +12602,7 @@
                                   return (
                                     <div key={k} className="flex items-center gap-2" title={`${meta.tip}${isZero ? "\n(0 — may indicate missing TF data; check Mission Control candle coverage)" : ""}`}>
                                       <span className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
-                                      <span className="text-[11px] text-[#9ca3af] w-28 shrink-0">{meta.label}</span>
+                                      <span className="text-[11px] text-[#8AA39A] w-28 shrink-0">{meta.label}</span>
                                       <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, (v / maxVal) * 100)}%` }} /></div>
                                       <span className={`text-xs ${isZero ? "text-amber-300/70" : "text-white"} w-6 text-right tabular-nums shrink-0`}>{v}</span>
                                     </div>
@@ -12614,36 +12614,36 @@
 
                           {d.rs && (
                             <div>
-                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Performance vs Market</h3>
-                              <div className="text-[10px] text-[#4b5563] mb-2.5">{getRsSummary(d.rs)}</div>
+                              <h3 className="text-xs font-semibold text-[#8AA39A] mb-1 uppercase">Performance vs Market</h3>
+                              <div className="text-[10px] text-[#51635A] mb-2.5">{getRsSummary(d.rs)}</div>
                               <div className="grid grid-cols-3 gap-2">
-                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">1 Month</div><div className={`text-sm font-semibold ${d.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs1m)}</div></div>
-                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">3 Months</div><div className={`text-sm font-semibold ${d.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs3m)}</div></div>
-                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6b7280]">6 Months</div><div className={`text-sm font-semibold ${d.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs6m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6E867D]">1 Month</div><div className={`text-sm font-semibold ${d.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs1m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6E867D]">3 Months</div><div className={`text-sm font-semibold ${d.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs3m)}</div></div>
+                                <div className="rounded-lg border border-white/[0.06] p-2.5 text-center"><div className="text-[10px] text-[#6E867D]">6 Months</div><div className={`text-sm font-semibold ${d.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}`}>{fmtPct(d.rs.rs6m)}</div></div>
                               </div>
-                              {d.rsRank != null && <div className="mt-2.5"><div className="flex items-center justify-between mb-1 text-[11px] text-[#9ca3af]">Outperforms {d.rsRank}% of all tracked stocks</div><div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, d.rsRank)}%` }} /></div></div>}
+                              {d.rsRank != null && <div className="mt-2.5"><div className="flex items-center justify-between mb-1 text-[11px] text-[#8AA39A]">Outperforms {d.rsRank}% of all tracked stocks</div><div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-[#3b82f6]" style={{ width: `${Math.min(100, d.rsRank)}%` }} /></div></div>}
                             </div>
                           )}
 
                           {d.accumZone && (
                             <div>
-                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase" title="Has the stock pulled back to an attractive price?">Buy Zone</h3>
+                              <h3 className="text-xs font-semibold text-[#8AA39A] mb-1 uppercase" title="Has the stock pulled back to an attractive price?">Buy Zone</h3>
                               {d.accumZone.inZone ? (
                                 <div className="rounded-lg border border-[#00c853]/30 p-3">
-                                  <div className="flex items-center gap-2 mb-1.5"><span className="w-2 h-2 rounded-full bg-[#00e676] animate-pulse" /><span className="text-xs text-[#00e676] font-semibold">In Buy Zone</span><span className="text-[10px] text-[#9ca3af]">{d.accumZone.confidence}% confidence</span></div>
-                                  <div className="text-[11px] text-[#9ca3af] leading-relaxed mb-2">The stock dipped to a favorable price without breaking its uptrend.</div>
-                                  {d.accumZone.signals?.length > 0 && <div className="flex flex-wrap gap-1">{d.accumZone.signals.map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]">{SIGNAL_LABELS[s] || s.replace(/_/g, " ")}</span>)}</div>}
+                                  <div className="flex items-center gap-2 mb-1.5"><span className="w-2 h-2 rounded-full bg-[#00e676] animate-pulse" /><span className="text-xs text-[#00e676] font-semibold">In Buy Zone</span><span className="text-[10px] text-[#8AA39A]">{d.accumZone.confidence}% confidence</span></div>
+                                  <div className="text-[11px] text-[#8AA39A] leading-relaxed mb-2">The stock dipped to a favorable price without breaking its uptrend.</div>
+                                  {d.accumZone.signals?.length > 0 && <div className="flex flex-wrap gap-1">{d.accumZone.signals.map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#8AA39A]">{SIGNAL_LABELS[s] || s.replace(/_/g, " ")}</span>)}</div>}
                                 </div>
-                              ) : <div className="text-[11px] text-[#6b7280]">Not in a buy zone right now.</div>}
+                              ) : <div className="text-[11px] text-[#6E867D]">Not in a buy zone right now.</div>}
                             </div>
                           )}
 
                           {d.thesis && (
                             <div>
-                              <h3 className="text-xs font-semibold text-[#9ca3af] mb-1 uppercase">Investment Thesis</h3>
-                              <div className="text-[10px] text-[#4b5563] mb-2">Why the system is tracking this stock.</div>
-                              <div className="text-xs text-[#d1d5db] leading-relaxed mb-2">{d.thesis}</div>
-                              {d.thesisInvalidation?.length > 0 && <div><div className="text-[10px] text-[#6b7280] mb-1">What would change this view:</div>{d.thesisInvalidation.map((inv, i) => <div key={i} className="text-[11px] text-red-400/80 pl-2">• {inv}</div>)}</div>}
+                              <h3 className="text-xs font-semibold text-[#8AA39A] mb-1 uppercase">Investment Thesis</h3>
+                              <div className="text-[10px] text-[#51635A] mb-2">Why the system is tracking this stock.</div>
+                              <div className="text-xs text-[#CFDED6] leading-relaxed mb-2">{d.thesis}</div>
+                              {d.thesisInvalidation?.length > 0 && <div><div className="text-[10px] text-[#6E867D] mb-1">What would change this view:</div>{d.thesisInvalidation.map((inv, i) => <div key={i} className="text-[11px] text-red-400/80 pl-2">• {inv}</div>)}</div>}
                             </div>
                           )}
                         </div>
@@ -12732,13 +12732,13 @@
                             {name ? (
                               <div className="text-xs font-semibold text-white truncate">{name}</div>
                             ) : null}
-                            <div className="text-[10px] text-[#6b7280] mt-0.5">
+                            <div className="text-[10px] text-[#6E867D] mt-0.5">
                               {[enrichedSector, enrichedIndustry, country]
                                 .filter(Boolean)
                                 .join(" • ") || "—"}
                             </div>
                             {showDesc ? (
-                              <div className="mt-1 text-[10px] text-[#6b7280] leading-snug" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                              <div className="mt-1 text-[10px] text-[#6E867D] leading-snug" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                                 {description}
                               </div>
                             ) : null}
@@ -12751,7 +12751,7 @@
                                   <div className={`text-[11px] font-bold ${isEarningsImminent ? "text-amber-300" : "text-blue-300"}`}>
                                     Earnings {earnLabel}
                                   </div>
-                                  <div className="text-[10px] text-[#9ca3af]">
+                                  <div className="text-[10px] text-[#8AA39A]">
                                     {new Date(finnhubEarnDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                                     {earnHourLabel ? ` · ${earnHourLabel}` : ""}
                                     {finnhubEarn.epsEstimate != null ? ` · Est. $${Number(finnhubEarn.epsEstimate).toFixed(2)}` : ""}
@@ -12769,13 +12769,13 @@
                               <div className={`mt-1.5 grid gap-1.5 text-[10px]`} style={{ gridTemplateColumns: `repeat(${[marketCap, lastEarnEvt && !hasFinnhubEarn, nextEarnTs && !hasFinnhubEarn].filter(Boolean).length}, 1fr)` }}>
                                 {marketCap ? (
                                   <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
-                                    <div className="text-[9px] text-[#6b7280]">MCap</div>
+                                    <div className="text-[9px] text-[#6E867D]">MCap</div>
                                     <div className="text-[11px] font-semibold text-white">{fmtMCap(marketCap)}</div>
                                   </div>
                                 ) : null}
                                 {lastEarnEvt && !hasFinnhubEarn ? (
                                   <div className="p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center">
-                                    <div className="text-[9px] text-[#6b7280]">Last Earnings</div>
+                                    <div className="text-[9px] text-[#6E867D]">Last Earnings</div>
                                     <div className="text-[11px] font-semibold text-white">{fmtDate(lastEarnEvt)}</div>
                                   </div>
                                 ) : null}
@@ -12820,7 +12820,7 @@
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <div className="text-[10px] uppercase tracking-[0.16em] text-[#6b7280]">Model Guidance</div>
+                              <div className="text-[10px] uppercase tracking-[0.16em] text-[#6E867D]">Model Guidance</div>
                               <div className="mt-1 flex items-center gap-2">
                                 <span className="text-sm font-semibold text-white">{predictionContract.action_label || "Monitor"}</span>
                                 {predictionContract.setup_tier && (() => {
@@ -12852,15 +12852,15 @@
                             </div>
                           </div>
                           {predictionContract.thesis && (
-                            <div className="mt-2 text-[12px] text-[#d1d5db] leading-relaxed">{predictionContract.thesis}</div>
+                            <div className="mt-2 text-[12px] text-[#CFDED6] leading-relaxed">{predictionContract.thesis}</div>
                           )}
                           {predictionContract.why_now && (
-                            <div className="mt-2 text-[11px] text-[#9ca3af] leading-relaxed italic">{predictionContract.why_now}</div>
+                            <div className="mt-2 text-[11px] text-[#8AA39A] leading-relaxed italic">{predictionContract.why_now}</div>
                           )}
                           {Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {predictionContract.supporting.map((item, idx) => (
-                                <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]">
+                                <span key={idx} className="px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#8AA39A] border border-white/[0.05]">
                                   {item}
                                 </span>
                               ))}
@@ -12878,7 +12878,7 @@
                               <div className="mt-3 grid grid-cols-2 gap-2">
                                 {_hasSl && (
                                   <div className="rounded-lg border border-red-500/20 bg-red-500/8 p-2">
-                                    <div className="text-[10px] text-[#6b7280] uppercase">Stop Loss</div>
+                                    <div className="text-[10px] text-[#6E867D] uppercase">Stop Loss</div>
                                     <div className="flex items-baseline gap-1.5">
                                       <span className="text-sm font-semibold text-red-300 tabular-nums">${_sl.toFixed(2)}</span>
                                       {Number.isFinite(_slPct) && <span className="text-[9px] text-red-300/60">{_slPct.toFixed(1)}%</span>}
@@ -12887,7 +12887,7 @@
                                 )}
                                 {_hasRr && (
                                   <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
-                                    <div className="text-[10px] text-[#6b7280] uppercase">Risk / Reward</div>
+                                    <div className="text-[10px] text-[#6E867D] uppercase">Risk / Reward</div>
                                     <div className="text-sm font-semibold text-white tabular-nums">{_rr.toFixed(2)}x</div>
                                   </div>
                                 )}
@@ -12896,7 +12896,7 @@
                           })()}
                           {Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && (
                             <div className="mt-3">
-                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Management Levels</div>
+                              <div className="text-[10px] text-[#6E867D] mb-1 uppercase">Management Levels</div>
                               <div className="space-y-1.5">
                                 {predictionContract.targets.slice(0, 3).map((target, idx) => {
                                   const _tpPx = Number(target.price);
@@ -12904,10 +12904,10 @@
                                   const _pct = Number.isFinite(_tpPx) && _eRef > 0 ? Math.abs((_tpPx - _eRef) / _eRef) * 100 : NaN;
                                   return (
                                     <div key={idx} className="flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5">
-                                      <span className="text-[11px] text-[#9ca3af]">{target.label}</span>
+                                      <span className="text-[11px] text-[#8AA39A]">{target.label}</span>
                                       <div className="flex items-center gap-1.5">
                                         <span className="text-[12px] font-semibold text-[#d1fae5] tabular-nums">${_tpPx.toFixed(2)}</span>
-                                        {Number.isFinite(_pct) && <span className="text-[9px] text-[#6b7280]">{_pct.toFixed(1)}%</span>}
+                                        {Number.isFinite(_pct) && <span className="text-[9px] text-[#6E867D]">{_pct.toFixed(1)}%</span>}
                                       </div>
                                     </div>
                                   );
@@ -12917,7 +12917,7 @@
                           )}
                           {Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && (
                             <div className="mt-3">
-                              <div className="text-[10px] text-[#6b7280] mb-1 uppercase">Invalidation</div>
+                              <div className="text-[10px] text-[#6E867D] mb-1 uppercase">Invalidation</div>
                               {predictionContract.invalidation.slice(0, 3).map((item, idx) => (
                                 <div key={idx} className="text-[11px] text-red-300/80 leading-relaxed">• {item}</div>
                               ))}
@@ -12925,7 +12925,7 @@
                           )}
                         </div>
                       ) : predictionContractError ? (
-                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]">
+                        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6E867D]">
                           Model guidance unavailable.
                         </div>
                       ) : null}
@@ -13064,7 +13064,7 @@
                         ];
                         return (
                           <div className="mb-4 space-y-2">
-                            <div className="text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+                            <div className="text-[10px] text-[#6E867D] font-semibold uppercase tracking-wider"
                               title="Where the system would exit if right (Take Profit) or wrong (Stop Loss). Distances and R:R show how much room each side has.">
                               Risk / Reward Levels
                             </div>
@@ -13076,14 +13076,14 @@
                                   title={slFromKijun
                                     ? "Stop Loss anchored at Kijun-Sen — a key swing-low support level. If price breaks this, the trade thesis is invalidated."
                                     : "Stop Loss — exit price if the trade goes wrong. The distance from entry to here is your risk per share."}>
-                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>
+                                  <span className={`text-xs font-semibold ${tslActive ? "text-[#6E867D]" : "text-red-400"}`}>
                                     Stop Loss{slFromKijun ? " (Kijun)" : ""}
                                   </span>
                                   <div className="flex items-center gap-2">
-                                    <span className={`text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
+                                    <span className={`text-xs font-bold ${tslActive ? "text-[#6E867D]" : "text-red-400"}`}>{tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`}</span>
                                     {!tslActive && Number.isFinite(slDistPct) && <span className="text-[9px] text-red-300/70">{slDistPct.toFixed(1)}%</span>}
                                     {!tslActive && Number.isFinite(rr) && rr > 0 && <span className="text-[9px] font-semibold text-blue-400">{Number(rr).toFixed(1)}:1</span>}
-                                    {tslActive && <span className="text-[9px] text-[#4b5563]">original</span>}
+                                    {tslActive && <span className="text-[9px] text-[#51635A]">original</span>}
                                   </div>
                                 </div>
                                 ); })()}
@@ -13108,11 +13108,11 @@
                                         <div className="flex items-center gap-2">
                                           <span className="text-sm">{tier.icon}</span>
                                           <span className={`text-xs font-semibold ${tier.text}`}>{tier.label}</span>
-                                          <span className="text-[10px] text-[#6b7280]">{tier.sub}</span>
+                                          <span className="text-[10px] text-[#6E867D]">{tier.sub}</span>
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <span className={`text-xs font-bold ${tier.text}`}>${tier.tp.toFixed(2)}</span>
-                                          {Number.isFinite(tpPct(tier.tp)) && <span className="text-[9px] text-[#6b7280]">{tpPct(tier.tp).toFixed(1)}%</span>}
+                                          {Number.isFinite(tpPct(tier.tp)) && <span className="text-[9px] text-[#6E867D]">{tpPct(tier.tp).toFixed(1)}%</span>}
                                           {window._ttIsPro && Number.isFinite(tier.rr) && <span className="text-[10px] font-semibold text-blue-400">{tier.rr.toFixed(2)}:1</span>}
                                         </div>
                                       </div>
@@ -13132,7 +13132,7 @@
                                         <span className="text-[10px] text-teal-300">Target</span>
                                         <span className="font-bold text-teal-400">${legacyTarget.toFixed(2)}</span>
                                       </div>
-                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyTarget).toFixed(1)}%</span>}
+                                      {Number.isFinite(tpPct(legacyTarget)) && <span className="text-[9px] text-[#6E867D]">{tpPct(legacyTarget).toFixed(1)}%</span>}
                                     </div>
                                   )}
                                   {Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && (
@@ -13141,7 +13141,7 @@
                                         <span className="text-[10px] text-teal-300">Stretch</span>
                                         <span className="font-bold text-teal-400">${legacyMax.toFixed(2)}</span>
                                       </div>
-                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6b7280]">{tpPct(legacyMax).toFixed(1)}%</span>}
+                                      {Number.isFinite(tpPct(legacyMax)) && <span className="text-[9px] text-[#6E867D]">{tpPct(legacyMax).toFixed(1)}%</span>}
                                     </div>
                                   )}
                                 </>
@@ -13271,8 +13271,8 @@
                                   alignItems: "center",
                                   padding: "8px 8px",
                                   borderRadius: "var(--ds-radius-xs)",
-                                  background: "rgba(245,194,92,0.10)",
-                                  border: "1px solid rgba(245,194,92,0.30)",
+                                  background: "rgba(56,242,161,0.10)",
+                                  border: "1px solid rgba(56,242,161,0.30)",
                                   margin: "2px 0",
                                 }}>
                                   <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", letterSpacing: "0.06em", textAlign: "center" }}>NOW</span>
@@ -13358,7 +13358,7 @@
                         return React.createElement("div", { className: "mb-4" },
                           React.createElement("div", { className: "flex items-center justify-between mb-2" },
                             React.createElement("div", {
-                              className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+                              className: "text-[10px] text-[#6E867D] font-semibold uppercase tracking-wider"
                             }, "Mini Chart"),
                             React.createElement("button", {
                               onClick: () => setChartExpanded(true),
@@ -13729,7 +13729,7 @@
                             <div className="border-t border-white/[0.06] my-3 pt-3">
                               <button
                                 onClick={() => setEmaExpanded?.(!emaExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                                className="w-full flex items-center justify-between text-xs text-[#6E867D] mb-2 font-semibold hover:text-white transition-colors"
                               >
                                 <span>Trend Alignment</span>
                                 <span className="text-base">{emaExpanded ? "▼" : "▶"}</span>
@@ -13761,7 +13761,7 @@
                                       </div>
                                     );
                                   })}
-                                  <div className="text-[9px] text-[#4b5563] mt-1.5 px-1">
+                                  <div className="text-[9px] text-[#51635A] mt-1.5 px-1">
                                     Bar shows how many EMAs price is above (trend strength). Labels show if trend is accelerating or fading.
                                   </div>
                                 </div>
@@ -13790,7 +13790,7 @@
                           const tfStack = sc?.tf_stack || [];
                           return (
                             <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="text-xs text-[#6b7280] font-semibold mb-2">Swing Analysis</div>
+                              <div className="text-xs text-[#6E867D] font-semibold mb-2">Swing Analysis</div>
                               <div className="space-y-2">
                                 {eq && (
                                   <div className={`rounded-md p-2 ${eqBg}`}>
@@ -13816,7 +13816,7 @@
                                       }`}>{
                                         ({STRONG_BULL:"Strong Bull",EARLY_BULL:"Early Bull",LATE_BULL:"Late Bull",COUNTER_TREND_BULL:"CT Bull",NEUTRAL:"Neutral",COUNTER_TREND_BEAR:"CT Bear",EARLY_BEAR:"Early Bear",LATE_BEAR:"Late Bear",STRONG_BEAR:"Strong Bear"})[reg.combined] || reg.combined
                                       }</span>
-                                      <span className="text-[#6b7280]">D:{reg.daily?.charAt(0).toUpperCase() || "?"} W:{reg.weekly?.charAt(0).toUpperCase() || "?"}</span>
+                                      <span className="text-[#6E867D]">D:{reg.daily?.charAt(0).toUpperCase() || "?"} W:{reg.weekly?.charAt(0).toUpperCase() || "?"}</span>
                                     </div>
                                   </div>
                                 )}
@@ -13834,7 +13834,7 @@
                                           title={`${tf.tf}: ${tf.bias}${tf.crossDir ? ` (cross ${tf.crossDir})` : ""}`} />
                                       ))}
                                     </div>
-                                    <div className="flex justify-between text-[8px] text-[#4b5563] mt-0.5">
+                                    <div className="flex justify-between text-[8px] text-[#51635A] mt-0.5">
                                       {tfStack.map((tf, i) => (
                                         <span key={i}>{tf.tf}</span>
                                       ))}
@@ -13851,7 +13851,7 @@
                                     <span className="text-slate-400">Volatility</span>
                                     <div className="flex items-center gap-1.5">
                                       <span className={`px-1.5 py-0.5 rounded font-semibold ${volCls}`}>{volTier}</span>
-                                      {Number.isFinite(volPct) && <span className="text-[#6b7280]">{volPct}% ATR/px</span>}
+                                      {Number.isFinite(volPct) && <span className="text-[#6E867D]">{volPct}% ATR/px</span>}
                                     </div>
                                   </div>
                                 )}
@@ -13933,7 +13933,7 @@
                         {/* Rank */}
                         {rankTotal > 0 && (
                           <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                            <span className="text-[#6b7280]"
+                            <span className="text-[#6E867D]"
                               title="Rank: where this ticker stands among all tracked names today. Lower number = stronger setup. Updates after each scoring cycle.">
                               Rank
                             </span>
@@ -13942,7 +13942,7 @@
                                 ? `#${rankPosition} of ${rankTotal}`
                                 : "—"}
                               {rankAsOfText && (
-                                <span className="ml-2 text-[10px] text-[#6b7280] font-normal">
+                                <span className="ml-2 text-[10px] text-[#6E867D] font-normal">
                                   (as of {rankAsOfText})
                                 </span>
                               )}
@@ -13952,7 +13952,7 @@
 
                         {/* Score */}
                         <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                          <span className="text-[#6b7280]" title="Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100.">Score</span>
+                          <span className="text-[#6E867D]" title="Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100.">Score</span>
                           <span className="font-semibold text-blue-400 text-lg">
                             {Number.isFinite(displayScore)
                               ? displayScore.toFixed(1)
@@ -13982,10 +13982,10 @@
                                           "text-amber-400";
                           return (
                             <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                              <span className="text-[#6b7280]" title="Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now.">
+                              <span className="text-[#6E867D]" title="Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now.">
                                 Conviction
                                 {tier && (
-                                  <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#9ca3af]">
+                                  <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#8AA39A]">
                                     {tier}
                                   </span>
                                 )}
@@ -14055,7 +14055,7 @@
                               {has4h && (
                                 <>
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6E867D]">
                                       Model (4h)
                                     </span>
                                     <span className="font-semibold text-purple-300">
@@ -14072,7 +14072,7 @@
                               {has1d && (
                                 <>
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6E867D]">
                                       Model (1d)
                                     </span>
                                     <span className="font-semibold text-purple-300">
@@ -14187,7 +14187,7 @@
                             <div className="border-t border-white/[0.06] my-3 pt-3">
                               <button
                                 onClick={() => setScoreExpanded(!scoreExpanded)}
-                                className="w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+                                className="w-full flex items-center justify-between text-xs text-[#6E867D] mb-2 font-semibold hover:text-white transition-colors"
                               >
                                 <span>Score Breakdown</span>
                                 <span className="text-base">{scoreExpanded ? "▼" : "▶"}</span>
@@ -14199,7 +14199,7 @@
                                       key={idx}
                                       className="flex justify-between items-center text-xs"
                                     >
-                                      <span className="text-[#6b7280]">
+                                      <span className="text-[#6E867D]">
                                         {comp.label}
                                       </span>
                                       <span
@@ -14210,7 +14210,7 @@
                                     </div>
                                   ))}
                                   <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
-                                    <span className="text-[#6b7280] font-semibold">
+                                    <span className="text-[#6E867D] font-semibold">
                                       Total Score
                                     </span>
                                     <span className="text-blue-400 font-bold text-base">
@@ -14251,7 +14251,7 @@
                             : null;
                           return (
                             <div className="border-t border-white/[0.06] my-3 pt-3">
-                              <div className="text-[10px] text-[#6b7280] font-semibold mb-2">Bubble Chart</div>
+                              <div className="text-[10px] text-[#6E867D] font-semibold mb-2">Bubble Chart</div>
                               <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden" style={{ width: size, height: size }}>
                                 <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block">
                                   <defs>
@@ -14293,7 +14293,7 @@
                     <>
                       {/* Current Position — moved to top of Technicals */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
-                        <div className="text-sm font-bold text-[#6b7280] mb-2">
+                        <div className="text-sm font-bold text-[#6E867D] mb-2">
                           Current Position
                         </div>
                         {(() => {
@@ -14325,7 +14325,7 @@
                             <div className="space-y-2 text-xs">
                               <div>
                                 <div className="flex justify-between items-center">
-                                  <span className="text-[#6b7280]">Market State</span>
+                                  <span className="text-[#6E867D]">Market State</span>
                                   <span className={`font-semibold ${translated ? translated.color : "text-white"}`}>{translated ? translated.label : (raw || "—")}</span>
                                 </div>
                                 {translated && <div className="text-[10px] text-slate-400/80 mt-0.5 leading-snug">{translated.desc}</div>}
@@ -14333,7 +14333,7 @@
                               {horizonLabel && (
                                 <div>
                                   <div className="flex justify-between items-center">
-                                    <span className="text-[#6b7280]">Time Horizon</span>
+                                    <span className="text-[#6E867D]">Time Horizon</span>
                                     <span className="font-semibold text-white">{horizonLabel.label}</span>
                                   </div>
                                   {horizonLabel.desc && <div className="text-[10px] text-slate-400/80 mt-0.5">{horizonLabel.desc}</div>}
@@ -14374,7 +14374,7 @@
 
                           return (
                             <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                              <div className="text-sm font-bold text-[#6E867D] mb-2">
                                 TD Sequential
                               </div>
                               <div className="text-[11px] text-slate-300/80 italic mb-3 leading-snug">{tdSummary}</div>
@@ -14382,29 +14382,29 @@
                               <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] space-y-2">
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
                                   <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
-                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullPrep}/9</span>
+                                    <span className="text-[#6E867D]" title="Counts consecutive closes lower than 4 bars ago — a buy setup forms at 9">Buy Setup</span>
+                                    <span className={`font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6E867D]"}`}>{bullPrep}/9</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
-                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearPrep}/9</span>
+                                    <span className="text-[#6E867D]" title="Counts consecutive closes higher than 4 bars ago — a sell setup forms at 9">Sell Setup</span>
+                                    <span className={`font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6E867D]"}`}>{bearPrep}/9</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
-                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`}>{bullLeadup}/13</span>
+                                    <span className="text-[#6E867D]" title="After a completed buy setup, counts 13 bars for a stronger buy signal">Buy Countdown</span>
+                                    <span className={`font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6E867D]"}`}>{bullLeadup}/13</span>
                                   </div>
                                   <div className="flex justify-between">
-                                    <span className="text-[#6b7280]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
-                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`}>{bearLeadup}/13</span>
+                                    <span className="text-[#6E867D]" title="After a completed sell setup, counts 13 bars for a stronger sell signal">Sell Countdown</span>
+                                    <span className={`font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6E867D]"}`}>{bearLeadup}/13</span>
                                   </div>
                                 </div>
 
                                 {(hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && (
                                   <div className="pt-2 mt-1 border-t border-white/[0.06] space-y-1">
-                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6b7280]">— setup complete, potential reversal up</span></div>}
-                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6b7280]">— setup complete, potential reversal down</span></div>}
-                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6b7280]">— countdown complete, strong buy signal</span></div>}
-                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6b7280]">— countdown complete, strong sell signal</span></div>}
+                                    {hasTd9Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD9 Buy</span><span className="text-[#6E867D]">— setup complete, potential reversal up</span></div>}
+                                    {hasTd9Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD9 Sell</span><span className="text-[#6E867D]">— setup complete, potential reversal down</span></div>}
+                                    {hasTd13Bull && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-green-400"></span><span className="text-green-400 font-semibold">TD13 Buy</span><span className="text-[#6E867D]">— countdown complete, strong buy signal</span></div>}
+                                    {hasTd13Bear && <div className="flex items-center gap-2 text-xs"><span className="w-2 h-2 rounded-full bg-red-400"></span><span className="text-red-400 font-semibold">TD13 Sell</span><span className="text-[#6E867D]">— countdown complete, strong sell signal</span></div>}
                                   </div>
                                 )}
                               </div>
@@ -14412,10 +14412,10 @@
                               {(hasExitLong || hasExitShort) && (
                                 <div className="mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">Exhaustion Warning</span>
+                                    <span className="text-xs text-[#6E867D]">Exhaustion Warning</span>
                                     <span className="font-bold text-sm text-red-400">{hasExitLong ? "EXIT LONG" : "EXIT SHORT"}</span>
                                   </div>
-                                  <div className="text-[11px] text-[#6b7280] mt-1">
+                                  <div className="text-[11px] text-[#6E867D] mt-1">
                                     {hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce."}
                                   </div>
                                 </div>
@@ -14423,7 +14423,7 @@
 
                               {tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && (
                                 <div className="mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <span className="text-[#6b7280]">Score impact from TD Sequential</span>
+                                  <span className="text-[#6E867D]">Score impact from TD Sequential</span>
                                   <span className={`font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`}>{Number(tdSeq.boost) > 0 ? "+" : ""}{Number(tdSeq.boost).toFixed(1)}</span>
                                 </div>
                               )}
@@ -14433,7 +14433,7 @@
 
                       {/* Triggers */}
                       <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                        <div className="text-sm font-bold text-[#6b7280] mb-4">
+                        <div className="text-sm font-bold text-[#6E867D] mb-4">
                           ⚡ Triggers
                         </div>
                         <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
@@ -14490,7 +14490,7 @@
                               })}
                             </div>
                           ) : (
-                            <div className="text-xs text-[#6b7280]">
+                            <div className="text-xs text-[#6E867D]">
                               No trigger patterns detected.
                             </div>
                           )}
@@ -14499,7 +14499,7 @@
 
                       {/* Timeframes (Per-TF technicals) */}
                       <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                        <div className="text-sm font-bold text-[#6b7280] mb-4">
+                        <div className="text-sm font-bold text-[#6E867D] mb-4">
                           Timeframe Analysis
                         </div>
                         <div className="space-y-2">
@@ -14516,7 +14516,7 @@
                                 const structure = ema && Number.isFinite(Number(ema.structure)) ? Number(ema.structure) : 0;
                                 const sig = structure >= 0.3 ? 1 : structure <= -0.3 ? -1 : 0;
                                 const sigLabel = sig === 1 ? "Bullish" : sig === -1 ? "Bearish" : "Neutral";
-                                const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6b7280]";
+                                const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6E867D]";
                                 const sigBg = sig === 1 ? "border-green-500/20" : sig === -1 ? "border-red-500/20" : "border-white/[0.06]";
 
                                 const depth = ema && Number.isFinite(Number(ema.depth)) ? Number(ema.depth) : 0;
@@ -14616,42 +14616,42 @@
                                   <div key={k} className={`rounded-lg p-3 bg-white/[0.02] border ${sigBg}`}>
                                     <div className="flex items-center justify-between mb-1.5">
                                       <span className="text-sm font-bold text-white">{label}</span>
-                                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6b7280]"}`}>{sigLabel}</span>
+                                      <span className={`text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6E867D]"}`}>{sigLabel}</span>
                                     </div>
                                     <div className="text-[11px] text-slate-300/80 italic mb-2.5 leading-snug">{tfInterpretation}</div>
 
                                     <div className="space-y-1.5 text-[11px]">
                                       <div className="flex items-start gap-2">
-                                        <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Moving Averages — how many EMAs price is above">MAs</span>
+                                        <span className="text-[#6E867D] w-12 shrink-0 pt-px" title="Moving Averages — how many EMAs price is above">MAs</span>
                                         <span className="text-slate-300">{emaSummary}{ema && ema.stack != null ? ` (stack: ${ema.stack})` : ""}</span>
                                       </div>
                                       {atrSummary && (
                                         <div className="flex items-start gap-2">
-                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Average True Range — how far price is from its normal trading range">ATR</span>
+                                          <span className="text-[#6E867D] w-12 shrink-0 pt-px" title="Average True Range — how far price is from its normal trading range">ATR</span>
                                           <span className="text-slate-300">{atrSummary}</span>
                                         </div>
                                       )}
                                       {rsiSummary && (
                                         <div className="flex items-start gap-2">
-                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Relative Strength Index — momentum oscillator (30=oversold, 70=overbought)">RSI</span>
+                                          <span className="text-[#6E867D] w-12 shrink-0 pt-px" title="Relative Strength Index — momentum oscillator (30=oversold, 70=overbought)">RSI</span>
                                           <span className="text-slate-300">{rsiSummary}{r5 != null && r14 != null ? ` (fast: ${r5.toFixed(0)}, slow: ${r14.toFixed(0)})` : ""}</span>
                                         </div>
                                       )}
                                       {sqSummary && (
                                         <div className="flex items-start gap-2">
-                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Bollinger Band Squeeze — volatility compression that often precedes big moves">Sqz</span>
+                                          <span className="text-[#6E867D] w-12 shrink-0 pt-px" title="Bollinger Band Squeeze — volatility compression that often precedes big moves">Sqz</span>
                                           <span className="text-slate-300">{sqDesc || sqSummary}</span>
                                         </div>
                                       )}
                                       {phaseSummary && (
                                         <div className="flex items-start gap-2">
-                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px" title="Phase — how far along the current move is (0=early, 100=late)">Phase</span>
+                                          <span className="text-[#6E867D] w-12 shrink-0 pt-px" title="Phase — how far along the current move is (0=early, 100=late)">Phase</span>
                                           <span className="text-slate-300">{phaseSummary}</span>
                                         </div>
                                       )}
                                       {phDivSummary && (
                                         <div className="flex items-start gap-2">
-                                          <span className="text-[#6b7280] w-12 shrink-0 pt-px">Div</span>
+                                          <span className="text-[#6E867D] w-12 shrink-0 pt-px">Div</span>
                                           <span className={`${(ph?.div?.[0]) === "B" ? "text-green-400/90" : "text-red-400/90"}`}>{phDivSummary}</span>
                                         </div>
                                       )}
@@ -14660,7 +14660,7 @@
                                 );
                               })
                           ) : (
-                            <div className="text-xs text-[#6b7280] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+                            <div className="text-xs text-[#6E867D] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                               No per-timeframe technicals available yet.
                             </div>
                           )}
@@ -14692,19 +14692,19 @@
 
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-3">
+                              <div className="text-sm font-bold text-[#6E867D] mb-3">
                                 RSI & Divergence
                               </div>
 
                               <div className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
                                 <div className="flex justify-between items-center mb-1">
-                                  <span className="text-xs text-[#6b7280]" title="Relative Strength Index (14-period) — measures momentum on a 0-100 scale. Below 30 is oversold, above 70 is overbought.">RSI (14)</span>
+                                  <span className="text-xs text-[#6E867D]" title="Relative Strength Index (14-period) — measures momentum on a 0-100 scale. Below 30 is oversold, above 70 is overbought.">RSI (14)</span>
                                   <span className={`font-bold text-lg ${rsiColor}`}>{rsiValue.toFixed(1)}</span>
                                 </div>
                                 <div className="mt-1.5 h-2 bg-white/[0.04] rounded-full overflow-hidden relative">
                                   <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${rsiValue}%` }} />
                                 </div>
-                                <div className="flex justify-between text-[9px] text-[#4b5563] mt-0.5">
+                                <div className="flex justify-between text-[9px] text-[#51635A] mt-0.5">
                                   <span>Oversold</span>
                                   <span>30</span>
                                   <span>50</span>
@@ -14717,7 +14717,7 @@
                               {divType !== "none" && (
                                 <div className={`mt-2 p-3 rounded-lg border-2 ${divType === "bullish" ? "bg-green-500/15 border-green-500/40" : "bg-red-500/15 border-red-500/40"}`}>
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-semibold text-[#6b7280]">Divergence Detected</span>
+                                    <span className="text-xs font-semibold text-[#6E867D]">Divergence Detected</span>
                                     <span className={`font-bold text-sm ${divType === "bullish" ? "text-green-400" : "text-red-400"}`}>{divType === "bullish" ? "Bullish" : "Bearish"}</span>
                                   </div>
                                   <div className="text-[11px] text-slate-300/80 leading-snug">
@@ -14725,7 +14725,7 @@
                                       ? "Price made a lower low but RSI made a higher low — selling momentum is fading even as price drops. This often precedes a reversal upward."
                                       : "Price made a higher high but RSI made a lower high — buying momentum is fading even as price rises. This often precedes a reversal downward."}
                                   </div>
-                                  {divStrength > 0 && <div className="text-[10px] text-[#6b7280] mt-1">Signal strength: {divStrength.toFixed(2)}</div>}
+                                  {divStrength > 0 && <div className="text-[10px] text-[#6E867D] mt-1">Signal strength: {divStrength.toFixed(2)}</div>}
                                 </div>
                               )}
                             </div>
@@ -14745,7 +14745,7 @@
                                   <div className="text-xs text-white font-semibold">{pattern.description}</div>
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300">{pattern.confidence}</span>
                                 </div>
-                                {pattern.quadrant && <div className="text-[10px] text-[#6b7280] mt-0.5">{pattern.quadrant}</div>}
+                                {pattern.quadrant && <div className="text-[10px] text-[#6E867D] mt-0.5">{pattern.quadrant}</div>}
                               </div>
                             ))}
                           </div>
@@ -14770,7 +14770,7 @@
 
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-2">
+                              <div className="text-sm font-bold text-[#6E867D] mb-2">
                                 EMA Clouds
                               </div>
                               <div className="text-[10px] text-slate-400/70 mb-3">EMA clouds show moving average zones — price above = bullish, below = bearish, inside = undecided</div>
@@ -14780,11 +14780,11 @@
                                   return (
                                     <div key={label} className={`p-2.5 rounded-lg border ${p.bg}`}>
                                       <div className="flex items-center justify-between mb-1">
-                                        <span className="text-xs font-semibold text-white" title={desc}>{label} <span className="text-[#6b7280] font-normal">({emas})</span></span>
+                                        <span className="text-xs font-semibold text-white" title={desc}>{label} <span className="text-[#6E867D] font-normal">({emas})</span></span>
                                         <span className={`text-xs font-bold ${p.color}`}>{p.text}</span>
                                       </div>
                                       <div className="text-[10px] text-slate-400/80">{label} is {p.meaning}</div>
-                                      <div className="flex gap-4 mt-1.5 text-[10px] text-[#6b7280]">
+                                      <div className="flex gap-4 mt-1.5 text-[10px] text-[#6E867D]">
                                         <span>Cloud: ${Number(data.lower).toFixed(2)} – ${Number(data.upper).toFixed(2)}</span>
                                         <span>Price: <span className="text-white font-semibold">${Number(data.price).toFixed(2)}</span></span>
                                       </div>
@@ -14824,7 +14824,7 @@
 
                           return (
                             <div className="mt-6 pt-6 border-t-2 border-white/[0.06]">
-                              <div className="text-sm font-bold text-[#6b7280] mb-4">
+                              <div className="text-sm font-bold text-[#6E867D] mb-4">
                                 Fundamental & Valuation
                               </div>
 
@@ -14834,7 +14834,7 @@
                                   className={`mb-4 p-3 rounded-lg border-2 ${signalBg}`}
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs text-[#6b7280]">
+                                    <span className="text-xs text-[#6E867D]">
                                       Valuation Indicator
                                     </span>
                                     <span
@@ -14844,7 +14844,7 @@
                                     </span>
                                   </div>
                                   {fund.valuation_confidence && (
-                                    <div className="text-xs text-[#6b7280] mt-1">
+                                    <div className="text-xs text-[#6E867D] mt-1">
                                       Confidence:{" "}
                                       <span className="font-semibold">
                                         {fund.valuation_confidence}
@@ -14854,14 +14854,14 @@
                                   {fund.valuation_reasons &&
                                     fund.valuation_reasons.length > 0 && (
                                       <div className="mt-2 pt-2 border-t border-current/30">
-                                        <div className="text-[10px] text-[#6b7280] mb-1">
+                                        <div className="text-[10px] text-[#6E867D] mb-1">
                                           Reasons:
                                         </div>
                                         {fund.valuation_reasons.map(
                                           (reason, idx) => (
                                             <div
                                               key={idx}
-                                              className="text-[10px] text-[#6b7280]/80 mb-0.5"
+                                              className="text-[10px] text-[#6E867D]/80 mb-0.5"
                                             >
                                               • {reason}
                                             </div>
@@ -14876,7 +14876,7 @@
                               <div className="space-y-2 text-sm mb-4">
                                 {fund.pe_ratio !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]" title="Price-to-Earnings — how much investors pay per $1 of earnings. Lower = cheaper relative to profits.">
+                                    <span className="text-[#6E867D]" title="Price-to-Earnings — how much investors pay per $1 of earnings. Lower = cheaper relative to profits.">
                                       P/E Ratio
                                     </span>
                                     <span className="font-semibold">
@@ -14886,7 +14886,7 @@
                                 )}
                                 {fund.peg_ratio !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]" title="P/E divided by earnings growth rate. Below 1.0 = potentially undervalued for its growth. Above 1.5 = expensive.">
+                                    <span className="text-[#6E867D]" title="P/E divided by earnings growth rate. Below 1.0 = potentially undervalued for its growth. Above 1.5 = expensive.">
                                       PEG Ratio
                                     </span>
                                     <span
@@ -14897,7 +14897,7 @@
                                             ? "text-yellow-400"
                                             : fund.peg_ratio > 1.5
                                               ? "text-red-400"
-                                              : "text-[#6b7280]"
+                                              : "text-[#6E867D]"
                                       }`}
                                     >
                                       {Number(fund.peg_ratio).toFixed(2)}
@@ -14906,7 +14906,7 @@
                                 )}
                                 {fund.eps !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]" title="Earnings Per Share (trailing 12 months) — how much profit the company earned per share over the past year.">
+                                    <span className="text-[#6E867D]" title="Earnings Per Share (trailing 12 months) — how much profit the company earned per share over the past year.">
                                       EPS (TTM)
                                     </span>
                                     <span className="font-semibold">
@@ -14916,7 +14916,7 @@
                                 )}
                                 {fund.eps_growth_rate !== null && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]" title="Year-over-year earnings growth rate. Higher = company is growing profits faster.">
+                                    <span className="text-[#6E867D]" title="Year-over-year earnings growth rate. Higher = company is growing profits faster.">
                                       EPS Growth (Annual)
                                     </span>
                                     <span
@@ -14926,7 +14926,7 @@
                                           : fund.eps_growth_rate > 10
                                             ? "text-yellow-400"
                                             : fund.eps_growth_rate > 0
-                                              ? "text-[#6b7280]"
+                                              ? "text-[#6E867D]"
                                               : "text-red-400"
                                       }`}
                                     >
@@ -14958,7 +14958,7 @@
                                   }
                                   return (
                                     <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                      <span className="text-[#6b7280]" title="Total market value of all outstanding shares. Larger = more established company.">
+                                      <span className="text-[#6E867D]" title="Total market value of all outstanding shares. Larger = more established company.">
                                         Market Cap
                                       </span>
                                       <span className="font-semibold">
@@ -14969,7 +14969,7 @@
                                 })()}
                                 {fund.industry && (
                                   <div className="flex justify-between items-center py-1 border-b border-white/[0.06]/50">
-                                    <span className="text-[#6b7280]">
+                                    <span className="text-[#6E867D]">
                                       Industry
                                     </span>
                                     <span className="font-semibold text-xs">
@@ -14983,11 +14983,11 @@
                               {fund.fair_value_price !== null &&
                                 fund.fair_value_price > 0 && (
                                   <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                    <div className="text-xs text-[#6b7280] mb-2">
+                                    <div className="text-xs text-[#6E867D] mb-2">
                                       Fair Value
                                     </div>
                                     <div className="flex items-center justify-between mb-2">
-                                      <span className="text-sm text-[#6b7280]">
+                                      <span className="text-sm text-[#6E867D]">
                                         Fair Value Price
                                       </span>
                                       <span className="font-bold text-lg text-blue-400">
@@ -14999,7 +14999,7 @@
                                     </div>
                                     {fund.premium_discount_pct !== null && (
                                       <div className="flex items-center justify-between">
-                                        <span className="text-xs text-[#6b7280]">
+                                        <span className="text-xs text-[#6E867D]">
                                           Premium/Discount
                                         </span>
                                         <span
@@ -15010,7 +15010,7 @@
                                                 ? "text-yellow-400"
                                                 : fund.premium_discount_pct > 10
                                                   ? "text-red-400"
-                                                  : "text-[#6b7280]"
+                                                  : "text-[#6E867D]"
                                           }`}
                                         >
                                           {fund.premium_discount_pct > 0
@@ -15025,7 +15025,7 @@
                                     )}
                                     {fund.fair_value_pe &&
                                       fund.fair_value_pe.preferred && (
-                                        <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6b7280]">
+                                        <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6E867D]">
                                           Fair P/E:{" "}
                                           <span className="font-semibold">
                                             {Number(
@@ -15040,13 +15040,13 @@
                               {/* Historical P/E Percentiles */}
                               {fund.pe_percentiles && (
                                 <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                  <div className="text-xs text-[#6b7280] mb-2">
+                                  <div className="text-xs text-[#6E867D] mb-2">
                                     Historical P/E Percentiles
                                   </div>
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     {fund.pe_percentiles.p10 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           10th:
                                         </span>
                                         <span className="font-semibold">
@@ -15058,7 +15058,7 @@
                                     )}
                                     {fund.pe_percentiles.p25 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           25th:
                                         </span>
                                         <span className="font-semibold">
@@ -15070,7 +15070,7 @@
                                     )}
                                     {fund.pe_percentiles.p50 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           50th (Median):
                                         </span>
                                         <span className="font-semibold text-blue-400">
@@ -15082,7 +15082,7 @@
                                     )}
                                     {fund.pe_percentiles.p75 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           75th:
                                         </span>
                                         <span className="font-semibold">
@@ -15094,7 +15094,7 @@
                                     )}
                                     {fund.pe_percentiles.p90 !== null && (
                                       <div className="flex justify-between">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           90th:
                                         </span>
                                         <span className="font-semibold">
@@ -15106,7 +15106,7 @@
                                     )}
                                     {fund.pe_percentiles.avg !== null && (
                                       <div className="flex justify-between col-span-2 pt-1 border-t border-white/[0.06]">
-                                        <span className="text-[#6b7280]">
+                                        <span className="text-[#6E867D]">
                                           Average:
                                         </span>
                                         <span className="font-semibold">
@@ -15119,7 +15119,7 @@
                                   </div>
                                   {fund.pe_percentile_position && (
                                     <div className="mt-2 pt-2 border-t border-white/[0.06] text-xs">
-                                      <span className="text-[#6b7280]">
+                                      <span className="text-[#6E867D]">
                                         Current Position:{" "}
                                       </span>
                                       <span
@@ -15132,7 +15132,7 @@
                                                   "Top",
                                                 )
                                               ? "text-red-400"
-                                              : "text-[#6b7280]"
+                                              : "text-[#6E867D]"
                                         }`}
                                       >
                                         {fund.pe_percentile_position}
@@ -15149,11 +15149,11 @@
                                 ticker.rank_components.valuation_boost !==
                                   0 && (
                                   <div className="mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                                    <div className="text-xs text-[#6b7280] mb-1">
+                                    <div className="text-xs text-[#6E867D] mb-1">
                                       Rank Components
                                     </div>
                                     <div className="flex justify-between items-center text-xs">
-                                      <span className="text-[#6b7280]">
+                                      <span className="text-[#6E867D]">
                                         Base Rank
                                       </span>
                                       <span className="font-semibold">
@@ -15162,7 +15162,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between items-center text-xs mt-1">
-                                      <span className="text-[#6b7280]">
+                                      <span className="text-[#6E867D]">
                                         Valuation Boost
                                       </span>
                                       <span
@@ -15181,7 +15181,7 @@
                                       </span>
                                     </div>
                                     <div className="flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]">
-                                      <span className="text-[#6b7280] font-semibold">
+                                      <span className="text-[#6E867D] font-semibold">
                                         Final Rank
                                       </span>
                                       <span className="font-bold text-blue-400">
@@ -15203,7 +15203,7 @@
                     <>
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between gap-2 mb-3">
-                          <div className="text-sm text-[#6b7280]">Chart (REMOVED)</div>
+                          <div className="text-sm text-[#6E867D]">Chart (REMOVED)</div>
                           <div className="flex items-center gap-1 flex-wrap">
                             {[
                               { tf: "5", label: "5m" },
@@ -15223,7 +15223,7 @@
                                   className={`px-2 py-1 rounded border text-[11px] font-semibold transition-all ${
                                     active
                                       ? "border-blue-400 bg-blue-500/20 text-blue-200"
-                                      : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"
+                                      : "border-white/[0.06] bg-white/[0.02] text-[#6E867D] hover:text-white"
                                   }`}
                                   title={`Show ${t.label} candles`}
                                 >
@@ -15242,7 +15242,7 @@
                           </div>
                         ) : !Array.isArray(chartCandles) ||
                           chartCandles.length < 2 ? (
-                          <div className="text-xs text-[#6b7280]">
+                          <div className="text-xs text-[#6E867D]">
                             No candles yet for this timeframe. (Waiting for the
                             TradingView candle capture feed.)
                           </div>
@@ -15361,7 +15361,7 @@
                               const totalCandles2 = candles.length;
                               if (totalCandles2 < 2) {
                                 return (
-                                  <div className="text-xs text-[#6b7280]">
+                                  <div className="text-xs text-[#6E867D]">
                                     Candle data loaded, but not in expected OHLC format.
                                   </div>
                                 );
@@ -15449,11 +15449,11 @@
                               <div className="w-full relative">
                                 {/* TradingView-style OHLC header */}
                                 <div className="flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none">
-                                  <span className="text-[#6b7280]">{hTime2}</span>
-                                  <span className="text-[#6b7280]">O</span><span className="text-white">{hO2.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">H</span><span className="text-sky-300">{hH2.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">L</span><span className="text-orange-300">{hL2.toFixed(2)}</span>
-                                  <span className="text-[#6b7280]">C</span>
+                                  <span className="text-[#6E867D]">{hTime2}</span>
+                                  <span className="text-[#6E867D]">O</span><span className="text-white">{hO2.toFixed(2)}</span>
+                                  <span className="text-[#6E867D]">H</span><span className="text-sky-300">{hH2.toFixed(2)}</span>
+                                  <span className="text-[#6E867D]">L</span><span className="text-orange-300">{hL2.toFixed(2)}</span>
+                                  <span className="text-[#6E867D]">C</span>
                                   <span className={hUp2 ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"}>{hC2.toFixed(2)}</span>
                                   <span className={hUp2 ? "text-teal-400" : "text-rose-400"}>
                                     {hUp2 ? "+" : ""}{hChg2.toFixed(2)} ({hUp2 ? "+" : ""}{hPct2.toFixed(2)}%)
@@ -15461,7 +15461,7 @@
                                 </div>
                                 <div
                                   ref={chartContainerRef}
-                                  className="rounded border border-white/[0.06] bg-[#0b0e11] overflow-hidden"
+                                  className="rounded border border-white/[0.06] bg-[#0B1410] overflow-hidden"
                                   style={{ userSelect: "none" }}
                                 >
                                   <svg
@@ -15654,23 +15654,23 @@
                                       })()}
                                     </div>
                                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
-                                      <div className="text-[#6b7280]">Price:</div>
+                                      <div className="text-[#6E867D]">Price:</div>
                                       <div className="text-yellow-300 font-mono font-semibold">
                                         ${Number(crosshair.price).toFixed(2)}
                                       </div>
-                                      <div className="text-[#6b7280]">O:</div>
+                                      <div className="text-[#6E867D]">O:</div>
                                       <div className="text-white font-mono">
                                         ${Number(crosshair.candle.o).toFixed(2)}
                                       </div>
-                                      <div className="text-[#6b7280]">H:</div>
+                                      <div className="text-[#6E867D]">H:</div>
                                       <div className="text-sky-300 font-mono">
                                         ${Number(crosshair.candle.h).toFixed(2)}
                                       </div>
-                                      <div className="text-[#6b7280]">L:</div>
+                                      <div className="text-[#6E867D]">L:</div>
                                       <div className="text-orange-300 font-mono">
                                         ${Number(crosshair.candle.l).toFixed(2)}
                                       </div>
-                                      <div className="text-[#6b7280]">C:</div>
+                                      <div className="text-[#6E867D]">C:</div>
                                       <div
                                         className={`font-mono font-semibold ${
                                           Number(crosshair.candle.c) >=
@@ -15685,7 +15685,7 @@
                                   </div>
                                 ) : null}
 
-                                <div className="mt-2 text-[10px] text-[#6b7280] flex items-center justify-between">
+                                <div className="mt-2 text-[10px] text-[#6E867D] flex items-center justify-between">
                                   <span>
                                     {String(chartTf) === "D"
                                       ? "Daily"
@@ -15719,7 +15719,7 @@
                     <>
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm text-[#6b7280]">
+                          <div className="text-sm text-[#6E867D]">
                             Trade History
                           </div>
                         </div>
@@ -15731,7 +15731,7 @@
                             Ledger unavailable: {ledgerTradesError}
                           </div>
                         ) : ledgerTrades.length === 0 ? (
-                          <div className="text-xs text-[#6b7280]">
+                          <div className="text-xs text-[#6E867D]">
                             No trades found for this ticker.
                           </div>
                         ) : (
@@ -15749,7 +15749,7 @@
                               return (
                                 <div className="p-2.5 rounded bg-white/[0.03] border border-white/[0.08] mb-1">
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[11px] text-[#6b7280] font-medium">
+                                    <span className="text-[11px] text-[#6E867D] font-medium">
                                       {ledgerTrades.length} trade{ledgerTrades.length !== 1 ? "s" : ""}
                                       {openTrades.length > 0 && <span className="text-blue-400 ml-1">({openTrades.length} open)</span>}
                                     </span>
@@ -15760,10 +15760,10 @@
                                     )}
                                   </div>
                                   {closedTrades.length > 0 && (
-                                    <div className="flex items-center gap-2 text-[10px] text-[#6b7280]">
+                                    <div className="flex items-center gap-2 text-[10px] text-[#6E867D]">
                                       {wins > 0 && <span className="text-green-400">{wins}W</span>}
                                       {losses > 0 && <span className="text-red-400">{losses}L</span>}
-                                      {flat > 0 && <span className="text-[#6b7280]">{flat} flat</span>}
+                                      {flat > 0 && <span className="text-[#6E867D]">{flat} flat</span>}
                                     </div>
                                   )}
                                 </div>
@@ -15821,7 +15821,7 @@
                               const statusLabel = exitPriceMissing ? "ERR" : (t.status === "FLAT" || isFlat) ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
                               const statusCls = exitPriceMissing
                                 ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                                : (t.status === "FLAT" || isFlat) ? "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30"
+                                : (t.status === "FLAT" || isFlat) ? "bg-[#6E867D]/20 text-[#8AA39A] border-[#6E867D]/30"
                                 : t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30"
                                 : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "";
 
@@ -15877,7 +15877,7 @@
                                         </span>
                                       )}
                                       {isClosed && (
-                                        <span className={`text-[10px] font-semibold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
+                                        <span className={`text-[10px] font-semibold ${isFlat ? "text-[#6E867D]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`}>
                                           ({computedPnlPct >= 0 ? "+" : ""}{computedPnlPct.toFixed(2)}%)
                                         </span>
                                       )}
@@ -15888,8 +15888,8 @@
                                   <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
                                     {exitReasonLabel && <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/25">{exitReasonLabel}</span>}
                                     {hasTrimmed && <span className="px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/15 text-yellow-300 border border-yellow-500/25">{Math.round(trimmedPct * 100)}% trimmed</span>}
-                                    {duration && <span className="text-[9px] text-[#6b7280]">{duration}</span>}
-                                    {entryQty > 0 && <span className="text-[9px] text-[#4b5563]">{entryQty % 1 === 0 ? entryQty : entryQty.toFixed(1)} sh</span>}
+                                    {duration && <span className="text-[9px] text-[#6E867D]">{duration}</span>}
+                                    {entryQty > 0 && <span className="text-[9px] text-[#51635A]">{entryQty % 1 === 0 ? entryQty : entryQty.toFixed(1)} sh</span>}
                                   </div>
 
                                   {/* Open trade live data (admin) */}
@@ -15903,13 +15903,13 @@
                                     return (
                                       <div className="mx-3 mb-2 p-2 rounded bg-white/[0.03] border border-white/[0.06] space-y-1">
                                         <div className="flex items-center justify-between text-[10px]">
-                                          <span className="text-[#6b7280]">Current</span>
+                                          <span className="text-[#6E867D]">Current</span>
                                           <span className="text-white font-bold">{cp > 0 ? `$${cp.toFixed(2)}` : "\u2014"}</span>
                                         </div>
                                         <div className="flex items-center justify-between text-[10px]">
                                           <span className="text-rose-400">SL</span>
                                           <span className="text-white font-medium">{slVal > 0 ? `$${slVal.toFixed(2)}` : "\u2014"}</span>
-                                          <span className="text-[#6b7280]">EP</span>
+                                          <span className="text-[#6E867D]">EP</span>
                                           <span className="text-white font-medium">${entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"}</span>
                                           <span className="text-teal-400">TP</span>
                                           <span className="text-white font-medium">{tpVal > 0 ? `$${tpVal.toFixed(2)}` : "\u2014"}</span>
@@ -15957,9 +15957,9 @@
                                           </tr>
                                         )}
                                         <tr>
-                                          <td className="text-[#6b7280] py-0.5 pr-2">Entry</td>
+                                          <td className="text-[#6E867D] py-0.5 pr-2">Entry</td>
                                           <td className="text-white font-medium py-0.5">${entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"}</td>
-                                          <td className="text-[#6b7280] py-0.5 text-right">{formatDt(t.entry_ts)}</td>
+                                          <td className="text-[#6E867D] py-0.5 text-right">{formatDt(t.entry_ts)}</td>
                                         </tr>
                                         {hasTrimmed && trimPrice > 0 && (
                                           <tr>
@@ -15970,9 +15970,9 @@
                                         )}
                                         {isClosed && (
                                           <tr>
-                                            <td className="text-[#6b7280] py-0.5 pr-2">Exit</td>
+                                            <td className="text-[#6E867D] py-0.5 pr-2">Exit</td>
                                             <td className={`font-medium py-0.5 ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`}>{exitPrice > 0 ? `$${exitPrice.toFixed(2)}` : "\u2014"}</td>
-                                            <td className="text-[#6b7280] py-0.5 text-right">{formatDt(t.exit_ts)}</td>
+                                            <td className="text-[#6E867D] py-0.5 text-right">{formatDt(t.exit_ts)}</td>
                                           </tr>
                                         )}
                                       </tbody>
@@ -15991,7 +15991,7 @@
                                     <a
                                       href={`trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`}
                                       target="_blank" rel="noopener noreferrer"
-                                      className="text-[9px] text-[#4b5563] hover:text-[#9ca3af] transition-colors"
+                                      className="text-[9px] text-[#51635A] hover:text-[#8AA39A] transition-colors"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       Full page &rarr;
@@ -16001,7 +16001,7 @@
                               );
                             })}
                             {ledgerTrades.length > 10 && (
-                              <div className="text-[10px] text-[#4b5563] text-center py-1">
+                              <div className="text-[10px] text-[#51635A] text-center py-1">
                                 Showing 10 of {ledgerTrades.length} trades
                               </div>
                             )}
@@ -16064,7 +16064,7 @@
                             {/* Ticker-Level Signal */}
                             <div className={`p-3 rounded-lg border ${dirBg(direction)}`}>
                               <div className="flex items-center justify-between mb-1.5">
-                                <span className="text-sm font-bold text-[#6b7280]">Ticker Signal</span>
+                                <span className="text-sm font-bold text-[#6E867D]">Ticker Signal</span>
                                 {direction && <span className={`text-xs font-bold px-2 py-0.5 rounded ${direction === "BULLISH" ? "bg-green-500/20 text-green-400" : direction === "BEARISH" ? "bg-red-500/20 text-red-400" : "bg-slate-500/15 text-slate-400"}`}>{direction}</span>}
                               </div>
                               {(ts || pm) ? (
@@ -16072,30 +16072,30 @@
                                   <div className="text-[11px] text-slate-300/80 italic mb-2 leading-snug">{describeDir(direction, netSignal)}</div>
                                   <div className="space-y-1.5 text-[11px]">
                                     <div className="flex justify-between items-center">
-                                      <span className="text-[#6b7280]" title="Overall conviction score from -1 (strongly bearish) to +1 (strongly bullish). Combines pattern matching with the ticker's current scoring state.">Net Signal</span>
+                                      <span className="text-[#6E867D]" title="Overall conviction score from -1 (strongly bearish) to +1 (strongly bullish). Combines pattern matching with the ticker's current scoring state.">Net Signal</span>
                                       <span className={`font-bold ${netSignal > 0 ? "text-[#00e676]" : netSignal < 0 ? "text-red-400" : "text-slate-300"}`}>{netSignal > 0 ? "+" : ""}{netSignal.toFixed(2)}</span>
                                     </div>
                                     {(ts?.bullPatterns != null || pm?.bullCount != null) && (
                                       <div className="flex justify-between items-center">
-                                        <span className="text-[#6b7280]" title="How many historical winning patterns (bull vs bear) currently match this ticker's setup.">Patterns Matched</span>
+                                        <span className="text-[#6E867D]" title="How many historical winning patterns (bull vs bear) currently match this ticker's setup.">Patterns Matched</span>
                                         <span className="text-white font-semibold">{ts?.bullPatterns || pm?.bullCount || 0} bull / {ts?.bearPatterns || pm?.bearCount || 0} bear</span>
                                       </div>
                                     )}
                                     {ts?.stateSignal != null && (
                                       <div className="flex justify-between items-center">
-                                        <span className="text-[#6b7280]" title="Signal derived from the ticker's current quadrant (HTF/LTF state), kanban stage, and HTF score. Independent of pattern matching.">State Signal</span>
+                                        <span className="text-[#6E867D]" title="Signal derived from the ticker's current quadrant (HTF/LTF state), kanban stage, and HTF score. Independent of pattern matching.">State Signal</span>
                                         <span className={`font-semibold ${ts.stateSignal > 0 ? "text-green-400" : ts.stateSignal < 0 ? "text-red-400" : "text-slate-400"}`}>{ts.stateSignal > 0 ? "+" : ""}{ts.stateSignal.toFixed(2)}</span>
                                       </div>
                                     )}
                                     {ts?.state && (
                                       <div className="flex justify-between items-center">
-                                        <span className="text-[#6b7280]">State</span>
+                                        <span className="text-[#6E867D]">State</span>
                                         <span className="text-white text-[10px]">{ts.state.replace(/_/g, " ")}</span>
                                       </div>
                                     )}
                                     {ts?.kanbanStage && (
                                       <div className="flex justify-between items-center">
-                                        <span className="text-[#6b7280]">Stage</span>
+                                        <span className="text-[#6E867D]">Stage</span>
                                         <span className="text-white capitalize">{ts.kanbanStage.replace(/_/g, " ")}</span>
                                       </div>
                                     )}
@@ -16142,7 +16142,7 @@
                             {/* Matched Patterns Detail */}
                             {pm && pm.matched && pm.matched.length > 0 && (
                               <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                                <div className="text-sm font-bold text-[#6b7280] mb-2">Matched Patterns</div>
+                                <div className="text-sm font-bold text-[#6E867D] mb-2">Matched Patterns</div>
                                 <div className="text-[10px] text-slate-400/70 mb-2">These are historical setups that match the current conditions for {tickerSymbol}.</div>
                                 <div className="space-y-1.5">
                                   {pm.matched.map((m, i) => (
@@ -16152,7 +16152,7 @@
                                       </div>
                                       <div className="flex items-center gap-2 shrink-0 ml-2">
                                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"}`}>{m.dir === "UP" ? "Bull" : "Bear"}</span>
-                                        <span className="text-[10px] text-[#6b7280]">{(m.conf * 100).toFixed(0)}%</span>
+                                        <span className="text-[10px] text-[#6E867D]">{(m.conf * 100).toFixed(0)}%</span>
                                       </div>
                                     </div>
                                   ))}
@@ -16170,7 +16170,7 @@
                             {/* Explainer when nothing loaded yet */}
                             {!hasAnyData && (
                               <div className="p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2">
-                                <div className="text-sm font-bold text-[#6b7280]">How the Model Works</div>
+                                <div className="text-sm font-bold text-[#6E867D]">How the Model Works</div>
                                 <div className="text-[11px] text-slate-400/80 leading-relaxed space-y-1.5">
                                   <p>Every scoring cycle, the system evaluates {tickerSymbol} across three levels:</p>
                                   <p><span className="text-white font-semibold">Ticker:</span> Matches the current setup (state, scores, indicators) against 17+ historical winning patterns and computes a net bullish/bearish signal.</p>
@@ -16192,7 +16192,7 @@
                       {/* Bubble Journey */}
                       <div className="mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg">
                         <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm font-bold text-[#6b7280]">
+                          <div className="text-sm font-bold text-[#6E867D]">
                             Scoring Timeline
                           </div>
                           {window._ttIsPro ? (
@@ -16220,7 +16220,7 @@
                         ) : bubbleJourneyError ? (
                           <div className="text-xs text-red-400">Trail unavailable: {bubbleJourneyError}</div>
                         ) : bubbleJourney.length === 0 ? (
-                          <div className="text-xs text-[#6b7280]">No trail points found for this ticker.</div>
+                          <div className="text-xs text-[#6E867D]">No trail points found for this ticker.</div>
                         ) : (
                           <div className="space-y-0.5 max-h-72 overflow-y-auto pr-1">
                             {(() => {
@@ -16344,17 +16344,17 @@
                                     >
                                       <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
-                                          <div className="text-[10px] text-[#6b7280]">
+                                          <div className="text-[10px] text-[#6E867D]">
                                             {isSingle ? fmtShortDate(firstTs) : `${fmtShortDate(firstTs)} – ${fmtShortDate(lastTs)}`}
-                                            {!isSingle && duration > 0 && <span className="text-[#4b5563] ml-1">({fmtDuration(duration)})</span>}
+                                            {!isSingle && duration > 0 && <span className="text-[#51635A] ml-1">({fmtDuration(duration)})</span>}
                                           </div>
                                           <div className="text-[11px] text-white truncate">
                                             {stateLabel}
-                                            {stageLabel && <span className="text-[#6b7280]"> · {stageLabel}</span>}
-                                            {!isSingle && <span className="text-[#4b5563] ml-1 text-[9px]">({g.points.length} snapshots)</span>}
+                                            {stageLabel && <span className="text-[#6E867D]"> · {stageLabel}</span>}
+                                            {!isSingle && <span className="text-[#51635A] ml-1 text-[9px]">({g.points.length} snapshots)</span>}
                                           </div>
                                         </div>
-                                        <div className="text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0">
+                                        <div className="text-right text-[10px] text-[#6E867D] whitespace-nowrap shrink-0">
                                           <div>Score <span className="text-white font-semibold">{scoreStr}</span></div>
                                           <div>HTF <span className="text-white font-semibold">{htfStr}</span></div>
                                         </div>
@@ -16370,22 +16370,22 @@
 
                       {/* Current State Summary */}
                       <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg">
-                        <div className="text-xs text-[#6b7280] mb-2 font-semibold">Where Things Stand</div>
+                        <div className="text-xs text-[#6E867D] mb-2 font-semibold">Where Things Stand</div>
                         <div className="grid grid-cols-3 gap-2 text-xs">
                           <div>
-                            <div className="text-[#6b7280] text-[10px]" title="How far along the current move cycle is (0% = just started, 100% = fully played out)">Phase</div>
+                            <div className="text-[#6E867D] text-[10px]" title="How far along the current move cycle is (0% = just started, 100% = fully played out)">Phase</div>
                             <div className="text-white font-semibold" style={{ color: phaseColor }}>
                               {(phase * 100).toFixed(0)}%
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#6b7280] text-[10px]" title="How much of the expected price move has already happened">Completion</div>
+                            <div className="text-[#6E867D] text-[10px]" title="How much of the expected price move has already happened">Completion</div>
                             <div className="text-white font-semibold">
                               {ticker.completion != null ? `${(Number(ticker.completion) * 100).toFixed(0)}%` : "—"}
                             </div>
                           </div>
                           <div>
-                            <div className="text-[#6b7280] text-[10px]" title="Estimated time remaining for the current move to play out">ETA</div>
+                            <div className="text-[#6E867D] text-[10px]" title="Estimated time remaining for the current move to play out">ETA</div>
                             <div className="text-white font-semibold">
                               {(() => {
                                 const eta = computeEtaDays(ticker);
@@ -16422,7 +16422,7 @@
                         const perf = candlePerf?.performance;
                         if (!perf || Object.keys(perf).length === 0) {
                           return (
-                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]">
+                            <div className="mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6E867D]">
                               Performance data unavailable.
                             </div>
                           );
@@ -16474,7 +16474,7 @@
 
                         return (
                           <div className="mb-4">
-                            <div className="text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2">Price Performance</div>
+                            <div className="text-xs font-semibold text-[#6E867D] uppercase tracking-wider mb-2">Price Performance</div>
                             <div className="space-y-2">
                               {available.map(({ label, data }) => {
                                 const { changePct, changePoints, isUp, actualDays } = data;
@@ -16485,7 +16485,7 @@
                                       <div className="flex items-center gap-2">
                                         <span className="text-xs font-bold text-white">{label}</span>
                                         {actualDays != null && (
-                                          <span className="text-[10px] text-[#4b5563]">({actualDays}d ago)</span>
+                                          <span className="text-[10px] text-[#51635A]">({actualDays}d ago)</span>
                                         )}
                                       </div>
                                       <div className="flex items-center gap-2">
@@ -16604,7 +16604,7 @@
                   <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)' }} />
                   <div
                     style={{ position: 'relative', width: '90vw', maxWidth: 1400, borderRadius: 12, overflow: 'hidden' }}
-                    className="bg-[#0b0e11] border border-white/[0.08] shadow-2xl"
+                    className="bg-[#0B1410] border border-white/[0.08] shadow-2xl"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {/* Header */}
