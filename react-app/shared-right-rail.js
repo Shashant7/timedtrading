@@ -2017,6 +2017,14 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      // 2026-06-10 (chart bounty) — marker-layer signature so setMarkers
+      // only runs when marker CONTENT changes (it clears + redraws the
+      // whole marker layer otherwise), and a chart "epoch" counter that
+      // bumps when the chart instance is recreated so the PRICE-LINES
+      // diff effect knows its cached line handles died with the old
+      // series and re-applies everything to the new one.
+      const markerSigRef = useRef(null);
+      const [chartEpoch, setChartEpoch] = useState(0);
       // V15 P0.7.99-r2 — content signature of the last applied mapped
       // dataset. UPDATE effect short-circuits when content is identical
       // even if the array reference changed (defends against any spurious
@@ -2302,6 +2310,13 @@
         // circuit runs the FIRST data load through (otherwise the new
         // chart instance would never receive any candles).
         lastMappedSigRef.current = null;
+        // 2026-06-10 — the old series died with the old chart instance:
+        // drop cached price-line handles + marker signature, and bump the
+        // epoch so the PRICE-LINES diff effect re-applies onto the new
+        // series (its sig-only dependency wouldn't re-fire otherwise).
+        externalPriceLinesRef.current = [];
+        markerSigRef.current = null;
+        setChartEpoch((e) => e + 1);
 
         // P0.7.102 — Detect user interaction with the price axis and
         // disable autoScale so subsequent data updates don't re-fit
@@ -2486,7 +2501,8 @@
         const last = mapped[mapped.length - 1];
         const first = mapped[0];
         const sig = `${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;
-        if (lastMappedSigRef.current === sig) {
+        const prevSig = lastMappedSigRef.current;
+        if (prevSig === sig) {
           // Mapped reference changed but content is identical — chart is
           // already showing this data. Leave it alone (no setData call,
           // no overlay rebuild → no flicker).
@@ -2494,66 +2510,127 @@
         }
         lastMappedSigRef.current = sig;
 
-        // Preserve zoom on refresh — setData alone can rescale the pane for
-        // a frame when bar count changes (stale cache → full fetch), which
-        // reads as "extra large candles" flicker.
-        let prevVisibleRange = null;
-        if (firstDataLoadAppliedRef.current) {
-          try { prevVisibleRange = chart.timeScale().getVisibleLogicalRange(); } catch (_) {}
+        // 2026-06-10 (chart bounty) — LAST-BAR FAST PATH. During RTH the
+        // live price merges into the forming bar every WS tick, which used
+        // to funnel through a full setData(250 bars) + overlay teardown.
+        // series.update() redraws only the affected bar, so live ticks now
+        // feel like a ticking chart instead of a re-rendered one.
+        const prevParts = typeof prevSig === "string" ? prevSig.split("|") : null;
+        const sameSpine = !!(prevParts
+          && firstDataLoadAppliedRef.current
+          && Number(prevParts[1]) === Number(first?.time));
+        const lenPrev = prevParts ? Number(prevParts[0]) : -1;
+        const lastTimePrev = prevParts ? Number(prevParts[3]) : -1;
+        let fastPath = false;
+        if (sameSpine && mapped.length === lenPrev && Number(last.time) === lastTimePrev) {
+          // Only the forming bar's OHLC moved.
+          try { candleSeries.update(last); fastPath = true; } catch (_) {}
+        } else if (sameSpine && mapped.length === lenPrev + 1 && Number(last.time) > lastTimePrev) {
+          // One new bar appended — finalize the prior bar, append the new one.
+          try {
+            const prevBar = mapped[mapped.length - 2];
+            if (prevBar) candleSeries.update(prevBar);
+            candleSeries.update(last);
+            fastPath = true;
+          } catch (_) {}
         }
 
-        // Push current candle data
-        try {
-          candleSeries.setData(mapped);
-        } catch (_) { /* fall through; series will recover on next ref */ }
-
-        if (firstDataLoadAppliedRef.current && prevVisibleRange) {
-          try { chart.timeScale().setVisibleLogicalRange(prevVisibleRange); } catch (_) {}
-        }
-
-        // Replace overlay (EMA / SuperTrend) line series. We remove + add
-        // because indicatorData can include arbitrary segments per cycle.
-        for (const k of Object.keys(overlaySeriesRef.current)) {
-          const v = overlaySeriesRef.current[k];
-          if (Array.isArray(v)) { for (const s of v) try { chart.removeSeries(s); } catch (_) {} }
-          else if (v) try { chart.removeSeries(v); } catch (_) {}
-        }
-        const addedSeries = {};
-        if (indicatorData.ema21?.length > 0) {
-          const s = chart.addLineSeries({ color: "#fbbf24", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema21); addedSeries.ema21 = s;
-        }
-        if (indicatorData.ema48?.length > 0) {
-          const s = chart.addLineSeries({ color: "#a78bfa", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema48); addedSeries.ema48 = s;
-        }
-        if (indicatorData.ema200?.length > 0) {
-          const s = chart.addLineSeries({ color: "#f87171", lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-          s.setData(indicatorData.ema200); addedSeries.ema200 = s;
-        }
-        if (indicatorData.stSegments?.length > 0) {
-          const stList = [];
-          for (const seg of indicatorData.stSegments) {
-            if (!seg.data?.length) continue;
-            const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-            s.setData(seg.data); stList.push(s);
+        if (!fastPath) {
+          // Preserve zoom on refresh — setData alone can rescale the pane
+          // for a frame when bar count changes (stale cache → full fetch),
+          // which reads as "extra large candles" flicker.
+          let prevVisibleRange = null;
+          if (firstDataLoadAppliedRef.current) {
+            try { prevVisibleRange = chart.timeScale().getVisibleLogicalRange(); } catch (_) {}
           }
-          addedSeries.stSegments = stList;
+          try {
+            candleSeries.setData(mapped);
+          } catch (_) { /* fall through; series will recover on next ref */ }
+          if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+            try { chart.timeScale().setVisibleLogicalRange(prevVisibleRange); } catch (_) {}
+          }
         }
-        overlaySeriesRef.current = addedSeries;
+
+        // 2026-06-10 (chart bounty) — PERSISTENT overlay series. EMA /
+        // SuperTrend series used to be removed + re-added on every data
+        // refresh (a visible flash whenever an overlay was enabled). Now:
+        //   - EMA series are created once, then setData'd in place (or
+        //     update()'d with just the last point on the fast path).
+        //   - SuperTrend segments rebuild only when the segment count
+        //     changes (a flip adds a segment) or on full refreshes.
+        //   - Series are removed only when the overlay is toggled off.
+        const prevSeries = overlaySeriesRef.current || {};
+        const nextSeries = { ...prevSeries };
+        const emaColor = { ema21: "#fbbf24", ema48: "#a78bfa", ema200: "#f87171" };
+        for (const k of ["ema21", "ema48", "ema200"]) {
+          const data = indicatorData[k];
+          if (data?.length > 0) {
+            if (!nextSeries[k]) {
+              try {
+                const s = chart.addLineSeries({ color: emaColor[k], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+                s.setData(data);
+                nextSeries[k] = s;
+              } catch (_) {}
+            } else if (fastPath) {
+              try { nextSeries[k].update(data[data.length - 1]); } catch (_) {}
+            } else {
+              try { nextSeries[k].setData(data); } catch (_) {}
+            }
+          } else if (nextSeries[k]) {
+            try { chart.removeSeries(nextSeries[k]); } catch (_) {}
+            delete nextSeries[k];
+          }
+        }
+        const stSegs = indicatorData.stSegments || [];
+        const prevSt = Array.isArray(nextSeries.stSegments) ? nextSeries.stSegments : [];
+        if (stSegs.length > 0) {
+          const drawable = stSegs.filter((seg) => seg.data?.length);
+          if (prevSt.length === drawable.length && !fastPath) {
+            // Same segment count — refresh each in place (no remove/add).
+            drawable.forEach((seg, i) => {
+              try {
+                prevSt[i].applyOptions({ color: seg.color });
+                prevSt[i].setData(seg.data);
+              } catch (_) {}
+            });
+          } else if (prevSt.length !== drawable.length) {
+            for (const s of prevSt) try { chart.removeSeries(s); } catch (_) {}
+            const stList = [];
+            for (const seg of drawable) {
+              try {
+                const s = chart.addLineSeries({ color: seg.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
+                s.setData(seg.data);
+                stList.push(s);
+              } catch (_) {}
+            }
+            nextSeries.stSegments = stList;
+          } else if (fastPath && prevSt.length > 0) {
+            // Fast path with stable segments — nudge only the last point.
+            const lastSeg = drawable[drawable.length - 1];
+            const lastPt = lastSeg?.data?.[lastSeg.data.length - 1];
+            if (lastPt) try { prevSt[prevSt.length - 1].update(lastPt); } catch (_) {}
+          }
+        } else if (prevSt.length > 0) {
+          for (const s of prevSt) try { chart.removeSeries(s); } catch (_) {}
+          delete nextSeries.stSegments;
+        }
+        overlaySeriesRef.current = nextSeries;
 
         // TD Sequential markers + external markers + (later) pattern markers
         // are merged in the LEVELS effect; here we just record the TD/
         // external set so LEVELS can re-merge with patterns when fresh.
+        // 2026-06-10 — setMarkers only when the marker content actually
+        // changed (it clears + redraws the marker layer otherwise).
         const baseMarkers = [
           ...(indicatorData.tdMarkers || []),
           ...(Array.isArray(propMarkers) ? propMarkers : []),
         ].sort((a, b) => a.time - b.time);
         tdSeqMarkersRef.current = baseMarkers;
-        if (baseMarkers.length > 0) {
+        const lastM = baseMarkers[baseMarkers.length - 1];
+        const markerSig = `${baseMarkers.length}|${lastM ? `${lastM.time}:${lastM.text || ""}` : ""}`;
+        if (markerSigRef.current !== markerSig) {
+          markerSigRef.current = markerSig;
           try { candleSeries.setMarkers(baseMarkers); } catch (_) {}
-        } else {
-          try { candleSeries.setMarkers([]); } catch (_) {}
         }
 
         // First data load: snap to TF-appropriate visible range. Subsequent
@@ -2578,13 +2655,53 @@
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
-        if (!propTicker || overlays?.levels === false) return;
+        if (!propTicker || overlays?.levels === false) {
+          // 2026-06-10 — Lvls toggled OFF: actively clear any drawn level
+          // lines / trendlines / pattern markers (previously they stayed
+          // on the canvas because the effect just stopped running).
+          if (levelPriceLinesRef.current.length || levelTrendSeriesRef.current.length) {
+            for (const pl of levelPriceLinesRef.current) {
+              try { candleSeries.removePriceLine(pl); } catch (_) {}
+            }
+            levelPriceLinesRef.current = [];
+            for (const ls of levelTrendSeriesRef.current) {
+              try { chart.removeSeries(ls); } catch (_) {}
+            }
+            levelTrendSeriesRef.current = [];
+            levelSigRef.current = null;
+            levelTrendSigRef.current = null;
+            try { candleSeries.setMarkers(tdSeqMarkersRef.current || []); } catch (_) {}
+            setPatternLabel(null);
+          }
+          return;
+        }
 
         let cancelled = false;
         _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
           if (cancelled || !ovData) return;
           const styleMap = { dotted: LWC.LineStyle.Dotted, dashed: LWC.LineStyle.Dashed, solid: LWC.LineStyle.Solid };
-          const newLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
+          // 2026-06-10 (chart bounty) — CURATED level set. Levels are now
+          // ON by default, so keep them clean:
+          //   - drop any level within 0.15% of an SL/TP/Entry plan line
+          //     (no double-labels on the axis)
+          //   - cap at 3 resistance above + 3 support below current price
+          const rawLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
+          const planPx = (Array.isArray(propPriceLines) ? propPriceLines : [])
+            .map((pl) => Number(pl?.price))
+            .filter((v) => Number.isFinite(v) && v > 0);
+          const lastClose = Number(mapped[mapped.length - 1]?.close) || 0;
+          const isDupe = (px) => planPx.some((p) => Math.abs(px - p) / (p || 1) < 0.0015);
+          const above = [];
+          const below = [];
+          for (const lvl of rawLevels) {
+            const px = Number(lvl?.price);
+            if (!Number.isFinite(px) || px <= 0 || isDupe(px)) continue;
+            if (lastClose > 0 && px >= lastClose) above.push(lvl);
+            else below.push(lvl);
+          }
+          above.sort((a, b) => a.price - b.price);
+          below.sort((a, b) => b.price - a.price);
+          const newLevels = [...above.slice(0, 3), ...below.slice(0, 3)];
 
           // P0.7.136 (2026-05-13) — second flicker guard.
           // Even with the dep array fixed (one effect run per ticker/TF),
@@ -2673,7 +2790,10 @@
       // (once when chart mounts with no data, once when data arrives).
       // Per-ticker freshness is still preserved by the 5-minute success
       // cache and 60-second negative cache inside _rrFetchChartLevels.
-      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
+      // 2026-06-10 — chartEpoch added so levels re-apply after the chart
+      // instance is recreated (e.g. height/prop changes that don't touch
+      // ticker or TF).
+      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0, chartEpoch]);
 
       // V15 P0.7.99 — PRICE-LINES effect: applies external SL/TP/Entry lines
       // passed via propPriceLines. Decoupled from the chart instance so
@@ -2700,31 +2820,46 @@
       useEffect(() => {
         const candleSeries = candleSeriesRef.current;
         if (!candleSeries) return;
-        // Clean previous external price lines
-        for (const pl of externalPriceLinesRef.current) {
-          try { candleSeries.removePriceLine(pl); } catch (_) {}
-        }
-        externalPriceLinesRef.current = [];
-        if (!Array.isArray(propPriceLines)) return;
-        for (const pl of propPriceLines) {
-          if (pl && Number.isFinite(pl.price) && pl.price > 0) {
-            try {
-              const created = candleSeries.createPriceLine({
-                price: pl.price,
-                color: pl.color || '#ffffff',
-                lineWidth: pl.lineWidth || 1,
-                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
-                axisLabelVisible: pl.axisLabelVisible !== false,
-                title: pl.title || '',
-              });
-              externalPriceLinesRef.current.push(created);
-            } catch (_) {}
+        // 2026-06-10 (chart bounty) — DIFF the line set instead of
+        // remove-all + re-add-all. Tab switches swap the annotation set
+        // (trade plan ↔ investor ↔ options); lines shared between the two
+        // sets (e.g. the SL) now stay mounted, so the switch no longer
+        // flashes every line off and back on.
+        const want = (Array.isArray(propPriceLines) ? propPriceLines : [])
+          .filter((pl) => pl && Number.isFinite(pl.price) && pl.price > 0);
+        const keyOf = (pl) => `${Math.round(pl.price * 1000) / 1000}|${pl.title || ""}|${pl.color || ""}|${pl.lineStyle ?? 2}|${pl.lineWidth ?? 1}`;
+        const wantKeys = new Set(want.map(keyOf));
+        const keep = [];
+        for (const entry of externalPriceLinesRef.current) {
+          if (entry && entry.key && wantKeys.has(entry.key)) {
+            keep.push(entry);
+          } else if (entry) {
+            try { candleSeries.removePriceLine(entry.line || entry); } catch (_) {}
           }
         }
+        const haveKeys = new Set(keep.map((e) => e.key));
+        for (const pl of want) {
+          const k = keyOf(pl);
+          if (haveKeys.has(k)) continue;
+          try {
+            const created = candleSeries.createPriceLine({
+              price: pl.price,
+              color: pl.color || '#ffffff',
+              lineWidth: pl.lineWidth || 1,
+              lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+              axisLabelVisible: pl.axisLabelVisible !== false,
+              title: pl.title || '',
+            });
+            keep.push({ key: k, line: created });
+            haveKeys.add(k);
+          } catch (_) {}
+        }
+        externalPriceLinesRef.current = keep;
         // Dependency on the signature, NOT the array reference, so a
-        // new-but-identical array doesn't re-run the effect.
+        // new-but-identical array doesn't re-run the effect. chartEpoch
+        // re-fires the effect after the chart instance is recreated.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [_propPriceLinesSig]);
+      }, [_propPriceLinesSig, chartEpoch]);
 
       if (!LWC) {
         return React.createElement("div", { className: "text-xs text-[#6b7280]" }, "Charts library not loaded.");
@@ -2821,7 +2956,28 @@
         React.createElement("div", { className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between" },
           React.createElement("span", null,
             `${["D","W","M"].includes(String(chartTf)) ? (chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly") : Number(chartTf) >= 60 ? `${Number(chartTf)/60}H` : `${chartTf}m`} • ${mapped.length} bars`),
-          React.createElement("span", { className: "text-[#555] text-[9px]" }, "scroll to zoom • drag to pan"),
+          React.createElement("div", { className: "flex items-center gap-2" },
+            // 2026-06-10 (chart bounty) — explicit autoscale reset. Manual
+            // zoom/pan disables autoScale (by design); this restores it and
+            // snaps back to the TF-appropriate window without hunting for
+            // the double-click-the-axis gesture.
+            React.createElement("button", {
+              onClick: () => {
+                const chart = chartInstanceRef.current;
+                if (!chart) return;
+                try { chart.priceScale("right").applyOptions({ autoScale: true }); } catch (_) {}
+                try {
+                  const _visibleBars = { "5": 156, "15": 52, "30": 26, "60": 20, "240": 60, "D": 30, "W": 52 };
+                  const bars = _visibleBars[String(chartTf)] || mapped.length;
+                  if (mapped.length > bars) chart.timeScale().setVisibleLogicalRange({ from: mapped.length - bars, to: mapped.length + 5 });
+                  else chart.timeScale().fitContent();
+                } catch (_) {}
+              },
+              className: "px-1.5 py-px rounded text-[9px] font-semibold border border-white/[0.08] text-[#7c8493] hover:text-white hover:border-white/20 transition-colors",
+              title: "Reset zoom — re-enable autoscale and snap to the default window",
+            }, "⟲ Fit"),
+            React.createElement("span", { className: "text-[#555] text-[9px]" }, "scroll to zoom • drag to pan"),
+          ),
         )
       );
     }
@@ -3329,6 +3485,27 @@
 
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
 
+        // 2026-06-10 — Rail IA consolidation: 9 tabs → 4 groups
+        // (Now / Trade / Invest / Context). The INTERNAL railTab keys are
+        // unchanged (SNAPSHOT / SETUP / OPTIONS / INVESTOR / TECHNICALS /
+        // FUNDAMENTALS / CATALYSTS / HISTORY) so every data-fetch gate,
+        // deep link (?railTab=OPTIONS) and initialRailTab keeps working.
+        // The nav renders the 4 group pills; groups with multiple member
+        // tabs show a secondary sub-pill row. This ref remembers the last
+        // sub-tab visited per group so re-entering a group restores it.
+        const RAIL_TAB_GROUP_OF = {
+          SNAPSHOT: "NOW",
+          SETUP: "TRADE", OPTIONS: "TRADE",
+          INVESTOR: "INVEST",
+          TECHNICALS: "CONTEXT", FUNDAMENTALS: "CONTEXT", CATALYSTS: "CONTEXT", HISTORY: "CONTEXT",
+        };
+        const _groupTabMemoryRef = useRef({});
+        useEffect(() => {
+          const k = String(railTab || "").toUpperCase();
+          const g = RAIL_TAB_GROUP_OF[k];
+          if (g) _groupTabMemoryRef.current[g] = k;
+        }, [railTab]);
+
         // Investor tab: per-ticker data from /timed/investor/ticker
         const [investorData, setInvestorData] = useState(null);
         const [investorLoading, setInvestorLoading] = useState(false);
@@ -3791,8 +3968,16 @@
            the full reference-levels ladder textually for those who want
            it. The chart now renders ONLY: SL, TP1, TP2, TP3, Entry
            (when active trade) — same direction-aware set the trade plan
-           card uses. */
-        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false, levels: false });
+           card uses.
+
+           2026-06-10 (chart bounty) — `levels` default flipped back ON,
+           but with a CURATED set this time: the LEVELS effect now dedupes
+           canonical S/R against the SL/TP/Entry plan lines and caps at
+           3 above + 3 below, so the default view shows clear, labeled
+           levels without the clutter that prompted the 2026-05-20
+           default-off decision. A "Lvls" chip in the chart header
+           toggles them off for users who want bare candles. */
+        const [chartOverlays, setChartOverlays] = useState({ ema21: false, ema48: false, ema200: false, supertrend: false, tdSequential: false, levels: true });
 
         // V15 P0.7.148 (2026-05-13) — memoized rail chart element.
         // The persistent chart at the top of the rail used to re-render
@@ -4705,6 +4890,12 @@
           if (raw === "INVESTOR") tab = "INVESTOR";
           else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";
           else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";
+          // 2026-06-10 — group-name deep links (4-group IA) map to the
+          // group's first member tab.
+          else if (raw === "NOW") tab = "SNAPSHOT";
+          else if (raw === "TRADE") tab = "SETUP";
+          else if (raw === "INVEST") tab = "INVESTOR";
+          else if (raw === "CONTEXT") tab = "TECHNICALS";
           else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
             tab = "SNAPSHOT";
           }
@@ -6220,70 +6411,99 @@
                        back to SNAPSHOT so they don't see an empty body.
                     */}
                     {(() => {
-                      // 2026-05-28 — Added "Catalysts" tab to surface news +
-                      // insider + theme rotation + macro tilt + detection
-                      // history. Placed before History so the time-axis flow
-                      // is preserved (Snapshot/Setup = now, Technicals/
-                      // Fundamentals = state, Catalysts = why, History = past).
-                      // 2026-05-29 — added INVESTOR to baseTabs so the
-                      // Investor view (Lane Guidance, accumulation zone,
-                      // RS history, position-aware actions) is visible on
-                      // mobile / ticker-detail / public rail surfaces.
-                      // Previously the INVESTOR tab only existed in the
-                      // pro-tabs array further down the file, so non-pro
-                      // users + mobile viewers had no path to it. Placed
-                      // right after Setup so the trader → investor mental
-                      // model flows naturally (Setup = trade today,
-                      // Investor = position over weeks/months).
-                      // 2026-05-29 — "Setup" renamed to "Trader" per
-                      // user request. The tab key stays SETUP so all
-                      // downstream conditionals + railTab dispatch
-                      // keep working untouched; only the visible
-                      // label changes.
-                      const baseTabs = [["SNAPSHOT","Snapshot"],["CHART","Chart"],["SETUP","Trader"],["INVESTOR","Investor"],["OPTIONS","Options"],["TECHNICALS","Technicals"],["FUNDAMENTALS","Fundamentals"],["CATALYSTS","Catalysts"],["HISTORY","History"]];
-                      const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
-                      // 2026-06-03 — Per-tab unread badge. Currently only
-                      // Catalysts (FSD intel) has the indicator; pattern
-                      // is generic so other tabs can grow their own
-                      // unread signal later.
+                      // 2026-06-10 — IA consolidation: 9 tabs → 4 groups
+                      // (Now / Trade / Invest / Context) with a verdict-first
+                      // Snapshot. Operator constraints honored: Options and
+                      // Fundamentals are RETAINED (as sub-tabs of Trade /
+                      // Context); the chart stays (persistent left pane on
+                      // desktop, CHART pill on mobile). Internal railTab keys
+                      // are unchanged so data gates + deep links keep working.
+                      const RAIL_GROUPS = [
+                        { key: "NOW", label: "Now", tabs: [["SNAPSHOT", "Snapshot"]] },
+                        { key: "TRADE", label: "Trade", tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]] },
+                        { key: "INVEST", label: "Invest", tabs: [["INVESTOR", "Investor"]] },
+                        { key: "CONTEXT", label: "Context", tabs: [["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]] },
+                      ];
+                      const activeGroupKey = RAIL_TAB_GROUP_OF[v2RailTab] || (v2RailTab === "CHART" ? "CHART" : "NOW");
+                      const activeGroup = RAIL_GROUPS.find((g) => g.key === activeGroupKey) || null;
+                      // Catalysts unread badge (FSD intel) — surfaces on the
+                      // Context group pill and on the Catalysts sub-pill.
                       const _fsdLatest = catalysts?.fsd_intel?.latest_published_at
                         || (catalysts?.fsd_intel?.publications?.[0]?.published_at)
                         || null;
                       const _fsdSeen = (typeof window !== "undefined"
                         && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`)) || null;
                       const _catalystsHasNew = !!(_fsdLatest && (!_fsdSeen || String(_fsdLatest) > String(_fsdSeen)));
-                      return tabs.map(([key, label]) => (
-                      <button
-                        key={key}
-                        className={`ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`}
-                        onClick={() => setRailTab(key)}
-                        style={{
-                          flex: "0 0 auto",
-                          justifyContent: "center",
-                          padding: "6px 12px",
-                          scrollSnapAlign: "start",
-                          position: "relative",
-                          ...(key === "CHART" ? { color: "#34d399", fontWeight: 700 } : {}),
-                        }}
-                      >
-                        <span>{label}</span>
-                        {key === "CATALYSTS" && _catalystsHasNew && (
-                          <span
-                            title="New intel — open to view"
-                            style={{
-                              position: "absolute",
-                              top: 4,
-                              right: 4,
-                              width: 7,
-                              height: 7,
-                              borderRadius: "50%",
-                              background: "#a855f7",
-                              boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 6px rgba(168,85,247,0.7)",
-                            }}
-                          />
-                        )}
-                      </button>
-                      ));
+                      const unreadDot = (key) => (
+                        <span
+                          key={`dot-${key}`}
+                          title="New intel — open to view"
+                          style={{
+                            position: "absolute",
+                            top: 4,
+                            right: 4,
+                            width: 7,
+                            height: 7,
+                            borderRadius: "50%",
+                            background: "#a855f7",
+                            boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 6px rgba(168,85,247,0.7)",
+                          }}
+                        />
+                      );
+                      const selectGroup = (g) => {
+                        const remembered = _groupTabMemoryRef.current[g.key];
+                        const next = g.tabs.some(([k]) => k === remembered) ? remembered : g.tabs[0][0];
+                        setRailTab(next);
+                      };
+                      const groupPills = [
+                        // Mobile-only CHART pill (workspace shows the chart in
+                        // the persistent left pane instead).
+                        !_isWorkspace && (
+                          <button
+                            key="CHART"
+                            className={`ds-tab__item ${v2RailTab === "CHART" ? "ds-tab__item--active" : ""}`}
+                            onClick={() => setRailTab("CHART")}
+                            style={{ flex: "0 0 auto", justifyContent: "center", padding: "6px 12px", position: "relative", color: "#34d399", fontWeight: 700 }}
+                          >
+                            <span>Chart</span>
+                          </button>
+                        ),
+                        ...RAIL_GROUPS.map((g) => (
+                          <button
+                            key={g.key}
+                            className={`ds-tab__item ${activeGroupKey === g.key ? "ds-tab__item--active" : ""}`}
+                            onClick={() => selectGroup(g)}
+                            style={{ flex: "0 0 auto", justifyContent: "center", padding: "6px 14px", position: "relative" }}
+                          >
+                            <span>{g.label}</span>
+                            {g.key === "CONTEXT" && _catalystsHasNew && unreadDot(g.key)}
+                          </button>
+                        )),
+                      ];
+                      return (
+                        <>
+                          {groupPills}
+                          {activeGroup && activeGroup.tabs.length > 1 && (
+                            <div
+                              className="ds-chipgroup tt-rail-subtabs"
+                              role="tablist"
+                              style={{ padding: 2, flexBasis: "100%", justifyContent: "flex-end", display: "flex" }}
+                            >
+                              {activeGroup.tabs.map(([key, label]) => (
+                                <button
+                                  key={key}
+                                  className={`ds-chipgroup__item ${v2RailTab === key ? "ds-chipgroup__item--active" : ""}`}
+                                  onClick={() => setRailTab(key)}
+                                  style={{ padding: "4px 11px", fontSize: 11, position: "relative" }}
+                                >
+                                  {label}
+                                  {key === "CATALYSTS" && _catalystsHasNew && unreadDot(key)}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      );
                     })()}
                   </div>
                 </div>
@@ -6311,7 +6531,14 @@
                       predictionContract) lives in the parent component's
                       closure scope, so this is a pure render-position
                       change. */}
-                  {chartCandles && chartCandles.length >= 2 && (() => {
+                  {/* 2026-06-10 (chart bounty) — skip the left-pane chart
+                      while the mobile CHART tab is active. Both render
+                      positions used the same memoized element, which made
+                      React mount TWO live chart instances (the left-pane
+                      one hidden by CSS) — double effects, double fetch
+                      churn, and a visible remount flash when switching
+                      to the Chart tab. One viewport, one chart. */}
+                  {chartCandles && chartCandles.length >= 2 && !(v2RailTab === "CHART" && !_isWorkspace) && (() => {
                     /* Same chart construction as before — direction-aware
                        price lines, indicator toggles, TF chips, expand
                        button. Rendered once above all tabs now. */
@@ -6397,6 +6624,17 @@
                                 >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
                               ))}
                             </div>
+                            {/* 2026-06-10 (chart bounty) — S/R levels toggle.
+                                Levels are ON by default (curated canonical
+                                set); this chip lets the user drop to bare
+                                candles + plan lines. */}
+                            <button
+                              className={`ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`}
+                              onClick={() => setChartOverlays((o) => ({ ...o, levels: !o.levels }))}
+                              title="Toggle S/R levels, trendlines + pattern annotations"
+                              aria-pressed={!!chartOverlays.levels}
+                              style={{ fontSize: 10, padding: "0 8px", height: 26 }}
+                            >Lvls</button>
                             {/* V15 P0.7.156 (2026-05-14) — make the expand
                                 button OBVIOUS especially on mobile. The
                                 previous floating FAB approach kept losing
@@ -6695,6 +6933,13 @@
                               >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
                             ))}
                           </div>
+                          <button
+                            className={`ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`}
+                            onClick={() => setChartOverlays((o) => ({ ...o, levels: !o.levels }))}
+                            title="Toggle S/R levels, trendlines + pattern annotations"
+                            aria-pressed={!!chartOverlays.levels}
+                            style={{ fontSize: 10 }}
+                          >Lvls</button>
                           <a
                             href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`}
                             target="_blank"
@@ -6736,11 +6981,276 @@
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
                     <>
+                      {/* ── HERO VERDICT CARD (2026-06-03; verdict-FIRST 2026-06-10) ──
+                          The first thing a user sees on a ticker. Answers
+                          three questions in plain language:
+                            1. WHAT does the model want? (BUY / WATCH / HOLD /
+                               TRIM / DEFEND / EXIT / NO TRADE)
+                            2. WHY in one sentence
+                            3. WHAT TO WATCH for the next decision (entry
+                               trigger or exit signal) — with specific price
+                               levels pulled from predictionContract.
+
+                          Replaces the "I have to read 4 dense panels to know
+                          what to do" experience reported on CRDO. The
+                          existing Today/Discovery/Regime/Model Guidance
+                          panels stay below for the user who wants the
+                          underlying detail. */}
+                      {(() => {
+                        const formatPx = (n) => {
+                          const x = Number(n);
+                          if (!Number.isFinite(x)) return "—";
+                          return `$${x.toFixed(2)}`;
+                        };
+                        // ── Resolve the verdict + verb ─────────────────────
+                        const stage = String(ticker?.kanban_stage || "").toLowerCase();
+                        const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                        const pcAction = String(predictionContract?.action_label || "").toUpperCase();
+                        const isLong = pcDir === "LONG";
+                        const isShort = pcDir === "SHORT";
+                        // 2026-06-03 — Use TRADER trade only. Investor holdings
+                        // get their own card above this one; mixing them
+                        // produced the "HOLDING [SHORT]" nonsense the
+                        // operator reported.
+                        const traderTrade = effectiveTraderTrade;
+                        const tradeOpen = !!(traderTrade && (() => {
+                          const s = String(traderTrade?.status || "").toUpperCase();
+                          return s === "OPEN" || s === "TP_HIT_TRIM"
+                            || (!(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
+                        })());
+
+                        // VERDICT resolution. Order matters — most actionable wins.
+                        // 2026-06-03 — Trade-management verdicts (HOLDING / TRIM
+                        // / DEFEND / EXIT) require an ACTUAL trader trade open
+                        // (tradeOpen = derived from effectiveTraderTrade ONLY).
+                        // Without one, the kanban_stage value can come from
+                        // the investor lane (e.g. "hold" because the investor
+                        // portfolio holds the ticker) — surfacing that as a
+                        // trader-side HOLDING was the source of the operator-
+                        // reported "HOLDING [SHORT]" flicker. Now those stages
+                        // only matter when a real trader trade exists.
+                        const verdict = (() => {
+                          if (tradeOpen) {
+                            if (stage === "trim") return { word: "TRIM", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Take partial profits at the next target. Keep the runner alive.", urgency: "now" };
+                            if (stage === "defend") return { word: "DEFEND", color: "#fb7185", bg: "rgba(244,63,94,0.10)", line: "Tighten the stop. Setup is at risk.", urgency: "now" };
+                            if (stage === "exit") return { word: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.10)", line: "Close the position. The model's edge is gone.", urgency: "now" };
+                            return { word: "HOLDING", color: "#67e8f9", bg: "rgba(103,232,249,0.08)", line: "Trader position is active. Watch the stop + targets below.", urgency: "monitor" };
+                          }
+                          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+                            return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
+                          }
+                          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
+                            return { word: "WATCH", color: "#f5c25c", bg: "rgba(245,194,92,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                          }
+                          if (pcDir) {
+                            return { word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG", color: pcDir === "SHORT" ? "#fb7185" : "#34d399", bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`, urgency: "context" };
+                          }
+                          return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
+                        })();
+
+                        // ── Pull specific levels from predictionContract ────
+                        const stopPx = Number(predictionContract?.risk?.stop_loss);
+                        const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        // 2026-06-03 — Use the RTH-aware v2Price (same source the
+                        // header chip uses) instead of `_live_price` directly. The
+                        // raw `_live_price` field carries the LAST tick — including
+                        // after-hours / pre-market quotes — which produced the
+                        // operator-reported "$208" on the Snapshot hero card while
+                        // the header correctly showed today's RTH close of $214.12.
+                        // resolveDisplayPrice() locks to the RTH close outside RTH
+                        // so the hero and the header agree.
+                        const livePx = Number(v2Price) || Number(ticker?.price);
+                        const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
+                        const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
+
+                        // ── Build entry/exit triggers list ─────────────────
+                        // 2026-06-03 — Operator (correctly) caught that the
+                        // previous "Reclaim $227.84 (Trim) → entry trigger"
+                        // text was wrong: $227.84 is TP1, a TAKE-PROFIT
+                        // target AFTER entry, NOT the entry trigger. The
+                        // real entry trigger is ticker.trigger_price (set
+                        // by the scoring pipeline / Pine — see
+                        // worker/index.js:3349,3390,3435 etc.). Pull
+                        // trigger_price first; tp1 is now only mentioned
+                        // as part of the "if entered today" trade plan,
+                        // never as the entry trigger.
+                        const triggerPx = Number(ticker?.trigger_price);
+                        const hasTrigger = Number.isFinite(triggerPx) && triggerPx > 0;
+                        const triggers = [];
+                        if (verdict.urgency === "watch") {
+                          if (hasTrigger) {
+                            if (isLong) {
+                              triggers.push({ tone: "go", text: `Reclaim ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
+                            } else if (isShort) {
+                              triggers.push({ tone: "go", text: `Break below ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
+                            }
+                          } else {
+                            // No published trigger_price for this ticker —
+                            // be honest about it.
+                            triggers.push({ tone: "neutral", text: `Setup forming but no explicit entry-trigger price published. Wait for an intraday bullish/bearish reversal candle on the LTF (10m / 15m).` });
+                          }
+                          if (stopPx && livePx) {
+                            const side = isLong ? "Hold above" : "Hold below";
+                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)` });
+                          }
+                          // Also surface the trade plan as a separate row so
+                          // the user knows what they'd be aiming for IF the
+                          // entry fires — without confusing the TP with the
+                          // entry trigger.
+                          if (tp1 && livePx) {
+                            triggers.push({ tone: "neutral", text: `IF entered, first target sits at ${formatPx(tp1)} (${tp1Label}). Full plan visible on the Trader tab.` });
+                          }
+                        } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
+                          // ACTIVE / MANAGEMENT — what targets matter?
+                          if (livePx && targets.length > 0) {
+                            const nextTp = targets.find((t) => {
+                              const px = Number(t?.price);
+                              if (!Number.isFinite(px)) return false;
+                              return isLong ? px > livePx : px < livePx;
+                            });
+                            if (nextTp) {
+                              triggers.push({ tone: "go", text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${((Math.abs(Number(nextTp.price) - livePx) / livePx) * 100).toFixed(2)}% away)` });
+                            }
+                          }
+                          if (stopPx && livePx) {
+                            const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
+                            const distance = isLong ? ((livePx - stopPx) / livePx) * 100 : ((stopPx - livePx) / livePx) * 100;
+                            triggers.push({ tone: "neutral", text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.` });
+                          }
+                        } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
+                          if (tp1) triggers.push({ tone: "neutral", text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.` });
+                          if (stopPx) triggers.push({ tone: "neutral", text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.` });
+                        }
+
+                        // ── Invalidators ── derived inline (the Model
+                        // Guidance panel below uses the same logic). We
+                        // can't reference its arrays directly because
+                        // it's a sibling IIFE rendered AFTER this one.
+                        const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+                        const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+                        const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
+                        const heroWatchFor = [];
+                        for (const s of heroSupporting.slice(0, 8)) {
+                          const txt = String(s || "").trim();
+                          if (!txt) continue;
+                          if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
+                        }
+                        const invalidators = [];
+                        for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
+                        for (const w of heroWatchFor.slice(0, 2)) {
+                          if (invalidators.length < 4) invalidators.push(String(w));
+                        }
+
+                        // ── R:R + conviction strip ─────────────────────────
+                        const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
+                        const entryQ = predictionContract?.entry_quality || null;
+
+                        return (
+                          <div style={{
+                            padding: "14px 14px 12px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: verdict.bg,
+                            border: `1px solid ${verdict.color}55`,
+                            borderRadius: 12,
+                          }}>
+                            {/* Mode label so user knows which POV they're reading */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                color: "#fcd34d", background: "rgba(252,211,77,0.10)",
+                                letterSpacing: "0.06em",
+                              }}>🎯 TRADER MODEL</span>
+                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>short-term tactical view</span>
+                            </div>
+                            {/* Verdict word + direction chip + current price */}
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                                <span style={{
+                                  fontSize: 18, fontWeight: 800, color: verdict.color,
+                                  letterSpacing: "0.02em", lineHeight: 1,
+                                }}>{verdict.word}</span>
+                                {pcDir && (
+                                  <span style={{
+                                    fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                    color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+                                    background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                                    letterSpacing: "0.05em",
+                                  }}>{pcDir}</span>
+                                )}
+                              </div>
+                              {livePx && (
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
+                                  ${livePx.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            {/* One-line WHY */}
+                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 10 : 0 }}>
+                              {verdict.line}
+                            </div>
+                            {/* Entry / management triggers */}
+                            {triggers.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                <div style={{
+                                  fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)",
+                                  letterSpacing: "0.06em", marginBottom: 5,
+                                }}>
+                                  {verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"}
+                                </div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {triggers.map((tr, i) => (
+                                    <div key={`tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
+                                      <span style={{
+                                        color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
+                                        flexShrink: 0, marginTop: 1,
+                                      }}>{tr.tone === "go" ? "→" : "·"}</span>
+                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Invalidation list */}
+                            {invalidators.length > 0 && verdict.urgency !== "none" && (
+                              <div style={{ marginTop: 10 }}>
+                                <div style={{
+                                  fontSize: 10, fontWeight: 700, color: "var(--ds-dn)",
+                                  letterSpacing: "0.06em", marginBottom: 5,
+                                }}>INVALIDATES IF</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {invalidators.map((inv, i) => (
+                                    <div key={`inv-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.4, color: "var(--ds-text-muted)" }}>
+                                      <span style={{ color: "var(--ds-dn)", flexShrink: 0, marginTop: 1 }}>✗</span>
+                                      <span>{String(inv)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {/* Footer stats strip */}
+                            {(rr || entryQ || v2Rank != null || v2Conv != null) && (
+                              <div style={{
+                                marginTop: 10, paddingTop: 8,
+                                borderTop: "1px solid rgba(255,255,255,0.04)",
+                                display: "flex", flexWrap: "wrap", gap: 10,
+                                fontSize: 11, color: "var(--ds-text-muted)",
+                              }}>
+                                {rr && <span>R:R <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Number(rr).toFixed(2)}</strong></span>}
+                                {entryQ != null && <span>Entry quality <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(Number(entryQ))}/100</strong></span>}
+                                {v2Rank != null && <span>Rank <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>R{v2Rank}</strong></span>}
+                                {v2Conv != null && <span>Conviction <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(v2Conv)}/100</strong></span>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* ── INVESTOR PORTFOLIO CARD (2026-06-03) ──────────────
                           Shown when the Investor lane has an active holding
-                          on this ticker. Renders BEFORE the Trader hero
-                          verdict so the user sees both POVs cleanly
-                          separated instead of one ambiguous card.
+                          on this ticker. 2026-06-10: Snapshot is now
+                          verdict-FIRST — the hero verdict renders above;
+                          the portfolio cards follow so both POVs stay
+                          cleanly separated instead of one ambiguous card.
                           Drives off effectiveInvestorTrade which filters
                           to _source_mode === "investor" only. */}
                       {effectiveInvestorTrade && (() => {
@@ -7079,270 +7589,6 @@
                                 {ipStop && (
                                   <span>Invalidates: <strong style={{ color: "#fb7185", fontFamily: "var(--tt-font-mono)" }}>${ipStop.toFixed(2)}</strong></span>
                                 )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* ── HERO VERDICT CARD (2026-06-03) ────────────────────
-                          The first thing a user sees on a ticker. Answers
-                          three questions in plain language:
-                            1. WHAT does the model want? (BUY / WATCH / HOLD /
-                               TRIM / DEFEND / EXIT / NO TRADE)
-                            2. WHY in one sentence
-                            3. WHAT TO WATCH for the next decision (entry
-                               trigger or exit signal) — with specific price
-                               levels pulled from predictionContract.
-
-                          Replaces the "I have to read 4 dense panels to know
-                          what to do" experience reported on CRDO. The
-                          existing Today/Discovery/Regime/Model Guidance
-                          panels stay below for the user who wants the
-                          underlying detail. */}
-                      {(() => {
-                        const formatPx = (n) => {
-                          const x = Number(n);
-                          if (!Number.isFinite(x)) return "—";
-                          return `$${x.toFixed(2)}`;
-                        };
-                        // ── Resolve the verdict + verb ─────────────────────
-                        const stage = String(ticker?.kanban_stage || "").toLowerCase();
-                        const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
-                        const pcAction = String(predictionContract?.action_label || "").toUpperCase();
-                        const isLong = pcDir === "LONG";
-                        const isShort = pcDir === "SHORT";
-                        // 2026-06-03 — Use TRADER trade only. Investor holdings
-                        // get their own card above this one; mixing them
-                        // produced the "HOLDING [SHORT]" nonsense the
-                        // operator reported.
-                        const traderTrade = effectiveTraderTrade;
-                        const tradeOpen = !!(traderTrade && (() => {
-                          const s = String(traderTrade?.status || "").toUpperCase();
-                          return s === "OPEN" || s === "TP_HIT_TRIM"
-                            || (!(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                        })());
-
-                        // VERDICT resolution. Order matters — most actionable wins.
-                        // 2026-06-03 — Trade-management verdicts (HOLDING / TRIM
-                        // / DEFEND / EXIT) require an ACTUAL trader trade open
-                        // (tradeOpen = derived from effectiveTraderTrade ONLY).
-                        // Without one, the kanban_stage value can come from
-                        // the investor lane (e.g. "hold" because the investor
-                        // portfolio holds the ticker) — surfacing that as a
-                        // trader-side HOLDING was the source of the operator-
-                        // reported "HOLDING [SHORT]" flicker. Now those stages
-                        // only matter when a real trader trade exists.
-                        const verdict = (() => {
-                          if (tradeOpen) {
-                            if (stage === "trim") return { word: "TRIM", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Take partial profits at the next target. Keep the runner alive.", urgency: "now" };
-                            if (stage === "defend") return { word: "DEFEND", color: "#fb7185", bg: "rgba(244,63,94,0.10)", line: "Tighten the stop. Setup is at risk.", urgency: "now" };
-                            if (stage === "exit") return { word: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.10)", line: "Close the position. The model's edge is gone.", urgency: "now" };
-                            return { word: "HOLDING", color: "#67e8f9", bg: "rgba(103,232,249,0.08)", line: "Trader position is active. Watch the stop + targets below.", urgency: "monitor" };
-                          }
-                          if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
-                            return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
-                          }
-                          if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
-                            return { word: "WATCH", color: "#f5c25c", bg: "rgba(245,194,92,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
-                          }
-                          if (pcDir) {
-                            return { word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG", color: pcDir === "SHORT" ? "#fb7185" : "#34d399", bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`, urgency: "context" };
-                          }
-                          return { word: "NO TRADE", color: "#9ca3af", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
-                        })();
-
-                        // ── Pull specific levels from predictionContract ────
-                        const stopPx = Number(predictionContract?.risk?.stop_loss);
-                        const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-                        // 2026-06-03 — Use the RTH-aware v2Price (same source the
-                        // header chip uses) instead of `_live_price` directly. The
-                        // raw `_live_price` field carries the LAST tick — including
-                        // after-hours / pre-market quotes — which produced the
-                        // operator-reported "$208" on the Snapshot hero card while
-                        // the header correctly showed today's RTH close of $214.12.
-                        // resolveDisplayPrice() locks to the RTH close outside RTH
-                        // so the hero and the header agree.
-                        const livePx = Number(v2Price) || Number(ticker?.price);
-                        const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
-                        const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
-
-                        // ── Build entry/exit triggers list ─────────────────
-                        // 2026-06-03 — Operator (correctly) caught that the
-                        // previous "Reclaim $227.84 (Trim) → entry trigger"
-                        // text was wrong: $227.84 is TP1, a TAKE-PROFIT
-                        // target AFTER entry, NOT the entry trigger. The
-                        // real entry trigger is ticker.trigger_price (set
-                        // by the scoring pipeline / Pine — see
-                        // worker/index.js:3349,3390,3435 etc.). Pull
-                        // trigger_price first; tp1 is now only mentioned
-                        // as part of the "if entered today" trade plan,
-                        // never as the entry trigger.
-                        const triggerPx = Number(ticker?.trigger_price);
-                        const hasTrigger = Number.isFinite(triggerPx) && triggerPx > 0;
-                        const triggers = [];
-                        if (verdict.urgency === "watch") {
-                          if (hasTrigger) {
-                            if (isLong) {
-                              triggers.push({ tone: "go", text: `Reclaim ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
-                            } else if (isShort) {
-                              triggers.push({ tone: "go", text: `Break below ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires` });
-                            }
-                          } else {
-                            // No published trigger_price for this ticker —
-                            // be honest about it.
-                            triggers.push({ tone: "neutral", text: `Setup forming but no explicit entry-trigger price published. Wait for an intraday bullish/bearish reversal candle on the LTF (10m / 15m).` });
-                          }
-                          if (stopPx && livePx) {
-                            const side = isLong ? "Hold above" : "Hold below";
-                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)` });
-                          }
-                          // Also surface the trade plan as a separate row so
-                          // the user knows what they'd be aiming for IF the
-                          // entry fires — without confusing the TP with the
-                          // entry trigger.
-                          if (tp1 && livePx) {
-                            triggers.push({ tone: "neutral", text: `IF entered, first target sits at ${formatPx(tp1)} (${tp1Label}). Full plan visible on the Trader tab.` });
-                          }
-                        } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
-                          // ACTIVE / MANAGEMENT — what targets matter?
-                          if (livePx && targets.length > 0) {
-                            const nextTp = targets.find((t) => {
-                              const px = Number(t?.price);
-                              if (!Number.isFinite(px)) return false;
-                              return isLong ? px > livePx : px < livePx;
-                            });
-                            if (nextTp) {
-                              triggers.push({ tone: "go", text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${((Math.abs(Number(nextTp.price) - livePx) / livePx) * 100).toFixed(2)}% away)` });
-                            }
-                          }
-                          if (stopPx && livePx) {
-                            const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
-                            const distance = isLong ? ((livePx - stopPx) / livePx) * 100 : ((stopPx - livePx) / livePx) * 100;
-                            triggers.push({ tone: "neutral", text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.` });
-                          }
-                        } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
-                          if (tp1) triggers.push({ tone: "neutral", text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.` });
-                          if (stopPx) triggers.push({ tone: "neutral", text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.` });
-                        }
-
-                        // ── Invalidators ── derived inline (the Model
-                        // Guidance panel below uses the same logic). We
-                        // can't reference its arrays directly because
-                        // it's a sibling IIFE rendered AFTER this one.
-                        const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
-                        const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
-                        const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
-                        const heroWatchFor = [];
-                        for (const s of heroSupporting.slice(0, 8)) {
-                          const txt = String(s || "").trim();
-                          if (!txt) continue;
-                          if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
-                        }
-                        const invalidators = [];
-                        for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
-                        for (const w of heroWatchFor.slice(0, 2)) {
-                          if (invalidators.length < 4) invalidators.push(String(w));
-                        }
-
-                        // ── R:R + conviction strip ─────────────────────────
-                        const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
-                        const entryQ = predictionContract?.entry_quality || null;
-
-                        return (
-                          <div style={{
-                            padding: "14px 14px 12px",
-                            marginBottom: "var(--ds-space-3)",
-                            background: verdict.bg,
-                            border: `1px solid ${verdict.color}55`,
-                            borderRadius: 12,
-                          }}>
-                            {/* Mode label so user knows which POV they're reading */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                color: "#fcd34d", background: "rgba(252,211,77,0.10)",
-                                letterSpacing: "0.06em",
-                              }}>🎯 TRADER MODEL</span>
-                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>short-term tactical view</span>
-                            </div>
-                            {/* Verdict word + direction chip + current price */}
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                                <span style={{
-                                  fontSize: 18, fontWeight: 800, color: verdict.color,
-                                  letterSpacing: "0.02em", lineHeight: 1,
-                                }}>{verdict.word}</span>
-                                {pcDir && (
-                                  <span style={{
-                                    fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                    color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-                                    background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
-                                    letterSpacing: "0.05em",
-                                  }}>{pcDir}</span>
-                                )}
-                              </div>
-                              {livePx && (
-                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
-                                  ${livePx.toFixed(2)}
-                                </span>
-                              )}
-                            </div>
-                            {/* One-line WHY */}
-                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 10 : 0 }}>
-                              {verdict.line}
-                            </div>
-                            {/* Entry / management triggers */}
-                            {triggers.length > 0 && (
-                              <div style={{ marginTop: 4 }}>
-                                <div style={{
-                                  fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)",
-                                  letterSpacing: "0.06em", marginBottom: 5,
-                                }}>
-                                  {verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"}
-                                </div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  {triggers.map((tr, i) => (
-                                    <div key={`tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
-                                      <span style={{
-                                        color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
-                                        flexShrink: 0, marginTop: 1,
-                                      }}>{tr.tone === "go" ? "→" : "·"}</span>
-                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {/* Invalidation list */}
-                            {invalidators.length > 0 && verdict.urgency !== "none" && (
-                              <div style={{ marginTop: 10 }}>
-                                <div style={{
-                                  fontSize: 10, fontWeight: 700, color: "var(--ds-dn)",
-                                  letterSpacing: "0.06em", marginBottom: 5,
-                                }}>INVALIDATES IF</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  {invalidators.map((inv, i) => (
-                                    <div key={`inv-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.4, color: "var(--ds-text-muted)" }}>
-                                      <span style={{ color: "var(--ds-dn)", flexShrink: 0, marginTop: 1 }}>✗</span>
-                                      <span>{String(inv)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                            {/* Footer stats strip */}
-                            {(rr || entryQ || v2Rank != null || v2Conv != null) && (
-                              <div style={{
-                                marginTop: 10, paddingTop: 8,
-                                borderTop: "1px solid rgba(255,255,255,0.04)",
-                                display: "flex", flexWrap: "wrap", gap: 10,
-                                fontSize: 11, color: "var(--ds-text-muted)",
-                              }}>
-                                {rr && <span>R:R <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Number(rr).toFixed(2)}</strong></span>}
-                                {entryQ != null && <span>Entry quality <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(Number(entryQ))}/100</strong></span>}
-                                {v2Rank != null && <span>Rank <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>R{v2Rank}</strong></span>}
-                                {v2Conv != null && <span>Conviction <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>{Math.round(v2Conv)}/100</strong></span>}
                               </div>
                             )}
                           </div>
