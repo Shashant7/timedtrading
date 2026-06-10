@@ -103,6 +103,7 @@ function AdminClientsPage({
   const [usageDays, setUsageDays] = useState(30);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState(null);
   const [analyticsDays, setAnalyticsDays] = useState(7);
   const [systemHealth, setSystemHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
@@ -141,13 +142,19 @@ function AdminClientsPage({
   }, []);
   const fetchUsageReport = useCallback(async () => {
     setUsageLoading(true);
+    setUsageReport(null);
     try {
       const res = await fetch(`${API_BASE}/timed/admin/usage-report?days=${usageDays}`, {
         credentials: "include"
       });
-      const json = await res.json();
-      if (json.ok) setUsageReport(json);else setUsageReport({
-        error: json.error
+      let json = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (res.ok && json?.ok) setUsageReport(json);else setUsageReport({
+        error: json?.error || `Request failed (${res.status})`
       });
     } catch (e) {
       setUsageReport({
@@ -232,14 +239,26 @@ function AdminClientsPage({
   };
   const fetchAnalytics = useCallback(async () => {
     setAnalyticsLoading(true);
+    setAnalyticsError(null);
     try {
       const res = await fetch(`${API_BASE}/timed/admin/analytics?days=${analyticsDays}`, {
         credentials: "include"
       });
-      const json = await res.json();
-      if (json.ok) setAnalytics(json);
+      let json = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (res.ok && json?.ok) {
+        setAnalytics(json);
+      } else {
+        setAnalytics(null);
+        setAnalyticsError(json?.error || `Request failed (${res.status})`);
+      }
     } catch (e) {
-      console.error(e);
+      setAnalytics(null);
+      setAnalyticsError(String(e.message || e));
     } finally {
       setAnalyticsLoading(false);
     }
@@ -420,6 +439,7 @@ function AdminClientsPage({
     id: "vip",
     label: "VIP Codes"
   }].map(t => React.createElement("button", {
+    type: "button",
     key: t.id,
     onClick: () => setTab(t.id),
     className: `tt-tab ${tab === t.id ? "active" : ""}`
@@ -443,7 +463,7 @@ function AdminClientsPage({
   }, React.createElement("select", {
     value: usageDays,
     onChange: e => setUsageDays(Number(e.target.value)),
-    className: "px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]"
+    className: "tt-input text-[12px]"
   }, React.createElement("option", {
     value: 7
   }, "7 days"), React.createElement("option", {
@@ -451,10 +471,30 @@ function AdminClientsPage({
   }, "30 days"), React.createElement("option", {
     value: 90
   }, "90 days")), React.createElement("button", {
+    type: "button",
     onClick: fetchUsageReport,
     disabled: usageLoading,
-    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all disabled:opacity-50"
-  }, usageLoading ? "Loading..." : "Refresh"))), tab === "clients" && React.createElement("div", {
+    className: "tt-btn tt-btn--ghost disabled:opacity-50"
+  }, usageLoading ? "Loading..." : "Refresh")), tab === "analytics" && React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, React.createElement("select", {
+    value: analyticsDays,
+    onChange: e => setAnalyticsDays(Number(e.target.value)),
+    className: "tt-input text-[12px]"
+  }, React.createElement("option", {
+    value: 1
+  }, "Today"), React.createElement("option", {
+    value: 7
+  }, "7 days"), React.createElement("option", {
+    value: 30
+  }, "30 days"), React.createElement("option", {
+    value: 90
+  }, "90 days")), React.createElement("button", {
+    type: "button",
+    onClick: fetchAnalytics,
+    disabled: analyticsLoading,
+    className: "tt-btn tt-btn--ghost disabled:opacity-50"
+  }, analyticsLoading ? "Loading..." : "Refresh"))), tab === "clients" && React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6"
   }, [{
     label: "Total",
@@ -499,12 +539,12 @@ function AdminClientsPage({
       color: s.color
     }
   }, s.value)))), tab === "usage" && React.createElement("div", {
-    className: "mb-6"
+    className: "tt-card tt-card-pad mb-6"
   }, usageLoading ? React.createElement("div", {
     className: "text-center py-12 text-[#8AA39A]"
   }, "Loading usage report...") : usageReport?.error ? React.createElement("div", {
     className: "text-rose-400 text-sm"
-  }, usageReport.error) : usageReport?.byUser?.length > 0 ? React.createElement("div", {
+  }, "Failed to load usage report: ", usageReport.error) : usageReport?.byUser?.length > 0 ? React.createElement("div", {
     className: "overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]"
   }, React.createElement("table", {
     className: "w-full border-collapse text-[12px]"
@@ -550,9 +590,22 @@ function AdminClientsPage({
     }, other || "—"), React.createElement("td", {
       className: "px-2 py-2 text-right text-white font-medium tabular-nums"
     }, u.totalEvents || 0));
-  })))) : React.createElement("p", {
-    className: "text-[#8AA39A] text-sm"
-  }, "No usage data yet. Usage is recorded when users load pages (throttled to once per hour per feature per user).")), tab === "clients" && React.createElement("div", {
+  })))) : React.createElement("div", {
+    className: "text-[#8AA39A] text-sm space-y-2"
+  }, React.createElement("p", null, "No per-user usage in the last ", usageDays, " days."), React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "Usage is recorded when users load pages (throttled to once per hour per feature per user)."), usageReport?.byFeature && Object.keys(usageReport.byFeature).length > 0 && React.createElement("div", {
+    className: "mt-4 pt-4 border-t border-[#1F3128]"
+  }, React.createElement("div", {
+    className: "text-[11px] font-semibold uppercase tracking-wide text-[#6E867D] mb-2"
+  }, "By feature (aggregate)"), React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, Object.entries(usageReport.byFeature).map(([feat, meta]) => React.createElement("span", {
+    key: feat,
+    className: "text-[11px] px-2 py-1 rounded-full bg-[#1A2B22] border border-[#1F3128] text-[#E8F2EC]"
+  }, feat, ": ", React.createElement("strong", {
+    className: "tabular-nums"
+  }, meta?.count || 0))))))), tab === "clients" && React.createElement("div", {
     className: "mb-4"
   }, React.createElement("div", {
     className: "flex items-center gap-4 flex-wrap"
@@ -763,28 +816,12 @@ function AdminClientsPage({
     colSpan: 14,
     className: "text-center py-12 text-[#4b5563]"
   }, filter ? "No clients match your search." : "No clients found.")))))), tab === "analytics" && React.createElement("div", {
-    className: "space-y-6"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, React.createElement("select", {
-    value: analyticsDays,
-    onChange: e => setAnalyticsDays(Number(e.target.value)),
-    className: "px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]"
-  }, React.createElement("option", {
-    value: 1
-  }, "Today"), React.createElement("option", {
-    value: 7
-  }, "7 days"), React.createElement("option", {
-    value: 30
-  }, "30 days"), React.createElement("option", {
-    value: 90
-  }, "90 days")), React.createElement("button", {
-    onClick: fetchAnalytics,
-    disabled: analyticsLoading,
-    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
-  }, analyticsLoading ? "Loading..." : "Refresh")), analyticsLoading ? React.createElement("div", {
+    className: "tt-card tt-card-pad space-y-6"
+  }, analyticsLoading ? React.createElement("div", {
     className: "text-center py-12 text-[#8AA39A]"
-  }, "Loading analytics...") : analytics ? React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Loading analytics...") : analyticsError ? React.createElement("div", {
+    className: "text-rose-400 text-sm"
+  }, "Failed to load analytics: ", analyticsError) : analytics ? React.createElement(React.Fragment, null, React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"
   }, [{
     label: "Live Now",
@@ -812,11 +849,11 @@ function AdminClientsPage({
     color: "#e5e7eb"
   }].map(s => React.createElement("div", {
     key: s.label,
-    className: "bg-[#13201A] border border-[#1F3128] rounded-xl px-4 py-3"
+    className: "tt-stat"
   }, React.createElement("div", {
-    className: "text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wide"
+    className: "tt-stat-label"
   }, s.label), React.createElement("div", {
-    className: "text-2xl font-bold mt-1",
+    className: "tt-stat-value",
     style: {
       color: s.color
     }
@@ -864,7 +901,7 @@ function AdminClientsPage({
   }, Array.from({
     length: 24
   }, (_, i) => {
-    const match = (analytics.peak_hours || []).find(h => h.hour === i);
+    const match = (analytics.peak_hours || []).find(h => Number(h.hour) === i);
     const cnt = match?.cnt || 0;
     const max = Math.max(...(analytics.peak_hours || []).map(h => h.cnt), 1);
     const pct = Math.max(cnt / max * 100, 2);
@@ -897,7 +934,7 @@ function AdminClientsPage({
     className: "text-[11px] text-[#8AA39A] tabular-nums bg-[#1A2B22] px-2 py-0.5 rounded"
   }, o.cnt)))))) : React.createElement("p", {
     className: "text-[#8AA39A] text-sm"
-  }, "Click Refresh to load analytics.")), tab === "health" && React.createElement("div", {
+  }, "No session analytics yet. Data appears after users browse while logged in.")), tab === "health" && React.createElement("div", {
     className: "space-y-6"
   }, React.createElement("div", {
     className: "flex items-center gap-3"
@@ -1033,6 +1070,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1781128132476:974144235
+// cache-bust:1781129160339:161333900
 
-// cache-bust:1781128132476:974144235
+// cache-bust:1781129160339:161333900
