@@ -12,7 +12,7 @@
      in-zone strong score; monitor = lane label only; stale = signal >7d. */
   const ACTION_TIER_ORDER = { act_now: 0, ready: 1, monitor: 2, stale: 3 };
   const ACTION_TIER_META = {
-    act_now: { label: "ACT NOW", color: "#22c55e", title: "Buy zone + trend alignment — model would prioritize on next rebalance" },
+    act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — price in buy zone with trend alignment. The Investor simulator would open or add on the next rebalance; not a manual buy instruction." },
     ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
     monitor: { label: "MONITOR", color: "#6E867D", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
@@ -82,7 +82,7 @@
      language so Investor Mode reads like the Active Trader cards.
      Uses ds-tickercard / ds-chip / ds-caption / JBM mono numerals.
      Preserves the investor-specific data: Score, RS rank, 1M/3M %,
-     BUY ZONE / RS HIGH badges. Stage is shown by lane, not on the card.
+     RS HIGH badge. Stage + lane convey intent; no standalone BUY chip.
      Logo + monogram + 1H spark
      borrowed from window.DS just like DsCompactCard. */
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
@@ -307,12 +307,6 @@
           style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
           title: "Relative strength made a new 3-month high",
         }, "RS HI"),
-        // BUY ZONE badge — accumulate condition
-        t.accumZone?.inZone && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--up",
-          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
-          title: "Price in favorable accumulation zone",
-        }, "BUY"),
         // TT Selected dot
         isTTSel && React.createElement("span", {
           title: "TT Selected",
