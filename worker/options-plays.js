@@ -351,6 +351,19 @@ export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false
  *  gamma is negligible and theta burns premium without a realistic move. */
 export const DAY_TRADE_MAX_STRIKE_DRIFT_PCT = 0.02;
 
+/* 2026-06-10 — 0DTE needs a much tighter leash than the generic 2%.
+   Incident: DIA "$510 call (spot $502.92), 1.4% from spot, 0DTE" — DIA's
+   daily ATR is ~0.8%, so a same-day 1.4% OTM strike is a lottery ticket
+   (delta ≈ 0, BE needs a >1.4% afternoon move). The cap is ATR-aware:
+   the strike must sit within ~60% of one day's typical range (floor
+   0.3% so quiet tape doesn't suppress true-ATM plays, ceiling 1%).
+   1DTE keeps the 2% cap — overnight gap risk justifies more room. */
+export function dayTradeMaxDriftPct(dte, atrPct) {
+  if (Number(dte) !== 0) return DAY_TRADE_MAX_STRIKE_DRIFT_PCT;
+  const atr = Number(atrPct) || 0.008;
+  return Math.min(0.01, Math.max(0.003, atr * 0.6));
+}
+
 /** Live spot for day-trade strike anchoring: EXT print when closed, else RTH. */
 export function resolveDayTradeSpot(pricesMap, ticker, { marketOpen = true } = {}) {
   const sym = String(ticker || "").toUpperCase();
@@ -366,6 +379,7 @@ export function validateDayTradePlay({
   spot,
   strike,
   expirationDte,
+  atrPct = null,
   now = Date.now(),
 } = {}) {
   const px = Number(spot);
@@ -374,13 +388,15 @@ export function validateDayTradePlay({
   if (!(px > 0)) return { valid: false, reason: "no_live_spot" };
   if (!(k > 0)) return { valid: false, reason: "no_strike" };
   const drift = Math.abs(k - px) / px;
-  if (drift > DAY_TRADE_MAX_STRIKE_DRIFT_PCT) {
+  const maxDrift = dayTradeMaxDriftPct(dte, atrPct);
+  if (drift > maxDrift) {
     return {
       valid: false,
       reason: `strike_drift_${(drift * 100).toFixed(1)}pct_from_spot`,
       strike: k,
       spot: px,
       drift_pct: drift * 100,
+      max_drift_pct: maxDrift * 100,
     };
   }
   if (dte === 0) {
@@ -1850,10 +1866,17 @@ export function buildDayTradePlay(ctx) {
     flavor = "call";
   }
 
+  // 2026-06-10 — Day-trade index ETFs list $1 strikes (SPY/QQQ/IWM/DIA
+  // all do). The generic strikeGrid() heuristic is for the broad stock
+  // universe and jumps to a $10 grid above $500 — that's what produced
+  // the DIA "$510 call on a $502.92 spot" incident: speculator +0.5%
+  // → 505.43, snapped to the nearest $10 → $510 (1.4% OTM on a 0DTE).
+  // With the real $1 grid the same play snaps to $505 (0.4% OTM).
+  const _dtGrid = 1.0;
   // Speculator: slight OTM for more gamma; others stay ATM.
   const strike = (profile === "speculator" && (flavor === "call" || flavor === "put"))
-    ? snapStrike(flavor === "call" ? price * 1.005 : price * 0.995)
-    : snapStrike(price);
+    ? snapStrike(flavor === "call" ? price * 1.005 : price * 0.995, _dtGrid)
+    : snapStrike(price, _dtGrid);
   const contracts = 1; // intentional minimum; operator scales via MC
   const _dteForBs = Math.max(expiration.dte, 0.5); // BS estimator needs > 0
 

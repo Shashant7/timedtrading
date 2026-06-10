@@ -24,10 +24,20 @@
 # Secrets to set (wrangler secret put <NAME> --config worker-engine/wrangler.toml):
 #   TIMED_API_KEY, TWELVEDATA_API_KEY, ALPACA_API_KEY_ID,
 #   ALPACA_API_SECRET_KEY, OPENAI_API_KEY, FINNHUB_API_KEY,
-#   DISCORD_WEBHOOK_URL, DISCORD_SYSTEM_WEBHOOK_URL, SENDGRID_API_KEY,
+#   DISCORD_WEBHOOK_URL, DISCORD_GENERAL_WEBHOOK_URL,
+#   DISCORD_SYSTEM_WEBHOOK_URL, SENDGRID_API_KEY,
 #   BROKER_BRIDGE_OPERATOR_KEY, BROKER_BRIDGE_HMAC_KEY
 #   (same values as the monolith — the */5 tick sends trade alerts,
 #   consults the CIO, and drains the bridge).
+#
+#   WEBHOOK ROUTING (2026-06-10 incident): DISCORD_WEBHOOK_URL must be
+#   the #trade-signals webhook — verify the VALUE, not just that the
+#   secret exists; a pasted #general URL sends every trade alert to
+#   #general with no error anywhere. If DISCORD_GENERAL_WEBHOOK_URL /
+#   DISCORD_SYSTEM_WEBHOOK_URL are missing, those lanes FALL BACK into
+#   #trade-signals (alerts.js logs the fallback since 2026-06-10).
+#   SENDGRID_API_KEY missing = trade-signal emails silently skipped
+#   (also logged).
 
 name = "tt-engine"
 main = "../worker/index.js"

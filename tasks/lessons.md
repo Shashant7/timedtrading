@@ -6,6 +6,32 @@
 
 ---
 
+## Tests must never hardcode calendar dates against a Date.now() window [2026-06-10]
+
+Every deploy on main started failing at 10:00 UTC on 2026-06-10 — the
+PR #568 deploy died on `worker/cro/research-feed-kv.test.js`, which had
+nothing to do with the PR. The test hardcoded
+`published_at: "2026-06-03T10:00:00"` and asserted the item survived a
+`Date.now() − 7d` lookback cutoff. The assertion was true when the test
+was written and for a few days after — then the calendar date aged out
+of the rolling window and the test detonated, blocking ALL deploys
+(deploy workflows run `npm test` first).
+
+Durable rules:
+1. **If the code under test windows against `Date.now()`, the test's
+   timestamps must be RELATIVE to `Date.now()`** (e.g.
+   `new Date(now - 3*86400000).toISOString()`), or the clock must be
+   faked (`vi.useFakeTimers`). Hardcoded ISO dates + rolling windows =
+   a time bomb with a fuse equal to the window length.
+2. Hardcoded dates are fine for PURE parsing/comparison tests (no
+   now()-window) — `parsePublicationTs` keeps its fixed dates.
+3. When a deploy fails on a test the PR didn't touch, check whether the
+   test is time-dependent BEFORE suspecting the merge: same-code deploys
+   passing earlier in the day and failing later is the signature.
+4. Sweep performed 2026-06-10: only research-feed-kv.test.js had the
+   bomb shape (Date.now window + hardcoded dates). The fix also added an
+   explicit out-of-window drop assertion.
+
 ## SELECT aliases are not columns — verify reader SQL against the real D1 schema [2026-06-10]
 
 The Markov regime matrix silently stopped rebuilding on 2026-05-27.

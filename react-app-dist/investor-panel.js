@@ -82,7 +82,7 @@
      language so Investor Mode reads like the Active Trader cards.
      Uses ds-tickercard / ds-chip / ds-caption / JBM mono numerals.
      Preserves the investor-specific data: Score, RS rank, 1M/3M %,
-     BUY ZONE / RS HIGH badges. Stage is shown by lane, not on the card.
+     RS HIGH badge. Stage + lane convey intent; no standalone BUY chip.
      Logo + monogram + 1H spark
      borrowed from window.DS just like DsCompactCard. */
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
@@ -307,12 +307,6 @@
           style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
           title: "Relative strength made a new 3-month high",
         }, "RS HI"),
-        // BUY ZONE badge — accumulate condition
-        t.accumZone?.inZone && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--up",
-          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
-          title: "Price in favorable accumulation zone",
-        }, "BUY"),
         // TT Selected dot
         isTTSel && React.createElement("span", {
           title: "TT Selected",
@@ -1190,4 +1184,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1781120350533:914311125
+// cache-bust:1781124493495:916694374
