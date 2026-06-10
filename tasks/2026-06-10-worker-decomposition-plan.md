@@ -128,12 +128,40 @@ needs a tested research-window module replicating their `vc` labels
 The `0 22 * * *` registration bug found in the audit was fixed
 separately (PR #551).
 
-## Step 3 — `tt-engine` (*/5 scoring + trade management + CIO), last
+## Step 3 — `tt-engine` (*/5 scoring + trade management + CIO)
 
-Highest care. The pipeline modules (`worker/pipeline/`, `worker/cio/`)
-are already importable; the work is extracting the */5 arm of
-`scheduled()` (scoring tick, `processTradeSimulation`, proactive alerts)
-plus its KV/D1 preloads. `tt-api` is whatever remains of index.js.
+**SHIPPED 2026-06-10 as a ROLE SPLIT (no code movement).** The */5 trade
+path is too entangled with index.js locals for a verbatim extraction to
+be mechanically safe — so tt-engine deploys the SAME bundle
+(`worker-engine/wrangler.toml`, `main = ../worker/index.js`) under its
+own name with ONLY the `*/5` trigger and its own `cpu_ms = 300000`
+budget. `scheduled()` gates on role:
+- tt-engine (`WORKER_ROLE="engine"`): only */5; no-ops until
+  `ENGINE_ENABLED=true`.
+- monolith: */5 invocations no-op when `ENGINE_EXTERNAL="true"`.
+
+This achieves the actual goal of Step 3 — **stop-losses get a CPU budget
+nothing else can starve** — with zero behavior change and a var-flip
+cutover. DO classes stay monolith-owned (script_name stubs). The full
+[vars] block is mirrored in worker-engine/wrangler.toml (KEEP IN SYNC).
+CI: `deploy-engine.yml` (runs tests + dashboard embed like
+deploy-worker). Watchdog gains a scoring-staleness check (>30 min during
+RTH) because the monolith's */1 keeps the generic heartbeat fresh — a
+dead engine must page on scoring age, not tick age.
+
+**Cutover order (OVERLAP IS WORSE THAN A GAP — dual scoring = concurrent
+KV writes = kanban oscillation, a documented incident class):**
+1. Deploy + set the full monolith secret set on tt-engine.
+2. Verify `https://tt-engine.shashant.workers.dev/timed/health` ok:true.
+3. `ENGINE_EXTERNAL=true` on the monolith (both envs) — scoring stops.
+4. `ENGINE_ENABLED=true` on tt-engine. Watch `minutesSinceScoring < 6`
+   for two ticks. Rollback = inverse order.
+
+Code-level extraction (true `tt-api` split) remains possible later, but
+the role split delivers the failure-domain isolation now. Note: the */5
+slot's siblings (bar cron, fast sanity sweep, options prewarm, bridge
+drain, FRED, regime bootstrap) move WITH the slot — all trade-path-
+adjacent by design.
 
 ## Invariants (all steps)
 

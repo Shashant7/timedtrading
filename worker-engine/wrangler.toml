@@ -1,0 +1,139 @@
+# tt-engine — dedicated */5 trade-path worker (P2 decomposition, Step 3).
+#
+# Deploys the SAME bundle as the monolith (main points at ../worker/index.js)
+# under its own name with ONLY the */5 cron trigger. The role split is pure
+# configuration — scheduled() in worker/index.js gates on WORKER_ROLE /
+# ENGINE_ENABLED / ENGINE_EXTERNAL so exactly one worker runs the scoring +
+# trade-management + CIO tick at a time. Stop-losses get their own CPU
+# budget; an hourly/daily research blowup on the monolith can never starve
+# them again (full-system-review R1: "failure domains follow
+# money-criticality").
+#
+# CUTOVER (order matters — overlap is WORSE than a gap here):
+#   1. Deploy (CI: deploy-engine.yml). Ticks no-op (ENGINE_ENABLED=false).
+#   2. Set secrets (full monolith set — see list below).
+#   3. Verify: curl https://tt-engine.shashant.workers.dev/timed/health
+#      → ok:true (the bundle serves the same router).
+#   4. Set ENGINE_EXTERNAL=true on the MONOLITH (both envs) — its */5
+#      invocations stop. Then set ENGINE_ENABLED=true here. Worst case is
+#      one missed 5-minute tick; never a dual-scoring overlap.
+#   5. Watch /timed/health minutesSinceScoring < 6 for two ticks + the
+#      watchdog's scoring-staleness check.
+#   Rollback = inverse order (ENGINE_ENABLED=false, then ENGINE_EXTERNAL off).
+#
+# Secrets to set (wrangler secret put <NAME> --config worker-engine/wrangler.toml):
+#   TIMED_API_KEY, TWELVEDATA_API_KEY, ALPACA_API_KEY_ID,
+#   ALPACA_API_SECRET_KEY, OPENAI_API_KEY, FINNHUB_API_KEY,
+#   DISCORD_WEBHOOK_URL, DISCORD_SYSTEM_WEBHOOK_URL, SENDGRID_API_KEY,
+#   BROKER_BRIDGE_OPERATOR_KEY, BROKER_BRIDGE_HMAC_KEY
+#   (same values as the monolith — the */5 tick sends trade alerts,
+#   consults the CIO, and drains the bridge).
+
+name = "tt-engine"
+main = "../worker/index.js"
+compatibility_date = "2024-01-01"
+
+# Dashboard-set vars survive CI deploys (wrangler would otherwise wipe any
+# var not listed in this file on every deploy — which would silently undo
+# a cutover flip). The cutover flag ENGINE_ENABLED is deliberately NOT
+# pinned in [vars]: code defaults it to "false"; the operator sets it via
+# the CF Dashboard (Settings → Variables; type Secret also works) and the
+# value persists.
+keep_vars = true
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "KV_TIMED"
+id = "e48593af3ef74bf986b2592909ed40cb"   # SAME namespace as the monolith
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timed-trading-ledger"
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
+
+# Durable Objects stay OWNED by the monolith — stubs via script_name.
+# (The bundle exports the DO classes, but with no migrations here they are
+# never instantiated locally.)
+[[durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "BACKTEST_RUNNER"
+class_name = "BacktestRunner"
+script_name = "timed-trading-ingest"
+
+[vars]
+# ── Role split (Step 3) ──
+WORKER_ROLE = "engine"
+# NOTE: ENGINE_ENABLED is NOT pinned here on purpose — set it via the CF
+# Dashboard when cutting over (code defaults to "false"; keep_vars above
+# makes the dashboard value survive deploys).
+
+# ── Mirror of the monolith's [vars] (worker/wrangler.toml) ──
+# KEEP IN SYNC: when a var changes there, change it here. The */5 tick
+# reads the same engine/alert/COO flags.
+WORKER_URL = "https://timed-trading.com"
+DISCORD_ENABLE = "true"
+ALERT_MIN_RR = "1.5"
+ALERT_MAX_COMPLETION = "0.4"
+ALERT_MAX_PHASE = "0.6"
+ALERT_MIN_RANK = "70"
+OPENAI_MODEL = "gpt-4o-mini"
+DAILY_BRIEF_MODEL = "gpt-5.4"
+CORS_ALLOW_ORIGIN = "https://timedtrading.pages.dev,https://timed-trading.com,https://www.timed-trading.com,http://localhost:8788,http://127.0.0.1:8788"
+TV_ACK_ALWAYS_200 = "true"
+ALPACA_ENABLED = "true"
+EXECUTION_MODE = "simulation"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
+TRADOVATE_ENABLED = "false"
+TRADOVATE_ENV = "live"
+ENTRY_ENGINE = "tt_core"
+MANAGEMENT_ENGINE = "tt_core"
+LEADING_LTF = "10"
+RIPSTER_TUNE_V2 = "true"
+TT_EXIT_DEBOUNCE_BARS = "3"
+LIVE_MANAGE_INTERVAL_MIN = "30"
+CF_ACCESS_TEAM_DOMAIN = "timedtrading"
+ADMIN_EMAIL = "shashant@gmail.com"
+EMAIL_ENABLED = "true"
+EMAIL_FROM = "notifications@timed-trading.com"
+COO_ENABLED = "true"
+COO_AUTO_APPLY_TIER1 = "true"
+COO_SELF_HEAL = "true"
+COO_SCREENER_AUTO_PROMOTE = "true"
+COO_SCREENER_AUTO_SCORE = "70"
+COO_SCREENER_DAILY_MAX = "3"
+BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+
+[[services]]
+binding = "BROKER_BRIDGE"
+service = "tt-broker-bridge"
+
+[limits]
+# Same budget the monolith's */5 needed — the whole point is that this
+# budget is now EXCLUSIVELY the trade path's.
+cpu_ms = 300000
+
+[observability.logs]
+enabled = true

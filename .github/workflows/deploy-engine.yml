@@ -1,0 +1,112 @@
+name: Deploy engine worker
+
+# Auto-deploys worker-engine/ (tt-engine) — the dedicated */5 trade-path
+# worker (P2 decomposition Step 3). It deploys the SAME bundle as the
+# monolith (main = ../worker/index.js) under its own name + CPU budget,
+# with role gating in scheduled(). Safe to deploy at any time: ticks no-op
+# until the operator flips ENGINE_ENABLED=true per the cutover runbook in
+# worker-engine/wrangler.toml (ENGINE_EXTERNAL on the monolith FIRST —
+# overlap is worse than a gap for the scoring loop).
+#
+# Mirrors deploy-worker.yml's build steps because the bundle embeds the
+# generated dashboard-html.js.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "worker-engine/**"
+      - "react-app/**"
+      - "scripts/build-frontend.js"
+      - "scripts/embed-dashboard.js"
+      - "package.json"
+      - ".github/workflows/deploy-engine.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-engine
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy (tt-engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve Cloudflare secrets
+        id: cfsec
+        env:
+          CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
+          CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          CF_TOKEN=""
+          CF_ACCT=""
+          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A";
+          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B";
+          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C";
+          fi
+          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";
+          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";
+          fi
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::warning::Cloudflare secrets not configured — engine deploy SKIPPED."
+            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
+          } >> "$GITHUB_ENV"
+
+      - name: Install root deps
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Run tests
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: npm test
+
+      - name: Build frontend + embed dashboard
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          npm run build:frontend
+          node scripts/embed-dashboard.js
+
+      - name: Deploy engine worker
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.92.0"
+          workingDirectory: worker-engine
+          command: deploy
+
+      - name: Post-deploy smoke
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          sleep 5
+          HEALTH=$(curl -s -m 20 "https://tt-engine.shashant.workers.dev/timed/health" || echo "{}")
+          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+            echo "::error::tt-engine /timed/health returned non-JSON after deploy"
+            exit 1
+          fi
+          OK=$(echo "$HEALTH" | jq -r '.ok // false')
+          SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
+          echo "ok=$OK minutesSinceScoring=$SCORING (shared KV — reflects whichever worker owns the */5 slot)"
+          if [ "$OK" != "true" ]; then
+            echo "::error::tt-engine /timed/health did not return ok:true after deploy"
+            exit 1
+          fi
