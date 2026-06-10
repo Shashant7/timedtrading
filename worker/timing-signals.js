@@ -671,6 +671,112 @@ export function evaluateBroadIndexCompressionWatch(snapshots = {}) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Reversal-trim advisor (2026-06-10, SHADOW-FIRST).
+//
+// Operator incident: open positions were not trimmed near highs before a
+// steep multi-day drawdown even though FSD had warned of a reversal. The
+// audit (tasks/2026-06-10-reversal-trim-plan.md) found that FSD/CRO intel
+// and the timing overlay stop at the CONTEXT layer for the trader book —
+// trims only fire on mechanical extremes (RSI 80, fuel critical, TP tiers,
+// cloud breaks) and actively defer while structure looks intact.
+//
+// This advisor closes the observation gap WITHOUT touching execution: for
+// every open profitable position it combines
+//   1. the ticker's own timing overlay (trim_winners / extension score /
+//      exhaustion warnings — which already include fsd_macro_risk_off), and
+//   2. the market-level INDEX EXTENSION WATCH breadth signal,
+// and emits a concrete "trim N% near the high" advisory. The scoring cron
+// persists it to KV + Discord. Enforcement (auto-trim) is a separate,
+// operator-gated phase once the advisory's hit rate is proven.
+//
+// Pure function — no KV/D1/env. Unit-tested in timing-signals.test.js.
+// ─────────────────────────────────────────────────────────────────────────────
+export function evaluateReversalTrimAdvisory({ openTrades = [], getSnapshot, indexWatch = null, now = Date.now() } = {}) {
+  const advisories = [];
+  const marketStretch = !!(indexWatch && indexWatch.active);
+
+  for (const trade of openTrades) {
+    const status = String(trade?.status || "").toUpperCase();
+    if (status !== "OPEN" && status !== "TP_HIT_TRIM") continue;
+    const sym = String(trade?.ticker || "").toUpperCase();
+    if (!sym) continue;
+    const snap = typeof getSnapshot === "function" ? getSnapshot(sym) : null;
+    if (!snap || typeof snap !== "object") continue;
+
+    const direction = String(trade?.direction || "LONG").toUpperCase();
+    const isLong = direction !== "SHORT";
+    const entry = Number(trade?.entry_price ?? trade?.entryPrice) || 0;
+    const px = Number(snap?._live_price ?? snap?.price ?? snap?.close) || 0;
+    if (!(entry > 0) || !(px > 0)) continue;
+    const pnlPct = isLong ? ((px - entry) / entry) * 100 : ((entry - px) / entry) * 100;
+    const trimmedPct = Math.max(0, Math.min(1, Number(trade?.trimmedPct ?? trade?.trimmed_pct) || 0));
+
+    // Only advise on WINNERS with meaningful untrimmed size — the point is
+    // locking gains near the high, not exiting losers (loss handling stays
+    // with SL/doctrine).
+    if (!(pnlPct >= 1.0) || trimmedPct >= 0.5) continue;
+
+    const overlay = snap.timing_overlay || computeTimingOverlay(snap, snap.confluence_verdict || null);
+    const warnings = Array.isArray(overlay?.warnings) ? overlay.warnings : [];
+    const reasons = [];
+
+    if (isLong) {
+      if (overlay?.trim_winners === true) reasons.push("overlay_trim_winners");
+      if (Number(overlay?.extension_score) >= 55) reasons.push(`extension_${Math.round(Number(overlay.extension_score))}`);
+      if (warnings.length >= 2) reasons.push(`exhaustion_x${warnings.length}`);
+      if (warnings.includes("fsd_macro_risk_off")) reasons.push("fsd_risk_off");
+      if (marketStretch) reasons.push(`index_watch_${indexWatch.breadth}`);
+    } else {
+      // SHORT winner near the lows — mirror with the compression side.
+      if (Number(overlay?.compression_score) >= 55) reasons.push(`compression_${Math.round(Number(overlay.compression_score))}`);
+      const compressions = Array.isArray(overlay?.compressions) ? overlay.compressions : [];
+      if (compressions.length >= 2) reasons.push(`capitulation_x${compressions.length}`);
+      if (overlay?.add_on_dips === true) reasons.push("overlay_rally_watch");
+    }
+
+    // Require at least one TICKER-level reason — the market-level index
+    // watch alone must not flag every open winner (that is what the
+    // existing INDEX EXTENSION WATCH alert already says in aggregate).
+    const tickerReasons = reasons.filter((r) => !r.startsWith("index_watch"));
+    if (tickerReasons.length === 0) continue;
+    // Conviction: 1 ticker reason = advisory only with market confirmation
+    // or strong pnl; 2+ ticker reasons = advisory on its own.
+    if (tickerReasons.length === 1 && !marketStretch && pnlPct < 3) continue;
+
+    const strong = tickerReasons.length >= 2 && (marketStretch || warnings.includes("fsd_macro_risk_off"));
+    const suggested = strong ? 0.33 : 0.25;
+
+    advisories.push({
+      ticker: sym,
+      trade_id: trade?.trade_id ?? trade?.id ?? null,
+      direction,
+      pnl_pct: Math.round(pnlPct * 100) / 100,
+      trimmed_pct: Math.round(trimmedPct * 100) / 100,
+      suggested_trim_pct: suggested,
+      strength: strong ? "strong" : "standard",
+      reasons,
+      price: px,
+      entry_price: entry,
+    });
+  }
+
+  advisories.sort((a, b) => b.pnl_pct - a.pnl_pct);
+  const active = advisories.length > 0;
+  return {
+    active,
+    generated_at: now,
+    market: {
+      index_watch_active: marketStretch,
+      index_watch_breadth: marketStretch ? indexWatch.breadth : 0,
+    },
+    advisories,
+    headline: active
+      ? `REVERSAL TRIM ADVISOR — ${advisories.length} open winner(s) showing reversal risk near highs. ${marketStretch ? `Index extension watch active (${indexWatch.breadth} benchmarks). ` : ""}Suggested partial trims below.`
+      : null,
+  };
+}
+
 export function formatTimingFlashSection(tickerData, overlay) {
   const o = overlay || tickerData?.timing_overlay;
   if (!o || !o.flash_headline) return "";
