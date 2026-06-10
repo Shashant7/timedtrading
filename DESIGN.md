@@ -321,6 +321,18 @@ components:
 > [`skills/verda-ui-migration.md`](skills/verda-ui-migration.md); as pages
 > convert, this spec will be updated to the merged Verda-based system.
 > Do NOT mix `vf-*` and `tt-*` styling on the same page.
+>
+> **Migration status (2026-06-10).** Verda tokens are live in
+> `react-app/tt-tokens.css` under the marked `VERDA` section: `--vf-*`
+> custom properties (Ink `#0B1410` / Bark `#13201A` / Moss `#1F3128` /
+> Mint `#38F2A1` / Cream / Sage) plus a minimal `vf-*` component set
+> (`vf-btn`, `vf-card`, `vf-tabs`, `vf-badge`, `vf-stat`, `vf-divider`,
+> `vf-display`) and the Manrope display face. **today.html is the first
+> migrated page** — it re-points its page-local `--tt-*` / `--ds-*`
+> values at the Verda palette (no `vf-*` classes mixed in). Carried
+> trading rules: `success`/`danger` data colors and JetBrains-Mono
+> numerals are unchanged; Mint is the CTA/brand accent only and is NEVER
+> used as a "price up" color.
 
 ## Overview
 

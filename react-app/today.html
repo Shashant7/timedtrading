@@ -9,8 +9,8 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260517-today13" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda1" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -37,7 +37,7 @@
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260517e"></script>
-    <script src="shared-right-rail.compiled.js?v=20260601-trader-positions"></script>
+    <script src="shared-right-rail.compiled.js?v=20260610-rail4groups"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260528a"></script>
     <style>
@@ -57,29 +57,61 @@
       }
       .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
       :root {
-        --tt-bg-base: #0b0e11;
-        --tt-bg-surface: rgba(255,255,255,0.025);
-        --tt-bg-elev: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.06);
-        --tt-border-hi: rgba(255,255,255,0.12);
-        --tt-text: #e5e7eb;
-        --tt-text-muted: #9ca3af;
-        --tt-text-dim: #6b7280;
-        --tt-text-faint: #4b5563;
+        /* 2026-06-10 — VERDA MIGRATION (first page). The page-local token
+           values are re-pointed at the Verda Finance palette (Ink / Bark /
+           Moss / Cream / Sage + single mint accent) per
+           skills/verda-ui-migration.md. Data semantics (--tt-up / --tt-dn)
+           keep their green/red meaning — mint is the CTA/brand accent,
+           NEVER a "price up" color. Surfaces are SOLID fills (Verda builds
+           depth from Ink → Bark tone steps, not alpha overlays). */
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
         --tt-up: #22c55e;
         --tt-up-soft: #34d399;
         --tt-up-bg: rgba(34,197,94,0.10);
         --tt-dn: #f43f5e;
         --tt-dn-soft: #fb7185;
         --tt-dn-bg: rgba(244,63,94,0.10);
-        --tt-accent: #f5c25c;
-        --tt-accent-dim: rgba(245,194,92,0.14);
-        --tt-violet: #a78bfa;
-        --tt-violet-dim: rgba(167,139,250,0.14);
-        --tt-cyan: #22d3ee;
-        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        /* Verda is single-accent: violet/cyan secondary hues collapse to
+           Spring (the soft mint companion) on this page. */
+        --tt-violet: var(--vf-spring, #A6F7CF);
+        --tt-violet-dim: rgba(166,247,207,0.12);
+        --tt-cyan: var(--vf-spring, #A6F7CF);
+        --tt-cyan-dim: rgba(166,247,207,0.10);
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+        /* Shared ds-* components (ticker cards, chips, rail panels) read
+           these tokens from tt-tokens.css — re-point them here so every
+           shared component on THIS page picks up the Verda palette without
+           touching its component classes (those migrate last, per skill). */
+        --ds-bg-canvas: var(--vf-ink, #0B1410);
+        --ds-bg-surface: var(--vf-bark, #13201A);
+        --ds-bg-surface-hi: var(--vf-bark-hi, #1A2B22);
+        --ds-bg-glass: rgba(56, 242, 161, 0.035);
+        --ds-bg-glass-hi: rgba(56, 242, 161, 0.07);
+        --ds-text-display: var(--vf-cream, #E8F2EC);
+        --ds-text-body: #CFDED6;
+        --ds-text-muted: var(--vf-sage, #8AA39A);
+        --ds-text-faint: #51635A;
+        --ds-accent: var(--vf-mint, #38F2A1);
+        --ds-accent-hi: var(--vf-spring, #A6F7CF);
+        --ds-accent-soft: #5BE8AB;
+        --ds-accent-dim: rgba(56, 242, 161, 0.14);
+        --ds-accent-glow: rgba(56, 242, 161, 0.40);
+        --ds-stroke-soft: rgba(166, 247, 207, 0.06);
+        --ds-stroke: var(--vf-moss, #1F3128);
+        --ds-stroke-hi: var(--vf-moss-hi, #2A4136);
       }
       body {
         background: var(--tt-bg-base);
@@ -92,7 +124,8 @@
       .tt-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 14px;
+        /* Verda md radius (18px) — generous, consistent. */
+        border-radius: var(--vf-radius-md, 18px);
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
@@ -111,6 +144,7 @@
         margin-bottom: 6px;
       }
       .tt-sec-h {
+        font-family: var(--tt-font-display);
         font-size: 18px;
         font-weight: 800;
         color: var(--tt-text);
@@ -139,8 +173,8 @@
       }
       .tt-pill.up    { color: var(--tt-up-soft); background: var(--tt-up-bg); border-color: rgba(34,197,94,0.25); }
       .tt-pill.dn    { color: var(--tt-dn-soft); background: var(--tt-dn-bg); border-color: rgba(244,63,94,0.25); }
-      .tt-pill.accent { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(245,194,92,0.30); }
-      .tt-pill.violet { color: var(--tt-violet); background: var(--tt-violet-dim); border-color: rgba(167,139,250,0.30); }
+      .tt-pill.accent { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(56,242,161,0.30); }
+      .tt-pill.violet { color: var(--tt-violet); background: var(--tt-violet-dim); border-color: rgba(166,247,207,0.30); }
       .tt-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
       .tt-grid { display: grid; gap: 14px; }
       @media (min-width: 920px) {
@@ -160,7 +194,7 @@
       /* Nav */
       nav.topnav {
         position: sticky; top: 0; z-index: 50;
-        background: rgba(10,12,16,0.85);
+        background: rgba(11,20,16,0.88);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border-bottom: 1px solid var(--tt-border);
@@ -187,7 +221,7 @@
       }
       .nav-link:hover { background: var(--tt-bg-surface); color: var(--tt-text); }
       .nav-link.active { color: var(--tt-text); background: var(--tt-bg-surface); }
-      .nav-link.today { color: var(--tt-accent); background: var(--tt-accent-dim); border: 1px solid rgba(245,194,92,0.22); }
+      .nav-link.today { color: var(--tt-accent); background: var(--tt-accent-dim); border: 1px solid rgba(56,242,161,0.22); }
       .nav-link.learn { color: var(--tt-up-soft); }
       .nav-link.learn:hover { background: var(--tt-up-bg); }
       /* Status header */
@@ -203,9 +237,65 @@
         border-radius: 14px;
       }
       .tt-status .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .tt-status .greeting { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+      .tt-status .greeting { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
       .tt-status .date { font-size: 13px; color: var(--tt-text-muted); margin-top: 2px; }
       .tt-status .session { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      /* Tier-1 regime one-liner — single read under the greeting that
+         frames the session: regime · HMM latent · breadth · SPY · VIX. */
+      .tt-regime-line {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-top: 10px; padding-top: 10px;
+        border-top: 1px solid var(--tt-border);
+        width: 100%;
+      }
+      .tt-regime-line .seg {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 12px; color: var(--tt-text-muted);
+        white-space: nowrap;
+      }
+      .tt-regime-line .seg b {
+        font-family: var(--tt-font-mono);
+        font-size: 12px; font-weight: 700; color: var(--tt-text);
+        letter-spacing: 0.01em;
+      }
+      .tt-regime-line .sep { color: var(--tt-text-faint); }
+      /* Progressive-disclosure section (Day-Trade plan, Options plays,
+         Heat map). Collapsed by default; state persists per section. */
+      .tt-disclose { margin-bottom: 28px; }
+      @media (max-width: 720px) { .tt-disclose { margin-bottom: 20px; } }
+      .tt-disclose > summary {
+        list-style: none;
+        display: flex; align-items: center; gap: 10px;
+        cursor: pointer; user-select: none;
+        padding: 12px 16px;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+        transition: border-color .12s, background .12s;
+      }
+      .tt-disclose > summary::-webkit-details-marker { display: none; }
+      .tt-disclose > summary:hover { border-color: var(--tt-border-hi); background: var(--tt-bg-elev); }
+      .tt-disclose > summary .tt-disclose-title {
+        font-family: var(--tt-font-display);
+        font-size: 13.5px; font-weight: 800; letter-spacing: -0.01em;
+        color: var(--tt-text);
+      }
+      .tt-disclose > summary .tt-disclose-sub {
+        font-size: 11.5px; color: var(--tt-text-dim);
+      }
+      .tt-disclose > summary .tt-disclose-caret {
+        margin-left: auto; color: var(--tt-text-dim);
+        font-size: 11px; transition: transform .15s ease;
+      }
+      .tt-disclose[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+      .tt-disclose[open] > summary .tt-disclose-caret { transform: rotate(180deg); }
+      .tt-disclose > .tt-disclose-body {
+        border: 1px solid var(--tt-border); border-top: 0;
+        border-bottom-left-radius: var(--vf-radius-md, 18px);
+        border-bottom-right-radius: var(--vf-radius-md, 18px);
+        padding: 14px 14px 6px;
+        background: rgba(19,32,26,0.45);
+      }
       /* Index card */
       .idx-card {
         background: var(--tt-bg-surface);
@@ -470,287 +560,6 @@
       }
       .ac-chip--addon.active .ac-count { color: inherit; opacity: 0.7; }
 
-      /* FocusRail — categorized actionable tickers (pass5) */
-      .focus-rail {
-        /* 2026-05-28 — visual lift: accent-tinted background card +
-           gradient top border so the section reads as "the headline
-           ranked output" instead of just another row. User asked for
-           Ranked-by-Score to stand out more. */
-        margin-bottom: 28px;
-        padding: 22px 24px 24px;
-        background: linear-gradient(180deg,
-          rgba(245, 194, 92, 0.05) 0%,
-          rgba(245, 194, 92, 0.015) 38%,
-          transparent 100%);
-        border: 1px solid rgba(245, 194, 92, 0.18);
-        border-radius: 14px;
-        position: relative;
-      }
-      .focus-rail::before {
-        content: "";
-        position: absolute;
-        top: -1px; left: 18px; right: 18px;
-        height: 2px;
-        background: linear-gradient(90deg,
-          transparent 0%,
-          var(--tt-accent, #f5c25c) 20%,
-          var(--tt-accent, #f5c25c) 80%,
-          transparent 100%);
-        border-radius: 2px;
-        opacity: 0.55;
-      }
-      @media (max-width: 720px) { .focus-rail { padding: 16px 14px 18px; } }
-      .focus-rail-head {
-        margin-bottom: 14px;
-      }
-      /* Strengthen the section header inside focus-rail */
-      .focus-rail .tt-sec-title {
-        color: var(--tt-accent, #f5c25c);
-        opacity: 1;
-      }
-      .focus-rail .tt-sec-h2 {
-        font-size: 21px;
-        letter-spacing: -0.005em;
-      }
-      .focus-rail-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-      }
-      @media (max-width: 1024px) {
-        .focus-rail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      }
-      @media (max-width: 640px) {
-        .focus-rail-grid { grid-template-columns: 1fr; }
-      }
-      .focus-lane {
-        background: var(--tt-bg-surface);
-        /* Stronger border + subtle accent shadow so each lane reads as a
-           distinct ranked column instead of a wash of low-contrast cards. */
-        border: 1px solid var(--tt-border);
-        border-radius: 12px;
-        padding: 14px 14px 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        position: relative;
-        transition: border-color 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
-      }
-      .focus-lane:hover {
-        border-color: color-mix(in oklab, var(--lane-accent, var(--tt-border-hi)) 50%, var(--tt-border));
-        box-shadow: 0 4px 18px -8px color-mix(in oklab, var(--lane-accent, transparent) 35%, transparent);
-      }
-      .focus-lane::before {
-        content: "";
-        position: absolute;
-        /* 2026-05-28 — thicker accent bar (3px -> 4px) + full height so
-           the per-lane color is immediately legible. */
-        top: 10px; bottom: 10px; left: 0;
-        width: 4px;
-        border-radius: 2px;
-        background: var(--lane-accent, var(--tt-text-faint));
-        box-shadow: 0 0 12px 0 color-mix(in oklab, var(--lane-accent, transparent) 40%, transparent);
-      }
-      .focus-lane--accent  { --lane-accent: var(--tt-accent); }
-      .focus-lane--up      { --lane-accent: var(--tt-up-soft); }
-      .focus-lane--cyan    { --lane-accent: var(--tt-cyan); }
-      .focus-lane--violet  { --lane-accent: var(--tt-violet); }
-      .focus-lane-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 6px;
-        padding-bottom: 6px;
-        border-bottom: 1px dashed color-mix(in oklab, var(--lane-accent, var(--tt-border)) 25%, transparent);
-      }
-      .focus-lane-label {
-        font-family: var(--tt-font);
-        /* 2026-05-28 — bigger label so the lane identity reads as a heading,
-           not a footnote. */
-        font-size: 12px;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        color: var(--lane-accent, var(--tt-text-dim));
-        text-transform: uppercase;
-      }
-      .focus-lane-count {
-        font-family: var(--tt-font-mono);
-        font-size: 11.5px;
-        font-weight: 700;
-        color: var(--lane-accent, var(--tt-text-dim));
-        opacity: 0.85;
-        background: color-mix(in oklab, var(--lane-accent, transparent) 12%, transparent);
-        padding: 2px 7px;
-        border-radius: 999px;
-      }
-      .focus-lane-sub {
-        font-size: 11px;
-        color: var(--tt-text-muted);
-        margin: 4px 0 6px;
-      }
-      .focus-lane-chips {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-      }
-      /* FocusRail chip — redesigned 2026-05-20 (user feedback: rows
-         were cramped on mobile, with bias / metric / price / pct all
-         crammed into one tight horizontal cluster on the right side
-         of the chip). New layout: 3 logical zones using CSS grid.
-           col 1 (auto): bias indicator (L / S pill)
-           col 2 (1fr):  symbol + metric inline (left-aligned)
-           col 3 (auto): price + pct/ext stack (right-aligned)
-         The right zone now stacks PRICE on top and PCT (+ EXT below)
-         on the bottom, giving a clean 2-row right column instead of
-         a chaotic L-shape. On mobile the chip is more scannable —
-         eyes go: SYM → METRIC → PRICE → PCT. */
-      .focus-chip {
-        display: grid;
-        grid-template-columns: auto 1fr auto;
-        align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--tt-bg-elev);
-        border: 1px solid var(--tt-border);
-        color: var(--tt-text);
-        font-family: var(--tt-font-mono);
-        font-size: 12px;
-        cursor: pointer;
-        transition: background 120ms ease, border-color 120ms ease;
-        text-align: left;
-      }
-      .focus-chip:hover {
-        background: var(--tt-bg-surface);
-        border-color: var(--tt-border-hi);
-      }
-      .focus-chip-main {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        min-width: 0;
-        flex-wrap: wrap;
-      }
-      .focus-chip-sym {
-        font-family: var(--tt-font);
-        font-weight: 700;
-        font-size: 13px;
-        color: var(--tt-text);
-        letter-spacing: 0.01em;
-      }
-      .focus-chip-metric {
-        font-size: 10.5px;
-        color: var(--tt-text-muted);
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-      /* Bias indicator (L / S) — user request 2026-05-20. Renders a
-         small letter chip next to the metric so every Actionable row
-         shows whether the bias is LONG (green) or SHORT (red). */
-      .focus-chip-bias {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 16px;
-        height: 16px;
-        padding: 0 4px;
-        border-radius: 4px;
-        font-size: 10px;
-        font-weight: 800;
-        letter-spacing: 0.02em;
-        font-family: var(--tt-font-mono, ui-monospace, monospace);
-        flex-shrink: 0;
-      }
-      .focus-chip-bias.long {
-        background: rgba(52, 211, 153, 0.14);
-        color: #34d399;
-        border: 1px solid rgba(52, 211, 153, 0.25);
-      }
-      .focus-chip-bias.short {
-        background: rgba(251, 113, 133, 0.14);
-        color: #fb7185;
-        border: 1px solid rgba(251, 113, 133, 0.25);
-      }
-      .focus-chip-bias.neutral {
-        background: rgba(107, 114, 128, 0.10);
-        color: var(--tt-text-dim, #6b7280);
-        border: 1px solid rgba(107, 114, 128, 0.20);
-      }
-      /* Right-zone container — vertical stack of price (top) and
-         pct + EXT badge (bottom). Right-aligned, tabular nums for
-         visual alignment across rows. */
-      .focus-chip-right {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 2px;
-        font-variant-numeric: tabular-nums;
-        min-width: 0;
-      }
-      .focus-chip-px {
-        font-size: 12px;
-        font-family: var(--tt-font-mono);
-        font-weight: 600;
-        color: var(--tt-text);
-        line-height: 1.1;
-      }
-      .focus-chip-pct {
-        font-size: 11px;
-        font-weight: 700;
-        line-height: 1.1;
-      }
-      .focus-chip-pct.up { color: var(--tt-up); }
-      .focus-chip-pct.dn { color: var(--tt-dn); }
-      /* Pre-market / after-hours badge — sits BELOW pct in the
-         right zone. Smaller / muted so it doesn't compete with
-         the primary RTH change. */
-      .focus-chip-pct-wrap {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        line-height: 1.05;
-        gap: 1px;
-      }
-      .focus-chip-pct-ext {
-        font-size: 9.5px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        opacity: 0.85;
-      }
-      .focus-chip-pct-ext.up { color: var(--tt-up); }
-      .focus-chip-pct-ext.dn { color: var(--tt-dn); }
-      /* (.focus-chip-pct-ext .ext-tag previously rendered an inline
-         "EXT" badge — now folded into the pct text directly, no
-         separate styling needed.) */
-
-      /* Mobile: stack the chip into 2 rows so each piece of data has
-         room to breathe. Bias + symbol + metric on top, price + pct
-         stack on bottom. Avoids the cramped 3-column squeeze. */
-      @media (max-width: 720px) {
-        .focus-chip {
-          grid-template-columns: auto 1fr;
-          grid-template-rows: auto auto;
-          gap: 6px 8px;
-          padding: 10px 12px;
-        }
-        .focus-chip-bias { grid-row: 1; grid-column: 1; align-self: center; }
-        .focus-chip-main { grid-row: 1; grid-column: 2; }
-        .focus-chip-right {
-          grid-row: 2;
-          grid-column: 1 / span 2;
-          flex-direction: row;
-          justify-content: flex-end;
-          align-items: baseline;
-          gap: 10px;
-          padding-top: 2px;
-          border-top: 1px solid var(--tt-border);
-        }
-        .focus-chip-pct-wrap {
-          flex-direction: row;
-          align-items: baseline;
-          gap: 6px;
-        }
-      }
 
       /* Bubble Map */
       .bm-stage {
@@ -1665,8 +1474,79 @@
         );
       }
 
+      // ── Tier-1 regime one-liner ─────────────────────────────────
+      // 2026-06-10 — UI refresh. The 3-tier morning read opens with a
+      // single session+regime line under the greeting: daily regime ·
+      // HMM latent state · breadth · SPY · VIX. Replaces the old
+      // QuickGlance card (its tiles folded into this line; the top
+      // mover lives in the Movers strip).
+      const REGIME_TONE = {
+        RISK_ON: "var(--tt-up-soft)", BULL: "var(--tt-up-soft)", BULL_TREND: "var(--tt-up-soft)",
+        STRONG_BULL: "var(--tt-up-soft)", EARLY_BULL: "var(--tt-up-soft)", LATE_BULL: "var(--tt-up-soft)",
+        NEUTRAL: "var(--tt-accent)", CHOP: "var(--tt-accent)",
+        RISK_OFF: "var(--tt-dn-soft)", BEAR: "var(--tt-dn-soft)", BEAR_TREND: "var(--tt-dn-soft)",
+        STRONG_BEAR: "var(--tt-dn-soft)", EARLY_BEAR: "var(--tt-dn-soft)", LATE_BEAR: "var(--tt-dn-soft)",
+      };
+      function computeRegimeRead(brief, data) {
+        const info = brief?.infographic || {};
+        const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
+        const briefRegime = headline?.regime || info?.regime || null;
+        const breadth = headline?.breadth || info?.breadth || null;
+        const breadthGreen = Number(breadth?.green);
+        const breadthTotal = Number(breadth?.total);
+        const breadthPct = (Number.isFinite(breadthGreen) && Number.isFinite(breadthTotal) && breadthTotal > 0)
+          ? (breadthGreen / breadthTotal) * 100 : null;
+        let latent = null;
+        if (data) {
+          for (const t of Object.values(data)) {
+            if (t?.latent_regime?.state) { latent = t.latent_regime; break; }
+          }
+        }
+        let regime = briefRegime;
+        if (!regime) {
+          const latentState = String(latent?.state || "").toUpperCase();
+          if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") regime = latentState;
+          else if (Number.isFinite(breadthPct)) regime = breadthPct >= 70 ? "RISK_ON" : breadthPct <= 30 ? "RISK_OFF" : "CHOP";
+          else regime = latentState || null;
+        }
+        return { regime, latent, breadthPct, breadthGreen, breadthTotal };
+      }
+      function RegimeLine({ brief, data }) {
+        const read = useMemo(() => computeRegimeRead(brief, data), [brief, data]);
+        const quote = (sym) => {
+          const t = data?.[sym];
+          if (!t) return null;
+          const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
+          const pct = Number(dc?.dayPct);
+          return Number.isFinite(pct) ? pct : null;
+        };
+        const spyPct = quote("SPY");
+        const vixT = data?.VIX || data?.["VX1!"];
+        const vixPx = vixT ? Number(vixT._live_price ?? vixT.price ?? vixT.close) : null;
+        const { regime, latent, breadthPct } = read;
+        if (!regime && !latent && breadthPct == null && spyPct == null) return null;
+        const tone = REGIME_TONE[String(regime || "").toUpperCase()] || "var(--tt-text-muted)";
+        const latentTone = REGIME_TONE[String(latent?.state || "").toUpperCase()] || "var(--tt-text-muted)";
+        const seg = (label, value, color) => h("span", { className: "seg" },
+          label,
+          h("b", { style: color ? { color } : null }, value),
+        );
+        const parts = [];
+        if (regime) parts.push(seg("Regime", String(regime).replace(/_/g, " "), tone));
+        if (latent?.state) parts.push(seg("HMM", String(latent.state).replace(/_/g, " "), latentTone));
+        if (breadthPct != null) parts.push(seg("Breadth", `${breadthPct.toFixed(0)}% green`, breadthPct >= 55 ? "var(--tt-up-soft)" : breadthPct <= 45 ? "var(--tt-dn-soft)" : "var(--tt-accent)"));
+        if (spyPct != null) parts.push(seg("SPY", `${spyPct >= 0 ? "+" : ""}${spyPct.toFixed(2)}%`, spyPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"));
+        if (Number.isFinite(vixPx) && vixPx > 0) parts.push(seg("VIX", vixPx.toFixed(2), null));
+        const out = [];
+        parts.forEach((p, i) => {
+          if (i > 0) out.push(h("span", { key: `sep-${i}`, className: "sep" }, "·"));
+          out.push(h(React.Fragment, { key: `seg-${i}` }, p));
+        });
+        return h("div", { className: "tt-regime-line" }, out);
+      }
+
       // ── Status header ──────────────────────────────────────────
-      function StatusHeader({ cal, briefDate }) {
+      function StatusHeader({ cal, briefDate, brief, data }) {
         const hour = new Date().getHours();
         const greeting = hour < 5 ? "Up early" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
         return h("section", { className: "tt-status tt-row" },
@@ -1682,6 +1562,8 @@
               "Brief: " + briefDate,
             ),
           ),
+          // Tier 1 of the morning read: one line that frames the session.
+          h(RegimeLine, { brief, data }),
         );
       }
 
@@ -1956,551 +1838,6 @@
             className: "ds-tickercard__spark",
             dangerouslySetInnerHTML: { __html: sparkSvg },
           }),
-        );
-      }
-
-      // ── Market Pulse — port from AT's Market Pulse row.
-      // User feedback: 'The Today Page should use the Market Pulse Tiles.'
-      // ─────────────────────────────────────────────────────────────
-      // BriefIndexCard / IndexPredictionsStrip — 2026-05-28 (rewrite)
-      //
-      // User report: "the index predictions don't align with the Daily
-      // Brief. The predictions should be what we publish in the Daily
-      // Brief and in the morning it should show the prediction once the
-      // brief is published and in the evening it should provide a clear
-      // score. This gives people a preview of the Daily Brief."
-      //
-      // Previous version fetched /timed/prediction-contract per index
-      // — a DIFFERENT model output than what the Daily Brief publishes.
-      // Replaced with brief-sourced data so the Today hero is now a
-      // genuine LIGHTWEIGHT VIEW of the Brief, not a parallel surface.
-      //
-      // Data source: brief.infographic.indices[*] which carries:
-      //   - sym, price, chgPct, atr
-      //   - levels.gamePlan: { bullTrigger, bullTarget, bearTrigger, bearTarget }
-      //   - weeklyLevels.gamePlan: same shape for week horizon
-      //
-      // Direction is computed from gamePlan vs current price:
-      //   currentPrice > bullTrigger        → BULL bias active
-      //   currentPrice < bearTrigger        → BEAR bias active
-      //   else                              → NEUTRAL, watch triggers
-      //
-      // Morning brief: shows the BULL/BEAR setup with trigger + target.
-      // Evening brief: same data, plus a small "Day's Move" score
-      //   computed from the live day change relative to the morning
-      //   trigger (was bull setup triggered? did it hit target?).
-      // ─────────────────────────────────────────────────────────────
-      function BriefIndexCard({ idx, briefType, livePx, dayPct, onSelectTicker, prose }) {
-        const SYM = String(idx?.sym || "").toUpperCase();
-        const briefPx = Number(idx?.price);
-        const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-        const lev = idx?.levels || {};
-        const gp = lev.gamePlan || {};
-        const bullT = Number(gp.bullTrigger);
-        const bullTgt = Number(gp.bullTarget);
-        const bearT = Number(gp.bearTrigger);
-        const bearTgt = Number(gp.bearTarget);
-        const dayAtr = Number(lev.dayAtr ?? idx?.atr);
-
-        // 2026-05-29 — Extract today's expected range from goldenGateNote:
-        // "Price 750.46 inside the daily Golden Gate (±38.2% gates 747.91 – 753.27).
-        //  Saty Triggers ±23.6% at 748.93 – 752.25."
-        // We pull the gates pair as the day's expected range, used in the
-        // day-trade prose ("Range today: $X – $Y").
-        const _rng = (() => {
-          const note = String(lev.goldenGateNote || "");
-          const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
-          if (!m) return null;
-          const lo = Number(m[1]); const hi = Number(m[2]);
-          return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? { lo, hi } : null;
-        })();
-
-        // Direction inference vs current price (intraday position vs triggers)
-        const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
-        const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
-        const biasMeta = bullActive
-          ? { label: "BULL ACTIVE", color: "var(--tt-up, #34d399)", bg: "rgba(52,211,153,0.10)" }
-          : bearActive
-            ? { label: "BEAR ACTIVE", color: "var(--tt-dn, #f87171)", bg: "rgba(248,113,113,0.10)" }
-            : { label: "WATCHING TRIGGERS", color: "var(--tt-text-muted, #9ca3af)", bg: "rgba(156,163,175,0.08)" };
-
-        const _fmt = (n) => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
-        const _pctMove = (from, to) =>
-          (Number.isFinite(from) && Number.isFinite(to) && from > 0)
-            ? ((to - from) / from) * 100
-            : null;
-        const bullR = _pctMove(bullT, bullTgt);
-        const bearR = _pctMove(bearT, bearTgt); // negative for SHORT (target below trigger)
-
-        // Evening scorecard — if briefType=evening, compute whether the
-        // morning prediction "worked". A bull setup is HIT if price closed
-        // above bullTarget; MISS if it fell back to bear side; OPEN otherwise.
-        let scorecard = null;
-        if (briefType === "evening" && Number.isFinite(price)) {
-          if (Number.isFinite(bullT) && price >= bullTgt && bullTgt > 0) {
-            scorecard = { label: "BULL TARGET HIT", color: "var(--tt-up)" };
-          } else if (Number.isFinite(bearT) && price <= bearTgt && bearTgt > 0) {
-            scorecard = { label: "BEAR TARGET HIT", color: "var(--tt-dn)" };
-          } else if (Number.isFinite(bullT) && price >= bullT) {
-            scorecard = { label: "BULL TRIGGERED · WORKING", color: "var(--tt-up)" };
-          } else if (Number.isFinite(bearT) && price <= bearT) {
-            scorecard = { label: "BEAR TRIGGERED · WORKING", color: "var(--tt-dn)" };
-          } else {
-            scorecard = { label: "NEITHER SIDE TRIGGERED", color: "var(--tt-text-muted)" };
-          }
-        }
-
-        const onClick = (e) => {
-          e.preventDefault();
-          if (typeof onSelectTicker === "function") onSelectTicker(SYM);
-          else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
-        };
-
-        const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
-        const _dirColor = dayPct == null ? "var(--tt-text-muted)"
-                       : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
-
-        return h("button", {
-          onClick,
-          className: "tt-card ds-tickercard",
-          style: {
-            textAlign: "left", padding: "var(--ds-space-3, 12px)", width: "100%",
-            background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
-            border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
-            borderRadius: 10, cursor: "pointer",
-            display: "flex", flexDirection: "column", gap: 8,
-            transition: "border-color 0.15s, transform 0.05s",
-          },
-          onMouseEnter: (e) => { e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))"; },
-          onMouseLeave: (e) => { e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))"; },
-          title: `${SYM} — open in detail`,
-        },
-          // ── Header: LOGO · SYM · price · day change ─────────────────
-          // Mirrors the Market Pulse tile layout (ds-tickercard__head)
-          // so this card reads as part of the same brand system, just
-          // with the day-trade plan attached below.
-          h("div", { className: "ds-tickercard__head", style: { display: "flex", alignItems: "center", gap: 8 } },
-            h("div", {
-              className: "ds-tickercard__logo",
-              ref: (el) => {
-                if (el && !el.dataset.dsInit && window.DS && typeof window.DS.tickerLogo === "function") {
-                  el.dataset.dsInit = "1";
-                  try { el.replaceWith(window.DS.tickerLogo(SYM, { size: 22 })); } catch (_) {}
-                }
-              },
-              style: { width: 22, height: 22, flexShrink: 0 },
-            }, SYM.slice(0, 2)),
-            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13, fontWeight: 700, letterSpacing: "0.02em", color: "var(--tt-text)" } }, SYM),
-            h("span", { style: { fontSize: 12, color: "var(--tt-text-muted)" } }, _fmt(price) || "—"),
-            dayPct != null && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 600, color: _dirColor, marginLeft: "auto" },
-            }, `${_dirGlyph} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
-          ),
-          // ── Bias chip + scorecard (when evening) ────────────────────
-          h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 } },
-            h("span", {
-              style: {
-                padding: "2px 8px", borderRadius: 999, fontSize: 9, fontWeight: 700,
-                letterSpacing: "0.08em", fontFamily: "var(--tt-font-mono)",
-                background: biasMeta.bg, color: biasMeta.color,
-                border: `1px solid ${biasMeta.color}55`,
-              },
-            }, biasMeta.label),
-            scorecard && h("span", {
-              style: {
-                fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
-                fontFamily: "var(--tt-font-mono)", color: scorecard.color,
-              },
-            }, "· " + scorecard.label),
-          ),
-          // 2026-05-29 — Current-vs-range banner. The brief's prose is
-          // generated at 9:01 AM ET with the snapshot price; if the
-          // market has moved beyond the early range (SPY printing
-          // $755.97 while the prose says "expected day range 747-753"),
-          // the user shouldn't have to mentally reconcile that. This
-          // banner sits above the (still useful) static prose and
-          // surfaces:
-          //   - Inside range  → "Inside early range — watching triggers"
-          //   - Above range   → "⚡ Above early range — breakout in progress (bull trigger $X)"
-          //   - Below range   → "⚠ Below early range — breakdown in progress (bear trigger $X)"
-          // Only renders when we have a price AND a range to compare.
-          Number.isFinite(price) && _rng && (() => {
-            const above = price > _rng.hi;
-            const below = price < _rng.lo;
-            const inside = !above && !below;
-            const banner = inside ? {
-              text: `Inside early range — ${biasMeta.label.toLowerCase()}`,
-              color: "var(--tt-text-muted)",
-              bg: "rgba(255,255,255,0.04)",
-              border: "rgba(255,255,255,0.10)",
-            } : above ? {
-              text: bullActive
-                ? `⚡ Above early range — bull trigger $${bullT?.toFixed(2)} ${price >= bullTgt ? "TARGET HIT" : "armed"}`
-                : `⚡ Above early range ($${_rng.hi.toFixed(2)}) — extension watch`,
-              color: "var(--tt-up, #34d399)",
-              bg: "rgba(52,211,153,0.08)",
-              border: "rgba(52,211,153,0.30)",
-            } : {
-              text: bearActive
-                ? `⚠ Below early range — bear trigger $${bearT?.toFixed(2)} ${price <= bearTgt ? "TARGET HIT" : "armed"}`
-                : `⚠ Below early range ($${_rng.lo.toFixed(2)}) — breakdown watch`,
-              color: "var(--tt-dn, #f87171)",
-              bg: "rgba(248,113,113,0.08)",
-              border: "rgba(248,113,113,0.30)",
-            };
-            return h("div", {
-              style: {
-                fontSize: 11, fontWeight: 600, lineHeight: 1.4,
-                padding: "6px 10px", borderRadius: 6,
-                color: banner.color, background: banner.bg,
-                border: `1px solid ${banner.border}`,
-                fontFamily: "var(--tt-font-mono)",
-              },
-            }, banner.text);
-          })(),
-          // ── ES-style narrative prose (when brief provides it) ───────
-          // The per-index prediction sentence the LLM generates, mirroring
-          // the ES Prediction style. Stripped of the trailing 4-line
-          // structured block (which we render below via gamePlan fields).
-          prose && h("p", {
-            style: {
-              fontSize: 12, color: "var(--tt-text)", lineHeight: 1.55,
-              margin: 0, padding: "6px 10px",
-              background: "rgba(245,194,92,0.05)",
-              borderLeft: "2px solid var(--tt-accent, #f5c25c)",
-              borderRadius: "0 4px 4px 0",
-            },
-          }, prose),
-          // ── Today's expected range — static morning + live recompute ─
-          // 2026-05-29 — When live price has moved meaningfully outside
-          // the morning range (e.g. SPY published 747-753, currently
-          // 757), show BOTH the morning range (labeled as such) and a
-          // live recomputed range = livePx ± (dayAtr × 0.5). The live
-          // range gives the operator a useful intraday reference once
-          // the morning estimate is no longer relevant.
-          _rng && (() => {
-            const morningOutOfBand = Number.isFinite(price)
-              && Number.isFinite(dayAtr) && dayAtr > 0
-              && (price > _rng.hi + dayAtr * 0.05 || price < _rng.lo - dayAtr * 0.05);
-            const liveRange = (morningOutOfBand && Number.isFinite(price) && dayAtr > 0)
-              ? { lo: price - dayAtr * 0.5, hi: price + dayAtr * 0.5 }
-              : null;
-            return h(React.Fragment, null,
-              h("div", {
-                style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", lineHeight: 1.5 },
-              },
-                h("span", { style: { color: "var(--tt-text-faint)" } },
-                  morningOutOfBand ? "Morning estimate: " : "Today's range: ",
-                ),
-                h("span", { style: { color: "var(--tt-text)", textDecoration: morningOutOfBand ? "line-through" : "none", opacity: morningOutOfBand ? 0.6 : 1 } },
-                  `$${_rng.lo.toFixed(2)} – $${_rng.hi.toFixed(2)}`,
-                ),
-                Number.isFinite(dayAtr) && dayAtr > 0 && h("span", { style: { color: "var(--tt-text-faint)" } },
-                  ` · typical move ±$${dayAtr.toFixed(2)}`,
-                ),
-              ),
-              liveRange && h("div", {
-                style: { fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--tt-up)", lineHeight: 1.5, fontWeight: 600 },
-              },
-                h("span", { style: { color: "var(--tt-text-faint)" } }, "Live range now: "),
-                h("span", null, `$${liveRange.lo.toFixed(2)} – $${liveRange.hi.toFixed(2)}`),
-                h("span", { style: { color: "var(--tt-text-faint)", fontWeight: 500 } },
-                  ` · re-anchored to $${price.toFixed(2)}`,
-                ),
-              ),
-            );
-          })(),
-          // ── Day-trade game plan (bull above / bear below) ───────────
-          // The brief's published trigger + target levels, framed as
-          // intraday rotation around the pivot. Mirrors the Brief's
-          // own per-index section so language is consistent.
-          (_fmt(bullT) || _fmt(bearT)) && h("div", {
-            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10.5, color: "var(--tt-text-muted)", display: "flex", flexDirection: "column", gap: 3 },
-          },
-            _fmt(bullT) && h("div", null,
-              h("span", { style: { color: "var(--tt-up)" } }, `▲ `),
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "Bull above "),
-              h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullT)),
-              _fmt(bullTgt) && h(React.Fragment, null,
-                h("span", { style: { color: "var(--tt-text-faint)" } }, " → "),
-                h("span", { style: { color: "var(--tt-up)" } }, _fmt(bullTgt)),
-                Number.isFinite(bullR) && bullR > 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (+${bullR.toFixed(1)}%)`),
-              ),
-            ),
-            _fmt(bearT) && h("div", null,
-              h("span", { style: { color: "var(--tt-dn)" } }, `▼ `),
-              h("span", { style: { color: "var(--tt-text-faint)" } }, "Bear below "),
-              h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearT)),
-              _fmt(bearTgt) && h(React.Fragment, null,
-                h("span", { style: { color: "var(--tt-text-faint)" } }, " → "),
-                h("span", { style: { color: "var(--tt-dn)" } }, _fmt(bearTgt)),
-                Number.isFinite(bearR) && bearR < 0 && h("span", { style: { color: "var(--tt-text-faint)" } }, ` (${bearR.toFixed(1)}%)`),
-              ),
-            ),
-          ),
-        );
-      }
-
-      function IndexPredictionsStrip({ brief, data, onSelectTicker, layout = "full" }) {
-        // 2026-05-28 — Now reads from the brief's per-index gamePlan
-        // (morning.infographic.indices[*]) so this strip is a TRUE
-        // preview of what the Brief publishes — not a parallel
-        // prediction-contract surface.
-        const morning = brief?.morning || (brief?.type === "morning" ? brief : null);
-        const evening = brief?.evening || (brief?.type === "evening" ? brief : null);
-        // Prefer evening (scorecard view) when published, else morning
-        const active = evening || morning;
-        if (!active) return null;
-        const briefType = active.type || (evening ? "evening" : "morning");
-        // 2026-06-05 — Expanded to the 5 day-trade indices the user wants:
-        // ES, SPY, QQQ, IWM, DIA (ES1! alias accepted). Ordered ES first.
-        const _wantOrder = ["ES", "ES1!", "SPY", "QQQ", "IWM", "DIA"];
-        const indices = (active?.infographic?.indices || [])
-          .filter((i) => _wantOrder.includes(String(i?.sym || "").toUpperCase()))
-          .sort((a, b) => _wantOrder.indexOf(String(a?.sym || "").toUpperCase()) - _wantOrder.indexOf(String(b?.sym || "").toUpperCase()));
-        if (indices.length === 0) return null;
-
-        const briefDate = active?.date || morning?.date || null;
-        // 2026-05-29 — Explicit day-trade framing per user request.
-        // "The Prediction for SPY, QQQ, IWM should be similar to what we have
-        //  for ES, guiding users how to day trade it. Right now it does not seem
-        //  like it is a day trade but a swing trade prediction. We should make
-        //  sure the language and levels are aligned across and mention that
-        //  it is a day trade prediction."
-        // The pre-rewrite version pulled from /timed/prediction-contract which
-        // had "DAYS TO WEEKS" horizon — swing scale. The brief gamePlan IS
-        // day-trade scale (intraday triggers + targets, computed from the
-        // day's Golden Gate / Saty trigger levels) so calling it out explicitly
-        // resolves the confusion.
-        const _label = briefType === "evening"
-          ? "Today's Day-Trade Scorecard"
-          : "Today's Day-Trade Plan";
-        const _isCompact = layout === "compact";
-
-        return h("aside", {
-          className: "tt-card tt-card-pad",
-          style: {
-            display: "flex", flexDirection: "column",
-            gap: _isCompact ? 6 : 10,
-            height: "100%",
-            // 2026-05-30 — pad less in compact mode (the hero already breathes
-            // between left rows; the predictions don't need their own halo)
-            padding: _isCompact ? "12px 14px" : undefined,
-          },
-        },
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
-            h("div", { className: "tt-sec-title", style: { margin: 0 } },
-              _isCompact ? `${_label.toUpperCase()} · ${indices.length} INDICES` : "DAY-TRADE PREDICTIONS",
-            ),
-            briefDate && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-faint)" },
-            }, briefDate),
-          ),
-          !_isCompact && h("div", { className: "tt-sec-h", style: { fontSize: 16, margin: 0 } }, _label),
-          !_isCompact && h("p", {
-            style: { fontSize: 11, color: "var(--tt-text-muted)", fontStyle: "italic", margin: "0", lineHeight: 1.5 },
-          },
-            "Intraday triggers + targets — same Golden-Gate game plan the brief publishes for ES.",
-          ),
-          h("div", {
-            style: { display: "flex", flexDirection: "column", gap: _isCompact ? 4 : 8, marginTop: _isCompact ? 0 : 4 },
-          },
-            indices.map((idx) => {
-              const sym = String(idx?.sym || "").toUpperCase();
-              const live = data?.[sym] || null;
-              const liveDc = live ? getDailyChange({ ticker: sym, ...live }) : null;
-              // 2026-05-29 — Per-index ES-style narrative sentence.
-              // Primary source: the brief's scalar field (spyPrediction
-              // etc) populated by extractPredictionLine in
-              // worker/daily-brief.js after the LLM produces the prose.
-              //
-              // Fallback: parse from brief.content markdown directly.
-              // This handles legacy briefs generated before the prose
-              // prompt change landed, so the card works on day-one
-              // without waiting for the next morning brief.
-              const proseRaw = sym === "SPY" ? active?.spyPrediction
-                            : sym === "QQQ" ? active?.qqqPrediction
-                            : sym === "IWM" ? active?.iwmPrediction
-                            : null;
-              const proseFallback = (() => {
-                if (proseRaw) return null;
-                const content = active?.content || "";
-                if (!content) return null;
-                // Match `**SYM @ $X** · Range today $A-$B  \n▲ ... \n▼ ... \nLean: X — Y`
-                // and synthesize a one-sentence narrative from the parts.
-                const re = new RegExp(
-                  `\\*\\*${sym}\\s*@\\s*\\$([\\d.,]+)\\*\\*\\s*·\\s*Range today\\s+\\$([\\d.,]+)[–-]\\$([\\d.,]+)[\\s\\S]*?Bull above\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Bear below\\s+\\$([\\d.,]+)\\s*[→\\->]+\\s*\\$([\\d.,]+)[\\s\\S]*?Lean:\\s*([A-Z]+)\\s*[—\\-]\\s*([^\\n.]+)`,
-                  "i",
-                );
-                const m = content.match(re);
-                if (!m) return null;
-                const [, px, lo, hi, bullT, bullTgt, bearT, bearTgt, lean, why] = m;
-                const leanLc = String(lean).toLowerCase();
-                if (leanLc === "bull") {
-                  return `${sym} stays inside the expected day range of $${lo}–$${hi} early; resolves higher only if it reclaims $${bullT} (target $${bullTgt}). ${why.trim()}.`;
-                } else if (leanLc === "bear") {
-                  return `${sym} stays inside the expected day range of $${lo}–$${hi} early; risk skews lower on a break of $${bearT} (target $${bearTgt}). ${why.trim()}.`;
-                }
-                return `${sym} stays inside the expected day range of $${lo}–$${hi} early; only resolves higher above $${bullT} (target $${bullTgt}) or lower below $${bearT} (target $${bearTgt}). ${why.trim()}.`;
-              })();
-              const prose = proseRaw
-                ? String(proseRaw).split(/\n\s*\n/)[0].replace(/\*\*/g, "").trim()
-                : proseFallback;
-              if (_isCompact) {
-                return h(BriefIndexRowCompact, {
-                  key: sym,
-                  idx,
-                  briefType,
-                  livePx: Number(live?.price),
-                  dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-                  onSelectTicker,
-                  prose,
-                });
-              }
-              return h(BriefIndexCard, {
-                key: sym,
-                idx,
-                briefType,
-                livePx: Number(live?.price),
-                dayPct: Number.isFinite(liveDc?.dayPct) ? Number(liveDc.dayPct) : Number(idx?.chgPct),
-                onSelectTicker,
-                prose,
-              });
-            }),
-          ),
-          h("a", {
-            href: "/daily-brief.html",
-            style: {
-              fontSize: 11, color: "var(--tt-accent, #f5c25c)", textDecoration: "none",
-              marginTop: _isCompact ? 2 : 4, display: "inline-flex", alignItems: "center", gap: 4,
-            },
-          },
-            _isCompact ? "Full plan + scorecard →" : "Read the full brief →",
-          ),
-        );
-      }
-
-      // ─────────────────────────────────────────────────────────────
-      // BriefIndexRowCompact — 2026-05-30 (v3.1)
-      //
-      // 3-row compact rendering of one index prediction. Designed for
-      // the TodayHero left column. Keeps the ES-style narrative prose
-      // (open→close story of how the day plays out) as the centerpiece;
-      // the triggers + targets sit underneath as a single dense line.
-      // Much shorter than the full BriefIndexCard but preserves the
-      // most important read — the prose — that the user explicitly
-      // flagged when v3.0 dropped it.
-      //
-      // Layout:
-      //   ┌─ Row 1 ─────────────────────────────────┐
-      //   │ SYM $price ▲%  [BIAS]   Range $lo–$hi  │
-      //   ├─ Row 2 ─────────────────────────────────┤
-      //   │ "SYM stays inside expected day range    │
-      //   │  …open→close narrative prose…"          │
-      //   ├─ Row 3 ─────────────────────────────────┤
-      //   │ ▲ $bullT → $bullTgt    ▼ $bearT → $bearTgt │
-      //   └─────────────────────────────────────────┘
-      // ─────────────────────────────────────────────────────────────
-      function BriefIndexRowCompact({ idx, briefType, livePx, dayPct, onSelectTicker, prose }) {
-        const SYM = String(idx?.sym || "").toUpperCase();
-        const briefPx = Number(idx?.price);
-        const price = Number.isFinite(livePx) && livePx > 0 ? livePx : briefPx;
-        const lev = idx?.levels || {};
-        const gp = lev.gamePlan || {};
-        const bullT = Number(gp.bullTrigger);
-        const bullTgt = Number(gp.bullTarget);
-        const bearT = Number(gp.bearTrigger);
-        const bearTgt = Number(gp.bearTarget);
-        const _rng = (() => {
-          const note = String(lev.goldenGateNote || "");
-          const m = note.match(/gates\s+(\d+(?:\.\d+)?)\s*[–\-]\s*(\d+(?:\.\d+)?)/);
-          if (!m) return null;
-          const lo = Number(m[1]); const hi = Number(m[2]);
-          return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? { lo, hi } : null;
-        })();
-        const bullActive = Number.isFinite(bullT) && Number.isFinite(price) && price >= bullT;
-        const bearActive = Number.isFinite(bearT) && Number.isFinite(price) && price <= bearT;
-        const biasMeta = bullActive
-          ? { label: "BULL", color: "#34d399", bg: "rgba(52,211,153,0.12)" }
-          : bearActive
-            ? { label: "BEAR", color: "#f87171", bg: "rgba(248,113,113,0.12)" }
-            : { label: "WAIT", color: "#9ca3af", bg: "rgba(156,163,175,0.10)" };
-        const _fmt = (n) => Number.isFinite(n) && n > 0 ? `$${n.toFixed(2)}` : null;
-        const _dirGlyph = dayPct == null ? "" : dayPct > 0 ? "▲" : dayPct < 0 ? "▼" : "◆";
-        const _dirColor = dayPct == null ? "var(--tt-text-muted)"
-                       : dayPct > 0 ? "var(--tt-up)" : dayPct < 0 ? "var(--tt-dn)" : "var(--tt-text-muted)";
-
-        const onClick = (e) => {
-          e.preventDefault();
-          if (typeof onSelectTicker === "function") onSelectTicker(SYM);
-          else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(SYM)}`;
-        };
-
-        // Trim verbose punctuation from the prose so it reads cleanly
-        // in a single ~2-line block. The full version with embedded
-        // markdown headers lives on the Daily Brief page.
-        const trimmedProse = prose
-          ? String(prose).replace(/\s+/g, " ").trim()
-          : null;
-
-        return h("button", {
-          onClick,
-          style: {
-            textAlign: "left", padding: "10px 12px", width: "100%",
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: 8, cursor: "pointer",
-            display: "flex", flexDirection: "column", gap: 6,
-            transition: "border-color 0.15s, background 0.05s",
-          },
-          onMouseEnter: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.14)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; },
-          onMouseLeave: (e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; e.currentTarget.style.background = "rgba(255,255,255,0.02)"; },
-          title: `${SYM} — open detail`,
-        },
-          // ── Row 1: SYM + price + % + BIAS + Range ──────────
-          h("div", { style: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" } },
-            h("strong", { style: { fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, SYM),
-            h("span", { style: { fontSize: 12, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" } }, _fmt(price) || "—"),
-            dayPct != null && h("span", {
-              style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 600, color: _dirColor },
-            }, `${_dirGlyph}${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
-            h("span", {
-              style: {
-                padding: "1px 7px", borderRadius: 999, fontSize: 9, fontWeight: 700,
-                letterSpacing: "0.08em", fontFamily: "var(--tt-font-mono)",
-                background: biasMeta.bg, color: biasMeta.color, border: `1px solid ${biasMeta.color}55`,
-              },
-            }, biasMeta.label),
-            _rng && h("span", {
-              style: { fontSize: 10, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)", marginLeft: "auto" },
-            }, `Range ${_fmt(_rng.lo)}–${_fmt(_rng.hi)}`),
-          ),
-          // ── Row 2: ES-style narrative prose (the day's story) ──────────
-          // The whole point of the prediction is HOW it'll play out, not
-          // just the trigger numbers. Always show when we have it; only
-          // hide when brief.content / per-index prediction lookup found
-          // nothing.
-          trimmedProse && h("p", {
-            style: {
-              fontSize: 12, color: "var(--tt-text)", lineHeight: 1.5,
-              margin: 0,
-              // Limit to 2-3 lines max so a verbose paragraph doesn't
-              // re-introduce the height bloat from the old card.
-              display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            },
-          }, trimmedProse),
-          // ── Row 3: Bull / Bear trigger → target line ──────────
-          (Number.isFinite(bullT) || Number.isFinite(bearT)) && h("div", {
-            style: { display: "flex", gap: 14, flexWrap: "wrap", fontSize: 10, fontFamily: "var(--tt-font-mono)" },
-          },
-            Number.isFinite(bullT) && Number.isFinite(bullTgt) && h("span", {
-              style: { color: "var(--tt-up, #34d399)", whiteSpace: "nowrap" },
-            }, `▲ Bull ${_fmt(bullT)} → ${_fmt(bullTgt)}`),
-            Number.isFinite(bearT) && Number.isFinite(bearTgt) && h("span", {
-              style: { color: "var(--tt-dn, #f87171)", whiteSpace: "nowrap" },
-            }, `▼ Bear ${_fmt(bearT)} → ${_fmt(bearTgt)}`),
-          ),
         );
       }
 
@@ -3270,130 +2607,15 @@
             brief
               ? h(BriefPreview, { brief })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
-            h(QuickGlance, { brief, data, onSelectTicker }),
+            // 2026-06-10 — QuickGlance removed: its regime / HMM / breadth
+            // tiles folded into the Tier-1 RegimeLine in the status header;
+            // the top mover lives in the Movers strip.
           ),
           // 2026-06-05 — Right column is now the Research Desk feed (keeps the
           // Today page fresh with FSD research). Predictions + Options moved
           // to their own full-width sections below the hero.
           h("div", { style: { minWidth: 0 } },
             h(ResearchDeskPanel, { onSelectTicker }),
-          ),
-        );
-      }
-
-      // ── QuickGlance — fills the space below the Brief Preview ──
-      // 2026-05-29 (B5). Reuses the brief's regime + breadth + top-3
-      // signals plus a live top-mover scan over the snapshot. Designed
-      // to be glance-able: ~6-second read for the user to absorb
-      // today's market shape without leaving the Today page.
-      function QuickGlance({ brief, data, onSelectTicker }) {
-        const info = brief?.infographic || {};
-        const headline = info?.headline && typeof info.headline === "object" ? info.headline : null;
-        const briefRegime = headline?.regime || info?.regime || null;
-        const breadth = headline?.breadth || info?.breadth || null;
-        const breadthGreen = Number(breadth?.green);
-        const breadthTotal = Number(breadth?.total);
-        const breadthPct = (Number.isFinite(breadthGreen) && Number.isFinite(breadthTotal) && breadthTotal > 0)
-          ? (breadthGreen / breadthTotal) * 100 : null;
-
-        // Live top mover from snapshot — first-pass: largest +day%.
-        const topMover = useMemo(() => {
-          if (!data) return null;
-          let best = null;
-          for (const t of Object.values(data)) {
-            if (!t?.ticker) continue;
-            const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
-            const pct = Number(dc?.dayPct);
-            if (!Number.isFinite(pct)) continue;
-            if (!best || pct > best.pct) best = { sym: t.ticker, pct };
-          }
-          return best;
-        }, [data]);
-
-        // Latent HMM regime — same source MarketState uses.
-        const latent = useMemo(() => {
-          if (!data) return null;
-          for (const t of Object.values(data)) {
-            if (t?.latent_regime?.state) return t.latent_regime;
-          }
-          return null;
-        }, [data]);
-
-        // 2026-06-03 — Fallback regime when the daily brief didn't emit one.
-        // The brief's `regime` reads from `data.market.SPY.regime_class ||
-        // data.regime_class` — both of which can be empty on cold-start.
-        // Falls back to breadth + HMM-latent so the tile shows SOMETHING
-        // reasonable instead of a bare "—".
-        const regime = useMemo(() => {
-          if (briefRegime) return briefRegime;
-          const latentState = String(latent?.state || "").toUpperCase();
-          if (latentState === "BEAR_TREND" || latentState === "BULL_TREND") return latentState;
-          if (Number.isFinite(breadthPct)) {
-            if (breadthPct >= 70) return "RISK_ON";
-            if (breadthPct <= 30) return "RISK_OFF";
-            return "CHOP";
-          }
-          return latentState || null;
-        }, [briefRegime, latent, breadthPct]);
-
-        const REGIME_TONE = {
-          RISK_ON: "#34d399", BULL: "#34d399", BULL_TREND: "#34d399",
-          NEUTRAL: "#f5c25c", CHOP: "#f5c25c",
-          RISK_OFF: "#f87171", BEAR: "#f87171", BEAR_TREND: "#f87171",
-        };
-        const regimeTone = REGIME_TONE[String(regime || "").toUpperCase()] || "var(--tt-text-muted)";
-        const latentTone = REGIME_TONE[String(latent?.state || "").toUpperCase()] || "var(--tt-text-muted)";
-
-        const Tile = ({ label, value, sub, color }) => h("div", {
-          style: {
-            flex: 1, minWidth: 120,
-            padding: 10,
-            background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
-            border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
-            borderRadius: 8,
-          },
-        },
-          h("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-faint)", textTransform: "uppercase" } }, label),
-          h("div", { style: { marginTop: 4, fontFamily: "var(--tt-font-mono)", fontSize: 16, fontWeight: 700, color: color || "var(--tt-text)" } }, value || "—"),
-          sub && h("div", { style: { marginTop: 2, fontSize: 10.5, color: "var(--tt-text-muted)" } }, sub),
-        );
-
-        return h("section", { className: "tt-card tt-card-pad" },
-          h("div", { className: "tt-sec-title", style: { marginBottom: 8 } }, "QUICK GLANCE"),
-          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 } },
-            h(Tile, {
-              label: "Daily Regime",
-              value: regime ? String(regime).replace(/_/g, " ") : "—",
-              sub: breadthPct != null ? `Breadth ${breadthPct.toFixed(0)}% green (${breadthGreen}/${breadthTotal})` : null,
-              color: regimeTone,
-            }),
-            latent && h(Tile, {
-              label: "Latent Regime · HMM",
-              value: String(latent.state || "—").replace(/_/g, " "),
-              sub: latent.posterior
-                ? Object.entries(latent.posterior).map(([k, v]) => `${k.replace(/_/g, " ").toLowerCase()} ${(v * 100).toFixed(0)}%`).join(" · ")
-                : null,
-              color: latentTone,
-            }),
-            topMover && h("div", {
-              style: {
-                flex: 1, minWidth: 120,
-                padding: 10,
-                background: topMover.pct >= 0 ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
-                border: `1px solid ${topMover.pct >= 0 ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
-                borderRadius: 8,
-                cursor: "pointer",
-                transition: "border-color 0.12s",
-              },
-              onClick: () => typeof onSelectTicker === "function" && onSelectTicker(topMover.sym),
-              title: `Open ${topMover.sym} in the right rail`,
-            },
-              h("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-faint)", textTransform: "uppercase" } }, "Top Mover · RTH"),
-              h("div", { style: { marginTop: 4, fontFamily: "var(--tt-font-mono)", fontSize: 16, fontWeight: 700, color: topMover.pct >= 0 ? "var(--tt-up)" : "var(--tt-dn)" } },
-                topMover.sym, " ", topMover.pct >= 0 ? "+" : "", topMover.pct.toFixed(2), "%",
-              ),
-              h("div", { style: { marginTop: 2, fontSize: 10.5, color: "var(--tt-text-muted)" } }, "Click to open detail"),
-            ),
           ),
         );
       }
@@ -3536,71 +2758,24 @@
       }
 
       // ═══════════════════════════════════════════════════════════
-      // FocusRail — categorized actionable ticker rail.
+      // FocusRail — Entry Zone strip.
       //
-      // V15 P0.7.184 (2026-05-17) — Per user feedback: "the Today
-      // Page also doesn't have the Regime Bar with the Categorized
-      // tickers by Rank, Squeeze, RR, and other categories. This is
-      // what should be shown at all times, giving users tickers
-      // that can be focused on."
-      //
-      // Renders a horizontal scroller of 4 mini-lanes (Top Rank /
-      // High RR / Squeeze / Early Setup) — each with 5 tickers
-      // pulled directly from the /timed/all snapshot. Click any
-      // chip → opens the right-rail overlay. No extra fetch.
+      // 2026-06-10 — UI refresh. Per operator feedback the HIGH R:R and
+      // SQUEEZE lanes are removed ("We don't need squeeze nor RR").
+      // The Entry Zone lane stays — tickers in the entry corridor with
+      // a kanban entry stage, straight from the /timed/all snapshot.
+      // Click any chip → right-rail overlay. No extra fetch.
       // ═══════════════════════════════════════════════════════════
-      function FocusRail({ data, onSelectTicker, strip }) {
-        const lanes = useMemo(() => {
+      function FocusRail({ data, onSelectTicker }) {
+        const items = useMemo(() => {
           if (!data) return [];
           const all = Object.entries(data)
             .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
             .filter((t) => t && t.ticker);
-
           const TT = window.TimedBubbleChart || {};
           const entryType = TT.entryType || (() => ({ corridor: false }));
-          const completionForSize = TT.completionForSize || ((t) => Number(t?.completion) || 0);
-
-          // Lane 1 — Top Rank. Sort by rank_position asc; need a
-          // real rank to qualify (rank_position > 0).
-          const topRank = all
-            .filter((t) => Number(t.rank_position) > 0)
-            .sort((a, b) => Number(a.rank_position) - Number(b.rank_position))
-            .slice(0, 8);
-
-          // Lane 2 — High R:R Early. RR ≥ 2.0 + completion ≤ 0.45 +
-          // some actionable timing (corridor / flip / squeeze release).
-          const highRr = all
-            .filter((t) => {
-              const rr = Number(t.rr) || 0;
-              const comp = completionForSize(t);
-              const flags = t.flags || {};
-              const ent = entryType(t);
-              const timing = ent?.corridor || flags.flip_watch || flags.sq30_release;
-              return rr >= 2.0 && comp <= 0.45 && timing;
-            })
-            .sort((a, b) => (Number(b.rr) || 0) - (Number(a.rr) || 0))
-            .slice(0, 8);
-
-          // Lane 3 — Squeeze setups (sq30_on but not yet released, or
-          // freshly released within the scoring snapshot).
-          const squeeze = all
-            .filter((t) => {
-              const flags = t.flags || {};
-              return flags.sq30_on || flags.sq30_release;
-            })
-            .sort((a, b) => {
-              // Released > on (release is the trigger event)
-              const ra = a.flags?.sq30_release ? 1 : 0;
-              const rb = b.flags?.sq30_release ? 1 : 0;
-              if (ra !== rb) return rb - ra;
-              return (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0);
-            })
-            .slice(0, 8);
-
-          // Lane 4 — Early entry setups: in corridor with kanban
-          // stage in the entry-zone (setup / in_review / enter / etc).
           const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
-          const earlySetup = all
+          return all
             .filter((t) => {
               const ent = entryType(t);
               const stage = String(t.kanban_stage || "").toLowerCase();
@@ -3608,190 +2783,26 @@
             })
             .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
             .slice(0, 8);
-
-          return [
-            { id: "rank",    label: "TOP RANK",   sub: "Best composite score",       items: topRank,    accent: "accent" },
-            { id: "rr",      label: "HIGH R:R",   sub: "RR ≥ 2.0 + early",           items: highRr,     accent: "up" },
-            { id: "squeeze", label: "SQUEEZE",    sub: "On / released — primed to break",     items: squeeze,    accent: "cyan" },
-            { id: "setup",   label: "ENTRY ZONE", sub: "In corridor + entry stage",  items: earlySetup, accent: "violet" },
-          ].filter((lane) => lane.items.length > 0);
         }, [data]);
 
-        if (lanes.length === 0) return null;
+        if (items.length === 0) return null;
 
-        // Snapshot session state once per render so every chip in this
-        // batch agrees (and so we don't pay the Intl cost per chip).
-        const marketOpen = isNyRegularMarketOpen();
-        const CRYPTO_NO_EXT = new Set(["BTCUSD", "ETHUSD"]);
-
-        const fmtMetric = (t, laneId) => {
-          if (laneId === "rank") {
-            const r = Number(t.rank_position);
-            return Number.isFinite(r) ? `R${r}` : "";
-          }
-          if (laneId === "rr") {
-            const rr = Number(t.rr);
-            return Number.isFinite(rr) ? `${rr.toFixed(1)}R` : "";
-          }
-          if (laneId === "squeeze") {
-            const f = t.flags || {};
-            return f.sq30_release ? "RLS" : f.sq30_on ? "ON" : "";
-          }
-          // 2026-05-22 (user request): bias for the Entry Zone (setup)
-          // lane now uses the SAME colored bias chip as the other lanes
-          // (column 1, left side). The legacy "L"/"S" letter that this
-          // function used to emit for the setup lane was tiny, gray,
-          // visually buried after the ticker. Returning empty so no
-          // duplicate letter renders.
-          return "";
-        };
-
-        // 2026-06-05 — Strip mode: render High R:R / Squeeze / Entry Zone as
-        // separate full-width horizontal strips (per user-requested order).
-        // Top Rank is omitted in strip mode.
-        if (strip) {
-          const stripLanes = lanes.filter((l) => l.id !== "rank");
-          if (stripLanes.length === 0) return null;
-          return h(React.Fragment, null,
-            stripLanes.map((lane) => h("section", { key: lane.id, className: "tt-row" },
-              h("div", { className: "tt-sec-title" }, lane.label),
-              h("div", { className: "tt-strip-scroll" },
-                lane.items.map((t) => {
-                  const sym = String(t.ticker || "").toUpperCase();
-                  const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
-                  const pct = Number(dc?.dayPct);
-                  const metric = fmtMetric(t, lane.id);
-                  return h("button", {
-                    key: sym, onClick: () => onSelectTicker && onSelectTicker(sym),
-                    className: "tt-strip-chip", title: sym,
-                  },
-                    h(TickerLogo, { sym, size: 18 }),
-                    h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
-                    metric && h("span", { style: { fontSize: 10, fontWeight: 700, color: "var(--tt-text-dim)" } }, metric),
-                    Number.isFinite(pct) && h("span", { style: { fontSize: 11, fontWeight: 700, color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontFamily: "var(--tt-font-mono)" } }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`),
-                  );
-                }),
-              ),
-            )),
-          );
-        }
-
-        // Bias indicator helper — user request 2026-05-20: show L (LONG)
-        // or S (SHORT) on every Actionable row so it's obvious which
-        // direction the model is biased.
-        // 2026-05-21: routes through shared inferModelDirection() so
-        // FocusRail, the Viewport card bias chip, and the right rail
-        // header bias chip all derive direction from the same priority
-        // (swing_consensus → trigger_dir → state). bias_direction is
-        // still honored first if the snapshot includes it explicitly.
-        const computeBias = (t) => {
-          const raw = String(t?.bias_direction || "").toUpperCase();
-          if (raw === "LONG" || raw === "BULL" || raw === "BULLISH") return "L";
-          if (raw === "SHORT" || raw === "BEAR" || raw === "BEARISH") return "S";
-          const md = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
-            ? window.TimedPriceUtils.inferModelDirection(t)
-            : "";
-          if (md === "LONG") return "L";
-          if (md === "SHORT") return "S";
-          return null;
-        };
-
-        return h("section", { className: "tt-row focus-rail" },
-          h("div", { className: "focus-rail-head" },
-            h("div", null,
-              h("div", { className: "tt-sec-title" }, "FOCUS"),
-              h("h2", { className: "tt-sec-h2" }, "Actionable tickers worth a look"),
-              h("p", { className: "tt-sec-sub" }, "Top ranks · best R:R · squeeze candidates · corridor entries — straight from the scoring snapshot."),
-            ),
-          ),
-          h("div", { className: "focus-rail-grid" },
-            lanes.map((lane) => h("div", {
-              key: lane.id,
-              className: `focus-lane focus-lane--${lane.accent}`,
-            },
-              h("div", { className: "focus-lane-head" },
-                h("span", { className: "focus-lane-label" }, lane.label),
-                h("span", { className: "focus-lane-count" }, lane.items.length),
-              ),
-              h("div", { className: "focus-lane-sub" }, lane.sub),
-              h("div", { className: "focus-lane-chips" },
-                lane.items.slice(0, 6).map((t) => {
-                  const sym = String(t.ticker || "").toUpperCase();
-                  const metric = fmtMetric(t, lane.id);
-                  const dc = getDailyChange(t);
-                  const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-                  const pctCls = pct == null ? "" : pct >= 0 ? "up" : "dn";
-                  // Bug 5 — live price (mirrors MoverRow). Falls back to
-                  // close when intraday price isn't on the ticker object.
-                  const livePx = Number(t?.price ?? t?.close);
-                  // EXT (pre-market / after-hours) overlay. Per
-                  // price-data-pipeline rule: only when market is closed,
-                  // exclude crypto (24/7), require finite + non-trivial
-                  // move. Use _ah_change_pct (worker /timed/all overlay)
-                  // with extended_percent_change fallback for parity with
-                  // MoverRow.
-                  const extPct = (!marketOpen && !CRYPTO_NO_EXT.has(sym))
-                    ? Number(t?._ah_change_pct ?? t?.extended_percent_change)
-                    : NaN;
-                  const showExt = Number.isFinite(extPct) && Math.abs(extPct) >= 0.05;
-                  const extCls = !showExt ? "" : extPct >= 0 ? "up" : "dn";
-                  const titleParts = [sym];
-                  if (metric) titleParts.push(metric);
-                  if (pct != null) titleParts.push((pct >= 0 ? "+" : "") + pct.toFixed(2) + "% RTH");
-                  if (showExt) titleParts.push((extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT");
-                  // 2026-05-22 — Bias chip now renders on EVERY lane
-                  // (including setup / Entry Zone), per user request to
-                  // make the LONG/SHORT call obvious on the left side.
-                  // Previously setup lane suppressed this chip and used
-                  // a tiny gray "L"/"S" letter from fmtMetric instead;
-                  // the new version is a colored pill that mirrors the
-                  // other lanes' visual treatment.
-                  const bias = computeBias(t);
-                  const biasCls = bias === "L" ? "long" : bias === "S" ? "short" : "neutral";
-                  const hasPrice = Number.isFinite(livePx) && livePx > 0;
-                  const hasPctOrExt = pct != null || showExt;
-                  return h("button", {
-                    key: `${lane.id}-${sym}`,
-                    className: "focus-chip",
-                    onClick: () => {
-                      if (typeof onSelectTicker === "function") onSelectTicker(sym);
-                      else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
-                    },
-                    title: titleParts.join(" · ") + (bias ? ` · ${bias === "L" ? "LONG bias" : "SHORT bias"}` : ""),
-                  },
-                    // Col 1: bias indicator. Always rendered (even when
-                    // neutral with visibility:hidden) so symbols line up
-                    // visually across rows — without this, chips with
-                    // bias and without bias would have different left
-                    // padding and look ragged.
-                    h("span", {
-                      className: `focus-chip-bias ${biasCls}`,
-                      style: bias ? null : { visibility: "hidden" },
-                    }, bias || "·"),
-                    // Col 2: logo + symbol + metric (inline, left-aligned,
-                    // wraps on tiny screens). Logo added 2026-05-28
-                    // to match the Earnings/Movers info-lockup.
-                    h("div", { className: "focus-chip-main" },
-                      h(TickerLogo, { sym, size: 18 }),
-                      h("span", { className: "focus-chip-sym" }, sym),
-                      metric && h("span", { className: "focus-chip-metric" }, metric),
-                    ),
-                    // Col 3: price + pct/ext stack (right-aligned)
-                    (hasPrice || hasPctOrExt) && h("div", { className: "focus-chip-right" },
-                      hasPrice && h("span", { className: "focus-chip-px" }, fmtUsd(livePx)),
-                      hasPctOrExt && h("div", { className: "focus-chip-pct-wrap" },
-                        pct != null && h("span", { className: `focus-chip-pct ${pctCls}` },
-                          (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%",
-                        ),
-                        showExt && h("span", { className: `focus-chip-pct-ext ${extCls}` },
-                          (extPct >= 0 ? "+" : "") + extPct.toFixed(2) + "% EXT",
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            )),
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "ENTRY ZONE"),
+          h("div", { className: "tt-strip-scroll" },
+            items.map((t) => {
+              const sym = String(t.ticker || "").toUpperCase();
+              const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
+              const pct = Number(dc?.dayPct);
+              return h("button", {
+                key: sym, onClick: () => onSelectTicker && onSelectTicker(sym),
+                className: "tt-strip-chip", title: `${sym} — in corridor + entry stage`,
+              },
+                h(TickerLogo, { sym, size: 18 }),
+                h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
+                Number.isFinite(pct) && h("span", { style: { fontSize: 11, fontWeight: 700, color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontFamily: "var(--tt-font-mono)" } }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`),
+              );
+            }),
           ),
         );
       }
@@ -4401,32 +3412,8 @@
           tooltip: "LTF score in the optimal entry zone for the HTF trend direction.",
         });
 
-        // ── High R:R Early ──
-        const highRrEarly = all.filter((t) => {
-          const rr = Number(t?.rr) || 0;
-          const comp = completionForSize(t);
-          const flags = t?.flags || {};
-          const ent = entryType(t);
-          const staleness = String(t?.staleness || "").toUpperCase();
-          const actionableTiming = ent?.corridor || flags.flip_watch || flags.sq30_release;
-          if (staleness && staleness !== "FRESH") return false;
-          return rr >= 2.0 && comp <= 0.45 && actionableTiming;
-        });
-        chips.push({
-          id: "high_rr_early", label: "High R:R Early", count: highRrEarly.length,
-          tickers: highRrEarly.map((t) => t.ticker),
-          row: "focus",
-          tooltip: "R:R ≥ 2.0, completion ≤ 45%, plus corridor / flip / release timing.",
-        });
-
-        // ── Squeeze ──
-        const squeeze = all.filter((t) => t.flags?.sq30_on === true);
-        chips.push({
-          id: "squeeze", label: "Squeeze", count: squeeze.length,
-          tickers: squeeze.map((t) => t.ticker),
-          row: "momentum",
-          tooltip: "Bollinger Bands inside Keltner Channels on 30m — volatility contracting.",
-        });
+        // (2026-06-10 — "High R:R Early" + "Squeeze" chips removed per
+        // operator feedback: "We don't need squeeze nor RR".)
 
         // ── Breakout ──
         const breakout = all.filter((t) => {
@@ -4911,7 +3898,6 @@
         // NOT synthesize from client-side ranking. Otherwise Today would
         // show an R# chip on every card while AT (same data) doesn't.
         const rank = Number(t?.rank_position ?? t?.rp) || null;
-        const rr   = Number(t?.rr) || null;
         const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
 
@@ -4954,22 +3940,6 @@
         const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function")
           ? window.isTickerTTSelected(sym)
           : false;
-
-        // Squeeze chip — most-actionable LTF signal (release > on > compressed).
-        const sqChipInfo = (() => {
-          const tfm = t?.tf_tech || {};
-          const tfList = ["10","15","30","1H","60","4H","240"];
-          for (const tfk of tfList) {
-            const row = tfm[tfk]; if (!row?.sq) continue;
-            if (row.sq.r) return { state: "release", tf: tfk, label: "SQ RLS", cls: "ds-chip--accent" };
-          }
-          for (const tfk of tfList) {
-            const row = tfm[tfk]; if (!row?.sq) continue;
-            if (row.sq.s) return { state: "on", tf: tfk, label: "SQ ON", cls: "" };
-            if (row.sq.c) return { state: "compressed", tf: tfk, label: "SQ CMP", cls: "ds-chip--solid" };
-          }
-          return null;
-        })();
 
         // 1H sparkline — read from the cache; the card will re-render once
         // the fetch lands and updates the cache.
@@ -5092,16 +4062,8 @@
               style: { fontFamily: "var(--tt-font-mono)" },
               title: "Conviction tier · focus score",
             }, `${tier || "C"}·${Math.round(conv)}`),
-            rr != null && h("span", {
-              className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: "Risk:Reward",
-            }, `${rr.toFixed(1)}R`),
-            sqChipInfo && h("span", {
-              className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`,
-            }, sqChipInfo.label),
+            // (2026-06-10 — R:R + Squeeze chips removed per operator
+            // feedback: "We don't need squeeze nor RR".)
           ),
         );
       }
@@ -5606,6 +4568,35 @@
         );
       }
 
+      // ── Disclosure — progressive-disclosure section wrapper ────
+      // 2026-06-10 UI refresh: the 3-tier morning read keeps deep
+      // game-plan material (day-trade plan, options plays, heat map)
+      // behind a collapsed section header. Open/closed state persists
+      // per section in localStorage so a trader who always wants the
+      // day-trade plan open keeps it open.
+      function Disclosure({ id, title, sub, children }) {
+        const storageKey = `tt-today-disclose:${id}`;
+        const [open, setOpen] = useState(() => {
+          try { return window.localStorage.getItem(storageKey) === "1"; } catch { return false; }
+        });
+        const onToggle = (e) => {
+          const isOpen = !!e.currentTarget.open;
+          setOpen(isOpen);
+          try { window.localStorage.setItem(storageKey, isOpen ? "1" : "0"); } catch {}
+        };
+        return h("details", { className: "tt-disclose", open, onToggle },
+          h("summary", null,
+            h("span", { className: "tt-disclose-title" }, title),
+            sub && h("span", { className: "tt-disclose-sub" }, sub),
+            h("span", { className: "tt-disclose-caret" }, "▼"),
+          ),
+          // Children mount lazily — most of these sections fetch their
+          // own data on mount, so keeping them unmounted while collapsed
+          // also skips the network cost until the user asks for it.
+          open ? h("div", { className: "tt-disclose-body" }, children) : null,
+        );
+      }
+
       // ── App root ───────────────────────────────────────────────
       function TodayApp() {
         const [data, setData] = useState(null);
@@ -5836,30 +4827,22 @@
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading today's data" }),
           h("main", null,
-            // ── Digest (passive read) — render skeletons until each part lands ──
-            h(StatusHeader, { cal, briefDate: brief?.date }),
-            // 2026-06-05 — Simplify-the-page redesign. Order top→bottom:
-            //   1. Market Pulse (session frame)
-            //   2. Daily Brief summary | Research Desk feed (hero)
-            //   3. Day-Trade Predictions (ES/SPY/QQQ/IWM/DIA)
-            //   4. Options Plays row
-            //   5. Open Positions
-            //   6. Cross-asset + S&P sectors + themes
-            //   7. Focus / Top Movers / Event-driven (horizontal)
+            // 2026-06-10 — 3-tier morning read. Order top→bottom:
+            //   Tier 1: session + regime one-liner (StatusHeader + RegimeLine)
+            //   Tier 2: Daily Brief hero | Research Desk
+            //   Tier 3: Open Positions
+            //   Retained (operator feedback): Market Pulse, Cross-asset,
+            //     Macro events, Earnings, Entry Zone, Movers, Bubble Map.
+            //   Progressive disclosure: Day-Trade plan, Options plays,
+            //     Universe heat map.
+            h(StatusHeader, { cal, briefDate: brief?.date, brief, data }),
+            h(TodayHero, { brief, data, earnings, onSelectTicker }),
+            // Tier 3 — what the model is currently managing.
+            h(OpenPositionsPreview, { onSelectTicker }),
+            // ── Retained informative sections ──
             data
               ? h(MarketState, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
-            h(TodayHero, { brief, data, earnings, onSelectTicker }),
-            // Day-Trade Predictions — full-width section (ES/SPY/QQQ/IWM/DIA)
-            // with plain-language plan + post-close grade + 0/1DTE option play.
-            h(DayTradePredictions, { onSelectTicker }),
-            // Options Plays — horizontal row beneath the predictions.
-            h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "row" }),
-            // What the model is currently managing.
-            h(OpenPositionsPreview, { onSelectTicker }),
-            // 2026-06-05 — Each category is a full-width horizontal STRIP, in
-            // the requested order: Macro → Earnings → High R:R → Squeeze →
-            // Entry Zone → RTH gainers/losers → (market closed) EXT gainers/losers.
             brief && h(MacroStrip, { brief, data }),
             // Macro economic events (NFP/CPI/FOMC…) — curated + live-merged.
             h(MacroEventsStrip, null),
@@ -5869,14 +4852,25 @@
               strip: true,
               universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
             }),
-            data && h(FocusRail, { data, onSelectTicker, strip: true }),
+            data && h(FocusRail, { data, onSelectTicker }),
             data && h(TopMovers, {
               data,
               onSelectTicker,
               strip: true,
               universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
             }),
-            // ── Analysis (interactive) ──
+            // ── Progressive disclosure — deeper game-plan material ──
+            h(Disclosure, {
+              id: "daytrade",
+              title: "Day-Trade Game Plan",
+              sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade",
+            }, h(DayTradePredictions, { onSelectTicker })),
+            h(Disclosure, {
+              id: "options",
+              title: "Options Plays of the Day",
+              sub: "0/1DTE index plays + top swing structures",
+            }, h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "row" })),
+            // ── Analysis (interactive) — bubble map is the centerpiece ──
             data
               ? h(AnalysisControls, {
                   chips,
@@ -5899,9 +4893,11 @@
                   onSelectTicker,
                 })
               : h(BubbleViewportSkeleton, null),
-            data
-              ? h(UniverseHeatmap, { visible, query: filters.query, onSelectTicker })
-              : h(HeatmapSkeleton, null),
+            data && h(Disclosure, {
+              id: "heatmap",
+              title: "Universe Heat Map",
+              sub: "HTF-scored grid of the full universe",
+            }, h(UniverseHeatmap, { visible, query: filters.query, onSelectTicker })),
             h(EndCTA, null),
           ),
           // Right rail slide-in overlay (TickerDetailRightRail).
@@ -6144,15 +5140,8 @@
           ),
         );
       }
-      function HeatmapSkeleton() {
-        return h("section", { className: "tt-row" },
-          h("div", { style: { marginBottom: 10 } },
-            h("div", { className: "sk", style: { width: 80, height: 10, marginBottom: 8 } }),
-            h("div", { className: "sk", style: { width: 220, height: 16 } }),
-          ),
-          h("div", { className: "sk sk-heat" }),
-        );
-      }
+      // (HeatmapSkeleton removed 2026-06-10 — the heat map now lives in a
+      // collapsed Disclosure section so it never needs a loading skeleton.)
 
       // ── Mount with auth gate ───────────────────────────────────
       const AuthGate = window.TimedAuthGate;

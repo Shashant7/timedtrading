@@ -3208,6 +3208,8 @@
       const firstDataLoadAppliedRef = useRef(false);
       const externalPriceLinesRef = useRef([]);
       const tdSeqMarkersRef = useRef([]);
+      const markerSigRef = useRef(null);
+      const [chartEpoch, setChartEpoch] = useState(0);
       const lastMappedSigRef = useRef(null);
       const [ohlcHeader, setOhlcHeader] = useState(null);
       const [patternLabel, setPatternLabel] = useState(null);
@@ -3475,6 +3477,9 @@
         candleSeriesRef.current = candleSeries;
         firstDataLoadAppliedRef.current = false;
         lastMappedSigRef.current = null;
+        externalPriceLinesRef.current = [];
+        markerSigRef.current = null;
+        setChartEpoch(e => e + 1);
         try {
           const priceScale = chart.priceScale("right");
           if (priceScale && typeof priceScale.subscribePriceScaleChanged === "function") {
@@ -3616,90 +3621,137 @@
         const last = mapped[mapped.length - 1];
         const first = mapped[0];
         const sig = `${mapped.length}|${first?.time}|${first?.close}|${last?.time}|${last?.open}|${last?.high}|${last?.low}|${last?.close}`;
-        if (lastMappedSigRef.current === sig) {
+        const prevSig = lastMappedSigRef.current;
+        if (prevSig === sig) {
           return;
         }
         lastMappedSigRef.current = sig;
-        let prevVisibleRange = null;
-        if (firstDataLoadAppliedRef.current) {
+        const prevParts = typeof prevSig === "string" ? prevSig.split("|") : null;
+        const sameSpine = !!(prevParts && firstDataLoadAppliedRef.current && Number(prevParts[1]) === Number(first?.time));
+        const lenPrev = prevParts ? Number(prevParts[0]) : -1;
+        const lastTimePrev = prevParts ? Number(prevParts[3]) : -1;
+        let fastPath = false;
+        if (sameSpine && mapped.length === lenPrev && Number(last.time) === lastTimePrev) {
           try {
-            prevVisibleRange = chart.timeScale().getVisibleLogicalRange();
+            candleSeries.update(last);
+            fastPath = true;
+          } catch (_) {}
+        } else if (sameSpine && mapped.length === lenPrev + 1 && Number(last.time) > lastTimePrev) {
+          try {
+            const prevBar = mapped[mapped.length - 2];
+            if (prevBar) candleSeries.update(prevBar);
+            candleSeries.update(last);
+            fastPath = true;
           } catch (_) {}
         }
-        try {
-          candleSeries.setData(mapped);
-        } catch (_) {}
-        if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+        if (!fastPath) {
+          let prevVisibleRange = null;
+          if (firstDataLoadAppliedRef.current) {
+            try {
+              prevVisibleRange = chart.timeScale().getVisibleLogicalRange();
+            } catch (_) {}
+          }
           try {
-            chart.timeScale().setVisibleLogicalRange(prevVisibleRange);
+            candleSeries.setData(mapped);
           } catch (_) {}
+          if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+            try {
+              chart.timeScale().setVisibleLogicalRange(prevVisibleRange);
+            } catch (_) {}
+          }
         }
-        for (const k of Object.keys(overlaySeriesRef.current)) {
-          const v = overlaySeriesRef.current[k];
-          if (Array.isArray(v)) {
-            for (const s of v) try {
+        const prevSeries = overlaySeriesRef.current || {};
+        const nextSeries = {
+          ...prevSeries
+        };
+        const emaColor = {
+          ema21: "#fbbf24",
+          ema48: "#a78bfa",
+          ema200: "#f87171"
+        };
+        for (const k of ["ema21", "ema48", "ema200"]) {
+          const data = indicatorData[k];
+          if (data?.length > 0) {
+            if (!nextSeries[k]) {
+              try {
+                const s = chart.addLineSeries({
+                  color: emaColor[k],
+                  lineWidth: 1,
+                  priceLineVisible: false,
+                  lastValueVisible: false
+                });
+                s.setData(data);
+                nextSeries[k] = s;
+              } catch (_) {}
+            } else if (fastPath) {
+              try {
+                nextSeries[k].update(data[data.length - 1]);
+              } catch (_) {}
+            } else {
+              try {
+                nextSeries[k].setData(data);
+              } catch (_) {}
+            }
+          } else if (nextSeries[k]) {
+            try {
+              chart.removeSeries(nextSeries[k]);
+            } catch (_) {}
+            delete nextSeries[k];
+          }
+        }
+        const stSegs = indicatorData.stSegments || [];
+        const prevSt = Array.isArray(nextSeries.stSegments) ? nextSeries.stSegments : [];
+        if (stSegs.length > 0) {
+          const drawable = stSegs.filter(seg => seg.data?.length);
+          if (prevSt.length === drawable.length && !fastPath) {
+            drawable.forEach((seg, i) => {
+              try {
+                prevSt[i].applyOptions({
+                  color: seg.color
+                });
+                prevSt[i].setData(seg.data);
+              } catch (_) {}
+            });
+          } else if (prevSt.length !== drawable.length) {
+            for (const s of prevSt) try {
               chart.removeSeries(s);
             } catch (_) {}
-          } else if (v) try {
-            chart.removeSeries(v);
-          } catch (_) {}
-        }
-        const addedSeries = {};
-        if (indicatorData.ema21?.length > 0) {
-          const s = chart.addLineSeries({
-            color: "#fbbf24",
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false
-          });
-          s.setData(indicatorData.ema21);
-          addedSeries.ema21 = s;
-        }
-        if (indicatorData.ema48?.length > 0) {
-          const s = chart.addLineSeries({
-            color: "#a78bfa",
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false
-          });
-          s.setData(indicatorData.ema48);
-          addedSeries.ema48 = s;
-        }
-        if (indicatorData.ema200?.length > 0) {
-          const s = chart.addLineSeries({
-            color: "#f87171",
-            lineWidth: 1,
-            priceLineVisible: false,
-            lastValueVisible: false
-          });
-          s.setData(indicatorData.ema200);
-          addedSeries.ema200 = s;
-        }
-        if (indicatorData.stSegments?.length > 0) {
-          const stList = [];
-          for (const seg of indicatorData.stSegments) {
-            if (!seg.data?.length) continue;
-            const s = chart.addLineSeries({
-              color: seg.color,
-              lineWidth: 2,
-              priceLineVisible: false,
-              lastValueVisible: false
-            });
-            s.setData(seg.data);
-            stList.push(s);
+            const stList = [];
+            for (const seg of drawable) {
+              try {
+                const s = chart.addLineSeries({
+                  color: seg.color,
+                  lineWidth: 2,
+                  priceLineVisible: false,
+                  lastValueVisible: false
+                });
+                s.setData(seg.data);
+                stList.push(s);
+              } catch (_) {}
+            }
+            nextSeries.stSegments = stList;
+          } else if (fastPath && prevSt.length > 0) {
+            const lastSeg = drawable[drawable.length - 1];
+            const lastPt = lastSeg?.data?.[lastSeg.data.length - 1];
+            if (lastPt) try {
+              prevSt[prevSt.length - 1].update(lastPt);
+            } catch (_) {}
           }
-          addedSeries.stSegments = stList;
+        } else if (prevSt.length > 0) {
+          for (const s of prevSt) try {
+            chart.removeSeries(s);
+          } catch (_) {}
+          delete nextSeries.stSegments;
         }
-        overlaySeriesRef.current = addedSeries;
+        overlaySeriesRef.current = nextSeries;
         const baseMarkers = [...(indicatorData.tdMarkers || []), ...(Array.isArray(propMarkers) ? propMarkers : [])].sort((a, b) => a.time - b.time);
         tdSeqMarkersRef.current = baseMarkers;
-        if (baseMarkers.length > 0) {
+        const lastM = baseMarkers[baseMarkers.length - 1];
+        const markerSig = `${baseMarkers.length}|${lastM ? `${lastM.time}:${lastM.text || ""}` : ""}`;
+        if (markerSigRef.current !== markerSig) {
+          markerSigRef.current = markerSig;
           try {
             candleSeries.setMarkers(baseMarkers);
-          } catch (_) {}
-        } else {
-          try {
-            candleSeries.setMarkers([]);
           } catch (_) {}
         }
         if (!firstDataLoadAppliedRef.current) {
@@ -3732,7 +3784,29 @@
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
         if (!chart || !candleSeries || !LWC || mapped.length < 15) return;
-        if (!propTicker || overlays?.levels === false) return;
+        if (!propTicker || overlays?.levels === false) {
+          if (levelPriceLinesRef.current.length || levelTrendSeriesRef.current.length) {
+            for (const pl of levelPriceLinesRef.current) {
+              try {
+                candleSeries.removePriceLine(pl);
+              } catch (_) {}
+            }
+            levelPriceLinesRef.current = [];
+            for (const ls of levelTrendSeriesRef.current) {
+              try {
+                chart.removeSeries(ls);
+              } catch (_) {}
+            }
+            levelTrendSeriesRef.current = [];
+            levelSigRef.current = null;
+            levelTrendSigRef.current = null;
+            try {
+              candleSeries.setMarkers(tdSeqMarkersRef.current || []);
+            } catch (_) {}
+            setPatternLabel(null);
+          }
+          return;
+        }
         let cancelled = false;
         _rrFetchChartLevels(propTicker, String(chartTf), mapped).then(ovData => {
           if (cancelled || !ovData) return;
@@ -3741,7 +3815,20 @@
             dashed: LWC.LineStyle.Dashed,
             solid: LWC.LineStyle.Solid
           };
-          const newLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
+          const rawLevels = Array.isArray(ovData.levels) ? ovData.levels : [];
+          const planPx = (Array.isArray(propPriceLines) ? propPriceLines : []).map(pl => Number(pl?.price)).filter(v => Number.isFinite(v) && v > 0);
+          const lastClose = Number(mapped[mapped.length - 1]?.close) || 0;
+          const isDupe = px => planPx.some(p => Math.abs(px - p) / (p || 1) < 0.0015);
+          const above = [];
+          const below = [];
+          for (const lvl of rawLevels) {
+            const px = Number(lvl?.price);
+            if (!Number.isFinite(px) || px <= 0 || isDupe(px)) continue;
+            if (lastClose > 0 && px >= lastClose) above.push(lvl);else below.push(lvl);
+          }
+          above.sort((a, b) => a.price - b.price);
+          below.sort((a, b) => b.price - a.price);
+          const newLevels = [...above.slice(0, 3), ...below.slice(0, 3)];
           const newSig = newLevels.map(l => `${Number(l.price).toFixed(4)}|${l.label || ""}|${l.style || ""}`).join(";");
           if (levelSigRef.current !== newSig || levelPriceLinesRef.current.length !== newLevels.length) {
             for (const pl of levelPriceLinesRef.current) {
@@ -3810,7 +3897,7 @@
         return () => {
           cancelled = true;
         };
-      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0]);
+      }, [propTicker?.ticker, chartTf, LWC, overlays?.levels, mapped.length >= 15 ? 1 : 0, chartEpoch]);
       const _propPriceLinesSig = useMemo(() => {
         if (!Array.isArray(propPriceLines)) return "empty";
         return propPriceLines.map(pl => {
@@ -3822,29 +3909,41 @@
       useEffect(() => {
         const candleSeries = candleSeriesRef.current;
         if (!candleSeries) return;
-        for (const pl of externalPriceLinesRef.current) {
-          try {
-            candleSeries.removePriceLine(pl);
-          } catch (_) {}
-        }
-        externalPriceLinesRef.current = [];
-        if (!Array.isArray(propPriceLines)) return;
-        for (const pl of propPriceLines) {
-          if (pl && Number.isFinite(pl.price) && pl.price > 0) {
+        const want = (Array.isArray(propPriceLines) ? propPriceLines : []).filter(pl => pl && Number.isFinite(pl.price) && pl.price > 0);
+        const keyOf = pl => `${Math.round(pl.price * 1000) / 1000}|${pl.title || ""}|${pl.color || ""}|${pl.lineStyle ?? 2}|${pl.lineWidth ?? 1}`;
+        const wantKeys = new Set(want.map(keyOf));
+        const keep = [];
+        for (const entry of externalPriceLinesRef.current) {
+          if (entry && entry.key && wantKeys.has(entry.key)) {
+            keep.push(entry);
+          } else if (entry) {
             try {
-              const created = candleSeries.createPriceLine({
-                price: pl.price,
-                color: pl.color || '#ffffff',
-                lineWidth: pl.lineWidth || 1,
-                lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
-                axisLabelVisible: pl.axisLabelVisible !== false,
-                title: pl.title || ''
-              });
-              externalPriceLinesRef.current.push(created);
+              candleSeries.removePriceLine(entry.line || entry);
             } catch (_) {}
           }
         }
-      }, [_propPriceLinesSig]);
+        const haveKeys = new Set(keep.map(e => e.key));
+        for (const pl of want) {
+          const k = keyOf(pl);
+          if (haveKeys.has(k)) continue;
+          try {
+            const created = candleSeries.createPriceLine({
+              price: pl.price,
+              color: pl.color || '#ffffff',
+              lineWidth: pl.lineWidth || 1,
+              lineStyle: pl.lineStyle != null ? pl.lineStyle : 2,
+              axisLabelVisible: pl.axisLabelVisible !== false,
+              title: pl.title || ''
+            });
+            keep.push({
+              key: k,
+              line: created
+            });
+            haveKeys.add(k);
+          } catch (_) {}
+        }
+        externalPriceLinesRef.current = keep;
+      }, [_propPriceLinesSig, chartEpoch]);
       if (!LWC) {
         return React.createElement("div", {
           className: "text-xs text-[#6b7280]"
@@ -3950,9 +4049,39 @@
         }
       }), React.createElement("div", {
         className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between"
-      }, React.createElement("span", null, `${["D", "W", "M"].includes(String(chartTf)) ? chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly" : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`} • ${mapped.length} bars`), React.createElement("span", {
+      }, React.createElement("span", null, `${["D", "W", "M"].includes(String(chartTf)) ? chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly" : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`} • ${mapped.length} bars`), React.createElement("div", {
+        className: "flex items-center gap-2"
+      }, React.createElement("button", {
+        onClick: () => {
+          const chart = chartInstanceRef.current;
+          if (!chart) return;
+          try {
+            chart.priceScale("right").applyOptions({
+              autoScale: true
+            });
+          } catch (_) {}
+          try {
+            const _visibleBars = {
+              "5": 156,
+              "15": 52,
+              "30": 26,
+              "60": 20,
+              "240": 60,
+              "D": 30,
+              "W": 52
+            };
+            const bars = _visibleBars[String(chartTf)] || mapped.length;
+            if (mapped.length > bars) chart.timeScale().setVisibleLogicalRange({
+              from: mapped.length - bars,
+              to: mapped.length + 5
+            });else chart.timeScale().fitContent();
+          } catch (_) {}
+        },
+        className: "px-1.5 py-px rounded text-[9px] font-semibold border border-white/[0.08] text-[#7c8493] hover:text-white hover:border-white/20 transition-colors",
+        title: "Reset zoom — re-enable autoscale and snap to the default window"
+      }, "⟲ Fit"), React.createElement("span", {
         className: "text-[#555] text-[9px]"
-      }, "scroll to zoom • drag to pan")));
+      }, "scroll to zoom • drag to pan"))));
     }
     const LWChart = React.memo(_LWChartImpl, (prev, next) => {
       if (prev.chartTf !== next.chartTf) return false;
@@ -4748,6 +4877,22 @@
       const [candlePerf, setCandlePerf] = useState(null);
       const [candlePerfLoading, setCandlePerfLoading] = useState(false);
       const [railTab, setRailTab] = useState("ANALYSIS");
+      const RAIL_TAB_GROUP_OF = {
+        SNAPSHOT: "NOW",
+        SETUP: "TRADE",
+        OPTIONS: "TRADE",
+        INVESTOR: "INVEST",
+        TECHNICALS: "CONTEXT",
+        FUNDAMENTALS: "CONTEXT",
+        CATALYSTS: "CONTEXT",
+        HISTORY: "CONTEXT"
+      };
+      const _groupTabMemoryRef = useRef({});
+      useEffect(() => {
+        const k = String(railTab || "").toUpperCase();
+        const g = RAIL_TAB_GROUP_OF[k];
+        if (g) _groupTabMemoryRef.current[g] = k;
+      }, [railTab]);
       const [investorData, setInvestorData] = useState(null);
       const [investorLoading, setInvestorLoading] = useState(false);
       const [investorError, setInvestorError] = useState(null);
@@ -5189,7 +5334,7 @@
         ema200: false,
         supertrend: false,
         tdSequential: false,
-        levels: false
+        levels: true
       });
       const [chartExpanded, setChartExpanded] = useState(false);
       const [modalTf, setModalTf] = useState("30");
@@ -5958,7 +6103,7 @@
       useEffect(() => {
         const raw = String(initialRailTab || "ANALYSIS").toUpperCase();
         let tab = raw;
-        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
+        if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (raw === "NOW") tab = "SNAPSHOT";else if (raw === "TRADE") tab = "SETUP";else if (raw === "INVEST") tab = "INVESTOR";else if (raw === "CONTEXT") tab = "TECHNICALS";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
         setRailTab(tab);
@@ -7295,27 +7440,30 @@
               scrollbarWidth: "none"
             }
           }, (() => {
-            const baseTabs = [["SNAPSHOT", "Snapshot"], ["CHART", "Chart"], ["SETUP", "Trader"], ["INVESTOR", "Investor"], ["OPTIONS", "Options"], ["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]];
-            const tabs = _isWorkspace ? baseTabs.filter(([k]) => k !== "CHART") : baseTabs;
+            const RAIL_GROUPS = [{
+              key: "NOW",
+              label: "Now",
+              tabs: [["SNAPSHOT", "Snapshot"]]
+            }, {
+              key: "TRADE",
+              label: "Trade",
+              tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]]
+            }, {
+              key: "INVEST",
+              label: "Invest",
+              tabs: [["INVESTOR", "Investor"]]
+            }, {
+              key: "CONTEXT",
+              label: "Context",
+              tabs: [["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]]
+            }];
+            const activeGroupKey = RAIL_TAB_GROUP_OF[v2RailTab] || (v2RailTab === "CHART" ? "CHART" : "NOW");
+            const activeGroup = RAIL_GROUPS.find(g => g.key === activeGroupKey) || null;
             const _fsdLatest = catalysts?.fsd_intel?.latest_published_at || catalysts?.fsd_intel?.publications?.[0]?.published_at || null;
             const _fsdSeen = typeof window !== "undefined" && window.localStorage?.getItem?.(`tt-cat-seen-fsd:${tickerSymbol}`) || null;
             const _catalystsHasNew = !!(_fsdLatest && (!_fsdSeen || String(_fsdLatest) > String(_fsdSeen)));
-            return tabs.map(([key, label]) => React.createElement("button", {
-              key: key,
-              className: `ds-tab__item ${v2RailTab === key ? "ds-tab__item--active" : ""}`,
-              onClick: () => setRailTab(key),
-              style: {
-                flex: "0 0 auto",
-                justifyContent: "center",
-                padding: "6px 12px",
-                scrollSnapAlign: "start",
-                position: "relative",
-                ...(key === "CHART" ? {
-                  color: "#34d399",
-                  fontWeight: 700
-                } : {})
-              }
-            }, React.createElement("span", null, label), key === "CATALYSTS" && _catalystsHasNew && React.createElement("span", {
+            const unreadDot = key => React.createElement("span", {
+              key: `dot-${key}`,
               title: "New intel \u2014 open to view",
               style: {
                 position: "absolute",
@@ -7327,11 +7475,58 @@
                 background: "#a855f7",
                 boxShadow: "0 0 0 1.5px rgba(0,0,0,0.6), 0 0 6px rgba(168,85,247,0.7)"
               }
-            })));
+            });
+            const selectGroup = g => {
+              const remembered = _groupTabMemoryRef.current[g.key];
+              const next = g.tabs.some(([k]) => k === remembered) ? remembered : g.tabs[0][0];
+              setRailTab(next);
+            };
+            const groupPills = [!_isWorkspace && React.createElement("button", {
+              key: "CHART",
+              className: `ds-tab__item ${v2RailTab === "CHART" ? "ds-tab__item--active" : ""}`,
+              onClick: () => setRailTab("CHART"),
+              style: {
+                flex: "0 0 auto",
+                justifyContent: "center",
+                padding: "6px 12px",
+                position: "relative",
+                color: "#34d399",
+                fontWeight: 700
+              }
+            }, React.createElement("span", null, "Chart")), ...RAIL_GROUPS.map(g => React.createElement("button", {
+              key: g.key,
+              className: `ds-tab__item ${activeGroupKey === g.key ? "ds-tab__item--active" : ""}`,
+              onClick: () => selectGroup(g),
+              style: {
+                flex: "0 0 auto",
+                justifyContent: "center",
+                padding: "6px 14px",
+                position: "relative"
+              }
+            }, React.createElement("span", null, g.label), g.key === "CONTEXT" && _catalystsHasNew && unreadDot(g.key)))];
+            return React.createElement(React.Fragment, null, groupPills, activeGroup && activeGroup.tabs.length > 1 && React.createElement("div", {
+              className: "ds-chipgroup tt-rail-subtabs",
+              role: "tablist",
+              style: {
+                padding: 2,
+                flexBasis: "100%",
+                justifyContent: "flex-end",
+                display: "flex"
+              }
+            }, activeGroup.tabs.map(([key, label]) => React.createElement("button", {
+              key: key,
+              className: `ds-chipgroup__item ${v2RailTab === key ? "ds-chipgroup__item--active" : ""}`,
+              onClick: () => setRailTab(key),
+              style: {
+                padding: "4px 11px",
+                fontSize: 11,
+                position: "relative"
+              }
+            }, label, key === "CATALYSTS" && _catalystsHasNew && unreadDot(key)))));
           })()));
         })(), React.createElement("div", {
           className: "tt-rail-area-left-pane"
-        }, chartCandles && chartCandles.length >= 2 && (() => {
+        }, chartCandles && chartCandles.length >= 2 && !(v2RailTab === "CHART" && !_isWorkspace) && (() => {
           const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
           const _isShortChart = _pcDirChart === "SHORT";
           const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
@@ -7443,6 +7638,19 @@
                   fontSize: 10
                 }
               }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+                className: `ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`,
+                onClick: () => setChartOverlays(o => ({
+                  ...o,
+                  levels: !o.levels
+                })),
+                title: "Toggle S/R levels, trendlines + pattern annotations",
+                "aria-pressed": !!chartOverlays.levels,
+                style: {
+                  fontSize: 10,
+                  padding: "0 8px",
+                  height: 26
+                }
+              }, "Lvls"), React.createElement("button", {
                 className: "ds-chip ds-chip--sm",
                 onClick: () => {
                   const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
@@ -7790,7 +7998,18 @@
             padding: "3px 8px",
             fontSize: 10
           }
-        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("a", {
+        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+          className: `ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`,
+          onClick: () => setChartOverlays(o => ({
+            ...o,
+            levels: !o.levels
+          })),
+          title: "Toggle S/R levels, trendlines + pattern annotations",
+          "aria-pressed": !!chartOverlays.levels,
+          style: {
+            fontSize: 10
+          }
+        }, "Lvls"), React.createElement("a", {
           href: `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tickerSymbol)}`,
           target: "_blank",
           rel: "noopener noreferrer",
@@ -7816,7 +8035,355 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, effectiveInvestorTrade && (() => {
+        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (() => {
+          const formatPx = n => {
+            const x = Number(n);
+            if (!Number.isFinite(x)) return "—";
+            return `$${x.toFixed(2)}`;
+          };
+          const stage = String(ticker?.kanban_stage || "").toLowerCase();
+          const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const pcAction = String(predictionContract?.action_label || "").toUpperCase();
+          const isLong = pcDir === "LONG";
+          const isShort = pcDir === "SHORT";
+          const traderTrade = effectiveTraderTrade;
+          const tradeOpen = !!(traderTrade && (() => {
+            const s = String(traderTrade?.status || "").toUpperCase();
+            return s === "OPEN" || s === "TP_HIT_TRIM" || !(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
+          })());
+          const verdict = (() => {
+            if (tradeOpen) {
+              if (stage === "trim") return {
+                word: "TRIM",
+                color: "#f59e0b",
+                bg: "rgba(245,158,11,0.10)",
+                line: "Take partial profits at the next target. Keep the runner alive.",
+                urgency: "now"
+              };
+              if (stage === "defend") return {
+                word: "DEFEND",
+                color: "#fb7185",
+                bg: "rgba(244,63,94,0.10)",
+                line: "Tighten the stop. Setup is at risk.",
+                urgency: "now"
+              };
+              if (stage === "exit") return {
+                word: "EXIT",
+                color: "#f87171",
+                bg: "rgba(248,113,113,0.10)",
+                line: "Close the position. The model's edge is gone.",
+                urgency: "now"
+              };
+              return {
+                word: "HOLDING",
+                color: "#67e8f9",
+                bg: "rgba(103,232,249,0.08)",
+                line: "Trader position is active. Watch the stop + targets below.",
+                urgency: "monitor"
+              };
+            }
+            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+              return {
+                word: isShort ? "SHORT NOW" : "BUY NOW",
+                color: isShort ? "#fb7185" : "#34d399",
+                bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`,
+                urgency: "now"
+              };
+            }
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
+              return {
+                word: "WATCH",
+                color: "#f5c25c",
+                bg: "rgba(245,194,92,0.10)",
+                line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
+                urgency: "watch"
+              };
+            }
+            if (pcDir) {
+              return {
+                word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG",
+                color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+                bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
+                line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`,
+                urgency: "context"
+              };
+            }
+            return {
+              word: "NO TRADE",
+              color: "#9ca3af",
+              bg: "rgba(255,255,255,0.04)",
+              line: "No directional edge from the model right now.",
+              urgency: "none"
+            };
+          })();
+          const stopPx = Number(predictionContract?.risk?.stop_loss);
+          const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+          const livePx = Number(v2Price) || Number(ticker?.price);
+          const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
+          const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
+          const triggerPx = Number(ticker?.trigger_price);
+          const hasTrigger = Number.isFinite(triggerPx) && triggerPx > 0;
+          const triggers = [];
+          if (verdict.urgency === "watch") {
+            if (hasTrigger) {
+              if (isLong) {
+                triggers.push({
+                  tone: "go",
+                  text: `Reclaim ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires`
+                });
+              } else if (isShort) {
+                triggers.push({
+                  tone: "go",
+                  text: `Break below ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires`
+                });
+              }
+            } else {
+              triggers.push({
+                tone: "neutral",
+                text: `Setup forming but no explicit entry-trigger price published. Wait for an intraday bullish/bearish reversal candle on the LTF (10m / 15m).`
+              });
+            }
+            if (stopPx && livePx) {
+              const side = isLong ? "Hold above" : "Hold below";
+              triggers.push({
+                tone: "go",
+                text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)`
+              });
+            }
+            if (tp1 && livePx) {
+              triggers.push({
+                tone: "neutral",
+                text: `IF entered, first target sits at ${formatPx(tp1)} (${tp1Label}). Full plan visible on the Trader tab.`
+              });
+            }
+          } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
+            if (livePx && targets.length > 0) {
+              const nextTp = targets.find(t => {
+                const px = Number(t?.price);
+                if (!Number.isFinite(px)) return false;
+                return isLong ? px > livePx : px < livePx;
+              });
+              if (nextTp) {
+                triggers.push({
+                  tone: "go",
+                  text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${(Math.abs(Number(nextTp.price) - livePx) / livePx * 100).toFixed(2)}% away)`
+                });
+              }
+            }
+            if (stopPx && livePx) {
+              const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
+              const distance = isLong ? (livePx - stopPx) / livePx * 100 : (stopPx - livePx) / livePx * 100;
+              triggers.push({
+                tone: "neutral",
+                text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.`
+              });
+            }
+          } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
+            if (tp1) triggers.push({
+              tone: "neutral",
+              text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.`
+            });
+            if (stopPx) triggers.push({
+              tone: "neutral",
+              text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.`
+            });
+          }
+          const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+          const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
+          const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
+          const heroWatchFor = [];
+          for (const s of heroSupporting.slice(0, 8)) {
+            const txt = String(s || "").trim();
+            if (!txt) continue;
+            if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
+          }
+          const invalidators = [];
+          for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
+          for (const w of heroWatchFor.slice(0, 2)) {
+            if (invalidators.length < 4) invalidators.push(String(w));
+          }
+          const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
+          const entryQ = predictionContract?.entry_quality || null;
+          return React.createElement("div", {
+            style: {
+              padding: "14px 14px 12px",
+              marginBottom: "var(--ds-space-3)",
+              background: verdict.bg,
+              border: `1px solid ${verdict.color}55`,
+              borderRadius: 12
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: "#fcd34d",
+              background: "rgba(252,211,77,0.10)",
+              letterSpacing: "0.06em"
+            }
+          }, "\uD83C\uDFAF TRADER MODEL"), React.createElement("span", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)"
+            }
+          }, "short-term tactical view")), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 18,
+              fontWeight: 800,
+              color: verdict.color,
+              letterSpacing: "0.02em",
+              lineHeight: 1
+            }
+          }, verdict.word), pcDir && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
+              background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+              letterSpacing: "0.05em"
+            }
+          }, pcDir)), livePx && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              fontWeight: 600
+            }
+          }, "$", livePx.toFixed(2))), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.45,
+              marginBottom: triggers.length > 0 ? 10 : 0
+            }
+          }, verdict.line), triggers.length > 0 && React.createElement("div", {
+            style: {
+              marginTop: 4
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 5
+            }
+          }, verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 4
+            }
+          }, triggers.map((tr, i) => React.createElement("div", {
+            key: `tr-${i}`,
+            style: {
+              display: "flex",
+              gap: 8,
+              fontSize: 12,
+              lineHeight: 1.45
+            }
+          }, React.createElement("span", {
+            style: {
+              color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
+              flexShrink: 0,
+              marginTop: 1
+            }
+          }, tr.tone === "go" ? "→" : "·"), React.createElement("span", {
+            style: {
+              color: "var(--ds-text-body)"
+            }
+          }, tr.text))))), invalidators.length > 0 && verdict.urgency !== "none" && React.createElement("div", {
+            style: {
+              marginTop: 10
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-dn)",
+              letterSpacing: "0.06em",
+              marginBottom: 5
+            }
+          }, "INVALIDATES IF"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 4
+            }
+          }, invalidators.map((inv, i) => React.createElement("div", {
+            key: `inv-${i}`,
+            style: {
+              display: "flex",
+              gap: 8,
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: "var(--ds-text-muted)"
+            }
+          }, React.createElement("span", {
+            style: {
+              color: "var(--ds-dn)",
+              flexShrink: 0,
+              marginTop: 1
+            }
+          }, "\u2717"), React.createElement("span", null, String(inv)))))), (rr || entryQ || v2Rank != null || v2Conv != null) && React.createElement("div", {
+            style: {
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.04)",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              fontSize: 11,
+              color: "var(--ds-text-muted)"
+            }
+          }, rr && React.createElement("span", null, "R:R ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Number(rr).toFixed(2))), entryQ != null && React.createElement("span", null, "Entry quality ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Math.round(Number(entryQ)), "/100")), v2Rank != null && React.createElement("span", null, "Rank ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "R", v2Rank)), v2Conv != null && React.createElement("span", null, "Conviction ", React.createElement("strong", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, Math.round(v2Conv), "/100"))));
+        })(), effectiveInvestorTrade && (() => {
           const it = effectiveInvestorTrade;
           const dir = String(it?.direction || "LONG").toUpperCase();
           const isLong = dir !== "SHORT";
@@ -8293,354 +8860,6 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, "$", ipStop.toFixed(2)))));
-        })(), (() => {
-          const formatPx = n => {
-            const x = Number(n);
-            if (!Number.isFinite(x)) return "—";
-            return `$${x.toFixed(2)}`;
-          };
-          const stage = String(ticker?.kanban_stage || "").toLowerCase();
-          const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
-          const pcAction = String(predictionContract?.action_label || "").toUpperCase();
-          const isLong = pcDir === "LONG";
-          const isShort = pcDir === "SHORT";
-          const traderTrade = effectiveTraderTrade;
-          const tradeOpen = !!(traderTrade && (() => {
-            const s = String(traderTrade?.status || "").toUpperCase();
-            return s === "OPEN" || s === "TP_HIT_TRIM" || !(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
-          })());
-          const verdict = (() => {
-            if (tradeOpen) {
-              if (stage === "trim") return {
-                word: "TRIM",
-                color: "#f59e0b",
-                bg: "rgba(245,158,11,0.10)",
-                line: "Take partial profits at the next target. Keep the runner alive.",
-                urgency: "now"
-              };
-              if (stage === "defend") return {
-                word: "DEFEND",
-                color: "#fb7185",
-                bg: "rgba(244,63,94,0.10)",
-                line: "Tighten the stop. Setup is at risk.",
-                urgency: "now"
-              };
-              if (stage === "exit") return {
-                word: "EXIT",
-                color: "#f87171",
-                bg: "rgba(248,113,113,0.10)",
-                line: "Close the position. The model's edge is gone.",
-                urgency: "now"
-              };
-              return {
-                word: "HOLDING",
-                color: "#67e8f9",
-                bg: "rgba(103,232,249,0.08)",
-                line: "Trader position is active. Watch the stop + targets below.",
-                urgency: "monitor"
-              };
-            }
-            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
-              return {
-                word: isShort ? "SHORT NOW" : "BUY NOW",
-                color: isShort ? "#fb7185" : "#34d399",
-                bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
-                line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`,
-                urgency: "now"
-              };
-            }
-            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
-              return {
-                word: "WATCH",
-                color: "#f5c25c",
-                bg: "rgba(245,194,92,0.10)",
-                line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
-                urgency: "watch"
-              };
-            }
-            if (pcDir) {
-              return {
-                word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG",
-                color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-                bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
-                line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`,
-                urgency: "context"
-              };
-            }
-            return {
-              word: "NO TRADE",
-              color: "#9ca3af",
-              bg: "rgba(255,255,255,0.04)",
-              line: "No directional edge from the model right now.",
-              urgency: "none"
-            };
-          })();
-          const stopPx = Number(predictionContract?.risk?.stop_loss);
-          const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
-          const livePx = Number(v2Price) || Number(ticker?.price);
-          const tp1 = targets[0]?.price ? Number(targets[0].price) : null;
-          const tp1Label = targets[0]?.label || (targets[0]?.kind ? String(targets[0].kind).toUpperCase() : "TP1");
-          const triggerPx = Number(ticker?.trigger_price);
-          const hasTrigger = Number.isFinite(triggerPx) && triggerPx > 0;
-          const triggers = [];
-          if (verdict.urgency === "watch") {
-            if (hasTrigger) {
-              if (isLong) {
-                triggers.push({
-                  tone: "go",
-                  text: `Reclaim ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires`
-                });
-              } else if (isShort) {
-                triggers.push({
-                  tone: "go",
-                  text: `Break below ${formatPx(triggerPx)} (model entry trigger) with rising volume → setup fires`
-                });
-              }
-            } else {
-              triggers.push({
-                tone: "neutral",
-                text: `Setup forming but no explicit entry-trigger price published. Wait for an intraday bullish/bearish reversal candle on the LTF (10m / 15m).`
-              });
-            }
-            if (stopPx && livePx) {
-              const side = isLong ? "Hold above" : "Hold below";
-              triggers.push({
-                tone: "go",
-                text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)`
-              });
-            }
-            if (tp1 && livePx) {
-              triggers.push({
-                tone: "neutral",
-                text: `IF entered, first target sits at ${formatPx(tp1)} (${tp1Label}). Full plan visible on the Trader tab.`
-              });
-            }
-          } else if (verdict.urgency === "now" || verdict.urgency === "monitor") {
-            if (livePx && targets.length > 0) {
-              const nextTp = targets.find(t => {
-                const px = Number(t?.price);
-                if (!Number.isFinite(px)) return false;
-                return isLong ? px > livePx : px < livePx;
-              });
-              if (nextTp) {
-                triggers.push({
-                  tone: "go",
-                  text: `Next ${String(nextTp.label || nextTp.kind || "target").toUpperCase()} at ${formatPx(nextTp.price)} (${(Math.abs(Number(nextTp.price) - livePx) / livePx * 100).toFixed(2)}% away)`
-                });
-              }
-            }
-            if (stopPx && livePx) {
-              const sideText = isLong ? "Stop sits at" : "Stop (short) sits at";
-              const distance = isLong ? (livePx - stopPx) / livePx * 100 : (stopPx - livePx) / livePx * 100;
-              triggers.push({
-                tone: "neutral",
-                text: `${sideText} ${formatPx(stopPx)} (${distance.toFixed(2)}% cushion). Close beyond invalidates.`
-              });
-            }
-          } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
-            if (tp1) triggers.push({
-              tone: "neutral",
-              text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.`
-            });
-            if (stopPx) triggers.push({
-              tone: "neutral",
-              text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.`
-            });
-          }
-          const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
-          const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
-          const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
-          const heroWatchFor = [];
-          for (const s of heroSupporting.slice(0, 8)) {
-            const txt = String(s || "").trim();
-            if (!txt) continue;
-            if (HERO_DEFLATOR_RE.test(txt)) heroWatchFor.push(txt);
-          }
-          const invalidators = [];
-          for (const i of heroInvalidationArr.slice(0, 3)) invalidators.push(String(i));
-          for (const w of heroWatchFor.slice(0, 2)) {
-            if (invalidators.length < 4) invalidators.push(String(w));
-          }
-          const rr = predictionContract?.r_r || predictionContract?.rr_target || null;
-          const entryQ = predictionContract?.entry_quality || null;
-          return React.createElement("div", {
-            style: {
-              padding: "14px 14px 12px",
-              marginBottom: "var(--ds-space-3)",
-              background: verdict.bg,
-              border: `1px solid ${verdict.color}55`,
-              borderRadius: 12
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 6
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: "#fcd34d",
-              background: "rgba(252,211,77,0.10)",
-              letterSpacing: "0.06em"
-            }
-          }, "\uD83C\uDFAF TRADER MODEL"), React.createElement("span", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-faint)"
-            }
-          }, "short-term tactical view")), React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 8,
-              marginBottom: 6,
-              flexWrap: "wrap"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "baseline",
-              gap: 8
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 18,
-              fontWeight: 800,
-              color: verdict.color,
-              letterSpacing: "0.02em",
-              lineHeight: 1
-            }
-          }, verdict.word), pcDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-              background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
-              letterSpacing: "0.05em"
-            }
-          }, pcDir)), livePx && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 13,
-              color: "var(--ds-text-body)",
-              fontWeight: 600
-            }
-          }, "$", livePx.toFixed(2))), React.createElement("div", {
-            style: {
-              fontSize: 13,
-              color: "var(--ds-text-body)",
-              lineHeight: 1.45,
-              marginBottom: triggers.length > 0 ? 10 : 0
-            }
-          }, verdict.line), triggers.length > 0 && React.createElement("div", {
-            style: {
-              marginTop: 4
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.06em",
-              marginBottom: 5
-            }
-          }, verdict.urgency === "watch" ? "WATCH FOR ENTRY" : verdict.urgency === "now" || verdict.urgency === "monitor" ? "MANAGE THE TRADE" : "DIRECTIONAL TRIGGERS"), React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: 4
-            }
-          }, triggers.map((tr, i) => React.createElement("div", {
-            key: `tr-${i}`,
-            style: {
-              display: "flex",
-              gap: 8,
-              fontSize: 12,
-              lineHeight: 1.45
-            }
-          }, React.createElement("span", {
-            style: {
-              color: tr.tone === "go" ? "#34d399" : "var(--ds-text-muted)",
-              flexShrink: 0,
-              marginTop: 1
-            }
-          }, tr.tone === "go" ? "→" : "·"), React.createElement("span", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, tr.text))))), invalidators.length > 0 && verdict.urgency !== "none" && React.createElement("div", {
-            style: {
-              marginTop: 10
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-dn)",
-              letterSpacing: "0.06em",
-              marginBottom: 5
-            }
-          }, "INVALIDATES IF"), React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: 4
-            }
-          }, invalidators.map((inv, i) => React.createElement("div", {
-            key: `inv-${i}`,
-            style: {
-              display: "flex",
-              gap: 8,
-              fontSize: 12,
-              lineHeight: 1.4,
-              color: "var(--ds-text-muted)"
-            }
-          }, React.createElement("span", {
-            style: {
-              color: "var(--ds-dn)",
-              flexShrink: 0,
-              marginTop: 1
-            }
-          }, "\u2717"), React.createElement("span", null, String(inv)))))), (rr || entryQ || v2Rank != null || v2Conv != null) && React.createElement("div", {
-            style: {
-              marginTop: 10,
-              paddingTop: 8,
-              borderTop: "1px solid rgba(255,255,255,0.04)",
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              fontSize: 11,
-              color: "var(--ds-text-muted)"
-            }
-          }, rr && React.createElement("span", null, "R:R ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, Number(rr).toFixed(2))), entryQ != null && React.createElement("span", null, "Entry quality ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, Math.round(Number(entryQ)), "/100")), v2Rank != null && React.createElement("span", null, "Rank ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "R", v2Rank)), v2Conv != null && React.createElement("span", null, "Conviction ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, Math.round(v2Conv), "/100"))));
         })(), (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
@@ -19335,4 +19554,4 @@
   };
 })();
 
-// cache-bust:1781035595191:116208886
+// cache-bust:1781052774502:822183837
