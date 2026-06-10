@@ -2520,12 +2520,26 @@ function DeepAuditTab() {
       const top3 = audit.recommendations.slice(0, 3);
       const config = {};
       for (const r of top3) { if (r.config) config[r.config.key] = r.config.value; }
+      const updates = Object.entries(config).map(([k, v]) => ({ key: k, value: JSON.stringify(v) }));
+      // 2026-06-10 — two hardenings after the operator reported "nothing
+      // happens": (1) credentials:"include" — every other admin POST on
+      // this page sends the session cookie; without it this call could
+      // 401 silently depending on proxy/cookie mode. (2) When the top-3
+      // recs carry no machine-applicable config payload, SAY so instead
+      // of silently no-opping.
+      if (updates.length === 0) {
+        setAppliedMsg("These recommendations are narrative-only (no machine-applicable config payload). Use the Calibration sub-tab knobs to act on them.");
+        return;
+      }
       const res = await fetch(`${API_BASE}/timed/admin/model-config`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ updates: Object.entries(config).map(([k, v]) => ({ key: k, value: JSON.stringify(v) })) }),
+        credentials: "include",
+        body: JSON.stringify({ updates }),
       });
       const json = await res.json();
-      setAppliedMsg(json.ok ? `Applied ${top3.length} recommendations to model_config` : (json.error || "Apply failed"));
+      setAppliedMsg(json.ok
+        ? `Applied ${updates.length} key${updates.length === 1 ? "" : "s"} to model_config: ${updates.map((u) => u.key).join(", ")}. Takes effect on the next 5-min scoring cycle — check the Effective model_config card below.`
+        : (json.error || "Apply failed"));
     } catch (e) { setAppliedMsg("Error: " + e.message); }
     finally { setApplying(false); }
   };
@@ -4802,7 +4816,18 @@ function DiscoveryRunDiagnosisButton() {
   );
 }
 
-function MoveDiscoveryTab({ report, loading, error }) {
+/* 2026-06-10 — onNavigateTab: the Discovery CTAs ("Tune rank gate",
+   "Calibration knobs", the Missed KPI tile) used <a href="?tab=analysis">
+   full-page navigations while the tab is React state. On bfcache
+   restores the useState initializer never re-ran, so the stale tab
+   ("engine") won AND the write-only replaceState effect immediately
+   rewrote the URL back — the operator clicked "Tune rank gate" and
+   landed on the FIRST tab. Tab switches are now in-React via setTab. */
+function MoveDiscoveryTab({ report, loading, error, onNavigateTab }) {
+  const goAnalysis = (e) => {
+    if (e) e.preventDefault();
+    if (typeof onNavigateTab === "function") onNavigateTab("analysis");
+  };
   /* This component renders THREE distinct branches (loading / empty /
      filled). Hooks must be safe across all three. Approach: hold only
      the hooks needed for the filled branch here; the empty branch
@@ -4921,7 +4946,7 @@ function MoveDiscoveryTab({ report, loading, error }) {
           <div className="si-kpi__value si-kpi__value--up">{summary.capture_rate || 0}<span className="si-kpi__suffix">%</span></div>
           <div className="si-kpi__sub">{summary.full_capture || 0} full + {summary.partial_capture || 0} partial</div>
         </a>
-        <a className="si-kpi" href="?tab=analysis" title={tipFor("missed")} style={{textDecoration:"none"}}>
+        <a className="si-kpi" href="?tab=analysis" onClick={goAnalysis} title={tipFor("missed")} style={{textDecoration:"none"}}>
           <div className="si-kpi__label si-tip" data-tip={tipFor("missed")}>Missed</div>
           <div className="si-kpi__value si-kpi__value--dn">{summary.missed_rate || 0}<span className="si-kpi__suffix">%</span></div>
           <div className="si-kpi__sub">{summary.missed || 0} moves</div>
@@ -5083,10 +5108,11 @@ function MoveDiscoveryTab({ report, loading, error }) {
                     {totalDiagnosed === 0 ? (
                       <DiscoveryRunDiagnosisButton />
                     ) : (
-                      <a className="si-action si-action--primary" href={ctaHref}>{ctaLabel}</a>
+                      <a className="si-action si-action--primary" href={ctaHref}
+                         onClick={ctaHref === "?tab=analysis" ? goAnalysis : undefined}>{ctaLabel}</a>
                     )}
                     <a className="si-action" href="trade-autopsy.html">Trade Autopsy</a>
-                    <a className="si-action" href="?tab=analysis">Calibration knobs</a>
+                    <a className="si-action" href="?tab=analysis" onClick={goAnalysis}>Calibration knobs</a>
                   </div>
                 </div>
               );
@@ -5787,6 +5813,31 @@ function App() {
     } catch (_) {}
   }, [tab]);
 
+  // 2026-06-10 — URL → state sync. The effect above is write-only
+  // (state → URL); on bfcache restores / back-forward navigation the
+  // useState initializer never re-runs, so a stale tab won and the
+  // write-only effect rewrote ?tab= back to it. Re-read the param on
+  // pageshow/popstate so ?tab=analysis deep links always win.
+  useEffect(() => {
+    const syncFromUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const legacyMap = { dashboard: "engine", moves: "discovery", patterns: "discovery", history: "analysis", grading: "engine" };
+        const candidate = params.get("tab");
+        const resolved = legacyMap[candidate] || candidate;
+        if (resolved && ["engine", "analysis", "runs", "discovery"].includes(resolved)) {
+          setTab((cur) => (cur === resolved ? cur : resolved));
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("pageshow", syncFromUrl);
+    window.addEventListener("popstate", syncFromUrl);
+    return () => {
+      window.removeEventListener("pageshow", syncFromUrl);
+      window.removeEventListener("popstate", syncFromUrl);
+    };
+  }, []);
+
   // Poll status when queued
   useEffect(() => {
     if (!queued) return;
@@ -6116,7 +6167,7 @@ function App() {
             {tab === "runs" && <RunsTab isAdmin={isAdmin} />}
             {tab === "discovery" && (
               <div className="space-y-5">
-                <MoveDiscoveryTab report={moveReport} loading={moveLoading} error={moveError} />
+                <MoveDiscoveryTab report={moveReport} loading={moveLoading} error={moveError} onNavigateTab={setTab} />
                 <PatternsTab />
               </div>
             )}

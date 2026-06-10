@@ -27,7 +27,7 @@
 //   • capsTickers — 250 tickers → only top 200 by recent magnitude.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { runMoveDiscovery, computeMovePatterns } from "./move-discovery.js";
+import { runMoveDiscovery, computeMovePatterns, isDiscoveryEligibleTicker, MAX_PLAUSIBLE_MOVE_PCT } from "./move-discovery.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -471,5 +471,24 @@ describe("computeMovePatterns", () => {
     expect(p.captured.count).toBe(0);
     expect(p.captured.avg_move_pct).toBe(null);
     expect(p.missed.avg_move_pct).toBe(null);
+  });
+});
+
+describe("discovery scan scope (2026-06-10 TICK/PSTG incident)", () => {
+  it("excludes market internals, index gauges, and futures shapes", () => {
+    for (const bad of ["TICK", "ADD", "VOLD", "TRIN", "VIX", "SPX", "ES1!", "CL1!", "$TICK", "TICK.I", "CME:ES"]) {
+      expect(isDiscoveryEligibleTicker(bad)).toBe(false);
+    }
+    for (const good of ["AAPL", "SOXL", "ARM", "AMD", "PSTG", "VIXY", "BRK"]) {
+      expect(isDiscoveryEligibleTicker(good)).toBe(true);
+    }
+  });
+
+  it("drops data-artifact moves beyond ±300% but keeps real leveraged runs", () => {
+    expect(MAX_PLAUSIBLE_MOVE_PCT).toBe(300);
+    // The incident values: PSTG +2227% (split artifact) must exceed the
+    // cap; SOXL +201% (real 3x-ETF run) must survive.
+    expect(Math.abs(2227.01) > MAX_PLAUSIBLE_MOVE_PCT).toBe(true);
+    expect(Math.abs(201.37) > MAX_PLAUSIBLE_MOVE_PCT).toBe(false);
   });
 });

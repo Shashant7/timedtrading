@@ -199,8 +199,6 @@
         const [analyticsLoading, setAnalyticsLoading] = useState(false);
         const [analyticsError, setAnalyticsError] = useState(null);
         const [analyticsDays, setAnalyticsDays] = useState(7);
-        const [systemHealth, setSystemHealth] = useState(null);
-        const [healthLoading, setHealthLoading] = useState(false);
         const [vipCodes, setVipCodes] = useState([]);
         const [vipLoading, setVipLoading] = useState(false);
         const [vipGenLabel, setVipGenLabel] = useState("");
@@ -300,15 +298,6 @@
           } finally { setAnalyticsLoading(false); }
         }, [analyticsDays]);
 
-        const fetchSystemHealth = useCallback(async () => {
-          setHealthLoading(true);
-          try {
-            const res = await fetch(`${API_BASE}/timed/admin/system-health`, { credentials: "include" });
-            const json = await res.json();
-            if (json.ok) setSystemHealth(json);
-          } catch (e) { console.error(e); } finally { setHealthLoading(false); }
-        }, []);
-
         const fetchVipCodes = useCallback(async () => {
           setVipLoading(true);
           try {
@@ -341,7 +330,6 @@
         };
 
         useEffect(() => { if (tab === "analytics") fetchAnalytics(); }, [tab, fetchAnalytics]);
-        useEffect(() => { if (tab === "health") fetchSystemHealth(); }, [tab, fetchSystemHealth]);
         useEffect(() => { if (tab === "vip") fetchVipCodes(); }, [tab, fetchVipCodes]);
 
         // Sorting
@@ -447,7 +435,6 @@
                   { id: "clients", label: "Clients" },
                   { id: "usage", label: "Usage" },
                   { id: "analytics", label: "Analytics" },
-                  { id: "health", label: "System Health" },
                   { id: "vip", label: "VIP Codes" },
                 ].map(t => (
                   <button type="button" key={t.id} onClick={() => setTab(t.id)} className={`tt-tab ${tab === t.id ? "active" : ""}`}>{t.label}</button>
@@ -458,13 +445,12 @@
               <div className="tt-card tt-card-pad mb-4 flex items-center justify-between gap-4 flex-wrap">
                 <div>
                   <h1 className="tt-page-title">
-                    {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", health: "System Health", vip: "VIP Code Management" }[tab] || "Admin"}
+                    {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", vip: "VIP Code Management" }[tab] || "Admin"}
                   </h1>
                   <p className="tt-page-lede">
                     {tab === "clients" && `${stats.total} total clients`}
                     {tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report")}
                     {tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics")}
-                    {tab === "health" && (systemHealth ? `Last checked: ${new Date(systemHealth.ts).toLocaleTimeString()}` : "Run a health check")}
                     {tab === "vip" && `${vipCodes.length} codes generated`}
                   </p>
                 </div>
@@ -908,55 +894,6 @@
                     </>
                   ) : (
                     <p className="text-[#8AA39A] text-sm">No session analytics yet. Data appears after users browse while logged in.</p>
-                  )}
-                </div>
-              )}
-
-              {/* System Health Tab */}
-              {tab === "health" && (
-                <div className="space-y-6">
-                  <div className="flex items-center gap-3">
-                    <button onClick={fetchSystemHealth} disabled={healthLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
-                      {healthLoading ? "Checking..." : "Run Health Check"}
-                    </button>
-                    {systemHealth && (
-                      <span className={`text-[13px] font-bold ${systemHealth.overall === "healthy" ? "text-[#22c55e]" : systemHealth.overall === "stale" ? "text-[#f59e0b]" : "text-[#ff5252]"}`}>
-                        {systemHealth.overall?.toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  {healthLoading ? (
-                    <div className="text-center py-12 text-[#8AA39A]">Running health checks...</div>
-                  ) : systemHealth?.checks ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {Object.entries(systemHealth.checks).map(([key, check]) => {
-                        const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#8AA39A" : "#ff5252";
-                        const labels = { price_feed: "Price Feed", scoring: "Scoring Engine", d1: "Database (D1)", discord: "Discord Bot", stripe: "Stripe", sendgrid: "SendGrid", twelvedata: "TwelveData" };
-                        return (
-                          <div key={key} className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[13px] font-semibold text-[#e5e7eb]">{labels[key] || key}</span>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ color: statusColor, background: `${statusColor}15`, border: `1px solid ${statusColor}30` }}>
-                                {check.status?.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="space-y-1 text-[11px] text-[#8AA39A]">
-                              {check.age_min !== undefined && <div>Age: <span className="text-[#e5e7eb]">{check.age_min}m</span></div>}
-                              {check.ticker_count !== undefined && <div>Tickers: <span className="text-[#e5e7eb]">{check.ticker_count}</span></div>}
-                              {check.user_count !== undefined && <div>Users: <span className="text-[#e5e7eb]">{check.user_count}</span></div>}
-                              {check.detail && <div className="text-[#ff5252]">{check.detail}</div>}
-                              {check.has_bot_token !== undefined && <div>Bot Token: <span className={check.has_bot_token ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_bot_token ? "Yes" : "No"}</span></div>}
-                              {check.has_guild_id !== undefined && <div>Guild ID: <span className={check.has_guild_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_guild_id ? "Yes" : "No"}</span></div>}
-                              {check.has_role_id !== undefined && <div>Role ID: <span className={check.has_role_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_role_id ? "Yes" : "No"}</span></div>}
-                              {check.has_secret_key !== undefined && <div>Secret Key: <span className={check.has_secret_key ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_secret_key ? "Yes" : "No"}</span></div>}
-                              {check.has_webhook_secret !== undefined && <div>Webhook Secret: <span className={check.has_webhook_secret ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_webhook_secret ? "Yes" : "No"}</span></div>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[#8AA39A] text-sm">Click "Run Health Check" to check system status.</p>
                   )}
                 </div>
               )}

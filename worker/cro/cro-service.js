@@ -620,6 +620,20 @@ export async function getCROBriefAddendum(env) {
     `## CRO Research Desk — daily note ${note.as_of_date}`,
     `Verdict: ${(note.verdict || "").slice(0, 300)}`,
   ];
+  // 2026-06-10 — the brief used to see ONLY this 300-char verdict while
+  // the Research Desk page rendered the full note — the operator read
+  // them as "two analysts that don't talk to one another". Inject the
+  // observations and the full note so the brief can carry the Desk's
+  // actual narrative (the WHY: rotations, IPO supply, macro repricing).
+  if (Array.isArray(note.observations) && note.observations.length > 0) {
+    lines.push("Observations: " + note.observations.slice(0, 5)
+      .map((o) => `[${o.section || "?"}] ${(o.text || "").slice(0, 120)}`)
+      .join(" | "));
+  }
+  if (note.full_note_md) {
+    lines.push("", "Full Desk note (synthesize into the brief's own voice — do NOT quote verbatim):",
+      `"""${String(note.full_note_md).slice(0, 1300)}"""`);
+  }
   if (note.early_indicators?.length) {
     lines.push("Early indicators: " + note.early_indicators.slice(0, 3).map((e) => `${e.indicator} → ${e.implication}`).join(" | "));
   }
