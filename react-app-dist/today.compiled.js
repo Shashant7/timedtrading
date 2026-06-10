@@ -1083,7 +1083,7 @@ function OptionsPlaysOfTheDay({
         color: "var(--tt-text-muted)",
         lineHeight: 1.5
       }
-    }, "No actionable swing plays right now — the model is in WAIT across the universe. This row fills in when a setup reaches RIDE / DRIFT / READY. The Options tab on any ticker still shows its full strategy ladder.")));
+    }, "No conviction swing plays right now — nothing in the universe clears the fusion floor (≥40/100 multi-layer agreement) with an actionable mode. This row fills in when a setup reaches RIDE / DRIFT / READY with real layer agreement. The Options tab on any ticker still shows its full strategy ladder, including the weaker educational structures.")));
   }
   const MODE_META = {
     RIDE: {
@@ -4829,6 +4829,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781097478268:837507007
+// cache-bust:1781112439524:253528176
 
-// cache-bust:1781097478268:837507007
+// cache-bust:1781112439524:253528176
