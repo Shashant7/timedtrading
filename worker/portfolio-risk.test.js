@@ -6,6 +6,7 @@ import {
   updateEquitySamples,
   evaluatePortfolioRisk,
   readPortfolioRisk,
+  evaluateRegimeShockDerisk,
 } from "./portfolio-risk.js";
 
 function makeKV(initial = {}) {
@@ -130,5 +131,48 @@ describe("evaluatePortfolioRisk", () => {
     expect(state.dd_trip).toBe(false);
     expect(state.budget_trip).toBe(false);
     expect(state.block_new_entries).toBe(false);
+  });
+});
+
+describe("evaluateRegimeShockDerisk — S4 shadow advisory", () => {
+  const state = { dd_pct: 4.2, dd_threshold_pct: 5, equity_samples: 12 };
+  const openRows = [
+    { ticker: "AAA", trade_id: "a", direction: "LONG", entry_price: 100 },
+    { ticker: "BBB", trade_id: "b", direction: "LONG", entry_price: 100 },
+    { ticker: "CCC", trade_id: "c", direction: "SHORT", entry_price: 100 },
+    { ticker: "DDD", trade_id: "d", direction: "LONG", entry_price: 100 },
+  ];
+  const priceMap = { AAA: { p: 97 }, BBB: { p: 104 }, CCC: { p: 95 }, DDD: { p: 101 } };
+
+  it("stays inactive without the index watch, and without DD proximity", () => {
+    const noWatch = evaluateRegimeShockDerisk({ state, indexWatch: { active: false }, openRows, priceMap });
+    expect(noWatch.active).toBe(false);
+    const farFromDd = evaluateRegimeShockDerisk({
+      state: { ...state, dd_pct: 1.0 },
+      indexWatch: { active: true, breadth: 4 },
+      openRows, priceMap,
+    });
+    expect(farFromDd.active).toBe(false);
+    expect(farFromDd.watch_active).toBe(true);
+  });
+
+  it("names the weakest quartile (ascending pnl) when watch + DD proximity align", () => {
+    const out = evaluateRegimeShockDerisk({
+      state, indexWatch: { active: true, breadth: 4 }, openRows, priceMap,
+    });
+    expect(out.active).toBe(true);
+    expect(out.targets).toHaveLength(1); // ceil(4/4)
+    expect(out.targets[0].ticker).toBe("AAA"); // -3% is the weakest
+    expect(out.targets[0].suggested_trim_pct).toBe(0.25);
+    expect(out.headline).toContain("REGIME-SHOCK DE-RISK");
+  });
+
+  it("requires >=5 equity samples (fresh ring must not trip)", () => {
+    const out = evaluateRegimeShockDerisk({
+      state: { ...state, equity_samples: 2 },
+      indexWatch: { active: true, breadth: 4 },
+      openRows, priceMap,
+    });
+    expect(out.active).toBe(false);
   });
 });

@@ -304,6 +304,22 @@ PROFIT PROTECTION RULES (non-negotiable — override the above):
 3. pnl < 0 and hold > 50h and mfe < 0.5 → PROCEED. Dead weight.
 4. hmm_regime flipped FROM trade-direction-favorable TO opposite since entry → PROCEED on any soft exit.
 
+REVERSAL / TIMING OVERLAY (proposal.timing_overlay, when present):
+This is the unified exhaustion stack (TD9, phase, RSI, Markov, VIX, FSD
+macro intel). It exists because winners have historically been HELD
+through warned reversals near highs and then given gains back.
+- trim_winners == true OR extension_score >= 55 OR fsd_risk_off == true
+  on a PROFITABLE position → bias STRONGLY toward PROCEED on TRIM
+  proposals. Do NOT use "structure still intact" as a HOLD reason when
+  the overlay is flashing — near the high, structure is ALWAYS intact.
+- proposal.reversal_trim_advisory present → the reversal-trim advisor
+  has independently flagged this position; treat HOLD as exceptional
+  and justify it explicitly against the advisory's reasons.
+- The mirror applies to SHORT winners when compression_score >= 55
+  (capitulation near the lows — lock gains).
+- A bare index-level stretch WITHOUT ticker-level signals is context,
+  not a trim mandate.
+
 You MUST respond with valid JSON only.`;
 
 export const AI_CIO_LIFECYCLE_TEMPLATE = (proposal, memory) => {
