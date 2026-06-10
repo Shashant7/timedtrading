@@ -4089,6 +4089,18 @@
               style: { fontFamily: "var(--tt-font-mono)" },
               title: "Conviction tier · focus score",
             }, `${tier || "C"}·${Math.round(conv)}`),
+            // 2026-06-10 — CRO theme-tilt chip. Shows when the live
+            // theme overlay moved this ticker's composite (±6 max).
+            (() => {
+              const tilt = Number(t?._theme_tilt);
+              if (!Number.isFinite(tilt) || tilt === 0) return null;
+              const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
+              return h("span", {
+                className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+                style: { fontFamily: "var(--tt-font-mono)" },
+                title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`,
+              }, `T${tilt > 0 ? "+" : ""}${tilt}`);
+            })(),
             // (2026-06-10 — R:R + Squeeze chips removed per operator
             // feedback: "We don't need squeeze nor RR".)
           ),

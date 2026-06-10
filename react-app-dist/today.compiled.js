@@ -3391,7 +3391,18 @@ function ViewportCard({
       fontFamily: "var(--tt-font-mono)"
     },
     title: "Conviction tier · focus score"
-  }, `${tier || "C"}·${Math.round(conv)}`)));
+  }, `${tier || "C"}·${Math.round(conv)}`), (() => {
+    const tilt = Number(t?._theme_tilt);
+    if (!Number.isFinite(tilt) || tilt === 0) return null;
+    const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
+    return h("span", {
+      className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`
+    }, `T${tilt > 0 ? "+" : ""}${tilt}`);
+  })()));
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
@@ -4793,6 +4804,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781075535066:221010871
+// cache-bust:1781077891365:517566066
 
-// cache-bust:1781075535066:221010871
+// cache-bust:1781077891365:517566066
