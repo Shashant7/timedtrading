@@ -53,29 +53,43 @@ Wiring (scoring cron tail, next to the index watch): KV
 signature change), `[REVERSAL_TRIM_ADVISOR]` log line. Kill switch:
 `model_config.reversal_trim_advisor_enabled = "false"`. NO execution.
 
-## Phase 2 — measure (operator + next sessions)
+## Phase 2 — measure (SHIPPED 2026-06-10; data accrues with tape)
 
-- Watch advisories for 2-4 weeks of tape. For each advisory, the
-  counterfactual is mechanical: pnl at advisory time vs pnl at actual
-  exit. A nightly job (or calibration script) can compute
-  "advisory-followed P&L delta" from `timed:reversal-trim:advisory`
-  snapshots + the ledger. Promote to enforcement only if the advisor
-  shows positive saved-PnL with acceptable false-positive cost (winners
-  trimmed that kept running).
+Implemented in `worker/reversal-trim-eval.js`:
+- The scoring tick records the FIRST advisory per trade in KV
+  `timed:reversal-trim:history` (anchored advisory pnl + peak).
+- The nightly `0 4 * * *` lifecycle arm scores every closed trade that
+  had an advisory: `saved_pct = advisory_pnl − exit_pnl` and
+  `weighted_saved = suggested_trim_pct × saved_pct`, then writes the
+  aggregate to `timed:reversal-trim:scorecard`.
+- `GET /timed/admin/reversal-trim/scorecard` (key-or-admin) returns the
+  scorecard + last-50 history + live advisory. Verdict field:
+  `ENFORCEMENT_SUPPORTED` only with ≥ 20 evaluated advisories, positive
+  weighted savings, and hurt-rate (winners cut that kept running) below
+  one third. Until then: `INSUFFICIENT_SAMPLE`.
 
-## Phase 3 — guarded enforcement (separate PR, operator-gated)
+## Phase 3 — guarded enforcement (SHIPPED 2026-06-10, default OFF)
 
-Options, in increasing autonomy (all default OFF):
-1. `reversal_trim_advisor_enforce="true"`: advisory → engine trims the
-   suggested 25/33% through the EXISTING trim path (so CIO lifecycle
-   review, manifests, alerts all apply). Strong advisories only.
-2. Include `timing_overlay` + FSD overlay in `buildCIOLifecycleProposal`
-   payloads so the CIO sees reversal context on every TRIM/HOLD veto
-   decision (closes gap #5 cheaply).
-3. S4 regime-shock de-risk: when INDEX EXTENSION WATCH flips active AND
-   the portfolio DD breaker is within 1% of tripping, trim the weakest
-   quartile of open winners by 25% (portfolio coordinator — the
-   review's S4 item).
+`model_config.reversal_trim_advisor_enforce = "true"` (whitelisted in
+the deep-audit config preload) activates a new trim trigger in
+`classifyKanbanStage`: open LONG winner (pnl ≥ 1%) whose own timing
+overlay says `trim_winners` with extension ≥ 55 or ≥ 2 exhaustion
+warnings → kanban `trim` with reason `reversal_trim_advisor`, flowing
+through the NORMAL trim path (CIO lifecycle review, alerts, manifests
+all apply). It deliberately overrides the favorable-zone structure
+shield (`_suppressWeakTrim`) — locking gains near the high on stacked
+reversal signals is the point. SHORT mirror deferred until the LONG
+data is in.
+
+**Operator rule: do not flip the flag until the scorecard reads
+ENFORCEMENT_SUPPORTED.**
+
+Still open (future PRs):
+- Include `timing_overlay` + FSD overlay in `buildCIOLifecycleProposal`
+  payloads so the CIO sees reversal context on every TRIM/HOLD veto.
+- S4 regime-shock de-risk: when INDEX EXTENSION WATCH flips active AND
+  the portfolio DD breaker is within 1% of tripping, trim the weakest
+  quartile of open winners by 25% (portfolio coordinator).
 
 ## Related defaults worth revisiting at enforcement time
 
