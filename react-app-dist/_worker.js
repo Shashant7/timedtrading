@@ -271,6 +271,35 @@ export default {
     }
 
     // ── Everything else: serve static assets (HTML, JS, CSS, etc.) ───────
-    return env.ASSETS.fetch(request);
+    // 2026-06-10 PERF — explicit cache policy. `_headers` files are NOT
+    // honored in advanced mode (_worker.js), so without this every page
+    // switch re-validated all ~17 scripts per page (a conditional request
+    // each). Policy:
+    //   - ?v=-stamped assets + /vendor/*: immutable for a year. The build
+    //     restamps every ?v= on every deploy (scripts/build-frontend.js
+    //     BUILD_MARKER), so a new deploy always changes the URL — the
+    //     long TTL can never serve a stale file.
+    //   - HTML + service-worker.js: no-cache (always revalidate; ETag
+    //     makes unchanged loads a cheap 304).
+    //   - everything else (logos, robots.txt, unversioned helpers):
+    //     1h with revalidation.
+    const assetResponse = await env.ASSETS.fetch(request);
+    if (!assetResponse.ok) return assetResponse;
+
+    const isVersioned =
+      url.searchParams.has("v") || url.pathname.startsWith("/vendor/");
+    const isHtml =
+      url.pathname.endsWith(".html") || url.pathname.endsWith("/");
+    const isServiceWorker = url.pathname === "/service-worker.js";
+
+    const cached = new Response(assetResponse.body, assetResponse);
+    if (isHtml || isServiceWorker) {
+      cached.headers.set("Cache-Control", "no-cache");
+    } else if (isVersioned) {
+      cached.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    } else {
+      cached.headers.set("Cache-Control", "public, max-age=3600, must-revalidate");
+    }
+    return cached;
   },
 };
