@@ -511,6 +511,133 @@ function RdCollapse({
     }
   }, children));
 }
+function OfficerDesk({
+  data,
+  isAdmin
+}) {
+  const ageH = ts => {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.round((Date.now() - n) / 3600000 * 10) / 10;
+  };
+  const freshChip = (hours, freshUnderH) => {
+    if (hours == null) return h("span", {
+      className: "tag"
+    }, "no data");
+    const fresh = hours <= freshUnderH;
+    return h("span", {
+      className: "tag",
+      style: {
+        color: fresh ? "var(--tt-up)" : "var(--tt-amber, #f59e0b)",
+        borderColor: fresh ? "rgba(34,197,94,0.4)" : "rgba(245,158,11,0.4)"
+      }
+    }, hours < 48 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`);
+  };
+  const cro = data?.cro?.body && data.cro.body.ok !== false ? data.cro.body : null;
+  const cto = data?.cto?.body && data.cto.body.ok !== false ? data.cto.body : null;
+  const auth = data?.cioAuthority?.body?.authority || null;
+  const authCard = auth?.scorecard || auth || {};
+  const authEntry = authCard?.entry || auth?.entry || {};
+  const coo = data?.cooLastCycle?.body || null;
+  const cooCycle = coo?.cycle || coo?.last_cycle || coo;
+  const officers = [{
+    key: "CIO",
+    role: "trade review",
+    stance: auth ? String(auth.shadow_mode ?? auth.shadowOn ?? "") === "true" || auth.shadow_mode === true ? "SHADOW" : "LIVE" : isAdmin ? "—" : "admin",
+    detail: auth ? `reject precision ${authEntry.reject_precision != null ? Math.round(authEntry.reject_precision * 100) + "%" : "—"} · approve WR ${authEntry.approve_wr != null ? Math.round(authEntry.approve_wr * 100) + "%" : "—"}` : isAdmin ? "authority scorecard unavailable" : "sign in as admin for the authority scorecard",
+    hours: ageH(auth?.computed_at || authCard?.computed_at),
+    freshUnder: 26
+  }, {
+    key: "CRO",
+    role: "research synthesis",
+    stance: cro ? "ACTIVE" : "—",
+    detail: cro?.verdict ? String(cro.verdict).slice(0, 110) : "no daily note yet",
+    hours: ageH(cro?.produced_at),
+    freshUnder: 26
+  }, {
+    key: "CTO",
+    role: "levels & universe",
+    stance: cto ? "ACTIVE" : "—",
+    detail: Array.isArray(cto?.headlines) && cto.headlines[0] ? String(cto.headlines[0]).slice(0, 110) : cto ? `${cto.tickers_ok ?? cto.tickers_processed ?? "?"} tickers processed` : "no universe rollup yet",
+    hours: ageH(cto?.computed_at || cto?.generated_at || cto?.produced_at),
+    freshUnder: 26
+  }, {
+    key: "COO",
+    role: "ops & calibration",
+    stance: cooCycle ? "ACTIVE" : isAdmin ? "—" : "admin",
+    detail: cooCycle ? `calibration ${cooCycle?.calibration?.ok ? "ok" : "skipped"} · healed ${(cooCycle?.self_healing?.healed || []).length}` : isAdmin ? "no cycle recorded yet" : "sign in as admin for the COO cycle",
+    hours: ageH(cooCycle?.finished_at || cooCycle?.ts || cooCycle?.completed_at),
+    freshUnder: 26
+  }];
+  return h("div", {
+    className: "card",
+    style: {
+      marginBottom: 14
+    }
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between",
+      marginBottom: 8
+    }
+  }, h("h2", {
+    style: {
+      margin: 0
+    }
+  }, "Officer Desk"), h("span", {
+    className: "dim"
+  }, "what the desk thinks right now")), h("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+      gap: 10
+    }
+  }, officers.map(o => h("div", {
+    key: o.key,
+    style: {
+      padding: "10px 12px",
+      background: "var(--tt-bg-elev)",
+      border: "1px solid var(--tt-border)",
+      borderRadius: 10
+    }
+  }, h("div", {
+    className: "row",
+    style: {
+      justifyContent: "space-between",
+      marginBottom: 4
+    }
+  }, h("div", null, h("span", {
+    style: {
+      fontWeight: 800,
+      letterSpacing: "0.04em"
+    }
+  }, `AI ${o.key}`), h("span", {
+    className: "dim",
+    style: {
+      marginLeft: 8,
+      fontSize: 11
+    }
+  }, o.role)), freshChip(o.hours, o.freshUnder)), h("div", {
+    style: {
+      marginBottom: 4
+    }
+  }, h("span", {
+    className: "tag",
+    style: o.stance === "LIVE" ? {
+      color: "var(--tt-up)",
+      borderColor: "rgba(34,197,94,0.4)"
+    } : o.stance === "SHADOW" ? {
+      color: "var(--tt-amber, #f59e0b)",
+      borderColor: "rgba(245,158,11,0.4)"
+    } : {}
+  }, o.stance)), h("div", {
+    className: "muted",
+    style: {
+      fontSize: 12,
+      lineHeight: 1.45
+    }
+  }, o.detail)))));
+}
 function CRONoteCard({
   data
 }) {
@@ -1322,7 +1449,7 @@ function App() {
     };
   }, []);
   const load = useCallback(async () => {
-    const [cro, cto, strategy, override, pubs, proposals, rotation, lastSummary, influence] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
+    const [cro, cto, strategy, override, pubs, proposals, rotation, lastSummary, influence, cioAuthority, cooLastCycle] = await Promise.all([jget("/timed/cro/latest"), jget("/timed/cto/universe"), jget("/timed/strategy"), isAdmin ? jget("/timed/admin/cro/override") : Promise.resolve({
       body: null
     }), isAdmin ? jget("/timed/admin/cro/publications?limit=15") : Promise.resolve({
       body: null
@@ -1331,6 +1458,10 @@ function App() {
     }), isAdmin ? jget("/timed/admin/cro/rotation/snapshot") : Promise.resolve({
       body: null
     }), jget("/timed/cro/last-summary"), isAdmin ? jget("/timed/admin/cro/influence?limit=15&lookback_hours=48") : Promise.resolve({
+      body: null
+    }), isAdmin ? jget("/timed/admin/ai-cio/authority") : Promise.resolve({
+      body: null
+    }), isAdmin ? jget("/timed/admin/coo/last-cycle") : Promise.resolve({
       body: null
     })]);
     setData({
@@ -1344,7 +1475,9 @@ function App() {
       proposals,
       rotation,
       lastSummary,
-      influence
+      influence,
+      cioAuthority,
+      cooLastCycle
     });
   }, [isAdmin]);
   useEffect(() => {
@@ -1434,6 +1567,9 @@ function App() {
   }
   return h("main", null, h(StatusBanner, {
     data
+  }), h(OfficerDesk, {
+    data,
+    isAdmin
   }), busyKeys.size > 0 && h("div", {
     className: "card",
     style: {
@@ -1577,6 +1713,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1781058608796:986082513
+// cache-bust:1781060589806:760011620
 
-// cache-bust:1781058608796:986082513
+// cache-bust:1781060589806:760011620
