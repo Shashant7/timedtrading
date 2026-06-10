@@ -18,7 +18,12 @@ changes. We force a fresh fetch by appending `?v=<unique-string>` to every
 `<script src>` that loads the bundle.
 
 `npm run build:frontend` automatically rewrites those `?v=...` query
-strings to a unique timestamp on every build. The mechanism:
+strings to a unique timestamp on every build — since 2026-06-10 this
+covers **CSS links too** (`tt-tokens.css`, `tailwind.generated.css`), so
+never hand-bump a stylesheet `?v=` either. The Pages worker
+(`react-app/_worker.js`) serves all `?v=`-stamped assets with
+`Cache-Control: immutable` — the stamp is the ONLY cache invalidator
+(see [frontend-performance.md](frontend-performance.md)). The mechanism:
 
 ```
 <script src="shared-right-rail.compiled.js?v=cache-bust:1780000000000:..."></script>

@@ -95,8 +95,8 @@ styling, or root `DESIGN.md`.
 |---|---|
 | splash.html | **DONE 2026-06-10** (vf-page + Manrope hero w/ mint highlight pill, pill CTAs, mint accent) |
 | today.html | **DONE 2026-06-10** (first migration — page-local `:root` repoint) |
-| active-trader.html | **DONE 2026-06-10** (vf-page; lane stage colors kept as data semantics) |
-| investor.html | **DONE 2026-06-10** (vf-page; `investor-panel.js` card chrome still pre-Verda — follow-up) |
+| active-trader.html | **DONE 2026-06-10 v2** (full page-local `:root` repoint matching today.html, 18px card radii, Manrope hero, guide → shared `tt-disclose` collapsed) |
+| investor.html | **DONE 2026-06-10 v2** (same v2 treatment; `investor-panel.js` headers → eyebrow + Manrope, violet → spring) |
 | portfolio.html | **DONE 2026-06-10** (vf-page; equity-curve data colors kept) |
 | insights.html | **DONE 2026-06-10** (vf-page + gold→mint inline sweeps) |
 | learn.html / faq.html / proof.html / terms.html | **DONE 2026-06-10** (vf-page; proof got tokens link + full `:root` retheme; serif headings → Manrope 700/800) |
@@ -110,6 +110,24 @@ styling, or root `DESIGN.md`.
 **Migration COMPLETE 2026-06-10** — every page that links `tt-tokens.css`
 now carries `vf-page` (or its own Verda `:root` in today/proof). Future
 pages: add `class="vf-page"` to `<body>` + Manrope font + use tokens.
+
+## Canonical page patterns (2026-06-10 — copy these, don't invent)
+
+Promoted to `tt-tokens.css` (shared) and documented with JSX shapes in
+root `DESIGN.md` § "Verda canonical page patterns":
+
+- **Section** = `.tt-card.tt-card-pad` + `.tt-sec-title` eyebrow
+  (11px uppercase, dim) + `.tt-sec-h` headline (Manrope 800).
+- **Tier-1 page header** = `.tt-status` (eyebrow label + Manrope
+  `.greeting` + `.session` pills). Journey pages use this instead of
+  bespoke gradient heroes.
+- **Progressive disclosure** = `<details class="tt-disclose">` with
+  `summary > .tt-disclose-title/.tt-disclose-sub/.tt-disclose-caret`,
+  body in `.tt-disclose-body`, COLLAPSED by default, open-state in
+  localStorage. Use for guides ("How to read this page"), heat maps,
+  anything instructional — never ship a default-open explainer wall.
+- Card radius is `var(--vf-radius-md, 18px)` everywhere; KPI tiles
+  inside strips use 10px.
 
 ## How to verify
 

@@ -10,56 +10,83 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<link rel="stylesheet" href="tailwind.generated.css" />
-<script src="auth-gate.js?v=1781073086213"></script>
-    <script src="tt-fetch-cache.js?v=1781073086213"></script>
-    <script src="tt-live-data.js?v=1781073086213"></script>
-    <script src="tt-bottom-nav.js?v=1781073086213" defer></script>
-    <script src="tt-nav-extras.js?v=1781073086213" defer></script>
-    <script src="tt-global-search.js?v=1781073086213" defer></script>
-    <script src="tt-rail-bridge.js?v=1781073086213" defer></script>
-    <script src="tt-activity-strip.js?v=1781073086213" defer></script>
-    <script src="shared-price-utils.js?v=1781073086213"></script>
-    <script src="ds-components.js?v=1781073086213"></script>
-    <script src="investor-panel.js?v=1781073086213"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781074165128" />
+    <script defer src="/vendor/react.production.min.js?v=1781074165128"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781074165128"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781074165128" />
+<script defer src="auth-gate.js?v=1781074165128"></script>
+    <script defer src="tt-fetch-cache.js?v=1781074165128"></script>
+    <script defer src="tt-live-data.js?v=1781074165128"></script>
+    <script src="tt-bottom-nav.js?v=1781074165128" defer></script>
+    <script src="tt-nav-extras.js?v=1781074165128" defer></script>
+    <script src="tt-global-search.js?v=1781074165128" defer></script>
+    <script src="tt-rail-bridge.js?v=1781074165128" defer></script>
+    <script src="tt-activity-strip.js?v=1781074165128" defer></script>
+    <script defer src="shared-price-utils.js?v=1781074165128"></script>
+    <script defer src="ds-components.js?v=1781074165128"></script>
+    <script defer src="investor-panel.js?v=1781074165128"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script src="shared-bubble-chart.compiled.js?v=1781073086213"></script>
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=1781073086213"></script>
-    <script src="shared-right-rail.compiled.js?v=1781073086213"></script>
-    <script src="ticker-spider-chart.js?v=1781073086213"></script>
-    <script src="shared-rail-bootstrap.js?v=1781073086213"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1781074165128"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781074165128"></script>
+    <script defer src="shared-rail-helpers.js?v=1781074165128"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1781074165128"></script>
+    <script defer src="ticker-spider-chart.js?v=1781074165128"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1781074165128"></script>
     <style>
       :root {
-        --tt-bg-base: #0b0e11;
-        --tt-bg-surface: rgba(255,255,255,0.025);
-        --tt-bg-elev: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.06);
-        --tt-border-hi: rgba(255,255,255,0.12);
-        --tt-text: #e5e7eb;
-        --tt-text-muted: #9ca3af;
-        --tt-text-dim: #6b7280;
-        --tt-text-faint: #4b5563;
+        /* 2026-06-10 — VERDA MIGRATION (matches today.html exactly).
+           Solid Ink/Bark/Moss surfaces (no alpha overlays), single mint
+           accent, Manrope display face. Data semantics (--tt-up / --tt-dn)
+           keep their green/red meaning — mint is the CTA/brand accent,
+           NEVER a "price up" color. See skills/verda-ui-migration.md. */
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
         --tt-up: #22c55e;
         --tt-up-soft: #34d399;
         --tt-up-bg: rgba(34,197,94,0.10);
         --tt-dn: #f43f5e;
         --tt-dn-soft: #fb7185;
         --tt-dn-bg: rgba(244,63,94,0.10);
-        --tt-accent: #38F2A1;
-        --tt-accent-dim: rgba(56,242,161,0.14);
-        --tt-violet: #a78bfa;
-        --tt-violet-dim: rgba(167,139,250,0.14);
-        --tt-cyan: #22d3ee;
-        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-violet: var(--vf-spring, #A6F7CF);
+        --tt-violet-dim: rgba(166,247,207,0.12);
+        --tt-cyan: var(--vf-spring, #A6F7CF);
+        --tt-cyan-dim: rgba(166,247,207,0.10);
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+        /* Shared ds-* components (ticker cards, chips, rail panels) read
+           these tokens from tt-tokens.css — re-point them here so every
+           shared component on THIS page picks up the Verda palette. */
+        --ds-bg-canvas: var(--vf-ink, #0B1410);
+        --ds-bg-surface: var(--vf-bark, #13201A);
+        --ds-bg-surface-hi: var(--vf-bark-hi, #1A2B22);
+        --ds-bg-glass: rgba(56, 242, 161, 0.035);
+        --ds-bg-glass-hi: rgba(56, 242, 161, 0.07);
+        --ds-text-display: var(--vf-cream, #E8F2EC);
+        --ds-text-body: #CFDED6;
+        --ds-text-muted: var(--vf-sage, #8AA39A);
+        --ds-text-faint: #51635A;
+        --ds-accent: var(--vf-mint, #38F2A1);
+        --ds-accent-hi: var(--vf-spring, #A6F7CF);
+        --ds-accent-soft: #5BE8AB;
+        --ds-accent-dim: rgba(56, 242, 161, 0.14);
+        --ds-accent-glow: rgba(56, 242, 161, 0.40);
+        --ds-stroke-soft: rgba(166, 247, 207, 0.06);
+        --ds-stroke: var(--vf-moss, #1F3128);
+        --ds-stroke-hi: var(--vf-moss-hi, #2A4136);
       }
       body {
         background: var(--tt-bg-base);
@@ -73,8 +100,8 @@
       @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
       .tt-row { margin-bottom: 28px; }
       @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
-      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
-      .tt-card-pad { padding: 14px 16px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      .tt-card-pad { padding: 18px 20px 16px; }
 
       /* Top nav (matches /today + /active-trader) */
       nav.topnav {
@@ -107,19 +134,20 @@
       .nav-link.learn { color: var(--tt-up-soft); }
       .nav-link.learn:hover { background: var(--tt-up-bg); }
 
-      /* Page hero */
+      /* Page hero — mirrors today.html's .tt-status tier-1 strip:
+         eyebrow label + Manrope greeting on a bark surface. */
       .inv-hero {
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 16px;
         align-items: center;
-        padding: 18px 22px;
+        padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-radius: 14px;
         margin-bottom: 20px;
       }
-      .inv-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .inv-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
       .inv-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .inv-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
 
@@ -127,8 +155,8 @@
       .inv-account-strip {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
-        padding: 12px 14px;
+        border-radius: var(--vf-radius-md, 18px);
+        padding: 14px 16px;
         margin-bottom: 16px;
       }
       .inv-account-strip__head {
@@ -164,10 +192,10 @@
         .inv-account-strip__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
       .inv-account-strip__tile {
-        padding: 8px 10px;
+        padding: 9px 11px;
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
-        border-radius: 8px;
+        border-radius: 10px;
         display: flex;
         flex-direction: column;
         gap: 4px;
@@ -389,7 +417,7 @@
       </main>
     </div>
 
-    <script src="investor.compiled.js?v=1781073086213"></script>
+    <script defer src="investor.compiled.js?v=1781074165128"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -397,4 +425,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781073086213:391273990 -->
+<!-- cache-bust:1781074165128:314896959 -->

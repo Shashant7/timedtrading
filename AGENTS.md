@@ -54,6 +54,8 @@ should read. It tells you what to look at, in what order, and why.
 | Force a cache-bust after a deploy | [skills/cache-bust-rail.md](skills/cache-bust-rail.md) |
 | Add a worker route / self-fetch / WS / render LLM HTML | [skills/security-auth-patterns.md](skills/security-auth-patterns.md) |
 | Any UI styling work or Verda design-system migration | [skills/verda-ui-migration.md](skills/verda-ui-migration.md) |
+| Cron / deploy / "which worker runs X?" (post-decomposition) | [skills/worker-topology.md](skills/worker-topology.md) |
+| Add scripts/styles to a page, slow loads, caching, page-switch speed | [skills/frontend-performance.md](skills/frontend-performance.md) |
 
 If the operation you need isn't here, search the skills folder for
 keywords first, then [tasks/lessons.md](tasks/lessons.md). If you still
@@ -67,9 +69,11 @@ WRITE A NEW SKILL before exiting. Future you will thank you.
 | Path | What it is |
 |---|---|
 | `worker/` | Main Cloudflare Worker — routes, cron, trade logic, scoring |
+| `worker-feed/` / `worker-engine/` / `worker-research/` | Wrangler configs for the role-split workers (tt-feed / tt-engine / tt-research) — same bundle, role-gated crons. See [skills/worker-topology.md](skills/worker-topology.md) |
 | `worker-bridge/` | Sidecar bridge worker (IBKR / Robinhood) — separate deploy |
 | `react-app/` | Source HTML + JSX pages |
-| `react-app-dist/` | Built / pre-compiled output that Pages serves |
+| `react-app/vendor/` | Self-hosted third-party libs (react, lightweight-charts, …) — versions in its README |
+| `react-app-dist/` | Built / pre-compiled output that Pages serves (commit after `npm run build:frontend`) |
 | `scripts/` | Build, deploy, replay, analysis helpers |
 | `skills/` | **Reusable playbooks for common operations** |
 | `tasks/` | Plans (`todo.md`), lessons (`lessons.md`), recent session-specific plans |

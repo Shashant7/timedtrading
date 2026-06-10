@@ -1066,22 +1066,20 @@ function ATBubbleMap({
   }))));
 }
 function HowToReadCard() {
-  const KEY = "tt_at_guide_open_v1";
+  const KEY = "tt_at_guide_open_v2";
   const [open, setOpen] = useState(() => {
     try {
-      return localStorage.getItem(KEY) !== "0";
+      return localStorage.getItem(KEY) === "1";
     } catch (_) {
-      return true;
+      return false;
     }
   });
-  const toggle = () => {
-    setOpen(v => {
-      const n = !v;
-      try {
-        localStorage.setItem(KEY, n ? "1" : "0");
-      } catch (_) {}
-      return n;
-    });
+  const onToggle = e => {
+    const n = !!e.target.open;
+    setOpen(n);
+    try {
+      localStorage.setItem(KEY, n ? "1" : "0");
+    } catch (_) {}
   };
   const lane = (name, when) => h("div", {
     style: {
@@ -1115,45 +1113,26 @@ function HowToReadCard() {
       color: "var(--tt-text-muted)"
     }
   }, desc));
-  return h("section", {
-    className: "tt-card tt-card-pad",
+  return h("details", {
+    className: "tt-disclose",
+    open,
+    onToggle,
     style: {
       marginBottom: 14
     }
-  }, h("div", {
+  }, h("summary", null, h("span", {
+    className: "tt-disclose-title"
+  }, "How to read this page"), h("span", {
+    className: "tt-disclose-sub"
+  }, "A live, simulated portfolio of what the TT model is trading"), h("span", {
+    className: "tt-disclose-caret"
+  }, "▼")), open && h("div", {
+    className: "tt-disclose-body",
     style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, h("div", null, h("div", {
-    className: "label"
-  }, "HOW TO READ THIS PAGE"), h("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text)",
-      fontWeight: 600,
-      marginTop: 2
-    }
-  }, "A live, simulated portfolio of what the TT model is trading")), h("button", {
-    onClick: toggle,
-    style: {
-      background: "transparent",
-      border: "1px solid var(--tt-border-hi)",
-      color: "var(--tt-text-muted)",
-      borderRadius: 8,
-      padding: "4px 10px",
-      fontSize: 12,
-      cursor: "pointer"
-    }
-  }, open ? "Hide guide" : "Show guide")), open && h("div", {
-    style: {
-      marginTop: 12,
       display: "grid",
       gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-      gap: 16
+      gap: 16,
+      padding: "14px 16px 12px"
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title",
@@ -1668,6 +1647,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781073086213:391273990
+// cache-bust:1781074165128:314896959
 
-// cache-bust:1781073086213:391273990
+// cache-bust:1781074165128:314896959

@@ -676,7 +676,11 @@
     return React.createElement("div", { className: "card p-4 mb-4 fade-in" },
       React.createElement("div", { className: "flex items-center justify-between mb-1" },
         React.createElement("div", { className: "flex items-center gap-3" },
-          React.createElement("h2", { className: "text-sm font-semibold text-white" }, "Market Health"),
+          /* 2026-06-10 — Verda unification: Manrope section headline. */
+          React.createElement("h2", {
+            className: "tt-sec-h",
+            style: { margin: 0, fontFamily: "var(--tt-font-display)", fontSize: 15 },
+          }, "Market Health"),
           React.createElement(RegimeBadge, { regime }),
         ),
         React.createElement("div", { className: "flex items-center gap-2" },
@@ -1079,10 +1083,13 @@
     }, [allTickers, health]);
 
     return React.createElement("div", { className: "space-y-4" },
+      /* 2026-06-10 — Verda unification: eyebrow + Manrope headline pattern
+         (matches today.html section headers). */
       React.createElement("div", { className: "flex items-center justify-between" },
-        React.createElement("h2", { className: "text-sm font-semibold text-white" },
-          "Action Board",
-          React.createElement("span", { className: "text-[10px] text-[#51635A] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
+        React.createElement("div", null,
+          React.createElement("div", { className: "tt-sec-title" }, "ACTION BOARD"),
+          React.createElement("h2", { className: "tt-sec-h", style: { margin: 0, fontFamily: "var(--tt-font-display)" } },
+            `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
         ),
         React.createElement("button", {
           onClick: fetchData,
@@ -1101,9 +1108,9 @@
         style: { padding: "var(--ds-space-3) var(--ds-space-4)" },
       },
         React.createElement("div", {
-          className: "ds-caption",
-          style: { marginBottom: "var(--ds-space-2)", color: "var(--ds-accent)" },
-        }, "Investor Brief"),
+          className: "tt-sec-title",
+          style: { marginBottom: "var(--ds-space-2)" },
+        }, "INVESTOR BRIEF"),
         React.createElement("div", {
           style: {
             display: "flex", flexDirection: "column", gap: "var(--ds-space-2)",
@@ -1121,12 +1128,13 @@
               fontFamily: "var(--tt-font-mono)",
               color: "var(--ds-text-muted)",
               padding: "6px 8px",
-              borderLeft: "2px solid rgba(167,139,250,0.4)",
-              background: "rgba(167,139,250,0.04)",
+              /* Verda: spring (soft mint) replaces the legacy violet. */
+              borderLeft: "2px solid rgba(166,247,207,0.4)",
+              background: "rgba(166,247,207,0.05)",
               borderRadius: "0 4px 4px 0",
             },
           },
-            React.createElement("span", { style: { color: "rgb(196,181,253)", fontWeight: 700 } }, "RECENT"),
+            React.createElement("span", { style: { color: "var(--vf-spring, #A6F7CF)", fontWeight: 700 } }, "RECENT"),
             ...narrative.recentActions.map((line, i) => React.createElement("span", { key: `ra${i}`, style: { color: "var(--ds-text-body)" } }, line)),
           ),
           (narrative.buyZone.length > 0 || narrative.rsHigh.length > 0) && React.createElement("div", {
@@ -1182,4 +1190,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1781073086213:391273990
+// cache-bust:1781074165128:314896959

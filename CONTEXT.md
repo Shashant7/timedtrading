@@ -56,10 +56,11 @@ npm run deploy:worker   # worker only (skip right-rail)
 ```
 
 - **Worker**: `cd worker && wrangler deploy` + `wrangler deploy --env production` — deploy BOTH
-- **Pages**: Auto-deploys on `git push main` (static files from `react-app/`)
+- **Pages**: Auto-deploys on `git push main` (static files from `react-app-dist/` — run `npm run build:frontend` and commit dist)
 - **CRITICAL**: `simulation-dashboard.html` and all `react-app/*.html` files are served by **Pages**, NOT the worker. `deploy:worker` does NOT update them. Must `git commit && git push` to trigger Pages deploy.
 - **Trades page JSX**: App's return must have a single root. Use `return ( <> <div className="tt-root"> ... <GoProModal /> ... </div> </> );` — no extra `</div>` before GoProModal.
-- **Right rail**: Edit `shared-right-rail.js` → run `node scripts/compile-right-rail.js` → update `?v=` cache busters
+- **Right rail**: Edit `shared-right-rail.js` → `npm run build:frontend` (compiles + stamps every `?v=` automatically — JS and CSS; never hand-bump)
+- **Dedicated workers** (tt-feed / tt-engine / tt-research): CI deploys via `.github/workflows/deploy-{feed,engine,research}.yml`; see `skills/worker-topology.md` for roles, flags, and cutover order.
 
 ## Global nav (header + right side)
 
@@ -74,10 +75,28 @@ npm run deploy:worker   # worker only (skip right-rail)
 
 | Layer    | Tech |
 |----------|------|
-| Frontend | React 18, Tailwind, Babel (index-react, simulation-dashboard, daily-brief, trade-autopsy, etc.) |
+| Frontend | React 18 (vendored UMD), Tailwind, JSX precompiled at build time (`scripts/build-frontend.js` → `react-app-dist/`, served by Pages + `_worker.js`) |
 | API      | Cloudflare Worker (`worker/index.js`), routes under `/timed/*` |
+| Cron     | Role-split across 4 workers sharing the monolith bundle: monolith (API + fallback), `tt-feed` (price feed), `tt-engine` (*/5 scoring + lifecycle), `tt-research` (hourly arms + 22:00 UTC batch). Gated by `WORKER_ROLE` + `*_EXTERNAL`/`*_ENABLED` vars — see `skills/worker-topology.md` |
 | Data     | D1 (ticker_candles, trades, positions), KV (timed:latest, timed:prices) |
 | External | TwelveData (primary), Alpaca (execution, backfill) |
+
+## Frontend performance doctrine (2026-06-10)
+
+See `skills/frontend-performance.md` for the full playbook. Invariants:
+
+- Every external script is `defer` (build adds it); NEVER add a sync
+  script to `<head>`, and inline scripts must not touch `React`/library
+  globals at parse time (breaks under defer).
+- Third-party libs are vendored under `react-app/vendor/` — no CDN
+  origins on user pages (index-react + proof are legacy exceptions).
+- `?v=` build stamps (JS AND CSS) are the only cache invalidator;
+  `_worker.js` serves stamped assets `immutable`. Never hand-bump.
+- BUILD_MARKER intentionally rewrites every blob each deploy (Pages
+  content-addressed cache corruption workaround) — don't replace with
+  per-file content hashes.
+- Journey pages prerender each other on nav hover (speculation rules in
+  `tt-nav-extras.js`).
 
 ## Product entry point (post May 2026)
 

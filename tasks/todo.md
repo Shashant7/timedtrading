@@ -22,6 +22,17 @@
 
 ### Active
 
+- [x] **Performance tuning + journey-page design unification + docs
+      (2026-06-10, PR pending).** Frontend perf pass (defer-everything,
+      vendored CDN libs, immutable `?v=` caching via `_worker.js`,
+      single font @import, speculation-rules prerender, CSS stamping in
+      build); Active Trader + Investor restyled to Today's Verda
+      language (shared `.tt-disclose`/`.tt-status` in tt-tokens.css,
+      full `:root` repoints, guides collapsed by default); docs
+      refreshed for new agents (CONTEXT stack/topology + perf doctrine,
+      DESIGN canonical patterns, AGENTS repo map, new skills:
+      `worker-topology.md`, `frontend-performance.md`). Plan:
+      `tasks/2026-06-10-perf-design-docs-plan.md`.
 - [x] **Accumulate lane clarity — execution-ready only (PR pending).**
       LITE/ASTS showed in ACCUMULATE (BUY NOW) but detail panel said
       WATCH. Fix: kanban demotes monitor/stale accumulate rows to On
