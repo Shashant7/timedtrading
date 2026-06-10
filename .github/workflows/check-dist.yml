@@ -71,7 +71,18 @@ jobs:
           # — false failure on every PR touching react-app/. New
           # pattern accepts any `.js` (with optional `.compiled.`) and
           # optional `defer` (or other) attributes after the src.
-          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script src="[^"]+\.(compiled\.)?js\?v=[0-9]+"[^>]*></script>[[:space:]]*$'
+          #
+          # 2026-06-10 — PR #565 (perf pass) changed the line shapes the
+          # build stamps, and the old pattern stopped matching them:
+          #   1) `<script defer src="…">` — attributes can now appear
+          #      BEFORE src (addDeferToExternalScripts), not just after.
+          #   2) `<link rel="stylesheet" href="…css?v=<ms>">` — CSS links
+          #      are now stamped too (rewriteSharedScriptCacheBust).
+          # Both made this check fail on every PR touching react-app/
+          # even with a perfectly fresh dist. The pattern below accepts
+          # any attributes on either side of src/href; the volatile part
+          # is always the `?v=<digits>` stamp.
+          IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script[^>]* src="[^"]+\.js\?v=[0-9]+"[^>]*></script>[[:space:]]*$|^[[:space:]]*<link[^>]* href="[^"]+\.css\?v=[0-9]+"[^>]*/?>[[:space:]]*$'
           if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" -- react-app-dist/; then
             echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
             echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
