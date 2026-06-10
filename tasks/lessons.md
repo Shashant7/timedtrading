@@ -6,6 +6,41 @@
 
 ---
 
+## Global freshness checks hide per-symbol corpses (SMCI $41 vs $29) [2026-06-10]
+
+A VIP subscriber caught SMCI displayed at $41.64 while the real price
+was $29.27 (a -28% crash day). The KV entry's per-symbol trade
+timestamp was 5.4 DAYS old; a census found 29 symbols frozen at the
+same moment, plus index/futures symbols days stale. Root causes:
+
+1. The AlpacaStream DO wasn't ticking those symbols, and the feed's
+   REST fallback only fires when the WHOLE price blob is stale
+   (>3 min) — per-symbol failures never trigger it.
+2. Every per-symbol failure path is a silent `continue` (TD batch
+   parser skips entries without `close`; whole-batch `_error` skips 8
+   symbols at once), and the KV merge then preserves the stale entry
+   forever — by design for day-roll protection, with no staleness cap.
+3. ALL health signals were global (`timed:prices.updated_at`,
+   pricesAgeSec): 29 stale symbols among 260 fresh ones alarmed
+   nothing for 5 days, until a paying user noticed.
+
+Durable rules:
+1. **Freshness must be tracked at the same granularity as the data.**
+   A blob-level updated_at says the WRITER ran, not that every entry
+   is alive. Per-symbol `t` exists — check it.
+2. **Self-heal beats alert-only**: the feed now runs a per-symbol
+   stale sweep every full-pipeline tick (symbols >30 min stale get a
+   targeted REST refresh, capped per run). Survivors surface in
+   `timed:prices.stale_symbols` → `/timed/health.staleSymbolCount` →
+   watchdog failure when >5 during RTH.
+3. **Silent `continue` on a per-item failure + merge-preserves-old is
+   the corpse recipe.** Any pipeline with that shape needs a staleness
+   bound on the preserved value or a downstream sweep.
+4. Chart candles inherit the corpse: the live-candle sync wrote flat
+   Jun-10 candles (O=H=L=C=stale price) for the frozen symbols. After
+   a price heal, backfill D candles for the affected window
+   (skills/backfill-candles.md).
+
 ## Tests must never hardcode calendar dates against a Date.now() window [2026-06-10]
 
 Every deploy on main started failing at 10:00 UTC on 2026-06-10 — the
