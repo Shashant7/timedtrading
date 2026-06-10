@@ -69,7 +69,7 @@
          flush with the screen edge on Android / desktop where the
          visualViewport delta is always 0. */
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
-      background: rgba(10,12,16,0.94);
+      background: rgba(11,20,16,0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid rgba(255,255,255,0.08);
@@ -111,8 +111,8 @@
     }
     .tt-bn-item:active { background: rgba(255,255,255,0.06); }
     .tt-bn-item.active {
-      color: #f5c25c;
-      background: rgba(245,194,92,0.10);
+      color: #38F2A1;
+      background: rgba(56,242,161,0.10);
     }
     .tt-bn-item .tt-bn-icon {
       width: 20px; height: 20px;
@@ -422,4 +422,4 @@
   setTimeout(syncNavToVisualViewport, 400);
 })();
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513

@@ -237,9 +237,9 @@
     }
     function _signalValueColor(key, value) {
       if (key === "ema_cross") return value === 1 ? "text-[#22c55e]" : "text-[#ef4444]";
-      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#9ca3af]";
-      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#d1d5db]";
-      return "text-[#d1d5db]";
+      if (key === "supertrend") return value === 1 ? "text-[#22c55e]" : value === -1 ? "text-[#ef4444]" : "text-[#8AA39A]";
+      if (key === "rsi") return value >= 70 ? "text-[#ef4444]" : value <= 30 ? "text-[#22c55e]" : "text-[#CFDED6]";
+      return "text-[#CFDED6]";
     }
     function _fmtPct(n, digits = 1) {
       if (!Number.isFinite(Number(n))) return "\u2014";
@@ -917,9 +917,9 @@
         },
         watch: {
           label: "WATCH",
-          color: "#f5c25c",
-          bg: "rgba(245,194,92,0.10)",
-          border: "rgba(245,194,92,0.30)",
+          color: "#38F2A1",
+          bg: "rgba(56,242,161,0.10)",
+          border: "rgba(56,242,161,0.30)",
           action: "Hold; monitor signals",
           desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly."
         },
@@ -941,7 +941,7 @@
         },
         research_low: {
           label: "RESEARCH · LOW",
-          color: "#9ca3af",
+          color: "#8AA39A",
           bg: "rgba(156,163,175,0.10)",
           border: "rgba(156,163,175,0.30)",
           action: "Pass for now",
@@ -957,7 +957,7 @@
         },
         exited: {
           label: "EXITED",
-          color: "#9ca3af",
+          color: "#8AA39A",
           bg: "rgba(156,163,175,0.08)",
           border: "rgba(156,163,175,0.20)",
           action: "Closed",
@@ -1068,7 +1068,7 @@
         style: {
           fontSize: 11,
           fontWeight: 700,
-          color: "var(--ds-text-faint, #6b7280)",
+          color: "var(--ds-text-faint, #6E867D)",
           letterSpacing: "0.06em",
           textTransform: "uppercase"
         }
@@ -1315,7 +1315,7 @@
       }, Object.entries(COMPONENT_DEFS).map(([key, def]) => {
         const val = Number(components[key]) || 0;
         const pct = Math.max(0, Math.min(100, val / def.max * 100));
-        const tone = pct >= 70 ? "#34d399" : pct >= 40 ? "#f5c25c" : "#f87171";
+        const tone = pct >= 70 ? "#34d399" : pct >= 40 ? "#38F2A1" : "#f87171";
         return h("div", {
           key
         }, h("div", {
@@ -1741,7 +1741,7 @@
         style: {
           fontSize: 11,
           fontWeight: 700,
-          color: color || "var(--ds-text-faint, #6b7280)",
+          color: color || "var(--ds-text-faint, #6E867D)",
           letterSpacing: "0.06em",
           textTransform: "uppercase"
         }
@@ -1755,8 +1755,8 @@
           label: "RIDE"
         },
         READY: {
-          color: "#f5c25c",
-          bg: "rgba(245,194,92,0.10)",
+          color: "#38F2A1",
+          bg: "rgba(56,242,161,0.10)",
           icon: "⏳",
           label: "READY"
         },
@@ -1773,13 +1773,13 @@
           label: "FADE"
         },
         WAIT: {
-          color: "#9ca3af",
+          color: "#8AA39A",
           bg: "rgba(156,163,175,0.10)",
           icon: "⏸",
           label: "WAIT"
         },
         UNKNOWN: {
-          color: "#9ca3af",
+          color: "#8AA39A",
           bg: "rgba(156,163,175,0.05)",
           icon: "?",
           label: "—"
@@ -1845,9 +1845,9 @@
             desc: "Timing or alignment does not support a directional options bet."
           },
           forming: {
-            color: "#f5c25c",
-            bg: "rgba(245,194,92,0.10)",
-            border: "rgba(245,194,92,0.30)",
+            color: "#38F2A1",
+            bg: "rgba(56,242,161,0.10)",
+            border: "rgba(56,242,161,0.30)",
             label: "SETUP FORMING",
             action: "Prepare only — do not enter yet",
             desc: "Layers are leaning but the entry trigger has not fired."
@@ -1924,9 +1924,9 @@
           gap: 8,
           padding: "6px 14px",
           borderRadius: 999,
-          background: "rgba(245,194,92,0.18)",
-          border: "1px solid rgba(245,194,92,0.55)",
-          color: "#f5c25c",
+          background: "rgba(56,242,161,0.18)",
+          border: "1px solid rgba(56,242,161,0.55)",
+          color: "#38F2A1",
           fontSize: 11,
           fontWeight: 700,
           letterSpacing: "0.04em",
@@ -1938,8 +1938,8 @@
           width: 10,
           height: 10,
           borderRadius: "50%",
-          border: "2px solid rgba(245,194,92,0.4)",
-          borderTopColor: "#f5c25c",
+          border: "2px solid rgba(56,242,161,0.4)",
+          borderTopColor: "#38F2A1",
           animation: "spin 0.7s linear infinite"
         }
       }), "LOADING · ", String(horizon || "trader").toUpperCase(), " · ", String(profile || "speculator").toUpperCase()));
@@ -1951,7 +1951,7 @@
           expiration
         } = dayTradeData;
         if (!play && !suppressed) return null;
-        const headerColor = "#f5c25c";
+        const headerColor = "#38F2A1";
         if (play) {
           const flavor = play.primary?._day_trade_flavor || "call";
           const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
@@ -2008,13 +2008,13 @@
         }
         return h(Panel, {
           title: `DAY TRADE · ${expiration?.dte ?? "?"}DTE`,
-          color: "#6b7280",
+          color: "#6E867D",
           action: h("span", {
             style: {
               padding: "2px 8px",
               borderRadius: 999,
               background: "rgba(107,114,128,0.18)",
-              color: "#9ca3af",
+              color: "#8AA39A",
               fontSize: 10,
               fontWeight: 700,
               letterSpacing: "0.04em",
@@ -2127,8 +2127,8 @@
         style: {
           marginBottom: "var(--ds-space-2)",
           padding: "var(--ds-space-2)",
-          background: "rgba(245,194,92,0.08)",
-          border: "1px solid rgba(245,194,92,0.30)",
+          background: "rgba(56,242,161,0.08)",
+          border: "1px solid rgba(56,242,161,0.30)",
           borderRadius: "var(--ds-radius-md)",
           fontSize: 12,
           color: "var(--ds-text-body)",
@@ -2138,7 +2138,7 @@
         style: {
           fontSize: 10,
           fontWeight: 700,
-          color: "#f5c25c",
+          color: "#38F2A1",
           letterSpacing: "0.05em",
           marginBottom: 4
         }
@@ -2248,8 +2248,8 @@
           marginTop: "var(--ds-space-2)",
           marginBottom: "var(--ds-space-2)",
           padding: "var(--ds-space-2)",
-          background: (_disp.stance_color || "#9ca3af") + "14",
-          border: `1px solid ${_disp.stance_color || "#9ca3af"}44`,
+          background: (_disp.stance_color || "#8AA39A") + "14",
+          border: `1px solid ${_disp.stance_color || "#8AA39A"}44`,
           borderRadius: "var(--ds-radius-md)"
         }
       }, h("div", {
@@ -2275,9 +2275,9 @@
           letterSpacing: "0.05em",
           padding: "2px 8px",
           borderRadius: 999,
-          color: _disp.stance_color || "#9ca3af",
-          background: (_disp.stance_color || "#9ca3af") + "18",
-          border: `1px solid ${_disp.stance_color || "#9ca3af"}55`
+          color: _disp.stance_color || "#8AA39A",
+          background: (_disp.stance_color || "#8AA39A") + "18",
+          border: `1px solid ${_disp.stance_color || "#8AA39A"}55`
         }
       }, _disp.stance_label || "—")), h("div", {
         style: {
@@ -2373,7 +2373,7 @@
           gap: 4
         }
       }, (verdict.layers || []).map(l => {
-        const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#9ca3af";
+        const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#8AA39A";
         const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
         const LAYER_LABEL = {
           L1_macro: "L1 · Macro Regime",
@@ -2515,8 +2515,8 @@
         }
       }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.")), _dayTradePanel, _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
         style: {
-          background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))",
-          border: "2px solid rgba(245,194,92,0.50)",
+          background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(56,242,161,0.12))",
+          border: "2px solid rgba(56,242,161,0.50)",
           borderRadius: 14,
           padding: 14,
           marginBottom: 12,
@@ -2534,7 +2534,7 @@
           fontSize: 11,
           fontWeight: 800,
           letterSpacing: "0.10em",
-          color: "#f5c25c"
+          color: "#38F2A1"
         }
       }, "🌙 THE GEM · MOONSHOT ACTIVATED"), h("span", {
         style: {
@@ -2558,7 +2558,7 @@
         }
       }, "Motion: " + data.moonshot.motion.evidence + "."))), primary && h(Panel, {
         title: primary._moonshot_active ? "🌙 Moonshot Play" : "🎯 Primary Play",
-        color: primary._moonshot_active ? "#f5c25c" : "#f5c25c",
+        color: primary._moonshot_active ? "#38F2A1" : "#38F2A1",
         action: h("div", {
           style: {
             display: "flex",
@@ -2569,11 +2569,11 @@
           style: {
             fontSize: 10,
             fontWeight: 700,
-            color: _disp.stance_color || "#9ca3af",
-            background: (_disp.stance_color || "#9ca3af") + "18",
+            color: _disp.stance_color || "#8AA39A",
+            background: (_disp.stance_color || "#8AA39A") + "18",
             padding: "2px 8px",
             borderRadius: 999,
-            border: `1px solid ${_disp.stance_color || "#9ca3af"}44`,
+            border: `1px solid ${_disp.stance_color || "#8AA39A"}44`,
             letterSpacing: "0.04em"
           }
         }, _disp.stance_label), primary._confluence_boost && !primary._moonshot_active && h("span", {
@@ -2994,15 +2994,15 @@
         style: {
           marginTop: 8,
           padding: 8,
-          background: "rgba(245,194,92,0.06)",
-          border: "1px solid rgba(245,194,92,0.20)",
+          background: "rgba(56,242,161,0.06)",
+          border: "1px solid rgba(56,242,161,0.20)",
           borderRadius: 6
         }
       }, h("div", {
         style: {
           fontSize: 10,
           fontWeight: 700,
-          color: "var(--tt-accent, #f5c25c)",
+          color: "var(--tt-accent, #38F2A1)",
           letterSpacing: "0.05em",
           marginBottom: 4
         }
@@ -3360,7 +3360,7 @@
           layout: {
             background: {
               type: "solid",
-              color: "#0b0e11"
+              color: "#0B1410"
             },
             textColor: "#7c8493",
             fontSize: 11
@@ -3946,7 +3946,7 @@
       }, [_propPriceLinesSig, chartEpoch]);
       if (!LWC) {
         return React.createElement("div", {
-          className: "text-xs text-[#6b7280]"
+          className: "text-xs text-[#6E867D]"
         }, "Charts library not loaded.");
       }
       const hdr = ohlcHeader || (mapped.length > 0 ? {
@@ -4008,7 +4008,7 @@
       }].map(ov => React.createElement("button", {
         key: ov.key,
         onClick: () => onCrosshair?.(ov.key),
-        className: `px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${overlays[ov.key] ? "border-white/20 text-white" : "border-white/[0.06] text-[#555] hover:text-[#6b7280]"}`,
+        className: `px-2 py-0.5 rounded text-[9px] font-semibold border transition-all ${overlays[ov.key] ? "border-white/20 text-white" : "border-white/[0.06] text-[#555] hover:text-[#6E867D]"}`,
         style: overlays[ov.key] ? {
           borderColor: ov.color + "80",
           color: ov.color,
@@ -4017,21 +4017,21 @@
       }, ov.label))), hdr && React.createElement("div", {
         className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"
       }, React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6E867D]"
       }, hdrTimeStr), React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6E867D]"
       }, "O"), React.createElement("span", {
         className: "text-white"
       }, hdr.o?.toFixed(2)), React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6E867D]"
       }, "H"), React.createElement("span", {
         className: "text-sky-300"
       }, hdr.h?.toFixed(2)), React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6E867D]"
       }, "L"), React.createElement("span", {
         className: "text-orange-300"
       }, hdr.l?.toFixed(2)), React.createElement("span", {
-        className: "text-[#6b7280]"
+        className: "text-[#6E867D]"
       }, "C"), React.createElement("span", {
         className: hdrUp ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"
       }, hdr.c?.toFixed(2)), React.createElement("span", {
@@ -4045,10 +4045,10 @@
           height: propHeight ? propHeight : "auto",
           flex: propHeight ? "0 0 auto" : "1 1 auto",
           minHeight: propHeight ? propHeight : 0,
-          background: "#0b0e11"
+          background: "#0B1410"
         }
       }), React.createElement("div", {
-        className: "mt-1 text-[10px] text-[#6b7280] flex items-center justify-between"
+        className: "mt-1 text-[10px] text-[#6E867D] flex items-center justify-between"
       }, React.createElement("span", null, `${["D", "W", "M"].includes(String(chartTf)) ? chartTf === "D" ? "Daily" : chartTf === "W" ? "Weekly" : "Monthly" : Number(chartTf) >= 60 ? `${Number(chartTf) / 60}H` : `${chartTf}m`} • ${mapped.length} bars`), React.createElement("div", {
         className: "flex items-center gap-2"
       }, React.createElement("button", {
@@ -4250,9 +4250,9 @@
           layout: {
             background: {
               type: "solid",
-              color: "#0b0e11"
+              color: "#0B1410"
             },
-            textColor: "#6b7280",
+            textColor: "#6E867D",
             fontSize: 10
           },
           grid: {
@@ -4681,14 +4681,14 @@
       }, [showIndicators]);
       if (!ticker) {
         return React.createElement("div", {
-          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]",
+          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6E867D]",
           style: {
             minHeight: height
           }
         }, "Select a trade to view chart");
       }
       return React.createElement("div", {
-        className: "rounded-lg border border-white/[0.06] bg-[#0b0e11] flex flex-col",
+        className: "rounded-lg border border-white/[0.06] bg-[#0B1410] flex flex-col",
         style: {
           minHeight: compact ? 220 : undefined
         }
@@ -4701,7 +4701,7 @@
       }, ["15", "30", "60", "D"].map(t => React.createElement("button", {
         key: t,
         onClick: () => setTf(t),
-        className: `px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`
+        className: `px-2 py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6E867D] hover:text-white"}`
       }, t === "D" ? "1D" : t + "m")))), React.createElement("div", {
         ref: containerRef,
         style: {
@@ -4711,7 +4711,7 @@
         },
         className: "w-full flex-1 min-h-0"
       }, error && !loading && React.createElement("div", {
-        className: "flex items-center justify-center h-full text-[#6b7280] text-[13px]"
+        className: "flex items-center justify-center h-full text-[#6E867D] text-[13px]"
       }, error), loading && React.createElement("div", {
         className: "flex items-center justify-center h-full"
       }, React.createElement("div", {
@@ -4721,7 +4721,7 @@
           height: 24
         }
       }))), React.createElement("div", {
-        className: "shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#9ca3af]"
+        className: "shrink-0 px-2 py-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] text-[#8AA39A]"
       }, React.createElement("span", {
         className: "flex items-center gap-1.5"
       }, React.createElement("span", {
@@ -4773,7 +4773,7 @@
     }) {
       if (!trade?.ticker) {
         return React.createElement("div", {
-          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6b7280]",
+          className: "rounded-lg bg-white/[0.03] border border-white/[0.06] p-4 text-center text-[12px] text-[#6E867D]",
           style: {
             minHeight: height
           }
@@ -5144,7 +5144,7 @@
         const beDn = p.breakeven_down;
         const isCall = p.archetype && p.archetype.includes("call");
         const isPut = p.archetype && p.archetype.includes("put");
-        const stColor = isCall ? "rgba(52,211,153,0.85)" : isPut ? "rgba(248,113,113,0.85)" : "rgba(245,194,92,0.85)";
+        const stColor = isCall ? "rgba(52,211,153,0.85)" : isPut ? "rgba(248,113,113,0.85)" : "rgba(56,242,161,0.85)";
         if (Number.isFinite(Number(strike)) && strike > 0) {
           out.push({
             price: Number(strike),
@@ -5158,7 +5158,7 @@
         if (Number.isFinite(Number(shortK)) && shortK > 0 && shortK !== strike) {
           out.push({
             price: Number(shortK),
-            color: "rgba(245,194,92,0.75)",
+            color: "rgba(56,242,161,0.75)",
             lineWidth: 1,
             lineStyle: 2,
             axisLabelVisible: true,
@@ -5585,18 +5585,18 @@
           },
           onClick: closeAutopsyModal
         }, React.createElement("div", {
-          className: "w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0b0e11] shadow-2xl",
+          className: "w-full h-full md:h-auto md:max-w-[85vw] md:max-h-[88vh] overflow-hidden flex flex-col rounded-none md:rounded-2xl border-0 md:border border-white/[0.1] bg-[#0B1410] shadow-2xl",
           onClick: e => e.stopPropagation()
         }, React.createElement("div", {
           className: "flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0",
           style: {
-            background: "var(--tt-bg-surface, #0b0e11)"
+            background: "var(--tt-bg-surface, #0B1410)"
           }
         }, React.createElement("h2", {
           className: "text-[15px] font-semibold text-white truncate mr-2"
         }, _ticker, " ", _dir, " \u2014 Trade Review"), React.createElement("button", {
           onClick: closeAutopsyModal,
-          className: "p-2 -mr-1 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] shrink-0"
+          className: "p-2 -mr-1 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] shrink-0"
         }, "\u2715")), autopsyModalLoading ? React.createElement("div", {
           className: "p-4 flex-1"
         }, React.createElement(SkeletonBlock, {
@@ -5642,7 +5642,7 @@
         })(), React.createElement("div", {
           className: "flex items-center gap-3"
         }, React.createElement("div", {
-          className: "text-[12px] text-[#9ca3af]"
+          className: "text-[12px] text-[#8AA39A]"
         }, "P&L: ", React.createElement("span", {
           className: _pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"
         }, fmtUsd(_pnl))), _pnlPct ? React.createElement("span", {
@@ -5768,9 +5768,9 @@
           }, React.createElement("div", {
             className: "flex items-center justify-between px-3 py-2 border-b border-white/[0.06]"
           }, React.createElement("span", {
-            className: "text-[11px] font-semibold text-[#9ca3af] uppercase tracking-[0.14em]"
+            className: "text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]"
           }, "Event Log \xB7 Receipt"), React.createElement("span", {
-            className: "text-[10px] text-[#6b7280]"
+            className: "text-[10px] text-[#6E867D]"
           }, displayRows.length, " event", displayRows.length === 1 ? "" : "s")), React.createElement("div", {
             style: {
               overflowX: "auto"
@@ -5783,7 +5783,7 @@
               minWidth: 560
             }
           }, React.createElement("thead", null, React.createElement("tr", {
-            className: "text-[10px] uppercase tracking-wider text-[#6b7280]"
+            className: "text-[10px] uppercase tracking-wider text-[#6E867D]"
           }, React.createElement("th", {
             className: "text-left px-3 py-1.5 font-medium"
           }, "When (ET)"), React.createElement("th", {
@@ -5799,13 +5799,13 @@
           }, "P&L"), React.createElement("th", {
             className: "text-right px-3 py-1.5 font-medium"
           }, "Held after"))), React.createElement("tbody", null, displayRows.map((r, i) => {
-            const pnlCls = r.type === "ENTRY" ? "text-[#6b7280]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
+            const pnlCls = r.type === "ENTRY" ? "text-[#6E867D]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
             return React.createElement(React.Fragment, {
               key: `evlog-${i}`
             }, React.createElement("tr", {
               className: "border-t border-white/[0.04]"
             }, React.createElement("td", {
-              className: "px-3 py-2 text-[#9ca3af] whitespace-nowrap"
+              className: "px-3 py-2 text-[#8AA39A] whitespace-nowrap"
             }, _fmtDateShort(r.ts)), React.createElement("td", {
               className: "px-2 py-2"
             }, React.createElement("span", {
@@ -5815,35 +5815,35 @@
             }, _fmtShares(r.shares)), React.createElement("td", {
               className: "px-2 py-2 text-right text-white"
             }, Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"), React.createElement("td", {
-              className: "px-2 py-2 text-right text-[#9ca3af]"
+              className: "px-2 py-2 text-right text-[#8AA39A]"
             }, Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"), React.createElement("td", {
               className: `px-2 py-2 text-right font-semibold ${pnlCls}`
             }, r.type === "ENTRY" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)), React.createElement("td", {
-              className: "px-3 py-2 text-right text-[#6b7280]"
+              className: "px-3 py-2 text-right text-[#6E867D]"
             }, _fmtShares(r.running_shares))), r.reason && React.createElement("tr", {
               className: "border-t-0"
             }, React.createElement("td", {
               colSpan: "7",
-              className: "px-3 pb-2 -mt-1 text-[10px] text-[#6b7280] italic"
+              className: "px-3 pb-2 -mt-1 text-[10px] text-[#6E867D] italic"
             }, "\u21B3 ", String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()))));
           }), React.createElement("tr", {
             className: "border-t border-white/[0.12] bg-white/[0.02]"
           }, React.createElement("td", {
-            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af] font-semibold",
+            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold",
             colSpan: "5"
           }, "Total realized"), React.createElement("td", {
             className: `px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, (realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)), React.createElement("td", {
-            className: "px-3 py-2 text-right text-[11px] text-[#6b7280]"
+            className: "px-3 py-2 text-right text-[11px] text-[#6E867D]"
           }, _fmtShares(runningShares), " held")), _isOpenStatus && unrealized !== 0 && React.createElement("tr", {
             className: "bg-[#22c55e]/[0.04]"
           }, React.createElement("td", {
-            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#9ca3af]",
+            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]",
             colSpan: "5"
           }, "Unrealized (mark-to-market @ ", fmtUsd(_liveCurrentPx), ")"), React.createElement("td", {
             className: `px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, (unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)), React.createElement("td", {
-            className: "px-3 py-2 text-right text-[10px] text-[#6b7280]"
+            className: "px-3 py-2 text-right text-[10px] text-[#6E867D]"
           }, "open")), _isOpenStatus && unrealized !== 0 && React.createElement("tr", {
             className: "border-t border-white/[0.12]"
           }, React.createElement("td", {
@@ -5865,17 +5865,17 @@
         }, "Signal snapshot at entry"), (_entryPath || _grade) && React.createElement("div", {
           className: "mb-3 px-2.5 py-1.5 rounded-lg bg-[#14b8a6]/10 border border-[#14b8a6]/20"
         }, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider"
+          className: "text-[10px] text-[#8AA39A] uppercase tracking-wider"
         }, "Setup"), React.createElement("div", {
           className: "text-[13px] font-semibold text-white mt-0.5 flex items-center gap-2 flex-wrap"
         }, _entryPath ? _formatPath(_entryPath) : mt.setup_name ? _formatPath(mt.setup_name) : null, _grade && React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[10px] font-bold border ${_gradeCls}`
         }, "TT ", _grade), Number(_riskBudget) > 0.001 && React.createElement("span", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, Number(_riskBudget) < 1 ? `${(Number(_riskBudget) * 100).toFixed(1)}% risk` : `$${_riskBudget} risk`))), tfStack && tfStack.length > 0 && React.createElement("div", {
           className: "mb-3"
         }, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+          className: "text-[10px] text-[#8AA39A] uppercase tracking-wider block mb-1.5"
         }, "Timeframe bias"), React.createElement("div", {
           className: "flex flex-wrap gap-1.5"
         }, tfStack.map(({
@@ -5886,7 +5886,7 @@
           const isBull = b === "bullish";
           const isBear = b === "bearish";
           const label = isBull ? "Bullish" : isBear ? "Bearish" : bias || "\u2014";
-          const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#9ca3af]";
+          const style = isBull ? "bg-[#22c55e]/15 text-[#22c55e]" : isBear ? "bg-[#ef4444]/15 text-[#ef4444]" : "bg-white/[0.06] text-[#8AA39A]";
           return React.createElement("span", {
             key: tfLabel,
             className: `inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${style}`
@@ -5894,7 +5894,7 @@
             className: "opacity-80"
           }, tfLabel), React.createElement("span", null, label));
         }))), entrySnap && entrySnap.length > 0 && React.createElement("div", null, React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af] uppercase tracking-wider block mb-1.5"
+          className: "text-[10px] text-[#8AA39A] uppercase tracking-wider block mb-1.5"
         }, "Indicators by timeframe"), React.createElement("div", {
           className: "space-y-2"
         }, entrySnap.map(({
@@ -5904,14 +5904,14 @@
           key: tfLabel,
           className: "px-2 py-1.5 rounded-md bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] font-medium text-[#9ca3af] mb-1"
+          className: "text-[10px] font-medium text-[#8AA39A] mb-1"
         }, tfLabel), React.createElement("div", {
           className: "flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]"
         }, Object.entries(signals).filter(([, v]) => v != null && Number.isFinite(v)).map(([k, v]) => React.createElement("span", {
           key: k,
           className: "flex items-center gap-1"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, SIGNAL_LABELS[k] || k, ":"), React.createElement("span", {
           className: _signalValueColor(k, v)
         }, _signalValueLabel(k, v)))))))))), _lineage && (_lineage.regime_class || _lineage.execution_profile || _lineage.vix_at_entry) && React.createElement("div", {
@@ -5922,11 +5922,11 @@
           className: "grid grid-cols-2 gap-2 text-[12px]"
         }, _lineage.regime_class && (() => {
           const rc = _lineage.regime_class;
-          const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#9ca3af";
+          const rcColor = rc === "TRENDING" ? "#22c55e" : rc === "TRANSITIONAL" ? "#f59e0b" : rc === "CHOPPY" ? "#ef4444" : "#8AA39A";
           return React.createElement("div", {
             className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
           }, React.createElement("div", {
-            className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+            className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
           }, "Regime"), React.createElement("div", {
             className: "mt-0.5"
           }, React.createElement("span", {
@@ -5937,36 +5937,36 @@
               border: `1px solid ${rcColor}44`
             }
           }, rc)), _lineage.regime_score != null && React.createElement("div", {
-            className: "text-[10px] text-[#6b7280] mt-1"
+            className: "text-[10px] text-[#6E867D] mt-1"
           }, "Score: ", _lineage.regime_score));
         })(), _lineage.execution_profile && React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "Execution Profile"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5 text-[11px]"
         }, (_lineage.execution_profile.active_profile || "").replace(/_/g, " ")), _lineage.execution_profile.confidence && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, Math.round(_lineage.execution_profile.confidence * 100), "% conf")), _lineage.market_internals && React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "Market State"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5 text-[11px]"
         }, (_lineage.market_internals.overall || "").replace(/_/g, " ")), _lineage.market_internals.score != null && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, "Score: ", _lineage.market_internals.score)), _lineage.vix_at_entry && React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "VIX at Entry"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5"
         }, Number(_lineage.vix_at_entry).toFixed(1)), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, _lineage.vix_at_entry < 15 ? "Low" : _lineage.vix_at_entry < 22 ? "Medium" : _lineage.vix_at_entry < 30 ? "High" : "Extreme")), _lineage.state && React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06] col-span-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "HTF/LTF State"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5 text-[11px]"
         }, _lineage.state.replace(/_/g, " "))))), learningCtx && React.createElement("div", {
@@ -5974,13 +5974,13 @@
         }, React.createElement("div", {
           className: "text-[11px] font-semibold text-[#a78bfa] uppercase tracking-wider mb-2"
         }, "Ticker Learning Profile"), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] space-y-1.5"
+          className: "text-[12px] text-[#CFDED6] space-y-1.5"
         }, learningCtx.personality && (() => {
           const pColor = learningCtx.personality === "VOLATILE_RUNNER" ? "#ef4444" : learningCtx.personality === "PULLBACK_PLAYER" ? "#f59e0b" : learningCtx.personality === "SLOW_GRINDER" ? "#60a5fa" : "#a78bfa";
           return React.createElement("div", {
             className: "flex items-center gap-2"
           }, React.createElement("span", {
-            className: "text-[#9ca3af]"
+            className: "text-[#8AA39A]"
           }, "Personality:"), React.createElement("span", {
             className: "px-1.5 py-0.5 rounded text-[10px] font-semibold",
             style: {
@@ -5990,13 +5990,13 @@
             }
           }, learningCtx.personality.replace(/_/g, " ")));
         })(), learningCtx.trail_style && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "Trail style:"), " ", learningCtx.trail_style), learningCtx.tp_mult && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "Expected TP:"), " ", learningCtx.tp_mult, "x ATR"), learningCtx.sl_mult && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "Expected SL:"), " ", learningCtx.sl_mult, "x ATR"), learningCtx.boost != null && learningCtx.boost !== 0 && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "Learning boost:"), " ", React.createElement("span", {
           className: learningCtx.boost > 0 ? "text-[#22c55e]" : "text-[#ef4444]"
         }, learningCtx.boost > 0 ? "+" : "", learningCtx.boost)))), autopsyModalProfile && React.createElement("div", {
@@ -6010,19 +6010,19 @@
         }, React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "Personality"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5"
         }, (autopsyModalProfile.personality || "\u2014").replace(/_/g, " ")), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, (autopsyModalProfile.behavior_type || "\u2014").replace(/_/g, " "))), React.createElement("div", {
           className: "px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] uppercase tracking-wider"
         }, "Context sample"), React.createElement("div", {
           className: "text-white font-semibold mt-0.5"
         }, autopsyModalProfile.contract?.context?.sample_count ?? "\u2014", " trades"), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, _fmtPct(autopsyModalProfile.contract?.context?.win_rate), " WR"))), (() => {
           const ctx = autopsyModalProfile.contract?.context;
           const exec = autopsyModalProfile.contract?.execution;
@@ -6044,19 +6044,19 @@
         }, React.createElement("div", {
           className: "text-[11px] font-semibold text-[#f59e0b] uppercase tracking-wider mb-2"
         }, "Exit context"), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] space-y-1"
+          className: "text-[12px] text-[#CFDED6] space-y-1"
         }, _exitReason && React.createElement("div", {
           style: {
             overflowWrap: "anywhere"
           }
         }, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "Reason:"), " ", _exitReason.replace(/,/g, ", ")), Number.isFinite(_mfe) && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "MFE:"), " ", React.createElement("span", {
           className: "text-[#22c55e]"
         }, _mfe.toFixed(2), "%")), Number.isFinite(_mae) && React.createElement("div", null, React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, "MAE:"), " ", React.createElement("span", {
           className: "text-[#ef4444]"
         }, _mae.toFixed(2), "%"))))), React.createElement("div", {
@@ -7112,9 +7112,9 @@
                 chip: "ds-chip--solid",
                 title: "Investor: Mixed signals — hold; don't add.",
                 style: {
-                  color: "#f5c25c",
-                  borderColor: "rgba(245,194,92,0.30)",
-                  background: "rgba(245,194,92,0.10)"
+                  color: "#38F2A1",
+                  borderColor: "rgba(56,242,161,0.30)",
+                  background: "rgba(56,242,161,0.10)"
                 }
               },
               reduce: {
@@ -7137,7 +7137,7 @@
                 chip: "ds-chip--solid",
                 title: "Investor: Low conviction — pass for now.",
                 style: {
-                  color: "#9ca3af",
+                  color: "#8AA39A",
                   borderColor: "rgba(156,163,175,0.30)",
                   background: "rgba(156,163,175,0.10)"
                 }
@@ -7152,7 +7152,7 @@
                 chip: "ds-chip--solid",
                 title: "Investor: Under evaluation.",
                 style: {
-                  color: "#9ca3af",
+                  color: "#8AA39A",
                   borderColor: "rgba(156,163,175,0.30)",
                   background: "rgba(156,163,175,0.10)"
                 }
@@ -7162,7 +7162,7 @@
                 chip: "ds-chip--solid",
                 title: "Investor: Position closed; monitor for re-entry.",
                 style: {
-                  color: "#9ca3af",
+                  color: "#8AA39A",
                   borderColor: "rgba(156,163,175,0.20)",
                   background: "rgba(156,163,175,0.08)"
                 }
@@ -7181,7 +7181,7 @@
               height: 6,
               borderRadius: "50%",
               background: "var(--ds-accent)",
-              boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+              boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
               flexShrink: 0
             }
           }), earnLabel && React.createElement("span", {
@@ -7409,9 +7409,9 @@
                 fontSize: 9,
                 fontFamily: "var(--tt-font-mono)",
                 letterSpacing: "0.04em",
-                color: "var(--ds-accent, #f5c25c)",
-                background: "rgba(245,194,92,0.08)",
-                border: "1px solid rgba(245,194,92,0.20)",
+                color: "var(--ds-accent, #38F2A1)",
+                background: "rgba(56,242,161,0.08)",
+                border: "1px solid rgba(56,242,161,0.20)",
                 marginLeft: 2
               }
             }, String(t).replace(/_/g, " "))), personality && React.createElement(React.Fragment, null, React.createElement("span", {
@@ -7539,7 +7539,7 @@
             const ep = Number(ticker?.entry_price);
             if (Number.isFinite(ep) && ep > 0 && trade) lines.push({
               price: ep,
-              color: "rgba(245,194,92,0.85)",
+              color: "rgba(56,242,161,0.85)",
               title: "Entry",
               lineStyle: 0,
               lineWidth: 2
@@ -7889,8 +7889,8 @@
               alignItems: "center",
               padding: "8px 8px",
               borderRadius: "var(--ds-radius-xs)",
-              background: "rgba(245,194,92,0.10)",
-              border: "1px solid rgba(245,194,92,0.30)",
+              background: "rgba(56,242,161,0.10)",
+              border: "1px solid rgba(56,242,161,0.30)",
               margin: "2px 0"
             }
           }, React.createElement("span", {
@@ -8094,8 +8094,8 @@
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
               return {
                 word: "WATCH",
-                color: "#f5c25c",
-                bg: "rgba(245,194,92,0.10)",
+                color: "#38F2A1",
+                bg: "rgba(56,242,161,0.10)",
                 line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
                 urgency: "watch"
               };
@@ -8111,7 +8111,7 @@
             }
             return {
               word: "NO TRADE",
-              color: "#9ca3af",
+              color: "#8AA39A",
               bg: "rgba(255,255,255,0.04)",
               line: "No directional edge from the model right now.",
               urgency: "none"
@@ -8494,7 +8494,7 @@
             style: {
               fontSize: 10,
               fontWeight: 700,
-              color: "#f5c25c",
+              color: "#38F2A1",
               letterSpacing: "0.06em",
               marginBottom: 4
             }
@@ -8769,7 +8769,7 @@
             if (ipAction) return ipAction;
             return ipDir === "LONG" ? "Constructive — investor lane leans long over weeks/months." : ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Neutral — investor lane has no strong directional view.";
           })();
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#9ca3af";
+          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
           return React.createElement("div", {
             style: {
               padding: "12px 14px",
@@ -8888,18 +8888,18 @@
             color: "#22c55e"
           } : status === "needs_review" ? {
             label: "NEEDS REVIEW",
-            color: "#f5c25c"
+            color: "#38F2A1"
           } : status === "declined" ? {
             label: "DECLINED",
             color: "#f87171"
           } : status === "rejected" ? {
             label: "REJECTED",
-            color: "#9ca3af"
+            color: "#8AA39A"
           } : {
             label: status.toUpperCase() || "—",
-            color: "#9ca3af"
+            color: "#8AA39A"
           };
-          const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#f5c25c" : "#6b7280";
+          const scoreColor = score >= 60 ? "#22c55e" : score >= 25 ? "#38F2A1" : "#6E867D";
           const decidedAt = Number(discoveryThesis.decided_at) || 0;
           const _strippedDecider = String(discoveryThesis.decided_by || "").replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "").replace(/\s+/g, " ").replace(/^[·\s-]+|[·\s-]+$/g, "").trim();
           const decidedLabel = decidedAt > 0 ? _strippedDecider ? `${_strippedDecider} · ${new Date(decidedAt).toLocaleDateString()}` : new Date(decidedAt).toLocaleDateString() : null;
@@ -9915,8 +9915,8 @@
               const layerLean = String(conf.side || "").toUpperCase();
               const traderCallIsShort = traderCall === "SHORT";
               const layerLeanIsShort = layerLean === "SHORT";
-              const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#9ca3af";
-              const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#9ca3af";
+              const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#8AA39A";
+              const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
               const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT") && (layerLean === "LONG" || layerLean === "SHORT") && traderCall !== layerLean;
               const longLayers = Number(conf.long_agree);
               const shortLayers = Number(conf.short_agree);
@@ -9931,9 +9931,9 @@
                   desc: traderCallIsShort ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops." : "Trader call is LONG with aligned layers. Press while structure holds; trail stops."
                 },
                 READY: {
-                  c: "#f5c25c",
-                  b: "rgba(245,194,92,0.10)",
-                  border: "rgba(245,194,92,0.30)",
+                  c: "#38F2A1",
+                  b: "rgba(56,242,161,0.10)",
+                  border: "rgba(56,242,161,0.30)",
                   i: "⏳",
                   action: "Setup forming",
                   desc: "Confluence building but the entry trigger has not fired. Wait — do not chase."
@@ -9955,7 +9955,7 @@
                   desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only."
                 },
                 WAIT: {
-                  c: "#9ca3af",
+                  c: "#8AA39A",
                   b: "rgba(156,163,175,0.10)",
                   border: "rgba(156,163,175,0.30)",
                   i: "⏸",
@@ -10014,8 +10014,8 @@
                 style: {
                   marginBottom: "var(--ds-space-2)",
                   padding: "var(--ds-space-2)",
-                  background: "rgba(245,194,92,0.08)",
-                  border: "1px solid rgba(245,194,92,0.30)",
+                  background: "rgba(56,242,161,0.08)",
+                  border: "1px solid rgba(56,242,161,0.30)",
                   borderRadius: "var(--ds-radius-md)",
                   fontSize: 12,
                   color: "var(--ds-text-body)",
@@ -10025,7 +10025,7 @@
                 style: {
                   fontSize: 10,
                   fontWeight: 700,
-                  color: "#f5c25c",
+                  color: "#38F2A1",
                   letterSpacing: "0.05em",
                   marginBottom: 4
                 }
@@ -10158,12 +10158,12 @@
               const bias = String(timing.bias || "EXTENSION").toUpperCase();
               const isBottom = bias === "COMPRESSION";
               const posture = String(timing.posture || "").toUpperCase();
-              const postureColor = isBottom ? posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#9ca3af" : posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#f5c25c" : "#9ca3af";
+              const postureColor = isBottom ? posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#8AA39A" : posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#38F2A1" : "#8AA39A";
               const score = isBottom ? timing.compression_score : timing.extension_score;
               const signals = isBottom ? Array.isArray(timing.compressions) ? timing.compressions : [] : Array.isArray(timing.warnings) ? timing.warnings : [];
               const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
-              const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(245,194,92,0.08)";
-              const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(245,194,92,0.28)";
+              const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(56,242,161,0.08)";
+              const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(56,242,161,0.28)";
               const playbook = verdict?.playbook || timing.playbook || null;
               return React.createElement(Panel, {
                 title: panelTitle,
@@ -10769,8 +10769,8 @@
               alignItems: "center",
               padding: "8px 8px",
               borderRadius: "var(--ds-radius-xs)",
-              background: "rgba(245,194,92,0.10)",
-              border: "1px solid rgba(245,194,92,0.30)",
+              background: "rgba(56,242,161,0.10)",
+              border: "1px solid rgba(56,242,161,0.30)",
               margin: "2px 0"
             }
           }, React.createElement("span", {
@@ -11278,8 +11278,8 @@
               alignItems: "center",
               padding: "8px 8px",
               borderRadius: "var(--ds-radius-xs)",
-              background: "rgba(245,194,92,0.10)",
-              border: "1px solid rgba(245,194,92,0.30)",
+              background: "rgba(56,242,161,0.10)",
+              border: "1px solid rgba(56,242,161,0.30)",
               margin: "2px 0"
             }
           }, React.createElement("span", {
@@ -11474,8 +11474,8 @@
           } : {
             cls: "ds-chip--accent",
             color: "var(--ds-accent)",
-            bg: "rgba(245,194,92,0.06)",
-            border: "rgba(245,194,92,0.30)",
+            bg: "rgba(56,242,161,0.06)",
+            border: "rgba(56,242,161,0.30)",
             lead: "MIXED",
             txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.`
           };
@@ -12289,7 +12289,7 @@
             bottom: 0,
             left: 0,
             width: `${Math.max(0, Math.min(100, Number(ticker.rsi)))}%`,
-            background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(245,194,92,0.35)"
+            background: ticker.rsi >= 70 ? "rgba(244,63,94,0.45)" : ticker.rsi <= 30 ? "rgba(34,197,94,0.45)" : "rgba(56,242,161,0.35)"
           }
         }), React.createElement("div", {
           style: {
@@ -12582,8 +12582,8 @@
                 return {
                   label: "EXPLOSIVE",
                   color: "var(--ds-accent)",
-                  bg: "rgba(245,194,92,0.18)",
-                  border: "rgba(245,194,92,0.45)"
+                  bg: "rgba(56,242,161,0.18)",
+                  border: "rgba(56,242,161,0.45)"
                 };
               case "exploding":
                 return {
@@ -12665,7 +12665,7 @@
                 width: 14,
                 height: 14,
                 borderWidth: 2,
-                borderColor: "rgba(245,194,92,0.20)",
+                borderColor: "rgba(56,242,161,0.20)",
                 borderTopColor: "var(--ds-accent)"
               }
             }), "Loading fundamentals from TwelveData\u2026"));
@@ -12987,7 +12987,7 @@
               className: "ds-chip ds-chip--sm",
               style: {
                 color: fairColor,
-                background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)" : val.fair_value_class === "premium" ? "rgba(244,63,94,0.12)" : "rgba(245,194,92,0.12)",
+                background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)" : val.fair_value_class === "premium" ? "rgba(244,63,94,0.12)" : "rgba(56,242,161,0.12)",
                 border: `1px solid ${fairColor}`,
                 fontFamily: "var(--tt-font-mono)",
                 letterSpacing: "0.08em"
@@ -14274,8 +14274,8 @@
                 style: {
                   marginTop: "var(--ds-space-2)",
                   padding: "var(--ds-space-2)",
-                  background: "rgba(245, 194, 92, 0.06)",
-                  border: "1px solid rgba(245, 194, 92, 0.25)",
+                  background: "rgba(56, 242, 161, 0.06)",
+                  border: "1px solid rgba(56, 242, 161, 0.25)",
                   borderRadius: "var(--ds-radius-md)",
                   fontSize: "var(--ds-fs-meta)",
                   color: "var(--ds-text-body)"
@@ -14283,7 +14283,7 @@
               }, React.createElement("span", {
                 style: {
                   fontWeight: 700,
-                  color: "var(--ds-color-accent, #f5c25c)"
+                  color: "var(--ds-color-accent, #38F2A1)"
                 }
               }, "\u26A1 Reddit mention spike:"), " ", S.reddit.mentions_24h, " posts today vs ", S.reddit.mentions_prev || "~0", " yesterday (", spikeStr, ") \u2014 early trader-interest signal."));
             })(), Array.isArray(C.themes) && C.themes.length > 0 && React.createElement(Panel, {
@@ -14588,8 +14588,8 @@
           }, "net P&L")), traderOpen > 0 && React.createElement("div", {
             style: {
               padding: "var(--ds-space-2)",
-              background: "rgba(245,194,92,0.06)",
-              border: "1px solid rgba(245,194,92,0.20)",
+              background: "rgba(56,242,161,0.06)",
+              border: "1px solid rgba(56,242,161,0.20)",
               borderRadius: "var(--ds-radius-sm)"
             }
           }, React.createElement("div", {
@@ -14694,8 +14694,8 @@
           style: {
             marginTop: "var(--ds-space-2)",
             padding: "var(--ds-space-2)",
-            background: "rgba(245,194,92,0.08)",
-            border: "1px solid rgba(245,194,92,0.25)",
+            background: "rgba(56,242,161,0.08)",
+            border: "1px solid rgba(56,242,161,0.25)",
             borderRadius: "var(--ds-radius-xs)",
             color: "var(--ds-accent)",
             fontSize: "var(--ds-fs-caption)"
@@ -14962,12 +14962,12 @@
           pointerEvents: "none"
         } : undefined
       }, React.createElement("div", {
-        className: "bg-[#0b0e11] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl",
+        className: "bg-[#0B1410] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl",
         onClick: e => e.stopPropagation()
       }, React.createElement("div", {
         className: "flex-1 overflow-y-auto"
       }, React.createElement("div", {
-        className: "sticky top-0 z-30 bg-[#0b0e11] border-b border-white/[0.04] px-5 py-3"
+        className: "sticky top-0 z-30 bg-[#0B1410] border-b border-white/[0.04] px-5 py-3"
       }, React.createElement("div", {
         className: "flex items-center justify-between mb-1"
       }, React.createElement("div", {
@@ -14977,7 +14977,7 @@
       }, tickerSymbol), (() => {
         const d = resolvedDir;
         return React.createElement("span", {
-          className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6b7280]"}`
+          className: `inline-flex items-center justify-center px-1.5 py-px rounded text-[9px] font-black tracking-wide ${d === "LONG" ? "bg-cyan-500/80 text-white ring-1 ring-cyan-300/60" : d === "SHORT" ? "bg-rose-600/80 text-white ring-1 ring-rose-400/60" : "bg-white/[0.04] text-[#6E867D]"}`
         }, d || "—");
       })()), React.createElement("div", {
         className: "flex items-center gap-0.5 shrink-0 ml-2"
@@ -15007,7 +15007,7 @@
           } catch (_) {}
         },
         id: "share-toast-btn",
-        className: "text-[#6b7280] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]",
+        className: "text-[#6E867D] hover:text-teal-300 transition-colors p-1.5 rounded hover:bg-white/[0.04]",
         title: "Share this ticker"
       }, React.createElement("svg", {
         xmlns: "http://www.w3.org/2000/svg",
@@ -15030,7 +15030,7 @@
         y2: "15"
       }))), React.createElement("button", {
         onClick: onClose,
-        className: "text-[#6b7280] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
+        className: "text-[#6E867D] hover:text-white transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center rounded hover:bg-white/[0.04]"
       }, "\u2715"))), isAdding && React.createElement("div", {
         className: "flex items-center gap-2 px-3 py-2 mt-1 rounded-lg bg-cyan-500/15 border border-cyan-500/30"
       }, React.createElement("span", {
@@ -15153,7 +15153,7 @@
         const kanbanStageRaw = useEffectiveStage ? String(effectiveStage).trim() : String(ticker?.kanban_stage || "").trim();
         const kanbanStage = kanbanStageRaw.toUpperCase();
         if (!kanbanStage) return null;
-        const kanbanPill = kanbanStage === "EXIT" ? "bg-red-500/15 text-red-300 border-red-500/40" : kanbanStage === "TRIM" ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40" : kanbanStage === "DEFEND" ? "bg-orange-500/15 text-orange-300 border-orange-500/40" : kanbanStage === "HOLD" ? "bg-blue-500/15 text-blue-300 border-blue-500/40" : kanbanStage === "ENTER_NOW" ? "bg-green-500/15 text-green-300 border-green-500/40" : "bg-white/5 text-[#6b7280] border-white/10";
+        const kanbanPill = kanbanStage === "EXIT" ? "bg-red-500/15 text-red-300 border-red-500/40" : kanbanStage === "TRIM" ? "bg-yellow-500/15 text-yellow-300 border-yellow-500/40" : kanbanStage === "DEFEND" ? "bg-orange-500/15 text-orange-300 border-orange-500/40" : kanbanStage === "HOLD" ? "bg-blue-500/15 text-blue-300 border-blue-500/40" : kanbanStage === "ENTER_NOW" ? "bg-green-500/15 text-green-300 border-green-500/40" : "bg-white/5 text-[#6E867D] border-white/10";
         const stageLabel = {
           "WATCH": "Watch",
           "SETUP_WATCH": "Setup Watch",
@@ -15222,7 +15222,7 @@
         if (badges.length === 0) return null;
         return badges.map((b, i) => React.createElement("span", {
           key: `ib-${i}`,
-          className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#d1d5db] font-semibold cursor-default",
+          className: "px-1.5 py-0.5 rounded border bg-white/5 border-white/10 text-[#CFDED6] font-semibold cursor-default",
           title: b.tip
         }, b.icon, " ", b.label));
       })()), React.createElement("div", {
@@ -15267,7 +15267,7 @@
         return React.createElement("button", {
           key: `rail-tab-${t.k}`,
           onClick: () => setRailTab(t.k),
-          className: `px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 relative ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6b7280] hover:text-white"}`
+          className: `px-2 py-1 rounded-lg border text-[10px] sm:text-[11px] font-semibold transition-all whitespace-nowrap flex-shrink-0 flex items-center gap-0.5 relative ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : locked ? "border-amber-500/20 bg-amber-500/5 text-amber-400/60 hover:text-amber-300" : "border-white/[0.06] bg-white/[0.03] text-[#6E867D] hover:text-white"}`
         }, t.label, locked && React.createElement("svg", {
           className: "w-3 h-3 text-amber-400/60",
           fill: "currentColor",
@@ -15404,14 +15404,14 @@
           return React.createElement("div", {
             className: "py-8 text-center"
           }, React.createElement("p", {
-            className: "text-[#6b7280] text-sm mb-2"
+            className: "text-[#6E867D] text-sm mb-2"
           }, is404 ? "This ticker is not in the investor universe." : investorError), React.createElement("p", {
-            className: "text-[#6b7280] text-xs"
+            className: "text-[#6E867D] text-xs"
           }, is404 ? "Add it via Ticker Management to enable investor scoring." : "Investor scores are computed hourly. Try again later."));
         }
         const d = investorData;
         if (!d) return React.createElement("div", {
-          className: "py-8 text-center text-[#6b7280] text-sm"
+          className: "py-8 text-center text-[#6E867D] text-sm"
         }, "No investor data for this ticker yet.");
         const merged = {
           ...ticker,
@@ -15442,10 +15442,10 @@
           reduce: "bg-red-500/15 text-[#f87171] border-red-500/30",
           research_on_watch: "bg-violet-500/15 text-[#a78bfa] border-violet-500/30",
           research_low: "bg-purple-500/15 text-[#a78bfa] border-purple-500/30",
-          research_avoid: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30",
-          research: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30",
-          exited: "bg-gray-500/15 text-[#9ca3af] border-gray-500/30"
-        }[d.stage] || "bg-gray-500/15 text-[#9ca3af] border-gray-500/30";
+          research_avoid: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30",
+          research: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30",
+          exited: "bg-gray-500/15 text-[#8AA39A] border-gray-500/30"
+        }[d.stage] || "bg-gray-500/15 text-[#8AA39A] border-gray-500/30";
         const LANE_ACTION = {
           accumulate: {
             label: "ACCUMULATE",
@@ -15497,17 +15497,17 @@
           },
           research_avoid: {
             label: "AVOID",
-            color: "#9ca3af",
+            color: "#8AA39A",
             bg: "rgba(156,163,175,0.08)",
-            border: "#6b7280",
+            border: "#6E867D",
             action: "Skip",
             guidance: "Weak across the board. The system advises caution — better risk/reward elsewhere."
           },
           exited: {
             label: "EXITED",
-            color: "#9ca3af",
+            color: "#8AA39A",
             bg: "rgba(156,163,175,0.08)",
-            border: "#6b7280",
+            border: "#6E867D",
             action: "Closed",
             guidance: "Position closed. Monitor for re-entry conditions if the thesis improves."
           }
@@ -15523,9 +15523,9 @@
         }, React.createElement("div", null, React.createElement("div", {
           className: "text-lg font-bold text-white"
         }, d.ticker), d.companyName && React.createElement("div", {
-          className: "text-xs text-[#9ca3af]"
+          className: "text-xs text-[#8AA39A]"
         }, d.companyName), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, d.sector || "Unknown")), React.createElement("div", {
           className: "text-right"
         }, React.createElement("div", {
@@ -15533,9 +15533,9 @@
         }, score, " ", React.createElement("span", {
           className: "text-xs font-semibold"
         }, getScoreLabel(score))), React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, "Investor Score"))), React.createElement("div", {
-          className: "text-[11px] text-[#9ca3af] mt-2 italic leading-relaxed"
+          className: "text-[11px] text-[#8AA39A] mt-2 italic leading-relaxed"
         }, summary)), React.createElement("div", {
           className: "rounded-xl p-3.5 border",
           style: {
@@ -15557,41 +15557,41 @@
             color: lane.color
           }
         }, lane.action)), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] leading-relaxed"
+          className: "text-[12px] text-[#CFDED6] leading-relaxed"
         }, lane.guidance), d.stageReason && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1.5 italic"
+          className: "text-[10px] text-[#6E867D] mt-1.5 italic"
         }, "Why this stage: ", String(d.stageReason).replace(/_/g, " ")), owned && Number(pos?.shares) > 0 && React.createElement("div", {
           className: "mt-3 pt-3 border-t",
           style: {
             borderColor: lane.color + "30"
           }
         }, React.createElement("div", {
-          className: "text-[10px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1"
+          className: "text-[10px] tracking-wider font-semibold uppercase text-[#6E867D] mb-1"
         }, "Your Position"), React.createElement("div", {
-          className: "text-[12px] text-[#d1d5db] flex items-baseline gap-3 flex-wrap"
+          className: "text-[12px] text-[#CFDED6] flex items-baseline gap-3 flex-wrap"
         }, React.createElement("span", null, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Shares:"), " ", React.createElement("span", {
           className: "font-mono"
         }, Number(pos.shares).toFixed(2))), React.createElement("span", null, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Avg entry:"), " ", React.createElement("span", {
           className: "font-mono"
         }, "$", Number(pos.avg_entry).toFixed(2))), React.createElement("span", null, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Cost basis:"), " ", React.createElement("span", {
           className: "font-mono"
         }, "$", Number(pos.cost_basis).toFixed(0))), Number.isFinite(unrlPct) && React.createElement("span", null, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Unrealized:"), " ", React.createElement("span", {
           className: "font-mono font-semibold",
           style: {
             color: unrlPct >= 0 ? "#34d399" : "#f87171"
           }
         }, unrlPct >= 0 ? "+" : "", unrlPct.toFixed(2), "%"))), pos.last_action_ts && pos.last_action_type && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, "Last action: ", React.createElement("span", {
-          className: "text-[#9ca3af]"
+          className: "text-[#8AA39A]"
         }, pos.last_action_type), " ", Number(pos.last_action_shares).toFixed(2), " shares", " ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
@@ -15604,7 +15604,7 @@
         }, React.createElement("div", {
           className: "text-[10px] tracking-wider font-semibold uppercase text-[#34d399] mb-1"
         }, "\uD83C\uDFAF Buy Zone Active (", d.accumZone.confidence, "% confidence)"), React.createElement("div", {
-          className: "text-[11px] text-[#d1d5db] leading-relaxed"
+          className: "text-[11px] text-[#CFDED6] leading-relaxed"
         }, "The stock pulled back to a favorable price without breaking its uptrend. Good entry window for the next tranche."), Array.isArray(d.accumZone.signals) && d.accumZone.signals.length > 0 && React.createElement("div", {
           className: "flex flex-wrap gap-1.5 mt-1.5"
         }, d.accumZone.signals.map((s, i) => React.createElement("span", {
@@ -15623,7 +15623,7 @@
         }, React.createElement("div", {
           className: "flex items-start justify-between gap-3"
         }, React.createElement("div", null, React.createElement("div", {
-          className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]"
+          className: "text-[10px] uppercase tracking-[0.16em] text-[#6E867D]"
         }, "Model Guidance"), React.createElement("div", {
           className: "mt-1 text-sm font-semibold text-white"
         }, predictionContract.action_label || "Monitor")), React.createElement("div", {
@@ -15631,35 +15631,35 @@
         }, React.createElement("span", {
           className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.confidence === "high" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : predictionContract.confidence === "medium" ? "bg-amber-500/12 text-amber-300 border-amber-500/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
         }, String(predictionContract.confidence || "low").toUpperCase()), predictionContract.horizon && React.createElement("span", {
-          className: "px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#9ca3af]"
+          className: "px-2 py-0.5 rounded-md text-[10px] font-medium border border-white/[0.08] text-[#8AA39A]"
         }, String(predictionContract.horizon).replace(/_/g, " ")))), predictionContract.thesis && React.createElement("div", {
-          className: "mt-2 text-[12px] text-[#d1d5db] leading-relaxed"
+          className: "mt-2 text-[12px] text-[#CFDED6] leading-relaxed"
         }, predictionContract.thesis), predictionContract.why_now && React.createElement("div", {
-          className: "mt-2 text-[11px] text-[#9ca3af] leading-relaxed"
+          className: "mt-2 text-[11px] text-[#8AA39A] leading-relaxed"
         }, predictionContract.why_now), Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && React.createElement("div", {
           className: "mt-2 flex flex-wrap gap-1.5"
         }, predictionContract.supporting.map((item, idx) => React.createElement("span", {
           key: idx,
-          className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]"
+          className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#8AA39A] border border-white/[0.05]"
         }, item))), Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && React.createElement("div", {
           className: "mt-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mb-1"
+          className: "text-[10px] text-[#6E867D] mb-1"
         }, "Invalidation"), predictionContract.invalidation.slice(0, 3).map((item, idx) => React.createElement("div", {
           key: idx,
           className: "text-[11px] text-red-300/80 leading-relaxed"
         }, "\u2022 ", item)))) : predictionContractError ? React.createElement("div", {
-          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6b7280]"
+          className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[11px] text-[#6E867D]"
         }, "Prediction contract unavailable.") : null, price != null && Number.isFinite(price) && React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex items-center justify-between"
         }, React.createElement("div", null, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase"
+          className: "text-[10px] text-[#6E867D] uppercase"
         }, "Price"), React.createElement("div", {
           className: "text-lg font-bold text-white tabular-nums"
         }, "$", Number(price).toFixed(2))), chgPct != null && Number.isFinite(chgPct) && React.createElement("div", {
           className: "text-right"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase"
+          className: "text-[10px] text-[#6E867D] uppercase"
         }, "Today"), React.createElement("div", {
           className: `text-lg font-bold tabular-nums ${chgPct >= 0 ? "text-[#00e676]" : "text-red-400"}`
         }, chgPct >= 0 ? "+" : "", chgPct.toFixed(2), "%"), Number.isFinite(chgVal) && React.createElement("div", {
@@ -15667,9 +15667,9 @@
         }, chgVal >= 0 ? "+" : "-", "$", Math.abs(chgVal).toFixed(2))), d.prevClose != null && Number.isFinite(d.prevClose) && React.createElement("div", {
           className: "text-right"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase"
+          className: "text-[10px] text-[#6E867D] uppercase"
         }, "Prev Close"), React.createElement("div", {
-          className: "text-sm font-semibold text-[#9ca3af] tabular-nums"
+          className: "text-sm font-semibold text-[#8AA39A] tabular-nums"
         }, "$", d.prevClose.toFixed(2)))), React.createElement("div", null, React.createElement("div", {
           className: "flex items-center gap-2 mb-1"
         }, React.createElement("span", {
@@ -15681,11 +15681,11 @@
         }, "The system suggests a small starter position"), d.stage === "reduce" && React.createElement("span", {
           className: "text-[10px] text-red-400/80 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20"
         }, "Reduce signal \u2014 the system recommends trimming")), d.stageReason && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, d.stageReason)), d.components && Object.keys(d.components).length > 0 && React.createElement("div", null, React.createElement("h3", {
-          className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase"
+          className: "text-xs font-semibold text-[#8AA39A] mb-1 uppercase"
         }, "Score Breakdown"), React.createElement("div", {
-          className: "text-[10px] text-[#4b5563] mb-2.5"
+          className: "text-[10px] text-[#51635A] mb-2.5"
         }, "How the system arrived at this stock's overall score."), (() => {
           const zeroCount = Object.values(d.components).filter(v => Number(v) === 0).length;
           const totalCount = Object.keys(d.components).length;
@@ -15714,7 +15714,7 @@
           }, React.createElement("span", {
             className: `w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`
           }), React.createElement("span", {
-            className: "text-[11px] text-[#9ca3af] w-28 shrink-0"
+            className: "text-[11px] text-[#8AA39A] w-28 shrink-0"
           }, meta.label), React.createElement("div", {
             className: "flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden"
           }, React.createElement("div", {
@@ -15726,33 +15726,33 @@
             className: `text-xs ${isZero ? "text-amber-300/70" : "text-white"} w-6 text-right tabular-nums shrink-0`
           }, v));
         }))), d.rs && React.createElement("div", null, React.createElement("h3", {
-          className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase"
+          className: "text-xs font-semibold text-[#8AA39A] mb-1 uppercase"
         }, "Performance vs Market"), React.createElement("div", {
-          className: "text-[10px] text-[#4b5563] mb-2.5"
+          className: "text-[10px] text-[#51635A] mb-2.5"
         }, getRsSummary(d.rs)), React.createElement("div", {
           className: "grid grid-cols-3 gap-2"
         }, React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] p-2.5 text-center"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, "1 Month"), React.createElement("div", {
           className: `text-sm font-semibold ${d.rs.rs1m >= 0 ? "text-[#00e676]" : "text-red-400"}`
         }, fmtPct(d.rs.rs1m))), React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] p-2.5 text-center"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, "3 Months"), React.createElement("div", {
           className: `text-sm font-semibold ${d.rs.rs3m >= 0 ? "text-[#00e676]" : "text-red-400"}`
         }, fmtPct(d.rs.rs3m))), React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] p-2.5 text-center"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, "6 Months"), React.createElement("div", {
           className: `text-sm font-semibold ${d.rs.rs6m >= 0 ? "text-[#00e676]" : "text-red-400"}`
         }, fmtPct(d.rs.rs6m)))), d.rsRank != null && React.createElement("div", {
           className: "mt-2.5"
         }, React.createElement("div", {
-          className: "flex items-center justify-between mb-1 text-[11px] text-[#9ca3af]"
+          className: "flex items-center justify-between mb-1 text-[11px] text-[#8AA39A]"
         }, "Outperforms ", d.rsRank, "% of all tracked stocks"), React.createElement("div", {
           className: "h-1.5 rounded-full bg-white/[0.06] overflow-hidden"
         }, React.createElement("div", {
@@ -15761,7 +15761,7 @@
             width: `${Math.min(100, d.rsRank)}%`
           }
         })))), d.accumZone && React.createElement("div", null, React.createElement("h3", {
-          className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase",
+          className: "text-xs font-semibold text-[#8AA39A] mb-1 uppercase",
           title: "Has the stock pulled back to an attractive price?"
         }, "Buy Zone"), d.accumZone.inZone ? React.createElement("div", {
           className: "rounded-lg border border-[#00c853]/30 p-3"
@@ -15772,24 +15772,24 @@
         }), React.createElement("span", {
           className: "text-xs text-[#00e676] font-semibold"
         }, "In Buy Zone"), React.createElement("span", {
-          className: "text-[10px] text-[#9ca3af]"
+          className: "text-[10px] text-[#8AA39A]"
         }, d.accumZone.confidence, "% confidence")), React.createElement("div", {
-          className: "text-[11px] text-[#9ca3af] leading-relaxed mb-2"
+          className: "text-[11px] text-[#8AA39A] leading-relaxed mb-2"
         }, "The stock dipped to a favorable price without breaking its uptrend."), d.accumZone.signals?.length > 0 && React.createElement("div", {
           className: "flex flex-wrap gap-1"
         }, d.accumZone.signals.map((s, i) => React.createElement("span", {
           key: i,
-          className: "text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]"
+          className: "text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#8AA39A]"
         }, SIGNAL_LABELS[s] || s.replace(/_/g, " "))))) : React.createElement("div", {
-          className: "text-[11px] text-[#6b7280]"
+          className: "text-[11px] text-[#6E867D]"
         }, "Not in a buy zone right now.")), d.thesis && React.createElement("div", null, React.createElement("h3", {
-          className: "text-xs font-semibold text-[#9ca3af] mb-1 uppercase"
+          className: "text-xs font-semibold text-[#8AA39A] mb-1 uppercase"
         }, "Investment Thesis"), React.createElement("div", {
-          className: "text-[10px] text-[#4b5563] mb-2"
+          className: "text-[10px] text-[#51635A] mb-2"
         }, "Why the system is tracking this stock."), React.createElement("div", {
-          className: "text-xs text-[#d1d5db] leading-relaxed mb-2"
+          className: "text-xs text-[#CFDED6] leading-relaxed mb-2"
         }, d.thesis), d.thesisInvalidation?.length > 0 && React.createElement("div", null, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mb-1"
+          className: "text-[10px] text-[#6E867D] mb-1"
         }, "What would change this view:"), d.thesisInvalidation.map((inv, i) => React.createElement("div", {
           key: i,
           className: "text-[11px] text-red-400/80 pl-2"
@@ -15858,9 +15858,9 @@
         }, name ? React.createElement("div", {
           className: "text-xs font-semibold text-white truncate"
         }, name) : null, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-0.5"
+          className: "text-[10px] text-[#6E867D] mt-0.5"
         }, [enrichedSector, enrichedIndustry, country].filter(Boolean).join(" • ") || "—"), showDesc ? React.createElement("div", {
-          className: "mt-1 text-[10px] text-[#6b7280] leading-snug",
+          className: "mt-1 text-[10px] text-[#6E867D] leading-snug",
           style: {
             display: "-webkit-box",
             WebkitLineClamp: 2,
@@ -15876,7 +15876,7 @@
         }, React.createElement("div", {
           className: `text-[11px] font-bold ${isEarningsImminent ? "text-amber-300" : "text-blue-300"}`
         }, "Earnings ", earnLabel), React.createElement("div", {
-          className: "text-[10px] text-[#9ca3af]"
+          className: "text-[10px] text-[#8AA39A]"
         }, new Date(finnhubEarnDate + "T12:00:00").toLocaleDateString("en-US", {
           weekday: "short",
           month: "short",
@@ -15891,13 +15891,13 @@
         }, marketCap ? React.createElement("div", {
           className: "p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center"
         }, React.createElement("div", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, "MCap"), React.createElement("div", {
           className: "text-[11px] font-semibold text-white"
         }, fmtMCap(marketCap))) : null, lastEarnEvt && !hasFinnhubEarn ? React.createElement("div", {
           className: "p-1.5 bg-white/[0.02] border border-white/[0.06] rounded text-center"
         }, React.createElement("div", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, "Last Earnings"), React.createElement("div", {
           className: "text-[11px] font-semibold text-white"
         }, fmtDate(lastEarnEvt))) : null, nextEarnTs && !hasFinnhubEarn ? React.createElement("div", {
@@ -15943,7 +15943,7 @@
       }, React.createElement("div", {
         className: "flex items-start justify-between gap-3"
       }, React.createElement("div", null, React.createElement("div", {
-        className: "text-[10px] uppercase tracking-[0.16em] text-[#6b7280]"
+        className: "text-[10px] uppercase tracking-[0.16em] text-[#6E867D]"
       }, "Model Guidance"), React.createElement("div", {
         className: "mt-1 flex items-center gap-2"
       }, React.createElement("span", {
@@ -15961,14 +15961,14 @@
       }, predictionContract.direction), React.createElement("span", {
         className: `px-2 py-0.5 rounded-md text-[10px] font-semibold border ${predictionContract.confidence === "high" ? "bg-[#00c853]/12 text-[#34d399] border-[#00c853]/25" : predictionContract.confidence === "medium" ? "bg-amber-500/12 text-amber-300 border-amber-500/25" : "bg-red-500/12 text-red-300 border-red-500/25"}`
       }, String(predictionContract.confidence || "low").toUpperCase()))), predictionContract.thesis && React.createElement("div", {
-        className: "mt-2 text-[12px] text-[#d1d5db] leading-relaxed"
+        className: "mt-2 text-[12px] text-[#CFDED6] leading-relaxed"
       }, predictionContract.thesis), predictionContract.why_now && React.createElement("div", {
-        className: "mt-2 text-[11px] text-[#9ca3af] leading-relaxed italic"
+        className: "mt-2 text-[11px] text-[#8AA39A] leading-relaxed italic"
       }, predictionContract.why_now), Array.isArray(predictionContract.supporting) && predictionContract.supporting.length > 0 && React.createElement("div", {
         className: "mt-2 flex flex-wrap gap-1.5"
       }, predictionContract.supporting.map((item, idx) => React.createElement("span", {
         key: idx,
-        className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#9ca3af] border border-white/[0.05]"
+        className: "px-1.5 py-0.5 rounded bg-white/[0.04] text-[10px] text-[#8AA39A] border border-white/[0.05]"
       }, item))), (() => {
         const _sl = predictionContract?.risk?.stop_loss != null ? Number(predictionContract.risk.stop_loss) : NaN;
         const _rr = predictionContract?.risk?.rr != null ? Number(predictionContract.risk.rr) : NaN;
@@ -15982,7 +15982,7 @@
         }, _hasSl && React.createElement("div", {
           className: "rounded-lg border border-red-500/20 bg-red-500/8 p-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase"
+          className: "text-[10px] text-[#6E867D] uppercase"
         }, "Stop Loss"), React.createElement("div", {
           className: "flex items-baseline gap-1.5"
         }, React.createElement("span", {
@@ -15992,14 +15992,14 @@
         }, _slPct.toFixed(1), "%"))), _hasRr && React.createElement("div", {
           className: "rounded-lg border border-white/[0.06] bg-white/[0.02] p-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] uppercase"
+          className: "text-[10px] text-[#6E867D] uppercase"
         }, "Risk / Reward"), React.createElement("div", {
           className: "text-sm font-semibold text-white tabular-nums"
         }, _rr.toFixed(2), "x")));
       })(), Array.isArray(predictionContract.targets) && predictionContract.targets.length > 0 && React.createElement("div", {
         className: "mt-3"
       }, React.createElement("div", {
-        className: "text-[10px] text-[#6b7280] mb-1 uppercase"
+        className: "text-[10px] text-[#6E867D] mb-1 uppercase"
       }, "Management Levels"), React.createElement("div", {
         className: "space-y-1.5"
       }, predictionContract.targets.slice(0, 3).map((target, idx) => {
@@ -16010,23 +16010,23 @@
           key: idx,
           className: "flex items-center justify-between rounded-lg border border-[#00c853]/18 bg-[#00c853]/8 px-2.5 py-1.5"
         }, React.createElement("span", {
-          className: "text-[11px] text-[#9ca3af]"
+          className: "text-[11px] text-[#8AA39A]"
         }, target.label), React.createElement("div", {
           className: "flex items-center gap-1.5"
         }, React.createElement("span", {
           className: "text-[12px] font-semibold text-[#d1fae5] tabular-nums"
         }, "$", _tpPx.toFixed(2)), Number.isFinite(_pct) && React.createElement("span", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, _pct.toFixed(1), "%")));
       }))), Array.isArray(predictionContract.invalidation) && predictionContract.invalidation.length > 0 && React.createElement("div", {
         className: "mt-3"
       }, React.createElement("div", {
-        className: "text-[10px] text-[#6b7280] mb-1 uppercase"
+        className: "text-[10px] text-[#6E867D] mb-1 uppercase"
       }, "Invalidation"), predictionContract.invalidation.slice(0, 3).map((item, idx) => React.createElement("div", {
         key: idx,
         className: "text-[11px] text-red-300/80 leading-relaxed"
       }, "\u2022 ", item)))) : predictionContractError ? React.createElement("div", {
-        className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6b7280]"
+        className: "rounded-xl border border-white/[0.08] bg-white/[0.03] p-3 mb-4 text-[11px] text-[#6E867D]"
       }, "Model guidance unavailable.") : null, false && (() => {
         const posSlRaw = ticker?.has_open_position ? Number(ticker?.position_sl) : NaN;
         const posTpRaw = ticker?.has_open_position ? Number(ticker?.position_tp) : NaN;
@@ -16146,7 +16146,7 @@
         return React.createElement("div", {
           className: "mb-4 space-y-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider",
+          className: "text-[10px] text-[#6E867D] font-semibold uppercase tracking-wider",
           title: "Where the system would exit if right (Take Profit) or wrong (Stop Loss). Distances and R:R show how much room each side has."
         }, "Risk / Reward Levels"), hasSl && React.createElement("div", {
           className: "space-y-1.5"
@@ -16156,17 +16156,17 @@
             className: `p-2.5 rounded border flex items-center justify-between ${tslActive ? "bg-white/[0.02] border-white/[0.08]" : "bg-red-500/10 border-red-500/30"}`,
             title: slFromKijun ? "Stop Loss anchored at Kijun-Sen — a key swing-low support level. If price breaks this, the trade thesis is invalidated." : "Stop Loss — exit price if the trade goes wrong. The distance from entry to here is your risk per share."
           }, React.createElement("span", {
-            className: `text-xs font-semibold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
+            className: `text-xs font-semibold ${tslActive ? "text-[#6E867D]" : "text-red-400"}`
           }, "Stop Loss", slFromKijun ? " (Kijun)" : ""), React.createElement("div", {
             className: "flex items-center gap-2"
           }, React.createElement("span", {
-            className: `text-xs font-bold ${tslActive ? "text-[#6b7280]" : "text-red-400"}`
+            className: `text-xs font-bold ${tslActive ? "text-[#6E867D]" : "text-red-400"}`
           }, tslActive && slOrig ? `$${slOrig.toFixed(2)}` : `$${sl.toFixed(2)}`), !tslActive && Number.isFinite(slDistPct) && React.createElement("span", {
             className: "text-[9px] text-red-300/70"
           }, slDistPct.toFixed(1), "%"), !tslActive && Number.isFinite(rr) && rr > 0 && React.createElement("span", {
             className: "text-[9px] font-semibold text-blue-400"
           }, Number(rr).toFixed(1), ":1"), tslActive && React.createElement("span", {
-            className: "text-[9px] text-[#4b5563]"
+            className: "text-[9px] text-[#51635A]"
           }, "original")));
         })(), tslActive && React.createElement("div", {
           className: "p-2.5 rounded border bg-red-500/10 border-red-500/30 flex items-center justify-between",
@@ -16194,13 +16194,13 @@
           }, tier.icon), React.createElement("span", {
             className: `text-xs font-semibold ${tier.text}`
           }, tier.label), React.createElement("span", {
-            className: "text-[10px] text-[#6b7280]"
+            className: "text-[10px] text-[#6E867D]"
           }, tier.sub)), React.createElement("div", {
             className: "flex items-center gap-2"
           }, React.createElement("span", {
             className: `text-xs font-bold ${tier.text}`
           }, "$", tier.tp.toFixed(2)), Number.isFinite(tpPct(tier.tp)) && React.createElement("span", {
-            className: "text-[9px] text-[#6b7280]"
+            className: "text-[9px] text-[#6E867D]"
           }, tpPct(tier.tp).toFixed(1), "%"), window._ttIsPro && Number.isFinite(tier.rr) && React.createElement("span", {
             className: "text-[10px] font-semibold text-blue-400"
           }, tier.rr.toFixed(2), ":1"))), window._ttIsPro && React.createElement("div", {
@@ -16220,7 +16220,7 @@
         }, "Target"), React.createElement("span", {
           className: "font-bold text-teal-400"
         }, "$", legacyTarget.toFixed(2))), Number.isFinite(tpPct(legacyTarget)) && React.createElement("span", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, tpPct(legacyTarget).toFixed(1), "%")), Number.isFinite(legacyMax) && Math.abs(legacyMax - (legacyTarget || 0)) > 0.01 && React.createElement("div", {
           className: "flex items-center justify-between gap-2 text-xs"
         }, React.createElement("div", {
@@ -16230,7 +16230,7 @@
         }, "Stretch"), React.createElement("span", {
           className: "font-bold text-teal-400"
         }, "$", legacyMax.toFixed(2))), Number.isFinite(tpPct(legacyMax)) && React.createElement("span", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, tpPct(legacyMax).toFixed(1), "%"))) : null));
       })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
         const px = Number(v2Price) || Number(ticker?.price) || 0;
@@ -16427,8 +16427,8 @@
             alignItems: "center",
             padding: "8px 8px",
             borderRadius: "var(--ds-radius-xs)",
-            background: "rgba(245,194,92,0.10)",
-            border: "1px solid rgba(245,194,92,0.30)",
+            background: "rgba(56,242,161,0.10)",
+            border: "1px solid rgba(56,242,161,0.30)",
             margin: "2px 0"
           }
         }, React.createElement("span", {
@@ -16563,7 +16563,7 @@
         }, React.createElement("div", {
           className: "flex items-center justify-between mb-2"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] font-semibold uppercase tracking-wider"
+          className: "text-[10px] text-[#6E867D] font-semibold uppercase tracking-wider"
         }, "Mini Chart"), React.createElement("button", {
           onClick: () => setChartExpanded(true),
           className: "text-[9px] text-blue-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded border border-blue-400/20 hover:border-blue-400/40"
@@ -16963,7 +16963,7 @@
           className: "border-t border-white/[0.06] my-3 pt-3"
         }, React.createElement("button", {
           onClick: () => setEmaExpanded?.(!emaExpanded),
-          className: "w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+          className: "w-full flex items-center justify-between text-xs text-[#6E867D] mb-2 font-semibold hover:text-white transition-colors"
         }, React.createElement("span", null, "Trend Alignment"), React.createElement("span", {
           className: "text-base"
         }, emaExpanded ? "▼" : "▶")), emaExpanded && React.createElement("div", {
@@ -16994,7 +16994,7 @@
             className: `text-[9px] font-medium ${trend.cls}`
           }, trend.text)));
         }), React.createElement("div", {
-          className: "text-[9px] text-[#4b5563] mt-1.5 px-1"
+          className: "text-[9px] text-[#51635A] mt-1.5 px-1"
         }, "Bar shows how many EMAs price is above (trend strength). Labels show if trend is accelerating or fading.")));
       })(), (() => {
         const eq = ticker?.entry_quality;
@@ -17016,7 +17016,7 @@
         return React.createElement("div", {
           className: "border-t border-white/[0.06] my-3 pt-3"
         }, React.createElement("div", {
-          className: "text-xs text-[#6b7280] font-semibold mb-2"
+          className: "text-xs text-[#6E867D] font-semibold mb-2"
         }, "Swing Analysis"), React.createElement("div", {
           className: "space-y-2"
         }, eq && React.createElement("div", {
@@ -17054,7 +17054,7 @@
           LATE_BEAR: "Late Bear",
           STRONG_BEAR: "Strong Bear"
         }[reg.combined] || reg.combined), React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "D:", reg.daily?.charAt(0).toUpperCase() || "?", " W:", reg.weekly?.charAt(0).toUpperCase() || "?"))), sc && React.createElement("div", {
           className: "rounded-md p-2 bg-white/[0.03]"
         }, React.createElement("div", {
@@ -17070,7 +17070,7 @@
           className: `flex-1 h-1.5 rounded-full ${tf.bias === "bullish" ? "bg-cyan-400" : tf.bias === "bearish" ? "bg-rose-400" : "bg-slate-600"}`,
           title: `${tf.tf}: ${tf.bias}${tf.crossDir ? ` (cross ${tf.crossDir})` : ""}`
         }))), React.createElement("div", {
-          className: "flex justify-between text-[8px] text-[#4b5563] mt-0.5"
+          className: "flex justify-between text-[8px] text-[#51635A] mt-0.5"
         }, tfStack.map((tf, i) => React.createElement("span", {
           key: i
         }, tf.tf))), freshTf && React.createElement("div", {
@@ -17084,7 +17084,7 @@
         }, React.createElement("span", {
           className: `px-1.5 py-0.5 rounded font-semibold ${volCls}`
         }, volTier), Number.isFinite(volPct) && React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, volPct, "% ATR/px")))));
       })(), (() => {
         const cioBlocked = !!ticker?.__cio_blocked;
@@ -17153,16 +17153,16 @@
       })(), rankTotal > 0 && React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, React.createElement("span", {
-        className: "text-[#6b7280]",
+        className: "text-[#6E867D]",
         title: "Rank: where this ticker stands among all tracked names today. Lower number = stronger setup. Updates after each scoring cycle."
       }, "Rank"), React.createElement("span", {
         className: "font-semibold"
       }, rankPosition > 0 ? `#${rankPosition} of ${rankTotal}` : "—", rankAsOfText && React.createElement("span", {
-        className: "ml-2 text-[10px] text-[#6b7280] font-normal"
+        className: "ml-2 text-[10px] text-[#6E867D] font-normal"
       }, "(as of ", rankAsOfText, ")"))), React.createElement("div", {
         className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
       }, React.createElement("span", {
-        className: "text-[#6b7280]",
+        className: "text-[#6E867D]",
         title: "Dynamic Score: blends rank with active flags (multi-TF alignment, regime, RVol). Range 0-100."
       }, "Score"), React.createElement("span", {
         className: "font-semibold text-blue-400 text-lg"
@@ -17174,10 +17174,10 @@
         return React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Conviction Score: focus-tier composite from liquidity, volatility, trend, sector, history, and Saty ATR proximity. Higher = more reasons to act now."
         }, "Conviction", tier && React.createElement("span", {
-          className: "ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#9ca3af]"
+          className: "ml-1.5 text-[9px] font-bold uppercase tracking-wide text-[#8AA39A]"
         }, tier)), React.createElement("span", {
           className: `font-semibold ${color} text-lg`
         }, conv.toFixed(0)));
@@ -17243,7 +17243,7 @@
         return React.createElement(React.Fragment, null, has4h && React.createElement(React.Fragment, null, React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Model (4h)"), React.createElement("span", {
           className: "font-semibold text-purple-300"
         }, "pWin ", fmtPct(p4h), " \u2022 EV ", fmtEv(ev4h))), interp4h && React.createElement("div", {
@@ -17253,7 +17253,7 @@
         }, interp4h.text))), has1d && React.createElement(React.Fragment, null, React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Model (1d)"), React.createElement("span", {
           className: "font-semibold text-purple-300"
         }, "pWin ", fmtPct(p1d), " \u2022 EV ", fmtEv(ev1d))), interp1d && React.createElement("div", {
@@ -17312,7 +17312,7 @@
           className: "border-t border-white/[0.06] my-3 pt-3"
         }, React.createElement("button", {
           onClick: () => setScoreExpanded(!scoreExpanded),
-          className: "w-full flex items-center justify-between text-xs text-[#6b7280] mb-2 font-semibold hover:text-white transition-colors"
+          className: "w-full flex items-center justify-between text-xs text-[#6E867D] mb-2 font-semibold hover:text-white transition-colors"
         }, React.createElement("span", null, "Score Breakdown"), React.createElement("span", {
           className: "text-base"
         }, scoreExpanded ? "▼" : "▶")), scoreExpanded && React.createElement("div", {
@@ -17321,13 +17321,13 @@
           key: idx,
           className: "flex justify-between items-center text-xs"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, comp.label), React.createElement("span", {
           className: `font-semibold ${comp.color}`
         }, comp.value))), React.createElement("div", {
           className: "flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]"
         }, React.createElement("span", {
-          className: "text-[#6b7280] font-semibold"
+          className: "text-[#6E867D] font-semibold"
         }, "Total Score"), React.createElement("span", {
           className: "text-blue-400 font-bold text-base"
         }, Number.isFinite(breakdown.total) ? breakdown.total.toFixed(1) : "—")))) : null;
@@ -17355,7 +17355,7 @@
         return React.createElement("div", {
           className: "border-t border-white/[0.06] my-3 pt-3"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] font-semibold mb-2"
+          className: "text-[10px] text-[#6E867D] font-semibold mb-2"
         }, "Bubble Chart"), React.createElement("div", {
           className: "rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden",
           style: {
@@ -17453,7 +17453,7 @@
       })())) : null, railTab === "TECHNICALS" ? React.createElement(React.Fragment, null, React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border-2 border-white/[0.06] rounded-lg"
       }, React.createElement("div", {
-        className: "text-sm font-bold text-[#6b7280] mb-2"
+        className: "text-sm font-bold text-[#6E867D] mb-2"
       }, "Current Position"), (() => {
         const stateTranslations = {
           "HTF_BULL_LTF_BULL": {
@@ -17529,7 +17529,7 @@
         }, React.createElement("div", null, React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Market State"), React.createElement("span", {
           className: `font-semibold ${translated ? translated.color : "text-white"}`
         }, translated ? translated.label : raw || "—")), translated && React.createElement("div", {
@@ -17537,7 +17537,7 @@
         }, translated.desc)), horizonLabel && React.createElement("div", null, React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Time Horizon"), React.createElement("span", {
           className: "font-semibold text-white"
         }, horizonLabel.label)), horizonLabel.desc && React.createElement("div", {
@@ -17571,7 +17571,7 @@
         return React.createElement("div", {
           className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-2"
+          className: "text-sm font-bold text-[#6E867D] mb-2"
         }, "TD Sequential"), React.createElement("div", {
           className: "text-[11px] text-slate-300/80 italic mb-3 leading-snug"
         }, tdSummary), React.createElement("div", {
@@ -17581,31 +17581,31 @@
         }, React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Counts consecutive closes lower than 4 bars ago \u2014 a buy setup forms at 9"
         }, "Buy Setup"), React.createElement("span", {
-          className: `font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${bullPrep >= 7 ? "text-yellow-400" : bullPrep >= 4 ? "text-green-400" : "text-[#6E867D]"}`
         }, bullPrep, "/9")), React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Counts consecutive closes higher than 4 bars ago \u2014 a sell setup forms at 9"
         }, "Sell Setup"), React.createElement("span", {
-          className: `font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${bearPrep >= 7 ? "text-yellow-400" : bearPrep >= 4 ? "text-red-400" : "text-[#6E867D]"}`
         }, bearPrep, "/9")), React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "After a completed buy setup, counts 13 bars for a stronger buy signal"
         }, "Buy Countdown"), React.createElement("span", {
-          className: `font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${bullLeadup >= 10 ? "text-yellow-400" : bullLeadup >= 4 ? "text-green-400" : "text-[#6E867D]"}`
         }, bullLeadup, "/13")), React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "After a completed sell setup, counts 13 bars for a stronger sell signal"
         }, "Sell Countdown"), React.createElement("span", {
-          className: `font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${bearLeadup >= 10 ? "text-yellow-400" : bearLeadup >= 4 ? "text-red-400" : "text-[#6E867D]"}`
         }, bearLeadup, "/13"))), (hasTd9Bull || hasTd9Bear || hasTd13Bull || hasTd13Bear) && React.createElement("div", {
           className: "pt-2 mt-1 border-t border-white/[0.06] space-y-1"
         }, hasTd9Bull && React.createElement("div", {
@@ -17615,7 +17615,7 @@
         }), React.createElement("span", {
           className: "text-green-400 font-semibold"
         }, "TD9 Buy"), React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "\u2014 setup complete, potential reversal up")), hasTd9Bear && React.createElement("div", {
           className: "flex items-center gap-2 text-xs"
         }, React.createElement("span", {
@@ -17623,7 +17623,7 @@
         }), React.createElement("span", {
           className: "text-red-400 font-semibold"
         }, "TD9 Sell"), React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "\u2014 setup complete, potential reversal down")), hasTd13Bull && React.createElement("div", {
           className: "flex items-center gap-2 text-xs"
         }, React.createElement("span", {
@@ -17631,7 +17631,7 @@
         }), React.createElement("span", {
           className: "text-green-400 font-semibold"
         }, "TD13 Buy"), React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "\u2014 countdown complete, strong buy signal")), hasTd13Bear && React.createElement("div", {
           className: "flex items-center gap-2 text-xs"
         }, React.createElement("span", {
@@ -17639,28 +17639,28 @@
         }), React.createElement("span", {
           className: "text-red-400 font-semibold"
         }, "TD13 Sell"), React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "\u2014 countdown complete, strong sell signal")))), (hasExitLong || hasExitShort) && React.createElement("div", {
           className: "mt-2 p-3 rounded-lg border-2 bg-red-500/20 border-red-500/50"
         }, React.createElement("div", {
           className: "flex items-center justify-between"
         }, React.createElement("span", {
-          className: "text-xs text-[#6b7280]"
+          className: "text-xs text-[#6E867D]"
         }, "Exhaustion Warning"), React.createElement("span", {
           className: "font-bold text-sm text-red-400"
         }, hasExitLong ? "EXIT LONG" : "EXIT SHORT")), React.createElement("div", {
-          className: "text-[11px] text-[#6b7280] mt-1"
+          className: "text-[11px] text-[#6E867D] mt-1"
         }, hasExitLong ? "The current rally shows signs of exhaustion — momentum is fading. Consider taking profits or raising stops." : "The current decline shows signs of exhaustion — selling pressure is fading. Watch for a reversal bounce.")), tdSeq.boost !== undefined && tdSeq.boost !== null && Number(tdSeq.boost) !== 0 && React.createElement("div", {
           className: "mt-2 flex justify-between items-center text-xs px-3 py-2 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Score impact from TD Sequential"), React.createElement("span", {
           className: `font-semibold ${Number(tdSeq.boost) > 0 ? "text-green-400" : "text-red-400"}`
         }, Number(tdSeq.boost) > 0 ? "+" : "", Number(tdSeq.boost).toFixed(1))));
       })(), React.createElement("div", {
         className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
       }, React.createElement("div", {
-        className: "text-sm font-bold text-[#6b7280] mb-4"
+        className: "text-sm font-bold text-[#6E867D] mb-4"
       }, "\u26A1 Triggers"), React.createElement("div", {
         className: "p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
       }, triggerItems.length > 0 ? React.createElement("div", {
@@ -17704,11 +17704,11 @@
           className: "text-[#f0f2f5] flex-1"
         }, translateTrigger(t)));
       })) : React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
+        className: "text-xs text-[#6E867D]"
       }, "No trigger patterns detected."))), React.createElement("div", {
         className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
       }, React.createElement("div", {
-        className: "text-sm font-bold text-[#6b7280] mb-4"
+        className: "text-sm font-bold text-[#6E867D] mb-4"
       }, "Timeframe Analysis"), React.createElement("div", {
         className: "space-y-2"
       }, tfTech ? tfOrder.map(({
@@ -17725,7 +17725,7 @@
         const structure = ema && Number.isFinite(Number(ema.structure)) ? Number(ema.structure) : 0;
         const sig = structure >= 0.3 ? 1 : structure <= -0.3 ? -1 : 0;
         const sigLabel = sig === 1 ? "Bullish" : sig === -1 ? "Bearish" : "Neutral";
-        const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6b7280]";
+        const sigColor = sig === 1 ? "text-green-400" : sig === -1 ? "text-red-400" : "text-[#6E867D]";
         const sigBg = sig === 1 ? "border-green-500/20" : sig === -1 ? "border-red-500/20" : "border-white/[0.06]";
         const depth = ema && Number.isFinite(Number(ema.depth)) ? Number(ema.depth) : 0;
         const aboveCount = Math.min(depth, emaLevels.length);
@@ -17811,7 +17811,7 @@
         }, React.createElement("span", {
           className: "text-sm font-bold text-white"
         }, label), React.createElement("span", {
-          className: `text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6b7280]"}`
+          className: `text-xs font-semibold px-2 py-0.5 rounded ${sig === 1 ? "bg-green-500/15 text-green-400" : sig === -1 ? "bg-red-500/15 text-red-400" : "bg-white/[0.05] text-[#6E867D]"}`
         }, sigLabel)), React.createElement("div", {
           className: "text-[11px] text-slate-300/80 italic mb-2.5 leading-snug"
         }, tfInterpretation), React.createElement("div", {
@@ -17819,47 +17819,47 @@
         }, React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px",
+          className: "text-[#6E867D] w-12 shrink-0 pt-px",
           title: "Moving Averages \u2014 how many EMAs price is above"
         }, "MAs"), React.createElement("span", {
           className: "text-slate-300"
         }, emaSummary, ema && ema.stack != null ? ` (stack: ${ema.stack})` : "")), atrSummary && React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px",
+          className: "text-[#6E867D] w-12 shrink-0 pt-px",
           title: "Average True Range \u2014 how far price is from its normal trading range"
         }, "ATR"), React.createElement("span", {
           className: "text-slate-300"
         }, atrSummary)), rsiSummary && React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px",
+          className: "text-[#6E867D] w-12 shrink-0 pt-px",
           title: "Relative Strength Index \u2014 momentum oscillator (30=oversold, 70=overbought)"
         }, "RSI"), React.createElement("span", {
           className: "text-slate-300"
         }, rsiSummary, r5 != null && r14 != null ? ` (fast: ${r5.toFixed(0)}, slow: ${r14.toFixed(0)})` : "")), sqSummary && React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px",
+          className: "text-[#6E867D] w-12 shrink-0 pt-px",
           title: "Bollinger Band Squeeze \u2014 volatility compression that often precedes big moves"
         }, "Sqz"), React.createElement("span", {
           className: "text-slate-300"
         }, sqDesc || sqSummary)), phaseSummary && React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px",
+          className: "text-[#6E867D] w-12 shrink-0 pt-px",
           title: "Phase \u2014 how far along the current move is (0=early, 100=late)"
         }, "Phase"), React.createElement("span", {
           className: "text-slate-300"
         }, phaseSummary)), phDivSummary && React.createElement("div", {
           className: "flex items-start gap-2"
         }, React.createElement("span", {
-          className: "text-[#6b7280] w-12 shrink-0 pt-px"
+          className: "text-[#6E867D] w-12 shrink-0 pt-px"
         }, "Div"), React.createElement("span", {
           className: `${ph?.div?.[0] === "B" ? "text-green-400/90" : "text-red-400/90"}`
         }, phDivSummary))));
       }) : React.createElement("div", {
-        className: "text-xs text-[#6b7280] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
+        className: "text-xs text-[#6E867D] p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
       }, "No per-timeframe technicals available yet."))), ticker.rsi && (() => {
         const rsi = ticker.rsi;
         const rsiValue = Number(rsi.value || 0);
@@ -17881,13 +17881,13 @@
         return React.createElement("div", {
           className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-3"
+          className: "text-sm font-bold text-[#6E867D] mb-3"
         }, "RSI & Divergence"), React.createElement("div", {
           className: "p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, React.createElement("div", {
           className: "flex justify-between items-center mb-1"
         }, React.createElement("span", {
-          className: "text-xs text-[#6b7280]",
+          className: "text-xs text-[#6E867D]",
           title: "Relative Strength Index (14-period) \u2014 measures momentum on a 0-100 scale. Below 30 is oversold, above 70 is overbought."
         }, "RSI (14)"), React.createElement("span", {
           className: `font-bold text-lg ${rsiColor}`
@@ -17899,7 +17899,7 @@
             width: `${rsiValue}%`
           }
         })), React.createElement("div", {
-          className: "flex justify-between text-[9px] text-[#4b5563] mt-0.5"
+          className: "flex justify-between text-[9px] text-[#51635A] mt-0.5"
         }, React.createElement("span", null, "Oversold"), React.createElement("span", null, "30"), React.createElement("span", null, "50"), React.createElement("span", null, "70"), React.createElement("span", null, "Overbought")), React.createElement("div", {
           className: "mt-2 text-[11px] text-slate-300/80 italic leading-snug"
         }, rsiInterpretation)), divType !== "none" && React.createElement("div", {
@@ -17907,13 +17907,13 @@
         }, React.createElement("div", {
           className: "flex items-center justify-between mb-1"
         }, React.createElement("span", {
-          className: "text-xs font-semibold text-[#6b7280]"
+          className: "text-xs font-semibold text-[#6E867D]"
         }, "Divergence Detected"), React.createElement("span", {
           className: `font-bold text-sm ${divType === "bullish" ? "text-green-400" : "text-red-400"}`
         }, divType === "bullish" ? "Bullish" : "Bearish")), React.createElement("div", {
           className: "text-[11px] text-slate-300/80 leading-snug"
         }, divType === "bullish" ? "Price made a lower low but RSI made a higher low — selling momentum is fading even as price drops. This often precedes a reversal upward." : "Price made a higher high but RSI made a lower high — buying momentum is fading even as price rises. This often precedes a reversal downward."), divStrength > 0 && React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mt-1"
+          className: "text-[10px] text-[#6E867D] mt-1"
         }, "Signal strength: ", divStrength.toFixed(2))));
       })(), detectedPatterns && detectedPatterns.length > 0 && React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
@@ -17931,7 +17931,7 @@
       }, pattern.description), React.createElement("span", {
         className: "text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300"
       }, pattern.confidence)), pattern.quadrant && React.createElement("div", {
-        className: "text-[10px] text-[#6b7280] mt-0.5"
+        className: "text-[10px] text-[#6E867D] mt-0.5"
       }, pattern.quadrant))))), (ticker.daily_ema_cloud || ticker.fourh_ema_cloud || ticker.oneh_ema_cloud) && (() => {
         const clouds = [{
           data: ticker.daily_ema_cloud,
@@ -17973,7 +17973,7 @@
         return React.createElement("div", {
           className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-2"
+          className: "text-sm font-bold text-[#6E867D] mb-2"
         }, "EMA Clouds"), React.createElement("div", {
           className: "text-[10px] text-slate-400/70 mb-3"
         }, "EMA clouds show moving average zones \u2014 price above = bullish, below = bearish, inside = undecided"), React.createElement("div", {
@@ -17994,13 +17994,13 @@
             className: "text-xs font-semibold text-white",
             title: desc
           }, label, " ", React.createElement("span", {
-            className: "text-[#6b7280] font-normal"
+            className: "text-[#6E867D] font-normal"
           }, "(", emas, ")")), React.createElement("span", {
             className: `text-xs font-bold ${p.color}`
           }, p.text)), React.createElement("div", {
             className: "text-[10px] text-slate-400/80"
           }, label, " is ", p.meaning), React.createElement("div", {
-            className: "flex gap-4 mt-1.5 text-[10px] text-[#6b7280]"
+            className: "flex gap-4 mt-1.5 text-[10px] text-[#6E867D]"
           }, React.createElement("span", null, "Cloud: $", Number(data.lower).toFixed(2), " \u2013 $", Number(data.upper).toFixed(2)), React.createElement("span", null, "Price: ", React.createElement("span", {
             className: "text-white font-semibold"
           }, "$", Number(data.price).toFixed(2)))));
@@ -18015,56 +18015,56 @@
         return React.createElement("div", {
           className: "mt-6 pt-6 border-t-2 border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-4"
+          className: "text-sm font-bold text-[#6E867D] mb-4"
         }, "Fundamental & Valuation"), fund.valuation_signal && React.createElement("div", {
           className: `mb-4 p-3 rounded-lg border-2 ${signalBg}`
         }, React.createElement("div", {
           className: "flex items-center justify-between"
         }, React.createElement("span", {
-          className: "text-xs text-[#6b7280]"
+          className: "text-xs text-[#6E867D]"
         }, "Valuation Indicator"), React.createElement("span", {
           className: `font-bold text-sm ${signalColor}`
         }, fund.valuation_signal.toUpperCase())), fund.valuation_confidence && React.createElement("div", {
-          className: "text-xs text-[#6b7280] mt-1"
+          className: "text-xs text-[#6E867D] mt-1"
         }, "Confidence:", " ", React.createElement("span", {
           className: "font-semibold"
         }, fund.valuation_confidence)), fund.valuation_reasons && fund.valuation_reasons.length > 0 && React.createElement("div", {
           className: "mt-2 pt-2 border-t border-current/30"
         }, React.createElement("div", {
-          className: "text-[10px] text-[#6b7280] mb-1"
+          className: "text-[10px] text-[#6E867D] mb-1"
         }, "Reasons:"), fund.valuation_reasons.map((reason, idx) => React.createElement("div", {
           key: idx,
-          className: "text-[10px] text-[#6b7280]/80 mb-0.5"
+          className: "text-[10px] text-[#6E867D]/80 mb-0.5"
         }, "\u2022 ", reason)))), React.createElement("div", {
           className: "space-y-2 text-sm mb-4"
         }, fund.pe_ratio !== null && React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Price-to-Earnings \u2014 how much investors pay per $1 of earnings. Lower = cheaper relative to profits."
         }, "P/E Ratio"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_ratio).toFixed(2))), fund.peg_ratio !== null && React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "P/E divided by earnings growth rate. Below 1.0 = potentially undervalued for its growth. Above 1.5 = expensive."
         }, "PEG Ratio"), React.createElement("span", {
-          className: `font-semibold ${fund.peg_ratio < 0.8 ? "text-green-400" : fund.peg_ratio < 1.0 ? "text-yellow-400" : fund.peg_ratio > 1.5 ? "text-red-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${fund.peg_ratio < 0.8 ? "text-green-400" : fund.peg_ratio < 1.0 ? "text-yellow-400" : fund.peg_ratio > 1.5 ? "text-red-400" : "text-[#6E867D]"}`
         }, Number(fund.peg_ratio).toFixed(2))), fund.eps !== null && React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Earnings Per Share (trailing 12 months) \u2014 how much profit the company earned per share over the past year."
         }, "EPS (TTM)"), React.createElement("span", {
           className: "font-semibold"
         }, "$", Number(fund.eps).toFixed(2))), fund.eps_growth_rate !== null && React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Year-over-year earnings growth rate. Higher = company is growing profits faster."
         }, "EPS Growth (Annual)"), React.createElement("span", {
-          className: `font-semibold ${fund.eps_growth_rate > 20 ? "text-green-400" : fund.eps_growth_rate > 10 ? "text-yellow-400" : fund.eps_growth_rate > 0 ? "text-[#6b7280]" : "text-red-400"}`
+          className: `font-semibold ${fund.eps_growth_rate > 20 ? "text-green-400" : fund.eps_growth_rate > 10 ? "text-yellow-400" : fund.eps_growth_rate > 0 ? "text-[#6E867D]" : "text-red-400"}`
         }, Number(fund.eps_growth_rate).toFixed(1), "%")), (() => {
           const marketCap = fund.market_cap;
           const isValid = marketCap !== null && marketCap !== undefined && marketCap !== "" && (typeof marketCap === "number" || typeof marketCap === "string") && !isNaN(Number(marketCap)) && Number(marketCap) > 0;
@@ -18083,7 +18083,7 @@
           return React.createElement("div", {
             className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
           }, React.createElement("span", {
-            className: "text-[#6b7280]",
+            className: "text-[#6E867D]",
             title: "Total market value of all outstanding shares. Larger = more established company."
           }, "Market Cap"), React.createElement("span", {
             className: "font-semibold"
@@ -18091,97 +18091,97 @@
         })(), fund.industry && React.createElement("div", {
           className: "flex justify-between items-center py-1 border-b border-white/[0.06]/50"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Industry"), React.createElement("span", {
           className: "font-semibold text-xs"
         }, fund.industry))), fund.fair_value_price !== null && fund.fair_value_price > 0 && React.createElement("div", {
           className: "mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-xs text-[#6b7280] mb-2"
+          className: "text-xs text-[#6E867D] mb-2"
         }, "Fair Value"), React.createElement("div", {
           className: "flex items-center justify-between mb-2"
         }, React.createElement("span", {
-          className: "text-sm text-[#6b7280]"
+          className: "text-sm text-[#6E867D]"
         }, "Fair Value Price"), React.createElement("span", {
           className: "font-bold text-lg text-blue-400"
         }, "$", Number(fund.fair_value_price).toFixed(2))), fund.premium_discount_pct !== null && React.createElement("div", {
           className: "flex items-center justify-between"
         }, React.createElement("span", {
-          className: "text-xs text-[#6b7280]"
+          className: "text-xs text-[#6E867D]"
         }, "Premium/Discount"), React.createElement("span", {
-          className: `font-semibold ${fund.premium_discount_pct < -10 ? "text-green-400" : fund.premium_discount_pct < 0 ? "text-yellow-400" : fund.premium_discount_pct > 10 ? "text-red-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${fund.premium_discount_pct < -10 ? "text-green-400" : fund.premium_discount_pct < 0 ? "text-yellow-400" : fund.premium_discount_pct > 10 ? "text-red-400" : "text-[#6E867D]"}`
         }, fund.premium_discount_pct > 0 ? "+" : "", Number(fund.premium_discount_pct).toFixed(1), "%")), fund.fair_value_pe && fund.fair_value_pe.preferred && React.createElement("div", {
-          className: "mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6b7280]"
+          className: "mt-2 pt-2 border-t border-white/[0.06] text-xs text-[#6E867D]"
         }, "Fair P/E:", " ", React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.fair_value_pe.preferred).toFixed(2)))), fund.pe_percentiles && React.createElement("div", {
           className: "mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-xs text-[#6b7280] mb-2"
+          className: "text-xs text-[#6E867D] mb-2"
         }, "Historical P/E Percentiles"), React.createElement("div", {
           className: "grid grid-cols-2 gap-2 text-xs"
         }, fund.pe_percentiles.p10 !== null && React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "10th:"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_percentiles.p10).toFixed(1))), fund.pe_percentiles.p25 !== null && React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "25th:"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_percentiles.p25).toFixed(1))), fund.pe_percentiles.p50 !== null && React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "50th (Median):"), React.createElement("span", {
           className: "font-semibold text-blue-400"
         }, Number(fund.pe_percentiles.p50).toFixed(1))), fund.pe_percentiles.p75 !== null && React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "75th:"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_percentiles.p75).toFixed(1))), fund.pe_percentiles.p90 !== null && React.createElement("div", {
           className: "flex justify-between"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "90th:"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_percentiles.p90).toFixed(1))), fund.pe_percentiles.avg !== null && React.createElement("div", {
           className: "flex justify-between col-span-2 pt-1 border-t border-white/[0.06]"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Average:"), React.createElement("span", {
           className: "font-semibold"
         }, Number(fund.pe_percentiles.avg).toFixed(1)))), fund.pe_percentile_position && React.createElement("div", {
           className: "mt-2 pt-2 border-t border-white/[0.06] text-xs"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Current Position:", " "), React.createElement("span", {
-          className: `font-semibold ${fund.pe_percentile_position.includes("Bottom") ? "text-green-400" : fund.pe_percentile_position.includes("Top") ? "text-red-400" : "text-[#6b7280]"}`
+          className: `font-semibold ${fund.pe_percentile_position.includes("Bottom") ? "text-green-400" : fund.pe_percentile_position.includes("Top") ? "text-red-400" : "text-[#6E867D]"}`
         }, fund.pe_percentile_position))), ticker.rank_components && ticker.rank_components.valuation_boost !== undefined && ticker.rank_components.valuation_boost !== 0 && React.createElement("div", {
           className: "mb-4 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]"
         }, React.createElement("div", {
-          className: "text-xs text-[#6b7280] mb-1"
+          className: "text-xs text-[#6E867D] mb-1"
         }, "Rank Components"), React.createElement("div", {
           className: "flex justify-between items-center text-xs"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Base Rank"), React.createElement("span", {
           className: "font-semibold"
         }, ticker.rank_components.base_rank || baseScore)), React.createElement("div", {
           className: "flex justify-between items-center text-xs mt-1"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Valuation Boost"), React.createElement("span", {
           className: `font-semibold ${ticker.rank_components.valuation_boost > 0 ? "text-green-400" : "text-red-400"}`
         }, ticker.rank_components.valuation_boost > 0 ? "+" : "", ticker.rank_components.valuation_boost)), React.createElement("div", {
           className: "flex justify-between items-center text-sm mt-2 pt-2 border-t border-white/[0.06]"
         }, React.createElement("span", {
-          className: "text-[#6b7280] font-semibold"
+          className: "text-[#6E867D] font-semibold"
         }, "Final Rank"), React.createElement("span", {
           className: "font-bold text-blue-400"
         }, baseScore))));
@@ -18190,7 +18190,7 @@
       }, React.createElement("div", {
         className: "flex items-center justify-between gap-2 mb-3"
       }, React.createElement("div", {
-        className: "text-sm text-[#6b7280]"
+        className: "text-sm text-[#6E867D]"
       }, "Chart (REMOVED)"), React.createElement("div", {
         className: "flex items-center gap-1 flex-wrap"
       }, [{
@@ -18222,7 +18222,7 @@
         return React.createElement("button", {
           key: `tf-${t.tf}`,
           onClick: () => setChartTf(String(t.tf)),
-          className: `px-2 py-1 rounded border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.02] text-[#6b7280] hover:text-white"}`,
+          className: `px-2 py-1 rounded border text-[11px] font-semibold transition-all ${active ? "border-blue-400 bg-blue-500/20 text-blue-200" : "border-white/[0.06] bg-white/[0.02] text-[#6E867D] hover:text-white"}`,
           title: `Show ${t.label} candles`
         }, t.label);
       }))), chartLoading && (!Array.isArray(chartCandles) || chartCandles.length < 2) ? React.createElement(SkeletonBlock, {
@@ -18234,7 +18234,7 @@
       }) : chartError ? React.createElement("div", {
         className: "text-xs text-yellow-300"
       }, "Failed to load candles: ", chartError) : !Array.isArray(chartCandles) || chartCandles.length < 2 ? React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
+        className: "text-xs text-[#6E867D]"
       }, "No candles yet for this timeframe. (Waiting for the TradingView candle capture feed.)") : (() => {
         try {
           const toMs = v => {
@@ -18333,7 +18333,7 @@
           const totalCandles2 = candles.length;
           if (totalCandles2 < 2) {
             return React.createElement("div", {
-              className: "text-xs text-[#6b7280]"
+              className: "text-xs text-[#6E867D]"
             }, "Candle data loaded, but not in expected OHLC format.");
           }
           const visCount2 = Math.max(10, Math.min(totalCandles2, chartVisibleCount));
@@ -18451,28 +18451,28 @@
           }, React.createElement("div", {
             className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"
           }, React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, hTime2), React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "O"), React.createElement("span", {
             className: "text-white"
           }, hO2.toFixed(2)), React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "H"), React.createElement("span", {
             className: "text-sky-300"
           }, hH2.toFixed(2)), React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "L"), React.createElement("span", {
             className: "text-orange-300"
           }, hL2.toFixed(2)), React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "C"), React.createElement("span", {
             className: hUp2 ? "text-teal-400 font-semibold" : "text-rose-400 font-semibold"
           }, hC2.toFixed(2)), React.createElement("span", {
             className: hUp2 ? "text-teal-400" : "text-rose-400"
           }, hUp2 ? "+" : "", hChg2.toFixed(2), " (", hUp2 ? "+" : "", hPct2.toFixed(2), "%)")), React.createElement("div", {
             ref: chartContainerRef,
-            className: "rounded border border-white/[0.06] bg-[#0b0e11] overflow-hidden",
+            className: "rounded border border-white/[0.06] bg-[#0B1410] overflow-hidden",
             style: {
               userSelect: "none"
             }
@@ -18621,27 +18621,27 @@
           })()), React.createElement("div", {
             className: "grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]"
           }, React.createElement("div", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "Price:"), React.createElement("div", {
             className: "text-yellow-300 font-mono font-semibold"
           }, "$", Number(crosshair.price).toFixed(2)), React.createElement("div", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "O:"), React.createElement("div", {
             className: "text-white font-mono"
           }, "$", Number(crosshair.candle.o).toFixed(2)), React.createElement("div", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "H:"), React.createElement("div", {
             className: "text-sky-300 font-mono"
           }, "$", Number(crosshair.candle.h).toFixed(2)), React.createElement("div", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "L:"), React.createElement("div", {
             className: "text-orange-300 font-mono"
           }, "$", Number(crosshair.candle.l).toFixed(2)), React.createElement("div", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "C:"), React.createElement("div", {
             className: `font-mono font-semibold ${Number(crosshair.candle.c) >= Number(crosshair.candle.o) ? "text-sky-300" : "text-orange-300"}`
           }, "$", Number(crosshair.candle.c).toFixed(2)))) : null, React.createElement("div", {
-            className: "mt-2 text-[10px] text-[#6b7280] flex items-center justify-between"
+            className: "mt-2 text-[10px] text-[#6E867D] flex items-center justify-between"
           }, React.createElement("span", null, String(chartTf) === "D" ? "Daily" : String(chartTf) === "W" ? "Weekly" : `${chartTf}m`, " ", "\u2022 ", vn2, "/", totalCandles2, " bars"), React.createElement("span", {
             className: "text-[#555] text-[9px]"
           }, "scroll to zoom \u2022 drag to pan"), React.createElement("span", {
@@ -18658,14 +18658,14 @@
       }, React.createElement("div", {
         className: "flex items-center justify-between mb-2"
       }, React.createElement("div", {
-        className: "text-sm text-[#6b7280]"
+        className: "text-sm text-[#6E867D]"
       }, "Trade History")), ledgerTradesLoading ? React.createElement(SkeletonBlock, {
         height: 150,
         lines: 4
       }) : ledgerTradesError ? React.createElement("div", {
         className: "text-xs text-red-400"
       }, "Ledger unavailable: ", ledgerTradesError) : ledgerTrades.length === 0 ? React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
+        className: "text-xs text-[#6E867D]"
       }, "No trades found for this ticker.") : React.createElement("div", {
         className: "space-y-3"
       }, (() => {
@@ -18682,19 +18682,19 @@
         }, React.createElement("div", {
           className: "flex items-center justify-between mb-1"
         }, React.createElement("span", {
-          className: "text-[11px] text-[#6b7280] font-medium"
+          className: "text-[11px] text-[#6E867D] font-medium"
         }, ledgerTrades.length, " trade", ledgerTrades.length !== 1 ? "s" : "", openTrades.length > 0 && React.createElement("span", {
           className: "text-blue-400 ml-1"
         }, "(", openTrades.length, " open)")), closedTrades.length > 0 && React.createElement("span", {
           className: `text-sm font-bold ${isGain ? "text-green-400" : "text-red-400"}`
         }, isGain ? "+" : "", totalClosedPnlPct.toFixed(2), "%")), closedTrades.length > 0 && React.createElement("div", {
-          className: "flex items-center gap-2 text-[10px] text-[#6b7280]"
+          className: "flex items-center gap-2 text-[10px] text-[#6E867D]"
         }, wins > 0 && React.createElement("span", {
           className: "text-green-400"
         }, wins, "W"), losses > 0 && React.createElement("span", {
           className: "text-red-400"
         }, losses, "L"), flat > 0 && React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, flat, " flat")));
       })(), ledgerTrades.slice(0, 10).map(t => {
         const isInvestor = t._source_mode === "investor";
@@ -18735,7 +18735,7 @@
         })();
         const isFlat = isClosed && Math.abs(computedPnlPct) < 0.01;
         const statusLabel = exitPriceMissing ? "ERR" : t.status === "FLAT" || isFlat ? "FLAT" : t.status === "WIN" ? "WIN" : t.status === "LOSS" ? "LOSS" : null;
-        const statusCls = exitPriceMissing ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : t.status === "FLAT" || isFlat ? "bg-[#6b7280]/20 text-[#9ca3af] border-[#6b7280]/30" : t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "";
+        const statusCls = exitPriceMissing ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : t.status === "FLAT" || isFlat ? "bg-[#6E867D]/20 text-[#8AA39A] border-[#6E867D]/30" : t.status === "WIN" ? "bg-green-500/20 text-green-400 border-green-500/30" : t.status === "LOSS" ? "bg-red-500/20 text-red-400 border-red-500/30" : "";
         const formatDt = ts => {
           if (!ts) return "\u2014";
           try {
@@ -18801,7 +18801,7 @@
         }, isClosed && Math.abs(pnl) > 0.01 && React.createElement("span", {
           className: `text-[11px] font-bold ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
         }, pnl >= 0 ? "+" : "", pnl < 0 ? "-" : "", "$", Math.abs(pnl).toFixed(2)), isClosed && React.createElement("span", {
-          className: `text-[10px] font-semibold ${isFlat ? "text-[#6b7280]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`
+          className: `text-[10px] font-semibold ${isFlat ? "text-[#6E867D]" : computedPnlPct >= 0 ? "text-green-400/70" : "text-red-400/70"}`
         }, "(", computedPnlPct >= 0 ? "+" : "", computedPnlPct.toFixed(2), "%)"))), React.createElement("div", {
           className: "flex items-center gap-1.5 px-3 pb-2 flex-wrap"
         }, exitReasonLabel && React.createElement("span", {
@@ -18809,9 +18809,9 @@
         }, exitReasonLabel), hasTrimmed && React.createElement("span", {
           className: "px-1 py-0.5 rounded text-[8px] font-semibold bg-yellow-500/15 text-yellow-300 border border-yellow-500/25"
         }, Math.round(trimmedPct * 100), "% trimmed"), duration && React.createElement("span", {
-          className: "text-[9px] text-[#6b7280]"
+          className: "text-[9px] text-[#6E867D]"
         }, duration), entryQty > 0 && React.createElement("span", {
-          className: "text-[9px] text-[#4b5563]"
+          className: "text-[9px] text-[#51635A]"
         }, entryQty % 1 === 0 ? entryQty : entryQty.toFixed(1), " sh")), !isClosed && document.body.dataset.userRole === "admin" && (() => {
           const src = priceSrc;
           const cp = Number(src?.currentPrice ?? src?.cp ?? 0);
@@ -18824,7 +18824,7 @@
           }, React.createElement("div", {
             className: "flex items-center justify-between text-[10px]"
           }, React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "Current"), React.createElement("span", {
             className: "text-white font-bold"
           }, cp > 0 ? `$${cp.toFixed(2)}` : "\u2014")), React.createElement("div", {
@@ -18834,7 +18834,7 @@
           }, "SL"), React.createElement("span", {
             className: "text-white font-medium"
           }, slVal > 0 ? `$${slVal.toFixed(2)}` : "\u2014"), React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, "EP"), React.createElement("span", {
             className: "text-white font-medium"
           }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"), React.createElement("span", {
@@ -18887,11 +18887,11 @@
           className: "text-[#a78bfa] font-medium py-0.5",
           colSpan: "2"
         }, Math.round(entryQty), " bought", hasTrimmed ? ` · ${Math.round(trimmedQty)} trimmed · ${Math.round(entryQty - trimmedQty)} left` : "")), React.createElement("tr", null, React.createElement("td", {
-          className: "text-[#6b7280] py-0.5 pr-2"
+          className: "text-[#6E867D] py-0.5 pr-2"
         }, "Entry"), React.createElement("td", {
           className: "text-white font-medium py-0.5"
         }, "$", entryPrice > 0 ? entryPrice.toFixed(2) : "\u2014"), React.createElement("td", {
-          className: "text-[#6b7280] py-0.5 text-right"
+          className: "text-[#6E867D] py-0.5 text-right"
         }, formatDt(t.entry_ts))), hasTrimmed && trimPrice > 0 && React.createElement("tr", null, React.createElement("td", {
           className: "text-yellow-500 py-0.5 pr-2"
         }, "Trim"), React.createElement("td", {
@@ -18899,11 +18899,11 @@
         }, "$", trimPrice.toFixed(2), trimmedQty > 0 ? ` (${trimmedQty % 1 === 0 ? trimmedQty : trimmedQty.toFixed(1)} sh)` : ""), React.createElement("td", {
           className: "text-yellow-300/60 py-0.5 text-right"
         }, formatDt(trimTs))), isClosed && React.createElement("tr", null, React.createElement("td", {
-          className: "text-[#6b7280] py-0.5 pr-2"
+          className: "text-[#6E867D] py-0.5 pr-2"
         }, "Exit"), React.createElement("td", {
           className: `font-medium py-0.5 ${computedPnlPct >= 0 ? "text-green-400" : "text-red-400"}`
         }, exitPrice > 0 ? `$${exitPrice.toFixed(2)}` : "\u2014"), React.createElement("td", {
-          className: "text-[#6b7280] py-0.5 text-right"
+          className: "text-[#6E867D] py-0.5 text-right"
         }, formatDt(t.exit_ts)))))), React.createElement("div", {
           className: "px-3 pb-2.5 pt-1 border-t border-white/[0.05] flex items-center justify-between"
         }, React.createElement("button", {
@@ -18926,11 +18926,11 @@
           href: `trade-autopsy.html?trade_id=${encodeURIComponent(t.trade_id || t.id || "")}`,
           target: "_blank",
           rel: "noopener noreferrer",
-          className: "text-[9px] text-[#4b5563] hover:text-[#9ca3af] transition-colors",
+          className: "text-[9px] text-[#51635A] hover:text-[#8AA39A] transition-colors",
           onClick: e => e.stopPropagation()
         }, "Full page \u2192")));
       }), ledgerTrades.length > 10 && React.createElement("div", {
-        className: "text-[10px] text-[#4b5563] text-center py-1"
+        className: "text-[10px] text-[#51635A] text-center py-1"
       }, "Showing 10 of ", ledgerTrades.length, " trades")))) : null, railTab === "MODEL" ? React.createElement(React.Fragment, null, (() => {
         const ms = modelSignal;
         const ts = ms?.ticker;
@@ -18971,7 +18971,7 @@
         }, React.createElement("div", {
           className: "flex items-center justify-between mb-1.5"
         }, React.createElement("span", {
-          className: "text-sm font-bold text-[#6b7280]"
+          className: "text-sm font-bold text-[#6E867D]"
         }, "Ticker Signal"), direction && React.createElement("span", {
           className: `text-xs font-bold px-2 py-0.5 rounded ${direction === "BULLISH" ? "bg-green-500/20 text-green-400" : direction === "BEARISH" ? "bg-red-500/20 text-red-400" : "bg-slate-500/15 text-slate-400"}`
         }, direction)), ts || pm ? React.createElement(React.Fragment, null, React.createElement("div", {
@@ -18981,34 +18981,34 @@
         }, React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Overall conviction score from -1 (strongly bearish) to +1 (strongly bullish). Combines pattern matching with the ticker's current scoring state."
         }, "Net Signal"), React.createElement("span", {
           className: `font-bold ${netSignal > 0 ? "text-[#00e676]" : netSignal < 0 ? "text-red-400" : "text-slate-300"}`
         }, netSignal > 0 ? "+" : "", netSignal.toFixed(2))), (ts?.bullPatterns != null || pm?.bullCount != null) && React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "How many historical winning patterns (bull vs bear) currently match this ticker's setup."
         }, "Patterns Matched"), React.createElement("span", {
           className: "text-white font-semibold"
         }, ts?.bullPatterns || pm?.bullCount || 0, " bull / ", ts?.bearPatterns || pm?.bearCount || 0, " bear")), ts?.stateSignal != null && React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]",
+          className: "text-[#6E867D]",
           title: "Signal derived from the ticker's current quadrant (HTF/LTF state), kanban stage, and HTF score. Independent of pattern matching."
         }, "State Signal"), React.createElement("span", {
           className: `font-semibold ${ts.stateSignal > 0 ? "text-green-400" : ts.stateSignal < 0 ? "text-red-400" : "text-slate-400"}`
         }, ts.stateSignal > 0 ? "+" : "", ts.stateSignal.toFixed(2))), ts?.state && React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "State"), React.createElement("span", {
           className: "text-white text-[10px]"
         }, ts.state.replace(/_/g, " "))), ts?.kanbanStage && React.createElement("div", {
           className: "flex justify-between items-center"
         }, React.createElement("span", {
-          className: "text-[#6b7280]"
+          className: "text-[#6E867D]"
         }, "Stage"), React.createElement("span", {
           className: "text-white capitalize"
         }, ts.kanbanStage.replace(/_/g, " ")))), patternBoost && React.createElement("div", {
@@ -19044,7 +19044,7 @@
         }, mk.riskFlag), pm && pm.matched && pm.matched.length > 0 && React.createElement("div", {
           className: "p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280] mb-2"
+          className: "text-sm font-bold text-[#6E867D] mb-2"
         }, "Matched Patterns"), React.createElement("div", {
           className: "text-[10px] text-slate-400/70 mb-2"
         }, "These are historical setups that match the current conditions for ", tickerSymbol, "."), React.createElement("div", {
@@ -19061,7 +19061,7 @@
         }, React.createElement("span", {
           className: `px-1.5 py-0.5 rounded text-[10px] font-bold ${m.dir === "UP" ? "bg-[#00c853]/50 text-[#69f0ae]" : "bg-red-900/50 text-red-300"}`
         }, m.dir === "UP" ? "Bull" : "Bear"), React.createElement("span", {
-          className: "text-[10px] text-[#6b7280]"
+          className: "text-[10px] text-[#6E867D]"
         }, (m.conf * 100).toFixed(0), "%")))))), kanbanMeta && kanbanMeta.patternMatch && React.createElement("div", {
           className: "p-2.5 bg-blue-500/10 border border-blue-500/25 rounded-lg"
         }, React.createElement("div", {
@@ -19069,7 +19069,7 @@
         }, "This ticker was promoted to Setup by the pattern recognition engine \u2014 historical pattern matches triggered the stage advance.")), !hasAnyData && React.createElement("div", {
           className: "p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg space-y-2"
         }, React.createElement("div", {
-          className: "text-sm font-bold text-[#6b7280]"
+          className: "text-sm font-bold text-[#6E867D]"
         }, "How the Model Works"), React.createElement("div", {
           className: "text-[11px] text-slate-400/80 leading-relaxed space-y-1.5"
         }, React.createElement("p", null, "Every scoring cycle, the system evaluates ", tickerSymbol, " across three levels:"), React.createElement("p", null, React.createElement("span", {
@@ -19086,7 +19086,7 @@
       }, React.createElement("div", {
         className: "flex items-center justify-between mb-2"
       }, React.createElement("div", {
-        className: "text-sm font-bold text-[#6b7280]"
+        className: "text-sm font-bold text-[#6E867D]"
       }, "Scoring Timeline"), window._ttIsPro ? React.createElement("a", {
         href: `index-react.html?timeTravel=1&ticker=${encodeURIComponent(String(tickerSymbol).toUpperCase())}`,
         className: "text-xs px-2 py-1 rounded bg-purple-500/20 border border-purple-500/30 text-purple-300 hover:bg-purple-500/30",
@@ -19102,7 +19102,7 @@
       }) : bubbleJourneyError ? React.createElement("div", {
         className: "text-xs text-red-400"
       }, "Trail unavailable: ", bubbleJourneyError) : bubbleJourney.length === 0 ? React.createElement("div", {
-        className: "text-xs text-[#6b7280]"
+        className: "text-xs text-[#6E867D]"
       }, "No trail points found for this ticker.") : React.createElement("div", {
         className: "space-y-0.5 max-h-72 overflow-y-auto pr-1"
       }, (() => {
@@ -19236,17 +19236,17 @@
           }, React.createElement("div", {
             className: "min-w-0"
           }, React.createElement("div", {
-            className: "text-[10px] text-[#6b7280]"
+            className: "text-[10px] text-[#6E867D]"
           }, isSingle ? fmtShortDate(firstTs) : `${fmtShortDate(firstTs)} – ${fmtShortDate(lastTs)}`, !isSingle && duration > 0 && React.createElement("span", {
-            className: "text-[#4b5563] ml-1"
+            className: "text-[#51635A] ml-1"
           }, "(", fmtDuration(duration), ")")), React.createElement("div", {
             className: "text-[11px] text-white truncate"
           }, stateLabel, stageLabel && React.createElement("span", {
-            className: "text-[#6b7280]"
+            className: "text-[#6E867D]"
           }, " \xB7 ", stageLabel), !isSingle && React.createElement("span", {
-            className: "text-[#4b5563] ml-1 text-[9px]"
+            className: "text-[#51635A] ml-1 text-[9px]"
           }, "(", g.points.length, " snapshots)"))), React.createElement("div", {
-            className: "text-right text-[10px] text-[#6b7280] whitespace-nowrap shrink-0"
+            className: "text-right text-[10px] text-[#6E867D] whitespace-nowrap shrink-0"
           }, React.createElement("div", null, "Score ", React.createElement("span", {
             className: "text-white font-semibold"
           }, scoreStr)), React.createElement("div", null, "HTF ", React.createElement("span", {
@@ -19256,11 +19256,11 @@
       })())), React.createElement("div", {
         className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg"
       }, React.createElement("div", {
-        className: "text-xs text-[#6b7280] mb-2 font-semibold"
+        className: "text-xs text-[#6E867D] mb-2 font-semibold"
       }, "Where Things Stand"), React.createElement("div", {
         className: "grid grid-cols-3 gap-2 text-xs"
       }, React.createElement("div", null, React.createElement("div", {
-        className: "text-[#6b7280] text-[10px]",
+        className: "text-[#6E867D] text-[10px]",
         title: "How far along the current move cycle is (0% = just started, 100% = fully played out)"
       }, "Phase"), React.createElement("div", {
         className: "text-white font-semibold",
@@ -19268,12 +19268,12 @@
           color: phaseColor
         }
       }, (phase * 100).toFixed(0), "%")), React.createElement("div", null, React.createElement("div", {
-        className: "text-[#6b7280] text-[10px]",
+        className: "text-[#6E867D] text-[10px]",
         title: "How much of the expected price move has already happened"
       }, "Completion"), React.createElement("div", {
         className: "text-white font-semibold"
       }, ticker.completion != null ? `${(Number(ticker.completion) * 100).toFixed(0)}%` : "—")), React.createElement("div", null, React.createElement("div", {
-        className: "text-[#6b7280] text-[10px]",
+        className: "text-[#6E867D] text-[10px]",
         title: "Estimated time remaining for the current move to play out"
       }, "ETA"), React.createElement("div", {
         className: "text-white font-semibold"
@@ -19303,7 +19303,7 @@
         const perf = candlePerf?.performance;
         if (!perf || Object.keys(perf).length === 0) {
           return React.createElement("div", {
-            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6b7280]"
+            className: "mb-4 p-3 bg-white/[0.03] border border-white/[0.06] rounded-lg text-xs text-[#6E867D]"
           }, "Performance data unavailable.");
         }
         const sym = String(ticker.ticker).toUpperCase();
@@ -19358,7 +19358,7 @@
         return React.createElement("div", {
           className: "mb-4"
         }, React.createElement("div", {
-          className: "text-xs font-semibold text-[#6b7280] uppercase tracking-wider mb-2"
+          className: "text-xs font-semibold text-[#6E867D] uppercase tracking-wider mb-2"
         }, "Price Performance"), React.createElement("div", {
           className: "space-y-2"
         }, available.map(({
@@ -19382,7 +19382,7 @@
           }, React.createElement("span", {
             className: "text-xs font-bold text-white"
           }, label), actualDays != null && React.createElement("span", {
-            className: "text-[10px] text-[#4b5563]"
+            className: "text-[10px] text-[#51635A]"
           }, "(", actualDays, "d ago)")), React.createElement("div", {
             className: "flex items-center gap-2"
           }, React.createElement("span", {
@@ -19496,7 +19496,7 @@
             borderRadius: 12,
             overflow: 'hidden'
           },
-          className: "bg-[#0b0e11] border border-white/[0.08] shadow-2xl",
+          className: "bg-[#0B1410] border border-white/[0.08] shadow-2xl",
           onClick: e => e.stopPropagation()
         }, React.createElement("div", {
           className: "flex items-center justify-between px-5 py-3 border-b border-white/[0.06]"
@@ -19554,4 +19554,4 @@
   };
 })();
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513

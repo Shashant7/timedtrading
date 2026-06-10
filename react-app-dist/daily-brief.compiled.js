@@ -55,7 +55,7 @@ function LiveKeyLevelsPanel({
       color: "var(--tt-text-0)"
     }
   }, "Key Levels & Game Plan"), ts && React.createElement("span", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, "Live refresh ", ts, " ET")), React.createElement("div", {
     className: "space-y-3"
   }, entries.map(e => React.createElement("p", {
@@ -105,7 +105,7 @@ function BriefInfographic({
   if (!data) return null;
   const hl = data.headline || {};
   const vixBucket = hl.vix?.bucket;
-  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
+  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#8AA39A";
   const Badge = ({
     label,
     value,
@@ -113,15 +113,15 @@ function BriefInfographic({
   }) => React.createElement("div", {
     className: "flex flex-col items-start px-3 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] min-w-[84px]"
   }, React.createElement("span", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, label), React.createElement("span", {
     className: "text-[13px] font-semibold tabular-nums",
     style: {
-      color: color || "#e5e7eb"
+      color: color || "#E8F2EC"
     }
   }, value));
-  const ggColor = gg => gg === "OPEN_UP" || gg === "COMPLETE_UP" ? "#34d399" : gg === "OPEN_DOWN" || gg === "COMPLETE_DN" ? "#ef4444" : "#9ca3af";
-  const pctColor = p => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
+  const ggColor = gg => gg === "OPEN_UP" || gg === "COMPLETE_UP" ? "#34d399" : gg === "OPEN_DOWN" || gg === "COMPLETE_DN" ? "#ef4444" : "#8AA39A";
+  const pctColor = p => p == null ? "#8AA39A" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#8AA39A";
   const effectiveGg = (stored, cp, lvls) => {
     if (cp == null || !lvls?.levels) return stored || "NEUTRAL";
     const up382 = lvls.levels["+38.2%"];
@@ -157,9 +157,9 @@ function BriefInfographic({
   }, React.createElement("span", {
     className: "font-bold text-amber-300 tabular-nums shrink-0"
   }, t.n, "."), React.createElement("span", {
-    className: "text-[#e5e7eb]"
+    className: "text-[#E8F2EC]"
   }, t.label && React.createElement("span", {
-    className: "text-[#9ca3af] font-medium"
+    className: "text-[#8AA39A] font-medium"
   }, t.label, ": "), React.createElement("span", null, t.body)))))), React.createElement("div", {
     className: "ds-card",
     style: {
@@ -238,7 +238,7 @@ function BriefInfographic({
     const wDn382 = wlvls?.levels?.["-38.2%"];
     const barProgress = cp != null && up382 != null && dn382 != null && up382 !== dn382 ? Math.max(0, Math.min(100, (cp - dn382) / (up382 - dn382) * 100)) : 50;
     const wBarProgress = cp != null && wUp382 != null && wDn382 != null ? Math.max(0, Math.min(100, (cp - wDn382) / (wUp382 - wDn382) * 100)) : 50;
-    const probColor = lbl => lbl === "HIGH" ? "#34d399" : lbl === "MODERATE" ? "#fbbf24" : "#9ca3af";
+    const probColor = lbl => lbl === "HIGH" ? "#34d399" : lbl === "MODERATE" ? "#fbbf24" : "#8AA39A";
     return React.createElement("div", {
       key: idx.sym,
       className: "p-3 rounded-md bg-white/[0.02] border border-white/[0.06]"
@@ -267,7 +267,7 @@ function BriefInfographic({
         color: pctColor(idx.chgPct)
       }
     }, idx.chgPct != null ? `${idx.chgPct >= 0 ? "+" : ""}${idx.chgPct.toFixed(2)}%` : ""), idx.atr != null && React.createElement("span", {
-      className: "ml-auto text-[10px] text-[#6b7280]",
+      className: "ml-auto text-[10px] text-[#6E867D]",
       title: "Typical daily price move (Average True Range, 14-day)"
     }, "Typical daily move ~$", idx.atr.toFixed(2))), (() => {
       const up50 = lvls.levels?.["+50%"];
@@ -276,7 +276,7 @@ function BriefInfographic({
       const dn618 = lvls.levels?.["-61.8%"];
       const ggBiasText = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "Bullish bias" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "Bearish bias" : "Mixed signal";
       const ggBiasIcon = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "▲" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "▼" : "◆";
-      const ggBiasColor = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "#34d399" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "#fb7185" : "#9ca3af";
+      const ggBiasColor = g => g === "OPEN_UP" || g === "COMPLETE_UP" ? "#34d399" : g === "OPEN_DOWN" || g === "COMPLETE_DN" ? "#fb7185" : "#8AA39A";
       const dayStatusLine = (() => {
         if (gg === "NEUTRAL") {
           if (cp != null && up382 != null && cp > up382) {
@@ -327,14 +327,14 @@ function BriefInfographic({
         return null;
       })();
       return React.createElement(React.Fragment, null, React.createElement("div", {
-        className: "text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between"
+        className: "text-[10px] uppercase tracking-wider text-[#8AA39A] font-semibold mb-1 flex items-center justify-between"
       }, React.createElement("span", null, rangeStale ? "Live Day Range" : "Today's Range"), React.createElement("span", {
         className: "tabular-nums normal-case",
         style: {
           color: ggBiasColor(gg)
         }
       }, ggBiasIcon(gg), " ", ggBiasText(gg), dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "")), rangeStale && morningDn382 != null && morningUp382 != null && React.createElement("div", {
-        className: "text-[9px] text-[#6b7280] tabular-nums mb-1 line-through opacity-60"
+        className: "text-[9px] text-[#6E867D] tabular-nums mb-1 line-through opacity-60"
       }, "Morning estimate: $", morningDn382.toFixed(2), "\u2013$", morningUp382.toFixed(2)), dn382 != null && up382 != null && React.createElement("div", {
         className: "relative h-3 rounded bg-white/[0.05] overflow-hidden mb-1.5",
         title: rangeStale ? `Live range: current price ± ATR × 0.382` : `Saty Day Mode: prior daily close ± ATR × 0.382`
@@ -371,19 +371,19 @@ function BriefInfographic({
       }, React.createElement("span", {
         className: "text-left text-[#fb7185]/80"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, "Expected Low"), "$", dn382.toFixed(2)), React.createElement("span", {
-        className: "text-center text-[#9ca3af]"
+        className: "text-center text-[#8AA39A]"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, rangeStale ? "Live Anchor" : "Pivot"), displayAnchor != null ? `$${displayAnchor.toFixed(2)}` : "—"), React.createElement("span", {
         className: "text-right text-[#34d399]/80"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, "Expected High"), "$", up382.toFixed(2))), dayStatusLine && React.createElement("div", {
-        className: "text-[10px] text-[#9ca3af] tabular-nums mb-2 leading-snug"
+        className: "text-[10px] text-[#8AA39A] tabular-nums mb-2 leading-snug"
       }, dayStatusLine), wlvls && React.createElement(React.Fragment, null, React.createElement("div", {
-        className: "text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1 flex items-center justify-between border-t border-white/[0.04] pt-2"
+        className: "text-[10px] uppercase tracking-wider text-[#8AA39A] font-semibold mb-1 flex items-center justify-between border-t border-white/[0.04] pt-2"
       }, React.createElement("span", null, "This Week"), React.createElement("span", {
         className: "tabular-nums normal-case",
         style: {
@@ -425,33 +425,33 @@ function BriefInfographic({
       }, React.createElement("span", {
         className: "text-left text-[#fb7185]/80"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, "Week Low"), "$", wDn382.toFixed(2)), React.createElement("span", {
-        className: "text-center text-[#9ca3af]"
+        className: "text-center text-[#8AA39A]"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, "Week Pivot"), wlvls.anchor != null ? `$${wlvls.anchor.toFixed(2)}` : "—"), React.createElement("span", {
         className: "text-right text-[#34d399]/80"
       }, React.createElement("span", {
-        className: "text-[#6b7280] uppercase tracking-wide text-[8px] block"
+        className: "text-[#6E867D] uppercase tracking-wide text-[8px] block"
       }, "Week High"), "$", wUp382.toFixed(2))), weekStatusLine && React.createElement("div", {
-        className: "text-[10px] text-[#9ca3af] tabular-nums leading-snug"
+        className: "text-[10px] text-[#8AA39A] tabular-nums leading-snug"
       }, weekStatusLine), false && wgg !== "NEUTRAL" && (() => {
         const wUp50 = wlvls.levels?.["+50%"];
         const wUp618 = wlvls.levels?.["+61.8%"];
         const wDn50 = wlvls.levels?.["-50%"];
         const wDn618 = wlvls.levels?.["-61.8%"];
         if (wgg === "OPEN_UP" && wUp50 != null && wUp618 != null) return React.createElement("div", {
-          className: "text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic"
+          className: "text-[9px] text-[#8AA39A] tabular-nums mt-0.5 italic"
         }, "next: $", wUp50.toFixed(2), " (50%) \u2192 $", wUp618.toFixed(2), " (61.8%)");
         if (wgg === "OPEN_DOWN" && wDn50 != null && wDn618 != null) return React.createElement("div", {
-          className: "text-[9px] text-[#9ca3af] tabular-nums mt-0.5 italic"
+          className: "text-[9px] text-[#8AA39A] tabular-nums mt-0.5 italic"
         }, "next: $", wDn50.toFixed(2), " (50%) \u2192 $", wDn618.toFixed(2), " (61.8%)");
         return null;
       })())));
     })());
   })), indicies.some(i => i.levels?.gamePlan) && React.createElement("div", null, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
   }, "Game Plan triggers"), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.filter(i => i.levels?.gamePlan).map(idx => {
@@ -474,7 +474,7 @@ function BriefInfographic({
     const bearTriggerPctOnBar = scaleHi > scaleLo ? (gp.bearTrigger - scaleLo) / (scaleHi - scaleLo) * 100 : 25;
     const bullTriggerPctOnBar = scaleHi > scaleLo ? (gp.bullTrigger - scaleLo) / (scaleHi - scaleLo) * 100 : 75;
     const stage = bullArmed ? "BULL_ARMED" : bearArmed ? "BEAR_ARMED" : "NEUTRAL";
-    const stageColor = stage === "BULL_ARMED" ? "#34d399" : stage === "BEAR_ARMED" ? "#fb7185" : "#9ca3af";
+    const stageColor = stage === "BULL_ARMED" ? "#34d399" : stage === "BEAR_ARMED" ? "#fb7185" : "#8AA39A";
     const stageLabel = stage === "BULL_ARMED" ? "▲ BULL ARMED" : stage === "BEAR_ARMED" ? "▼ BEAR ARMED" : "◆ NEUTRAL";
     return React.createElement("div", {
       key: "gp-" + idx.sym,
@@ -544,7 +544,7 @@ function BriefInfographic({
         borderRadius: 3,
         background: stageColor,
         boxShadow: "0 0 8px " + stageColor,
-        border: "1.5px solid #0b0e11"
+        border: "1.5px solid #0B1410"
       }
     }))), React.createElement("div", {
       className: "flex items-start justify-between text-[9px] tabular-nums mb-2"
@@ -553,7 +553,7 @@ function BriefInfographic({
     }, React.createElement("div", {
       className: "text-[#fb7185] font-semibold"
     }, "\u25BC $", gp.bearTrigger.toFixed(2)), React.createElement("div", {
-      className: "text-[#6b7280]"
+      className: "text-[#6E867D]"
     }, "\u2192 $", gp.bearTarget.toFixed(2), " ", React.createElement("span", {
       className: "text-[#fb7185]/70"
     }, "(", bearPct.toFixed(1), "%)"))), React.createElement("div", {
@@ -561,11 +561,11 @@ function BriefInfographic({
     }, React.createElement("div", {
       className: "text-[#34d399] font-semibold"
     }, "$", gp.bullTrigger.toFixed(2), " \u25B2"), React.createElement("div", {
-      className: "text-[#6b7280]"
+      className: "text-[#6E867D]"
     }, "$", gp.bullTarget.toFixed(2), " \u2190 ", React.createElement("span", {
       className: "text-[#34d399]/70"
     }, "(+", bullPct.toFixed(1), "%)")))), React.createElement("div", {
-      className: "text-[10px] text-[#9ca3af] tabular-nums pt-1.5 border-t border-white/[0.04]"
+      className: "text-[10px] text-[#8AA39A] tabular-nums pt-1.5 border-t border-white/[0.04]"
     }, bullArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
       className: "text-[#34d399]"
     }, "\u25CF"), " Above bull trigger by ", ((cp - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2), "% \u2014 target $", gp.bullTarget.toFixed(2), " (+", bullPct.toFixed(1), "%)") : bearArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
@@ -601,7 +601,7 @@ function BriefInfographic({
       return "rgba(239,68,68,0.18)";
     };
     const sectorFg = s => {
-      if (s.chgPct == null) return "#9ca3af";
+      if (s.chgPct == null) return "#8AA39A";
       const v = s.chgPct;
       if (v > 0.3) return "#34d399";
       if (v > 0) return "#86efac";
@@ -609,7 +609,7 @@ function BriefInfographic({
       return "#ef4444";
     };
     return React.createElement("div", null, React.createElement("div", {
-      className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+      className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
     }, "Sectors today (grouped)"), React.createElement("div", {
       className: "space-y-1.5"
     }, Object.entries(grouped).map(([theme, syms]) => {
@@ -618,7 +618,7 @@ function BriefInfographic({
         key: theme,
         className: "flex items-center gap-2"
       }, React.createElement("div", {
-        className: "text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0"
+        className: "text-[9px] uppercase tracking-wider text-[#8AA39A] w-32 flex-shrink-0"
       }, theme, React.createElement("span", {
         className: "ml-1 tabular-nums",
         style: {
@@ -641,7 +641,7 @@ function BriefInfographic({
     }), ungrouped.length > 0 && React.createElement("div", {
       className: "flex items-center gap-2"
     }, React.createElement("div", {
-      className: "text-[9px] uppercase tracking-wider text-[#9ca3af] w-32 flex-shrink-0"
+      className: "text-[9px] uppercase tracking-wider text-[#8AA39A] w-32 flex-shrink-0"
     }, "Other"), React.createElement("div", {
       className: "flex flex-wrap gap-1"
     }, ungrouped.map(s => React.createElement("div", {
@@ -655,7 +655,7 @@ function BriefInfographic({
       className: "tabular-nums"
     }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : "")))))));
   })(), macro.length > 0 && React.createElement("div", null, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280] mb-1"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
   }, "Macro cross-asset"), React.createElement("div", {
     className: "grid grid-cols-2 md:grid-cols-5 gap-1.5"
   }, macro.map(m => React.createElement("div", {
@@ -663,7 +663,7 @@ function BriefInfographic({
     className: "px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]",
     title: m.hint || ""
   }, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, m.label), React.createElement("div", {
     className: "text-[12px] font-semibold text-white tabular-nums"
   }, m.sym === "VIX" ? m.value.toFixed(2) : m.value.toFixed(2)), m.chgPct != null && React.createElement("div", {
@@ -690,7 +690,7 @@ function BriefInfographic({
   }, opps.map((o, i) => React.createElement("li", {
     key: i
   }, "\u2022 ", o))))), events.length > 0 && React.createElement("div", null, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold"
+    className: "text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold"
   }, "Today's Catalysts"), React.createElement("div", {
     className: "flex flex-wrap gap-2"
   }, events.map((e, i) => {
@@ -699,37 +699,37 @@ function BriefInfographic({
     const rest = colonIdx > 0 && colonIdx < 8 ? e.title.slice(colonIdx + 1).trim() : e.title;
     return React.createElement("span", {
       key: i,
-      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border border-white/[0.10] bg-white/[0.04] text-[#e5e7eb] hover:bg-white/[0.06] transition-colors",
+      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[12px] font-medium border border-white/[0.10] bg-white/[0.04] text-[#E8F2EC] hover:bg-white/[0.06] transition-colors",
       title: e.kind
     }, React.createElement("span", {
       className: "opacity-75"
     }, e.kind === "earnings" ? "📊" : "📅"), lead && React.createElement("span", {
       className: "font-bold tracking-tight text-white"
     }, lead), React.createElement("span", {
-      className: lead ? "text-[#9ca3af]" : ""
+      className: lead ? "text-[#8AA39A]" : ""
     }, rest), e.when && React.createElement(React.Fragment, null, React.createElement("span", {
-      className: "text-[#4b5563]"
+      className: "text-[#51635A]"
     }, "\xB7"), React.createElement("span", {
-      className: "text-[11px] text-[#9ca3af] tabular-nums"
+      className: "text-[11px] text-[#8AA39A] tabular-nums"
     }, e.when)));
   }))), topHeadlines.length > 0 && React.createElement("div", {
     className: "pt-3 border-t border-white/[0.06]"
   }, React.createElement("div", {
-    className: "text-[10px] uppercase tracking-wider text-[#6b7280] mb-2 font-semibold"
+    className: "text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold"
   }, "Top Headlines"), React.createElement("ul", {
     className: "space-y-1.5"
   }, topHeadlines.slice(0, 4).map((h, i) => React.createElement("li", {
     key: i,
-    className: "text-[12.5px] leading-snug text-[#e5e7eb]"
+    className: "text-[12.5px] leading-snug text-[#E8F2EC]"
   }, h.url ? React.createElement("a", {
     href: h.url,
     target: "_blank",
     rel: "noopener noreferrer",
     className: "hover:text-white hover:underline"
   }, h.title) : React.createElement("span", null, h.title), h.source && React.createElement("span", {
-    className: "ml-1.5 text-[10.5px] text-[#6b7280]"
+    className: "ml-1.5 text-[10.5px] text-[#6E867D]"
   }, "\xB7 ", h.source))))), closingLine && React.createElement("div", {
-    className: "pt-3 border-t border-white/[0.06] italic text-[#d1d5db] text-[12px] leading-relaxed"
+    className: "pt-3 border-t border-white/[0.06] italic text-[#CFDED6] text-[12px] leading-relaxed"
   }, "\u201C", closingLine, "\u201D"));
 }
 function BriefCard({
@@ -838,13 +838,13 @@ function BriefPlaceholder({
   }, React.createElement("div", {
     className: "flex items-center gap-3 mb-3"
   }, React.createElement("div", {
-    className: "w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-white/[0.03] text-[#4b5563]"
+    className: "w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-white/[0.03] text-[#51635A]"
   }, icon), React.createElement("div", {
-    className: "text-[14px] font-semibold text-[#4b5563]"
+    className: "text-[14px] font-semibold text-[#51635A]"
   }, label)), React.createElement("div", {
-    className: "text-[13px] text-[#4b5563] leading-relaxed"
+    className: "text-[13px] text-[#51635A] leading-relaxed"
   }, "The ", label.toLowerCase(), " is being prepared and will be available by ", React.createElement("span", {
-    className: "text-[#6b7280] font-medium"
+    className: "text-[#6E867D] font-medium"
   }, time, " ET"), "."), React.createElement("div", {
     className: "mt-4 flex gap-3"
   }, [1, 2, 3].map(i => React.createElement("div", {
@@ -870,7 +870,7 @@ function PredictionBadge({
     title: "ES prediction incorrect"
   }, "\u2717");
   return React.createElement("span", {
-    className: "text-[11px] text-[#4b5563]",
+    className: "text-[11px] text-[#51635A]",
     title: "Pending"
   }, "\u23F3");
 }
@@ -922,7 +922,7 @@ function ArchiveTree({
   };
   if (months.length === 0) {
     return React.createElement("div", {
-      className: "text-[13px] text-[#4b5563] py-4"
+      className: "text-[13px] text-[#51635A] py-4"
     }, "No archived briefs yet.");
   }
   return React.createElement("div", {
@@ -931,11 +931,11 @@ function ArchiveTree({
     key: month
   }, React.createElement("button", {
     onClick: () => toggleMonth(month),
-    className: "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium text-[#9ca3af] hover:bg-white/[0.03] transition-all"
+    className: "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] font-medium text-[#8AA39A] hover:bg-white/[0.03] transition-all"
   }, React.createElement("span", {
-    className: "text-[10px] text-[#4b5563]"
+    className: "text-[10px] text-[#51635A]"
   }, expandedMonths[month] ? "\u25BC" : "\u25B6"), fmtMonthLabel(month), React.createElement("span", {
-    className: "text-[11px] text-[#4b5563] ml-auto"
+    className: "text-[11px] text-[#51635A] ml-auto"
   }, Object.keys(tree[month]).length, " days")), expandedMonths[month] && React.createElement("div", {
     className: "ml-4 space-y-0.5"
   }, Object.keys(tree[month]).sort().reverse().map(day => {
@@ -946,9 +946,9 @@ function ArchiveTree({
       key: day
     }, React.createElement("button", {
       onClick: () => toggleDay(day),
-      className: "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:bg-white/[0.03] transition-all"
+      className: "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-[12px] text-[#6E867D] hover:bg-white/[0.03] transition-all"
     }, React.createElement("span", {
-      className: "text-[9px] text-[#4b5563]"
+      className: "text-[9px] text-[#51635A]"
     }, expandedDays[day] ? "\u25BC" : "\u25B6"), React.createElement("span", null, fmtDayLabel(day)), React.createElement("div", {
       className: "ml-auto flex items-center gap-3"
     }, morning && React.createElement("span", {
@@ -967,14 +967,14 @@ function ArchiveTree({
       className: "ml-6 py-1 space-y-1"
     }, morning && React.createElement("button", {
       onClick: () => onSelect(morning.id),
-      className: "w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
+      className: "w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6E867D] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
     }, React.createElement("span", null, "\u2600\uFE0F"), " Morning Brief", React.createElement(PredictionBadge, {
       value: morning.es_prediction_correct
     }), morning.es_prediction && React.createElement("span", {
-      className: "ml-auto text-[10px] text-[#4b5563] truncate max-w-[200px]"
+      className: "ml-auto text-[10px] text-[#51635A] truncate max-w-[200px]"
     }, morning.es_prediction)), evening && React.createElement("button", {
       onClick: () => onSelect(evening.id),
-      className: "w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
+      className: "w-full text-left px-3 py-1.5 rounded-md text-[12px] text-[#6E867D] hover:text-white hover:bg-white/[0.04] transition-all flex items-center gap-2"
     }, React.createElement("span", null, "\uD83C\uDF19"), " Evening Brief", React.createElement(PredictionBadge, {
       value: evening.es_prediction_correct
     }))));
@@ -1164,7 +1164,7 @@ function MiniChart({
       layout: {
         background: {
           type: "solid",
-          color: "#0b0e11"
+          color: "#0B1410"
         },
         textColor: "#7c8493",
         fontSize: 11
@@ -1525,7 +1525,7 @@ function MiniChart({
       color: accentColor
     }
   }, label), lastPrice != null && React.createElement("span", {
-    className: "text-[13px] text-[#9ca3af] font-medium"
+    className: "text-[13px] text-[#8AA39A] font-medium"
   }, lastPrice.toFixed(2)), change != null && React.createElement("span", {
     className: `text-[12px] font-semibold ${change >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`
   }, change >= 0 ? "+" : "", change.toFixed(2), "%"), patternLabel && React.createElement("span", {
@@ -1551,7 +1551,7 @@ function MiniChart({
   }, error && React.createElement("div", {
     className: "flex items-center justify-center h-full"
   }, React.createElement("span", {
-    className: "text-[11px] text-[#4b5563]"
+    className: "text-[11px] text-[#51635A]"
   }, error))));
 }
 const chartLevelsCache = {};
@@ -1909,26 +1909,26 @@ function MarketCharts({
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-3"
   }, React.createElement("h2", {
-    className: "text-[13px] font-semibold text-[#9ca3af] flex items-center gap-2"
+    className: "text-[13px] font-semibold text-[#8AA39A] flex items-center gap-2"
   }, "Market Overview", React.createElement("span", {
-    className: "text-[10px] text-[#4b5563] font-normal"
+    className: "text-[10px] text-[#51635A] font-normal"
   }, "Live Charts")), React.createElement("div", {
     className: "flex items-center gap-3"
   }, isAdmin && React.createElement("button", {
     onClick: () => setShowAdvanced(!showAdvanced),
-    className: `px-2 py-1 rounded-md text-[10px] font-medium transition-all border ${showAdvanced ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#4b5563] hover:text-[#9ca3af]"}`
+    className: `px-2 py-1 rounded-md text-[10px] font-medium transition-all border ${showAdvanced ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#51635A] hover:text-[#8AA39A]"}`
   }, showAdvanced ? "Hide" : "Show", " Futures"), React.createElement("div", {
     className: "flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]"
   }, TF_OPTIONS.map(opt => React.createElement("button", {
     key: opt.value,
     onClick: () => setTf(opt.value),
-    className: `px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${tf === opt.value ? "bg-white/[0.08] text-white" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`
+    className: `px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${tf === opt.value ? "bg-white/[0.08] text-white" : "text-[#6E867D] hover:text-white hover:bg-white/[0.04]"}`
   }, opt.label))))), Object.keys(gamePlanBySym).length > 0 && React.createElement("div", {
     className: "mb-2 px-3 py-1.5 rounded-md text-[10px]",
     style: {
       background: "rgba(167,139,250,0.06)",
       border: "1px solid rgba(167,139,250,0.18)",
-      color: "var(--tt-text-3, #9ca3af)"
+      color: "var(--tt-text-3, #8AA39A)"
     }
   }, React.createElement("span", {
     className: "font-bold uppercase tracking-widest text-[#a78bfa] mr-2"
@@ -1972,9 +1972,9 @@ function IntradayPulse({
   const hl = infographic.headline || {};
   const indices = Array.isArray(infographic.indices) ? infographic.indices : [];
   const vixBucket = hl.vix?.bucket;
-  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#9ca3af";
-  const pctColor = p => p == null ? "#9ca3af" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#9ca3af";
-  const ggColor = gg => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#6b7280";
+  const vixColor = vixBucket === "calm" ? "#34d399" : vixBucket === "normal" ? "#86efac" : vixBucket === "elevated" ? "#fbbf24" : vixBucket === "high" ? "#fb923c" : vixBucket === "panic" ? "#ef4444" : "#8AA39A";
+  const pctColor = p => p == null ? "#8AA39A" : p > 0 ? "#34d399" : p < 0 ? "#ef4444" : "#8AA39A";
+  const ggColor = gg => gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#6E867D";
   const closing = infographic.closingLine || null;
   return React.createElement("div", {
     className: "mb-3"
@@ -1997,18 +1997,18 @@ function IntradayPulse({
   }, "LIVE PULSE")), hl.vix && React.createElement("span", {
     className: "flex items-baseline gap-1"
   }, React.createElement("span", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, "VIX"), React.createElement("span", {
     className: "text-[12px] font-semibold tabular-nums",
     style: {
       color: vixColor
     }
   }, hl.vix.level.toFixed(1)), vixBucket && React.createElement("span", {
-    className: "text-[9px] lowercase text-[#6b7280]"
+    className: "text-[9px] lowercase text-[#6E867D]"
   }, vixBucket)), hl.breadth && React.createElement("span", {
     className: "flex items-baseline gap-1"
   }, React.createElement("span", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, "Breadth"), React.createElement("span", {
     className: "text-[12px] font-semibold tabular-nums",
     style: {
@@ -2038,7 +2038,7 @@ function IntradayPulse({
   }), hl.openTrades != null && hl.openTrades > 0 && React.createElement("span", {
     className: "ml-auto flex items-center gap-1.5 pl-2 border-l border-white/[0.08]"
   }, React.createElement("span", {
-    className: "text-[9px] uppercase tracking-wider text-[#6b7280]"
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
   }, "Open"), React.createElement("span", {
     className: "text-[12px] font-semibold tabular-nums text-[#a78bfa]"
   }, hl.openTrades))), closing && React.createElement("div", {
@@ -2046,7 +2046,7 @@ function IntradayPulse({
     style: {
       background: "rgba(139,92,246,0.04)",
       borderLeft: "2px solid rgba(139,92,246,0.4)",
-      color: "#d1d5db"
+      color: "#CFDED6"
     }
   }, React.createElement("span", {
     className: "text-[9px] uppercase tracking-widest font-bold text-[#a78bfa] mr-1.5"
@@ -2171,7 +2171,7 @@ function IntradayFlash({
       color: "#a78bfa"
     }
   }, "Today's Tape"), React.createElement("span", {
-    className: "text-[11px] text-[#6b7280]"
+    className: "text-[11px] text-[#6E867D]"
   }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIXY \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-3"
   }, TODAYS_TAPE_TICKERS.map(t => React.createElement("div", {
@@ -2188,7 +2188,7 @@ function IntradayFlash({
   }, t.label), React.createElement("span", {
     style: {
       fontSize: 9.5,
-      color: "#6b7280",
+      color: "#6E867D",
       textTransform: "uppercase",
       letterSpacing: "0.10em"
     }
@@ -2400,7 +2400,7 @@ function App({
   }, React.createElement("nav", {
     className: "topnav sticky top-0 z-50 border-b border-white/[0.06]",
     style: {
-      background: "rgba(10,10,15,0.95)",
+      background: "rgba(11,20,16,0.95)",
       backdropFilter: "blur(12px)"
     }
   }, React.createElement("div", {
@@ -2522,7 +2522,7 @@ function App({
     compact: true
   }), React.createElement("button", {
     onClick: () => setMobileMenuOpen(v => !v),
-    className: "md:hidden p-1.5 rounded-md text-[#6b7280] hover:text-white hover:bg-white/[0.06] transition-all",
+    className: "md:hidden p-1.5 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] transition-all",
     "aria-label": "Toggle menu"
   }, mobileMenuOpen ? React.createElement("svg", {
     width: "20",
@@ -2570,27 +2570,27 @@ function App({
   }))))), mobileMenuOpen && React.createElement("div", {
     className: "md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5",
     style: {
-      background: "rgba(10,10,15,0.98)"
+      background: "rgba(11,20,16,0.98)"
     }
   }, React.createElement("a", {
     href: "/today.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Today"), React.createElement("a", {
     href: "/active-trader.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Active Trader"), React.createElement("a", {
     href: "/investor.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Investor"), React.createElement("a", {
     href: "/portfolio.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Portfolio"), React.createElement("a", {
     href: "/insights.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "Insights"), React.createElement("a", {
     href: "/daily-brief.html",
@@ -2598,7 +2598,7 @@ function App({
     onClick: () => setMobileMenuOpen(false)
   }, "Daily Brief"), React.createElement("a", {
     href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
+    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
   }, "FAQ"))), React.createElement("div", {
     "data-tt-activity-strip": true
@@ -2636,7 +2636,7 @@ function App({
   }, React.createElement("div", {
     className: "loading-spinner mr-3"
   }), React.createElement("span", {
-    className: "text-[13px] text-[#6b7280]"
+    className: "text-[13px] text-[#6E867D]"
   }, "Loading brief...")) : React.createElement("div", null, hasEvening ? React.createElement(BriefCard, {
     brief: brief.evening,
     type: "evening"
@@ -2658,13 +2658,13 @@ function App({
       setSelectedArchive(null);
       setSelectedArchiveData(null);
     },
-    className: "text-[12px] text-[#6b7280] hover:text-white transition-all"
+    className: "text-[12px] text-[#6E867D] hover:text-white transition-all"
   }, "\u2190 Back to current"), React.createElement("span", {
-    className: "text-[12px] text-[#4b5563]"
+    className: "text-[12px] text-[#51635A]"
   }, selectedArchive), isAdmin && selectedArchiveData && React.createElement("div", {
     className: "ml-auto flex items-center gap-2"
   }, React.createElement("span", {
-    className: "text-[11px] text-[#4b5563]"
+    className: "text-[11px] text-[#51635A]"
   }, "ES Prediction:"), React.createElement("button", {
     onClick: () => markPrediction(selectedArchive, 1),
     className: "text-[11px] px-2 py-0.5 rounded bg-[#38F2A1]/10 text-[#38F2A1] hover:bg-[#38F2A1]/20 transition-all"
@@ -2676,7 +2676,7 @@ function App({
   }, React.createElement("div", {
     className: "loading-spinner mr-3"
   }), React.createElement("span", {
-    className: "text-[13px] text-[#6b7280]"
+    className: "text-[13px] text-[#6E867D]"
   }, "Loading...")) : selectedArchiveData ? (() => {
     const _isM = selectedArchiveData.type === "morning";
     const _acc = _isM ? "var(--tt-warning)" : "var(--tt-editorial)";
@@ -2716,7 +2716,7 @@ function App({
       }
     }));
   })() : React.createElement("div", {
-    className: "text-[13px] text-[#4b5563]"
+    className: "text-[13px] text-[#51635A]"
   }, "Brief not found.")), React.createElement("div", {
     className: "mt-10"
   }, React.createElement("div", {
@@ -2759,6 +2759,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513
