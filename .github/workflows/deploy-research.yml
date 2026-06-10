@@ -1,21 +1,24 @@
 name: Deploy research worker
 
-# Auto-deploys worker-research/ (tt-research) whenever research source
-# changes on main. Safe to deploy at ANY time: the 22:00 UTC cron is live
-# from first deploy but every tick no-ops until the operator flips
-# RESEARCH_ENABLED=true (cutover runbook in research-index.js).
-#
-# Uses the same Cloudflare secrets as deploy-worker.yml / deploy-bridge.yml.
-# tt-research's own secrets (TIMED_API_KEY, OPENAI_API_KEY,
-# FINNHUB_API_KEY, FSD_USERNAME/PASSWORD, Discord webhooks) are set once by
-# the operator via `wrangler secret put --config worker-research/wrangler.toml`.
+# Auto-deploys worker-research/ (tt-research) — the dedicated research-slot
+# worker (P2 decomposition Step 2 v2). Like tt-engine, it deploys the SAME
+# bundle as the monolith (main = ../worker/index.js) under its own name,
+# owning the hourly / half-hour / 22:00 cron slots via role gating. Safe to
+# deploy at any time: ticks no-op until RESEARCH_ENABLED=true (cutover
+# runbook in worker-research/wrangler.toml — gap-preferred: set
+# RESEARCH_SLOTS_EXTERNAL on the monolith FIRST so investor hourly can
+# never run twice in the same hour).
 
 on:
   push:
     branches: [main]
     paths:
+      - "worker/**"
       - "worker-research/**"
-      - "worker/research/**"
+      - "react-app/**"
+      - "scripts/build-frontend.js"
+      - "scripts/embed-dashboard.js"
+      - "package.json"
       - ".github/workflows/deploy-research.yml"
   workflow_dispatch:
 
@@ -27,7 +30,7 @@ jobs:
   deploy:
     name: wrangler deploy (tt-research)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -65,6 +68,20 @@ jobs:
             echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
           } >> "$GITHUB_ENV"
 
+      - name: Install root deps
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Run tests
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: npm test
+
+      - name: Build frontend + embed dashboard
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          npm run build:frontend
+          node scripts/embed-dashboard.js
+
       - name: Deploy research worker
         if: steps.cfsec.outputs.secrets-ok == 'true'
         uses: cloudflare/wrangler-action@v3
@@ -79,17 +96,14 @@ jobs:
         if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
           sleep 5
-          HEALTH=$(curl -s -m 15 "https://tt-research.shashant.workers.dev/research/health" || echo "{}")
-          echo "research health: $HEALTH"
+          HEALTH=$(curl -s -m 20 "https://tt-research.shashant.workers.dev/timed/health" || echo "{}")
           if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
-            echo "::error::tt-research /research/health returned non-JSON after deploy"
+            echo "::error::tt-research /timed/health returned non-JSON after deploy"
             exit 1
           fi
           OK=$(echo "$HEALTH" | jq -r '.ok // false')
-          ENABLED=$(echo "$HEALTH" | jq -r '.research_enabled // false')
-          AGE=$(echo "$HEALTH" | jq -r '.last_run_age_hours // "null"')
-          echo "ok=$OK research_enabled=$ENABLED last_run_age_hours=$AGE"
+          echo "ok=$OK (full bundle serves the shared router; cron work gated by WORKER_ROLE=research + RESEARCH_ENABLED)"
           if [ "$OK" != "true" ]; then
-            echo "::error::tt-research /research/health did not return ok:true after deploy"
+            echo "::error::tt-research /timed/health did not return ok:true after deploy"
             exit 1
           fi

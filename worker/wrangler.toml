@@ -1,6 +1,11 @@
 name = "timed-trading-ingest"
 main = "index.js"
 compatibility_date = "2024-01-01"
+# 2026-06-10 — decomposition cutover flags (PRICE_FEED_EXTERNAL,
+# ENGINE_EXTERNAL, RESEARCH_SLOTS_EXTERNAL) are set via the CF Dashboard;
+# keep_vars makes them survive CI deploys (wrangler otherwise wipes any
+# var not listed in [vars] on every deploy).
+keep_vars = true
 
 # Top-level bindings (used when deploying without --env flag)
 [[kv_namespaces]]
@@ -171,6 +176,9 @@ cpu_ms = 300000
 [env.production]
 name = "timed-trading-ingest"
 main = "index.js"
+# keep_vars is per-environment — mirror the top-level setting so dashboard
+# cutover flags also survive `wrangler deploy --env production`.
+keep_vars = true
 # Note: workers.dev subdomains don't need route configuration
 # Routes are only needed for custom domains
 # The worker is automatically available at: timed-trading-ingest.shashant.workers.dev

@@ -1,26 +1,54 @@
-# tt-research — standalone nightly research worker (P2 decomposition, Step 2 v1).
-# Owns the 22:00 UTC mega-batch: AI COO daily cycle, CRO/CTO full cycle,
-# discovery batch. Cutover runbook: header of research-index.js +
-# tasks/2026-06-10-worker-decomposition-plan.md.
+# tt-research — dedicated research-slot worker (P2 decomposition, Step 2 v2).
 #
-# Secrets to set after first deploy
-# (wrangler secret put <NAME> --config worker-research/wrangler.toml):
-#   TIMED_API_KEY        — guards /research/run-once + self-dispatch header
-#   OPENAI_API_KEY       — CRO synthesis + COO LLM lanes
-#   FINNHUB_API_KEY      — news / insider / logos pulls
-#   FSD_USERNAME         — FundStrat ingestion (optional; lanes skip cleanly)
-#   FSD_PASSWORD         — "
-#   DISCORD_WEBHOOK_URL  — cron tombstone + lane alerts (optional)
-#   DISCORD_SYSTEM_WEBHOOK_URL — system lane (optional)
+# v2 (2026-06-10) SUPERSEDES the v1 thin worker: like tt-engine, this now
+# deploys the SAME bundle as the monolith (main = ../worker/index.js) under
+# its own name, owning ALL research slots:
+#   0 * * * *    — hourly arms (briefs, CRO intraday, investor hourly,
+#                  freshness heal, earnings cache, Loop 2, portfolio risk,
+#                  ETF sync, data lifecycle, retros, …)
+#   30 * * * *   — reserved half-hour slot (currently a no-op in code)
+#   0 22 * * *   — nightly mega-batch (COO daily, CRO/CTO full cycle,
+#                  discovery) + CIO nightly chain
+# Role gating lives in worker/index.js scheduled(): this worker no-ops on
+# anything but those slots, and no-ops entirely until RESEARCH_ENABLED=true.
+# The monolith hands the slots over via RESEARCH_SLOTS_EXTERNAL=true.
+#
+# After all three cutovers (tt-feed */1, tt-engine */5, tt-research
+# hourly/30/22:00) the monolith runs NO cron work — it becomes tt-api.
+#
+# CUTOVER (gap-preferred — investor hourly + rebalance must never run
+# twice in the same hour):
+#   1. Deploy (CI: deploy-research.yml). Ticks no-op.
+#   2. Set secrets (full monolith set — list below; secrets already set on
+#      this worker persist across deploys).
+#   3. Verify https://tt-research.shashant.workers.dev/timed/health → ok:true.
+#   4. Set RESEARCH_SLOTS_EXTERNAL=true on the MONOLITH (dashboard var —
+#      keep_vars makes it stick). Then set RESEARCH_ENABLED=true here.
+#   5. Watch the next hourly tick: cron tombstones + brief/CRO freshness.
+#   Rollback = inverse order.
+#
+# Secrets (wrangler secret put … --config worker-research/wrangler.toml, or
+# CF Dashboard → type Secret):
+#   TIMED_API_KEY, TWELVEDATA_API_KEY, ALPACA_API_KEY_ID,
+#   ALPACA_API_SECRET_KEY, OPENAI_API_KEY, FINNHUB_API_KEY,
+#   FSD_USERNAME, FSD_PASSWORD, DISCORD_WEBHOOK_URL,
+#   DISCORD_SYSTEM_WEBHOOK_URL, SENDGRID_API_KEY, GITHUB_TOKEN (screener
+#   dispatch), STRIPE keys NOT needed (webhooks stay on the monolith URL).
 
 name = "tt-research"
-main = "research-index.js"
+main = "../worker/index.js"
 compatibility_date = "2024-01-01"
 
+# Dashboard-set vars survive CI deploys; the RESEARCH_ENABLED cutover flag
+# is deliberately NOT pinned in [vars] (code defaults to "false").
+keep_vars = true
+
 [triggers]
-# Live from first deploy, but every tick no-ops until RESEARCH_ENABLED=true
-# (cutover = var flip, not a config redeploy).
-crons = ["0 22 * * *"]
+crons = [
+  "0 * * * *",
+  "30 * * * *",
+  "0 22 * * *",
+]
 
 [[kv_namespaces]]
 binding = "KV_TIMED"
@@ -29,29 +57,84 @@ id = "e48593af3ef74bf986b2592909ed40cb"   # SAME namespace as the monolith
 [[d1_databases]]
 binding = "DB"
 database_name = "timed-trading-ledger"
-database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"  # same DB (discovery tables, model_config, positions)
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 
-# Service binding to the monolith — COO calibration dispatches admin routes
-# through env._selfDispatch, which the entry maps onto this binding
-# (cross-worker calls without the CF-1042 loopback class).
-[[services]]
-binding = "MAIN"
-service = "timed-trading-ingest"
+# Durable Objects stay OWNED by the monolith — stubs via script_name.
+[[durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "BACKTEST_RUNNER"
+class_name = "BacktestRunner"
+script_name = "timed-trading-ingest"
 
 [vars]
-# Cutover gate — flip to "true" only per the runbook (and set
-# RESEARCH_EXTERNAL=true on the monolith at the same time).
-RESEARCH_ENABLED = "false"
+# ── Role split ──
+WORKER_ROLE = "research"
+# RESEARCH_ENABLED is set via the CF Dashboard at cutover (persists via
+# keep_vars; code defaults to "false").
+
+# ── Mirror of the monolith's [vars] (worker/wrangler.toml) — KEEP IN SYNC ──
 WORKER_URL = "https://timed-trading.com"
-# Mirror the monolith's COO flags (read by the COO daily lane).
+DISCORD_ENABLE = "true"
+ALERT_MIN_RR = "1.5"
+ALERT_MAX_COMPLETION = "0.4"
+ALERT_MAX_PHASE = "0.6"
+ALERT_MIN_RANK = "70"
+OPENAI_MODEL = "gpt-4o-mini"
+DAILY_BRIEF_MODEL = "gpt-5.4"
+CORS_ALLOW_ORIGIN = "https://timedtrading.pages.dev,https://timed-trading.com,https://www.timed-trading.com,http://localhost:8788,http://127.0.0.1:8788"
+TV_ACK_ALWAYS_200 = "true"
+ALPACA_ENABLED = "true"
+EXECUTION_MODE = "simulation"
+ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
+TRADOVATE_ENABLED = "false"
+TRADOVATE_ENV = "live"
+ENTRY_ENGINE = "tt_core"
+MANAGEMENT_ENGINE = "tt_core"
+LEADING_LTF = "10"
+RIPSTER_TUNE_V2 = "true"
+TT_EXIT_DEBOUNCE_BARS = "3"
+LIVE_MANAGE_INTERVAL_MIN = "30"
+CF_ACCESS_TEAM_DOMAIN = "timedtrading"
+ADMIN_EMAIL = "shashant@gmail.com"
+EMAIL_ENABLED = "true"
+EMAIL_FROM = "notifications@timed-trading.com"
 COO_ENABLED = "true"
 COO_AUTO_APPLY_TIER1 = "true"
-DISCORD_ENABLE = "true"
+COO_SELF_HEAL = "true"
+COO_SCREENER_AUTO_PROMOTE = "true"
+COO_SCREENER_AUTO_SCORE = "70"
+COO_SCREENER_DAILY_MAX = "3"
+BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+
+[[services]]
+binding = "BROKER_BRIDGE"
+service = "tt-broker-bridge"
 
 [limits]
-# Research lanes are the CPU hogs — give them room, but stay below the
-# monolith's 300s so a runaway lane still fails fast on ITS OWN budget.
-cpu_ms = 120000
+# Research lanes are the historical CPU hogs (CRO full cycle 30-40s) but
+# they no longer share a budget with anything money-critical.
+cpu_ms = 300000
 
 [observability.logs]
 enabled = true

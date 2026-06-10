@@ -119,11 +119,35 @@ OPENAI_API_KEY, FINNHUB_API_KEY, FSD creds, Discord webhooks) →
 `RESEARCH_EXTERNAL=true` (both monolith envs). Overlap = idempotent
 daily jobs run twice (wasteful, not harmful); rollback = unset both.
 
-**v2 (remaining):** migrate the hourly/daily research arms (briefs
-morning/evening/flash, CRO intraday, DMARC, FRED, weekly retros,
-re-engagement email, ETF sync, COO screener lane, CIO nightly chain) —
-needs a tested research-window module replicating their `vc` labels
-(same pattern as `worker/feed/feed-window.js`).
+**v2 SHIPPED 2026-06-10 — role split (supersedes the v1 thin worker).**
+Following Step 3's pattern, `worker-research/` now deploys the SAME
+bundle (`main = ../worker/index.js`) with `WORKER_ROLE="research"` and
+owns ALL research slots: `0 * * * *`, `30 * * * *`, `0 22 * * *` —
+every hourly/daily arm (briefs, CRO intraday, investor hourly,
+freshness heal, earnings, ETF sync, data lifecycle, retros, COO
+screener, CIO nightly chain) moves with the slots, no per-arm
+extraction needed. The monolith hands the slots over via
+`RESEARCH_SLOTS_EXTERNAL=true`. The v1 thin worker (research-index.js)
+is deleted; `worker/research/nightly-batch.js` remains the shared
+module both hosts execute. The v1 partial flag `RESEARCH_EXTERNAL` is
+superseded — leave it unset and use the slot-level flag.
+
+**Cutover (gap-preferred — investor hourly/rebalance must never run
+twice in one hour):** deploy → secrets (full monolith set) → verify
+tt-research `/timed/health` → `RESEARCH_SLOTS_EXTERNAL=true` on the
+monolith FIRST → `RESEARCH_ENABLED=true` on tt-research → watch the
+next hourly tick's tombstones + brief/CRO freshness.
+
+**Flag persistence (all workers):** `keep_vars = true` everywhere +
+cutover flags unpinned from `[vars]` — wrangler otherwise WIPES
+dashboard-set vars on every CI deploy, silently undoing a cutover.
+Flags are set once via the CF Dashboard (Secret type also works) and
+persist.
+
+**End state:** after the three cutovers the monolith runs NO cron work —
+it degenerates to `tt-api` (HTTP only) by configuration. A code-level
+api split becomes unnecessary; optionally remove the monolith's
+`[triggers]` once the split has soaked.
 
 The `0 22 * * *` registration bug found in the audit was fixed
 separately (PR #551).
