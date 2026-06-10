@@ -532,6 +532,25 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
   const orbFull = condenseOrb(tickerData, dir);
   const movePhase = condenseMovePhase(tickerData);
 
+  // 2026-06-10 — Reversal/timing context (closes gap #5 of
+  // tasks/2026-06-10-reversal-trim-plan.md). The lifecycle CIO previously
+  // judged TRIM/EXIT/HOLD proposals WITHOUT the unified timing overlay —
+  // so a stretched winner with FSD risk-off + TD9 exhaustion looked
+  // identical to a healthy mid-trend trim. Condensed, prompt-friendly:
+  // the warnings array already includes fsd_macro_risk_off.
+  const _ov = tickerData?.timing_overlay;
+  const timingOverlay = _ov ? {
+    bias: _ov.bias || null,
+    posture: _ov.posture || null,
+    extension_score: Number(_ov.extension_score) || 0,
+    compression_score: Number(_ov.compression_score) || 0,
+    trim_winners: _ov.trim_winners === true,
+    warnings: Array.isArray(_ov.warnings) ? _ov.warnings.slice(0, 8) : [],
+    fsd_risk_off: Array.isArray(_ov.warnings) && _ov.warnings.includes("fsd_macro_risk_off"),
+    headline: _ov.flash_headline || null,
+  } : null;
+  const reversalAdvisory = tickerData?.__reversal_trim_advisory || null;
+
   return {
     action,
     ticker: sym,
@@ -602,6 +621,8 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
     ...(divergence && { divergence }),
     ...(orbFull && { orb_full: orbFull }),
     ...(movePhase && { move_phase: movePhase }),
+    ...(timingOverlay && { timing_overlay: timingOverlay }),
+    ...(reversalAdvisory && { reversal_trim_advisory: reversalAdvisory }),
   };
 }
 

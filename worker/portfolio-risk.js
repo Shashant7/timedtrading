@@ -177,3 +177,60 @@ export async function readPortfolioRisk(KV) {
     return null;
   }
 }
+
+// ─── S4 — Regime-shock de-risk advisory (2026-06-10, SHADOW) ────────────────
+//
+// Full-system-review §5.4: "on VIX spike + breadth collapse, auto-trim the
+// weakest quartile of the open book. Today nothing coordinates exits
+// portfolio-wide; every position defends itself."
+//
+// Shadow phase: when the broad INDEX EXTENSION WATCH is active AND the
+// equity curve sits within `portfolio_shock_dd_proximity_pct` (default 1%)
+// of the drawdown-breaker threshold, name the weakest quartile of the open
+// book (by current pnl%) and suggest a 25% trim on each. Compute + KV +
+// Discord only — no orders. Enforcement is a later, scorecard-gated phase
+// (same discipline as the reversal-trim advisor).
+export function evaluateRegimeShockDerisk({ state, indexWatch, openRows, priceMap, daCfg = {} }) {
+  const ddThreshold = _num(state?.dd_threshold_pct, DEFAULTS.dd_breaker_pct);
+  const proximity = _num(daCfg.portfolio_shock_dd_proximity_pct, 1);
+  const ddNear = Number(state?.equity_samples) >= 5
+    && Number(state?.dd_pct) >= Math.max(0, ddThreshold - proximity);
+  const watchActive = !!(indexWatch && indexWatch.active);
+  const active = watchActive && ddNear;
+
+  if (!active) {
+    return { active: false, watch_active: watchActive, dd_near: ddNear, computed_at: Date.now() };
+  }
+
+  // Weakest quartile of the open book by current pnl% (ascending).
+  const positions = [];
+  for (const r of openRows || []) {
+    const entry = Number(r.entry_price) || 0;
+    if (entry <= 0) continue;
+    const px = _px(priceMap, r.ticker) ?? entry;
+    const dir = String(r.direction || "LONG").toUpperCase() === "SHORT" ? -1 : 1;
+    const pnlPct = ((px - entry) / entry) * 100 * dir;
+    positions.push({
+      ticker: String(r.ticker || "").toUpperCase(),
+      trade_id: r.trade_id ?? null,
+      direction: dir === -1 ? "SHORT" : "LONG",
+      pnl_pct: +pnlPct.toFixed(2),
+    });
+  }
+  positions.sort((a, b) => a.pnl_pct - b.pnl_pct);
+  const quartileN = Math.max(1, Math.ceil(positions.length / 4));
+  const targets = positions.slice(0, quartileN).map((p) => ({ ...p, suggested_trim_pct: 0.25 }));
+
+  return {
+    active: true,
+    watch_active: true,
+    dd_near: true,
+    dd_pct: state?.dd_pct ?? null,
+    dd_threshold_pct: ddThreshold,
+    index_breadth: indexWatch?.breadth ?? null,
+    open_count: positions.length,
+    targets,
+    headline: `REGIME-SHOCK DE-RISK — index extension watch active (${indexWatch?.breadth} benchmarks) with equity ${state?.dd_pct}% off the 20-day high (breaker at ${ddThreshold}%). Weakest ${targets.length}/${positions.length} positions named for a 25% de-risk trim.`,
+    computed_at: Date.now(),
+  };
+}
