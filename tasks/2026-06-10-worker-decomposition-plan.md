@@ -97,20 +97,36 @@ Design as implemented — package `worker-feed/` (sibling of `worker-bridge/`):
    `timed:prices.updated_at` so the external watchdog covers the new
    worker through the existing single health contract (R6).
 
-## Step 2 — `tt-research` (after tt-feed is stable)
+## Step 2 — `tt-research`
 
-Everything daily/hourly that is not trade-path: CRO/CTO/COO, discovery
-batch, briefs, calibration, DMARC, earnings cache, ETF sync, data
-lifecycle. These arms already dispatch through `vc.has(...)` labels and
-`env._selfDispatch`; the extraction is the same seam pattern as Step 0
-(label-gated arms → modules → thin worker). Replace `_selfDispatch`
-HTTP-path calls with Service Binding calls to `tt-api`.
+**v1 SHIPPED 2026-06-10 (nightly mega-batch).** The three heaviest lanes
+— AI COO daily cycle, CRO/CTO full cycle, discovery batch — moved
+VERBATIM from the monolith's `0 22 * * *` gate into
+`worker/research/nightly-batch.js` (fully self-contained module; both
+hosts call the same function). New `worker-research/` worker
+(`tt-research`) runs it on its own `0 22 * * *` cron with `cpu_ms =
+120000`, gated by `RESEARCH_ENABLED` (default false) with
+`POST /research/run-once` + `GET /research/health` for verification;
+the monolith side no-ops behind `RESEARCH_EXTERNAL`. COO admin-route
+dispatch maps `env._selfDispatch` onto a `MAIN` service binding
+(no CF-1042 class). CI: `deploy-research.yml`. The CIO nightly chain
+(outcome backfill → authority → learning bus) STAYS in the monolith —
+cheap D1 work, monolith-local helpers.
 
-Known pre-existing bug to fix in this step (from the audit): the
-discovery batch gates on `vc.has("0 22 * * *")` but only
-`0 22 * * 1-5` is ever registered (hourly weekday block); the dedicated
-`0 22 * * *` CF trigger exits at the `!_isEvery5Min` early-return before
-reaching it.
+Cutover (operator): deploy → set secrets (TIMED_API_KEY,
+OPENAI_API_KEY, FINNHUB_API_KEY, FSD creds, Discord webhooks) →
+`/research/run-once` verify → flip `RESEARCH_ENABLED=true` then
+`RESEARCH_EXTERNAL=true` (both monolith envs). Overlap = idempotent
+daily jobs run twice (wasteful, not harmful); rollback = unset both.
+
+**v2 (remaining):** migrate the hourly/daily research arms (briefs
+morning/evening/flash, CRO intraday, DMARC, FRED, weekly retros,
+re-engagement email, ETF sync, COO screener lane, CIO nightly chain) —
+needs a tested research-window module replicating their `vc` labels
+(same pattern as `worker/feed/feed-window.js`).
+
+The `0 22 * * *` registration bug found in the audit was fixed
+separately (PR #551).
 
 ## Step 3 — `tt-engine` (*/5 scoring + trade management + CIO), last
 

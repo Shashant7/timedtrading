@@ -1,0 +1,57 @@
+# tt-research — standalone nightly research worker (P2 decomposition, Step 2 v1).
+# Owns the 22:00 UTC mega-batch: AI COO daily cycle, CRO/CTO full cycle,
+# discovery batch. Cutover runbook: header of research-index.js +
+# tasks/2026-06-10-worker-decomposition-plan.md.
+#
+# Secrets to set after first deploy
+# (wrangler secret put <NAME> --config worker-research/wrangler.toml):
+#   TIMED_API_KEY        — guards /research/run-once + self-dispatch header
+#   OPENAI_API_KEY       — CRO synthesis + COO LLM lanes
+#   FINNHUB_API_KEY      — news / insider / logos pulls
+#   FSD_USERNAME         — FundStrat ingestion (optional; lanes skip cleanly)
+#   FSD_PASSWORD         — "
+#   DISCORD_WEBHOOK_URL  — cron tombstone + lane alerts (optional)
+#   DISCORD_SYSTEM_WEBHOOK_URL — system lane (optional)
+
+name = "tt-research"
+main = "research-index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+# Live from first deploy, but every tick no-ops until RESEARCH_ENABLED=true
+# (cutover = var flip, not a config redeploy).
+crons = ["0 22 * * *"]
+
+[[kv_namespaces]]
+binding = "KV_TIMED"
+id = "e48593af3ef74bf986b2592909ed40cb"   # SAME namespace as the monolith
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timed-trading-ledger"
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"  # same DB (discovery tables, model_config, positions)
+
+# Service binding to the monolith — COO calibration dispatches admin routes
+# through env._selfDispatch, which the entry maps onto this binding
+# (cross-worker calls without the CF-1042 loopback class).
+[[services]]
+binding = "MAIN"
+service = "timed-trading-ingest"
+
+[vars]
+# Cutover gate — flip to "true" only per the runbook (and set
+# RESEARCH_EXTERNAL=true on the monolith at the same time).
+RESEARCH_ENABLED = "false"
+WORKER_URL = "https://timed-trading.com"
+# Mirror the monolith's COO flags (read by the COO daily lane).
+COO_ENABLED = "true"
+COO_AUTO_APPLY_TIER1 = "true"
+DISCORD_ENABLE = "true"
+
+[limits]
+# Research lanes are the CPU hogs — give them room, but stay below the
+# monolith's 300s so a runaway lane still fails fast on ITS OWN budget.
+cpu_ms = 120000
+
+[observability.logs]
+enabled = true

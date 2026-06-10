@@ -1,0 +1,95 @@
+name: Deploy research worker
+
+# Auto-deploys worker-research/ (tt-research) whenever research source
+# changes on main. Safe to deploy at ANY time: the 22:00 UTC cron is live
+# from first deploy but every tick no-ops until the operator flips
+# RESEARCH_ENABLED=true (cutover runbook in research-index.js).
+#
+# Uses the same Cloudflare secrets as deploy-worker.yml / deploy-bridge.yml.
+# tt-research's own secrets (TIMED_API_KEY, OPENAI_API_KEY,
+# FINNHUB_API_KEY, FSD_USERNAME/PASSWORD, Discord webhooks) are set once by
+# the operator via `wrangler secret put --config worker-research/wrangler.toml`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker-research/**"
+      - "worker/research/**"
+      - ".github/workflows/deploy-research.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-research
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy (tt-research)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve Cloudflare secrets
+        id: cfsec
+        env:
+          CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
+          CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          CF_TOKEN=""
+          CF_ACCT=""
+          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A";
+          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B";
+          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C";
+          fi
+          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";
+          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";
+          fi
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::warning::Cloudflare secrets not configured — research deploy SKIPPED."
+            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
+          } >> "$GITHUB_ENV"
+
+      - name: Deploy research worker
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.92.0"
+          workingDirectory: worker-research
+          command: deploy
+
+      - name: Post-deploy smoke
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          sleep 5
+          HEALTH=$(curl -s -m 15 "https://tt-research.shashant.workers.dev/research/health" || echo "{}")
+          echo "research health: $HEALTH"
+          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+            echo "::error::tt-research /research/health returned non-JSON after deploy"
+            exit 1
+          fi
+          OK=$(echo "$HEALTH" | jq -r '.ok // false')
+          ENABLED=$(echo "$HEALTH" | jq -r '.research_enabled // false')
+          AGE=$(echo "$HEALTH" | jq -r '.last_run_age_hours // "null"')
+          echo "ok=$OK research_enabled=$ENABLED last_run_age_hours=$AGE"
+          if [ "$OK" != "true" ]; then
+            echo "::error::tt-research /research/health did not return ok:true after deploy"
+            exit 1
+          fi
