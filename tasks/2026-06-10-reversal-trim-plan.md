@@ -84,12 +84,35 @@ data is in.
 **Operator rule: do not flip the flag until the scorecard reads
 ENFORCEMENT_SUPPORTED.**
 
-Still open (future PRs):
-- Include `timing_overlay` + FSD overlay in `buildCIOLifecycleProposal`
-  payloads so the CIO sees reversal context on every TRIM/HOLD veto.
-- S4 regime-shock de-risk: when INDEX EXTENSION WATCH flips active AND
-  the portfolio DD breaker is within 1% of tripping, trim the weakest
-  quartile of open winners by 25% (portfolio coordinator).
+## Scorecard-gated flips (SHIPPED 2026-06-10; bus-governed)
+
+The nightly evaluator now drives the flips through the learning-proposals
+bus (house rule: flag flips are tier-2 → operator decides; safety
+demotion is the only self-acting path):
+- `ENFORCEMENT_SUPPORTED` while OFF → **tier-2 proposal**
+  (`reversal_trim_advisor_enforce=true`) with the scorecard as evidence
+  + Discord notice. Decide via the proposals queue.
+- `ENFORCEMENT_NOT_SUPPORTED` while ON → safety demotion **auto-applies
+  only when `reversal_trim_autoscale="true"`** (mirrors CIO authority
+  autoscale); otherwise a tier-2 disable proposal queues.
+- Pure decision logic: `decideEnforcementFlip()` (unit-tested).
+
+## S4 enforcement path (SHIPPED 2026-06-10, default OFF)
+
+- S4 advisory targets are now also recorded into the SAME saved-pct
+  history (tagged `strength:"shock"`) so shock trims get measured by the
+  nightly scorecard despite their rarity.
+- `model_config.portfolio_regime_shock_enforce = "true"` → the hourly
+  eval issues a **2h trim directive** (`phase-c:regime-shock-derisk:directive`);
+  the */5 scoring preload loads it and the kanban trim cluster stages
+  targeted open positions to `trim` (reason `regime_shock_derisk`,
+  bypasses the structure shield, capped at 25% trimmed) through the
+  normal path — CIO lifecycle review still applies. S4's flip stays
+  operator-manual (shock events are too rare for an n≥20 scorecard);
+  the measured history informs the call.
+
+Earlier follow-ups (CIO `timing_overlay` context + S4 shadow advisory)
+shipped in PR #556.
 
 ## Related defaults worth revisiting at enforcement time
 

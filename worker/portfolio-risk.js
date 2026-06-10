@@ -215,6 +215,8 @@ export function evaluateRegimeShockDerisk({ state, indexWatch, openRows, priceMa
       trade_id: r.trade_id ?? null,
       direction: dir === -1 ? "SHORT" : "LONG",
       pnl_pct: +pnlPct.toFixed(2),
+      price: +px.toFixed(4),
+      entry_price: +entry.toFixed(4),
     });
   }
   positions.sort((a, b) => a.pnl_pct - b.pnl_pct);

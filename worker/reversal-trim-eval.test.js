@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   updateReversalTrimHistory,
   computeReversalTrimScorecard,
+  decideEnforcementFlip,
 } from "./reversal-trim-eval.js";
 
 const advisory = (over = {}) => ({
@@ -90,5 +91,25 @@ describe("computeReversalTrimScorecard", () => {
     const { scorecard } = computeReversalTrimScorecard(histWith(recs), closed, 5);
     expect(scorecard.evaluated).toBe(24);
     expect(scorecard.verdict).toBe("ENFORCEMENT_SUPPORTED");
+  });
+});
+
+describe("decideEnforcementFlip — scorecard-gated, bus-governed", () => {
+  it("proposes tier-2 ENABLE when supported and not yet enforcing", () => {
+    expect(decideEnforcementFlip({ verdict: "ENFORCEMENT_SUPPORTED" }, "false", "false"))
+      .toEqual({ action: "propose_enable", tier: "tier2" });
+  });
+
+  it("does nothing when already enforcing and still supported, or sample insufficient", () => {
+    expect(decideEnforcementFlip({ verdict: "ENFORCEMENT_SUPPORTED" }, "true", "false").action).toBe(null);
+    expect(decideEnforcementFlip({ verdict: "INSUFFICIENT_SAMPLE" }, "false", "true").action).toBe(null);
+    expect(decideEnforcementFlip({ verdict: "ENFORCEMENT_NOT_SUPPORTED" }, "false", "true").action).toBe(null);
+  });
+
+  it("safety-demotes ONLY with the autoscale opt-in; otherwise proposes tier-2 disable", () => {
+    expect(decideEnforcementFlip({ verdict: "ENFORCEMENT_NOT_SUPPORTED" }, "true", "true"))
+      .toEqual({ action: "auto_disable", tier: "safety" });
+    expect(decideEnforcementFlip({ verdict: "ENFORCEMENT_NOT_SUPPORTED" }, "true", "false"))
+      .toEqual({ action: "propose_disable", tier: "tier2" });
   });
 });

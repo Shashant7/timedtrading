@@ -26,9 +26,12 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { kvGetJSON, kvPutJSON } from "./storage.js";
+import { submitProposal } from "./learning-proposals.js";
+import { notifyDiscord } from "./alerts.js";
 
 export const REVERSAL_TRIM_HISTORY_KEY = "timed:reversal-trim:history";
 export const REVERSAL_TRIM_SCORECARD_KEY = "timed:reversal-trim:scorecard";
+export const REVERSAL_TRIM_ENFORCE_KEY = "reversal_trim_advisor_enforce";
 const HISTORY_CAP = 300;
 
 // ─── Pure: merge the current advisory set into the history map ──────────────
@@ -147,6 +150,26 @@ export function computeReversalTrimScorecard(history, closedTradeById = {}, now 
   return { history: { entries, updated_at: now }, scorecard };
 }
 
+// ─── Pure: scorecard-gated enforcement flip decision ─────────────────────────
+// House rule (CONTEXT.md): learning_proposals is THE apply bus. Flag flips
+// are tier-2 → ALWAYS wait for the operator. The one self-acting path is
+// SAFETY DEMOTION (turning enforcement OFF when the data degrades), and
+// only when the operator opted in via reversal_trim_autoscale="true" —
+// the same governance shape as the CIO authority autoscale.
+export function decideEnforcementFlip(scorecard, currentFlagValue, autoscale) {
+  const verdict = String(scorecard?.verdict || "INSUFFICIENT_SAMPLE");
+  const enforcing = String(currentFlagValue ?? "false") === "true";
+  if (verdict === "ENFORCEMENT_SUPPORTED" && !enforcing) {
+    return { action: "propose_enable", tier: "tier2" };
+  }
+  if (verdict === "ENFORCEMENT_NOT_SUPPORTED" && enforcing) {
+    return String(autoscale ?? "false") === "true"
+      ? { action: "auto_disable", tier: "safety" }
+      : { action: "propose_disable", tier: "tier2" };
+  }
+  return { action: null };
+}
+
 // ─── Impure orchestrator — nightly evaluation (0 4 * * * lifecycle arm) ─────
 export async function evaluateReversalTrimScorecard(env) {
   const KV = env?.KV_TIMED;
@@ -178,5 +201,58 @@ export async function evaluateReversalTrimScorecard(env) {
   await kvPutJSON(KV, REVERSAL_TRIM_HISTORY_KEY, stamped);
   await kvPutJSON(KV, REVERSAL_TRIM_SCORECARD_KEY, scorecard);
   console.log(`[REVERSAL_TRIM_EVAL] evaluated=${scorecard.evaluated} pending=${scorecard.pending} stamped=${scorecard.stamped_this_run} verdict=${scorecard.verdict}`);
-  return { ok: true, scorecard };
+
+  // ── Scorecard-gated flip (2026-06-10) ────────────────────────────────
+  // ENFORCEMENT_SUPPORTED → tier-2 proposal on the learning bus (operator
+  // decides). Degraded-while-enforcing → safety demotion (self-acting only
+  // when reversal_trim_autoscale="true"), else a tier-2 disable proposal.
+  let flip = { action: null };
+  try {
+    const [flagRow, autoRow] = await Promise.all([
+      db.prepare(`SELECT config_value FROM model_config WHERE config_key = ?1`).bind(REVERSAL_TRIM_ENFORCE_KEY).first().catch(() => null),
+      db.prepare(`SELECT config_value FROM model_config WHERE config_key = 'reversal_trim_autoscale'`).first().catch(() => null),
+    ]);
+    const flagVal = (() => { try { return JSON.parse(flagRow?.config_value); } catch { return flagRow?.config_value; } })();
+    const autoVal = (() => { try { return JSON.parse(autoRow?.config_value); } catch { return autoRow?.config_value; } })();
+    flip = decideEnforcementFlip(scorecard, flagVal, autoVal);
+
+    if (flip.action === "propose_enable" || flip.action === "propose_disable") {
+      const proposed = flip.action === "propose_enable" ? "true" : "false";
+      const r = await submitProposal(env, {
+        source: "reversal_trim_advisor",
+        kind: "flag_flip",
+        config_key: REVERSAL_TRIM_ENFORCE_KEY,
+        proposed_value: proposed,
+        tier: "tier2",
+        evidence: scorecard,
+        note: flip.action === "propose_enable"
+          ? `Scorecard ENFORCEMENT_SUPPORTED: ${scorecard.evaluated} evaluated, avg weighted saved ${scorecard.avg_weighted_saved_pct}%, hurt ${scorecard.hurt}/${scorecard.evaluated}.`
+          : `Scorecard degraded to ENFORCEMENT_NOT_SUPPORTED while enforcing — recommend disable.`,
+      });
+      flip.proposal_id = r?.id ?? null;
+      await notifyDiscord(env, {
+        title: flip.action === "propose_enable"
+          ? "📈 Reversal-trim advisor: scorecard supports ENFORCEMENT — tier-2 proposal queued"
+          : "📉 Reversal-trim advisor: scorecard DEGRADED while enforcing — tier-2 disable proposal queued",
+        description: `verdict=${scorecard.verdict} · evaluated=${scorecard.evaluated} · avg weighted saved=${scorecard.avg_weighted_saved_pct}% · helped=${scorecard.helped} hurt=${scorecard.hurt}.\nDecide via POST /timed/admin/learning/proposals/decide (proposal #${flip.proposal_id ?? "?"}).`,
+        color: flip.action === "propose_enable" ? 0x38f2a1 : 0xf59e0b,
+      }, "system").catch(() => {});
+    } else if (flip.action === "auto_disable") {
+      await db.prepare(
+        `INSERT INTO model_config (config_key, config_value, description, updated_at, updated_by)
+         VALUES (?1, ?2, ?3, ?4, 'reversal_trim_autoscale')
+         ON CONFLICT(config_key) DO UPDATE SET config_value = ?2, updated_at = ?4, updated_by = 'reversal_trim_autoscale'`
+      ).bind(REVERSAL_TRIM_ENFORCE_KEY, JSON.stringify("false"), "Reversal-trim enforcement (auto-demoted on degraded scorecard)", Date.now()).run();
+      await notifyDiscord(env, {
+        title: "🛑 Reversal-trim enforcement AUTO-DISABLED (safety demotion)",
+        description: `Scorecard degraded to ENFORCEMENT_NOT_SUPPORTED while enforcing (evaluated=${scorecard.evaluated}, hurt=${scorecard.hurt}, avg weighted saved=${scorecard.avg_weighted_saved_pct}%). reversal_trim_autoscale="true" authorized this self-acting demotion. Re-enable via the learning-proposals bus once the data recovers.`,
+        color: 0xef4444,
+      }, "system").catch(() => {});
+      console.log("[REVERSAL_TRIM_EVAL] AUTO-DISABLED enforcement on degraded scorecard");
+    }
+  } catch (flipErr) {
+    console.warn("[REVERSAL_TRIM_EVAL] flip evaluation failed:", String(flipErr?.message || flipErr).slice(0, 150));
+  }
+
+  return { ok: true, scorecard, flip };
 }
