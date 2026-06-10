@@ -1,0 +1,71 @@
+# tt-feed — standalone */1 price-feed worker (P2 decomposition, Step 1).
+# Cutover runbook: header of feed-index.js +
+# tasks/2026-06-10-worker-decomposition-plan.md.
+#
+# SINGLE deploy target (no env split needed): the monolith's default and
+# production envs share the script name "timed-trading-ingest" and the same
+# KV/D1 ids, so one tt-feed instance serves both.
+#
+# Secrets to set after first deploy (wrangler secret put --config worker-feed/wrangler.toml):
+#   TIMED_API_KEY            — same key as the monolith (guards /feed/run-once)
+#   TWELVEDATA_API_KEY       — primary quote provider
+#   ALPACA_API_KEY_ID        — REST fallback + crypto snapshots
+#   ALPACA_API_SECRET_KEY
+
+name = "tt-feed"
+main = "feed-index.js"
+compatibility_date = "2024-01-01"
+
+[triggers]
+# Crons are LIVE from first deploy, but every tick no-ops until the operator
+# flips FEED_ENABLED=true (see [vars]) — that makes cutover a var flip, not
+# a config redeploy.
+crons = ["*/1 * * * *"]
+
+[[kv_namespaces]]
+binding = "KV_TIMED"
+id = "e48593af3ef74bf986b2592909ed40cb"   # SAME namespace as the monolith
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timed-trading-ledger"
+database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"  # same DB (user_tickers read + chart-candle upsert)
+
+# Durable Objects stay OWNED by the monolith ("timed-trading-ingest") —
+# tt-feed only holds stubs via script_name. No migrations here, ever.
+[[durable_objects.bindings]]
+name = "PRICE_HUB"
+class_name = "PriceHub"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "PRICE_STREAM"
+class_name = "PriceStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "ALPACA_STREAM"
+class_name = "AlpacaStream"
+script_name = "timed-trading-ingest"
+
+[[durable_objects.bindings]]
+name = "TRADOVATE_STREAM"
+class_name = "TradovateStream"
+script_name = "timed-trading-ingest"
+
+[vars]
+# Cutover gate — flip to "true" only per the runbook (and set
+# PRICE_FEED_EXTERNAL=true on the monolith at the same time).
+FEED_ENABLED = "false"
+DATA_PROVIDER = "twelvedata"
+TWELVEDATA_PLAN = "pro"
+ALPACA_ENABLED = "true"
+TRADOVATE_ENABLED = "false"
+
+[limits]
+# The feed is a thin fetch+KV loop; it should never need the monolith's
+# 300s budget. 30s is ~60x the observed tick cost and still fails fast.
+cpu_ms = 30000
+
+[observability.logs]
+enabled = true

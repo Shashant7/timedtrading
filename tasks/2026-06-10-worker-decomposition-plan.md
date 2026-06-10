@@ -26,52 +26,73 @@ What stayed in `scheduled()` on purpose (NOT feed-domain): backtest
 orchestrator tick, `d1SyncLatestBatchFromKV` (scoring/D1 bootstrap),
 integrity guard, calendar load.
 
-## Step 1 — `tt-feed` worker (next PR; operator deploy required)
+## Step 1 — `tt-feed` worker (SCAFFOLD SHIPPED in this PR; operator deploy required)
 
-New top-level package `worker-feed/` (sibling of `worker-bridge/`):
+Status (2026-06-10): `worker-feed/feed-index.js` + `worker-feed/wrangler.toml`
+are implemented and bundle-verified (~100 KB vs the 5.8 MB monolith). The
+worker is SAFE TO DEPLOY at any time: its cron no-ops until
+`FEED_ENABLED=true`, and `/feed/run-once` (X-API-Key-guarded) lets the
+operator verify a full forced tick before flipping anything. Remaining
+operator actions: deploy, set secrets (`TIMED_API_KEY`,
+`TWELVEDATA_API_KEY`, `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`),
+run-once verify, flip `FEED_ENABLED=true` then `PRICE_FEED_EXTERNAL=true`
+on the monolith (both envs), watch `/feed/health` + freshness monitor 24h.
+CI deploy wiring (a `deploy-feed` job mirroring `deploy-bridge.yml`) lands
+once the first manual deploy is verified.
 
-1. **Entry** imports `runPriceFeedCron` / `runFeedStreamKeepAlives` from
-   `../worker/feed/price-feed-cron.js` and provides thin deps:
-   - `isNyRegularMarketOpen` / `isWithinOperatingHours` — from
-     `worker/market-calendar.js` (`loadCalendar` + `_calIsNyRegularMarketOpen`
-     / `_calIsWithinOH`), loaded once per tick.
-   - `dataFetchSnapshots` — `DataProvider.fetchLatestQuotes` (TD primary);
-     Alpaca REST fallback comes with `alpacaFetchSnapshots` from
-     `worker/indicators.js` (importable; verify tree-shaking keeps the
-     bundle sane, otherwise lift that one function into
-     `worker/feed/`).
-   - `d1GetActiveUserTickersCached` — same 60s-cached D1 read (bind the
-     SAME D1 database; read-only usage).
-   - `notifyPriceHub` — 14-line DO POST helper (duplicate in entry).
-   - `mergeFreshnessIntoLatest` + `syncLivePricesToChartCandles` — v1
-     keeps these in the deps surface; lift them into `worker/feed/` in
-     the same PR (they are feed-output concerns: `timed:latest` ingest_ts
-     patch + forming-bar upsert).
-   - stream wrappers — same DO-stub helpers against script_name bindings.
-2. **wrangler.toml** (`name = "tt-feed"` + `[env.production]`):
-   - `triggers.crons = ["*/1 * * * *"]`
+Design as implemented — package `worker-feed/` (sibling of `worker-bridge/`):
+
+1. **Entry** (`worker-feed/feed-index.js`) imports `runPriceFeedCron` /
+   `runFeedStreamKeepAlives` from `../worker/feed/price-feed-cron.js`,
+   `computeFeedWindow` from `../worker/feed/feed-window.js` (pure
+   replication of the monolith's */1 window registration — unit-tested in
+   `worker/feed/feed-window.test.js`; KEEP IN SYNC with the monolith's
+   `vc` registration), and provides thin deps:
+   - `isNyRegularMarketOpen` / `isWithinOperatingHours` — calendar-aware
+     from `worker/market-calendar.js` (`loadCalendar` once per tick) with
+     the monolith's static fallbacks.
+   - `dataFetchSnapshots` — `DataProvider.fetchLatestQuotes` (TD primary)
+     + `alpacaFetchSnapshots` from `worker/indicators.js` (tree-shakes to
+     a ~100 KB bundle).
+   - `d1GetActiveUserTickersCached` — same 60s-cached D1 read, same SQL.
+   - `notifyPriceHub` + stream wrappers — local DO-stub helpers against
+     the script_name bindings.
+   - `mergeFreshnessIntoLatest` + `syncLivePricesToChartCandles` — lifted
+     into `worker/feed/feed-outputs.js` (monolith now delegates to the
+     same module, so there is exactly ONE implementation).
+   - Routes: `GET /feed/health` (prices age / source / enablement) and
+     `POST /feed/run-once` (X-API-Key, forced full tick for cutover
+     verification — works while FEED_ENABLED=false by design).
+2. **wrangler.toml** (`worker-feed/wrangler.toml`, single deploy target —
+   the monolith's default + production envs share the script name and
+   KV/D1 ids, so one tt-feed serves both):
+   - `triggers.crons = ["*/1 * * * *"]` — live from first deploy, but every
+     tick no-ops until `FEED_ENABLED=true` (cutover = var flip, not a
+     config redeploy).
    - KV `KV_TIMED` — SAME namespace id `e48593af3ef74bf986b2592909ed40cb`
-   - D1 `DB` — same database (read paths + chart-candle upsert)
-   - DO bindings **via `script_name = "timed-trading-ingest"`** (and the
-     production script name for that env): `PRICE_STREAM`, `PRICE_HUB`,
-     `ALPACA_STREAM`, `TRADOVATE_STREAM`. The monolith REMAINS the DO
-     owner — no DO migrations, no class moves.
-   - vars: `DATA_PROVIDER`, `TWELVEDATA_PLAN`, `ALPACA_ENABLED`,
-     `TRADOVATE_ENABLED`; secrets: `TWELVEDATA_API_KEY`,
-     `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` (both envs).
+   - D1 `DB` — same database (user-tickers read + chart-candle upsert)
+   - DO bindings **via `script_name = "timed-trading-ingest"`**:
+     `PRICE_STREAM`, `PRICE_HUB`, `ALPACA_STREAM`, `TRADOVATE_STREAM`.
+     The monolith REMAINS the DO owner — no DO migrations, no class moves.
+   - vars: `FEED_ENABLED="false"`, `DATA_PROVIDER`, `TWELVEDATA_PLAN`,
+     `ALPACA_ENABLED`, `TRADOVATE_ENABLED`; secrets: `TIMED_API_KEY`,
+     `TWELVEDATA_API_KEY`, `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`.
+   - `cpu_ms = 30000` — the feed never needs the monolith's 300s budget.
 3. **Dual-writer guard (cutover order matters):**
-   1. Deploy tt-feed with crons **disabled** (`triggers.crons = []`),
-      smoke via `wrangler dev`/manual fetch route that runs one tick.
-   2. Enable tt-feed crons.
-   3. Set `PRICE_FEED_EXTERNAL=true` on the monolith (both envs) — the
-      monolith's `isPriceFeedCron` arm + keep-alives no-op behind this
-      env check (add the check in the Step-1 PR; one-line gate at the
-      Step-0 seam).
+   1. `wrangler deploy --config worker-feed/wrangler.toml` + set secrets.
+      Crons fire but no-op (FEED_ENABLED=false).
+   2. Verify: `curl -X POST https://tt-feed.<acct>.workers.dev/feed/run-once
+      -H "X-API-Key: $TIMED_API_KEY"` → expect `{ok:true, ran:true}` and a
+      fresh `timed:prices` (`/feed/health` age < 60s, source
+      `rest_snapshot`).
+   3. Flip `FEED_ENABLED=true` on tt-feed, then `PRICE_FEED_EXTERNAL=true`
+      on the monolith (both envs). A one-tick overlap is harmless (same
+      data, last write wins); a gap is not — this order has no gap.
    4. Watch `timed:prices._source` + freshness monitor for 24h; rollback
-      = unset the var (monolith resumes on the next tick).
-4. **CI**: extend `deploy-worker.yml` (or a sibling workflow, mirroring
-   `deploy-bridge.yml`) to deploy `worker-feed/` to both envs + post-deploy
-   smoke (`timed:prices` age < 3 min via `/timed/health`).
+      = unset both vars (monolith resumes on the next tick).
+4. **CI**: after the first manual deploy is verified, add a `deploy-feed`
+   job mirroring `deploy-bridge.yml` + post-deploy smoke (`/feed/health`
+   age < 3 min).
 5. **Watchdog**: add a `feed_tick_age` field to `/timed/health` read from
    `timed:prices.updated_at` so the external watchdog covers the new
    worker through the existing single health contract (R6).
