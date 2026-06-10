@@ -4812,7 +4812,7 @@ function extractBriefLead(content) {
   return text.length >= 40 ? text.slice(0, 320) : null;
 }
 
-/** Discord + in-app + email side effects (non-blocking for cron). */
+/** Discord + in-app + email side effects (awaited by generateDailyBrief). */
 async function dispatchDailyBriefNotifications(env, {
   type,
   data,
@@ -4848,6 +4848,10 @@ async function dispatchDailyBriefNotifications(env, {
   const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
   let _emailReport = { ok: false, recipients: 0, sent: 0, failed: 0, reason: "not_attempted" };
   try {
+    if (!env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") {
+      _emailReport.reason = !env?.SENDGRID_API_KEY ? "no_sendgrid_key" : "email_disabled";
+      console.log(`[DAILY BRIEF] ${prefKey} emails skipped — ${_emailReport.reason}`);
+    } else {
     const optedInUsers = await getEmailOptedInUsers(env, prefKey);
     _emailReport.recipients = optedInUsers.length;
     if (!optedInUsers.length) {
@@ -4880,6 +4884,7 @@ async function dispatchDailyBriefNotifications(env, {
       }
       if (failures.length) _emailReport.failure_samples = failures;
       console.log(`[DAILY BRIEF] ${prefKey} emails: ${sent} sent, ${failed} failed (${optedInUsers.length} recipients)`);
+    }
     }
   } catch (e) {
     _emailReport.reason = "exception";
@@ -5226,9 +5231,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
     const elapsed = Date.now() - start;
     console.log(`[DAILY BRIEF] ${type} brief generated in ${elapsed}ms (${content.length} chars)`);
 
-    // Discord / in-app / email run fire-and-forget — KV + D1 are already
-    // committed. Evening brief email blasts must not extend cron wall time.
-    dispatchDailyBriefNotifications(env, {
+    // KV + D1 are committed; await notifications so cron waitUntil keeps the
+    // isolate alive through SendGrid delivery (fire-and-forget was dropping
+    // daily brief + trade alert emails when the handler returned early).
+    await dispatchDailyBriefNotifications(env, {
       type,
       data,
       content,
@@ -5238,11 +5244,9 @@ export async function generateDailyBrief(env, type, opts = {}) {
       iwmPrediction,
       infographic,
       opts,
-    }).catch((e) =>
-      console.warn("[DAILY BRIEF] notification dispatch failed:", String(e?.message || e).slice(0, 150)),
-    );
+    });
 
-    return { ok: true, id: briefId, elapsed, chars: content.length, notifications: "async" };
+    return { ok: true, id: briefId, elapsed, chars: content.length, notifications: "sent" };
   } catch (e) {
     console.error(`[DAILY BRIEF] ${type} generation failed:`, String(e).slice(0, 300));
     return { ok: false, error: String(e).slice(0, 200) };
