@@ -1,0 +1,103 @@
+name: Deploy feed worker
+
+# Auto-deploys worker-feed/ (tt-feed) whenever feed source changes on main.
+# Safe to deploy at ANY time: the */1 cron is live from first deploy but
+# every tick no-ops until the operator flips FEED_ENABLED=true (cutover
+# runbook in worker-feed/feed-index.js + the decomposition plan doc).
+#
+# Uses the same Cloudflare secrets as deploy-worker.yml / deploy-bridge.yml.
+# NOTE: tt-feed's own secrets (TIMED_API_KEY, TWELVEDATA_API_KEY,
+# ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY) are set once by the operator
+# via `wrangler secret put --config worker-feed/wrangler.toml` — CI deploys
+# never touch them.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker-feed/**"
+      - "worker/feed/**"
+      - ".github/workflows/deploy-feed.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-feed
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: wrangler deploy (tt-feed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Resolve Cloudflare secrets
+        id: cfsec
+        env:
+          CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
+          CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
+          CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          CF_TOKEN=""
+          CF_ACCT=""
+          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A";
+          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B";
+          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C";
+          fi
+          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";
+          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";
+          fi
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
+            echo "::warning::Cloudflare secrets not configured — feed deploy SKIPPED."
+            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
+            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
+          } >> "$GITHUB_ENV"
+
+      - name: Deploy feed worker
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
+          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.92.0"
+          workingDirectory: worker-feed
+          command: deploy
+
+      - name: Post-deploy smoke
+        if: steps.cfsec.outputs.secrets-ok == 'true'
+        run: |
+          sleep 5
+          HEALTH=$(curl -s -m 15 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          echo "feed health: $HEALTH"
+          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+            echo "::error::tt-feed /feed/health returned non-JSON after deploy"
+            exit 1
+          fi
+          OK=$(echo "$HEALTH" | jq -r '.ok // false')
+          ENABLED=$(echo "$HEALTH" | jq -r '.feed_enabled // false')
+          AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // "null"')
+          echo "ok=$OK feed_enabled=$ENABLED prices_age_sec=$AGE"
+          if [ "$OK" != "true" ]; then
+            echo "::error::tt-feed /feed/health did not return ok:true after deploy"
+            exit 1
+          fi
+          # When the feed owns the */1 cron, also assert freshness (3 min
+          # tolerance). While FEED_ENABLED=false the monolith owns the feed
+          # and this check is informational only.
+          if [ "$ENABLED" = "true" ] && [ "$AGE" != "null" ] && [ "$AGE" -gt 180 ]; then
+            echo "::error::tt-feed owns the price feed but timed:prices is ${AGE}s stale"
+            exit 1
+          fi
