@@ -15,11 +15,12 @@ import {
 //   lane="general"             → DISCORD_GENERAL_WEBHOOK_URL    (#general)
 //   lane="system"              → DISCORD_SYSTEM_WEBHOOK_URL     (#system-alerts)
 //
-// Trade lane = model-initiated trade lifecycle only:
-//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*.
+// Trade lane = model-initiated trade lifecycle (Active Trader + Investor):
+//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*,
+//   INVESTOR position_trim / position_close / accumulate / thesis alerts.
 //
 // General lane = editorial / research pulses traders read in #general:
-//   Daily Brief (morning + evening), Intraday Pulse, FSD FlashInsight.
+//   Daily Brief (morning + evening), Intraday Pulse, Market Intel (research desk).
 //
 // System lane = ops noise an operator (not a trader) cares about:
 //   cron failures / candle staleness / migration completions /
@@ -55,6 +56,18 @@ export async function notifyDiscord(env, embed, lane = "trade") {
     : _laneNorm === "general"
       ? (_generalUrl || _tradeUrl)
       : _tradeUrl;
+  // 2026-06-10 — Make lane fallbacks VISIBLE. After the worker
+  // decomposition, each dedicated worker (tt-engine / tt-research)
+  // carries its own webhook secrets; a missing lane secret silently
+  // dumped that lane's content into #trade-signals via the fallback,
+  // and a wrong-valued secret misroutes with no trace. This log turns
+  // "alerts are going to the wrong channel" from a guess into a
+  // one-line wrangler-tail diagnosis.
+  if (_laneNorm !== "trade" && url === _tradeUrl && _tradeUrl) {
+    console.warn(
+      `[DISCORD] lane="${_laneNorm}" FALLBACK → trade webhook (set ${_laneNorm === "system" ? "DISCORD_SYSTEM_WEBHOOK_URL" : "DISCORD_GENERAL_WEBHOOK_URL"} on THIS worker to route correctly)`,
+    );
+  }
   if (!url) {
     console.log(
       `[DISCORD] No webhook URL for lane="${_laneNorm}" (DISCORD_WEBHOOK_URL=${_tradeUrl ? "set" : "missing"}, DISCORD_GENERAL_WEBHOOK_URL=${_generalUrl ? "set" : "missing"}, DISCORD_SYSTEM_WEBHOOK_URL=${_systemUrl ? "set" : "missing"})`,

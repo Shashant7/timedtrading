@@ -32,8 +32,15 @@
 #   TIMED_API_KEY, TWELVEDATA_API_KEY, ALPACA_API_KEY_ID,
 #   ALPACA_API_SECRET_KEY, OPENAI_API_KEY, FINNHUB_API_KEY,
 #   FSD_USERNAME, FSD_PASSWORD, DISCORD_WEBHOOK_URL,
-#   DISCORD_SYSTEM_WEBHOOK_URL, SENDGRID_API_KEY, GITHUB_TOKEN (screener
+#   DISCORD_GENERAL_WEBHOOK_URL, DISCORD_SYSTEM_WEBHOOK_URL,
+#   SENDGRID_API_KEY, GITHUB_TOKEN (screener
 #   dispatch), STRIPE keys NOT needed (webhooks stay on the monolith URL).
+#
+#   WEBHOOK ROUTING (2026-06-10 incident): this worker sends the Daily
+#   Brief / Intraday Pulse / Market Intel on the "general" lane. If
+#   DISCORD_GENERAL_WEBHOOK_URL is missing HERE, that content FALLS BACK
+#   into #trade-signals (alerts.js logs the fallback). SENDGRID_API_KEY
+#   missing = brief emails silently skipped (also logged).
 
 name = "tt-research"
 main = "../worker/index.js"
