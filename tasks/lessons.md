@@ -6,6 +6,35 @@
 
 ---
 
+## SELECT aliases are not columns — verify reader SQL against the real D1 schema [2026-06-10]
+
+The Markov regime matrix silently stopped rebuilding on 2026-05-27.
+PR #311 extended the matrix-compute read in
+`worker/lib/regime-markov-compute.js` to
+`SELECT ticker, bucket_ts, state, max_completion FROM trail_5m_facts` —
+but `max_completion` was never a column. It exists only as a SELECT
+alias inside the aggregation WRITER (`worker/lib/trail-facts-light.js`:
+`MAX(completion) AS max_completion`, feeding the real `completion`
+column). Every compute path — */5 bootstrap, nightly refresh, admin
+recompute — failed with `D1_ERROR: no such column: max_completion`,
+and the forecast read path quietly served the stale/TTL'd KV matrix
+until the tt-engine cutover logs surfaced the error two weeks later.
+
+Durable rules:
+1. **When adding a column to a reader query, verify the name against
+   the actual table schema** (`pragma_table_info` via
+   `wrangler d1 execute --remote`), not against a writer's SELECT list.
+   Writer aliases (`MAX(x) AS max_x`) look exactly like columns in grep.
+2. **A failing compute that has a fallback is invisible** — the
+   forecast path fell back to the cached KV matrix, so nothing user
+   facing broke until the KV TTL (14d) approached. Compute jobs whose
+   output has a TTL'd fallback need their `ok:false` results surfaced
+   (tombstone or health field), not just logged.
+3. Regression guard: `worker/lib/regime-markov-compute.test.js` runs
+   the compute against a stub D1 that validates every
+   `trail_5m_facts` SELECT against the real production schema and
+   throws SQLite-style `no such column` on phantom columns.
+
 ## Proxy allowlists silently strip new auth headers — audit EVERY hop when changing an auth scheme [2026-06-09]
 
 Minutes after the header-API-key migration (PR #543) deployed,

@@ -82,12 +82,24 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
     // (ticker, bucket_ts) so ORDER BY ticker, bucket_ts is the cheap
     // index walk.
     //
-    // 2026-05-27 (PR #311 — improvement 2): also SELECT max_completion
-    // so the expanded 12-state matrix builder can assign each row to
-    // its completion band (EARLY/MID/LATE). The 4-state builder
-    // ignores the extra column.
+    // 2026-05-27 (PR #311 — improvement 2): also SELECT the completion so
+    // the expanded 12-state matrix builder can assign each row to its
+    // completion band (EARLY/MID/LATE). The 4-state builder ignores the
+    // extra column.
+    //
+    // 2026-06-10 BUGFIX — the table column is `completion` (end-of-bucket
+    // value; see worker/migrations/add-trail-5m-fact-table.sql).
+    // `max_completion` exists ONLY as a SELECT alias inside the
+    // aggregation WRITER (trail-facts-light.js: `MAX(completion) AS
+    // max_completion` feeding the `completion` column). PR #311 queried
+    // the alias as if it were a column, so every matrix compute since
+    // 2026-05-27 failed with `D1_ERROR: no such column: max_completion`
+    // (bootstrap, nightly refresh, and admin recompute alike) and the
+    // Markov matrix stopped rebuilding. Verified against the production
+    // schema via pragma_table_info before this fix. Alias kept so the
+    // row-mapping below stays unchanged.
     const sql = tickersFilter
-      ? `SELECT ticker, bucket_ts, state, max_completion
+      ? `SELECT ticker, bucket_ts, state, completion AS max_completion
            FROM trail_5m_facts
           WHERE bucket_ts >= ?1
             AND state IS NOT NULL
@@ -95,7 +107,7 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
           ORDER BY ticker, bucket_ts
           LIMIT ${READ_BATCH_LIMIT}
          OFFSET ?${tickersFilter.length + 2}`
-      : `SELECT ticker, bucket_ts, state, max_completion
+      : `SELECT ticker, bucket_ts, state, completion AS max_completion
            FROM trail_5m_facts
           WHERE bucket_ts >= ?1
             AND state IS NOT NULL
