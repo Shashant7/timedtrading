@@ -15,11 +15,12 @@ import {
 //   lane="general"             → DISCORD_GENERAL_WEBHOOK_URL    (#general)
 //   lane="system"              → DISCORD_SYSTEM_WEBHOOK_URL     (#system-alerts)
 //
-// Trade lane = model-initiated trade lifecycle only:
-//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*.
+// Trade lane = model-initiated trade lifecycle (Active Trader + Investor):
+//   TRADE_ENTRY / TRADE_TRIM / TRADE_EXIT / KANBAN_DEFEND / KANBAN_*,
+//   INVESTOR position_trim / position_close / accumulate / thesis alerts.
 //
 // General lane = editorial / research pulses traders read in #general:
-//   Daily Brief (morning + evening), Intraday Pulse, FSD FlashInsight.
+//   Daily Brief (morning + evening), Intraday Pulse, Market Intel (research desk).
 //
 // System lane = ops noise an operator (not a trader) cares about:
 //   cron failures / candle staleness / migration completions /
