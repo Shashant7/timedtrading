@@ -9,58 +9,117 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781127179746" />
-    <script defer src="/vendor/react.production.min.js?v=1781127179746"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781127179746"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781127179746" />
-<script defer src="auth-gate.js?v=1781127179746"></script>
-    <script src="tt-bottom-nav.js?v=1781127179746" defer></script>
-    <script src="tt-nav-extras.js?v=1781127179746" defer></script>
-    <script src="tt-global-search.js?v=1781127179746" defer></script>
-    <script defer src="shared-price-utils.js?v=1781127179746"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781128132476" />
+    <script defer src="/vendor/react.production.min.js?v=1781128132476"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781128132476"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781128132476" />
+<script defer src="auth-gate.js?v=1781128132476"></script>
+    <script src="tt-bottom-nav.js?v=1781128132476" defer></script>
+    <script src="tt-nav-extras.js?v=1781128132476" defer></script>
+    <script src="tt-global-search.js?v=1781128132476" defer></script>
+    <script defer src="shared-price-utils.js?v=1781128132476"></script>
     <style>
       :root {
-        --tt-bg-base: #0b0e11;
-        --tt-bg-surface: rgba(255,255,255,0.02);
-        --tt-bg-elevated: rgba(255,255,255,0.035);
-        --tt-bg-hover: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.04);
-        --tt-border-strong: rgba(255,255,255,0.08);
-        --tt-text: #e5e7eb;
-        --tt-text-muted: #6b7280;
-        --tt-text-faint: #4b5563;
-        --tt-accent: #00c853;
-        --tt-accent-dim: rgba(0, 200, 83, 0.12);
-        --tt-negative: #ff5252;
-        --tt-negative-dim: rgba(255, 82, 82, 0.12);
-        --tt-radius: 12px;
-        --tt-radius-sm: 8px;
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-bg-elevated: var(--vf-bark-hi, #1A2B22);
+        --tt-bg-hover: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-strong: var(--vf-moss-hi, #2A4136);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-negative: #f43f5e;
+        --tt-negative-dim: rgba(244,63,94,0.12);
+        --tt-radius: var(--vf-radius-md, 18px);
+        --tt-radius-sm: 10px;
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       body {
+        margin: 0;
         background: var(--tt-bg-base);
         color: var(--tt-text);
         font-family: var(--tt-font);
         -webkit-font-smoothing: antialiased;
-        margin: 0;
       }
+      .tt-page { max-width: 1400px; margin: 0 auto; padding: 18px 24px 96px; }
       .tt-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: var(--tt-radius);
+        border-radius: var(--vf-radius-md, 18px);
       }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title {
+        margin: 0 0 6px;
+        font-family: var(--tt-font-display);
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--tt-text);
+      }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); }
+      .tt-btn {
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      .tt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-input {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--tt-text);
+      }
+      .tt-input:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .tt-pill-bar {
+        display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 999px;
+        padding: 4px;
+        width: fit-content;
+      }
+      .tt-pill {
+        padding: 6px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: none;
+        background: transparent;
+        color: var(--tt-text-muted);
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .tt-pill:hover { background: var(--tt-bg-elev); color: var(--tt-text); }
+      .tt-pill.active { background: var(--tt-bg-elev); color: var(--tt-text); font-weight: 600; }
       .loading-spinner {
         width: 28px; height: 28px;
         position: relative; display: inline-block;
       }
       .loading-spinner::before {
         content: ""; position: absolute; inset: 0; border-radius: 6px;
-        background: linear-gradient(135deg, rgba(0,200,83,0.15), rgba(0,200,83,0.04));
+        background: linear-gradient(135deg, rgba(56,242,161,0.15), rgba(56,242,161,0.04));
         animation: tt-loader-pulse 1.6s ease-in-out infinite;
       }
       .loading-spinner::after {
         content: ""; position: absolute; left: 3px; right: 3px; top: 50%; height: 2px;
-        background: linear-gradient(90deg, transparent, #00c853, #00e676, #69f0ae, transparent);
+        background: linear-gradient(90deg, transparent, #38F2A1, #5ff5b8, #A6F7CF, transparent);
         background-size: 200% 100%; border-radius: 1px;
         animation: tt-loader-sweep 1.2s ease-in-out infinite;
       }
@@ -73,17 +132,14 @@
       }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-      /* Admin-only nav links: hidden for non-admin users */
-      body:not([data-user-role="admin"]) a[data-admin-only] {
-        display: none !important;
-      }
+      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
     </style>
   </head>
   <body class="vf-page">
     <script defer src="tt-topnav-scaffold.js"></script>
     <div id="root"></div>
-    <script defer src="screener.compiled.js?v=1781127179746"></script>
+    <script defer src="screener.compiled.js?v=1781128132476"></script>
     <script>
       (function() {
         fetch("/timed/daily-brief/badge", { cache: "no-store" })
@@ -101,9 +157,9 @@
       })();
     </script>
     <footer id="legal-footer">
-      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#8AA39A;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#8AA39A;text-decoration:underline;">Twelve Data</a>
     </footer>
   </body>
 </html>
 
-<!-- cache-bust:1781127179746:657353974 -->
+<!-- cache-bust:1781128132476:974144235 -->

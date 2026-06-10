@@ -48,14 +48,14 @@ function ClientType({
       border: "rgba(251,191,36,0.25)"
     },
     pro: {
-      text: "#00c853",
-      bg: "rgba(0,200,83,0.10)",
-      border: "rgba(0,200,83,0.25)"
+      text: "#38F2A1",
+      bg: "rgba(56,242,161,0.10)",
+      border: "rgba(56,242,161,0.25)"
     },
     free: {
-      text: "#6b7280",
-      bg: "rgba(107,114,128,0.10)",
-      border: "rgba(107,114,128,0.25)"
+      text: "#8AA39A",
+      bg: "rgba(138,163,154,0.10)",
+      border: "rgba(138,163,154,0.25)"
     }
   };
   const c = colors[tier] || colors.free;
@@ -393,14 +393,17 @@ function AdminClientsPage({
       termsAccepted
     };
   }, [users]);
-  const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider cursor-pointer hover:text-white select-none whitespace-nowrap";
+  const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wider cursor-pointer hover:text-[#E8F2EC] select-none whitespace-nowrap";
   const tdClass = "px-2 py-2 text-[12px] whitespace-nowrap";
   return React.createElement("div", {
-    className: "min-h-screen bg-[#0a0a0f] pb-16"
+    className: "min-h-screen pb-16",
+    style: {
+      background: "var(--tt-bg-base)"
+    }
   }, React.createElement("div", {
-    className: "max-w-[1600px] mx-auto px-4 py-6"
+    className: "tt-page"
   }, React.createElement("div", {
-    className: "flex gap-1 mb-6 border-b border-white/[0.06] overflow-x-auto"
+    className: "tt-tab-bar"
   }, [{
     id: "clients",
     label: "Clients"
@@ -419,11 +422,11 @@ function AdminClientsPage({
   }].map(t => React.createElement("button", {
     key: t.id,
     onClick: () => setTab(t.id),
-    className: `px-4 py-2 text-[13px] font-medium rounded-t-lg transition-colors whitespace-nowrap ${tab === t.id ? "bg-white/[0.06] text-white" : "text-[#6b7280] hover:text-white"}`
+    className: `tt-tab ${tab === t.id ? "active" : ""}`
   }, t.label))), React.createElement("div", {
-    className: "flex items-center justify-between mb-6"
+    className: "tt-card tt-card-pad mb-4 flex items-center justify-between gap-4 flex-wrap"
   }, React.createElement("div", null, React.createElement("h1", {
-    className: "text-xl font-bold text-white"
+    className: "tt-page-title"
   }, {
     clients: "Client Management",
     usage: "Usage by Feature by User",
@@ -431,16 +434,16 @@ function AdminClientsPage({
     health: "System Health",
     vip: "VIP Code Management"
   }[tab] || "Admin"), React.createElement("p", {
-    className: "text-[13px] text-[#6b7280] mt-1"
+    className: "tt-page-lede"
   }, tab === "clients" && `${stats.total} total clients`, tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report"), tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics"), tab === "health" && (systemHealth ? `Last checked: ${new Date(systemHealth.ts).toLocaleTimeString()}` : "Run a health check"), tab === "vip" && `${vipCodes.length} codes generated`)), tab === "clients" && React.createElement("button", {
     onClick: exportCSV,
-    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all"
+    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all"
   }, "Export CSV"), tab === "usage" && React.createElement("div", {
     className: "flex items-center gap-2"
   }, React.createElement("select", {
     value: usageDays,
     onChange: e => setUsageDays(Number(e.target.value)),
-    className: "px-3 py-1.5 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-[#e5e7eb]"
+    className: "px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]"
   }, React.createElement("option", {
     value: 7
   }, "7 days"), React.createElement("option", {
@@ -450,7 +453,7 @@ function AdminClientsPage({
   }, "90 days")), React.createElement("button", {
     onClick: fetchUsageReport,
     disabled: usageLoading,
-    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-50"
+    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all disabled:opacity-50"
   }, usageLoading ? "Loading..." : "Refresh"))), tab === "clients" && React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6"
   }, [{
@@ -460,11 +463,11 @@ function AdminClientsPage({
   }, {
     label: "Members",
     value: stats.members,
-    color: "#6b7280"
+    color: "#8AA39A"
   }, {
     label: "Pro",
     value: stats.pro,
-    color: "#00c853"
+    color: "#38F2A1"
   }, {
     label: "VIP",
     value: stats.vip,
@@ -487,49 +490,49 @@ function AdminClientsPage({
     color: "#34d399"
   }].map(s => React.createElement("div", {
     key: s.label,
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3"
+    className: "tt-stat"
   }, React.createElement("div", {
-    className: "text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide"
+    className: "tt-stat-label"
   }, s.label), React.createElement("div", {
-    className: "text-2xl font-bold mt-1",
+    className: "tt-stat-value",
     style: {
       color: s.color
     }
   }, s.value)))), tab === "usage" && React.createElement("div", {
     className: "mb-6"
   }, usageLoading ? React.createElement("div", {
-    className: "text-center py-12 text-[#6b7280]"
+    className: "text-center py-12 text-[#8AA39A]"
   }, "Loading usage report...") : usageReport?.error ? React.createElement("div", {
     className: "text-rose-400 text-sm"
   }, usageReport.error) : usageReport?.byUser?.length > 0 ? React.createElement("div", {
-    className: "overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]"
+    className: "overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]"
   }, React.createElement("table", {
     className: "w-full border-collapse text-[12px]"
   }, React.createElement("thead", null, React.createElement("tr", {
-    className: "border-b border-white/[0.06] bg-white/[0.02]"
+    className: "border-b border-[#1F3128] bg-[#13201A]"
   }, React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "User"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Daily Brief"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Active Trader"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Investor"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Simulation"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "AI Ask"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Other"), React.createElement("th", {
-    className: "px-2 py-2.5 text-right font-semibold text-[#6b7280]"
+    className: "px-2 py-2.5 text-right font-semibold text-[#8AA39A]"
   }, "Total"))), React.createElement("tbody", null, usageReport.byUser.map((u, i) => {
     const f = u.features || {};
     const get = key => f[key]?.count ?? 0;
     const other = Object.entries(f).filter(([k]) => !["daily_brief_view", "active_trader_view", "investor_view", "simulation_view", "ai_ask"].includes(k)).reduce((s, [, v]) => s + (v?.count || 0), 0);
     return React.createElement("tr", {
       key: u.email,
-      className: "border-b border-white/[0.03] hover:bg-white/[0.02]"
+      className: "border-b border-white/[0.03] hover:bg-[#13201A]"
     }, React.createElement("td", {
       className: "px-3 py-2 text-[#e5e7eb] font-medium max-w-[200px] truncate"
     }, u.email), React.createElement("td", {
@@ -548,7 +551,7 @@ function AdminClientsPage({
       className: "px-2 py-2 text-right text-white font-medium tabular-nums"
     }, u.totalEvents || 0));
   })))) : React.createElement("p", {
-    className: "text-[#6b7280] text-sm"
+    className: "text-[#8AA39A] text-sm"
   }, "No usage data yet. Usage is recorded when users load pages (throttled to once per hour per feature per user).")), tab === "clients" && React.createElement("div", {
     className: "mb-4"
   }, React.createElement("div", {
@@ -558,29 +561,29 @@ function AdminClientsPage({
     placeholder: "Search by email, name, or type...",
     value: filter,
     onChange: e => setFilter(e.target.value),
-    className: "w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all"
+    className: "w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all"
   }), React.createElement("label", {
-    className: "flex items-center gap-1.5 text-[11px] text-[#6b7280] cursor-pointer select-none"
+    className: "flex items-center gap-1.5 text-[11px] text-[#8AA39A] cursor-pointer select-none"
   }, React.createElement("input", {
     type: "checkbox",
     checked: showRemoved,
     onChange: e => setShowRemoved(e.target.checked),
     className: "accent-[#a78bfa]"
   }), "Show removed (", users.filter(u => u.status === "removed").length, ")")), message && React.createElement("div", {
-    className: `mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`
+    className: `mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#38F2A1] bg-[#38F2A1]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`
   }, message.text)), tab === "clients" && (loading ? React.createElement("div", {
-    className: "text-center py-20 text-[#6b7280]"
+    className: "text-center py-20 text-[#8AA39A]"
   }, React.createElement("div", {
-    className: "w-6 h-6 border-2 border-white/[0.06] border-t-[#a78bfa] rounded-full mx-auto mb-3",
+    className: "w-6 h-6 border-2 border-[#1F3128] border-t-[#a78bfa] rounded-full mx-auto mb-3",
     style: {
       animation: "spin 0.8s linear infinite"
     }
   }), "Loading clients...") : React.createElement("div", {
-    className: "overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]"
+    className: "overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]"
   }, React.createElement("table", {
     className: "w-full border-collapse"
   }, React.createElement("thead", null, React.createElement("tr", {
-    className: "border-b border-white/[0.06] bg-white/[0.02]"
+    className: "border-b border-[#1F3128] bg-[#13201A]"
   }, React.createElement("th", {
     className: thClass
   }, "#"), React.createElement("th", {
@@ -626,7 +629,7 @@ function AdminClientsPage({
     const isCurrentUser = u.email === user?.email;
     return React.createElement("tr", {
       key: u.email,
-      className: `border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""} ${u.status === "removed" ? "opacity-40" : ""}`
+      className: `border-b border-white/[0.03] hover:bg-[#13201A] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""} ${u.status === "removed" ? "opacity-40" : ""}`
     }, React.createElement("td", {
       className: `${tdClass} text-[#4b5563]`
     }, idx + 1), React.createElement("td", {
@@ -639,9 +642,9 @@ function AdminClientsPage({
     }, u.display_name || "—"), React.createElement("td", {
       className: `${tdClass} text-[#9ca3af] max-w-[220px] truncate`
     }, u.email), React.createElement("td", {
-      className: `${tdClass} text-[#6b7280]`
+      className: `${tdClass} text-[#8AA39A]`
     }, formatDateTime(u.last_login_at)), React.createElement("td", {
-      className: `${tdClass} text-[#6b7280]`
+      className: `${tdClass} text-[#8AA39A]`
     }, formatDate(u.created_at)), React.createElement("td", {
       className: tdClass
     }, u.terms_accepted_at ? React.createElement("span", {
@@ -682,7 +685,7 @@ function AdminClientsPage({
     }, "REMOVED"), u.tier !== "pro" && React.createElement("button", {
       onClick: () => setTier(u.email, "pro"),
       disabled: actionLoading === u.email,
-      className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-[#00c853]/[0.10] border border-[#00c853]/[0.20] text-[#00c853] hover:bg-[#00c853]/[0.20] transition-all disabled:opacity-50"
+      className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-[#38F2A1]/[0.10] border border-[#38F2A1]/[0.20] text-[#38F2A1] hover:bg-[#38F2A1]/[0.20] transition-all disabled:opacity-50"
     }, "Pro"), u.tier !== "vip" && React.createElement("button", {
       onClick: () => setTier(u.email, "vip"),
       disabled: actionLoading === u.email,
@@ -766,7 +769,7 @@ function AdminClientsPage({
   }, React.createElement("select", {
     value: analyticsDays,
     onChange: e => setAnalyticsDays(Number(e.target.value)),
-    className: "px-3 py-1.5 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-[#e5e7eb]"
+    className: "px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]"
   }, React.createElement("option", {
     value: 1
   }, "Today"), React.createElement("option", {
@@ -778,9 +781,9 @@ function AdminClientsPage({
   }, "90 days")), React.createElement("button", {
     onClick: fetchAnalytics,
     disabled: analyticsLoading,
-    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
+    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
   }, analyticsLoading ? "Loading..." : "Refresh")), analyticsLoading ? React.createElement("div", {
-    className: "text-center py-12 text-[#6b7280]"
+    className: "text-center py-12 text-[#8AA39A]"
   }, "Loading analytics...") : analytics ? React.createElement(React.Fragment, null, React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"
   }, [{
@@ -794,7 +797,7 @@ function AdminClientsPage({
   }, {
     label: "Yesterday",
     value: analytics.yesterday?.unique_users || 0,
-    color: "#6b7280"
+    color: "#8AA39A"
   }, {
     label: `${analyticsDays}d Users`,
     value: analytics.period?.unique_users || 0,
@@ -809,9 +812,9 @@ function AdminClientsPage({
     color: "#e5e7eb"
   }].map(s => React.createElement("div", {
     key: s.label,
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl px-4 py-3"
   }, React.createElement("div", {
-    className: "text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide"
+    className: "text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wide"
   }, s.label), React.createElement("div", {
     className: "text-2xl font-bold mt-1",
     style: {
@@ -820,7 +823,7 @@ function AdminClientsPage({
   }, s.value)))), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-4"
   }, React.createElement("div", {
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
   }, "Devices"), (analytics.devices || []).map(d => React.createElement("div", {
@@ -829,9 +832,9 @@ function AdminClientsPage({
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, d.device), React.createElement("span", {
-    className: "text-[#6b7280] tabular-nums"
+    className: "text-[#8AA39A] tabular-nums"
   }, d.cnt)))), React.createElement("div", {
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
   }, "Browsers"), (analytics.browsers || []).map(b => React.createElement("div", {
@@ -840,9 +843,9 @@ function AdminClientsPage({
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, b.browser), React.createElement("span", {
-    className: "text-[#6b7280] tabular-nums"
+    className: "text-[#8AA39A] tabular-nums"
   }, b.cnt)))), React.createElement("div", {
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
   }, "Top Countries"), (analytics.countries || []).slice(0, 10).map(c => React.createElement("div", {
@@ -851,9 +854,9 @@ function AdminClientsPage({
   }, React.createElement("span", {
     className: "text-[#e5e7eb]"
   }, c.country || "Unknown"), React.createElement("span", {
-    className: "text-[#6b7280] tabular-nums"
+    className: "text-[#8AA39A] tabular-nums"
   }, c.cnt))))), React.createElement("div", {
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
   }, "Activity by Hour (UTC)"), React.createElement("div", {
@@ -872,7 +875,7 @@ function AdminClientsPage({
       style: {
         height: `${pct}%`,
         minHeight: 2,
-        background: cnt > max * 0.7 ? "#00c853" : cnt > max * 0.3 ? "#38bdf8" : "#374151"
+        background: cnt > max * 0.7 ? "#38F2A1" : cnt > max * 0.3 ? "#38bdf8" : "#2A4136"
       },
       className: "w-full rounded-t",
       title: `${i}:00 — ${cnt} sessions`
@@ -880,7 +883,7 @@ function AdminClientsPage({
       className: "text-[8px] text-[#4b5563]"
     }, i));
   }))), React.createElement("div", {
-    className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
   }, "Operating Systems"), React.createElement("div", {
@@ -891,9 +894,9 @@ function AdminClientsPage({
   }, React.createElement("span", {
     className: "text-[12px] text-[#e5e7eb] capitalize"
   }, o.os), React.createElement("span", {
-    className: "text-[11px] text-[#6b7280] tabular-nums bg-white/[0.04] px-2 py-0.5 rounded"
+    className: "text-[11px] text-[#8AA39A] tabular-nums bg-[#1A2B22] px-2 py-0.5 rounded"
   }, o.cnt)))))) : React.createElement("p", {
-    className: "text-[#6b7280] text-sm"
+    className: "text-[#8AA39A] text-sm"
   }, "Click Refresh to load analytics.")), tab === "health" && React.createElement("div", {
     className: "space-y-6"
   }, React.createElement("div", {
@@ -901,15 +904,15 @@ function AdminClientsPage({
   }, React.createElement("button", {
     onClick: fetchSystemHealth,
     disabled: healthLoading,
-    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
+    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
   }, healthLoading ? "Checking..." : "Run Health Check"), systemHealth && React.createElement("span", {
     className: `text-[13px] font-bold ${systemHealth.overall === "healthy" ? "text-[#22c55e]" : systemHealth.overall === "stale" ? "text-[#f59e0b]" : "text-[#ff5252]"}`
   }, systemHealth.overall?.toUpperCase())), healthLoading ? React.createElement("div", {
-    className: "text-center py-12 text-[#6b7280]"
+    className: "text-center py-12 text-[#8AA39A]"
   }, "Running health checks...") : systemHealth?.checks ? React.createElement("div", {
     className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
   }, Object.entries(systemHealth.checks).map(([key, check]) => {
-    const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#6b7280" : "#ff5252";
+    const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#8AA39A" : "#ff5252";
     const labels = {
       price_feed: "Price Feed",
       scoring: "Scoring Engine",
@@ -921,7 +924,7 @@ function AdminClientsPage({
     };
     return React.createElement("div", {
       key: key,
-      className: "bg-white/[0.02] border border-white/[0.06] rounded-xl p-4"
+      className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
     }, React.createElement("div", {
       className: "flex items-center justify-between mb-2"
     }, React.createElement("span", {
@@ -934,7 +937,7 @@ function AdminClientsPage({
         border: `1px solid ${statusColor}30`
       }
     }, check.status?.toUpperCase())), React.createElement("div", {
-      className: "space-y-1 text-[11px] text-[#6b7280]"
+      className: "space-y-1 text-[11px] text-[#8AA39A]"
     }, check.age_min !== undefined && React.createElement("div", null, "Age: ", React.createElement("span", {
       className: "text-[#e5e7eb]"
     }, check.age_min, "m")), check.ticker_count !== undefined && React.createElement("div", null, "Tickers: ", React.createElement("span", {
@@ -955,7 +958,7 @@ function AdminClientsPage({
       className: check.has_webhook_secret ? "text-[#22c55e]" : "text-[#ff5252]"
     }, check.has_webhook_secret ? "Yes" : "No"))));
   })) : React.createElement("p", {
-    className: "text-[#6b7280] text-sm"
+    className: "text-[#8AA39A] text-sm"
   }, "Click \"Run Health Check\" to check system status.")), tab === "vip" && React.createElement("div", {
     className: "space-y-6"
   }, React.createElement("div", {
@@ -965,7 +968,7 @@ function AdminClientsPage({
     placeholder: "Label (e.g. 'John Doe - Influencer')",
     value: vipGenLabel,
     onChange: e => setVipGenLabel(e.target.value),
-    className: "px-3 py-2 rounded-lg text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all w-72"
+    className: "px-3 py-2 rounded-lg text-[13px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all w-72"
   }), React.createElement("button", {
     onClick: generateVipCode,
     disabled: vipGenLoading,
@@ -973,34 +976,34 @@ function AdminClientsPage({
   }, vipGenLoading ? "Generating..." : "Generate VIP Code"), React.createElement("button", {
     onClick: fetchVipCodes,
     disabled: vipLoading,
-    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
+    className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
   }, "Refresh")), message && React.createElement("div", {
-    className: `inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`
+    className: `inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#38F2A1] bg-[#38F2A1]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`
   }, message.text), vipLoading ? React.createElement("div", {
-    className: "text-center py-12 text-[#6b7280]"
+    className: "text-center py-12 text-[#8AA39A]"
   }, "Loading VIP codes...") : vipCodes.length > 0 ? React.createElement("div", {
-    className: "overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]"
+    className: "overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]"
   }, React.createElement("table", {
     className: "w-full border-collapse text-[12px]"
   }, React.createElement("thead", null, React.createElement("tr", {
-    className: "border-b border-white/[0.06] bg-white/[0.02]"
+    className: "border-b border-[#1F3128] bg-[#13201A]"
   }, React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Code"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Label"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Status"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Created"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Created By"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Used At"), React.createElement("th", {
-    className: "px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase"
+    className: "px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase"
   }, "Used By"))), React.createElement("tbody", null, vipCodes.map(c => React.createElement("tr", {
     key: c.code,
-    className: "border-b border-white/[0.03] hover:bg-white/[0.02]"
+    className: "border-b border-white/[0.03] hover:bg-[#13201A]"
   }, React.createElement("td", {
     className: "px-3 py-2 text-[#e5e7eb] font-mono font-semibold"
   }, c.code), React.createElement("td", {
@@ -1010,15 +1013,15 @@ function AdminClientsPage({
   }, React.createElement("span", {
     className: `px-2 py-0.5 rounded text-[10px] font-bold ${c.status === "used" ? "text-[#22c55e] bg-[#22c55e]/[0.10]" : "text-[#f59e0b] bg-[#f59e0b]/[0.10]"}`
   }, (c.status || "generated").toUpperCase())), React.createElement("td", {
-    className: "px-3 py-2 text-[#6b7280]"
+    className: "px-3 py-2 text-[#8AA39A]"
   }, formatDateTime(c.created_at)), React.createElement("td", {
     className: "px-3 py-2 text-[#9ca3af]"
   }, c.created_by || "—"), React.createElement("td", {
-    className: "px-3 py-2 text-[#6b7280]"
+    className: "px-3 py-2 text-[#8AA39A]"
   }, c.used_at ? formatDateTime(c.used_at) : "—"), React.createElement("td", {
     className: "px-3 py-2 text-[#9ca3af]"
   }, c.used_by_email || "—")))))) : React.createElement("p", {
-    className: "text-[#6b7280] text-sm"
+    className: "text-[#8AA39A] text-sm"
   }, "No VIP codes generated yet.")), React.createElement("div", {
     className: "mt-4 text-[11px] text-[#4b5563]"
   }, "* = manually upgraded (not via Stripe). Sessions and days tracking starts from when the schema was deployed.")));
@@ -1030,6 +1033,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235
 
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235

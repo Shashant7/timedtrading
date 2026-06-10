@@ -10,41 +10,42 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781127179746" />
-    <script defer src="/vendor/react.production.min.js?v=1781127179746"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781127179746"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781127179746" />
-<script defer src="/vendor/marked.min.js?v=1781127179746"></script>
-    <script defer src="auth-gate.js?v=1781127179746"></script>
-    <script defer src="tt-fetch-cache.js?v=1781127179746"></script>
-    <script src="tt-bottom-nav.js?v=1781127179746" defer></script>
-    <script src="tt-nav-extras.js?v=1781127179746" defer></script>
-    <script src="tt-global-search.js?v=1781127179746" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781128132476" />
+    <script defer src="/vendor/react.production.min.js?v=1781128132476"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781128132476"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781128132476" />
+<script defer src="/vendor/marked.min.js?v=1781128132476"></script>
+    <script defer src="auth-gate.js?v=1781128132476"></script>
+    <script defer src="tt-fetch-cache.js?v=1781128132476"></script>
+    <script src="tt-bottom-nav.js?v=1781128132476" defer></script>
+    <script src="tt-nav-extras.js?v=1781128132476" defer></script>
+    <script src="tt-global-search.js?v=1781128132476" defer></script>
     <style>
       :root {
-        --tt-bg-base: #0b0e11;
-        --tt-bg-surface: rgba(255,255,255,0.025);
-        --tt-bg-elev: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.06);
-        --tt-border-hi: rgba(255,255,255,0.12);
-        --tt-text: #e5e7eb;
-        --tt-text-muted: #9ca3af;
-        --tt-text-dim: #6b7280;
-        --tt-text-faint: #4b5563;
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
         --tt-up: #22c55e;
         --tt-up-soft: #34d399;
         --tt-up-bg: rgba(34,197,94,0.10);
         --tt-dn: #f43f5e;
         --tt-dn-soft: #fb7185;
         --tt-dn-bg: rgba(244,63,94,0.10);
-        --tt-accent: #38F2A1;
-        --tt-accent-dim: rgba(56,242,161,0.14);
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
         --tt-violet: #a78bfa;
         --tt-violet-dim: rgba(167,139,250,0.14);
         --tt-cyan: #22d3ee;
         --tt-cyan-dim: rgba(34,211,238,0.10);
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
       }
       body {
         background: var(--tt-bg-base);
@@ -57,15 +58,15 @@
       main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
       @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
       .tt-row { margin-bottom: 28px; }
-      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
       .tt-card-pad { padding: 16px 18px; }
       .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
+      .tt-sec-h { font-family: var(--tt-font-display); font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
 
       /* Top nav */
       nav.topnav {
         position: sticky; top: 0; z-index: 50;
-        background: rgba(10,12,16,0.85);
+        background: rgba(11,20,16,0.92);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border-bottom: 1px solid var(--tt-border);
@@ -101,7 +102,7 @@
         border-radius: 14px;
         margin-bottom: 24px;
       }
-      .ins-hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
+      .ins-hero h1 { font-family: var(--tt-font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
       /* Progressive-disclosure sections (Beat 3 — context on demand).
          Mirrors today.html's tt-disclose pattern. */
       .ins-disclose { margin-bottom: 18px; }
@@ -131,7 +132,7 @@
         border-bottom-left-radius: var(--vf-radius-md, 18px);
         border-bottom-right-radius: var(--vf-radius-md, 18px);
         padding: 14px 14px 6px;
-        background: rgba(19,32,26,0.45);
+        background: var(--tt-bg-elev);
       }
       .ins-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .ins-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; max-width: 720px; }
@@ -193,7 +194,7 @@
       .tbl td.label { font-weight: 700; font-family: var(--tt-font); }
       .tbl td.up { color: var(--tt-up-soft); }
       .tbl td.dn { color: var(--tt-dn-soft); }
-      .tbl tr:hover td { background: rgba(255,255,255,0.018); }
+      .tbl tr:hover td { background: var(--tt-bg-elev); }
       .tbl .empty {
         text-align: center;
         color: var(--tt-text-faint);
@@ -575,12 +576,12 @@
       </main>
     </div>
 
-    <script defer src="insights.compiled.js?v=1781127179746"></script>
+    <script defer src="insights.compiled.js?v=1781128132476"></script>
 
     <footer id="legal-footer">
-      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
+      For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#8AA39A;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#8AA39A;text-decoration:underline;">Twelve Data</a>
     </footer>
   </body>
 </html>
 
-<!-- cache-bust:1781127179746:657353974 -->
+<!-- cache-bust:1781128132476:974144235 -->

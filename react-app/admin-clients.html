@@ -18,15 +18,98 @@
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <style>
-      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; }
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        margin: 0;
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+      }
+      .tt-page { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
+      .tt-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+      }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title {
+        margin: 0 0 6px;
+        font-family: var(--tt-font-display);
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--tt-text);
+      }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); }
+      .tt-stat {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 16px;
+        min-width: 100px;
+      }
+      .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
+      .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 22px; font-weight: 700; color: var(--tt-text); }
+      .tt-btn {
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      .tt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-input {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--tt-text);
+      }
+      .tt-input:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .tt-tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--tt-border); overflow-x: auto; }
+      .tt-tab {
+        padding: 10px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        border: none;
+        background: transparent;
+        color: var(--tt-text-muted);
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s;
+      }
+      .tt-tab:hover { color: var(--tt-text); }
+      .tt-tab.active { color: var(--tt-text); border-bottom-color: var(--tt-accent); }
       @keyframes spin { to { transform: rotate(360deg); } }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
-      body:not([data-user-role="admin"]) a[data-admin-only] {
-        display: none !important;
-      }
+      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
     </style>
   </head>
   <body class="vf-page">
@@ -51,8 +134,8 @@
         const labels = { admin: "Admin", vip: "VIP", pro: "Pro", free: "Member" };
         const colors = { admin: { text: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.25)" },
                           vip: { text: "#fbbf24", bg: "rgba(251,191,36,0.10)", border: "rgba(251,191,36,0.25)" },
-                          pro: { text: "#00c853", bg: "rgba(0,200,83,0.10)", border: "rgba(0,200,83,0.25)" },
-                          free: { text: "#6b7280", bg: "rgba(107,114,128,0.10)", border: "rgba(107,114,128,0.25)" } };
+                          pro: { text: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.25)" },
+                          free: { text: "#8AA39A", bg: "rgba(138,163,154,0.10)", border: "rgba(138,163,154,0.25)" } };
         const c = colors[tier] || colors.free;
         const label = labels[tier] || "Member";
         const suffix = subStatus === "manual" ? " *" : subStatus === "trialing" ? " (trial)" : "";
@@ -313,14 +396,14 @@
           return { total, pro, vip, admin, members, active7d, active30d, termsAccepted };
         }, [users]);
 
-        const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#6b7280] uppercase tracking-wider cursor-pointer hover:text-white select-none whitespace-nowrap";
+        const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wider cursor-pointer hover:text-[#E8F2EC] select-none whitespace-nowrap";
         const tdClass = "px-2 py-2 text-[12px] whitespace-nowrap";
 
         return (
-          <div className="min-h-screen bg-[#0a0a0f] pb-16">
-            <div className="max-w-[1600px] mx-auto px-4 py-6">
+          <div className="min-h-screen pb-16" style={{ background: "var(--tt-bg-base)" }}>
+            <div className="tt-page">
               {/* Tabs */}
-              <div className="flex gap-1 mb-6 border-b border-white/[0.06] overflow-x-auto">
+              <div className="tt-tab-bar">
                 {[
                   { id: "clients", label: "Clients" },
                   { id: "usage", label: "Usage" },
@@ -328,17 +411,17 @@
                   { id: "health", label: "System Health" },
                   { id: "vip", label: "VIP Codes" },
                 ].map(t => (
-                  <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 text-[13px] font-medium rounded-t-lg transition-colors whitespace-nowrap ${tab === t.id ? "bg-white/[0.06] text-white" : "text-[#6b7280] hover:text-white"}`}>{t.label}</button>
+                  <button key={t.id} onClick={() => setTab(t.id)} className={`tt-tab ${tab === t.id ? "active" : ""}`}>{t.label}</button>
                 ))}
               </div>
 
             {/* Header */}
-              <div className="flex items-center justify-between mb-6">
+              <div className="tt-card tt-card-pad mb-4 flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <h1 className="text-xl font-bold text-white">
+                  <h1 className="tt-page-title">
                     {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", health: "System Health", vip: "VIP Code Management" }[tab] || "Admin"}
                   </h1>
-                  <p className="text-[13px] text-[#6b7280] mt-1">
+                  <p className="tt-page-lede">
                     {tab === "clients" && `${stats.total} total clients`}
                     {tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report")}
                     {tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics")}
@@ -347,17 +430,17 @@
                   </p>
                 </div>
                 {tab === "clients" &&                 <button onClick={exportCSV}
-                  className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all">
+                  className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all">
                   Export CSV
                 </button>}
                 {tab === "usage" && (
                   <div className="flex items-center gap-2">
-                    <select value={usageDays} onChange={(e) => setUsageDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-[#e5e7eb]">
+                    <select value={usageDays} onChange={(e) => setUsageDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]">
                       <option value={7}>7 days</option>
                       <option value={30}>30 days</option>
                       <option value={90}>90 days</option>
                     </select>
-                    <button onClick={fetchUsageReport} disabled={usageLoading} className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-50">
+                    <button onClick={fetchUsageReport} disabled={usageLoading} className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all disabled:opacity-50">
                       {usageLoading ? "Loading..." : "Refresh"}
                     </button>
                   </div>
@@ -368,17 +451,17 @@
               {tab === "clients" && <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
                 {[
                   { label: "Total", value: stats.total, color: "#e5e7eb" },
-                  { label: "Members", value: stats.members, color: "#6b7280" },
-                  { label: "Pro", value: stats.pro, color: "#00c853" },
+                  { label: "Members", value: stats.members, color: "#8AA39A" },
+                  { label: "Pro", value: stats.pro, color: "#38F2A1" },
                   { label: "VIP", value: stats.vip, color: "#fbbf24" },
                   { label: "Admin", value: stats.admin, color: "#a78bfa" },
                   { label: "Active 7d", value: stats.active7d, color: "#38bdf8" },
                   { label: "Active 30d", value: stats.active30d, color: "#22d3ee" },
                   { label: "Terms OK", value: stats.termsAccepted, color: "#34d399" },
                 ].map(s => (
-                  <div key={s.label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3">
-                    <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide">{s.label}</div>
-                    <div className="text-2xl font-bold mt-1" style={{ color: s.color }}>{s.value}</div>
+                  <div key={s.label} className="tt-stat">
+                    <div className="tt-stat-label">{s.label}</div>
+                    <div className="tt-stat-value" style={{ color: s.color }}>{s.value}</div>
                   </div>
                 ))}
               </div>}
@@ -387,22 +470,22 @@
               {tab === "usage" && (
                 <div className="mb-6">
                   {usageLoading ? (
-                    <div className="text-center py-12 text-[#6b7280]">Loading usage report...</div>
+                    <div className="text-center py-12 text-[#8AA39A]">Loading usage report...</div>
                   ) : usageReport?.error ? (
                     <div className="text-rose-400 text-sm">{usageReport.error}</div>
                   ) : usageReport?.byUser?.length > 0 ? (
-                    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]">
+                    <div className="overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]">
                       <table className="w-full border-collapse text-[12px]">
                         <thead>
-                          <tr className="border-b border-white/[0.06] bg-white/[0.02]">
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">User</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Daily Brief</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Active Trader</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Investor</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Simulation</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">AI Ask</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Other</th>
-                            <th className="px-2 py-2.5 text-right font-semibold text-[#6b7280]">Total</th>
+                          <tr className="border-b border-[#1F3128] bg-[#13201A]">
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">User</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Daily Brief</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Active Trader</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Investor</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Simulation</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">AI Ask</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Other</th>
+                            <th className="px-2 py-2.5 text-right font-semibold text-[#8AA39A]">Total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -411,7 +494,7 @@
                             const get = (key) => (f[key]?.count ?? 0);
                             const other = Object.entries(f).filter(([k]) => !["daily_brief_view", "active_trader_view", "investor_view", "simulation_view", "ai_ask"].includes(k)).reduce((s, [, v]) => s + (v?.count || 0), 0);
                             return (
-                              <tr key={u.email} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                              <tr key={u.email} className="border-b border-white/[0.03] hover:bg-[#13201A]">
                                 <td className="px-3 py-2 text-[#e5e7eb] font-medium max-w-[200px] truncate">{u.email}</td>
                                 <td className="px-2 py-2 text-right text-[#9ca3af] tabular-nums">{get("daily_brief_view") || "—"}</td>
                                 <td className="px-2 py-2 text-right text-[#9ca3af] tabular-nums">{get("active_trader_view") || "—"}</td>
@@ -427,7 +510,7 @@
                       </table>
                     </div>
                   ) : (
-                    <p className="text-[#6b7280] text-sm">No usage data yet. Usage is recorded when users load pages (throttled to once per hour per feature per user).</p>
+                    <p className="text-[#8AA39A] text-sm">No usage data yet. Usage is recorded when users load pages (throttled to once per hour per feature per user).</p>
                   )}
                 </div>
               )}
@@ -437,14 +520,14 @@
                 <div className="flex items-center gap-4 flex-wrap">
                   <input type="text" placeholder="Search by email, name, or type..."
                     value={filter} onChange={(e) => setFilter(e.target.value)}
-                    className="w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all" />
-                  <label className="flex items-center gap-1.5 text-[11px] text-[#6b7280] cursor-pointer select-none">
+                    className="w-full max-w-md px-4 py-2.5 rounded-xl text-[13px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all" />
+                  <label className="flex items-center gap-1.5 text-[11px] text-[#8AA39A] cursor-pointer select-none">
                     <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} className="accent-[#a78bfa]" />
                     Show removed ({users.filter(u => u.status === "removed").length})
                   </label>
                 </div>
                 {message && (
-                  <div className={`mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
+                  <div className={`mt-2 inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#38F2A1] bg-[#38F2A1]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
                     {message.text}
                   </div>
                 )}
@@ -452,15 +535,15 @@
 
               {/* Clients Table */}
               {tab === "clients" && (loading ? (
-                <div className="text-center py-20 text-[#6b7280]">
-                  <div className="w-6 h-6 border-2 border-white/[0.06] border-t-[#a78bfa] rounded-full mx-auto mb-3" style={{ animation: "spin 0.8s linear infinite" }} />
+                <div className="text-center py-20 text-[#8AA39A]">
+                  <div className="w-6 h-6 border-2 border-[#1F3128] border-t-[#a78bfa] rounded-full mx-auto mb-3" style={{ animation: "spin 0.8s linear infinite" }} />
                   Loading clients...
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]">
+                <div className="overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]">
                   <table className="w-full border-collapse">
                     <thead>
-                      <tr className="border-b border-white/[0.06] bg-white/[0.02]">
+                      <tr className="border-b border-[#1F3128] bg-[#13201A]">
                         <th className={thClass}>#</th>
                         <th className={thClass} onClick={() => handleSort("tier")}>Type{sortIndicator("tier")}</th>
                         <th className={thClass} onClick={() => handleSort("display_name")}>Name{sortIndicator("display_name")}</th>
@@ -482,13 +565,13 @@
                         const daysSince = u.last_login_at ? (Date.now() - u.last_login_at) / 86400000 : Infinity;
                         const isCurrentUser = u.email === user?.email;
                         return (
-                          <tr key={u.email} className={`border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""} ${u.status === "removed" ? "opacity-40" : ""}`}>
+                          <tr key={u.email} className={`border-b border-white/[0.03] hover:bg-[#13201A] transition-colors ${isCurrentUser ? "bg-[#a78bfa]/[0.04]" : ""} ${u.status === "removed" ? "opacity-40" : ""}`}>
                             <td className={`${tdClass} text-[#4b5563]`}>{idx + 1}</td>
                             <td className={tdClass}><ClientType tier={u.tier} subStatus={u.subscription_status} /></td>
                             <td className={`${tdClass} text-[#e5e7eb] font-medium max-w-[160px] truncate`}>{u.display_name || "—"}</td>
                             <td className={`${tdClass} text-[#9ca3af] max-w-[220px] truncate`}>{u.email}</td>
-                            <td className={`${tdClass} text-[#6b7280]`}>{formatDateTime(u.last_login_at)}</td>
-                            <td className={`${tdClass} text-[#6b7280]`}>{formatDate(u.created_at)}</td>
+                            <td className={`${tdClass} text-[#8AA39A]`}>{formatDateTime(u.last_login_at)}</td>
+                            <td className={`${tdClass} text-[#8AA39A]`}>{formatDate(u.created_at)}</td>
                             <td className={tdClass}>
                               {u.terms_accepted_at
                                 ? <span className="text-[#34d399] text-[11px]">{formatDate(u.terms_accepted_at)}</span>
@@ -516,7 +599,7 @@
                                 {u.tier !== "pro" && (
                                   <button onClick={() => setTier(u.email, "pro")}
                                     disabled={actionLoading === u.email}
-                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#00c853]/[0.10] border border-[#00c853]/[0.20] text-[#00c853] hover:bg-[#00c853]/[0.20] transition-all disabled:opacity-50">
+                                    className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#38F2A1]/[0.10] border border-[#38F2A1]/[0.20] text-[#38F2A1] hover:bg-[#38F2A1]/[0.20] transition-all disabled:opacity-50">
                                     Pro
                                   </button>
                                 )}
@@ -611,31 +694,31 @@
               {tab === "analytics" && (
                 <div className="space-y-6">
                   <div className="flex items-center gap-3">
-                    <select value={analyticsDays} onChange={(e) => setAnalyticsDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-white/[0.04] border border-white/[0.08] text-[#e5e7eb]">
+                    <select value={analyticsDays} onChange={(e) => setAnalyticsDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]">
                       <option value={1}>Today</option>
                       <option value={7}>7 days</option>
                       <option value={30}>30 days</option>
                       <option value={90}>90 days</option>
                     </select>
-                    <button onClick={fetchAnalytics} disabled={analyticsLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                    <button onClick={fetchAnalytics} disabled={analyticsLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
                       {analyticsLoading ? "Loading..." : "Refresh"}
                     </button>
                   </div>
                   {analyticsLoading ? (
-                    <div className="text-center py-12 text-[#6b7280]">Loading analytics...</div>
+                    <div className="text-center py-12 text-[#8AA39A]">Loading analytics...</div>
                   ) : analytics ? (
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                         {[
                           { label: "Live Now", value: analytics.live?.active_users || 0, color: "#22c55e" },
                           { label: "Today", value: analytics.today?.unique_users || 0, color: "#38bdf8" },
-                          { label: "Yesterday", value: analytics.yesterday?.unique_users || 0, color: "#6b7280" },
+                          { label: "Yesterday", value: analytics.yesterday?.unique_users || 0, color: "#8AA39A" },
                           { label: `${analyticsDays}d Users`, value: analytics.period?.unique_users || 0, color: "#a78bfa" },
                           { label: `${analyticsDays}d Sessions`, value: analytics.period?.total_sessions || 0, color: "#f59e0b" },
                           { label: "Avg Duration", value: analytics.period?.avg_duration_ms ? `${Math.round(analytics.period.avg_duration_ms / 60000)}m` : "—", color: "#e5e7eb" },
                         ].map(s => (
-                          <div key={s.label} className="bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3">
-                            <div className="text-[10px] font-semibold text-[#6b7280] uppercase tracking-wide">{s.label}</div>
+                          <div key={s.label} className="bg-[#13201A] border border-[#1F3128] rounded-xl px-4 py-3">
+                            <div className="text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wide">{s.label}</div>
                             <div className="text-2xl font-bold mt-1" style={{ color: s.color }}>{s.value}</div>
                           </div>
                         ))}
@@ -643,39 +726,39 @@
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Devices */}
-                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Devices</h3>
                           {(analytics.devices || []).map(d => (
                             <div key={d.device} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
                               <span className="text-[#e5e7eb] capitalize">{d.device}</span>
-                              <span className="text-[#6b7280] tabular-nums">{d.cnt}</span>
+                              <span className="text-[#8AA39A] tabular-nums">{d.cnt}</span>
                             </div>
                           ))}
                         </div>
                         {/* Browsers */}
-                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Browsers</h3>
                           {(analytics.browsers || []).map(b => (
                             <div key={b.browser} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
                               <span className="text-[#e5e7eb] capitalize">{b.browser}</span>
-                              <span className="text-[#6b7280] tabular-nums">{b.cnt}</span>
+                              <span className="text-[#8AA39A] tabular-nums">{b.cnt}</span>
                             </div>
                           ))}
                         </div>
                         {/* Countries */}
-                        <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                        <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Top Countries</h3>
                           {(analytics.countries || []).slice(0, 10).map(c => (
                             <div key={c.country} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
                               <span className="text-[#e5e7eb]">{c.country || "Unknown"}</span>
-                              <span className="text-[#6b7280] tabular-nums">{c.cnt}</span>
+                              <span className="text-[#8AA39A] tabular-nums">{c.cnt}</span>
                             </div>
                           ))}
                         </div>
                       </div>
 
                       {/* Peak Hours */}
-                      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                      <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                         <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Activity by Hour (UTC)</h3>
                         <div className="flex items-end gap-0.5 h-24">
                           {Array.from({ length: 24 }, (_, i) => {
@@ -685,7 +768,7 @@
                             const pct = Math.max((cnt / max) * 100, 2);
                             return (
                               <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                                <div style={{ height: `${pct}%`, minHeight: 2, background: cnt > max * 0.7 ? "#00c853" : cnt > max * 0.3 ? "#38bdf8" : "#374151" }}
+                                <div style={{ height: `${pct}%`, minHeight: 2, background: cnt > max * 0.7 ? "#38F2A1" : cnt > max * 0.3 ? "#38bdf8" : "#2A4136" }}
                                   className="w-full rounded-t" title={`${i}:00 — ${cnt} sessions`} />
                                 {i % 3 === 0 && <span className="text-[8px] text-[#4b5563]">{i}</span>}
                               </div>
@@ -695,20 +778,20 @@
                       </div>
 
                       {/* OS */}
-                      <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                      <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                         <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Operating Systems</h3>
                         <div className="flex gap-4 flex-wrap">
                           {(analytics.os || []).map(o => (
                             <div key={o.os} className="flex items-center gap-2">
                               <span className="text-[12px] text-[#e5e7eb] capitalize">{o.os}</span>
-                              <span className="text-[11px] text-[#6b7280] tabular-nums bg-white/[0.04] px-2 py-0.5 rounded">{o.cnt}</span>
+                              <span className="text-[11px] text-[#8AA39A] tabular-nums bg-[#1A2B22] px-2 py-0.5 rounded">{o.cnt}</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     </>
                   ) : (
-                    <p className="text-[#6b7280] text-sm">Click Refresh to load analytics.</p>
+                    <p className="text-[#8AA39A] text-sm">Click Refresh to load analytics.</p>
                   )}
                 </div>
               )}
@@ -717,7 +800,7 @@
               {tab === "health" && (
                 <div className="space-y-6">
                   <div className="flex items-center gap-3">
-                    <button onClick={fetchSystemHealth} disabled={healthLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                    <button onClick={fetchSystemHealth} disabled={healthLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
                       {healthLoading ? "Checking..." : "Run Health Check"}
                     </button>
                     {systemHealth && (
@@ -727,21 +810,21 @@
                     )}
                   </div>
                   {healthLoading ? (
-                    <div className="text-center py-12 text-[#6b7280]">Running health checks...</div>
+                    <div className="text-center py-12 text-[#8AA39A]">Running health checks...</div>
                   ) : systemHealth?.checks ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                       {Object.entries(systemHealth.checks).map(([key, check]) => {
-                        const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#6b7280" : "#ff5252";
+                        const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#8AA39A" : "#ff5252";
                         const labels = { price_feed: "Price Feed", scoring: "Scoring Engine", d1: "Database (D1)", discord: "Discord Bot", stripe: "Stripe", sendgrid: "SendGrid", twelvedata: "TwelveData" };
                         return (
-                          <div key={key} className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4">
+                          <div key={key} className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-[13px] font-semibold text-[#e5e7eb]">{labels[key] || key}</span>
                               <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ color: statusColor, background: `${statusColor}15`, border: `1px solid ${statusColor}30` }}>
                                 {check.status?.toUpperCase()}
                               </span>
                             </div>
-                            <div className="space-y-1 text-[11px] text-[#6b7280]">
+                            <div className="space-y-1 text-[11px] text-[#8AA39A]">
                               {check.age_min !== undefined && <div>Age: <span className="text-[#e5e7eb]">{check.age_min}m</span></div>}
                               {check.ticker_count !== undefined && <div>Tickers: <span className="text-[#e5e7eb]">{check.ticker_count}</span></div>}
                               {check.user_count !== undefined && <div>Users: <span className="text-[#e5e7eb]">{check.user_count}</span></div>}
@@ -757,7 +840,7 @@
                       })}
                     </div>
                   ) : (
-                    <p className="text-[#6b7280] text-sm">Click "Run Health Check" to check system status.</p>
+                    <p className="text-[#8AA39A] text-sm">Click "Run Health Check" to check system status.</p>
                   )}
                 </div>
               )}
@@ -767,40 +850,40 @@
                 <div className="space-y-6">
                   <div className="flex items-center gap-3 flex-wrap">
                     <input type="text" placeholder="Label (e.g. 'John Doe - Influencer')" value={vipGenLabel} onChange={(e) => setVipGenLabel(e.target.value)}
-                      className="px-3 py-2 rounded-lg text-[13px] bg-white/[0.03] border border-white/[0.08] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all w-72" />
+                      className="px-3 py-2 rounded-lg text-[13px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb] placeholder-[#4b5563] outline-none focus:border-[#a78bfa]/30 transition-all w-72" />
                     <button onClick={generateVipCode} disabled={vipGenLoading}
                       className="px-5 py-2 rounded-lg text-[12px] font-semibold bg-[#a78bfa]/[0.15] border border-[#a78bfa]/[0.30] text-[#a78bfa] hover:bg-[#a78bfa]/[0.25] transition-all disabled:opacity-50">
                       {vipGenLoading ? "Generating..." : "Generate VIP Code"}
                     </button>
                     <button onClick={fetchVipCodes} disabled={vipLoading}
-                      className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-white/[0.04] border border-white/[0.08] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
+                      className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
                       Refresh
                     </button>
                   </div>
                   {message && (
-                    <div className={`inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#00c853] bg-[#00c853]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
+                    <div className={`inline-block px-3 py-1.5 rounded-lg text-[12px] font-medium ${message.type === "success" ? "text-[#38F2A1] bg-[#38F2A1]/[0.08]" : "text-[#ff5252] bg-[#ff5252]/[0.08]"}`}>
                       {message.text}
                     </div>
                   )}
                   {vipLoading ? (
-                    <div className="text-center py-12 text-[#6b7280]">Loading VIP codes...</div>
+                    <div className="text-center py-12 text-[#8AA39A]">Loading VIP codes...</div>
                   ) : vipCodes.length > 0 ? (
-                    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.01]">
+                    <div className="overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]">
                       <table className="w-full border-collapse text-[12px]">
                         <thead>
-                          <tr className="border-b border-white/[0.06] bg-white/[0.02]">
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Code</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Label</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Status</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Created</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Created By</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Used At</th>
-                            <th className="px-3 py-2.5 text-left font-semibold text-[#6b7280] uppercase">Used By</th>
+                          <tr className="border-b border-[#1F3128] bg-[#13201A]">
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Code</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Label</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Status</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Created</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Created By</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Used At</th>
+                            <th className="px-3 py-2.5 text-left font-semibold text-[#8AA39A] uppercase">Used By</th>
                           </tr>
                         </thead>
                         <tbody>
                           {vipCodes.map(c => (
-                            <tr key={c.code} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                            <tr key={c.code} className="border-b border-white/[0.03] hover:bg-[#13201A]">
                               <td className="px-3 py-2 text-[#e5e7eb] font-mono font-semibold">{c.code}</td>
                               <td className="px-3 py-2 text-[#9ca3af]">{c.label || "—"}</td>
                               <td className="px-3 py-2">
@@ -808,9 +891,9 @@
                                   {(c.status || "generated").toUpperCase()}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-[#6b7280]">{formatDateTime(c.created_at)}</td>
+                              <td className="px-3 py-2 text-[#8AA39A]">{formatDateTime(c.created_at)}</td>
                               <td className="px-3 py-2 text-[#9ca3af]">{c.created_by || "—"}</td>
-                              <td className="px-3 py-2 text-[#6b7280]">{c.used_at ? formatDateTime(c.used_at) : "—"}</td>
+                              <td className="px-3 py-2 text-[#8AA39A]">{c.used_at ? formatDateTime(c.used_at) : "—"}</td>
                               <td className="px-3 py-2 text-[#9ca3af]">{c.used_by_email || "—"}</td>
                             </tr>
                           ))}
@@ -818,7 +901,7 @@
                       </table>
                     </div>
                   ) : (
-                    <p className="text-[#6b7280] text-sm">No VIP codes generated yet.</p>
+                    <p className="text-[#8AA39A] text-sm">No VIP codes generated yet.</p>
                   )}
                 </div>
               )}

@@ -1471,7 +1471,7 @@ function ResearchNotePanel({
     style: {
       padding: 10,
       borderRadius: 8,
-      background: "rgba(255,255,255,0.02)",
+      background: "var(--tt-bg-elev)",
       border: "1px solid var(--tt-border)"
     }
   }, h("div", {
@@ -1748,6 +1748,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235
 
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235
