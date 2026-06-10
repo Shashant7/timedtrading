@@ -37,29 +37,56 @@
     <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
     <style>
       :root {
-        --tt-bg-base: #0b0e11;
-        --tt-bg-surface: rgba(255,255,255,0.025);
-        --tt-bg-elev: rgba(255,255,255,0.04);
-        --tt-border: rgba(255,255,255,0.06);
-        --tt-border-hi: rgba(255,255,255,0.12);
-        --tt-text: #e5e7eb;
-        --tt-text-muted: #9ca3af;
-        --tt-text-dim: #6b7280;
-        --tt-text-faint: #4b5563;
+        /* 2026-06-10 — VERDA MIGRATION (matches today.html exactly).
+           Solid Ink/Bark/Moss surfaces (no alpha overlays), single mint
+           accent, Manrope display face. Data semantics (--tt-up / --tt-dn)
+           keep their green/red meaning — mint is the CTA/brand accent,
+           NEVER a "price up" color. See skills/verda-ui-migration.md. */
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
         --tt-up: #22c55e;
         --tt-up-soft: #34d399;
         --tt-up-bg: rgba(34,197,94,0.10);
         --tt-dn: #f43f5e;
         --tt-dn-soft: #fb7185;
         --tt-dn-bg: rgba(244,63,94,0.10);
-        --tt-accent: #38F2A1;
-        --tt-accent-dim: rgba(56,242,161,0.14);
-        --tt-violet: #a78bfa;
-        --tt-violet-dim: rgba(167,139,250,0.14);
-        --tt-cyan: #22d3ee;
-        --tt-cyan-dim: rgba(34,211,238,0.10);
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-violet: var(--vf-spring, #A6F7CF);
+        --tt-violet-dim: rgba(166,247,207,0.12);
+        --tt-cyan: var(--vf-spring, #A6F7CF);
+        --tt-cyan-dim: rgba(166,247,207,0.10);
         --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        --tt-font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+        /* Shared ds-* components (ticker cards, chips, rail panels) read
+           these tokens from tt-tokens.css — re-point them here so every
+           shared component on THIS page picks up the Verda palette. */
+        --ds-bg-canvas: var(--vf-ink, #0B1410);
+        --ds-bg-surface: var(--vf-bark, #13201A);
+        --ds-bg-surface-hi: var(--vf-bark-hi, #1A2B22);
+        --ds-bg-glass: rgba(56, 242, 161, 0.035);
+        --ds-bg-glass-hi: rgba(56, 242, 161, 0.07);
+        --ds-text-display: var(--vf-cream, #E8F2EC);
+        --ds-text-body: #CFDED6;
+        --ds-text-muted: var(--vf-sage, #8AA39A);
+        --ds-text-faint: #51635A;
+        --ds-accent: var(--vf-mint, #38F2A1);
+        --ds-accent-hi: var(--vf-spring, #A6F7CF);
+        --ds-accent-soft: #5BE8AB;
+        --ds-accent-dim: rgba(56, 242, 161, 0.14);
+        --ds-accent-glow: rgba(56, 242, 161, 0.40);
+        --ds-stroke-soft: rgba(166, 247, 207, 0.06);
+        --ds-stroke: var(--vf-moss, #1F3128);
+        --ds-stroke-hi: var(--vf-moss-hi, #2A4136);
       }
       body {
         background: var(--tt-bg-base);
@@ -73,10 +100,10 @@
       @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
       .tt-row { margin-bottom: 28px; }
       @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
-      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
-      .tt-card-pad { padding: 14px 16px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      .tt-card-pad { padding: 18px 20px 16px; }
       .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); }
+      .tt-sec-h { font-family: var(--tt-font-display); font-size: 17px; font-weight: 800; letter-spacing: -0.02em; color: var(--tt-text); }
 
       /* Top nav (matches /today.html) */
       nav.topnav {
@@ -109,19 +136,20 @@
       .nav-link.learn { color: var(--tt-up-soft); }
       .nav-link.learn:hover { background: var(--tt-up-bg); }
 
-      /* Page hero */
+      /* Page hero — mirrors today.html's .tt-status tier-1 strip:
+         eyebrow label + Manrope greeting on a bark surface. */
       .at-hero {
         display: grid;
         grid-template-columns: 1fr auto;
         gap: 16px;
         align-items: center;
-        padding: 18px 22px;
+        padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-radius: 14px;
         margin-bottom: 20px;
       }
-      .at-hero h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+      .at-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
       .at-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .at-hero .sub { font-size: 13px; color: var(--tt-text-muted); margin-top: 4px; }
       .at-hero .pills { display: inline-flex; gap: 8px; flex-wrap: wrap; }
@@ -239,8 +267,8 @@
       .at-account-strip {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
-        padding: 12px 14px;
+        border-radius: var(--vf-radius-md, 18px);
+        padding: 14px 16px;
         margin-bottom: 14px;
       }
       .at-account-strip__head {
@@ -276,10 +304,10 @@
         .at-account-strip__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
       .at-account-strip__tile {
-        padding: 8px 10px;
+        padding: 9px 11px;
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
-        border-radius: 8px;
+        border-radius: 10px;
         display: flex;
         flex-direction: column;
         gap: 4px;
@@ -311,7 +339,7 @@
         padding: 16px 18px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         margin-bottom: 24px;
       }
       .at-brief-row {
@@ -375,7 +403,7 @@
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
         border-right: 0;
-        border-radius: 12px 0 0 12px;
+        border-radius: 14px 0 0 14px;
         position: relative;
       }
       @media (max-width: 720px) {
@@ -384,7 +412,7 @@
           justify-content: space-between;
           border-right: 1px solid var(--tt-border);
           border-bottom: 0;
-          border-radius: 12px 12px 0 0;
+          border-radius: 14px 14px 0 0;
         }
       }
       .lane-head::before {
@@ -409,7 +437,7 @@
         padding: 12px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 0 12px 12px 0;
+        border-radius: 0 14px 14px 0;
         min-height: 100px;
         overflow-x: auto;
         overflow-y: hidden;
@@ -417,7 +445,7 @@
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
       @media (max-width: 720px) {
-        .lane-body { border-radius: 0 0 12px 12px; }
+        .lane-body { border-radius: 0 0 14px 14px; }
       }
       .lane-body::-webkit-scrollbar { height: 6px; }
       .lane-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
@@ -1489,16 +1517,20 @@
       // confused about what cards + lanes mean and when to act. Collapsible,
       // remembers dismissal in localStorage. Default open on first visit.
       function HowToReadCard() {
-        const KEY = "tt_at_guide_open_v1";
+        // 2026-06-10 — Verda unification: converted from a default-open
+        // button-toggle card (an instructional wall at the top of the
+        // page) to the shared <details class="tt-disclose"> pattern,
+        // COLLAPSED by default — matches today.html's progressive
+        // disclosure. v2 key so previous "open" persistence doesn't
+        // resurrect the wall.
+        const KEY = "tt_at_guide_open_v2";
         const [open, setOpen] = useState(() => {
-          try { return localStorage.getItem(KEY) !== "0"; } catch (_) { return true; }
+          try { return localStorage.getItem(KEY) === "1"; } catch (_) { return false; }
         });
-        const toggle = () => {
-          setOpen((v) => {
-            const n = !v;
-            try { localStorage.setItem(KEY, n ? "1" : "0"); } catch (_) {}
-            return n;
-          });
+        const onToggle = (e) => {
+          const n = !!e.target.open;
+          setOpen(n);
+          try { localStorage.setItem(KEY, n ? "1" : "0"); } catch (_) {}
         };
         const lane = (name, when) => h("div", { style: { display: "flex", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--tt-border)", fontSize: 12 } },
           h("strong", { style: { minWidth: 124, color: "var(--tt-text)" } }, name),
@@ -1506,19 +1538,13 @@
         const el = (label, desc) => h("div", { style: { fontSize: 12, lineHeight: 1.5 } },
           h("strong", { style: { color: "var(--tt-text)" } }, label), " — ",
           h("span", { style: { color: "var(--tt-text-muted)" } }, desc));
-        return h("section", { className: "tt-card tt-card-pad", style: { marginBottom: 14 } },
-          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
-            h("div", null,
-              h("div", { className: "label" }, "HOW TO READ THIS PAGE"),
-              h("div", { style: { fontSize: 13, color: "var(--tt-text)", fontWeight: 600, marginTop: 2 } },
-                "A live, simulated portfolio of what the TT model is trading"),
-            ),
-            h("button", {
-              onClick: toggle,
-              style: { background: "transparent", border: "1px solid var(--tt-border-hi)", color: "var(--tt-text-muted)", borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" },
-            }, open ? "Hide guide" : "Show guide"),
+        return h("details", { className: "tt-disclose", open, onToggle, style: { marginBottom: 14 } },
+          h("summary", null,
+            h("span", { className: "tt-disclose-title" }, "How to read this page"),
+            h("span", { className: "tt-disclose-sub" }, "A live, simulated portfolio of what the TT model is trading"),
+            h("span", { className: "tt-disclose-caret" }, "▼"),
           ),
-          open && h("div", { style: { marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 } },
+          open && h("div", { className: "tt-disclose-body", style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, padding: "14px 16px 12px" } },
             h("div", null,
               h("div", { className: "tt-sec-title", style: { marginBottom: 6 } }, "WHAT THIS IS"),
               h("p", { style: { fontSize: 12.5, lineHeight: 1.55, color: "var(--tt-text-muted)", margin: 0 } },
