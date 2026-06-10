@@ -2383,8 +2383,11 @@ function App({
     const [h] = et.split(":").map(Number);
     return h;
   }, []);
-  const hasMorning = brief?.morning?.content;
-  const hasEvening = brief?.evening?.content;
+  const todayEtKey = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York"
+  });
+  const hasMorning = brief?.morning?.content && String(brief.morning.date || "") === todayEtKey;
+  const hasEvening = brief?.evening?.content && String(brief.evening.date || "") === todayEtKey;
   const today = new Date().toLocaleDateString("en-US", {
     timeZone: "America/New_York",
     weekday: "long",
@@ -2759,6 +2762,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781073837727:271149669
+// cache-bust:1781074165128:314896959
 
-// cache-bust:1781073837727:271149669
+// cache-bust:1781074165128:314896959
