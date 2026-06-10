@@ -580,42 +580,64 @@ function CoreUniverseManager() {
   const totalActive = state.data?.total_active ?? "—";
   const coreCount = state.data?.core?.count ?? "—";
   return React.createElement("div", {
-    className: "mt-6 pt-4 border-t border-white/[0.06]"
+    className: "tt-admin-section"
   }, React.createElement("button", {
     onClick: () => setOpen(v => !v),
-    className: "flex items-center gap-2 text-left w-full group"
+    className: "tt-admin-head group"
   }, React.createElement("span", {
-    className: "text-[11px] text-cyan-400 uppercase tracking-wide font-semibold"
-  }, "\u2295 Core Universe (available to ALL users)"), React.createElement("span", {
-    className: "text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded"
+    className: "tt-admin-title",
+    style: {
+      color: "var(--tt-accent)"
+    }
+  }, "Core Universe"), React.createElement("span", {
+    className: "text-[10px] px-2 py-0.5 rounded-full",
+    style: {
+      background: "var(--tt-accent-dim)",
+      color: "var(--tt-accent)",
+      fontFamily: "var(--tt-font-mono)"
+    }
   }, totalActive), React.createElement("span", {
-    className: "text-[9px] text-gray-600"
-  }, "core: ", coreCount, " \xB7 overlay: ", overlay.length, " \xB7 removed: ", removed.length), React.createElement("span", {
-    className: "text-gray-600 text-xs group-hover:text-white ml-auto"
+    className: "text-[10px]",
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "core ", coreCount, " \xB7 overlay ", overlay.length, " \xB7 removed ", removed.length), React.createElement("span", {
+    className: "text-xs ml-auto",
+    style: {
+      color: "var(--tt-text-dim)"
+    }
   }, open ? "▲" : "▼")), open && React.createElement("div", {
     className: "mt-3 space-y-3"
   }, React.createElement("div", {
-    className: "text-[10px] text-[#6b7280]"
-  }, "Adds the ticker to the SECTOR_MAP overlay (KV-persisted, scored for everyone). Validates against the live market data feed, then triggers a 2-year backfill + scoring pipeline. Propagates to all warm isolates within 5 min; instant for cold starts. Use the user-tickers add flow for per-user additions instead."), React.createElement("div", {
+    className: "tt-page-lede",
+    style: {
+      fontSize: 12
+    }
+  }, "Add tickers here to update the live universe for all users. Validates against the market data feed, then runs backfill + scoring (~2\u20135 min). Use Fill / Score on empty rows below if coverage is stale."), React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
   }, React.createElement("input", {
     value: tickerInput,
     onChange: e => setTickerInput(e.target.value),
     onKeyDown: e => e.key === "Enter" && add(),
     placeholder: "Ticker (e.g. IBM)",
-    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-40 focus:outline-none focus:border-cyan-500/50 uppercase"
+    className: "tt-input w-40 uppercase",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    }
   }), React.createElement("select", {
     value: sectorInput,
     onChange: e => setSectorInput(e.target.value),
-    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cyan-500/50"
+    className: "tt-input"
   }, GICS_SECTORS.map(s => React.createElement("option", {
     key: s,
     value: s
   }, s))), React.createElement("button", {
     onClick: add,
     disabled: submitting || !tickerInput.trim(),
-    className: "px-3 py-1.5 bg-cyan-600/60 hover:bg-cyan-600 rounded text-xs font-medium text-white disabled:opacity-40"
-  }, submitting ? "Adding..." : "Add to Universe")), msg && React.createElement("div", {
+    className: "tt-btn tt-btn--primary"
+  }, submitting ? React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "tt-spin"
+  }), "Adding\u2026") : "Add to Universe")), msg && React.createElement("div", {
     className: `text-xs px-2 py-1 rounded ${msg.type === "success" ? "text-green-400 bg-green-900/20" : "text-red-400 bg-red-900/20"}`
   }, msg.text), overlay.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "text-[10px] text-gray-500 uppercase tracking-wide mb-1.5"
@@ -703,13 +725,16 @@ function UptickManager() {
     }
   };
   return React.createElement("div", {
-    className: "mt-6 pt-4 border-t border-white/[0.06]"
+    className: "tt-admin-section"
   }, React.createElement("button", {
     onClick: () => setOpen(v => !v),
-    className: "flex items-center gap-2 text-left w-full group"
+    className: "tt-admin-head group"
   }, React.createElement("span", {
-    className: "text-[11px] text-emerald-400 uppercase tracking-wide font-semibold"
-  }, "\u2726 TT Selected \u2014 UPTICKS"), React.createElement("span", {
+    className: "tt-admin-title",
+    style: {
+      color: "#4ade80"
+    }
+  }, "TT Selected \u2014 Upticks"), React.createElement("span", {
     className: "text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded"
   }, tickers.length), React.createElement("span", {
     className: "text-gray-600 text-xs group-hover:text-white ml-auto"
@@ -811,12 +836,15 @@ function MemberTickerListManager() {
     }
   };
   return React.createElement("div", {
-    className: "mt-6 pt-4 border-t border-white/[0.06]"
+    className: "tt-admin-section"
   }, React.createElement("button", {
     onClick: () => setOpen(v => !v),
-    className: "flex items-center gap-2 text-left w-full group"
+    className: "tt-admin-head group"
   }, React.createElement("span", {
-    className: "text-[11px] text-amber-400 uppercase tracking-wide font-semibold"
+    className: "tt-admin-title",
+    style: {
+      color: "#fbbf24"
+    }
   }, "Member Ticker List"), React.createElement("span", {
     className: "text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded"
   }, tickers.length), hasUnsavedChanges && React.createElement("span", {
@@ -921,12 +949,15 @@ function SectorRatingsManager() {
   };
   const sectors = Object.keys(ratings).filter(s => !["ETF", "Crypto", "Precious Metals"].includes(s));
   return React.createElement("div", {
-    className: "mt-6 pt-4 border-t border-white/[0.06]"
+    className: "tt-admin-section"
   }, React.createElement("button", {
     onClick: () => setOpen(v => !v),
-    className: "flex items-center gap-2 text-left w-full group"
+    className: "tt-admin-head group"
   }, React.createElement("span", {
-    className: "text-[11px] text-blue-400 uppercase tracking-wide font-semibold"
+    className: "tt-admin-title",
+    style: {
+      color: "#60a5fa"
+    }
   }, "S&P Sector Ratings"), React.createElement("span", {
     className: "text-[10px] text-gray-500 bg-white/[0.04] px-1.5 py-0.5 rounded"
   }, sectors.length, " sectors"), React.createElement("span", {
@@ -1016,6 +1047,24 @@ function SectorRatingsManager() {
     className: `text-xs ${msg.type === "success" ? "text-green-400" : "text-red-400"}`
   }, msg.text))));
 }
+function formatBfLabel(status) {
+  if (!status) return "Fill";
+  if (status === "running" || status === "started") return "Filling…";
+  if (status === "scoring...") return "Scoring…";
+  if (status === "done") return "Done";
+  if (typeof status === "string" && status.startsWith("error")) return "Retry";
+  if (typeof status === "string" && (status.includes("bars") || status.includes("TF"))) {
+    return status.length > 18 ? status.slice(0, 18) + "…" : status;
+  }
+  return String(status).slice(0, 14);
+}
+function formatScoreLabel(status) {
+  if (!status) return "Score";
+  if (status === "running") return "Scoring…";
+  if (status === "ok") return "Scored";
+  if (typeof status === "string" && status.startsWith("error")) return "Retry";
+  return "Score";
+}
 function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1025,7 +1074,6 @@ function App() {
   const [sortCol, setSortCol] = useState("ticker");
   const [sortDir, setSortDir] = useState("asc");
   const [selected, setSelected] = useState(new Set());
-  const [addInput, setAddInput] = useState("");
   const [actionStatus, setActionStatus] = useState(null);
   const [backfillStatus, setBackfillStatus] = useState({});
   const [priceData, setPriceData] = useState({});
@@ -1033,7 +1081,6 @@ function App() {
   const [pendingTickers, setPendingTickers] = useState(new Set());
   const [watchlistLoaded, setWatchlistLoaded] = useState(false);
   const pollUntilRef = useRef(null);
-  const addRef = useRef(null);
   const [watchlistTickers, setWatchlistTickers] = useState([]);
   const normalizeTicker = useCallback(ticker => String(ticker || "").toUpperCase().trim(), []);
   const getTickerName = useCallback(ticker => {
@@ -1277,61 +1324,6 @@ function App() {
       setSelected(new Set());
     } else {
       setSelected(new Set(filtered.map(t => t.ticker)));
-    }
-  }
-  async function handleAdd() {
-    const raw = addInput.trim().toUpperCase();
-    if (!raw) return;
-    const toAdd = raw.split(/[,\s]+/).filter(Boolean);
-    setActionStatus({
-      type: "info",
-      msg: `Adding ${toAdd.join(", ")}...`
-    });
-    try {
-      const res = await fetch(`${API_BASE}/timed/watchlist/add`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          tickers: toAdd
-        })
-      });
-      const json = await res.json();
-      if (json.ok) {
-        const addedList = Array.isArray(json.addedTickers) ? json.addedTickers : json.added > 0 ? toAdd : [];
-        if (addedList.length > 0) {
-          const normalizedAdded = addedList.map(normalizeTicker).filter(Boolean);
-          setPendingTickers(prev => new Set([...prev, ...normalizedAdded]));
-          setWatchlistTickers(prev => Array.from(new Set([...(prev || []), ...normalizedAdded])).sort());
-          setWatchlistLoaded(true);
-          pollUntilRef.current = Date.now() + 120000;
-        }
-        const parts = [];
-        if (json.added > 0) parts.push(`${json.added} ticker(s) added`);
-        if (json.reactivated > 0) parts.push(`${json.reactivated} reactivated`);
-        const bfTickers = Array.isArray(json.backfillTriggered) ? json.backfillTriggered : [];
-        if (bfTickers.length > 0) parts.push(`Backfill started for ${bfTickers.join(", ")} — use Fill then Score if needed`);
-        const msg = parts.length > 0 ? parts.join(". ") + "." : "No changes needed.";
-        setActionStatus({
-          type: "success",
-          msg
-        });
-        setAddInput("");
-        fetchData();
-      } else {
-        const msg = (json.error === "alpaca_symbol_not_found" || json.error === "symbol_not_found") && json.message ? json.message : json.invalid?.length ? `Symbol not found: ${json.invalid.join(", ")}. Try another symbol.` : json.error;
-        setActionStatus({
-          type: "error",
-          msg
-        });
-      }
-    } catch (e) {
-      setActionStatus({
-        type: "error",
-        msg: e.message
-      });
     }
   }
   async function handleRemove(tickerList) {
@@ -1664,116 +1656,159 @@ function App() {
     }, formatAge(tfData.max_ts)));
   }
   return React.createElement("div", {
-    className: "min-h-screen pb-16 bg-[#0a0a0f]"
+    className: "min-h-screen pb-16",
+    style: {
+      background: "var(--tt-bg-base)"
+    }
   }, React.createElement("div", {
-    className: "max-w-[1800px] mx-auto px-4 py-4 space-y-4"
+    className: "tt-page space-y-4"
+  }, React.createElement("div", {
+    className: "tt-card tt-card-pad"
+  }, React.createElement("h1", {
+    className: "tt-page-title"
+  }, "Ticker Universe"), React.createElement("p", {
+    className: "tt-page-lede"
+  }, "Source of truth for the active universe. Add via Core Universe below; use Fill then Score on rows missing coverage."), (summaryStats.total > 0 || data?.summary) && React.createElement("div", {
+    className: "flex flex-wrap gap-3 mt-4"
+  }, React.createElement("div", {
+    className: "tt-stat"
+  }, React.createElement("div", {
+    className: "tt-stat-label"
+  }, "In System"), React.createElement("div", {
+    className: "tt-stat-value"
+  }, summaryStats.total)), React.createElement("div", {
+    className: "tt-stat"
+  }, React.createElement("div", {
+    className: "tt-stat-label"
+  }, "With Data"), React.createElement("div", {
+    className: "tt-stat-value",
+    style: {
+      color: "var(--tt-up)"
+    }
+  }, summaryStats.withData)), React.createElement("div", {
+    className: "tt-stat"
+  }, React.createElement("div", {
+    className: "tt-stat-label"
+  }, "No Data"), React.createElement("div", {
+    className: "tt-stat-value",
+    style: {
+      color: summaryStats.noData > 0 ? "var(--tt-dn)" : "var(--tt-up)"
+    }
+  }, summaryStats.noData)), React.createElement("div", {
+    className: "tt-stat"
+  }, React.createElement("div", {
+    className: "tt-stat-label"
+  }, "Showing"), React.createElement("div", {
+    className: "tt-stat-value"
+  }, filtered.length)))), React.createElement("div", {
+    className: "tt-card tt-card-pad"
+  }, React.createElement(CoreUniverseManager, null), React.createElement(UptickManager, null), React.createElement(MemberTickerListManager, null), React.createElement(SectorRatingsManager, null), React.createElement("div", {
+    className: "tt-admin-section",
+    style: {
+      paddingTop: 12
+    }
+  }, React.createElement("div", {
+    className: "flex items-center gap-3 flex-wrap"
+  }, React.createElement("span", {
+    className: "tt-admin-title",
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "Admin Tools"), React.createElement("a", {
+    href: "brand-kit.html",
+    className: "tt-btn tt-btn--ghost",
+    style: {
+      textDecoration: "none"
+    }
+  }, "Brand Kit"), React.createElement("a", {
+    href: "debug-dashboard.html",
+    className: "tt-btn tt-btn--ghost",
+    style: {
+      textDecoration: "none"
+    }
+  }, "Debug Dashboard")))), React.createElement("div", {
+    className: "tt-card tt-card-pad"
   }, React.createElement("div", {
     className: "flex flex-wrap items-center gap-3"
-  }, React.createElement("div", {
-    className: "flex-1 min-w-[200px] text-[11px] text-[#6b7280]"
-  }, "This page is the source of truth for the active ticker universe. Add or remove tickers here to update the live system list used across the app.", (summaryStats.total > 0 || data?.summary) && React.createElement("span", {
-    className: "ml-2 text-[#9ca3af]"
-  }, summaryStats.withData, " with data / ", summaryStats.total, " total")), React.createElement("button", {
+  }, React.createElement("button", {
     onClick: fetchData,
     disabled: loading,
-    className: "px-3 py-1.5 bg-white/5 border border-white/10 rounded text-xs text-gray-300 hover:bg-white/10 disabled:opacity-50"
-  }, loading ? "Loading..." : "Refresh"), React.createElement("div", {
-    className: "flex items-center gap-1.5"
-  }, React.createElement("input", {
-    ref: addRef,
-    type: "text",
-    value: addInput,
-    onChange: e => setAddInput(e.target.value),
-    onKeyDown: e => e.key === "Enter" && handleAdd(),
-    placeholder: "Add ticker(s): AAPL, MSFT...",
-    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-64 focus:outline-none focus:border-blue-500/50"
-  }), React.createElement("button", {
-    onClick: handleAdd,
-    disabled: !addInput.trim(),
-    className: "px-3 py-1.5 bg-blue-600/80 hover:bg-blue-600 rounded text-xs font-medium text-white disabled:opacity-40"
-  }, "Add")), React.createElement("input", {
+    className: "tt-btn tt-btn--ghost"
+  }, loading ? React.createElement(React.Fragment, null, React.createElement("span", {
+    className: "tt-spin"
+  }), "Loading\u2026") : "Refresh"), React.createElement("input", {
     type: "text",
     value: search,
     onChange: e => setSearch(e.target.value),
-    placeholder: "Search tickers...",
-    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 w-48 focus:outline-none focus:border-blue-500/50"
+    placeholder: "Search tickers\u2026",
+    className: "tt-input w-48"
   }), React.createElement("select", {
     value: sectorFilter,
     onChange: e => setSectorFilter(e.target.value),
-    className: "bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-gray-300 focus:outline-none"
+    className: "tt-input"
   }, sectors.map(s => React.createElement("option", {
     key: s,
-    value: s,
-    style: {
-      background: "#1a1a24"
-    }
+    value: s
   }, s === "all" ? "All Sectors" : s))), selected.size > 0 && React.createElement("div", {
-    className: "flex items-center gap-2 ml-2"
+    className: "flex items-center gap-2"
   }, React.createElement("span", {
-    className: "text-xs text-gray-400"
+    className: "text-xs",
+    style: {
+      color: "var(--tt-text-muted)"
+    }
   }, selected.size, " selected"), React.createElement("button", {
     onClick: () => handleRemove([...selected]),
-    className: "px-3 py-1.5 bg-red-600/60 hover:bg-red-600 rounded text-xs font-medium text-white"
+    className: "tt-btn tt-btn--danger"
   }, "Remove Selected"), React.createElement("button", {
     onClick: () => setSelected(new Set()),
-    className: "px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300"
+    className: "tt-btn tt-btn--ghost"
   }, "Clear")), React.createElement("div", {
     className: "ml-auto flex items-center gap-2"
-  }, seqBackfill?.running && React.createElement("div", {
-    className: "flex items-center gap-2"
-  }, React.createElement("div", {
-    className: "text-xs text-amber-400 max-w-[300px] truncate"
-  }, seqBackfill.current, " (", seqBackfill.index + 1, "/", seqBackfill.total, ")", seqBackfill.progress && React.createElement("span", {
-    className: "text-gray-500 ml-1"
-  }, seqBackfill.progress)), React.createElement("button", {
+  }, React.createElement("button", {
+    onClick: () => handleFillGaps("__SEQ_ALL__"),
+    disabled: seqBackfill?.running,
+    className: "tt-btn tt-btn--fill"
+  }, seqBackfill?.running ? `Filling ${seqBackfill.index + 1}/${seqBackfill.total}…` : "Fill All Gaps"))), (seqBackfill?.running || actionStatus) && React.createElement("div", {
+    className: "tt-progress mt-3"
+  }, seqBackfill?.running && React.createElement("div", null, React.createElement("span", {
+    className: "tt-spin"
+  }), React.createElement("strong", null, seqBackfill.current), " \u2014 ", seqBackfill.index + 1, " of ", seqBackfill.total, seqBackfill.progress ? ` · ${seqBackfill.progress}` : "", React.createElement("button", {
     onClick: () => {
       seqCancelRef.current = true;
     },
-    className: "px-2 py-1 text-[10px] bg-red-900/40 hover:bg-red-800/60 text-red-400 rounded"
-  }, "Stop")), !seqBackfill?.running && seqBackfill?.log?.length > 0 && React.createElement("span", {
-    className: "text-xs text-gray-500"
-  }, "Last run: ", seqBackfill.log.length, " tickers ", seqBackfill.cancelled ? "(cancelled)" : "done"), React.createElement("button", {
-    onClick: () => handleFillGaps("__SEQ_ALL__"),
-    disabled: seqBackfill?.running,
-    className: "px-3 py-1.5 bg-[#00c853]/60 hover:bg-[#00c853] rounded text-xs font-medium text-white disabled:opacity-40"
-  }, seqBackfill?.running ? `Filling ${seqBackfill.index + 1}/${seqBackfill.total}...` : "Fill All Gaps"))), actionStatus && React.createElement("div", {
-    className: `px-3 py-2 rounded text-sm ${actionStatus.type === "success" ? "bg-green-900/30 text-green-400 border border-green-800/40" : actionStatus.type === "error" ? "bg-red-900/30 text-red-400 border border-red-800/40" : "bg-blue-900/30 text-blue-400 border border-blue-800/40"}`
+    className: "tt-btn tt-btn--danger ml-3",
+    style: {
+      padding: "4px 10px",
+      fontSize: 11
+    }
+  }, "Stop")), actionStatus && React.createElement("div", {
+    style: {
+      color: actionStatus.type === "error" ? "var(--tt-dn)" : actionStatus.type === "success" ? "var(--tt-up)" : "var(--tt-text-muted)"
+    }
   }, actionStatus.msg, React.createElement("button", {
     onClick: () => setActionStatus(null),
-    className: "ml-3 text-xs opacity-60 hover:opacity-100"
-  }, "Dismiss")), (summaryStats.total > 0 || data?.summary) && React.createElement("div", {
-    className: "flex gap-4 text-xs"
-  }, React.createElement("div", {
-    className: "bg-white/[0.03] border border-white/5 rounded px-4 py-2"
-  }, React.createElement("div", {
-    className: "text-gray-500"
-  }, "In System"), React.createElement("div", {
-    className: "text-white font-semibold text-lg"
-  }, summaryStats.total)), React.createElement("div", {
-    className: "bg-white/[0.03] border border-white/5 rounded px-4 py-2"
-  }, React.createElement("div", {
-    className: "text-gray-500"
-  }, "With Data"), React.createElement("div", {
-    className: "text-white font-semibold text-lg"
-  }, summaryStats.withData)), React.createElement("div", {
-    className: "bg-white/[0.03] border border-white/5 rounded px-4 py-2"
-  }, React.createElement("div", {
-    className: "text-gray-500"
-  }, "No Data"), React.createElement("div", {
-    className: `font-semibold text-lg ${summaryStats.noData > 0 ? "text-red-400" : "text-green-400"}`
-  }, summaryStats.noData)), React.createElement("div", {
-    className: "bg-white/[0.03] border border-white/5 rounded px-4 py-2"
-  }, React.createElement("div", {
-    className: "text-gray-500"
-  }, "Showing"), React.createElement("div", {
-    className: "text-white font-semibold text-lg"
-  }, filtered.length))), error && React.createElement("div", {
+    className: "ml-3 text-xs opacity-70 hover:opacity-100",
+    style: {
+      background: "none",
+      border: "none",
+      color: "inherit",
+      cursor: "pointer"
+    }
+  }, "Dismiss"))), !seqBackfill?.running && seqBackfill?.log?.length > 0 && React.createElement("div", {
+    className: "text-xs mt-2",
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, "Last fill run: ", seqBackfill.log.length, " tickers ", seqBackfill.cancelled ? "(stopped early)" : "completed")), error && React.createElement("div", {
     className: "bg-red-900/20 border border-red-800/40 rounded px-4 py-3 text-red-400 text-sm"
   }, "Error: ", error, React.createElement("button", {
     onClick: fetchData,
     className: "ml-3 underline text-xs"
   }, "Retry")), !loading && filtered.length > 0 && React.createElement("div", {
-    className: "overflow-x-auto border border-white/5 rounded-lg"
+    className: "tt-card overflow-x-auto",
+    style: {
+      padding: 0
+    }
   }, React.createElement("table", {
     className: "text-sm",
     style: {
@@ -1931,15 +1966,27 @@ function App() {
       title: "TV-sourced: re-export from TradingView"
     }, "TV") : React.createElement("button", {
       onClick: () => handleFillGaps(t.ticker),
-      disabled: bfStatus === "running",
-      className: "px-2 py-0.5 text-[10px] bg-[#00c853]/20 hover:bg-[#00c853]/40 text-[#00e676] rounded disabled:opacity-40",
-      title: "Fill data gaps via backfill (then runs scoring)"
-    }, bfStatus === "running" ? "..." : bfStatus === "started" ? "OK" : bfStatus === "scoring..." ? "Score" : "Fill")), !isTV && React.createElement("button", {
+      disabled: bfStatus === "running" || bfStatus === "started" || bfStatus === "scoring...",
+      className: "tt-btn tt-btn--fill",
+      style: {
+        padding: "4px 10px",
+        fontSize: 10
+      },
+      title: typeof bfStatus === "string" && bfStatus.includes("bars") ? bfStatus : "Fill candle gaps via backfill, then auto-score"
+    }, (bfStatus === "running" || bfStatus === "started" || bfStatus === "scoring...") && React.createElement("span", {
+      className: "tt-spin"
+    }), formatBfLabel(bfStatus))), !isTV && React.createElement("button", {
       onClick: () => handleRunOnboard(t.ticker),
       disabled: scoreStatus[t.ticker] === "running",
-      className: "px-2 py-0.5 text-[10px] bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 rounded disabled:opacity-40",
+      className: "tt-btn tt-btn--score",
+      style: {
+        padding: "4px 10px",
+        fontSize: 10
+      },
       title: "Run scoring from existing candles (use after Fill)"
-    }, scoreStatus[t.ticker] === "running" ? "..." : scoreStatus[t.ticker] === "ok" ? "✓" : "Score"), React.createElement("button", {
+    }, scoreStatus[t.ticker] === "running" && React.createElement("span", {
+      className: "tt-spin"
+    }), formatScoreLabel(scoreStatus[t.ticker])), React.createElement("button", {
       onClick: () => handleRemove([t.ticker]),
       className: "px-2 py-0.5 text-[10px] bg-red-900/30 hover:bg-red-800/50 text-red-400 rounded",
       title: "Remove from index"
@@ -1952,19 +1999,7 @@ function App() {
     className: "flex items-center justify-center py-20"
   }, React.createElement("div", {
     className: "text-gray-500 text-sm"
-  }, search || sectorFilter !== "all" ? "No tickers match your filters." : "No ticker data found.")), React.createElement(CoreUniverseManager, null), React.createElement(UptickManager, null), React.createElement(MemberTickerListManager, null), React.createElement(SectorRatingsManager, null), React.createElement("div", {
-    className: "mt-6 pt-4 border-t border-white/[0.06]"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, React.createElement("span", {
-    className: "text-[11px] text-[#4b5563] uppercase tracking-wide"
-  }, "Admin Tools"), React.createElement("a", {
-    href: "brand-kit.html",
-    className: "px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-all"
-  }, "Brand Kit"), React.createElement("a", {
-    href: "debug-dashboard.html",
-    className: "px-3 py-1.5 rounded-md text-[12px] text-[#6b7280] hover:text-white hover:bg-white/[0.06] border border-white/[0.08] transition-all"
-  }, "Debug Dashboard")))));
+  }, search || sectorFilter !== "all" ? "No tickers match your filters." : "No ticker data found."))));
 }
 const _AuthGate = window.TimedAuthGate;
 const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
@@ -1974,6 +2009,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1781112439524:253528176
+// cache-bust:1781124720197:856420251
 
-// cache-bust:1781112439524:253528176
+// cache-bust:1781124720197:856420251
