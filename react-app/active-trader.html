@@ -856,7 +856,8 @@
         const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
           || (() => ({ dayPct: null, dayChg: null }));
         const dc = (() => { try { return dailyChange(t); } catch (_) { return null; } })();
-        const price = Number(t?.price ?? t?.close);
+        // Headline = session-aware RTH price (getHeadlinePrice). EXT line below.
+        const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price ?? t?.close);
         const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
         const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
@@ -1043,6 +1044,27 @@
               style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
             }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`),
           ),
+          // EXT price/change — mirrors Market Pulse cards; getExtChange() owns rules.
+          (() => {
+            const ext = window.TimedPriceUtils?.getExtChange?.(t);
+            if (!ext) return null;
+            const extDir = ext.pct >= 0 ? "up" : "dn";
+            return h("div", {
+              className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
+              style: { fontSize: 10.5, opacity: 0.88, marginTop: 2 },
+            },
+              h("span", {
+                style: {
+                  fontSize: 8.5, fontWeight: 700, marginRight: 4,
+                  padding: "0 3px", borderRadius: 3,
+                  background: "var(--tt-bg-elev)", color: "var(--tt-text-dim)",
+                  letterSpacing: "0.08em",
+                },
+              }, "EXT"),
+              ext.price != null ? `$${ext.price.toFixed(2)} ` : "",
+              `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`,
+            );
+          })(),
           // Position progress bar (only when there's an open trade).
           progressBarData && (() => {
             const { xPct, pnlPct, ticks, ep, curX } = progressBarData;

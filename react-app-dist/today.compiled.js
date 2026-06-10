@@ -3211,7 +3211,7 @@ function ViewportCard({
       return null;
     }
   })();
-  const price = Number(t?.price ?? t?.close);
+  const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price ?? t?.close);
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
@@ -3358,7 +3358,30 @@ function ViewportCard({
       opacity: 0.7,
       fontSize: 10
     }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), sparkSvg && h("div", {
+  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), (() => {
+    const ext = window.TimedPriceUtils?.getExtChange?.(t);
+    if (!ext) return null;
+    const extDir = ext.pct >= 0 ? "up" : "dn";
+    return h("div", {
+      className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
+      style: {
+        fontSize: 10.5,
+        opacity: 0.88,
+        marginTop: 2
+      }
+    }, h("span", {
+      style: {
+        fontSize: 8.5,
+        fontWeight: 700,
+        marginRight: 4,
+        padding: "0 3px",
+        borderRadius: 3,
+        background: "var(--tt-bg-elev)",
+        color: "var(--tt-text-dim)",
+        letterSpacing: "0.08em"
+      }
+    }, "EXT"), ext.price != null ? `$${ext.price.toFixed(2)} ` : "", `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`);
+  })(), sparkSvg && h("div", {
     className: "ds-tickercard__spark",
     dangerouslySetInnerHTML: {
       __html: sparkSvg
@@ -4804,6 +4827,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781077891365:517566066
+// cache-bust:1781096909956:652419840
 
-// cache-bust:1781077891365:517566066
+// cache-bust:1781096909956:652419840
