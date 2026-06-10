@@ -37,6 +37,38 @@ const MIN_ATR_MULT = 3;
 const WINDOWS = [5, 10, 20, 40];
 const MAX_TICKERS = 200;
 
+/* 2026-06-10 — SCAN SCOPE. The scan used to take EVERY symbol that has
+   daily candles in D1 — which includes market internals (TICK, ADD,
+   VOLD, TRIN: breadth gauges, not tradeable instruments), index/vol
+   gauges (VIX, SPX, NDX), futures (CL1!, ES1! …), and stale one-off
+   backfills. The operator received a Discovery alert citing
+   "TICK -228%" as a top miss — a breadth oscillator that swings through
+   zero daily. Non-tradeable symbols are now excluded up front. */
+const NON_TRADEABLE_SYMBOLS = new Set([
+  // Market internals / breadth gauges
+  "TICK", "ADD", "VOLD", "TRIN", "ADDQ", "TICKQ", "VOLDQ",
+  // Index / volatility gauges (the tradeable proxies — SPY, VIXY… — stay in)
+  "VIX", "VVIX", "SPX", "NDX", "DJI", "RUT", "DXY", "TNX",
+]);
+
+export function isDiscoveryEligibleTicker(sym) {
+  const t = String(sym || "").toUpperCase();
+  if (!t) return false;
+  if (NON_TRADEABLE_SYMBOLS.has(t)) return false;
+  // Futures (ES1!, CL1!), exchange-prefixed (CME:ES), internals with
+  // suffixes ($TICK, TICK.I) — anything that isn't a plain US-listed
+  // equity/ETF symbol shape.
+  if (/[!:.$/]/.test(t)) return false;
+  return true;
+}
+
+/* 2026-06-10 — DATA-ARTIFACT GUARD. The same alert cited "PSTG
+   +2227%" — a split/backfill artifact, not a real move (PSTG has never
+   22x'd in 40 days). Any window move beyond ±300% is treated as bad
+   candle data and dropped: real leveraged-ETF runs (SOXL +201% in this
+   window) survive, mis-adjusted splits do not. */
+export const MAX_PLAUSIBLE_MOVE_PCT = 300;
+
 function computeATR(candles, period = 14) {
   const atrs = new Array(candles.length).fill(0);
   for (let i = 1; i < candles.length; i++) {
@@ -405,7 +437,7 @@ export async function runMoveDiscovery(env, opts = {}) {
     const tsMs = ts > 1e12 ? ts : ts * 1000;
     if (tsMs < sinceTsMs) continue;
     const t = String(c.ticker).toUpperCase();
-    if (!t) continue;
+    if (!t || !isDiscoveryEligibleTicker(t)) continue;
     const o = Number(c.o), h = Number(c.h), l = Number(c.l), close = Number(c.c);
     if (!Number.isFinite(o) || !Number.isFinite(h) || !Number.isFinite(l) || !Number.isFinite(close)) continue;
     (byTicker[t] = byTicker[t] || []).push({
@@ -483,6 +515,8 @@ export async function runMoveDiscovery(env, opts = {}) {
         const movePct = ((endPrice - startPrice) / startPrice) * 100;
         const moveAtr = Math.abs(endPrice - startPrice) / atr;
         if (moveAtr < minAtr) continue;
+        // Data-artifact guard (see MAX_PLAUSIBLE_MOVE_PCT docstring).
+        if (Math.abs(movePct) > MAX_PLAUSIBLE_MOVE_PCT) continue;
         const direction = movePct > 0 ? "UP" : "DOWN";
         /* Find intra-move peak for partial-capture math. */
         let peakPrice = startPrice;

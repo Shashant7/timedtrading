@@ -171,6 +171,7 @@
         const [usageDays, setUsageDays] = useState(30);
         const [analytics, setAnalytics] = useState(null);
         const [analyticsLoading, setAnalyticsLoading] = useState(false);
+        const [analyticsError, setAnalyticsError] = useState(null);
         const [analyticsDays, setAnalyticsDays] = useState(7);
         const [systemHealth, setSystemHealth] = useState(null);
         const [healthLoading, setHealthLoading] = useState(false);
@@ -197,11 +198,13 @@
 
         const fetchUsageReport = useCallback(async () => {
           setUsageLoading(true);
+          setUsageReport(null);
           try {
             const res = await fetch(`${API_BASE}/timed/admin/usage-report?days=${usageDays}`, { credentials: "include" });
-            const json = await res.json();
-            if (json.ok) setUsageReport(json);
-            else setUsageReport({ error: json.error });
+            let json = null;
+            try { json = await res.json(); } catch { json = null; }
+            if (res.ok && json?.ok) setUsageReport(json);
+            else setUsageReport({ error: json?.error || `Request failed (${res.status})` });
           } catch (e) {
             setUsageReport({ error: String(e.message || e) });
           } finally { setUsageLoading(false); }
@@ -254,11 +257,21 @@
 
         const fetchAnalytics = useCallback(async () => {
           setAnalyticsLoading(true);
+          setAnalyticsError(null);
           try {
             const res = await fetch(`${API_BASE}/timed/admin/analytics?days=${analyticsDays}`, { credentials: "include" });
-            const json = await res.json();
-            if (json.ok) setAnalytics(json);
-          } catch (e) { console.error(e); } finally { setAnalyticsLoading(false); }
+            let json = null;
+            try { json = await res.json(); } catch { json = null; }
+            if (res.ok && json?.ok) {
+              setAnalytics(json);
+            } else {
+              setAnalytics(null);
+              setAnalyticsError(json?.error || `Request failed (${res.status})`);
+            }
+          } catch (e) {
+            setAnalytics(null);
+            setAnalyticsError(String(e.message || e));
+          } finally { setAnalyticsLoading(false); }
         }, [analyticsDays]);
 
         const fetchSystemHealth = useCallback(async () => {
@@ -411,7 +424,7 @@
                   { id: "health", label: "System Health" },
                   { id: "vip", label: "VIP Codes" },
                 ].map(t => (
-                  <button key={t.id} onClick={() => setTab(t.id)} className={`tt-tab ${tab === t.id ? "active" : ""}`}>{t.label}</button>
+                  <button type="button" key={t.id} onClick={() => setTab(t.id)} className={`tt-tab ${tab === t.id ? "active" : ""}`}>{t.label}</button>
                 ))}
               </div>
 
@@ -435,13 +448,26 @@
                 </button>}
                 {tab === "usage" && (
                   <div className="flex items-center gap-2">
-                    <select value={usageDays} onChange={(e) => setUsageDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]">
+                    <select value={usageDays} onChange={(e) => setUsageDays(Number(e.target.value))} className="tt-input text-[12px]">
                       <option value={7}>7 days</option>
                       <option value={30}>30 days</option>
                       <option value={90}>90 days</option>
                     </select>
-                    <button onClick={fetchUsageReport} disabled={usageLoading} className="px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all disabled:opacity-50">
+                    <button type="button" onClick={fetchUsageReport} disabled={usageLoading} className="tt-btn tt-btn--ghost disabled:opacity-50">
                       {usageLoading ? "Loading..." : "Refresh"}
+                    </button>
+                  </div>
+                )}
+                {tab === "analytics" && (
+                  <div className="flex items-center gap-2">
+                    <select value={analyticsDays} onChange={(e) => setAnalyticsDays(Number(e.target.value))} className="tt-input text-[12px]">
+                      <option value={1}>Today</option>
+                      <option value={7}>7 days</option>
+                      <option value={30}>30 days</option>
+                      <option value={90}>90 days</option>
+                    </select>
+                    <button type="button" onClick={fetchAnalytics} disabled={analyticsLoading} className="tt-btn tt-btn--ghost disabled:opacity-50">
+                      {analyticsLoading ? "Loading..." : "Refresh"}
                     </button>
                   </div>
                 )}
@@ -468,11 +494,11 @@
 
               {/* Usage Report (when Usage tab) */}
               {tab === "usage" && (
-                <div className="mb-6">
+                <div className="tt-card tt-card-pad mb-6">
                   {usageLoading ? (
                     <div className="text-center py-12 text-[#8AA39A]">Loading usage report...</div>
                   ) : usageReport?.error ? (
-                    <div className="text-rose-400 text-sm">{usageReport.error}</div>
+                    <div className="text-rose-400 text-sm">Failed to load usage report: {usageReport.error}</div>
                   ) : usageReport?.byUser?.length > 0 ? (
                     <div className="overflow-x-auto rounded-xl border border-[#1F3128] bg-[#13201A]">
                       <table className="w-full border-collapse text-[12px]">
@@ -510,7 +536,22 @@
                       </table>
                     </div>
                   ) : (
-                    <p className="text-[#8AA39A] text-sm">No usage data yet. Usage is recorded when users load pages (throttled to once per hour per feature per user).</p>
+                    <div className="text-[#8AA39A] text-sm space-y-2">
+                      <p>No per-user usage in the last {usageDays} days.</p>
+                      <p className="text-[12px] text-[#6E867D]">Usage is recorded when users load pages (throttled to once per hour per feature per user).</p>
+                      {usageReport?.byFeature && Object.keys(usageReport.byFeature).length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-[#1F3128]">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[#6E867D] mb-2">By feature (aggregate)</div>
+                          <div className="flex flex-wrap gap-2">
+                            {Object.entries(usageReport.byFeature).map(([feat, meta]) => (
+                              <span key={feat} className="text-[11px] px-2 py-1 rounded-full bg-[#1A2B22] border border-[#1F3128] text-[#E8F2EC]">
+                                {feat}: <strong className="tabular-nums">{meta?.count || 0}</strong>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -692,20 +733,11 @@
 
               {/* Analytics Tab */}
               {tab === "analytics" && (
-                <div className="space-y-6">
-                  <div className="flex items-center gap-3">
-                    <select value={analyticsDays} onChange={(e) => setAnalyticsDays(Number(e.target.value))} className="px-3 py-1.5 rounded-lg text-[12px] bg-[#1A2B22] border border-[#1F3128] text-[#e5e7eb]">
-                      <option value={1}>Today</option>
-                      <option value={7}>7 days</option>
-                      <option value={30}>30 days</option>
-                      <option value={90}>90 days</option>
-                    </select>
-                    <button onClick={fetchAnalytics} disabled={analyticsLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
-                      {analyticsLoading ? "Loading..." : "Refresh"}
-                    </button>
-                  </div>
+                <div className="tt-card tt-card-pad space-y-6">
                   {analyticsLoading ? (
                     <div className="text-center py-12 text-[#8AA39A]">Loading analytics...</div>
+                  ) : analyticsError ? (
+                    <div className="text-rose-400 text-sm">Failed to load analytics: {analyticsError}</div>
                   ) : analytics ? (
                     <>
                       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -717,9 +749,9 @@
                           { label: `${analyticsDays}d Sessions`, value: analytics.period?.total_sessions || 0, color: "#f59e0b" },
                           { label: "Avg Duration", value: analytics.period?.avg_duration_ms ? `${Math.round(analytics.period.avg_duration_ms / 60000)}m` : "—", color: "#e5e7eb" },
                         ].map(s => (
-                          <div key={s.label} className="bg-[#13201A] border border-[#1F3128] rounded-xl px-4 py-3">
-                            <div className="text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wide">{s.label}</div>
-                            <div className="text-2xl font-bold mt-1" style={{ color: s.color }}>{s.value}</div>
+                          <div key={s.label} className="tt-stat">
+                            <div className="tt-stat-label">{s.label}</div>
+                            <div className="tt-stat-value" style={{ color: s.color }}>{s.value}</div>
                           </div>
                         ))}
                       </div>
@@ -762,7 +794,7 @@
                         <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Activity by Hour (UTC)</h3>
                         <div className="flex items-end gap-0.5 h-24">
                           {Array.from({ length: 24 }, (_, i) => {
-                            const match = (analytics.peak_hours || []).find(h => h.hour === i);
+                            const match = (analytics.peak_hours || []).find(h => Number(h.hour) === i);
                             const cnt = match?.cnt || 0;
                             const max = Math.max(...(analytics.peak_hours || []).map(h => h.cnt), 1);
                             const pct = Math.max((cnt / max) * 100, 2);
@@ -791,7 +823,7 @@
                       </div>
                     </>
                   ) : (
-                    <p className="text-[#8AA39A] text-sm">Click Refresh to load analytics.</p>
+                    <p className="text-[#8AA39A] text-sm">No session analytics yet. Data appears after users browse while logged in.</p>
                   )}
                 </div>
               )}

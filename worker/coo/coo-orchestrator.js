@@ -63,6 +63,7 @@ import { runMoveDiscovery } from "../discovery/move-discovery.js";
 import { runDiagnosis } from "../discovery/diagnose-missed.js";
 import { buildDiscoveryGameplan } from "../discovery/gameplan.js";
 import { submitProposal } from "../learning-proposals.js";
+import { notifyDiscord } from "../alerts.js";
 
 const COO_KV_PREFIX = "coo:actions";
 
@@ -719,8 +720,11 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
 }
 
 async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals) {
-  const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
-  if (!webhook) return;
+  // 2026-06-10 — route through notifyDiscord's LANE ROUTER on the
+  // "system" lane (#system-alerts). This sender previously did a raw
+  // fetch against DISCORD_WEBHOOK_URL — the #trade-signals webhook — so
+  // ops/calibration noise landed in the channel users watch for trade
+  // entries (operator-reported). Same fix for _notifyScreenerPromotions.
   try {
     const lines = [];
     lines.push("**Discovery flagged the following:**");
@@ -735,26 +739,19 @@ async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals) {
     }
     lines.push("");
     lines.push("Review in System Intelligence → Discovery tab. Operator can use Calibration → Run Analysis to propose knob changes targeting these patterns.");
-    await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        embeds: [{
-          title: "AI COO · Move Discovery Alert",
-          description: lines.join("\n"),
-          color: 0xf59e0b,
-          timestamp: new Date().toISOString(),
-        }],
-      }),
-    }).catch((e) => console.warn("[COO discovery] webhook failed:", String(e?.message || e).slice(0, 120)));
+    await notifyDiscord(env, {
+      title: "AI COO · Move Discovery Alert",
+      description: lines.join("\n"),
+      color: 0xf59e0b,
+      timestamp: new Date().toISOString(),
+    }, "system").catch((e) => console.warn("[COO discovery] webhook failed:", String(e?.message || e).slice(0, 120)));
   } catch (e) {
     console.warn("[COO discovery] notify failed:", String(e?.message || e).slice(0, 120));
   }
 }
 
 async function _notifyScreenerPromotions(env, promoted, vetoed) {
-  const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
-  if (!webhook) return;
+  // 2026-06-10 — system lane via the router (see _notifyDiscoveryAlert).
   try {
     const lines = [];
     lines.push(`✅ **${promoted.length} ticker${promoted.length === 1 ? "" : "s"} auto-promoted to universe**`);
@@ -769,18 +766,12 @@ async function _notifyScreenerPromotions(env, promoted, vetoed) {
     lines.push("");
     lines.push(`To reverse any promotion within 24h: Mission Control → Screener Promotions card → click "Undo" on the row.`);
 
-    await fetch(webhook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        embeds: [{
-          title: "AI COO · Screener Auto-Promote",
-          description: lines.join("\n"),
-          color: 0x34d399,
-          timestamp: new Date().toISOString(),
-        }],
-      }),
-    }).catch(e => console.warn("[COO screener] webhook failed:", String(e?.message || e).slice(0, 120)));
+    await notifyDiscord(env, {
+      title: "AI COO · Screener Auto-Promote",
+      description: lines.join("\n"),
+      color: 0x34d399,
+      timestamp: new Date().toISOString(),
+    }, "system").catch(e => console.warn("[COO screener] webhook failed:", String(e?.message || e).slice(0, 120)));
   } catch (e) {
     console.warn("[COO screener] notify failed:", String(e?.message || e).slice(0, 120));
   }
