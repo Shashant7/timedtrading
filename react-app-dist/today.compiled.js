@@ -77,6 +77,41 @@ function nyFmtDate() {
     return new Date().toDateString();
   }
 }
+function nyEtDateKey() {
+  try {
+    return new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+  } catch {
+    return "";
+  }
+}
+function nyEtMinutes() {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false
+    }).formatToParts(new Date());
+    const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
+    const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
+    return hh * 60 + mm;
+  } catch {
+    return 0;
+  }
+}
+function pickTodayBriefSlot(briefWrap) {
+  if (!briefWrap || typeof briefWrap !== "object") return null;
+  const today = nyEtDateKey();
+  const isToday = slot => slot && String(slot.date || "") === today;
+  const morning = isToday(briefWrap.morning) ? briefWrap.morning : null;
+  const evening = isToday(briefWrap.evening) ? briefWrap.evening : null;
+  const etMin = nyEtMinutes();
+  if (etMin < 9 * 60) return null;
+  if (etMin >= 16 * 60) return evening || morning || null;
+  return morning || null;
+}
 function isNyRegularMarketOpen() {
   try {
     const f = new Intl.DateTimeFormat("en-US", {
@@ -4185,12 +4220,7 @@ function TodayApp() {
           setData(merged);
         }
         if (b?.ok) {
-          const _now = new Date();
-          const _ny = new Date(_now.toLocaleString("en-US", {
-            timeZone: "America/New_York"
-          }));
-          const past4 = _ny.getHours() >= 16;
-          setBrief(past4 ? b.brief?.evening || b.brief?.morning : b.brief?.morning || b.brief?.evening);
+          setBrief(pickTodayBriefSlot(b.brief));
         }
         if (e?.ok) setEarnings(e);
         if (c?.ok) setCal(c);
@@ -4575,9 +4605,9 @@ function BriefPlaceholder({
     className: "bp-countdown-lbl"
   }, " " + (sessionInfo.countdownLabel || ""))), h("span", {
     className: "bp-loading"
-  }, h("span", {
+  }, nyEtMinutes() < 9 * 60 ? "Morning brief publishes ~9:00 AM ET" : h(React.Fragment, null, h("span", {
     className: "bp-dots"
-  }, h("i", null), h("i", null), h("i", null)), "Daily brief loading")), h("div", {
+  }, h("i", null), h("i", null), h("i", null)), "Daily brief loading"))), h("div", {
     className: "bp-section-title"
   }, signalLabel.toUpperCase()), signal.length > 0 ? h("div", {
     className: "bp-signal-list"
@@ -4763,6 +4793,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781070905754:363639545
+// cache-bust:1781073086213:391273990
 
-// cache-bust:1781070905754:363639545
+// cache-bust:1781073086213:391273990

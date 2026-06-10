@@ -903,6 +903,48 @@ function getETDate(nowMs = Date.now()) {
   return etStr;
 }
 
+/** Minutes since midnight ET (for brief session gating). */
+function getETMinutes(nowMs = Date.now()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(new Date(nowMs));
+  const hh = Number(parts.find((p) => p.type === "hour")?.value || 0);
+  const mm = Number(parts.find((p) => p.type === "minute")?.value || 0);
+  return hh * 60 + mm;
+}
+
+/** Drop brief slots whose `date` is not today's ET calendar day. */
+export function sanitizeBriefCurrent(current = {}, nowMs = Date.now()) {
+  const etToday = getETDate(nowMs);
+  const out = { ...current };
+  for (const type of ["morning", "evening"]) {
+    const slot = out[type];
+    if (slot && String(slot.date || "") !== etToday) delete out[type];
+  }
+  return out;
+}
+
+/**
+ * Pick the brief slot the Today page should surface.
+ * - Before 9 AM ET: null (morning cron hasn't run; yesterday's evening is stale)
+ * - 9 AM – 3:59 PM ET: today's morning
+ * - 4 PM+ ET: today's evening, else morning
+ */
+export function pickBriefSlotForSession(current = {}, nowMs = Date.now()) {
+  const sanitized = sanitizeBriefCurrent(current, nowMs);
+  const etMin = getETMinutes(nowMs);
+  const MORNING_PUBLISH_MIN = 9 * 60;
+  const EVENING_PREFER_MIN = 16 * 60;
+  if (etMin < MORNING_PUBLISH_MIN) return null;
+  const morning = sanitized.morning;
+  const evening = sanitized.evening;
+  if (etMin >= EVENING_PREFER_MIN) return evening || morning || null;
+  return morning || null;
+}
+
 /** Get ET day of week (0=Sun, 6=Sat) */
 function getETDayOfWeek(nowMs = Date.now()) {
   const d = new Date(nowMs);
@@ -5093,7 +5135,7 @@ function d1RowToBriefPayload(row) {
 export async function handleGetBrief(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "no_kv" };
-  const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
+  let current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
   const etToday = getETDate();
   const db = env?.DB;
 
@@ -5120,6 +5162,11 @@ export async function handleGetBrief(env) {
     }
   }
 
+  // Strip yesterday's slots — KV cleanup runs at 3 AM ET but between
+  // midnight and 3 AM yesterday's evening can still linger and the
+  // Today page would show it as "today's summary" at 2:25 AM.
+  current = sanitizeBriefCurrent(current);
+
   // Recompute Golden Gate state from live prices so index cards don't
   // show "inside range" when the live quote is already above the gate.
   for (const type of ["morning", "evening"]) {
@@ -5143,7 +5190,13 @@ export async function handleGetBrief(env) {
     }
   }
 
-  return { ok: true, brief: current };
+  const active = pickBriefSlotForSession(current);
+  return {
+    ok: true,
+    brief: current,
+    et_date: etToday,
+    active_slot: active ? (active === current.evening ? "evening" : "morning") : null,
+  };
 }
 
 /** GET /timed/daily-brief/badge — returns latest badge timestamp */
