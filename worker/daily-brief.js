@@ -1222,10 +1222,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     fetchFinnhubEarnings(env, weekStart, weekEnd),
     // Finnhub economic calendar (this week)
     fetchFinnhubEconomicCalendar(env, weekStart, weekEnd),
-    // Previous morning brief (for evening reflection)
-    type === "evening" && db
+    // Prior brief — evening reflects on the same-day morning; the
+    // morning builds on YESTERDAY'S EVENING (2026-06-10: continuity +
+    // anti-repetition — the operator flagged briefs reading "generic
+    // and repetitive"; the model now sees what it told readers last
+    // time and is instructed to advance the story, not re-tell it).
+    db
       ? db.prepare("SELECT es_prediction, content FROM daily_briefs WHERE id = ?1")
-          .bind(`${today}-morning`).first().catch(() => null)
+          .bind(type === "evening" ? `${today}-morning` : `${yesterday}-evening`).first().catch(() => null)
       : Promise.resolve(null),
     // ES daily candles (last 20 days)
     db && opts.d1GetCandles
@@ -1570,7 +1574,54 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     yesterdayEcon = ffYesterdayEvents;
   }
 
-  console.log(`[ECON] Sources: Finnhub today=${todayEcon.length}, yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Finnhub news=${(finnhubEconNews || []).length}`);
+  // ── 2026-06-10 — CURATED CALENDAR + FRED ACTUALS BACKSTOP ──────────────
+  // INCIDENT: the Evening brief told readers "no major macro data events
+  // today" on CPI DAY. Finnhub's /calendar/economic is a premium endpoint
+  // that returns EMPTY on our key and the ForexFactory scrape is fragile —
+  // when both came back empty the prompt literally asserted "No major US
+  // economic releases today" and the LLM faithfully repeated it. The Today
+  // page never had this bug because it reads getUpcomingMacroEvents()
+  // (curated schedule + FSD-extracted events + FRED actuals). The brief
+  // now merges that same source: curated events become authoritative for
+  // today (with actual-vs-estimate so the model can call a hot/cool
+  // print), and fill the week-ahead list.
+  try {
+    const { getUpcomingMacroEvents } = await import("./macro-events-calendar.js");
+    const curated = await getUpcomingMacroEvents(env, { days: 8 });
+    const curatedEvents = Array.isArray(curated?.events) ? curated.events : [];
+    const mapCurated = (ev) => ({
+      event: ev.name, date: ev.date, time: ev.time_et || "",
+      impact: ev.impact || "high",
+      estimate: ev.estimate ?? null, actual: ev.actual ?? null, prev: ev.prev ?? null,
+      _source: "curated_calendar",
+    });
+    const curatedToday = curatedEvents.filter((e) => e.date === today).map(mapCurated);
+    if (curatedToday.length > 0) {
+      const seen = new Set(todayEcon.map((e) => String(e.event || "").toLowerCase().slice(0, 18)));
+      for (const ce of curatedToday) {
+        const k = String(ce.event || "").toLowerCase().slice(0, 18);
+        if (seen.has(k)) {
+          // Curated/FRED actuals are authoritative — backfill onto the API row.
+          const row = todayEcon.find((e) => String(e.event || "").toLowerCase().slice(0, 18) === k);
+          if (row) {
+            if (ce.actual != null && row.actual == null) row.actual = ce.actual;
+            if (ce.estimate != null && row.estimate == null) row.estimate = ce.estimate;
+          }
+        } else {
+          todayEcon.push(ce);
+        }
+      }
+    }
+    const weekSeen = new Set(weekEcon.map((e) => `${(e.date || "").slice(0, 10)}|${String(e.event || "").toLowerCase().slice(0, 18)}`));
+    for (const ce of curatedEvents.filter((e) => e.date > today).map(mapCurated)) {
+      const k = `${ce.date}|${String(ce.event || "").toLowerCase().slice(0, 18)}`;
+      if (!weekSeen.has(k)) weekEcon.push(ce);
+    }
+  } catch (e) {
+    console.warn("[ECON] curated calendar merge failed:", String(e?.message || e).slice(0, 150));
+  }
+
+  console.log(`[ECON] Sources: Finnhub today=${todayEcon.length} (incl curated), yesterday=${yesterdayEcon.length}, week=${weekEcon.length}, FF today=${ffTodayEvents.length}, FF yesterday=${ffYesterdayEvents.length}, Finnhub news=${(finnhubEconNews || []).length}`);
 
   // Open trades summary — D1 is authoritative (supports multiple open
   // rows per ticker, e.g. three SNDK legs). Legacy timed:trades:all KV is
@@ -1765,9 +1816,40 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     sectors,
     todayEarnings,
     weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
-    todayEconomicEvents: todayEcon.slice(0, 10),
+    todayEconomicEvents: todayEcon.slice(0, 12),
     yesterdayEconomicEvents: yesterdayEcon.slice(0, 10),
     economicEvents: weekEcon.slice(0, 15),
+    // 2026-06-10 — On Watch: the model's live entry candidates (kanban
+    // Setup / In-Review lanes — same funnel the Active Trader page and
+    // Today viewport show), so the brief can tell readers WHAT the
+    // model is stalking and WHY (setup, theme, scores) instead of only
+    // narrating indexes. Read from the /timed/all micro-cache (always
+    // warm — the */5 cron pre-warms it), so this costs one KV read.
+    onWatch: await (async () => {
+      try {
+        const micro = await kvGetJSON(KV, "timed:all:micro:v3:admin:full");
+        const map = micro?.data;
+        if (!map || typeof map !== "object") return [];
+        const WATCH_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
+        return Object.values(map)
+          .filter((t) => t && WATCH_STAGES.has(String(t.kanban_stage || "").toLowerCase()))
+          .sort((a, b) => (Number(b.rank) || 0) - (Number(a.rank) || 0))
+          .slice(0, 6)
+          .map((t) => ({
+            ticker: t.ticker,
+            stage: String(t.kanban_stage || "").toLowerCase(),
+            direction: String(t.state || "").includes("BEAR") ? "SHORT" : "LONG",
+            state: t.state || null,
+            rank: Number(t.rank) || null,
+            htf: Number(t.htf_score) || null,
+            ltf: Number(t.ltf_score) || null,
+            rr: Number(t.rr) || null,
+            setup_reason: t.__setup_reason || null,
+            theme: t._theme_tilt_theme || null,
+            theme_tilt: Number.isFinite(Number(t._theme_tilt)) ? Number(t._theme_tilt) : null,
+          }));
+      } catch (_) { return []; }
+    })(),
     openTrades: openTrades.slice(0, 15),
     // Today's trade activity (Active Trader)
     todayEntries: todayTradeEntries.map(e => ({
@@ -1790,8 +1872,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     econNews: (finnhubEconNews || []).slice(0, 10),
     // 2026-05-22 — Broad market headlines for the brief infographic.
     topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
-    morningPrediction: morningBrief?.es_prediction || null,
+    morningPrediction: type === "evening" ? (morningBrief?.es_prediction || null) : null,
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
+    // 2026-06-10 — prior-brief excerpt for BOTH cadences (morning gets
+    // yesterday's evening). Continuity + anti-repetition fuel.
+    priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
     crossAssetContext: buildCrossAssetContext(_pf),
     priceFeedRaw: _pf,
@@ -3412,34 +3497,52 @@ function buildRetailFriendlyOutputSpec(type) {
     ? "EVENING BRIEF — REQUIRED SECTION ORDER (override any earlier structural instructions)"
     : "MORNING BRIEF — REQUIRED SECTION ORDER (override any earlier structural instructions)";
 
-  // Section list per type
+  // Section list per type.
+  // 2026-06-10 — added "The Desk's Read" (CRO research synthesis — the
+  // WHY behind the tape) and "On Watch" (the model's live entry
+  // candidates from the kanban Setup/In-Review lanes). The operator:
+  // "users are likely wondering what is causing this selloff in Tech…
+  // the Daily Brief is the hook to get users to come back in to the
+  // site and trust the model."
   const sections = isEvening
     ? `1. **Session Recap & Context** (~100 words)
-2. **Sector Themes** (~80 words)
-3. **ES Prediction Scorecard** (today's call vs what actually happened — exact same format for SPY, QQQ, IWM)
-4. **SPY Prediction Scorecard** (same shape as ES)
-5. **QQQ Prediction Scorecard** (same shape as ES)
-6. **IWM Prediction Scorecard** (same shape as ES)
-7. **Key Levels & Structural Update** (combined — bullets per index with the structural note alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
-8. **Looking Ahead** (~80 words)
-9. **Risk Factors** (1-2 key risks, ≤20 words each)
-10. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
-11. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`
+2. **The Desk's Read** (~80 words — WHY today happened: synthesize the CRO Research Desk note + today's macro prints (actual vs estimate) + rotation evidence into ONE causal narrative. If tech sold off because a hot jobs/CPI print repriced rates, or because an IPO is pulling fund flows, SAY THAT. No section may contradict this read.)
+3. **Sector Themes** (~80 words)
+4. **ES Prediction Scorecard** (today's call vs what actually happened — exact same format for SPY, QQQ, IWM)
+5. **SPY Prediction Scorecard** (same shape as ES)
+6. **QQQ Prediction Scorecard** (same shape as ES)
+7. **IWM Prediction Scorecard** (same shape as ES)
+8. **Key Levels & Structural Update** (combined — bullets per index with the structural note alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
+9. **Looking Ahead** (~80 words — tomorrow's macro calendar entries BY NAME with time + consensus where provided)
+10. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — what lane it's in and WHY it's on the radar: the setup forming, the theme running, the catalyst. These mirror the site's Setup/In-Review lanes so readers can click through and see the same list.)
+11. **Risk Factors** (1-2 key risks, ≤20 words each)
+12. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
+13. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`
     : `1. **Market Context** (~100 words)
-2. **Sector Themes** (~80 words)
-3. **Earnings Watch & Macro News** (today's reports + any macro releases / Fed speakers)
-4. **ES Prediction** (today's game plan — exact same format for SPY, QQQ, IWM)
-5. **SPY Prediction** (same shape as ES)
-6. **QQQ Prediction** (same shape as ES)
-7. **IWM Prediction** (same shape as ES)
-8. **Key Levels & Game Plan** (combined — per index: current $X vs Day Gate, today's bull/bear triggers, weekly GG undertone, SMC levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
-9. **Risk Factors** (1-2 key risks, ≤20 words each)
-10. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
-11. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`;
+2. **The Desk's Read** (~80 words — WHY the tape is set up this way: synthesize the CRO Research Desk note + macro prints/calendar + rotation evidence into ONE causal narrative for the day ahead. Name the forces: rate repricing, IPO supply pulling fund flows, sector rotation, earnings.)
+3. **Sector Themes** (~80 words)
+4. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after the prints land, lead with actual vs estimate)
+5. **ES Prediction** (today's game plan — exact same format for SPY, QQQ, IWM)
+6. **SPY Prediction** (same shape as ES)
+7. **QQQ Prediction** (same shape as ES)
+8. **IWM Prediction** (same shape as ES)
+9. **Key Levels & Game Plan** (combined — per index: current $X vs Day Gate, today's bull/bear triggers, weekly GG undertone, SMC levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
+10. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — what lane it's in and WHY: setup, theme, catalyst. Mirrors the site's Setup/In-Review lanes.)
+11. **Risk Factors** (1-2 key risks, ≤20 words each)
+12. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
+13. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`;
 
   return `
 
 ## ${orderHeader}
+
+THE VERY FIRST LINE of the output (before any heading) MUST be:
+SUBJECT: <a specific, curiosity-driving email subject ≤ 72 chars>
+It is the email hook — name the day's actual driver, never generic.
+GOOD: "Hot CPI + SpaceX supply: why tech got sold today"
+GOOD: "The model just put 3 AI names on the entry radar"
+BAD: "Evening Brief — market recap" / "Markets closed mixed today"
+The renderer strips this line from the body.
 
 The brief MUST be output in exactly this order, with each section as its own ## heading:
 
@@ -3459,8 +3562,10 @@ ${sections}
   - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
 - **Chart placeholders** in section 7/8: write \`[CHART: SPY]\` on its own line where you want the SPY 15m or daily chart to render. Same for QQQ, IWM. The renderer will substitute with an actual chart. Put the chart RIGHT NEXT TO the commentary for that index — interleave, don't batch all charts at the end.
 - **Active Trader / Investor Portfolio** sections must reference the actual open positions list provided in the data. Each row ≤ 25 words.
+- **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
+- **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
 
-CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The 11 sections, in this order, are the required output.
+CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The 13 sections, in this order, are the required output.
 `;
 }
 
@@ -3684,12 +3789,12 @@ ${data.weekEarnings.length > 0
 ## TODAY'S Economic Data Releases (CRITICAL — analyze these in detail):
 ${data.todayEconomicEvents.length > 0
     ? data.todayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "No major US economic releases today."}
+    : "CALENDAR SOURCES RETURNED NO DATA. Do NOT tell readers there were no macro events today — the sources are unreliable, not the calendar. Omit any claim about the macro calendar rather than asserting absence."}
 
 ## YESTERDAY'S Economic Data (still influencing today's price action):
 ${data.yesterdayEconomicEvents.length > 0
     ? data.yesterdayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "No major US economic releases yesterday."}
+    : "Calendar sources returned no data for yesterday — omit rather than asserting nothing happened."}
 
 ## Other Economic Events This Week (US, Medium-High Impact):
 ${data.economicEvents.length > 0
@@ -3706,6 +3811,25 @@ ${(data.topHeadlines || []).length > 0
     ? data.topHeadlines.map(h => `- ${h.title}${h.source ? ` (${h.source})` : ""}`).join("\n")
     : "No broad-market headlines available."}
 > If a headline materially affects today's setup, weave it into the Bigger Picture editorial (≤ 1 sentence). Otherwise IGNORE — these are for the reader, not for the brief body.
+
+## On Watch — the model's live entry candidates (Setup / In-Review lanes):
+${(data.onWatch || []).length > 0
+    ? data.onWatch.map(w => {
+        const bits = [`${w.ticker} ${w.direction} — lane: ${w.stage.replace(/_/g, " ")}`];
+        if (w.rank != null) bits.push(`rank ${w.rank}`);
+        if (w.rr != null) bits.push(`R:R ${w.rr}`);
+        if (w.setup_reason) bits.push(`setup: ${String(w.setup_reason).slice(0, 60)}`);
+        if (w.theme) bits.push(`theme: ${w.theme.replace(/_/g, " ")}${w.theme_tilt ? ` (tilt ${w.theme_tilt > 0 ? "+" : ""}${w.theme_tilt})` : ""}`);
+        return "- " + bits.join(" · ");
+      }).join("\n")
+    : "No tickers currently in the entry lanes — say the model is patient, not that nothing is happening."}
+> These are NOT recommendations to buy — they are what the MODEL is stalking. The On Watch section must explain, per ticker, WHY it's on the radar (setup forming? theme running? catalyst?) in plain language.
+
+## CONTINUITY & ANTI-REPETITION (prior brief excerpt):
+${data.priorBriefExcerpt
+    ? `"""${data.priorBriefExcerpt}"""
+> Build on this story — reference what we said and what has CHANGED since. NEVER reuse its branded phrase, its metaphors, or re-tell the same narrative in the same words. If the thesis is unchanged, say so in one line and spend the words on what's NEW.`
+    : "(no prior brief available)"}
 
 ## Active Trader — Open Positions:
 ${data.openTrades.length > 0
@@ -3947,12 +4071,12 @@ ${data.morningContent ? data.morningContent.slice(0, 1000) : "Morning brief not 
 ## Today's Economic Data Releases:
 ${data.todayEconomicEvents.length > 0
     ? data.todayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "No major US economic releases today."}
+    : "CALENDAR SOURCES RETURNED NO DATA. Do NOT tell readers there were no macro events today — the sources are unreliable, not the calendar. Omit any claim about the macro calendar rather than asserting absence."}
 
 ## Yesterday's Economic Data:
 ${data.yesterdayEconomicEvents.length > 0
     ? data.yesterdayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "No major US economic releases yesterday."}
+    : "Calendar sources returned no data for yesterday — omit rather than asserting nothing happened."}
 
 ## Market-Moving News Headlines:
 ${(data.econNews || []).length > 0
@@ -3968,6 +4092,25 @@ ${(data.topHeadlines || []).length > 0
 ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
     ? data.todayEarnings.filter(e => e.hour === "amc").map(e => `${e.symbol}: EPS Est: ${e.epsEstimate ?? "N/A"}${e.epsActual != null ? `, EPS Actual: ${e.epsActual}` : ", Results pending"}, Rev Est: ${e.revenueEstimate ? "$" + (e.revenueEstimate / 1e9).toFixed(1) + "B" : "N/A"}${e.revenueActual ? `, Rev Actual: $${(e.revenueActual / 1e9).toFixed(1)}B` : ""}`).join("\n")
     : "No major after-hours earnings today."}
+
+## On Watch — the model's live entry candidates (Setup / In-Review lanes):
+${(data.onWatch || []).length > 0
+    ? data.onWatch.map(w => {
+        const bits = [`${w.ticker} ${w.direction} — lane: ${w.stage.replace(/_/g, " ")}`];
+        if (w.rank != null) bits.push(`rank ${w.rank}`);
+        if (w.rr != null) bits.push(`R:R ${w.rr}`);
+        if (w.setup_reason) bits.push(`setup: ${String(w.setup_reason).slice(0, 60)}`);
+        if (w.theme) bits.push(`theme: ${w.theme.replace(/_/g, " ")}${w.theme_tilt ? ` (tilt ${w.theme_tilt > 0 ? "+" : ""}${w.theme_tilt})` : ""}`);
+        return "- " + bits.join(" · ");
+      }).join("\n")
+    : "No tickers currently in the entry lanes — say the model is patient, not that nothing is happening."}
+> These are NOT recommendations to buy — they are what the MODEL is stalking. The On Watch section must explain, per ticker, WHY it's on the radar (setup forming? theme running? catalyst?) in plain language.
+
+## CONTINUITY & ANTI-REPETITION (prior brief excerpt):
+${data.priorBriefExcerpt
+    ? `"""${data.priorBriefExcerpt}"""
+> Build on this story — reference what we said and what has CHANGED since. NEVER reuse its branded phrase, its metaphors, or re-tell the same narrative in the same words. If the thesis is unchanged, say so in one line and spend the words on what's NEW.`
+    : "(no prior brief available)"}
 
 ## Active Trader — Open Positions (EOD):
 ${data.openTrades.length > 0
@@ -4822,6 +4965,7 @@ async function dispatchDailyBriefNotifications(env, {
   qqqPrediction,
   iwmPrediction,
   infographic,
+  subjectHook = null,
   opts = {},
 }) {
   if (opts.notifyDiscord) {
@@ -4839,7 +4983,10 @@ async function dispatchDailyBriefNotifications(env, {
     await opts.d1InsertNotification(env, {
       email: null,
       type: "daily_brief",
-      title: `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
+      // 2026-06-10 — the model's subject hook replaces the generic
+      // static title when present ("Hot CPI repriced rates" beats
+      // "Evening Brief — 2026-06-10" for re-engagement).
+      title: subjectHook || `${type === "morning" ? "Morning" : "Evening"} Brief — ${data.today}`,
       body: notifBody,
       link: "/daily-brief.html",
     }).catch(() => {});
@@ -4858,7 +5005,12 @@ async function dispatchDailyBriefNotifications(env, {
       _emailReport.reason = "no_opted_in_users";
       console.log(`[DAILY BRIEF] ${prefKey} emails: 0 recipients — nobody is currently opted in to this brief`);
     } else {
-      const briefPayload = { type, content, date: data.today, esPrediction, infographic };
+      // 2026-06-10 — subjectHook rides as _subjectOverride so the email
+      // subject is the model's hook instead of "Morning Brief — date".
+      const briefPayload = {
+        type, content, date: data.today, esPrediction, infographic,
+        ...(subjectHook ? { _subjectOverride: `${subjectHook}` } : {}),
+      };
       const results = await Promise.allSettled(
         optedInUsers.map((u) => sendDailyBriefEmail(env, u.email, briefPayload)),
       );
@@ -4936,7 +5088,19 @@ export async function generateDailyBrief(env, type, opts = {}) {
 
     // 2. Build prompt and call AI
     const prompt = type === "morning" ? await buildMorningPrompt(data, env) : await buildEveningPrompt(data, env);
-    const content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt, { type });
+    let content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt, { type });
+    // 2026-06-10 — SUBJECT hook extraction. The output spec requires the
+    // model's first line to be "SUBJECT: <≤72-char email hook>". Strip
+    // it from the body and carry it into the email subject + in-app
+    // notification title, replacing the generic "Morning Brief — date".
+    let subjectHook = null;
+    if (content) {
+      const _subjMatch = content.match(/^\s*SUBJECT:\s*(.+?)\s*(?:\n+|$)/);
+      if (_subjMatch) {
+        subjectHook = _subjMatch[1].trim().slice(0, 90).replace(/^["'*#\s]+|["'*\s]+$/g, "") || null;
+        content = content.slice(_subjMatch[0].length).replace(/^\n+/, "");
+      }
+    }
     if (!content || content.length < 100) {
       // P0.7.154 (2026-05-14) — persist a stub so the operator has a
       // forensic artifact when the brief silently doesn't generate.
@@ -5243,6 +5407,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
       qqqPrediction,
       iwmPrediction,
       infographic,
+      subjectHook,
       opts,
     });
 
