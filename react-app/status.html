@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timed Trading — System Status</title>
+  <meta name="description" content="Live operational status for Timed Trading: API, cron engine, scoring loop, and price feed health. Updated every minute." />
+  <meta name="robots" content="index,follow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda3" />
+  <style>
+    /* Public status page — Verda-native (reads the --vf-* tokens from
+       tt-tokens.css; body carries vf-page for the shared chrome rules).
+       PUBLIC PAGE: must NOT be added to the CF Access policy. Reads only
+       /timed/health — no market data, no user data. */
+    body {
+      margin: 0;
+      background: var(--vf-ink, #0B1410);
+      color: var(--vf-cream, #E8F2EC);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 80px; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 36px; }
+    .brand a { color: var(--vf-sage, #8AA39A); text-decoration: none; font-size: 13px; }
+    .brand a:hover { color: var(--vf-mint, #38F2A1); }
+    .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--vf-mint, #38F2A1); }
+    .brand-name { font-family: "Manrope", sans-serif; font-weight: 800; font-size: 16px; letter-spacing: -0.01em; margin-right: auto; }
+    h1 {
+      font-family: "Manrope", sans-serif;
+      font-weight: 800;
+      font-size: clamp(26px, 4vw, 36px);
+      letter-spacing: -0.025em;
+      margin: 0 0 6px;
+    }
+    .sub { color: var(--vf-sage, #8AA39A); font-size: 14px; margin: 0 0 28px; line-height: 1.55; }
+    .banner {
+      display: flex; align-items: center; gap: 12px;
+      padding: 18px 22px;
+      border-radius: 18px;
+      border: 1px solid var(--vf-moss, #1F3128);
+      background: var(--vf-bark, #13201A);
+      margin-bottom: 22px;
+    }
+    .banner .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .banner.ok .dot { background: var(--vf-mint, #38F2A1); box-shadow: 0 0 10px rgba(56,242,161,0.5); }
+    .banner.warn .dot { background: #f59e0b; box-shadow: 0 0 10px rgba(245,158,11,0.5); }
+    .banner.down .dot { background: #F26F6F; box-shadow: 0 0 10px rgba(242,111,111,0.5); }
+    .banner-title { font-family: "Manrope", sans-serif; font-weight: 800; font-size: 18px; }
+    .banner-sub { color: var(--vf-sage, #8AA39A); font-size: 12.5px; margin-left: auto; font-family: "JetBrains Mono", monospace; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(195px, 1fr)); gap: 12px; margin-bottom: 22px; }
+    .tile {
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid var(--vf-moss, #1F3128);
+      background: var(--vf-bark, #13201A);
+    }
+    .tile .label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vf-sage, #8AA39A); margin-bottom: 8px; }
+    .tile .value { font-family: "JetBrains Mono", monospace; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tile .hint { font-size: 11.5px; color: #6E867D; margin-top: 6px; line-height: 1.45; }
+    .tile.ok .value { color: var(--vf-mint, #38F2A1); }
+    .tile.warn .value { color: #f59e0b; }
+    .tile.down .value { color: #F26F6F; }
+    .note {
+      padding: 14px 18px; border-radius: 14px;
+      border: 1px solid var(--vf-moss, #1F3128);
+      background: rgba(19,32,26,0.5);
+      color: var(--vf-sage, #8AA39A); font-size: 12.5px; line-height: 1.6;
+    }
+    footer { margin-top: 40px; text-align: center; color: #6E867D; font-size: 11px; line-height: 1.6; border-top: 1px solid var(--vf-moss, #1F3128); padding-top: 18px; }
+    footer a { color: var(--vf-sage, #8AA39A); }
+  </style>
+</head>
+<body class="vf-page">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-name">Timed Trading</span>
+      <a href="/splash.html">Home</a>
+      <a href="/proof.html">Proof</a>
+      <a href="/faq.html">FAQ</a>
+    </div>
+
+    <h1>System Status</h1>
+    <p class="sub">
+      Live operational health for the Timed Trading platform — the API, the cron engine that
+      drives scoring and trade management, and the market-data feed. Auto-refreshes every minute.
+      For an automation product, uptime is the product; this page reads the same health contract
+      the internal watchdog uses.
+    </p>
+
+    <div id="banner" class="banner warn">
+      <span class="dot"></span>
+      <span class="banner-title" id="banner-title">Checking…</span>
+      <span class="banner-sub" id="banner-sub">—</span>
+    </div>
+
+    <div class="grid" id="tiles"></div>
+
+    <div class="note" id="session-note">
+      Outside U.S. market hours (9:30 AM – 4:00 PM ET, weekdays) several pipelines idle by design —
+      ages shown then are informational, not incidents. Strict thresholds apply during regular
+      trading hours, matching the external watchdog.
+    </div>
+
+    <footer id="legal-footer">
+      For informational and educational purposes only. Not investment advice.
+      <a href="/terms.html">Full Terms</a> &middot; Market data powered by
+      <a href="https://twelvedata.com" target="_blank" rel="noopener">Twelve Data</a>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var TILES = document.getElementById("tiles");
+      var BANNER = document.getElementById("banner");
+      var BTITLE = document.getElementById("banner-title");
+      var BSUB = document.getElementById("banner-sub");
+
+      function inStrictWindow() {
+        var d = new Date();
+        var day = d.getUTCDay();
+        var hour = d.getUTCHours();
+        // Weekday 14:00-20:59 UTC ≈ NY regular hours (matches watchdog.yml).
+        return day >= 1 && day <= 5 && hour >= 14 && hour <= 20;
+      }
+
+      function fmtAge(sec) {
+        if (sec == null || !isFinite(sec)) return "—";
+        if (sec < 90) return Math.round(sec) + "s";
+        if (sec < 5400) return Math.round(sec / 60) + "m";
+        return (sec / 3600).toFixed(1) + "h";
+      }
+
+      function tile(label, value, cls, hint) {
+        return '<div class="tile ' + (cls || "") + '">' +
+          '<div class="label">' + label + "</div>" +
+          '<div class="value">' + value + "</div>" +
+          (hint ? '<div class="hint">' + hint + "</div>" : "") +
+          "</div>";
+      }
+
+      function render(h, fetchOk) {
+        var strict = inStrictWindow();
+        var tiles = [];
+        var worst = 0; // 0 ok, 1 warn, 2 down
+
+        function judge(bad, warnOnly) {
+          if (!bad) return "ok";
+          if (!strict || warnOnly) { worst = Math.max(worst, 1); return "warn"; }
+          worst = Math.max(worst, 2);
+          return "down";
+        }
+
+        if (!fetchOk || !h || h.ok !== true) {
+          worst = 2;
+          tiles.push(tile("API", "UNREACHABLE", "down", "The health endpoint did not answer."));
+        } else {
+          tiles.push(tile("API", "OPERATIONAL", "ok", "Health endpoint answering normally."));
+
+          var tickMin = Number(h.cronTickAgeMin);
+          var tickBad = isFinite(tickMin) && tickMin > 20;
+          tiles.push(tile("Cron engine", isFinite(tickMin) ? fmtAge(tickMin * 60) : "—",
+            judge(tickBad), "Scoring & trade-management heartbeat (5-min loop)."));
+
+          var scoreMin = Number(h.minutesSinceScoring);
+          var scoreBad = isFinite(scoreMin) && scoreMin > 30;
+          tiles.push(tile("Scoring loop", isFinite(scoreMin) ? fmtAge(scoreMin * 60) : "—",
+            judge(scoreBad), "Last full universe scoring pass."));
+
+          var feedSec = Number(h.pricesAgeSec);
+          var feedBad = isFinite(feedSec) && feedSec > 600;
+          tiles.push(tile("Price feed", isFinite(feedSec) ? fmtAge(feedSec) : "—",
+            judge(feedBad), "Market-data snapshot freshness."));
+
+          var fails = Number(h.cronFailures && h.cronFailures.count);
+          var failsBad = isFinite(fails) && fails > 5;
+          tiles.push(tile("Active incidents", isFinite(fails) ? String(fails) : "—",
+            judge(failsBad, true), "Background jobs currently failing (self-healing retries run continuously)."));
+        }
+
+        TILES.innerHTML = tiles.join("");
+        BANNER.className = "banner " + (worst === 0 ? "ok" : worst === 1 ? "warn" : "down");
+        BTITLE.textContent = worst === 0 ? "All systems operational"
+          : worst === 1 ? "Degraded — monitoring"
+          : "Service disruption";
+        BSUB.textContent = "checked " + new Date().toLocaleTimeString("en-US", { hour12: false });
+      }
+
+      function refresh() {
+        fetch("/timed/health", { cache: "no-store" })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { render(j, true); })
+          .catch(function () { render(null, false); });
+      }
+
+      refresh();
+      setInterval(refresh, 60000);
+    })();
+  </script>
+</body>
+</html>

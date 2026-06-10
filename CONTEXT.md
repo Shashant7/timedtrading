@@ -129,9 +129,10 @@ the over-aggressive May 30 version that gated `faq`, `learn`, and `proof`):
 ```
 
 **Public** marketing/info pages — **must NOT be added to CF Access**:
-`splash`, `terms`, `logout`, `proof`, `faq`, `learn`. Adding any of these to
-the Access policy will block unauthenticated visitors from the conversion
-funnel.
+`splash`, `terms`, `logout`, `proof`, `faq`, `learn`, `status` (public
+status page, reads only `/timed/health` — 2026-06-10). Adding any of
+these to the Access policy will block unauthenticated visitors from the
+conversion funnel.
 
 If `/trade-autopsy/` (directory index) is served separately, add that path to
 the same Access application. Only the operator can edit policies in Cloudflare.
