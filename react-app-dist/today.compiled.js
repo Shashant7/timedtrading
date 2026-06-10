@@ -424,10 +424,18 @@ function BriefPreview({
   brief
 }) {
   const [_liveTick, _setLiveTick] = useState(0);
+  const [wideHero, setWideHero] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 981px)").matches);
   useEffect(() => {
     const onUpdate = () => _setLiveTick(t => t + 1);
     window.addEventListener("tt:live-counts-updated", onUpdate);
     return () => window.removeEventListener("tt:live-counts-updated", onUpdate);
+  }, []);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 981px)");
+    const sync = () => setWideHero(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
   }, []);
   const info = brief?.infographic || {};
   const top3 = Array.isArray(info.topThree) ? info.topThree : [];
@@ -480,19 +488,23 @@ function BriefPreview({
       if (/^[a-z;,]/.test(line)) continue;
       const cleaned = line.replace(/^\*+|\*+$/g, "").replace(/\*\*/g, "").trim();
       if (cleaned.length < 30) continue;
-      fallbackSummary = cleaned.length > 280 ? cleaned.slice(0, 277).trimEnd() + "…" : cleaned;
+      fallbackSummary = cleaned.length > 560 ? cleaned.slice(0, 557).trimEnd() + "…" : cleaned;
       break;
     }
   }
   const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]{0,48}:\s*/, "").replace(/^[;:,.\s]+/, "").replace(/\s+/g, " ").trim();
-  const _cap = (s, max = 220) => s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+  const summaryCap = wideHero ? 520 : 300;
+  const punchCap = wideHero ? 360 : 220;
+  const _cap = (s, max = summaryCap) => s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
   const _usableClosing = (() => {
     const c = _plain(closing);
     return c.length >= 24 && !/^[;,]/.test(c) ? c : "";
   })();
+  const primaryLead = _plain(leadSummary || fallbackSummary);
   const summarySentences = (() => {
+    if (primaryLead.length >= 40) return [_cap(primaryLead, summaryCap)];
     const cand = [];
-    for (const it of top3.slice(0, 2)) {
+    for (const it of top3.slice(0, wideHero ? 3 : 2)) {
       const b = _plain(itemText(it));
       if (b.length >= 16) cand.push(b);
     }
@@ -500,34 +512,30 @@ function BriefPreview({
     if (cand.length === 0 && _usableClosing) cand.push(_usableClosing);
     const out = [];
     for (const c of cand) {
-      if (!out.some(o => o.slice(0, 48) === c.slice(0, 48))) out.push(_cap(c));
-      if (out.length === 2) break;
+      if (!out.some(o => o.slice(0, 48) === c.slice(0, 48))) out.push(_cap(c, punchCap));
+      if (out.length === (wideHero ? 3 : 2)) break;
     }
     return out;
   })();
   const summaryText = summarySentences.join(". ").replace(/\.\s*\./g, ".");
-  const showClosingItalic = _usableClosing && !summarySentences.some(s => s.slice(0, 48) === _usableClosing.slice(0, 48)) && top3.length > 0;
+  const showTopThree = wideHero ? top3.length > 0 : top3.length >= 3;
+  const showClosingItalic = _usableClosing && !summarySentences.some(s => s.slice(0, 48) === _usableClosing.slice(0, 48)) && top3.length > 0 && primaryLead.length < 40;
   return h("section", {
-    className: "tt-card tt-card-pad tt-row"
+    className: "tt-card tt-card-pad tt-row brief-preview-card"
   }, h("div", {
     className: "tt-sec-title"
   }, "DAILY BRIEF — MORNING READ"), h("div", {
     className: "tt-sec-h"
   }, "What the model is watching today"), summaryText && h("p", {
-    style: {
-      fontSize: 14,
-      lineHeight: 1.55,
-      color: "var(--tt-text)",
-      margin: "6px 0 10px"
-    }
+    className: "brief-summary"
   }, summaryText), headline && h("p", {
     className: "brief-head",
     style: {
       fontSize: 12,
       color: "var(--tt-text-muted)",
-      marginBottom: top3.length >= 3 ? 10 : 0
+      marginBottom: showTopThree ? 10 : 0
     }
-  }, headline), top3.length >= 3 && h("div", {
+  }, headline), showTopThree && h("div", {
     className: "brief-three"
   }, top3.slice(0, 3).map((item, i) => {
     const text = itemText(item);
@@ -550,6 +558,7 @@ function BriefPreview({
       marginBottom: 14
     }
   }, _usableClosing), h("div", {
+    className: "brief-actions",
     style: {
       display: "flex",
       gap: 8,
@@ -1881,6 +1890,7 @@ function TodayHero({
       marginBottom: 14
     }
   }, h("div", {
+    className: "today-hero-brief-col",
     style: {
       minWidth: 0,
       display: "flex",
@@ -4829,6 +4839,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781130245318:374142160
+// cache-bust:1781133341328:600184554
 
-// cache-bust:1781130245318:374142160
+// cache-bust:1781133341328:600184554
