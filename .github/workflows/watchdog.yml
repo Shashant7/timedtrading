@@ -89,6 +89,18 @@ jobs:
               if [ "$FEEDAGE" != "null" ] && [ "$FEEDAGE" -gt 600 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during RTH."
               fi
+              # Scoring staleness — REQUIRED once the */5 trade path moves
+              # to the dedicated tt-engine worker (Step 3 role split): the
+              # monolith's */1 keeps the generic heartbeat fresh, so a dead
+              # engine would otherwise be invisible here. timed:scoring:
+              # last_run is written only by whichever worker actually runs
+              # the scoring tick.
+              if [ "$SCORING" != "null" ]; then
+                SCORING_INT=$(printf "%.0f" "$SCORING")
+                if [ "$SCORING_INT" -gt 30 ]; then
+                  FAILED="yes"; DETAIL="$DETAIL $BASE: scoring loop is ${SCORING_INT}min stale during RTH (engine worker down?)."
+                fi
+              fi
             fi
 
             # FAILS now counts only ACTIVE tombstones (count > 0) — healed
