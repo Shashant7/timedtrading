@@ -14,7 +14,7 @@
   const ACTION_TIER_META = {
     act_now: { label: "ACT NOW", color: "#22c55e", title: "Buy zone + trend alignment — model would prioritize on next rebalance" },
     ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
-    monitor: { label: "MONITOR", color: "#6b7280", title: "Accumulate lane signal — not execution-ready yet" },
+    monitor: { label: "MONITOR", color: "#6E867D", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
   };
   function isExecuteReady(t) {
@@ -228,7 +228,7 @@
         background: "linear-gradient(180deg, rgba(167,139,250,0.05) 0%, transparent 35%)",
       } : {}),
       ...(isSelected ? { borderColor: "var(--ds-text-display)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)" } : {}),
-      ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)" } : {}),
+      ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)" } : {}),
     };
 
     return React.createElement("button", {
@@ -319,7 +319,7 @@
           style: {
             width: 6, height: 6, borderRadius: "50%",
             background: "var(--ds-accent)",
-            boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
+            boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
             marginLeft: 4, flexShrink: 0,
           },
         }),
@@ -504,7 +504,7 @@
         style: { background: "transparent" },
         title: hint || title,
       },
-        React.createElement("span", { className: "text-[10px] md:text-[9px] font-bold uppercase tracking-wider text-[#94a3b8] md:text-[#4b5563] md:text-center leading-tight break-words" }, title),
+        React.createElement("span", { className: "text-[10px] md:text-[9px] font-bold uppercase tracking-wider text-[#94a3b8] md:text-[#51635A] md:text-center leading-tight break-words" }, title),
         React.createElement("div", { className: "flex flex-row md:flex-col items-center gap-2 md:gap-1" },
           action && React.createElement("span", {
             className: "text-[9px] md:text-[8px] font-bold tabular-nums md:mt-1 px-1.5 md:px-1 py-[1px] rounded",
@@ -517,7 +517,7 @@
             },
           }, action),
           React.createElement("span", {
-            className: `text-[12px] md:text-[11px] font-bold tabular-nums md:mt-1 ${(typeof count === "number" ? count > 0 : String(count || "").length > 0 && String(count) !== "0" && String(count) !== "0/0") ? "text-[#e5e7eb]" : "text-[#4b5563] md:text-[#2a2e35]"}`,
+            className: `text-[12px] md:text-[11px] font-bold tabular-nums md:mt-1 ${(typeof count === "number" ? count > 0 : String(count || "").length > 0 && String(count) !== "0" && String(count) !== "0/0") ? "text-[#E8F2EC]" : "text-[#51635A] md:text-[#2a2e35]"}`,
             title: typeof count === "string" && count.includes("/") ? `${count.split("/")[0]} owned of ${count.split("/")[1]} in lane` : undefined,
           }, count),
         ),
@@ -537,7 +537,7 @@
           ? React.createElement("div", { className: "flex gap-1.5" },
               items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
             )
-          : React.createElement("div", { className: "text-[10px] text-[#4b5563] italic flex items-center h-full px-2 min-h-[80px]" }, "No tickers"),
+          : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" }, "No tickers"),
       ),
     );
   }
@@ -560,13 +560,13 @@
        with this lane?" in 1 second without reading the tooltip.
     */
     const stageMeta = {
-      research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#9ca3af", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
+      research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
       accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
       core_hold:         { label: "Core Hold", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
       watch:             { label: "Hold & Watch", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
       reduce:            { label: "Reduce", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
-      research_low:      { label: "Low Conviction", action: "WAIT", actionColor: "#9ca3af", title: "Not owned — low conviction. Not actionable yet." },
-      research_avoid:    { label: "Avoid", action: "SKIP", actionColor: "#6b7280", title: "Not owned — weak signals. System advises caution." },
+      research_low:      { label: "Low Conviction", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
+      research_avoid:    { label: "Avoid", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
@@ -648,7 +648,7 @@
 
   function MarketHealthBar({ health, loading }) {
     if (!health) return React.createElement("div", { className: "card p-4 mb-4" },
-      React.createElement("div", { className: "text-[#6b7280] text-sm" }, loading ? "Loading market health…" : "Market health data hasn't been calculated yet. It updates automatically during market hours.")
+      React.createElement("div", { className: "text-[#6E867D] text-sm" }, loading ? "Loading market health…" : "Market health data hasn't been calculated yet. It updates automatically during market hours.")
     );
     const { score, regime, breadth, components, computedAt } = health;
     const color = score >= 70 ? "#10b981" : score >= 45 ? "#f59e0b" : "#ef4444";
@@ -665,12 +665,12 @@
       const c = colorFn ? colorFn(v) : (v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171");
       const w = v >= 20 ? "Strong" : v >= 10 ? "Fair" : "Weak";
       return React.createElement("div", { key: label, className: "text-center" },
-        React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, label),
+        React.createElement("div", { className: "text-[10px] text-[#6E867D] uppercase tracking-wide" }, label),
         React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
           React.createElement("span", { className: "text-base font-semibold text-white" }, typeof v === "number" ? v : v),
           (typeof v === "number" && label !== "Long-Term") && React.createElement("span", { className: "text-[10px] font-semibold", style: { color: c } }, w),
         ),
-        React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, desc),
+        React.createElement("div", { className: "text-[9px] text-[#51635A] mt-0.5" }, desc),
       );
     };
     return React.createElement("div", { className: "card p-4 mb-4 fade-in" },
@@ -681,10 +681,10 @@
         ),
         React.createElement("div", { className: "flex items-center gap-2" },
           React.createElement("span", { className: "text-2xl font-bold", style: { color } }, Number.isFinite(score) ? score : "—"),
-          React.createElement("span", { className: "text-[#6b7280] text-xs" }, "/ 100"),
+          React.createElement("span", { className: "text-[#6E867D] text-xs" }, "/ 100"),
         ),
       ),
-      React.createElement("div", { className: "text-[11px] text-[#6b7280] mb-2" }, "How healthy is the overall stock market right now? Combines breadth, regime, trend strength, and sector participation."),
+      React.createElement("div", { className: "text-[11px] text-[#6E867D] mb-2" }, "How healthy is the overall stock market right now? Combines breadth, regime, trend strength, and sector participation."),
       React.createElement(ScoreBar, { score, color }),
       React.createElement("div", { className: "grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3" },
         MetricCell("Participation", components?.breadth, "Stocks above key EMAs", (v) => v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"),
@@ -692,7 +692,7 @@
         MetricCell("Trend Strength", components?.trendMomentum, "Weekly structure avg", (v) => v >= 20 ? "#00e676" : v >= 10 ? "#fbbf24" : "#f87171"),
         MetricCell("Sector Health", components?.sectorHealth, "Bullish sectors count", (v) => v >= 10 ? "#00e676" : v >= 5 ? "#fbbf24" : "#f87171"),
         React.createElement("div", { key: "lt", className: "text-center" },
-          React.createElement("div", { className: "text-[10px] text-[#6b7280] uppercase tracking-wide" }, "Long-Term"),
+          React.createElement("div", { className: "text-[10px] text-[#6E867D] uppercase tracking-wide" }, "Long-Term"),
           React.createElement("div", { className: "flex items-baseline justify-center gap-1" },
             React.createElement("span", { className: "text-base font-semibold text-white" }, breadth?.pctAboveW200 != null ? `${breadth.pctAboveW200}%` : "—"),
             breadth?.pctAboveW200 != null && React.createElement("span", {
@@ -700,10 +700,10 @@
               style: { color: (breadth.pctAboveW200 >= 60 ? "#00e676" : breadth.pctAboveW200 >= 40 ? "#fbbf24" : "#f87171") },
             }, breadth.pctAboveW200 >= 60 ? "Healthy" : breadth.pctAboveW200 >= 40 ? "Fair" : "Weak"),
           ),
-          React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-0.5" }, "Above 200-week avg"),
+          React.createElement("div", { className: "text-[9px] text-[#51635A] mt-0.5" }, "Above 200-week avg"),
         ),
       ),
-      computedAt && React.createElement("div", { className: "text-[9px] text-[#4b5563] mt-2" }, "Updated ", fmtTime(computedAt)),
+      computedAt && React.createElement("div", { className: "text-[9px] text-[#51635A] mt-2" }, "Updated ", fmtTime(computedAt)),
     );
   }
 
@@ -1082,7 +1082,7 @@
       React.createElement("div", { className: "flex items-center justify-between" },
         React.createElement("h2", { className: "text-sm font-semibold text-white" },
           "Action Board",
-          React.createElement("span", { className: "text-[10px] text-[#4b5563] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
+          React.createElement("span", { className: "text-[10px] text-[#51635A] ml-2 font-normal" }, `${actionCount} ticker${actionCount !== 1 ? "s" : ""} need attention`),
         ),
         React.createElement("button", {
           onClick: fetchData,
@@ -1155,7 +1155,7 @@
             savedTickers: savedTickers || new Set(),
             toggleSavedTicker,
           })
-        : React.createElement("div", { className: "card p-8 text-center text-[#6b7280]" },
+        : React.createElement("div", { className: "card p-8 text-center text-[#6E867D]" },
             React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
             React.createElement("div", { className: "text-sm" }, "Stock scores are calculated every hour while the market is open. Check back soon."),
           ),
@@ -1182,4 +1182,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513

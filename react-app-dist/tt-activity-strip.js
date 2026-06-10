@@ -22,7 +22,7 @@
         position: sticky;
         top: 0;
         z-index: 60;
-        background: rgba(10,12,16,0.85);
+        background: rgba(11,20,16,0.85);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         transform: translate3d(0, 0, 0);
@@ -47,7 +47,7 @@
 
       .tt-activity-strip {
         position: sticky; top: 56px; z-index: 40;
-        background: rgba(10,12,16,0.85);
+        background: rgba(11,20,16,0.85);
         backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
         border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         transform: translate3d(0,0,0); will-change: transform;
@@ -66,7 +66,7 @@
       }
       .tt-activity-strip__label {
         font-size: 10.5px; font-weight: 700; letter-spacing: 0.10em;
-        color: var(--tt-text-dim, #6b7280); text-transform: uppercase; flex-shrink: 0;
+        color: var(--tt-text-dim, #6E867D); text-transform: uppercase; flex-shrink: 0;
       }
       .tt-activity-strip__hint { font-size: 10px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
       @media (min-width: 900px) { .tt-activity-strip__hint { display: block; } }
@@ -79,12 +79,12 @@
         font-family: var(--tt-font-mono, ui-monospace, monospace);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
-        color: var(--tt-text-muted, #9ca3af); white-space: nowrap; cursor: pointer;
+        color: var(--tt-text-muted, #8AA39A); white-space: nowrap; cursor: pointer;
         max-width: min(420px, 92vw); text-align: left;
       }
       .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
       .tt-activity-pill .ev-type { font-weight: 700; font-size: 10px; text-transform: uppercase; }
-      .tt-activity-pill .ev-sym { font-weight: 700; color: var(--tt-text, #e5e7eb); }
+      .tt-activity-pill .ev-sym { font-weight: 700; color: var(--tt-text, #E8F2EC); }
       .tt-activity-pill .ev-dir { font-size: 9px; font-weight: 600; }
       .tt-activity-pill .ev-dir--long { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill .ev-dir--short { color: var(--tt-dn-soft, #fb7185); }
@@ -489,4 +489,4 @@
   else mount();
 })();
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513

@@ -57,7 +57,7 @@
         border-radius: 999px;
         background: rgba(255,255,255,0.04);
         border: 1px solid var(--tt-border, rgba(255,255,255,0.08));
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-size: 12.5px;
         font-family: var(--tt-font, 'Inter', sans-serif);
         cursor: pointer;
@@ -67,7 +67,7 @@
       .tt-gs-trigger:hover {
         background: rgba(255,255,255,0.06);
         border-color: var(--tt-border-hi, rgba(255,255,255,0.14));
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
       }
       .tt-gs-trigger svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
       .tt-gs-trigger .tt-gs-label { line-height: 1; }
@@ -78,7 +78,7 @@
         border-radius: 4px;
         background: rgba(255,255,255,0.06);
         border: 1px solid rgba(255,255,255,0.10);
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         letter-spacing: 0.04em;
       }
       @media (max-width: 767px) {
@@ -105,7 +105,7 @@
       .tt-gs-panel {
         width: 100%;
         max-width: 520px;
-        background: var(--tt-bg-canvas, #0b0e11);
+        background: var(--tt-bg-canvas, #0B1410);
         border: 1px solid var(--tt-border-hi, rgba(255,255,255,0.14));
         border-radius: 14px;
         box-shadow: 0 22px 60px rgba(0,0,0,0.55);
@@ -123,7 +123,7 @@
       }
       .tt-gs-input-wrap svg {
         width: 16px; height: 16px; flex-shrink: 0;
-        stroke: var(--tt-text-muted, #9ca3af); fill: none;
+        stroke: var(--tt-text-muted, #8AA39A); fill: none;
         stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
       }
       .tt-gs-input {
@@ -131,15 +131,15 @@
         background: transparent;
         border: 0;
         outline: 0;
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         font-size: 16px;
         font-family: var(--tt-font, 'Inter', sans-serif);
       }
-      .tt-gs-input::placeholder { color: var(--tt-text-dim, #6b7280); }
+      .tt-gs-input::placeholder { color: var(--tt-text-dim, #6E867D); }
       .tt-gs-close {
         background: none;
         border: 0;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-size: 18px;
         cursor: pointer;
         padding: 0 4px;
@@ -160,7 +160,7 @@
         gap: 12px;
         padding: 10px 16px;
         cursor: pointer;
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         font-size: 13px;
         font-family: var(--tt-font, 'Inter', sans-serif);
         transition: background 80ms ease;
@@ -171,12 +171,12 @@
         font-family: var(--tt-font-mono, ui-monospace, 'SF Mono', Menlo, monospace);
         font-weight: 700;
         letter-spacing: 0.02em;
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         font-size: 13px;
         min-width: 64px;
       }
       .tt-gs-result .tt-gs-name {
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-size: 12px;
         white-space: nowrap;
         overflow: hidden;
@@ -184,7 +184,7 @@
         flex: 1 1 auto;
       }
       .tt-gs-result .tt-gs-sector {
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         font-size: 10.5px;
         flex-shrink: 0;
         padding: 2px 7px;
@@ -194,7 +194,7 @@
       .tt-gs-empty, .tt-gs-loading {
         padding: 24px 16px;
         text-align: center;
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         font-size: 13px;
       }
       .tt-gs-section {
@@ -203,7 +203,7 @@
         font-weight: 700;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         list-style: none;
         pointer-events: none;
       }
@@ -215,7 +215,7 @@
         border-top: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         background: rgba(255,255,255,0.015);
         font-size: 10.5px;
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         font-family: var(--tt-font, 'Inter', sans-serif);
       }
       .tt-gs-footer .tt-gs-kbd {
@@ -225,7 +225,7 @@
         border-radius: 4px;
         background: rgba(255,255,255,0.05);
         border: 1px solid rgba(255,255,255,0.10);
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         margin: 0 4px;
       }
       /* ── My Tickers section (2026-05-22 user-add UX) ─────────────── */
@@ -246,11 +246,11 @@
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.10em;
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
       }
       .tt-gs-mytickers-quota {
         font-size: 10.5px;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-family: var(--tt-font-mono, ui-monospace, monospace);
       }
       .tt-gs-mytickers-quota.full { color: var(--tt-warn, #fbbf24); }
@@ -266,23 +266,23 @@
         gap: 4px;
         padding: 3px 4px 3px 9px;
         border-radius: 999px;
-        background: rgba(245,194,92,0.10);
-        border: 1px solid rgba(245,194,92,0.22);
-        color: var(--tt-text, #e5e7eb);
+        background: rgba(56,242,161,0.10);
+        border: 1px solid rgba(56,242,161,0.22);
+        color: var(--tt-text, #E8F2EC);
         font-size: 11.5px;
         font-family: var(--tt-font-mono, ui-monospace, monospace);
         font-weight: 700;
         cursor: pointer;
         transition: background 120ms ease, border-color 120ms ease;
       }
-      .tt-gs-mychip:hover { background: rgba(245,194,92,0.15); }
+      .tt-gs-mychip:hover { background: rgba(56,242,161,0.15); }
       .tt-gs-mychip.held { opacity: 0.55; cursor: default; }
       .tt-gs-mychip .tt-gs-mychip-x {
         display: inline-flex; align-items: center; justify-content: center;
         width: 16px; height: 16px;
         border-radius: 50%;
         background: rgba(255,255,255,0.06);
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-size: 12px;
         line-height: 1;
         border: 0;
@@ -296,7 +296,7 @@
       }
       .tt-gs-mytickers-empty {
         font-size: 11px;
-        color: var(--tt-text-dim, #6b7280);
+        color: var(--tt-text-dim, #6E867D);
         font-style: italic;
         margin: 2px 0 0;
       }
@@ -307,7 +307,7 @@
         border-radius: 8px;
         background: rgba(52,211,153,0.08);
         border: 1px dashed rgba(52,211,153,0.35);
-        color: var(--tt-text, #e5e7eb);
+        color: var(--tt-text, #E8F2EC);
         font-size: 12.5px;
         font-family: var(--tt-font, 'Inter', sans-serif);
         display: flex;
@@ -333,7 +333,7 @@
       .tt-gs-add-cta .tt-gs-add-btn:disabled { opacity: 0.5; cursor: progress; }
       .tt-gs-add-cta .tt-gs-add-meta {
         font-size: 10.5px;
-        color: var(--tt-text-muted, #9ca3af);
+        color: var(--tt-text-muted, #8AA39A);
         font-family: var(--tt-font-mono, ui-monospace, monospace);
       }
       .tt-gs-add-error {

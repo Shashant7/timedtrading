@@ -195,12 +195,12 @@
 
     function MonthlyPerformanceTable({ months, startCash }) {
       if (!months.length) {
-        return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" }, "No closed trades yet.");
+        return React.createElement("div", { className: "text-[12px] text-[#6E867D] py-4" }, "No closed trades yet.");
       }
       return React.createElement("div", { className: "overflow-x-auto" },
         React.createElement("table", { className: "w-full text-[12px] tabular-nums" },
           React.createElement("thead", { className: "border-b border-white/[0.08]" },
-            React.createElement("tr", { className: "text-left text-[10px] uppercase tracking-wide text-[#6b7280]" },
+            React.createElement("tr", { className: "text-left text-[10px] uppercase tracking-wide text-[#6E867D]" },
               React.createElement("th", { className: "py-2 pr-3 font-semibold" }, "Month"),
               React.createElement("th", { className: "py-2 pr-3 font-semibold text-right" }, "Trades"),
               React.createElement("th", { className: "py-2 pr-3 font-semibold text-right" }, "WR"),
@@ -218,11 +218,11 @@
               // pct returns (which double-counts because each trade is sized
               // as a fraction of the portfolio).
               const pnlPct = startCash > 0 ? (m.pnlUsd / startCash) * 100 : 0;
-              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
+              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#8AA39A]";
               const wrCls = wr >= 65 ? "text-emerald-400" : wr >= 50 ? "text-sky-400" : "text-amber-400";
               return React.createElement("tr", { key: m.key, className: "border-b border-white/[0.04] hover:bg-white/[0.02]" },
                 React.createElement("td", { className: "py-2 pr-3 font-medium text-white" }, monthLabel(m.key)),
-                React.createElement("td", { className: "py-2 pr-3 text-right text-[#9ca3af]" }, m.n),
+                React.createElement("td", { className: "py-2 pr-3 text-right text-[#8AA39A]" }, m.n),
                 React.createElement("td", { className: `py-2 pr-3 text-right font-semibold ${wrCls}` }, `${wr.toFixed(0)}%`),
                 React.createElement("td", { className: `py-2 pr-3 text-right font-semibold ${pnlCls}` }, fmtPnl(pnlPct)),
                 React.createElement("td", { className: `py-2 pr-3 text-right ${pnlCls}` }, fmtUsd(m.pnlUsd)),
@@ -254,10 +254,10 @@
         .sort((a, b) => b.pnlUsd - a.pnlUsd);
       if (!setups.length) return null;
       return React.createElement("div", { className: "mt-4" },
-        React.createElement("h3", { className: "text-[10px] uppercase tracking-wider text-[#6b7280] font-semibold mb-2" }, "Setup Breakdown"),
+        React.createElement("h3", { className: "text-[10px] uppercase tracking-wider text-[#6E867D] font-semibold mb-2" }, "Setup Breakdown"),
         React.createElement("table", { className: "w-full text-[12px] tabular-nums" },
           React.createElement("thead", { className: "border-b border-white/[0.06]" },
-            React.createElement("tr", { className: "text-left text-[10px] text-[#6b7280]" },
+            React.createElement("tr", { className: "text-left text-[10px] text-[#6E867D]" },
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold" }, "Setup"),
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold text-right" }, "Trades"),
               React.createElement("th", { className: "py-1.5 pr-3 font-semibold text-right" }, "WR"),
@@ -269,11 +269,11 @@
             setups.map((s) => {
               const wr = s.n > 0 ? (s.wins / s.n) * 100 : 0;
               const pnlPct = startCash > 0 ? (s.pnlUsd / startCash) * 100 : 0;
-              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#9ca3af]";
+              const pnlCls = pnlPct > 0 ? "text-emerald-400" : pnlPct < 0 ? "text-rose-400" : "text-[#8AA39A]";
               const wrCls = wr >= 65 ? "text-emerald-400" : wr >= 50 ? "text-sky-400" : "text-amber-400";
               return React.createElement("tr", { key: s.name, className: "border-b border-white/[0.03]" },
                 React.createElement("td", { className: "py-1.5 pr-3 text-white" }, prettySetupName(s.name)),
-                React.createElement("td", { className: "py-1.5 pr-3 text-right text-[#9ca3af]" }, s.n),
+                React.createElement("td", { className: "py-1.5 pr-3 text-right text-[#8AA39A]" }, s.n),
                 React.createElement("td", { className: `py-1.5 pr-3 text-right font-semibold ${wrCls}` }, `${wr.toFixed(0)}%`),
                 React.createElement("td", { className: `py-1.5 pr-3 text-right font-semibold ${pnlCls}` }, fmtPnl(pnlPct)),
                 React.createElement("td", { className: `py-1.5 text-right ${pnlCls}` }, fmtUsd(s.pnlUsd))
@@ -368,7 +368,7 @@
           },
             dayLabels.map((lbl, i) => React.createElement("div", {
               key: i,
-              className: "text-[9px] text-[#6b7280] uppercase tracking-wider text-center font-semibold py-0.5",
+              className: "text-[9px] text-[#6E867D] uppercase tracking-wider text-center font-semibold py-0.5",
             }, lbl))
           ),
           // Day cells
@@ -394,11 +394,11 @@
                 },
               },
                 React.createElement("div", {
-                  className: `text-[10px] font-semibold tabular-nums ${c.isWeekend && !c.slot ? "text-[#4b5563]" : "text-[#d1d5db]"}`,
+                  className: `text-[10px] font-semibold tabular-nums ${c.isWeekend && !c.slot ? "text-[#51635A]" : "text-[#CFDED6]"}`,
                 }, c.day),
                 n > 0
                   ? React.createElement("div", {
-                      className: `text-[9.5px] font-bold tabular-nums leading-none ${pnl > 0 ? "text-emerald-300" : pnl < 0 ? "text-rose-300" : "text-[#9ca3af]"}`,
+                      className: `text-[9.5px] font-bold tabular-nums leading-none ${pnl > 0 ? "text-emerald-300" : pnl < 0 ? "text-rose-300" : "text-[#8AA39A]"}`,
                     }, fmtUsdShort(pnl))
                   : null
               );
@@ -511,10 +511,10 @@
       const months = useMemo(() => aggregateMonthly(normalized), [normalized]);
 
       if (loading) {
-        return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" }, "Loading performance data…");
+        return React.createElement("div", { className: "text-[12px] text-[#6E867D] py-4" }, "Loading performance data…");
       }
       if (!normalized || normalized.length === 0) {
-        return React.createElement("div", { className: "text-[12px] text-[#6b7280] py-4" },
+        return React.createElement("div", { className: "text-[12px] text-[#6E867D] py-4" },
           isInvestor ? "No investor lots yet." : "No trades yet.");
       }
 
@@ -619,4 +619,4 @@
   };
 })();
 
-// cache-bust:1781056791808:305552068
+// cache-bust:1781058608796:986082513
