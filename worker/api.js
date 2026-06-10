@@ -1,8 +1,17 @@
 // API module — HTTP helpers, CORS, rate limiting, auth, user management
 import { sendWelcomeEmail } from "./email.js";
 
+// 2026-06-10 PERF — COMPACT stringify (was `JSON.stringify(obj, null, 2)`).
+// Pretty-printing inflated /timed/all from ~15.4MB of data to a 26.5MB
+// response body: 70%+ overhead in pure indentation on deeply nested
+// ticker objects, paid in worker CPU (stringify + compression) on EVERY
+// API response, AND it pushed the /timed/all micro-cache value past
+// KV's 25MB cap so the cache write silently failed — every page load
+// re-ran the full 20s snapshot assembly, which is what made the Today
+// page hang and 500/503 under fresh-login fan-out. No client parses
+// whitespace; curl users can pipe to `jq .`.
 export const sendJSON = (obj, status = 200, headers = {}) =>
-  new Response(JSON.stringify(obj, null, 2), {
+  new Response(JSON.stringify(obj), {
     status,
     headers: { "Content-Type": "application/json", ...headers },
   });
