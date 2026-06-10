@@ -349,7 +349,11 @@ function getAllSectors() {
 
 const THEMES = {
   // AI infrastructure stack — driver of 2024-2026 mega-cycle.
-  ai_infra_compute:  ["NVDA","AMD","AVGO","MRVL","ANET","CIEN","ARM","SMCI","NBIS","CRDO","ALAB"],
+  // 2026-06-10 — added APLD (Applied Digital: AI datacenter / GPU-cloud
+  // operator). It was the operator's canonical example of a theme name
+  // ("APLD is one of the top tickers on the viewport — is that valid?")
+  // yet sat in no theme, so theme intelligence could never see it.
+  ai_infra_compute:  ["NVDA","AMD","AVGO","MRVL","ANET","CIEN","ARM","SMCI","NBIS","CRDO","ALAB","APLD"],
   ai_infra_memory:   ["MU","WDC","STX","SNDK","HIMX"],
   ai_infra_energy:   ["NEE","VST","CEG","PWR","TLN","NXT","AES","BE","CWEN","NRG","FSLR","ENPH","SEDG","ARRY","SHLS"],
   ai_infra_cooling:  ["VRT","MOD","JCI","DOV","BMI"],
