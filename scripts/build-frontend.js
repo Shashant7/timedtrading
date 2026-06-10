@@ -42,6 +42,10 @@ function shouldSkipCopy(relativePath) {
     relativePath === "index-react.source.html" ||
     relativePath === "tailwind.input.css" ||
     relativePath === "shared-bubble-chart.js" ||
+    // 2026-06-10 — babel-input source for shared-right-rail.compiled.js;
+    // 1.1MB, never linked from HTML. Copying it to dist only inflated
+    // every deploy upload.
+    relativePath === "shared-right-rail.js" ||
     /^index-react\.compiled\.[a-f0-9]+\.js$/.test(relativePath)
   );
 }
@@ -180,6 +184,56 @@ function replaceReactBuilds(html) {
     .replace(/react-dom\.development\.js/g, "react-dom.production.min.js");
 }
 
+// 2026-06-10 — PERF: rewrite third-party CDN script URLs to the vendored
+// copies in react-app/vendor/ (committed to the repo; versions pinned in
+// vendor/README.md). Why:
+//   1) unpkg/jsdelivr add 2 extra TLS handshakes before first render and
+//      are render-blocking in <head>;
+//   2) same-origin assets ride the immutable ?v= cache set by _worker.js,
+//      so page switches load them from disk/memory cache with zero
+//      revalidation requests;
+//   3) no third-party outage can blank the app.
+// The `?v=vendor` placeholder gets restamped to the BUILD_MARKER by
+// rewriteSharedScriptCacheBust later in the pipeline.
+// index-react.source.html is excluded by the caller — its inline
+// Recharts fallback-loader logic assumes CDN URLs.
+const CDN_VENDOR_MAP = [
+  [/https:\/\/unpkg\.com\/react@18(?:\.\d+\.\d+)?\/umd\/react\.production\.min\.js/g, "/vendor/react.production.min.js?v=vendor"],
+  [/https:\/\/unpkg\.com\/react-dom@18(?:\.\d+\.\d+)?\/umd\/react-dom\.production\.min\.js/g, "/vendor/react-dom.production.min.js?v=vendor"],
+  [/https:\/\/unpkg\.com\/lightweight-charts@4\.1\.1\/dist\/lightweight-charts\.standalone\.production\.js/g, "/vendor/lightweight-charts.standalone.production.js?v=vendor"],
+  [/https:\/\/cdn\.jsdelivr\.net\/npm\/marked(?:@[\d.]+)?\/marked\.min\.js/g, "/vendor/marked.min.js?v=vendor"],
+  [/https:\/\/cdn\.jsdelivr\.net\/npm\/dompurify@3(?:\.\d+\.\d+)?\/dist\/purify\.min\.js/g, "/vendor/purify.min.js?v=vendor"],
+  [/https:\/\/unpkg\.com\/prop-types@15(?:\.\d+\.\d+)?\/prop-types\.min\.js/g, "/vendor/prop-types.min.js?v=vendor"],
+  [/https:\/\/unpkg\.com\/htm@3(?:\.\d+\.\d+)?\/dist\/htm\.umd\.js/g, "/vendor/htm.umd.js?v=vendor"],
+];
+
+function replaceCdnWithVendor(html) {
+  let next = html;
+  for (const [pattern, replacement] of CDN_VENDOR_MAP) {
+    next = next.replace(pattern, replacement);
+  }
+  // Vendored same-origin scripts don't need crossorigin.
+  next = next.replace(/(<script[^>]*src="\/vendor\/[^"]*"[^>]*?)\s+crossorigin(?=[\s>])/g, "$1");
+  next = next.replace(/(<script[^>]*)\bcrossorigin\s+(src="\/vendor\/)/g, "$1$2");
+  return next;
+}
+
+// 2026-06-10 — PERF: every external <script src> gets `defer`. The journey
+// pages shipped ~17 SYNCHRONOUS scripts in <head> (882KB rail bundle, React,
+// lightweight-charts, ...) — the browser could not paint anything until all
+// of them downloaded AND executed. `defer` downloads in parallel with HTML
+// parsing and executes in DOCUMENT ORDER after parse, so the existing
+// dependency chain (react → tt-live-data → shared-* → page.compiled.js)
+// is preserved exactly. Inline scripts are untouched (they cannot defer).
+// Callers exclude pages whose INLINE scripts reference library globals at
+// parse time (index-react.source.html, proof.html).
+function addDeferToExternalScripts(html) {
+  return html.replace(/<script\b[^>]*\bsrc=["'][^"']+["'][^>]*>/g, (tag) => {
+    if (/\bdefer\b|\basync\b|type\s*=\s*["']module["']/.test(tag)) return tag;
+    return tag.replace(/^<script\b/, "<script defer");
+  });
+}
+
 function replaceTailwindRuntime(html, outputHtmlPath) {
   const cssRelPath = relativePosix(outputHtmlPath, outputCssPath);
   let next = html.replace(
@@ -244,18 +298,44 @@ function rewriteSharedScriptCacheBust(html) {
   const stamp = BUILD_MARKER.split(":")[1] || String(Date.now());
   // Match `<script src="<name>.js?v=<existing>">` and same for .compiled.js.
   // Captures the script path so we can rewrite only the query string.
-  return html.replace(
+  let next = html.replace(
     /(<script[^>]+src=["'])([^"'?]+\.(?:compiled\.)?js)\?v=[^"']+(["'])/g,
     `$1$2?v=${stamp}$3`,
   );
+  // 2026-06-10 — same treatment for same-origin stylesheets. tt-tokens.css
+  // was bumped MANUALLY (`?v=20260610-verda4`) and tailwind.generated.css
+  // shipped UNVERSIONED — both repeatedly served stale after deploys.
+  // Stamp every local .css link (with or without an existing ?v=) so they
+  // also qualify for the immutable cache set by _worker.js. External
+  // stylesheets (https://fonts.googleapis.com/...) are left alone.
+  next = next.replace(
+    /(<link[^>]+href=["'])(?!https?:\/\/)([^"'?]+\.css)(?:\?v=[^"']*)?(["'])/g,
+    `$1$2?v=${stamp}$3`,
+  );
+  return next;
 }
+
+// Pages whose INLINE scripts call library globals (React, LightweightCharts)
+// at parse time — adding `defer` to their external scripts would break that
+// ordering, and index-react's inline Recharts fallback loader assumes CDN
+// URLs. Keep them on the legacy sync/CDN path.
+const PERF_TRANSFORM_EXCLUDED_SOURCES = new Set([
+  "index-react.source.html",
+  "proof.html",
+]);
 
 function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {
   let html = fs.readFileSync(sourceHtmlPath, "utf8");
+  const sourceName = path.basename(sourceHtmlPath);
+  const applyPerfTransforms = !PERF_TRANSFORM_EXCLUDED_SOURCES.has(sourceName);
 
   html = replaceReactBuilds(html);
   html = replaceTailwindRuntime(html, outputHtmlPath);
   html = removeBabelStandalone(html);
+  if (applyPerfTransforms) {
+    html = replaceCdnWithVendor(html);
+    html = addDeferToExternalScripts(html);
+  }
   html = rewriteSharedScriptCacheBust(html);
 
   const babelMatch = html.match(/<script type="text\/babel">([\s\S]*?)<\/script>/m);
@@ -290,7 +370,7 @@ function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {
 
   html = html.replace(
     /<script type="text\/babel">[\s\S]*?<\/script>/m,
-    `<script src="${compiledScriptRel}?v=${BUILD_MARKER.split(":")[1] || Date.now()}"></script>`,
+    `<script${applyPerfTransforms ? " defer" : ""} src="${compiledScriptRel}?v=${BUILD_MARKER.split(":")[1] || Date.now()}"></script>`,
   );
 
   fs.writeFileSync(outputHtmlPath, html, "utf8");

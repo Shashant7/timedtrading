@@ -20,12 +20,12 @@
  * Instrument Serif — editorial (brief headlines, callouts, quotes)
  * ═══════════════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
-
-/* Verda Finance display face — Manrope 700/800 replaces Instrument Serif
-   for display/editorial headings on MIGRATED pages only (see the VERDA
-   section at the bottom of this file + skills/verda-ui-migration.md). */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
+/* 2026-06-10 PERF — ONE combined @import (was two). Each @import inside a
+   render-blocking stylesheet adds a serialized round trip before first
+   paint. Manrope = Verda Finance display face (replaces Instrument Serif
+   for display headings on MIGRATED pages — see the VERDA section at the
+   bottom of this file + skills/verda-ui-migration.md). */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Manrope:wght@500;600;700;800&display=swap');
 
 /* ═══════════════════════════════════════════════════════════════════════
  * ROOT TOKENS

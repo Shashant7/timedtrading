@@ -664,4 +664,37 @@
       }
     }, 150);
   })();
+
+  // ── Speculation rules: prerender journey pages on link hover ──────────
+  // 2026-06-10 PERF — page switches are full MPA navigations. With
+  // `eagerness: "moderate"` Chrome prerenders the target page when the
+  // user hovers/touch-starts its nav link, so the actual click swaps in a
+  // fully-rendered page (~instant). Safe because:
+  //   - moderate = only fires on hover intent, not for every link on load,
+  //     so API cost is one speculative page load the user was about to
+  //     trigger anyway;
+  //   - unsupported browsers ignore the script type entirely;
+  //   - admin/marketing pages are excluded — only the 5 core journey
+  //     pages users actually flip between.
+  (function injectSpeculationRules() {
+    try {
+      if (!HTMLScriptElement.supports || !HTMLScriptElement.supports("speculationrules")) return;
+      if (document.getElementById("tt-speculation-rules")) return;
+      const here = window.location.pathname;
+      const pages = [
+        "/today.html",
+        "/active-trader.html",
+        "/investor.html",
+        "/portfolio.html",
+        "/insights.html",
+      ].filter((p) => p !== here);
+      const el = document.createElement("script");
+      el.type = "speculationrules";
+      el.id = "tt-speculation-rules";
+      el.textContent = JSON.stringify({
+        prerender: [{ urls: pages, eagerness: "moderate" }],
+      });
+      document.head.appendChild(el);
+    } catch (_) { /* speculation is purely progressive */ }
+  })();
 })();
