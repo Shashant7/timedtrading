@@ -33,6 +33,14 @@ name = "tt-engine"
 main = "../worker/index.js"
 compatibility_date = "2024-01-01"
 
+# Dashboard-set vars survive CI deploys (wrangler would otherwise wipe any
+# var not listed in this file on every deploy — which would silently undo
+# a cutover flip). The cutover flag ENGINE_ENABLED is deliberately NOT
+# pinned in [vars]: code defaults it to "false"; the operator sets it via
+# the CF Dashboard (Settings → Variables; type Secret also works) and the
+# value persists.
+keep_vars = true
+
 [triggers]
 crons = ["*/5 * * * *"]
 
@@ -76,9 +84,9 @@ script_name = "timed-trading-ingest"
 [vars]
 # ── Role split (Step 3) ──
 WORKER_ROLE = "engine"
-# Cutover gate — flip to "true" ONLY after ENGINE_EXTERNAL=true is set on
-# the monolith (see runbook above).
-ENGINE_ENABLED = "false"
+# NOTE: ENGINE_ENABLED is NOT pinned here on purpose — set it via the CF
+# Dashboard when cutting over (code defaults to "false"; keep_vars above
+# makes the dashboard value survive deploys).
 
 # ── Mirror of the monolith's [vars] (worker/wrangler.toml) ──
 # KEEP IN SYNC: when a var changes there, change it here. The */5 tick
