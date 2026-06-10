@@ -12,7 +12,7 @@
      in-zone strong score; monitor = lane label only; stale = signal >7d. */
   const ACTION_TIER_ORDER = { act_now: 0, ready: 1, monitor: 2, stale: 3 };
   const ACTION_TIER_META = {
-    act_now: { label: "ACT NOW", color: "#22c55e", title: "Buy zone + trend alignment — model would prioritize on next rebalance" },
+    act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — price in buy zone with trend alignment. The Investor simulator would open or add on the next rebalance; not a manual buy instruction." },
     ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
     monitor: { label: "MONITOR", color: "#6E867D", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
@@ -1190,4 +1190,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1781096909956:652419840
+// cache-bust:1781120350533:914311125
