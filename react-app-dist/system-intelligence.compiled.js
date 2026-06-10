@@ -3095,20 +3095,26 @@ function DeepAuditTab() {
       for (const r of top3) {
         if (r.config) config[r.config.key] = r.config.value;
       }
+      const updates = Object.entries(config).map(([k, v]) => ({
+        key: k,
+        value: JSON.stringify(v)
+      }));
+      if (updates.length === 0) {
+        setAppliedMsg("These recommendations are narrative-only (no machine-applicable config payload). Use the Calibration sub-tab knobs to act on them.");
+        return;
+      }
       const res = await fetch(`${API_BASE}/timed/admin/model-config`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
+        credentials: "include",
         body: JSON.stringify({
-          updates: Object.entries(config).map(([k, v]) => ({
-            key: k,
-            value: JSON.stringify(v)
-          }))
+          updates
         })
       });
       const json = await res.json();
-      setAppliedMsg(json.ok ? `Applied ${top3.length} recommendations to model_config` : json.error || "Apply failed");
+      setAppliedMsg(json.ok ? `Applied ${updates.length} key${updates.length === 1 ? "" : "s"} to model_config: ${updates.map(u => u.key).join(", ")}. Takes effect on the next 5-min scoring cycle — check the Effective model_config card below.` : json.error || "Apply failed");
     } catch (e) {
       setAppliedMsg("Error: " + e.message);
     } finally {
@@ -6036,8 +6042,13 @@ function DiscoveryRunDiagnosisButton() {
 function MoveDiscoveryTab({
   report,
   loading,
-  error
+  error,
+  onNavigateTab
 }) {
+  const goAnalysis = e => {
+    if (e) e.preventDefault();
+    if (typeof onNavigateTab === "function") onNavigateTab("analysis");
+  };
   const [subtab, setSubtab] = useState("overview");
   const [search, setSearch] = useState("");
   const [captureFilter, setCaptureFilter] = useState("ALL");
@@ -6183,6 +6194,7 @@ function MoveDiscoveryTab({
   }, summary.full_capture || 0, " full + ", summary.partial_capture || 0, " partial")), React.createElement("a", {
     className: "si-kpi",
     href: "?tab=analysis",
+    onClick: goAnalysis,
     title: tipFor("missed"),
     style: {
       textDecoration: "none"
@@ -6387,13 +6399,15 @@ function MoveDiscoveryTab({
       className: "flex flex-wrap items-center gap-2 mt-2"
     }, totalDiagnosed === 0 ? React.createElement(DiscoveryRunDiagnosisButton, null) : React.createElement("a", {
       className: "si-action si-action--primary",
-      href: ctaHref
+      href: ctaHref,
+      onClick: ctaHref === "?tab=analysis" ? goAnalysis : undefined
     }, ctaLabel), React.createElement("a", {
       className: "si-action",
       href: "trade-autopsy.html"
     }, "Trade Autopsy"), React.createElement("a", {
       className: "si-action",
-      href: "?tab=analysis"
+      href: "?tab=analysis",
+      onClick: goAnalysis
     }, "Calibration knobs")));
   })())), subtab === "diagnosis" && React.createElement("div", {
     className: "grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-5"
@@ -7310,6 +7324,31 @@ function App() {
     } catch (_) {}
   }, [tab]);
   useEffect(() => {
+    const syncFromUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const legacyMap = {
+          dashboard: "engine",
+          moves: "discovery",
+          patterns: "discovery",
+          history: "analysis",
+          grading: "engine"
+        };
+        const candidate = params.get("tab");
+        const resolved = legacyMap[candidate] || candidate;
+        if (resolved && ["engine", "analysis", "runs", "discovery"].includes(resolved)) {
+          setTab(cur => cur === resolved ? cur : resolved);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("pageshow", syncFromUrl);
+    window.addEventListener("popstate", syncFromUrl);
+    return () => {
+      window.removeEventListener("pageshow", syncFromUrl);
+      window.removeEventListener("popstate", syncFromUrl);
+    };
+  }, []);
+  useEffect(() => {
     if (!queued) return;
     const fetchStatus = async () => {
       try {
@@ -7697,7 +7736,8 @@ function App() {
   }, React.createElement(MoveDiscoveryTab, {
     report: moveReport,
     loading: moveLoading,
-    error: moveError
+    error: moveError,
+    onNavigateTab: setTab
   }), React.createElement(PatternsTab, null)))));
 }
 const _AuthGate = window.TimedAuthGate;
@@ -7708,6 +7748,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1781128132476:974144235
+// cache-bust:1781129351201:653750710
 
-// cache-bust:1781128132476:974144235
+// cache-bust:1781129351201:653750710
