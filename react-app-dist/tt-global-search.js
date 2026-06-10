@@ -358,49 +358,138 @@
     } catch { return false; }
   }
 
-  // ── Universe loader (cached, multi-call dedup) ──────────────────
+  // ── Universe loader (localStorage cache + deferred enrichment) ───
+  // Tickers change infrequently; avoid hammering /timed/all on every
+  // page load — that payload competes with Today and made search feel
+  // hung. Symbol list is cached 6h; name/sector enrichment is cached
+  // separately and refreshed in the background via requestIdleCallback.
+  const UNIVERSE_CACHE_KEY = "tt-gs-universe-v2";
+  const UNIVERSE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+  function readUniverseCache() {
+    try {
+      const raw = window.localStorage?.getItem(UNIVERSE_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const at = Number(parsed?.at) || 0;
+      const items = Array.isArray(parsed?.items) ? parsed.items : null;
+      if (!items?.length || !at || Date.now() - at > UNIVERSE_CACHE_TTL_MS) return null;
+      return items;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeUniverseCache(items) {
+    try {
+      window.localStorage?.setItem(UNIVERSE_CACHE_KEY, JSON.stringify({
+        at: Date.now(),
+        items: items.map((it) => ({
+          ticker: it.ticker,
+          name: it.name || null,
+          sector: it.sector || null,
+        })),
+      }));
+    } catch (_) {}
+  }
+
+  function universeFromSymbols(syms) {
+    return syms
+      .map((s) => String(s || "").trim().toUpperCase())
+      .filter(Boolean)
+      .map((sym) => ({ ticker: sym, name: null, sector: null }))
+      .sort((a, b) => a.ticker.localeCompare(b.ticker));
+  }
+
+  async function fetchTickerSymbols() {
+    const r = await fetch(`${API_BASE}/timed/tickers`, { credentials: "include" });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return Array.isArray(j?.tickers) ? j.tickers : [];
+  }
+
+  async function enrichUniverse(items) {
+    const out = new Map(items.map((it) => [it.ticker, { ...it }]));
+    try {
+      const r = await fetch(`${API_BASE}/timed/all`, { credentials: "include" });
+      if (!r.ok) return [...out.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+      const j = await r.json();
+      const data = j?.data || j || {};
+      for (const [key, v] of Object.entries(data)) {
+        const sym = String(key).toUpperCase();
+        if (!sym) continue;
+        const ctx = v?.context || {};
+        const name = v?.companyName || v?.name || ctx.name || null;
+        const sector = ctx.sector || v?.sector || null;
+        if (!out.has(sym)) out.set(sym, { ticker: sym, name, sector });
+        else {
+          const cur = out.get(sym);
+          if (!cur.name && name) cur.name = name;
+          if (!cur.sector && sector) cur.sector = sector;
+        }
+      }
+    } catch (_) { /* symbol-only search still works */ }
+    return [...out.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
+  }
+
   let _universeP = null;
+  let _universeRefreshing = false;
+
+  function applyUniverse(items) {
+    const sorted = [...items].sort((a, b) => a.ticker.localeCompare(b.ticker));
+    _universe = sorted;
+    if (_overlay) onInput();
+    return sorted;
+  }
+
+  function refreshUniverseInBackground() {
+    if (_universeRefreshing) return;
+    _universeRefreshing = true;
+    const run = async () => {
+      try {
+        const syms = await fetchTickerSymbols();
+        if (!syms.length) return;
+        let items = universeFromSymbols(syms);
+        items = await enrichUniverse(items);
+        writeUniverseCache(items);
+        applyUniverse(items);
+        _universeP = Promise.resolve(items);
+      } catch (e) {
+        console.warn("[GLOBAL-SEARCH] universe refresh failed:", e);
+      } finally {
+        _universeRefreshing = false;
+      }
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => { run(); }, { timeout: 8000 });
+    } else {
+      setTimeout(run, 2500);
+    }
+  }
+
   function loadUniverse() {
     if (_universeP) return _universeP;
+
+    const cached = readUniverseCache();
+    if (cached?.length) {
+      _universeP = Promise.resolve(cached);
+      refreshUniverseInBackground();
+      return _universeP;
+    }
+
     _universeP = (async () => {
-      const out = new Map(); // SYM -> { ticker, name, sector }
       try {
-        const r = await fetch(`${API_BASE}/timed/tickers`, { cache: "no-store", credentials: "include" });
-        if (r.ok) {
-          const j = await r.json();
-          const syms = Array.isArray(j?.tickers) ? j.tickers : [];
-          for (const s of syms) {
-            const sym = String(s).toUpperCase();
-            if (sym) out.set(sym, { ticker: sym, name: null, sector: null });
-          }
-        }
+        const syms = await fetchTickerSymbols();
+        if (!syms.length) return [];
+        let items = universeFromSymbols(syms);
+        writeUniverseCache(items);
+        // Return symbols immediately; enrich without blocking first open.
+        refreshUniverseInBackground();
+        return items;
       } catch (e) {
         console.warn("[GLOBAL-SEARCH] universe fetch failed:", e);
+        return [];
       }
-      // Try to enrich with company name + sector from /timed/all. Pro
-      // users can hit this; if it 401s we just fall back to symbol-only
-      // results, which still work fine.
-      try {
-        const r = await fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" });
-        if (r.ok) {
-          const j = await r.json();
-          const data = j?.data || j || {};
-          for (const [key, v] of Object.entries(data)) {
-            const sym = String(key).toUpperCase();
-            if (!sym) continue;
-            const ctx = v?.context || {};
-            const name = v?.companyName || v?.name || ctx.name || null;
-            const sector = ctx.sector || v?.sector || null;
-            if (!out.has(sym)) out.set(sym, { ticker: sym, name, sector });
-            else {
-              const cur = out.get(sym);
-              if (!cur.name && name) cur.name = name;
-              if (!cur.sector && sector) cur.sector = sector;
-            }
-          }
-        }
-      } catch (_) { /* best-effort enrichment */ }
-      return [...out.values()].sort((a, b) => a.ticker.localeCompare(b.ticker));
     })();
     return _universeP;
   }
@@ -981,8 +1070,13 @@
     } else {
       navRow.appendChild(btn);
     }
-    // Pre-warm the universe so the first overlay open feels instant.
-    loadUniverse();
+    // Defer universe prefetch so Today / Active Trader critical fetches
+    // win the network first. Cache makes the first open instant anyway.
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => { loadUniverse(); }, { timeout: 5000 });
+    } else {
+      setTimeout(() => { loadUniverse(); }, 2000);
+    }
     return true;
   }
 
@@ -1038,4 +1132,4 @@
   }
 })();
 
-// cache-bust:1781112439524:253528176
+// cache-bust:1781127179746:657353974

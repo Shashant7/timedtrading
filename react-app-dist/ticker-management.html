@@ -8,35 +8,123 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781112439524" />
-    <script defer src="/vendor/react.production.min.js?v=1781112439524"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781112439524"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781112439524" />
-<script defer src="auth-gate.js?v=1781112439524"></script>
-    <script src="tt-bottom-nav.js?v=1781112439524" defer></script>
-    <script src="tt-nav-extras.js?v=1781112439524" defer></script>
-    <script src="tt-global-search.js?v=1781112439524" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781127179746" />
+    <script defer src="/vendor/react.production.min.js?v=1781127179746"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781127179746"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781127179746" />
+<script defer src="auth-gate.js?v=1781127179746"></script>
+    <script src="tt-bottom-nav.js?v=1781127179746" defer></script>
+    <script src="tt-nav-extras.js?v=1781127179746" defer></script>
+    <script src="tt-global-search.js?v=1781127179746" defer></script>
     <style>
-      body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; }
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-up: #22c55e;
+        --tt-dn: #f43f5e;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      body {
+        margin: 0;
+        background: var(--tt-bg-base);
+        color: var(--tt-text);
+        font-family: var(--tt-font);
+        -webkit-font-smoothing: antialiased;
+      }
+      .tt-page { max-width: 1800px; margin: 0 auto; padding: 18px 24px 96px; }
+      .tt-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+      }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title {
+        margin: 0 0 6px;
+        font-family: var(--tt-font-display);
+        font-size: 22px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--tt-text);
+      }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); }
+      .tt-stat {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 12px 16px;
+        min-width: 110px;
+      }
+      .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
+      .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 22px; font-weight: 700; color: var(--tt-text); }
+      .tt-admin-section { padding: 14px 0; border-bottom: 1px solid var(--tt-border); }
+      .tt-admin-section:last-child { border-bottom: none; padding-bottom: 0; }
+      .tt-admin-head {
+        display: flex; align-items: center; gap: 8px; width: 100%;
+        background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+      }
+      .tt-admin-title { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+      .tt-input {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: var(--tt-text);
+      }
+      .tt-input:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .tt-btn {
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      }
+      .tt-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-btn--danger { background: rgba(244,63,94,0.12); border-color: rgba(244,63,94,0.35); color: #fb7185; }
+      .tt-btn--fill { background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.35); color: #4ade80; }
+      .tt-btn--score { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.35); color: #fbbf24; }
+      .tt-progress {
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 10px 14px;
+        font-size: 12px;
+        color: var(--tt-text-muted);
+      }
+      .tt-progress strong { color: var(--tt-accent); font-family: var(--tt-font-mono); }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes pulse-badge {
         0%, 100% { opacity: 1; transform: scale(1); }
         50% { opacity: 0.7; transform: scale(1.15); }
       }
+      .tt-spin { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; margin-right: 4px; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: #4b5563; }
-      /* Admin-only nav links: hidden for non-admin users */
-      body:not([data-user-role="admin"]) a[data-admin-only] {
-        display: none !important;
-      }
+      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
     </style>
   </head>
   <body class="vf-page">
     <script defer src="tt-topnav-scaffold.js"></script>
     <div id="root"></div>
-    <script defer src="ticker-management.compiled.js?v=1781112439524"></script>
+    <script defer src="ticker-management.compiled.js?v=1781127179746"></script>
     <script>
       (function() {
         fetch("/timed/daily-brief/badge", { cache: "no-store" })
@@ -56,4 +144,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781112439524:253528176 -->
+<!-- cache-bust:1781127179746:657353974 -->
