@@ -425,20 +425,23 @@ function App({
     });
   }, []);
   return React.createElement("div", {
-    className: "min-h-screen pb-16"
+    className: "min-h-screen pb-16",
+    style: {
+      background: "var(--tt-bg-base)"
+    }
   }, React.createElement("div", {
-    className: "max-w-[1400px] mx-auto px-4"
+    className: "tt-page"
   }, React.createElement("div", {
-    className: "flex items-center justify-between mb-6"
+    className: "tt-card tt-card-pad mb-4 flex items-center justify-between gap-4 flex-wrap"
   }, React.createElement("div", null, React.createElement("h1", {
-    className: "text-lg font-semibold tracking-tight text-white"
+    className: "tt-page-title"
   }, "Screener"), React.createElement("p", {
-    className: "text-[13px] text-[#6b7280] mt-0.5"
+    className: "tt-page-lede"
   }, viewMode === "promote" ? "Promotion Queue — thesis-quality scoring + operator review" : "Discover new tickers not yet in our universe")), React.createElement("div", {
-    className: "flex items-center gap-2"
+    className: "flex items-center gap-2 flex-wrap"
   }, viewMode === "discovery" && isAdmin && selectedTickers.size > 0 && React.createElement("button", {
     onClick: () => addToUniverse(Array.from(selectedTickers)),
-    className: "px-4 py-1.5 rounded-lg text-[13px] font-medium bg-[#00c853]/15 text-[#00c853] border border-[#00c853]/30 hover:bg-[#00c853]/25 transition-all"
+    className: "tt-btn tt-btn--primary"
   }, "Add ", selectedTickers.size, " to Universe"), viewMode === "discovery" && isAdmin && React.createElement(React.Fragment, null, React.createElement("button", {
     onClick: () => triggerScreenerScan("weekly"),
     disabled: scanRunning || loading,
@@ -452,7 +455,7 @@ function App({
   }, "Run Full Scan")), viewMode === "discovery" && React.createElement("button", {
     onClick: () => fetchCandidates(true),
     disabled: loading || scanRunning,
-    className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#00c853] border border-[#00c853]/25 hover:bg-[#00c853]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
+    className: "tt-btn tt-btn--ghost disabled:opacity-50 disabled:cursor-not-allowed",
     title: "Refresh cached screener results"
   }, loading ? "Loading..." : "↻ Refresh"), viewMode === "promote" && isAdmin && React.createElement("button", {
     onClick: triggerPqRebuild,
@@ -460,7 +463,7 @@ function App({
     className: "px-3 py-1.5 rounded-lg text-[12px] font-medium text-[#f5c25c] border border-[#f5c25c]/30 hover:bg-[#f5c25c]/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed",
     title: "Re-score all candidates with the 7-component thesis-quality framework"
   }, pqRebuilding ? "Rebuilding…" : "↻ Rebuild Queue"))), React.createElement("div", {
-    className: "flex items-center gap-1 mb-4 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04] w-fit"
+    className: "tt-pill-bar mb-4"
   }, [{
     id: "discovery",
     label: "Discovery",
@@ -476,11 +479,11 @@ function App({
     return React.createElement("button", {
       key: v.id,
       onClick: () => setViewMode(v.id),
-      className: `px-3 py-1.5 rounded-md text-[12px] transition-all flex items-center gap-1.5 ${active ? "bg-white/[0.08] text-white font-medium" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+      className: `tt-pill flex items-center gap-1.5 ${active ? "active" : ""}`,
       title: v.desc
     }, React.createElement("span", null, v.icon), React.createElement("span", null, v.label));
   })), viewMode === "promote" && React.createElement("div", null, React.createElement("div", {
-    className: "flex items-center gap-1 mb-4 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04] w-fit flex-wrap"
+    className: "flex items-center gap-1 mb-4 bg-[#13201A] rounded-lg p-1 border border-[#1F3128] w-fit flex-wrap"
   }, [{
     id: "ready_to_add",
     label: "Ready",
@@ -515,7 +518,7 @@ function App({
     return React.createElement("button", {
       key: s.id,
       onClick: () => setPqStatusFilter(s.id),
-      className: `px-3 py-1.5 rounded-md text-[11px] transition-all ${active ? "bg-white/[0.08] font-medium" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`,
+      className: `px-3 py-1.5 rounded-md text-[11px] transition-all ${active ? "bg-[#1A2B22] font-medium" : "text-[#8AA39A] hover:text-white hover:bg-[#1A2B22]"}`,
       style: active ? {
         color: s.color
       } : {},
@@ -524,9 +527,9 @@ function App({
   })), pqErr && React.createElement("div", {
     className: "text-red-400 text-xs mb-3 px-3 py-2 rounded border border-red-500/30 bg-red-500/[0.06]"
   }, pqErr), pqLoading && pqRows.length === 0 && React.createElement("div", {
-    className: "text-xs text-[#6b7280] py-8 text-center"
+    className: "text-xs text-[#8AA39A] py-8 text-center"
   }, "Loading promotion queue\u2026"), !pqLoading && pqRows.length === 0 && !pqErr && React.createElement("div", {
-    className: "text-xs text-[#6b7280] py-8 text-center"
+    className: "text-xs text-[#8AA39A] py-8 text-center"
   }, "No candidates with status ", React.createElement("strong", null, pqStatusFilter), ".", isAdmin && React.createElement(React.Fragment, null, " Try ", React.createElement("button", {
     className: "underline text-[#f5c25c] ml-1",
     onClick: triggerPqRebuild
@@ -611,12 +614,12 @@ function App({
     }];
     return React.createElement("div", {
       key: row.candidate_id,
-      className: "rounded-lg border bg-white/[0.02] hover:bg-white/[0.03] transition-all",
+      className: "rounded-lg border bg-[#13201A] hover:bg-[#1A2B22] transition-all",
       style: {
         borderColor: statusMeta.color + "30"
       }
     }, React.createElement("div", {
-      className: "flex items-start justify-between gap-4 px-4 py-3 border-b border-white/[0.04]"
+      className: "flex items-start justify-between gap-4 px-4 py-3 border-b border-[#1F3128]"
     }, React.createElement("div", {
       className: "flex-1 min-w-0"
     }, React.createElement("div", {
@@ -626,7 +629,7 @@ function App({
     }, row.ticker), React.createElement("span", {
       className: "text-[11px] text-[#9ca3af]"
     }, sig?.sector || "—"), React.createElement("span", {
-      className: "text-[11px] text-[#6b7280]"
+      className: "text-[11px] text-[#8AA39A]"
     }, mcapDisplay), Number.isFinite(sig?.latest_price) && React.createElement("span", {
       className: "text-[11px] text-[#d1d5db]"
     }, "$", Number(sig.latest_price).toFixed(2)), Number.isFinite(sig?.latest_change_pct) && React.createElement("span", {
@@ -647,33 +650,33 @@ function App({
         borderColor: "rgba(167,139,250,0.40)"
       }
     }, "IN UNIVERSE")), React.createElement("div", {
-      className: "text-[10px] text-[#6b7280]"
+      className: "text-[10px] text-[#8AA39A]"
     }, Array.isArray(sig?.themes) && sig.themes.length > 0 && React.createElement(React.Fragment, null, "Themes: ", sig.themes.join(", "), " \xB7 "), Array.isArray(sig?.scan_types) && sig.scan_types.length > 0 && React.createElement(React.Fragment, null, "Scans: ", sig.scan_types.join(", "), " \xB7 "), "Appearances 7d: ", row.appearances_7d || 0, row.decided_by && React.createElement(React.Fragment, null, " \xB7 Decided by ", row.decided_by, " ", row.decided_at ? new Date(Number(row.decided_at)).toLocaleString() : ""))), React.createElement("div", {
       className: "flex items-baseline gap-2 shrink-0"
     }, React.createElement("span", {
-      className: `text-[28px] font-bold tabular-nums leading-none ${score >= 60 ? "text-[#22c55e]" : score >= 40 ? "text-[#f5c25c]" : "text-[#6b7280]"}`
+      className: `text-[28px] font-bold tabular-nums leading-none ${score >= 60 ? "text-[#22c55e]" : score >= 40 ? "text-[#f5c25c]" : "text-[#8AA39A]"}`
     }, score), React.createElement("span", {
-      className: "text-[12px] text-[#6b7280]"
+      className: "text-[12px] text-[#8AA39A]"
     }, "/100"))), React.createElement("div", {
       className: "px-4 py-3 grid grid-cols-2 md:grid-cols-7 gap-2"
     }, COMPS.map(c => {
       const pct = c.max > 0 ? Math.min(100, c.val / c.max * 100) : 0;
-      const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f5c25c" : "#6b7280";
+      const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#f5c25c" : "#8AA39A";
       return React.createElement("div", {
         key: c.key,
         title: c.hint,
         className: "cursor-help"
       }, React.createElement("div", {
-        className: "text-[9px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1"
+        className: "text-[9px] tracking-wider font-semibold uppercase text-[#8AA39A] mb-1"
       }, c.label), React.createElement("div", {
         className: "text-[12px] font-bold tabular-nums",
         style: {
           color
         }
       }, c.val, React.createElement("span", {
-        className: "text-[#4b5563] font-normal"
+        className: "text-[#51635A] font-normal"
       }, "/", c.max)), React.createElement("div", {
-        className: "h-1 mt-1 rounded-full bg-white/[0.05] overflow-hidden"
+        className: "h-1 mt-1 rounded-full bg-[#1F3128] overflow-hidden"
       }, React.createElement("div", {
         className: "h-full rounded-full transition-all",
         style: {
@@ -696,16 +699,16 @@ function App({
         borderColor: "rgba(248,113,113,0.25)"
       }
     }, String(f).replace(/_/g, " "))))), row.thesis_text && React.createElement("div", {
-      className: "px-4 py-3 border-t border-white/[0.04]"
+      className: "px-4 py-3 border-t border-[#1F3128]"
     }, React.createElement("div", {
-      className: "text-[9px] tracking-wider font-semibold uppercase text-[#6b7280] mb-1"
+      className: "text-[9px] tracking-wider font-semibold uppercase text-[#8AA39A] mb-1"
     }, "Thesis"), React.createElement("div", {
       className: "text-[12px] text-[#d1d5db] leading-relaxed",
       dangerouslySetInnerHTML: {
         __html: String(row.thesis_text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white">$1</strong>')
       }
     })), isAdmin && (status === "ready_to_add" || status === "needs_review") && React.createElement("div", {
-      className: "px-4 py-3 border-t border-white/[0.04] flex items-center gap-2"
+      className: "px-4 py-3 border-t border-[#1F3128] flex items-center gap-2"
     }, React.createElement("button", {
       onClick: () => decideOnCandidate(row.candidate_id, "approve"),
       disabled: deciding,
@@ -715,12 +718,12 @@ function App({
       disabled: deciding,
       className: "px-3 py-1.5 rounded text-[12px] font-semibold text-[#f87171] border border-[#f87171]/40 hover:bg-[#f87171]/10 transition-all disabled:opacity-50"
     }, deciding ? "Working…" : "✗ Decline"), React.createElement("span", {
-      className: "text-[10px] text-[#4b5563] ml-auto"
+      className: "text-[10px] text-[#51635A] ml-auto"
     }, "First seen ", row.first_seen_at ? new Date(Number(row.first_seen_at)).toLocaleDateString() : "—")));
   })), pqRows.length > 0 && React.createElement("div", {
-    className: "text-[10px] text-[#4b5563] mt-4 italic"
+    className: "text-[10px] text-[#51635A] mt-4 italic"
   }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226540 + no critical \u2192 needs review \xB7 otherwise \u2192 rejected. Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, (scanTs || scanMsg) && React.createElement("div", {
-    className: "text-[11px] text-[#4b5563] mb-3 -mt-4"
+    className: "text-[11px] text-[#51635A] mb-3 -mt-4"
   }, scanMsg && React.createElement("span", {
     className: "text-[#a78bfa] mr-3"
   }, scanMsg), scanTs && React.createElement(React.Fragment, null, "Last scan: ", new Date(scanTs).toLocaleString(), " (", (() => {
@@ -731,21 +734,21 @@ function App({
   })(), ")")), React.createElement("div", {
     className: "flex items-center gap-4 flex-wrap mb-4"
   }, React.createElement("div", {
-    className: "flex items-center gap-1 bg-white/[0.02] rounded-lg p-1 border border-white/[0.04]"
+    className: "flex items-center gap-1 bg-[#13201A] rounded-lg p-1 border border-[#1F3128]"
   }, SCAN_TYPES.map(st => {
     const count = scanTypeCounts[st.id] || 0;
     const active = scanFilter === st.id;
     return React.createElement("button", {
       key: st.id,
       onClick: () => setScanFilter(st.id),
-      className: `px-3 py-1.5 rounded-md text-[12px] transition-all flex items-center gap-1.5 ${active ? "bg-white/[0.08] text-white font-medium" : "text-[#6b7280] hover:text-white hover:bg-white/[0.04]"}`
+      className: `px-3 py-1.5 rounded-md text-[12px] transition-all flex items-center gap-1.5 ${active ? "bg-[#1A2B22] text-white font-medium" : "text-[#8AA39A] hover:text-white hover:bg-[#1A2B22]"}`
     }, React.createElement("span", null, st.icon), React.createElement("span", null, st.label), count > 0 && React.createElement("span", {
-      className: `text-[10px] px-1.5 py-0.5 rounded-full ${active ? "bg-white/[0.1] text-white" : "bg-white/[0.04] text-[#4b5563]"}`
+      className: `text-[10px] px-1.5 py-0.5 rounded-full ${active ? "bg-[#1A2B22] text-white" : "bg-[#1A2B22] text-[#51635A]"}`
     }, count));
   })), React.createElement("select", {
     value: sectorFilter,
     onChange: e => setSectorFilter(e.target.value),
-    className: "bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-[#9ca3af] focus:outline-none focus:border-white/[0.12] appearance-none cursor-pointer",
+    className: "bg-[#1A2B22] border border-[#1F3128] rounded-lg px-3 py-1.5 text-[12px] text-[#9ca3af] focus:outline-none focus:border-[#2A4136] appearance-none cursor-pointer",
     style: {
       minWidth: "140px"
     }
@@ -753,13 +756,13 @@ function App({
     key: s,
     value: s,
     style: {
-      background: "#1a1d23",
-      color: "#e5e7eb"
+      background: "#13201A",
+      color: "#E8F2EC"
     }
   }, s === "all" ? "All Sectors" : s))), React.createElement("select", {
     value: sortBy,
     onChange: e => setSortBy(e.target.value),
-    className: "bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-[#9ca3af] focus:outline-none focus:border-white/[0.12] appearance-none cursor-pointer",
+    className: "bg-[#1A2B22] border border-[#1F3128] rounded-lg px-3 py-1.5 text-[12px] text-[#9ca3af] focus:outline-none focus:border-[#2A4136] appearance-none cursor-pointer",
     style: {
       minWidth: "130px"
     }
@@ -767,8 +770,8 @@ function App({
     key: s.id,
     value: s.id,
     style: {
-      background: "#1a1d23",
-      color: "#e5e7eb"
+      background: "#13201A",
+      color: "#E8F2EC"
     }
   }, s.label))), React.createElement("div", {
     className: "relative flex-1 max-w-[260px]"
@@ -777,12 +780,12 @@ function App({
     value: search,
     onChange: e => setSearch(e.target.value),
     placeholder: "Search ticker or name...",
-    className: "w-full bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-[#4b5563] focus:outline-none focus:border-white/[0.12]"
+    className: "w-full bg-[#1A2B22] border border-[#1F3128] rounded-lg px-3 py-1.5 text-[12px] text-white placeholder:text-[#51635A] focus:outline-none focus:border-[#2A4136]"
   }), search && React.createElement("button", {
     onClick: () => setSearch(""),
-    className: "absolute right-2 top-1/2 -translate-y-1/2 text-[#4b5563] hover:text-white text-sm"
+    className: "absolute right-2 top-1/2 -translate-y-1/2 text-[#51635A] hover:text-white text-sm"
   }, "\xD7")), React.createElement("span", {
-    className: "text-[11px] text-[#4b5563] ml-auto"
+    className: "text-[11px] text-[#51635A] ml-auto"
   }, filteredCandidates.length, " result", filteredCandidates.length !== 1 ? "s" : "")), error && React.createElement("div", {
     className: "tt-card p-4 mb-4 border border-red-500/20"
   }, React.createElement("span", {
@@ -798,9 +801,9 @@ function App({
   })), !loading && filteredCandidates.length === 0 && React.createElement("div", {
     className: "tt-card p-12 text-center"
   }, React.createElement("p", {
-    className: "text-[#6b7280] text-sm mb-2"
+    className: "text-[#8AA39A] text-sm mb-2"
   }, "No candidates found"), React.createElement("p", {
-    className: "text-[#4b5563] text-xs"
+    className: "text-[#51635A] text-xs"
   }, scanFilter === "weekly_momentum" ? React.createElement(React.Fragment, null, "No weekly momentum candidates yet. ", isAdmin && React.createElement(React.Fragment, null, "Click ", React.createElement("button", {
     className: "underline text-[#a78bfa]",
     onClick: () => triggerScreenerScan("weekly")
@@ -810,7 +813,7 @@ function App({
   }, "Run Full Scan"), " or wait for the nightly cron (22:30 UTC).") : "Waiting for the nightly discovery scan.")), filteredCandidates.length > 0 && React.createElement("div", {
     className: "tt-card overflow-hidden"
   }, React.createElement("div", {
-    className: "grid items-center gap-3 px-4 py-2.5 border-b border-white/[0.06] text-[10px] font-medium text-[#4b5563] uppercase tracking-wider",
+    className: "grid items-center gap-3 px-4 py-2.5 border-b border-[#1F3128] text-[10px] font-medium text-[#51635A] uppercase tracking-wider",
     style: {
       gridTemplateColumns: "32px 80px 1fr 80px 80px 90px 70px 80px 100px 120px"
     }
@@ -827,7 +830,7 @@ function App({
         setSelectedTickers(new Set());
       }
     },
-    className: "w-3.5 h-3.5 rounded accent-[#00c853] cursor-pointer"
+    className: "w-3.5 h-3.5 rounded accent-[#38F2A1] cursor-pointer"
   })), React.createElement("div", null, "Ticker"), React.createElement("div", null, "Name"), React.createElement("div", {
     className: "text-right"
   }, "Price"), React.createElement("div", {
@@ -852,7 +855,7 @@ function App({
     const isPositive = Number(changePct) >= 0;
     return React.createElement("div", {
       key: `${ticker}-${idx}`,
-      className: `grid items-center gap-3 px-4 py-2.5 text-[13px] transition-all hover:bg-white/[0.02] ${isSelected ? "bg-[#00c853]/[0.04]" : ""}`,
+      className: `grid items-center gap-3 px-4 py-2.5 text-[13px] transition-all hover:bg-[#1A2B22] ${isSelected ? "bg-[#38F2A1]/[0.04]" : ""}`,
       style: {
         gridTemplateColumns: "32px 80px 1fr 80px 80px 90px 70px 80px 100px 120px"
       }
@@ -860,7 +863,7 @@ function App({
       type: "checkbox",
       checked: isSelected,
       onChange: () => toggleSelect(ticker),
-      className: "w-3.5 h-3.5 rounded accent-[#00c853] cursor-pointer"
+      className: "w-3.5 h-3.5 rounded accent-[#38F2A1] cursor-pointer"
     })), React.createElement("div", {
       className: "flex items-center gap-1.5"
     }, React.createElement("span", {
@@ -872,7 +875,7 @@ function App({
     }, c.name || ticker), React.createElement("div", {
       className: "text-right tabular-nums text-white"
     }, c.price ? `$${Number(c.price).toFixed(2)}` : "—"), React.createElement("div", {
-      className: `text-right tabular-nums font-medium ${Number(changePct) > 0 ? "text-[#00c853]" : Number(changePct) < 0 ? "text-[#ff5252]" : "text-[#6b7280]"}`
+      className: `text-right tabular-nums font-medium ${Number(changePct) > 0 ? "text-[#38F2A1]" : Number(changePct) < 0 ? "text-[#ff5252]" : "text-[#8AA39A]"}`
     }, changePct != null ? fmtPct(changePct) : "—"), React.createElement("div", {
       className: "text-right tabular-nums text-[#9ca3af]"
     }, fmtVol(c.volume)), React.createElement("div", {
@@ -880,36 +883,36 @@ function App({
     }, c.rsi ? c.rsi.toFixed(0) : "—"), React.createElement("div", {
       className: "text-right tabular-nums text-[#9ca3af]"
     }, fmtMcap(c.market_cap)), React.createElement("div", {
-      className: "text-[11px] text-[#6b7280] truncate"
+      className: "text-[11px] text-[#8AA39A] truncate"
     }, c.sector || "—"), React.createElement("div", {
       className: "flex justify-center"
     }, inUniverse && !justAdded ? React.createElement("span", {
-      className: "text-[11px] px-2 py-1 rounded-md bg-white/[0.04] text-[#6b7280]"
+      className: "text-[11px] px-2 py-1 rounded-md bg-[#1A2B22] text-[#8AA39A]"
     }, "In Universe") : justAdded ? React.createElement("span", {
-      className: "text-[11px] px-2 py-1 rounded-md bg-[#00c853]/15 text-[#00c853] font-medium"
+      className: "text-[11px] px-2 py-1 rounded-md bg-[#38F2A1]/15 text-[#38F2A1] font-medium"
     }, "Added \u2713") : isAdding ? React.createElement("span", {
-      className: "text-[11px] px-2 py-1 rounded-md bg-white/[0.04] text-[#6b7280]"
+      className: "text-[11px] px-2 py-1 rounded-md bg-[#1A2B22] text-[#8AA39A]"
     }, "Adding...") : isAdmin ? React.createElement("button", {
       onClick: () => addToUniverse([ticker]),
-      className: "text-[11px] px-2.5 py-1 rounded-md bg-[#00c853]/10 text-[#00c853] border border-[#00c853]/20 hover:bg-[#00c853]/20 transition-all font-medium"
+      className: "text-[11px] px-2.5 py-1 rounded-md bg-[#38F2A1]/10 text-[#38F2A1] border border-[#38F2A1]/20 hover:bg-[#38F2A1]/20 transition-all font-medium"
     }, "+ Add") : React.createElement("span", {
-      className: "text-[11px] px-2 py-1 rounded-md bg-white/[0.02] text-[#4b5563]",
+      className: "text-[11px] px-2 py-1 rounded-md bg-[#13201A] text-[#51635A]",
       title: "Admin access required"
     }, "\uD83D\uDD12")));
   }))), candidates.length > 0 && React.createElement("div", {
     className: "flex items-center gap-6 mt-4 mb-8 px-1"
   }, React.createElement("div", {
-    className: "text-[11px] text-[#4b5563]"
+    className: "text-[11px] text-[#51635A]"
   }, "Total candidates: ", React.createElement("span", {
     className: "text-[#9ca3af]"
   }, candidates.length)), React.createElement("div", {
-    className: "text-[11px] text-[#4b5563]"
+    className: "text-[11px] text-[#51635A]"
   }, "Already tracked: ", React.createElement("span", {
     className: "text-[#9ca3af]"
   }, candidates.filter(c => existingTickers.has((c.ticker || "").toUpperCase())).length)), React.createElement("div", {
-    className: "text-[11px] text-[#4b5563]"
+    className: "text-[11px] text-[#51635A]"
   }, "New discoveries: ", React.createElement("span", {
-    className: "text-[#00c853]"
+    className: "text-[#38F2A1]"
   }, candidates.filter(c => !existingTickers.has((c.ticker || "").toUpperCase())).length))))));
 }
 const AuthGate = window.TimedAuthGate;
@@ -920,6 +923,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235
 
-// cache-bust:1781127179746:657353974
+// cache-bust:1781128132476:974144235
