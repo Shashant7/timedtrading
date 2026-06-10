@@ -86,7 +86,7 @@ styling, or root `DESIGN.md`.
 | Page | Status |
 |---|---|
 | splash.html | not started |
-| today.html | not started |
+| today.html | **DONE 2026-06-10** (PR: UI refresh — token integration in `tt-tokens.css` VERDA section; page migrated by re-pointing its page-local `--tt-*`/`--ds-*` values at the Verda palette + Manrope headings; no `vf-*` class mixing) |
 | active-trader.html | not started |
 | investor.html | not started |
 | portfolio.html | not started |
