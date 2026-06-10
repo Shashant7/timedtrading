@@ -129,6 +129,32 @@
         if (!ts) return "—";
         return new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
       }
+      function formatDuration(ms) {
+        const n = Number(ms);
+        if (!Number.isFinite(n) || n <= 0) return "—";
+        const mins = Math.round(n / 60000);
+        if (mins < 1) return "<1m";
+        if (mins < 60) return `${mins}m`;
+        return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+      }
+      const PATH_LABELS = {
+        "/today.html": "Today",
+        "/active-trader.html": "Active Trader",
+        "/investor.html": "Investor",
+        "/portfolio.html": "Portfolio",
+        "/insights.html": "Insights",
+        "/daily-brief.html": "Daily Brief",
+        "/screener.html": "Screener",
+        "/admin-clients.html": "Admin Clients",
+        "/ticker-management.html": "Tickers",
+        "/mission-control.html": "Mission Control",
+        "/learn.html": "Learn",
+        "/faq.html": "FAQ",
+      };
+      function pathLabel(path) {
+        if (!path) return "—";
+        return PATH_LABELS[path] || path.replace(/^\//, "").replace(/\.html$/, "").replace(/-/g, " ");
+      }
 
       function ClientType({ tier, subStatus }) {
         const labels = { admin: "Admin", vip: "VIP", pro: "Pro", free: "Member" };
@@ -173,8 +199,6 @@
         const [analyticsLoading, setAnalyticsLoading] = useState(false);
         const [analyticsError, setAnalyticsError] = useState(null);
         const [analyticsDays, setAnalyticsDays] = useState(7);
-        const [systemHealth, setSystemHealth] = useState(null);
-        const [healthLoading, setHealthLoading] = useState(false);
         const [vipCodes, setVipCodes] = useState([]);
         const [vipLoading, setVipLoading] = useState(false);
         const [vipGenLabel, setVipGenLabel] = useState("");
@@ -274,15 +298,6 @@
           } finally { setAnalyticsLoading(false); }
         }, [analyticsDays]);
 
-        const fetchSystemHealth = useCallback(async () => {
-          setHealthLoading(true);
-          try {
-            const res = await fetch(`${API_BASE}/timed/admin/system-health`, { credentials: "include" });
-            const json = await res.json();
-            if (json.ok) setSystemHealth(json);
-          } catch (e) { console.error(e); } finally { setHealthLoading(false); }
-        }, []);
-
         const fetchVipCodes = useCallback(async () => {
           setVipLoading(true);
           try {
@@ -315,7 +330,6 @@
         };
 
         useEffect(() => { if (tab === "analytics") fetchAnalytics(); }, [tab, fetchAnalytics]);
-        useEffect(() => { if (tab === "health") fetchSystemHealth(); }, [tab, fetchSystemHealth]);
         useEffect(() => { if (tab === "vip") fetchVipCodes(); }, [tab, fetchVipCodes]);
 
         // Sorting
@@ -421,7 +435,6 @@
                   { id: "clients", label: "Clients" },
                   { id: "usage", label: "Usage" },
                   { id: "analytics", label: "Analytics" },
-                  { id: "health", label: "System Health" },
                   { id: "vip", label: "VIP Codes" },
                 ].map(t => (
                   <button type="button" key={t.id} onClick={() => setTab(t.id)} className={`tt-tab ${tab === t.id ? "active" : ""}`}>{t.label}</button>
@@ -432,13 +445,12 @@
               <div className="tt-card tt-card-pad mb-4 flex items-center justify-between gap-4 flex-wrap">
                 <div>
                   <h1 className="tt-page-title">
-                    {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", health: "System Health", vip: "VIP Code Management" }[tab] || "Admin"}
+                    {{ clients: "Client Management", usage: "Usage by Feature by User", analytics: "Session Analytics", vip: "VIP Code Management" }[tab] || "Admin"}
                   </h1>
                   <p className="tt-page-lede">
                     {tab === "clients" && `${stats.total} total clients`}
                     {tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report")}
                     {tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics")}
-                    {tab === "health" && (systemHealth ? `Last checked: ${new Date(systemHealth.ts).toLocaleTimeString()}` : "Run a health check")}
                     {tab === "vip" && `${vipCodes.length} codes generated`}
                   </p>
                 </div>
@@ -740,6 +752,11 @@
                     <div className="text-rose-400 text-sm">Failed to load analytics: {analyticsError}</div>
                   ) : analytics ? (
                     <>
+                      {analytics.tracking_note && (
+                        <div className="text-[12px] text-[#8AA39A] bg-[#1A2B22] border border-[#1F3128] rounded-xl px-4 py-3">
+                          {analytics.tracking_note}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                         {[
                           { label: "Live Now", value: analytics.live?.active_users || 0, color: "#22c55e" },
@@ -756,36 +773,89 @@
                         ))}
                       </div>
 
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
+                          <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Top Pages ({analyticsDays}d)</h3>
+                          {(analytics.top_paths || []).length > 0 ? (analytics.top_paths || []).map(p => (
+                            <div key={p.path} className="flex justify-between text-[12px] py-1 border-b border-[#1F3128]">
+                              <span className="text-[#e5e7eb]">{pathLabel(p.path)}</span>
+                              <span className="text-[#8AA39A] tabular-nums">{p.cnt}</span>
+                            </div>
+                          )) : <p className="text-[12px] text-[#6E867D]">No page visits recorded yet.</p>}
+                        </div>
+                        <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
+                          <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Feature Engagement ({analyticsDays}d)</h3>
+                          {(analytics.feature_usage || []).length > 0 ? (analytics.feature_usage || []).map(f => (
+                            <div key={f.feature} className="flex justify-between text-[12px] py-1 border-b border-[#1F3128]">
+                              <span className="text-[#e5e7eb]">{f.feature.replace(/_view$/, "").replace(/_/g, " ")}</span>
+                              <span className="text-[#8AA39A] tabular-nums">{f.cnt} <span className="text-[#6E867D]">({f.users} users)</span></span>
+                            </div>
+                          )) : <p className="text-[12px] text-[#6E867D]">No feature usage recorded yet.</p>}
+                        </div>
+                      </div>
+
+                      <div className="bg-[#13201A] border border-[#1F3128] rounded-xl overflow-x-auto">
+                        <div className="px-4 py-3 border-b border-[#1F3128] text-[12px] font-semibold text-[#9ca3af] uppercase">Recent Sessions</div>
+                        {(analytics.recent_sessions || []).length > 0 ? (
+                          <table className="w-full border-collapse text-[12px]">
+                            <thead>
+                              <tr className="border-b border-[#1F3128] text-[#8AA39A]">
+                                <th className="px-3 py-2 text-left font-semibold">User</th>
+                                <th className="px-2 py-2 text-left font-semibold">Last Page</th>
+                                <th className="px-2 py-2 text-right font-semibold">Views</th>
+                                <th className="px-2 py-2 text-right font-semibold">Duration</th>
+                                <th className="px-2 py-2 text-left font-semibold">Device</th>
+                                <th className="px-2 py-2 text-left font-semibold">Last Seen</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(analytics.recent_sessions || []).map((s, i) => (
+                                <tr key={`${s.user_email}-${s.started_at}-${i}`} className="border-b border-[#1F3128] hover:bg-[#1A2B22]">
+                                  <td className="px-3 py-2 text-[#e5e7eb] max-w-[180px] truncate">{s.user_email}</td>
+                                  <td className="px-2 py-2 text-[#9ca3af]">{pathLabel(s.last_path)}</td>
+                                  <td className="px-2 py-2 text-right text-[#8AA39A] tabular-nums">{s.page_views || 0}</td>
+                                  <td className="px-2 py-2 text-right text-[#8AA39A] tabular-nums">{formatDuration(s.duration_ms)}</td>
+                                  <td className="px-2 py-2 text-[#9ca3af] capitalize">{[s.device, s.browser].filter(Boolean).join(" / ") || "—"}</td>
+                                  <td className="px-2 py-2 text-[#8AA39A] whitespace-nowrap">{formatDateTime(s.last_seen_at)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <p className="px-4 py-6 text-[12px] text-[#6E867D]">No sessions in this period. Data populates as users browse while logged in.</p>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Devices */}
                         <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Devices</h3>
-                          {(analytics.devices || []).map(d => (
-                            <div key={d.device} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                          {(analytics.devices || []).length > 0 ? (analytics.devices || []).map(d => (
+                            <div key={d.device} className="flex justify-between text-[12px] py-1 border-b border-[#1F3128]">
                               <span className="text-[#e5e7eb] capitalize">{d.device}</span>
                               <span className="text-[#8AA39A] tabular-nums">{d.cnt}</span>
                             </div>
-                          ))}
+                          )) : <p className="text-[12px] text-[#6E867D]">—</p>}
                         </div>
                         {/* Browsers */}
                         <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Browsers</h3>
-                          {(analytics.browsers || []).map(b => (
-                            <div key={b.browser} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                          {(analytics.browsers || []).length > 0 ? (analytics.browsers || []).map(b => (
+                            <div key={b.browser} className="flex justify-between text-[12px] py-1 border-b border-[#1F3128]">
                               <span className="text-[#e5e7eb] capitalize">{b.browser}</span>
                               <span className="text-[#8AA39A] tabular-nums">{b.cnt}</span>
                             </div>
-                          ))}
+                          )) : <p className="text-[12px] text-[#6E867D]">—</p>}
                         </div>
                         {/* Countries */}
                         <div className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
                           <h3 className="text-[12px] font-semibold text-[#9ca3af] uppercase mb-3">Top Countries</h3>
-                          {(analytics.countries || []).slice(0, 10).map(c => (
-                            <div key={c.country} className="flex justify-between text-[12px] py-1 border-b border-white/[0.03]">
+                          {(analytics.countries || []).length > 0 ? (analytics.countries || []).slice(0, 10).map(c => (
+                            <div key={c.country} className="flex justify-between text-[12px] py-1 border-b border-[#1F3128]">
                               <span className="text-[#e5e7eb]">{c.country || "Unknown"}</span>
                               <span className="text-[#8AA39A] tabular-nums">{c.cnt}</span>
                             </div>
-                          ))}
+                          )) : <p className="text-[12px] text-[#6E867D]">—</p>}
                         </div>
                       </div>
 
@@ -824,55 +894,6 @@
                     </>
                   ) : (
                     <p className="text-[#8AA39A] text-sm">No session analytics yet. Data appears after users browse while logged in.</p>
-                  )}
-                </div>
-              )}
-
-              {/* System Health Tab */}
-              {tab === "health" && (
-                <div className="space-y-6">
-                  <div className="flex items-center gap-3">
-                    <button onClick={fetchSystemHealth} disabled={healthLoading} className="px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50">
-                      {healthLoading ? "Checking..." : "Run Health Check"}
-                    </button>
-                    {systemHealth && (
-                      <span className={`text-[13px] font-bold ${systemHealth.overall === "healthy" ? "text-[#22c55e]" : systemHealth.overall === "stale" ? "text-[#f59e0b]" : "text-[#ff5252]"}`}>
-                        {systemHealth.overall?.toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                  {healthLoading ? (
-                    <div className="text-center py-12 text-[#8AA39A]">Running health checks...</div>
-                  ) : systemHealth?.checks ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {Object.entries(systemHealth.checks).map(([key, check]) => {
-                        const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#8AA39A" : "#ff5252";
-                        const labels = { price_feed: "Price Feed", scoring: "Scoring Engine", d1: "Database (D1)", discord: "Discord Bot", stripe: "Stripe", sendgrid: "SendGrid", twelvedata: "TwelveData" };
-                        return (
-                          <div key={key} className="bg-[#13201A] border border-[#1F3128] rounded-xl p-4">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[13px] font-semibold text-[#e5e7eb]">{labels[key] || key}</span>
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold" style={{ color: statusColor, background: `${statusColor}15`, border: `1px solid ${statusColor}30` }}>
-                                {check.status?.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="space-y-1 text-[11px] text-[#8AA39A]">
-                              {check.age_min !== undefined && <div>Age: <span className="text-[#e5e7eb]">{check.age_min}m</span></div>}
-                              {check.ticker_count !== undefined && <div>Tickers: <span className="text-[#e5e7eb]">{check.ticker_count}</span></div>}
-                              {check.user_count !== undefined && <div>Users: <span className="text-[#e5e7eb]">{check.user_count}</span></div>}
-                              {check.detail && <div className="text-[#ff5252]">{check.detail}</div>}
-                              {check.has_bot_token !== undefined && <div>Bot Token: <span className={check.has_bot_token ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_bot_token ? "Yes" : "No"}</span></div>}
-                              {check.has_guild_id !== undefined && <div>Guild ID: <span className={check.has_guild_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_guild_id ? "Yes" : "No"}</span></div>}
-                              {check.has_role_id !== undefined && <div>Role ID: <span className={check.has_role_id ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_role_id ? "Yes" : "No"}</span></div>}
-                              {check.has_secret_key !== undefined && <div>Secret Key: <span className={check.has_secret_key ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_secret_key ? "Yes" : "No"}</span></div>}
-                              {check.has_webhook_secret !== undefined && <div>Webhook Secret: <span className={check.has_webhook_secret ? "text-[#22c55e]" : "text-[#ff5252]"}>{check.has_webhook_secret ? "Yes" : "No"}</span></div>}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[#8AA39A] text-sm">Click "Run Health Check" to check system status.</p>
                   )}
                 </div>
               )}

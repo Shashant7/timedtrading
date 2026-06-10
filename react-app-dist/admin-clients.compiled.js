@@ -26,6 +26,32 @@ function formatDateTime(ts) {
     minute: "2-digit"
   });
 }
+function formatDuration(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const mins = Math.round(n / 60000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+const PATH_LABELS = {
+  "/today.html": "Today",
+  "/active-trader.html": "Active Trader",
+  "/investor.html": "Investor",
+  "/portfolio.html": "Portfolio",
+  "/insights.html": "Insights",
+  "/daily-brief.html": "Daily Brief",
+  "/screener.html": "Screener",
+  "/admin-clients.html": "Admin Clients",
+  "/ticker-management.html": "Tickers",
+  "/mission-control.html": "Mission Control",
+  "/learn.html": "Learn",
+  "/faq.html": "FAQ"
+};
+function pathLabel(path) {
+  if (!path) return "—";
+  return PATH_LABELS[path] || path.replace(/^\//, "").replace(/\.html$/, "").replace(/-/g, " ");
+}
 function ClientType({
   tier,
   subStatus
@@ -105,8 +131,6 @@ function AdminClientsPage({
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState(null);
   const [analyticsDays, setAnalyticsDays] = useState(7);
-  const [systemHealth, setSystemHealth] = useState(null);
-  const [healthLoading, setHealthLoading] = useState(false);
   const [vipCodes, setVipCodes] = useState([]);
   const [vipLoading, setVipLoading] = useState(false);
   const [vipGenLabel, setVipGenLabel] = useState("");
@@ -263,20 +287,6 @@ function AdminClientsPage({
       setAnalyticsLoading(false);
     }
   }, [analyticsDays]);
-  const fetchSystemHealth = useCallback(async () => {
-    setHealthLoading(true);
-    try {
-      const res = await fetch(`${API_BASE}/timed/admin/system-health`, {
-        credentials: "include"
-      });
-      const json = await res.json();
-      if (json.ok) setSystemHealth(json);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setHealthLoading(false);
-    }
-  }, []);
   const fetchVipCodes = useCallback(async () => {
     setVipLoading(true);
     try {
@@ -332,9 +342,6 @@ function AdminClientsPage({
   useEffect(() => {
     if (tab === "analytics") fetchAnalytics();
   }, [tab, fetchAnalytics]);
-  useEffect(() => {
-    if (tab === "health") fetchSystemHealth();
-  }, [tab, fetchSystemHealth]);
   useEffect(() => {
     if (tab === "vip") fetchVipCodes();
   }, [tab, fetchVipCodes]);
@@ -433,9 +440,6 @@ function AdminClientsPage({
     id: "analytics",
     label: "Analytics"
   }, {
-    id: "health",
-    label: "System Health"
-  }, {
     id: "vip",
     label: "VIP Codes"
   }].map(t => React.createElement("button", {
@@ -451,11 +455,10 @@ function AdminClientsPage({
     clients: "Client Management",
     usage: "Usage by Feature by User",
     analytics: "Session Analytics",
-    health: "System Health",
     vip: "VIP Code Management"
   }[tab] || "Admin"), React.createElement("p", {
     className: "tt-page-lede"
-  }, tab === "clients" && `${stats.total} total clients`, tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report"), tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics"), tab === "health" && (systemHealth ? `Last checked: ${new Date(systemHealth.ts).toLocaleTimeString()}` : "Run a health check"), tab === "vip" && `${vipCodes.length} codes generated`)), tab === "clients" && React.createElement("button", {
+  }, tab === "clients" && `${stats.total} total clients`, tab === "usage" && (usageReport ? `Last ${usageReport.days || usageDays} days` : "Load report"), tab === "analytics" && (analytics ? `${analytics.period?.unique_users || 0} unique users in last ${analyticsDays}d` : "Load analytics"), tab === "vip" && `${vipCodes.length} codes generated`)), tab === "clients" && React.createElement("button", {
     onClick: exportCSV,
     className: "px-4 py-2 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white hover:bg-[#1A2B22] transition-all"
   }, "Export CSV"), tab === "usage" && React.createElement("div", {
@@ -821,7 +824,9 @@ function AdminClientsPage({
     className: "text-center py-12 text-[#8AA39A]"
   }, "Loading analytics...") : analyticsError ? React.createElement("div", {
     className: "text-rose-400 text-sm"
-  }, "Failed to load analytics: ", analyticsError) : analytics ? React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Failed to load analytics: ", analyticsError) : analytics ? React.createElement(React.Fragment, null, analytics.tracking_note && React.createElement("div", {
+    className: "text-[12px] text-[#8AA39A] bg-[#1A2B22] border border-[#1F3128] rounded-xl px-4 py-3"
+  }, analytics.tracking_note), React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"
   }, [{
     label: "Live Now",
@@ -858,41 +863,114 @@ function AdminClientsPage({
       color: s.color
     }
   }, s.value)))), React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-2 gap-4"
+  }, React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
+  }, React.createElement("h3", {
+    className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
+  }, "Top Pages (", analyticsDays, "d)"), (analytics.top_paths || []).length > 0 ? (analytics.top_paths || []).map(p => React.createElement("div", {
+    key: p.path,
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
+  }, React.createElement("span", {
+    className: "text-[#e5e7eb]"
+  }, pathLabel(p.path)), React.createElement("span", {
+    className: "text-[#8AA39A] tabular-nums"
+  }, p.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "No page visits recorded yet.")), React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
+  }, React.createElement("h3", {
+    className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
+  }, "Feature Engagement (", analyticsDays, "d)"), (analytics.feature_usage || []).length > 0 ? (analytics.feature_usage || []).map(f => React.createElement("div", {
+    key: f.feature,
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
+  }, React.createElement("span", {
+    className: "text-[#e5e7eb]"
+  }, f.feature.replace(/_view$/, "").replace(/_/g, " ")), React.createElement("span", {
+    className: "text-[#8AA39A] tabular-nums"
+  }, f.cnt, " ", React.createElement("span", {
+    className: "text-[#6E867D]"
+  }, "(", f.users, " users)")))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "No feature usage recorded yet."))), React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl overflow-x-auto"
+  }, React.createElement("div", {
+    className: "px-4 py-3 border-b border-[#1F3128] text-[12px] font-semibold text-[#9ca3af] uppercase"
+  }, "Recent Sessions"), (analytics.recent_sessions || []).length > 0 ? React.createElement("table", {
+    className: "w-full border-collapse text-[12px]"
+  }, React.createElement("thead", null, React.createElement("tr", {
+    className: "border-b border-[#1F3128] text-[#8AA39A]"
+  }, React.createElement("th", {
+    className: "px-3 py-2 text-left font-semibold"
+  }, "User"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Last Page"), React.createElement("th", {
+    className: "px-2 py-2 text-right font-semibold"
+  }, "Views"), React.createElement("th", {
+    className: "px-2 py-2 text-right font-semibold"
+  }, "Duration"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Device"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Last Seen"))), React.createElement("tbody", null, (analytics.recent_sessions || []).map((s, i) => React.createElement("tr", {
+    key: `${s.user_email}-${s.started_at}-${i}`,
+    className: "border-b border-[#1F3128] hover:bg-[#1A2B22]"
+  }, React.createElement("td", {
+    className: "px-3 py-2 text-[#e5e7eb] max-w-[180px] truncate"
+  }, s.user_email), React.createElement("td", {
+    className: "px-2 py-2 text-[#9ca3af]"
+  }, pathLabel(s.last_path)), React.createElement("td", {
+    className: "px-2 py-2 text-right text-[#8AA39A] tabular-nums"
+  }, s.page_views || 0), React.createElement("td", {
+    className: "px-2 py-2 text-right text-[#8AA39A] tabular-nums"
+  }, formatDuration(s.duration_ms)), React.createElement("td", {
+    className: "px-2 py-2 text-[#9ca3af] capitalize"
+  }, [s.device, s.browser].filter(Boolean).join(" / ") || "—"), React.createElement("td", {
+    className: "px-2 py-2 text-[#8AA39A] whitespace-nowrap"
+  }, formatDateTime(s.last_seen_at)))))) : React.createElement("p", {
+    className: "px-4 py-6 text-[12px] text-[#6E867D]"
+  }, "No sessions in this period. Data populates as users browse while logged in.")), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-4"
   }, React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Devices"), (analytics.devices || []).map(d => React.createElement("div", {
+  }, "Devices"), (analytics.devices || []).length > 0 ? (analytics.devices || []).map(d => React.createElement("div", {
     key: d.device,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, d.device), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, d.cnt)))), React.createElement("div", {
+  }, d.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014")), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Browsers"), (analytics.browsers || []).map(b => React.createElement("div", {
+  }, "Browsers"), (analytics.browsers || []).length > 0 ? (analytics.browsers || []).map(b => React.createElement("div", {
     key: b.browser,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, b.browser), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, b.cnt)))), React.createElement("div", {
+  }, b.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014")), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Top Countries"), (analytics.countries || []).slice(0, 10).map(c => React.createElement("div", {
+  }, "Top Countries"), (analytics.countries || []).length > 0 ? (analytics.countries || []).slice(0, 10).map(c => React.createElement("div", {
     key: c.country,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb]"
   }, c.country || "Unknown"), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, c.cnt))))), React.createElement("div", {
+  }, c.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014"))), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
@@ -934,69 +1012,7 @@ function AdminClientsPage({
     className: "text-[11px] text-[#8AA39A] tabular-nums bg-[#1A2B22] px-2 py-0.5 rounded"
   }, o.cnt)))))) : React.createElement("p", {
     className: "text-[#8AA39A] text-sm"
-  }, "No session analytics yet. Data appears after users browse while logged in.")), tab === "health" && React.createElement("div", {
-    className: "space-y-6"
-  }, React.createElement("div", {
-    className: "flex items-center gap-3"
-  }, React.createElement("button", {
-    onClick: fetchSystemHealth,
-    disabled: healthLoading,
-    className: "px-4 py-1.5 rounded-lg text-[12px] font-semibold bg-[#1A2B22] border border-[#1F3128] text-[#9ca3af] hover:text-white transition-all disabled:opacity-50"
-  }, healthLoading ? "Checking..." : "Run Health Check"), systemHealth && React.createElement("span", {
-    className: `text-[13px] font-bold ${systemHealth.overall === "healthy" ? "text-[#22c55e]" : systemHealth.overall === "stale" ? "text-[#f59e0b]" : "text-[#ff5252]"}`
-  }, systemHealth.overall?.toUpperCase())), healthLoading ? React.createElement("div", {
-    className: "text-center py-12 text-[#8AA39A]"
-  }, "Running health checks...") : systemHealth?.checks ? React.createElement("div", {
-    className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-  }, Object.entries(systemHealth.checks).map(([key, check]) => {
-    const statusColor = check.status === "ok" || check.status === "configured" ? "#22c55e" : check.status === "stale" ? "#f59e0b" : check.status === "not_configured" ? "#8AA39A" : "#ff5252";
-    const labels = {
-      price_feed: "Price Feed",
-      scoring: "Scoring Engine",
-      d1: "Database (D1)",
-      discord: "Discord Bot",
-      stripe: "Stripe",
-      sendgrid: "SendGrid",
-      twelvedata: "TwelveData"
-    };
-    return React.createElement("div", {
-      key: key,
-      className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
-    }, React.createElement("div", {
-      className: "flex items-center justify-between mb-2"
-    }, React.createElement("span", {
-      className: "text-[13px] font-semibold text-[#e5e7eb]"
-    }, labels[key] || key), React.createElement("span", {
-      className: "px-2 py-0.5 rounded text-[10px] font-bold",
-      style: {
-        color: statusColor,
-        background: `${statusColor}15`,
-        border: `1px solid ${statusColor}30`
-      }
-    }, check.status?.toUpperCase())), React.createElement("div", {
-      className: "space-y-1 text-[11px] text-[#8AA39A]"
-    }, check.age_min !== undefined && React.createElement("div", null, "Age: ", React.createElement("span", {
-      className: "text-[#e5e7eb]"
-    }, check.age_min, "m")), check.ticker_count !== undefined && React.createElement("div", null, "Tickers: ", React.createElement("span", {
-      className: "text-[#e5e7eb]"
-    }, check.ticker_count)), check.user_count !== undefined && React.createElement("div", null, "Users: ", React.createElement("span", {
-      className: "text-[#e5e7eb]"
-    }, check.user_count)), check.detail && React.createElement("div", {
-      className: "text-[#ff5252]"
-    }, check.detail), check.has_bot_token !== undefined && React.createElement("div", null, "Bot Token: ", React.createElement("span", {
-      className: check.has_bot_token ? "text-[#22c55e]" : "text-[#ff5252]"
-    }, check.has_bot_token ? "Yes" : "No")), check.has_guild_id !== undefined && React.createElement("div", null, "Guild ID: ", React.createElement("span", {
-      className: check.has_guild_id ? "text-[#22c55e]" : "text-[#ff5252]"
-    }, check.has_guild_id ? "Yes" : "No")), check.has_role_id !== undefined && React.createElement("div", null, "Role ID: ", React.createElement("span", {
-      className: check.has_role_id ? "text-[#22c55e]" : "text-[#ff5252]"
-    }, check.has_role_id ? "Yes" : "No")), check.has_secret_key !== undefined && React.createElement("div", null, "Secret Key: ", React.createElement("span", {
-      className: check.has_secret_key ? "text-[#22c55e]" : "text-[#ff5252]"
-    }, check.has_secret_key ? "Yes" : "No")), check.has_webhook_secret !== undefined && React.createElement("div", null, "Webhook Secret: ", React.createElement("span", {
-      className: check.has_webhook_secret ? "text-[#22c55e]" : "text-[#ff5252]"
-    }, check.has_webhook_secret ? "Yes" : "No"))));
-  })) : React.createElement("p", {
-    className: "text-[#8AA39A] text-sm"
-  }, "Click \"Run Health Check\" to check system status.")), tab === "vip" && React.createElement("div", {
+  }, "No session analytics yet. Data appears after users browse while logged in.")), tab === "vip" && React.createElement("div", {
     className: "space-y-6"
   }, React.createElement("div", {
     className: "flex items-center gap-3 flex-wrap"
@@ -1070,6 +1086,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1781129965879:352631410
+// cache-bust:1781130245318:374142160
 
-// cache-bust:1781129965879:352631410
+// cache-bust:1781130245318:374142160
