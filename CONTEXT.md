@@ -331,6 +331,12 @@ playbook in `skills/security-auth-patterns.md`)**
 - `COO_SCREENER_AUTO_SCORE` hot-reloads from model_config (env fallback) so the Discovery Apply on the screener threshold is live without redeploy.
 - Triggers are per-setup (tt-core-entry qualify stack, ~12 `tt_*` plays) but ~20 generic gates (admission matrix, cohort, rank/regime floors, loop1/2) can veto any setup — the gameplan's constraint mix measures which side binds.
 
+**CRO Theme Tilt** (live since 2026-06-10, `worker/theme-tilt.js`)
+- `computeDynamicScore` (viewport/FocusRail ordering, `rank_position`) now carries a BOUNDED ±6 theme tilt: observed rotation-engine theme breadth (±4, data) + playbook alignment (±2, editorial, only emitted when the theme is also moving). Direction-aware: hot theme helps LONG-side, hurts SHORT-side (sign of `htf_score`).
+- Does NOT touch `computeRank`/entry gates — it reorders the funnel, it does not admit trades.
+- Gate: `model_config cro_theme_rank_boost_enabled` (default ON; "false" → tilt still computed and attached as `_theme_tilt_shadow`, score untouched). Payload fields: `_theme_tilt`, `_theme_tilt_theme`; Today viewport shows a `T±n` chip.
+- Theme membership is the curated `THEMES` map in `worker/sector-mapping.js` — when the operator names a ticker as a theme play (e.g. APLD), CHECK IT IS IN THE MAP; absent tickers are invisible to all theme intelligence (promotion queue, CIO L11, tilt).
+
 **Markov / Regime Forecast** (5m bars, daily KV refresh)
 - 5m bar = 1 tick → `timed_trail`; daily aggregation → `trail_5m_facts` (per `bucket_ts = floor(ts/300000)*300000`); daily compute → `timed:regime:matrix:global`
 - **Universe matrix** + **per-ticker matrices for top-50 active tickers** at `timed:regime:matrix:ticker:{TICKER}` (manifest at `:_manifest`). Forecast read path prefers per-ticker, falls back to universe. (PR #309)
