@@ -6,6 +6,7 @@ import {
   applyTimingOverlayToConfluence,
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
+  evaluateReversalTrimAdvisory,
   bearishTdPrepCount,
   bullishTdPrepCount,
 } from "./timing-signals.js";
@@ -264,5 +265,114 @@ describe("bullishTdPrepCount", () => {
     expect(bullishTdPrepCount({
       td_sequential: { per_tf: { D: { td9_bullish: true, bullish_prep_count: 9 } } },
     }, "D")).toBe(9);
+  });
+});
+
+describe("evaluateReversalTrimAdvisory — shadow reversal-trim advisor", () => {
+  const stretchedSnap = {
+    ticker: "NVDA",
+    price: 110,
+    timing_overlay: {
+      trim_winners: true,
+      extension_score: 62,
+      compression_score: 10,
+      warnings: ["daily_td9_at_8", "fsd_macro_risk_off"],
+      compressions: [],
+    },
+  };
+  const calmSnap = {
+    ticker: "CAT",
+    price: 105,
+    timing_overlay: {
+      trim_winners: false,
+      extension_score: 12,
+      compression_score: 8,
+      warnings: [],
+      compressions: [],
+    },
+  };
+  const watchActive = { active: true, breadth: 4 };
+
+  it("advises a strong partial trim on a stretched open winner with FSD risk-off + index watch", () => {
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "NVDA", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0, trade_id: "t1" }],
+      getSnapshot: () => stretchedSnap,
+      indexWatch: watchActive,
+    });
+    expect(out.active).toBe(true);
+    expect(out.advisories).toHaveLength(1);
+    const a = out.advisories[0];
+    expect(a.ticker).toBe("NVDA");
+    expect(a.pnl_pct).toBeCloseTo(10, 1);
+    expect(a.strength).toBe("strong");
+    expect(a.suggested_trim_pct).toBe(0.33);
+    expect(a.reasons).toContain("fsd_risk_off");
+    expect(a.reasons).toContain("index_watch_4");
+  });
+
+  it("stays quiet for winners with no ticker-level reversal signal — even when the index watch is active", () => {
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "CAT", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => calmSnap,
+      indexWatch: watchActive,
+    });
+    expect(out.active).toBe(false);
+    expect(out.advisories).toHaveLength(0);
+  });
+
+  it("skips losers and already-trimmed positions", () => {
+    const loser = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "NVDA", status: "OPEN", direction: "LONG", entry_price: 120, trimmed_pct: 0 }],
+      getSnapshot: () => stretchedSnap, // price 110 < entry 120 → loser
+      indexWatch: watchActive,
+    });
+    expect(loser.active).toBe(false);
+    const trimmed = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "NVDA", status: "TP_HIT_TRIM", direction: "LONG", entry_price: 100, trimmed_pct: 0.66 }],
+      getSnapshot: () => stretchedSnap,
+      indexWatch: watchActive,
+    });
+    expect(trimmed.active).toBe(false);
+  });
+
+  it("requires market confirmation or strong pnl when only ONE ticker-level reason fires", () => {
+    const oneReasonSnap = {
+      ticker: "AMD",
+      price: 102,
+      timing_overlay: { trim_winners: false, extension_score: 58, compression_score: 5, warnings: [], compressions: [] },
+    };
+    const noMarket = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "AMD", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => oneReasonSnap, // +2% only
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(noMarket.active).toBe(false);
+    const withMarket = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "AMD", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => oneReasonSnap,
+      indexWatch: watchActive,
+    });
+    expect(withMarket.active).toBe(true);
+    expect(withMarket.advisories[0].suggested_trim_pct).toBe(0.25);
+    expect(withMarket.advisories[0].strength).toBe("standard");
+  });
+
+  it("mirrors for SHORT winners via the compression side", () => {
+    const compressedSnap = {
+      ticker: "TSLA",
+      price: 88,
+      timing_overlay: {
+        trim_winners: false, extension_score: 5, compression_score: 60,
+        warnings: [], compressions: ["daily_td9_buy_at_8", "vix_spike"], add_on_dips: true,
+      },
+    };
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "TSLA", status: "OPEN", direction: "SHORT", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => compressedSnap,
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(out.active).toBe(true);
+    expect(out.advisories[0].direction).toBe("SHORT");
+    expect(out.advisories[0].pnl_pct).toBeCloseTo(12, 1);
   });
 });
