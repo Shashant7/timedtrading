@@ -65,7 +65,8 @@ jobs:
             OPS=$(echo "$HEALTH" | jq -r '(.cronFailures.ops // []) | join(",")')
             TRACKED=$(echo "$HEALTH" | jq -r '.cronFailures.tracked // "?"')
             SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
+            FEEDAGE=$(echo "$HEALTH" | jq -r '.pricesAgeSec // "null"')
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
 
             if [ "$OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
@@ -82,6 +83,11 @@ jobs:
                 if [ "$TICK_INT" -gt 20 ]; then
                   FAILED="yes"; DETAIL="$DETAIL $BASE: 5-min cron heartbeat is ${TICK_INT}min stale during RTH."
                 fi
+              fi
+              # Price-feed freshness — covers the feed whichever worker owns
+              # the */1 cron (monolith today, tt-feed after cutover).
+              if [ "$FEEDAGE" != "null" ] && [ "$FEEDAGE" -gt 600 ]; then
+                FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during RTH."
               fi
             fi
 
