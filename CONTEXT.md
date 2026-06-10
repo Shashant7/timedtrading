@@ -215,6 +215,15 @@ playbook in `skills/security-auth-patterns.md`)**
 - External watchdog (`watchdog.yml`, 30-min) reads `/timed/health`
   (`cronTickAgeMin` + `cronFailures`) — new critical subsystems add
   their freshness to that ONE endpoint, not bespoke endpoints.
+- **Tombstone semantics**: `recordCronSuccess` heals a tombstone by
+  rewriting it with `count: 0` — the KV key persists 7 days. Anything
+  counting `timed:cron:failure:*` MUST read values and count only
+  `count > 0` (key-count alone kept the watchdog red for hours after
+  the 2026-06-09 proxy-auth incident healed).
+- **CI curl can get Cloudflare bot-challenged on timed-trading.com** —
+  health probes must guard jq against non-JSON (challenge HTML) or the
+  step dies with a jq parse error before paging. Permanent fix is a WAF
+  skip rule for `/timed/health` (operator, Cloudflare dashboard).
 
 **AI CIO memory integrity (2026-06-09)**
 - Live scoring preload now loads last-100 `ai_cio_decisions` into Layer 5

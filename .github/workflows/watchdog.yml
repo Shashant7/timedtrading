@@ -37,12 +37,35 @@ jobs:
 
           for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
             HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+
+            # 2026-06-10 — Non-JSON guard. The custom domain can serve a
+            # Cloudflare bot-challenge HTML page ("Just a moment...") to
+            # curl from CI runners. The previous version piped that HTML
+            # into jq, which exited 5 (parse error) under bash -e — the
+            # step DIED mid-loop, the Discord page step never ran, and the
+            # red run showed a jq stack trace instead of the real signal.
+            if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+              if echo "$HEALTH" | grep -qi "challenges.cloudflare.com\|Just a moment"; then
+                # Bot challenge — the zone is challenging non-browser
+                # clients, which says nothing about origin health (the
+                # workers.dev probe covers that). Warn, don't page.
+                # Permanent fix: a WAF skip rule for /timed/health.
+                echo "::warning::$BASE served a Cloudflare bot challenge to the watchdog (curl). Add a WAF skip rule for /timed/health to restore custom-domain probing."
+                echo "$BASE → SKIPPED (cf bot challenge)"
+              else
+                FAILED="yes"; DETAIL="$DETAIL $BASE: non-JSON health response."
+                echo "$BASE → FAILED (non-JSON response: $(echo "$HEALTH" | head -c 120 | tr -d '\n'))"
+              fi
+              continue
+            fi
+
             OK=$(echo "$HEALTH" | jq -r '.ok // false')
             TICK=$(echo "$HEALTH" | jq -r '.cronTickAgeMin // "null"')
             FAILS=$(echo "$HEALTH" | jq -r '.cronFailures.count // 0')
             OPS=$(echo "$HEALTH" | jq -r '(.cronFailures.ops // []) | join(",")')
+            TRACKED=$(echo "$HEALTH" | jq -r '.cronFailures.tracked // "?"')
             SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING failures=$FAILS [$OPS]"
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
 
             if [ "$OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
@@ -62,6 +85,8 @@ jobs:
               fi
             fi
 
+            # FAILS now counts only ACTIVE tombstones (count > 0) — healed
+            # ops keep their KV key for 7 days but no longer inflate this.
             if [ "$FAILS" -gt 5 ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: $FAILS cron tombstones active ($OPS)."
             fi

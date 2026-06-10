@@ -153,10 +153,22 @@ jobs:
           sleep 5
           for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
             HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+            # 2026-06-10 — same non-JSON guard as watchdog.yml: the custom
+            # domain can serve a Cloudflare bot challenge to CI curl, which
+            # previously crashed jq (exit 5 under bash -e) and failed the
+            # deploy red even though the worker was healthy.
+            if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+              if echo "$HEALTH" | grep -qi "challenges.cloudflare.com\|Just a moment"; then
+                echo "::warning::$BASE served a Cloudflare bot challenge to the smoke probe — skipping (workers.dev probe covers origin health). Add a WAF skip rule for /timed/health."
+                continue
+              fi
+              echo "::error::$BASE/timed/health returned non-JSON after deploy: $(echo "$HEALTH" | head -c 120 | tr -d '\n')"
+              exit 1
+            fi
             OK=$(echo "$HEALTH" | jq -r '.ok // false')
             TICK=$(echo "$HEALTH" | jq -r '.cronTickAgeMin // "null"')
             FAILS=$(echo "$HEALTH" | jq -r '.cronFailures.count // "null"')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK cronFailures=$FAILS"
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK activeCronFailures=$FAILS"
             if [ "$OK" != "true" ]; then
               echo "::error::$BASE/timed/health did not return ok:true after deploy"
               exit 1
