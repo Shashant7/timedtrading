@@ -60,6 +60,9 @@
    use top-level imports for worker modules; dynamic imports inside
    handlers occasionally fail to resolve under esbuild + wrangler. */
 import { runMoveDiscovery } from "../discovery/move-discovery.js";
+import { runDiagnosis } from "../discovery/diagnose-missed.js";
+import { buildDiscoveryGameplan } from "../discovery/gameplan.js";
+import { submitProposal } from "../learning-proposals.js";
 
 const COO_KV_PREFIX = "coo:actions";
 
@@ -402,7 +405,20 @@ export async function runScreenerAutoPromote(env, options = {}) {
   const masterEnabled = String(env?.COO_ENABLED || "false").toLowerCase() === "true";
   const screenerEnabled = String(env?.COO_SCREENER_AUTO_PROMOTE || "false").toLowerCase() === "true";
   const dryRun = !screenerEnabled || !masterEnabled || !!options.dryRun;
-  const minScore = Number(env?.COO_SCREENER_AUTO_SCORE) || 70;
+  /* 2026-06-10 — model_config override FIRST, env fallback. The
+     Discovery "lower screener threshold" recommendation Apply writes
+     COO_SCREENER_AUTO_SCORE into model_config, but this lane only read
+     the env var — so the operator's Apply was silently inert until the
+     next worker deploy. Hot-reload the knob like every other dynamic
+     config value. */
+  let minScore = Number(env?.COO_SCREENER_AUTO_SCORE) || 70;
+  try {
+    const row = await env?.DB?.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'COO_SCREENER_AUTO_SCORE'`,
+    ).first();
+    const dbVal = Number(row?.config_value);
+    if (Number.isFinite(dbVal) && dbVal >= 50 && dbVal <= 100) minScore = dbVal;
+  } catch (_) { /* env fallback stands */ }
   const dailyMax = Number(env?.COO_SCREENER_DAILY_MAX) || 3;
 
   try {
@@ -568,12 +584,64 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
     summary: result.summary,
   });
 
+  /* 2026-06-10 — Auto-diagnose + gameplan synthesis (the Discovery
+     blindspot fix). Previously the diagnosis pass (miss-reason
+     buckets) only ran when the operator clicked "Run Diagnosis", so
+     the most actionable discovery data was almost always absent — and
+     NOTHING fed the officer suite. Chain both steps right after the
+     scan so every nightly cycle produces:
+       1. report.diagnosis      (LOW_RANK / NO_SIGNALS / SHOULD_HAVE_
+                                 ENTERED... buckets on KV)
+       2. timed:discovery:gameplan (constraint mix + playbook usage +
+                                 miss archetypes + narrative) — the
+                                 artifact CRO synthesis and CIO memory
+                                 now consume.
+     Both are best-effort: a failure must not break the COO cycle. */
+  let gameplanSummary = null;
+  try {
+    const diag = await runDiagnosis(env, { limit: 150 });
+    if (!diag?.ok) console.warn("[COO discovery] diagnosis skipped:", diag?.error || "unknown");
+  } catch (e) {
+    console.warn("[COO discovery] diagnosis threw:", String(e?.message || e).slice(0, 150));
+  }
+  try {
+    const gp = await buildDiscoveryGameplan(env);
+    if (gp?.ok) {
+      gameplanSummary = {
+        binding_constraint: gp.gameplan?.binding_constraint,
+        binding_constraint_pct: gp.gameplan?.binding_constraint_pct,
+        one_play_offense: gp.gameplan?.playbook_usage?.one_play_offense || false,
+        plays_idle: (gp.gameplan?.playbook_usage?.plays_idle || []).length,
+        archetypes: (gp.gameplan?.miss_archetypes || []).length,
+      };
+      await recordAction(env, {
+        tier: "tier3", kind: "discovery_gameplan", target: "universe",
+        applied: true,
+        reason: (gp.gameplan?.narrative || "").slice(0, 280),
+        summary: gameplanSummary,
+      });
+    } else {
+      console.warn("[COO discovery] gameplan skipped:", gp?.error || "unknown");
+    }
+  } catch (e) {
+    console.warn("[COO discovery] gameplan threw:", String(e?.message || e).slice(0, 150));
+  }
+
   /* 2026-06-02 — Surface discovery recommendations as individual
      tier-2 (operator approval) audit-log entries so the operator
      sees them in the MC AI COO card alongside calibration/screener
      actions. The Discovery page is the primary UI for applying them
      (1-click Apply), but logging here gives the daily-digest path
-     visibility too. */
+     visibility too.
+
+     2026-06-10 — ALSO submit each actionable rec to the canonical
+     learning_proposals bus (tier-2, source=discovery). Before this,
+     Discovery was the only learning loop bypassing the bus: its Apply
+     wrote model_config directly with no rollback row and no place in
+     the operator's proposal queue. submitProposal dedupes per
+     (source, config_key) — a repeat nightly scan UPDATES the pending
+     proposal's evidence instead of stacking duplicates, and the
+     cooldown veto in buildRecommendations stops post-apply re-spam. */
   try {
     const recs = result.recommendations || [];
     const actionable = recs.filter((r) => r?.type === "knob_change");
@@ -589,6 +657,27 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
         suggested_value: rec.suggested_value,
         expected_captures: rec.expected_captures,
       });
+      try {
+        await submitProposal(env, {
+          source: "discovery",
+          kind: "discovery_knob",
+          config_key: rec.knob_path,
+          proposed_value: rec.suggested_value,
+          tier: "tier2",
+          evidence: {
+            recommendation_id: rec.id,
+            rationale: (rec.rationale || "").slice(0, 400),
+            confidence: rec.confidence,
+            expected_captures: rec.expected_captures,
+            example_tickers: rec.example_tickers || [],
+            window_summary: result.summary,
+            gameplan: gameplanSummary,
+          },
+          note: rec.title,
+        });
+      } catch (e) {
+        console.warn("[COO discovery] bus submit failed:", String(e?.message || e).slice(0, 120));
+      }
     }
   } catch (e) {
     console.warn("[COO discovery] failed to record recommendations:", String(e?.message || e).slice(0, 120));

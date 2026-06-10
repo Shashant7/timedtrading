@@ -178,14 +178,48 @@ async function collectCTOUniverse(env) {
 
 async function collectDiscoveryPulse(env) {
   const out = { ok: true };
-  // 1. Move discovery — top recent moves vs universe
+  // 1. Move discovery — capture/miss summary + the worst misses.
+  //    2026-06-10 BUGFIX: this read `timed:discovery:move-summary`,
+  //    a key NOTHING ever writes (the nightly scan persists to
+  //    `timed:move-discovery`). The CRO's "Discovery layer" input has
+  //    been silently empty since it shipped — the exact blindspot the
+  //    operator flagged ("Discovery should be feeding our AI CRO/CIO").
   try {
-    const moves = await env?.KV?.get("timed:discovery:move-summary");
+    const moves = await env?.KV?.get("timed:move-discovery");
     if (moves) {
       const parsed = JSON.parse(moves);
       out.move_discovery = {
-        scanned_at: parsed.scanned_at,
-        top_moves: (parsed.candidates || parsed.top_moves || []).slice(0, 6),
+        generated: parsed.generated,
+        window_days: parsed.since_days,
+        summary: parsed.summary || null,
+        top_missed: (parsed.missed_signals?.top_missed || []).slice(0, 8),
+        miss_buckets: parsed.diagnosis?.breakdown || null,
+      };
+    }
+  } catch (_) {}
+  // 1b. Discovery gameplan — the synthesized constraint mix + playbook
+  //     usage + miss archetypes (worker/discovery/gameplan.js). This is
+  //     the artifact that answers "which plays are we not running, and
+  //     is the binding constraint missing triggers or generic gates?".
+  try {
+    const gp = await env?.KV?.get("timed:discovery:gameplan");
+    if (gp) {
+      const parsed = JSON.parse(gp);
+      out.gameplan = {
+        generated: parsed.generated,
+        narrative: parsed.narrative,
+        binding_constraint: parsed.binding_constraint,
+        binding_constraint_pct: parsed.binding_constraint_pct,
+        constraint_mix: parsed.constraint_mix,
+        playbook_usage: {
+          plays_run: parsed.playbook_usage?.plays_run,
+          plays_idle: parsed.playbook_usage?.plays_idle,
+          concentration_pct: parsed.playbook_usage?.concentration_pct,
+          one_play_offense: parsed.playbook_usage?.one_play_offense,
+          top_paths: (parsed.playbook_usage?.by_path || []).slice(0, 5),
+        },
+        miss_archetypes: (parsed.miss_archetypes || []).slice(0, 5),
+        actions: (parsed.actions || []).slice(0, 6),
       };
     }
   } catch (_) {}
@@ -290,7 +324,8 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "### 4. CTO Probabilistic Levels (Markov-bias-adjusted Fib / ATR / pivot levels + empirical hit rates — the data-science backing)",
       JSON.stringify(sources.cto, null, 2),
       "",
-      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage)",
+      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage, GAMEPLAN)",
+      "The `gameplan` object (when present) is the nightly synthesis of what the engine MISSED and why: `binding_constraint` says whether misses come from missing plays (NO_PLAY_FOR_MOVE), generic gates vetoing valid setups (GENERIC_GATE_VETO), low conviction, wrong-side bias, data gaps, or universe gaps. `playbook_usage` shows which entry plays actually ran vs sat idle. `miss_archetypes` are REPEATED miss patterns — candidate new plays or trigger gaps. Your 'Discovery layer' observation should name the binding constraint and any one-play-offense / idle-play finding when the data supports it; flag persistent archetypes in `early_indicators`.",
       JSON.stringify(sources.discovery, null, 2),
       "",
       "### 6. Active Playbook + Tactical Override Status",

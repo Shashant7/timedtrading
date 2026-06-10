@@ -6227,13 +6227,13 @@ function MoveDiscoveryTab({
     style: {
       fontSize: "18px"
     }
-  }, "Not run"), React.createElement("div", {
+  }, "Pending"), React.createElement("div", {
     className: "si-kpi__sub"
-  }, "Click ", React.createElement("strong", {
+  }, "Auto-runs nightly \xB7 or click ", React.createElement("strong", {
     style: {
       color: "#93c5fd"
     }
-  }, "Run Diagnosis"), " (top right)")))), React.createElement(DiscoveryRecommendationsPanel, {
+  }, "Run Diagnosis"))))), React.createElement(DiscoveryRecommendationsPanel, {
     recommendations: report?.recommendations || [],
     reportGeneratedMs: report?.generated ? new Date(report.generated).getTime() : null
   }), React.createElement("div", {
@@ -6254,7 +6254,54 @@ function MoveDiscoveryTab({
     key: tab.id,
     onClick: () => setSubtab(tab.id),
     className: `px-4 py-2 text-xs font-medium whitespace-nowrap ${subtab === tab.id ? "tab-active" : "tab-inactive"}`
-  }, tab.label))), subtab === "overview" && React.createElement("div", {
+  }, tab.label))), subtab === "overview" && report?.gameplan && React.createElement("div", {
+    className: "card p-4"
+  }, React.createElement("div", {
+    className: "flex items-center justify-between mb-2"
+  }, React.createElement("h3", {
+    className: "text-sm font-semibold text-white"
+  }, "Gameplan \u2014 what the officers see"), React.createElement("span", {
+    className: "text-[10px] text-slate-500"
+  }, report.gameplan.generated ? new Date(report.gameplan.generated).toLocaleString() : "", " \xB7 feeds CRO note + CIO memory")), React.createElement("div", {
+    className: "text-sm text-slate-300 mb-3"
+  }, report.gameplan.narrative || "No narrative yet."), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-4 text-sm"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-slate-500 text-[11px] uppercase tracking-wide mb-1"
+  }, "Why we miss (binding constraint)"), Object.entries(report.gameplan.constraint_mix || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => React.createElement("div", {
+    key: k,
+    className: "flex items-center justify-between"
+  }, React.createElement("span", {
+    className: k === report.gameplan.binding_constraint ? "text-amber-300 font-medium" : "text-slate-400"
+  }, k), React.createElement("span", {
+    className: "text-slate-500"
+  }, v))), !report.gameplan.diagnosis_present && React.createElement("div", {
+    className: "text-[11px] text-slate-500 mt-1"
+  }, "Diagnosis pending \u2014 runs nightly.")), React.createElement("div", null, React.createElement("div", {
+    className: "text-slate-500 text-[11px] uppercase tracking-wide mb-1"
+  }, "Playbook usage (", report.gameplan.playbook_usage?.plays_run ?? 0, "/", report.gameplan.playbook_usage?.plays_known ?? 0, " plays ran)"), (report.gameplan.playbook_usage?.by_path || []).slice(0, 4).map(p => React.createElement("div", {
+    key: p.path,
+    className: "flex items-center justify-between"
+  }, React.createElement("span", {
+    className: "text-slate-300"
+  }, p.path), React.createElement("span", {
+    className: "text-slate-500"
+  }, p.trades, " \xB7 ", p.win_rate ?? "—", "% WR"))), (report.gameplan.playbook_usage?.plays_idle || []).length > 0 && React.createElement("div", {
+    className: "text-[11px] text-rose-300/80 mt-1"
+  }, "Idle: ", (report.gameplan.playbook_usage.plays_idle || []).slice(0, 5).join(", ")), report.gameplan.playbook_usage?.one_play_offense && React.createElement("div", {
+    className: "text-[11px] text-amber-300 mt-1"
+  }, "One-play offense \u2014 ", report.gameplan.playbook_usage.concentration_pct, "% of trades from a single play.")), React.createElement("div", null, React.createElement("div", {
+    className: "text-slate-500 text-[11px] uppercase tracking-wide mb-1"
+  }, "Repeated miss archetypes"), (report.gameplan.miss_archetypes || []).slice(0, 3).map((a, i) => React.createElement("div", {
+    key: i,
+    className: "mb-1"
+  }, React.createElement("span", {
+    className: "text-slate-300"
+  }, a.archetype), React.createElement("span", {
+    className: "text-slate-500"
+  }, " \xD7", a.count))), (report.gameplan.miss_archetypes || []).length === 0 && React.createElement("div", {
+    className: "text-slate-500"
+  }, "None repeated yet.")))), subtab === "overview" && React.createElement("div", {
     className: "grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-5"
   }, React.createElement("div", {
     className: "card p-4"
@@ -6266,21 +6313,21 @@ function MoveDiscoveryTab({
     className: "text-slate-500 text-[11px] uppercase tracking-wide"
   }, "Avg Move %"), React.createElement("div", {
     className: "mt-1 text-white"
-  }, report?.patterns?.captured?.avg_move_pct || 0, "% captured"), React.createElement("div", {
+  }, report?.patterns?.captured?.avg_move_pct ?? "—", "% captured"), React.createElement("div", {
     className: "text-rose-300"
-  }, report?.patterns?.missed?.avg_move_pct || 0, "% missed")), React.createElement("div", null, React.createElement("div", {
+  }, report?.patterns?.missed?.avg_move_pct ?? "—", "% missed")), React.createElement("div", null, React.createElement("div", {
     className: "text-slate-500 text-[11px] uppercase tracking-wide"
   }, "Avg Move ATR"), React.createElement("div", {
     className: "mt-1 text-white"
-  }, report?.patterns?.captured?.avg_move_atr || 0, " captured"), React.createElement("div", {
+  }, report?.patterns?.captured?.avg_move_atr ?? "—", " captured"), React.createElement("div", {
     className: "text-rose-300"
-  }, report?.patterns?.missed?.avg_move_atr || 0, " missed")), React.createElement("div", null, React.createElement("div", {
+  }, report?.patterns?.missed?.avg_move_atr ?? "—", " missed")), React.createElement("div", null, React.createElement("div", {
     className: "text-slate-500 text-[11px] uppercase tracking-wide"
-  }, "EMA Aligned"), React.createElement("div", {
+  }, "Moves"), React.createElement("div", {
     className: "mt-1 text-white"
-  }, report?.patterns?.captured?.ema_aligned_pct || 0, "% captured"), React.createElement("div", {
+  }, report?.patterns?.captured?.count ?? "—", " captured"), React.createElement("div", {
     className: "text-rose-300"
-  }, report?.patterns?.missed?.ema_aligned_pct || 0, "% missed")), React.createElement("div", null, React.createElement("div", {
+  }, report?.patterns?.missed?.count ?? "—", " missed")), React.createElement("div", null, React.createElement("div", {
     className: "text-slate-500 text-[11px] uppercase tracking-wide"
   }, "HTF Score"), React.createElement("div", {
     className: "mt-1 text-white"
@@ -6308,7 +6355,7 @@ function MoveDiscoveryTab({
     const topDriverPct = totalDiagnosed > 0 && topDriver ? Math.round(topDriver.count / totalDiagnosed * 100) : 0;
     const lowRankCount = Number(diagnosis?.breakdown?.low_rank) || 0;
     const wrongStateCount = Number(diagnosis?.breakdown?.wrong_state) || 0;
-    const captureRate = Number(summary.capture_rate_pct) || 0;
+    const captureRate = Number(summary.capture_rate ?? summary.capture_rate_pct) || 0;
     let action = "";
     if (totalDiagnosed === 0) {
       action = "No diagnosis data yet. Run the diagnosis scripts to see actionable insights.";
@@ -7661,6 +7708,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1781074165128:314896959
+// cache-bust:1781075535066:221010871
 
-// cache-bust:1781074165128:314896959
+// cache-bust:1781075535066:221010871

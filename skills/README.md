@@ -26,6 +26,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Adding a worker route, self-fetch, WS consumer, or LLM-rendered HTML** | [security-auth-patterns.md](security-auth-patterns.md) |
 | **Any UI styling work / porting a page to the Verda design system** | [verda-ui-migration.md](verda-ui-migration.md) |
 | **Cron / deploy / "which worker runs X?" after the 2026-06 decomposition** | [worker-topology.md](worker-topology.md) |
+| **Move Discovery / missed moves / "why didn't we catch X?" / gameplan** | [discovery-loop.md](discovery-loop.md) |
 | **Adding scripts/styles to a page, slow loads, page-switch speed, caching** | [frontend-performance.md](frontend-performance.md) |
 | Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
 | Cron tombstones / missed trims / CIO shadow vs live mismatch | [scoring-cron-cio-recovery.md](scoring-cron-cio-recovery.md) |

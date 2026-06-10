@@ -324,6 +324,13 @@ playbook in `skills/security-auth-patterns.md`)**
 - UI: System Intelligence → Ticker Profiles tab; Trade Autopsy → Learning Profile card
 - `build-ticker-learning.js` must sanitize candle arrays before indicator/canonical enrichment: drop unreasonable future timestamps and trim each TF to `since` + bounded warmup so legacy manual-history outliers (for example `SPX`) do not blow up `slice(0, idx + 1)` costs.
 
+**Discovery Loop** (nightly 22:00 UTC, closed-loop since 2026-06-10)
+- Chain inside COO daily cycle: `runMoveDiscovery` → `runDiagnosis` (AUTO — was manual-only) → `buildDiscoveryGameplan` → tier-2 knob proposals on the `learning_proposals` bus (source=discovery, deduped).
+- Gameplan artifact (`timed:discovery:gameplan` + `report.gameplan`): constraint mix (NO_PLAY_FOR_MOVE vs GENERIC_GATE_VETO vs conviction/side/data/universe), playbook usage (idle plays, one-play-offense detector), repeated miss archetypes, narrative. Deterministic — no LLM. See `skills/discovery-loop.md`.
+- Consumers: CRO daily synthesis (`collectDiscoveryPulse` — NOTE: pre-fix it read dead key `timed:discovery:move-summary`; correct key is `timed:move-discovery`), CIO memory L9 `discovery_context.gameplan`, COO audit + Discord, Discovery-tab Gameplan card.
+- `COO_SCREENER_AUTO_SCORE` hot-reloads from model_config (env fallback) so the Discovery Apply on the screener threshold is live without redeploy.
+- Triggers are per-setup (tt-core-entry qualify stack, ~12 `tt_*` plays) but ~20 generic gates (admission matrix, cohort, rank/regime floors, loop1/2) can veto any setup — the gameplan's constraint mix measures which side binds.
+
 **Markov / Regime Forecast** (5m bars, daily KV refresh)
 - 5m bar = 1 tick → `timed_trail`; daily aggregation → `trail_5m_facts` (per `bucket_ts = floor(ts/300000)*300000`); daily compute → `timed:regime:matrix:global`
 - **Universe matrix** + **per-ticker matrices for top-50 active tickers** at `timed:regime:matrix:ticker:{TICKER}` (manifest at `:_manifest`). Forecast read path prefers per-ticker, falls back to universe. (PR #309)

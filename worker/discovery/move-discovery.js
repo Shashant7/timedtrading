@@ -55,6 +55,33 @@ function rnd(v, dp = 2) { return Math.round(v * Math.pow(10, dp)) / Math.pow(10,
 function pct(n, d) { return d > 0 ? rnd(n / d * 100, 1) : 0; }
 function dateStr(ts) { return new Date(ts > 1e12 ? ts : ts * 1000).toISOString().slice(0, 10); }
 
+/* 2026-06-10 — Captured-vs-missed pattern aggregates from the move data
+   itself (no trail enrichment needed). The CLI emitted `patterns` with
+   trail-backed stats; the worker port skipped it entirely for CPU
+   budget, so the dashboard's "Captured vs Missed" panel rendered
+   `|| 0` defaults — the operator saw "0% captured / 0% missed" beside
+   632 total moves. This computes the cheap aggregates (move %, ATR
+   multiples) from the already-classified moves; trail-backed fields
+   (htf/ltf/rank) intentionally stay absent and the UI shows "—".
+   Exported for unit tests. */
+export function computeMovePatterns(moves = []) {
+  const groups = { captured: [], missed: [] };
+  for (const m of moves) {
+    if (m?.capture === "FULL" || m?.capture === "PARTIAL") groups.captured.push(m);
+    else if (m?.capture === "MISSED") groups.missed.push(m);
+  }
+  const agg = (arr) => {
+    if (arr.length === 0) return { count: 0, avg_move_pct: null, avg_move_atr: null };
+    const a = (f) => rnd(arr.reduce((s, m) => s + Math.abs(Number(f(m)) || 0), 0) / arr.length, 1);
+    return {
+      count: arr.length,
+      avg_move_pct: a((m) => m.move_pct),
+      avg_move_atr: a((m) => m.move_atr),
+    };
+  };
+  return { captured: agg(groups.captured), missed: agg(groups.missed) };
+}
+
 /* 2026-06-02 — Convert Discovery findings into actionable recommendations.
 
    Operator question: "It seems like a dead end? What can happen next?
@@ -632,6 +659,9 @@ export async function runMoveDiscovery(env, opts = {}) {
       total_missed_upside_from_churn: rnd(churnDetails.reduce((s, c) => s + c.missed_upside, 0)),
     },
     recommendations,
+    /* 2026-06-10 — see computeMovePatterns docstring. Cheap aggregates
+       only; trail-backed fields come from the diagnosis pass. */
+    patterns: computeMovePatterns(moves),
     missed_signals: {
       total_missed: missedCount,
       up_missed: missedByDir.UP,

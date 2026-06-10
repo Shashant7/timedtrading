@@ -41,6 +41,7 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     cioDecisions: [],
     screenerCandidates: null,
     coverageGapsSummary: null,
+    discoveryGameplan: null,
     macroSnapshot: null,
     livePrices: null,
     insiderSummaries: {},
@@ -53,7 +54,7 @@ export async function ensureCioMemoryCache(env, opts = {}) {
   };
 
   if (KV) {
-    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw] = await Promise.all([
+    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw, gameplanRaw] = await Promise.all([
       KV.get("timed:cro:latest").catch(() => null),
       KV.get("cro:tactical_overrides").catch(() => null),
       KV.get("timed:cto:latest").catch(() => null),
@@ -61,6 +62,9 @@ export async function ensureCioMemoryCache(env, opts = {}) {
       KV.get(LOOP2_PULSE_KEY).catch(() => null),
       KV.get("timed:prices").catch(() => null),
       KV.get("timed:discovery:coverage-gaps-summary").catch(() => null),
+      // 2026-06-10 — nightly Discovery Gameplan (worker/discovery/
+      // gameplan.js): constraint mix + playbook usage + miss archetypes.
+      KV.get("timed:discovery:gameplan").catch(() => null),
     ]);
     cache.croNote = parseJson(croRaw);
     cache.tacticalOverride = parseJson(ovRaw);
@@ -69,6 +73,7 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     cache.enginePulse = parseJson(pulseRaw);
     cache.livePrices = parseJson(lpRaw);
     cache.coverageGapsSummary = parseJson(gapsRaw);
+    cache.discoveryGameplan = parseJson(gameplanRaw);
   }
 
   if (env?.DB) {
