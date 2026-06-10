@@ -16,6 +16,12 @@ name = "tt-feed"
 main = "feed-index.js"
 compatibility_date = "2024-01-01"
 
+# Dashboard-set vars survive CI deploys (without this, wrangler wipes any
+# var not listed in this file on every deploy — silently undoing a cutover
+# flip). FEED_ENABLED is therefore NOT pinned in [vars] below: code
+# defaults it to "false"; flip it via the CF Dashboard at cutover.
+keep_vars = true
+
 [triggers]
 # Crons are LIVE from first deploy, but every tick no-ops until the operator
 # flips FEED_ENABLED=true (see [vars]) — that makes cutover a var flip, not
@@ -54,9 +60,9 @@ class_name = "TradovateStream"
 script_name = "timed-trading-ingest"
 
 [vars]
-# Cutover gate — flip to "true" only per the runbook (and set
-# PRICE_FEED_EXTERNAL=true on the monolith at the same time).
-FEED_ENABLED = "false"
+# Cutover gate FEED_ENABLED is set via the CF Dashboard (persists thanks
+# to keep_vars; code defaults to "false"). Pair it with
+# PRICE_FEED_EXTERNAL=true on the monolith.
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
 ALPACA_ENABLED = "true"
