@@ -1084,6 +1084,22 @@
       }
     }, [user, serverVerified, apiBase]);
 
+    // Session heartbeat for admin analytics — every authenticated page.
+    // Previously only index-react.html called this, so the sessions table
+    // stayed empty and Analytics showed all zeros.
+    useEffect(() => {
+      if (user && state === "authenticated") {
+        let stop = null;
+        const cancel = scheduleIdleWork(() => {
+          try { stop = startSessionHeartbeat(apiBase); } catch (_) {}
+        }, 800);
+        return () => {
+          cancel();
+          if (typeof stop === "function") stop();
+        };
+      }
+    }, [user, state, apiBase]);
+
     if (state === "checking" && !user) {
       // Show minimal loading state
       return React.createElement(
@@ -2632,7 +2648,9 @@
   // Session Heartbeat
   // ═══════════════════════════════════════════════════════════════════
 
+  let _heartbeatCleanup = null;
   function startSessionHeartbeat(apiBase) {
+    if (_heartbeatCleanup) return _heartbeatCleanup;
     let sessionId = null;
     try { sessionId = sessionStorage.getItem("tt_session_id"); } catch {}
     if (!sessionId) {
@@ -2647,20 +2665,25 @@
           screen_width: window.screen?.width || window.innerWidth,
           path: window.location.pathname,
         });
-        if (navigator.sendBeacon) {
-          navigator.sendBeacon(`${apiBase}/timed/session/heartbeat`, new Blob([body], { type: "application/json" }));
-        } else {
-          fetch(`${apiBase}/timed/session/heartbeat`, {
-            method: "POST", body, headers: { "Content-Type": "application/json" },
-            credentials: "include", keepalive: true,
-          }).catch(() => {});
-        }
+        // fetch+credentials is required so CF Access cookies reach the worker.
+        // sendBeacon omits credentials on cross-origin and is unreliable for auth.
+        fetch(`${apiBase}/timed/session/heartbeat`, {
+          method: "POST",
+          body,
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          keepalive: true,
+        }).catch(() => {});
       } catch {}
     };
 
     sendHeartbeat();
     const intervalId = setInterval(sendHeartbeat, 60000);
-    return () => clearInterval(intervalId);
+    _heartbeatCleanup = () => {
+      clearInterval(intervalId);
+      _heartbeatCleanup = null;
+    };
+    return _heartbeatCleanup;
   }
 
   // Export to window

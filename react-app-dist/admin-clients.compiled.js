@@ -26,6 +26,32 @@ function formatDateTime(ts) {
     minute: "2-digit"
   });
 }
+function formatDuration(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const mins = Math.round(n / 60000);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return `${mins}m`;
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+const PATH_LABELS = {
+  "/today.html": "Today",
+  "/active-trader.html": "Active Trader",
+  "/investor.html": "Investor",
+  "/portfolio.html": "Portfolio",
+  "/insights.html": "Insights",
+  "/daily-brief.html": "Daily Brief",
+  "/screener.html": "Screener",
+  "/admin-clients.html": "Admin Clients",
+  "/ticker-management.html": "Tickers",
+  "/mission-control.html": "Mission Control",
+  "/learn.html": "Learn",
+  "/faq.html": "FAQ"
+};
+function pathLabel(path) {
+  if (!path) return "—";
+  return PATH_LABELS[path] || path.replace(/^\//, "").replace(/\.html$/, "").replace(/-/g, " ");
+}
 function ClientType({
   tier,
   subStatus
@@ -821,7 +847,9 @@ function AdminClientsPage({
     className: "text-center py-12 text-[#8AA39A]"
   }, "Loading analytics...") : analyticsError ? React.createElement("div", {
     className: "text-rose-400 text-sm"
-  }, "Failed to load analytics: ", analyticsError) : analytics ? React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "Failed to load analytics: ", analyticsError) : analytics ? React.createElement(React.Fragment, null, analytics.tracking_note && React.createElement("div", {
+    className: "text-[12px] text-[#8AA39A] bg-[#1A2B22] border border-[#1F3128] rounded-xl px-4 py-3"
+  }, analytics.tracking_note), React.createElement("div", {
     className: "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3"
   }, [{
     label: "Live Now",
@@ -858,41 +886,114 @@ function AdminClientsPage({
       color: s.color
     }
   }, s.value)))), React.createElement("div", {
+    className: "grid grid-cols-1 lg:grid-cols-2 gap-4"
+  }, React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
+  }, React.createElement("h3", {
+    className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
+  }, "Top Pages (", analyticsDays, "d)"), (analytics.top_paths || []).length > 0 ? (analytics.top_paths || []).map(p => React.createElement("div", {
+    key: p.path,
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
+  }, React.createElement("span", {
+    className: "text-[#e5e7eb]"
+  }, pathLabel(p.path)), React.createElement("span", {
+    className: "text-[#8AA39A] tabular-nums"
+  }, p.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "No page visits recorded yet.")), React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
+  }, React.createElement("h3", {
+    className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
+  }, "Feature Engagement (", analyticsDays, "d)"), (analytics.feature_usage || []).length > 0 ? (analytics.feature_usage || []).map(f => React.createElement("div", {
+    key: f.feature,
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
+  }, React.createElement("span", {
+    className: "text-[#e5e7eb]"
+  }, f.feature.replace(/_view$/, "").replace(/_/g, " ")), React.createElement("span", {
+    className: "text-[#8AA39A] tabular-nums"
+  }, f.cnt, " ", React.createElement("span", {
+    className: "text-[#6E867D]"
+  }, "(", f.users, " users)")))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "No feature usage recorded yet."))), React.createElement("div", {
+    className: "bg-[#13201A] border border-[#1F3128] rounded-xl overflow-x-auto"
+  }, React.createElement("div", {
+    className: "px-4 py-3 border-b border-[#1F3128] text-[12px] font-semibold text-[#9ca3af] uppercase"
+  }, "Recent Sessions"), (analytics.recent_sessions || []).length > 0 ? React.createElement("table", {
+    className: "w-full border-collapse text-[12px]"
+  }, React.createElement("thead", null, React.createElement("tr", {
+    className: "border-b border-[#1F3128] text-[#8AA39A]"
+  }, React.createElement("th", {
+    className: "px-3 py-2 text-left font-semibold"
+  }, "User"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Last Page"), React.createElement("th", {
+    className: "px-2 py-2 text-right font-semibold"
+  }, "Views"), React.createElement("th", {
+    className: "px-2 py-2 text-right font-semibold"
+  }, "Duration"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Device"), React.createElement("th", {
+    className: "px-2 py-2 text-left font-semibold"
+  }, "Last Seen"))), React.createElement("tbody", null, (analytics.recent_sessions || []).map((s, i) => React.createElement("tr", {
+    key: `${s.user_email}-${s.started_at}-${i}`,
+    className: "border-b border-[#1F3128] hover:bg-[#1A2B22]"
+  }, React.createElement("td", {
+    className: "px-3 py-2 text-[#e5e7eb] max-w-[180px] truncate"
+  }, s.user_email), React.createElement("td", {
+    className: "px-2 py-2 text-[#9ca3af]"
+  }, pathLabel(s.last_path)), React.createElement("td", {
+    className: "px-2 py-2 text-right text-[#8AA39A] tabular-nums"
+  }, s.page_views || 0), React.createElement("td", {
+    className: "px-2 py-2 text-right text-[#8AA39A] tabular-nums"
+  }, formatDuration(s.duration_ms)), React.createElement("td", {
+    className: "px-2 py-2 text-[#9ca3af] capitalize"
+  }, [s.device, s.browser].filter(Boolean).join(" / ") || "—"), React.createElement("td", {
+    className: "px-2 py-2 text-[#8AA39A] whitespace-nowrap"
+  }, formatDateTime(s.last_seen_at)))))) : React.createElement("p", {
+    className: "px-4 py-6 text-[12px] text-[#6E867D]"
+  }, "No sessions in this period. Data populates as users browse while logged in.")), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-4"
   }, React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Devices"), (analytics.devices || []).map(d => React.createElement("div", {
+  }, "Devices"), (analytics.devices || []).length > 0 ? (analytics.devices || []).map(d => React.createElement("div", {
     key: d.device,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, d.device), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, d.cnt)))), React.createElement("div", {
+  }, d.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014")), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Browsers"), (analytics.browsers || []).map(b => React.createElement("div", {
+  }, "Browsers"), (analytics.browsers || []).length > 0 ? (analytics.browsers || []).map(b => React.createElement("div", {
     key: b.browser,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb] capitalize"
   }, b.browser), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, b.cnt)))), React.createElement("div", {
+  }, b.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014")), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
-  }, "Top Countries"), (analytics.countries || []).slice(0, 10).map(c => React.createElement("div", {
+  }, "Top Countries"), (analytics.countries || []).length > 0 ? (analytics.countries || []).slice(0, 10).map(c => React.createElement("div", {
     key: c.country,
-    className: "flex justify-between text-[12px] py-1 border-b border-white/[0.03]"
+    className: "flex justify-between text-[12px] py-1 border-b border-[#1F3128]"
   }, React.createElement("span", {
     className: "text-[#e5e7eb]"
   }, c.country || "Unknown"), React.createElement("span", {
     className: "text-[#8AA39A] tabular-nums"
-  }, c.cnt))))), React.createElement("div", {
+  }, c.cnt))) : React.createElement("p", {
+    className: "text-[12px] text-[#6E867D]"
+  }, "\u2014"))), React.createElement("div", {
     className: "bg-[#13201A] border border-[#1F3128] rounded-xl p-4"
   }, React.createElement("h3", {
     className: "text-[12px] font-semibold text-[#9ca3af] uppercase mb-3"
@@ -1070,6 +1171,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1781129160339:161333900
+// cache-bust:1781130047772:541040609
 
-// cache-bust:1781129160339:161333900
+// cache-bust:1781130047772:541040609
