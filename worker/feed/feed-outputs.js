@@ -245,8 +245,8 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
   return { merged };
 }
 
-// Merge live quote ticks into chart TFs (30/15/60) in D1 so /timed/candles
-// tracks the live feed between REST refreshes.
+// Merge live quote ticks into chart 1H TF in D1 so /timed/candles tracks
+// the live feed between REST refreshes (chart UI no longer surfaces 15m/30m).
 // hooks:
 //   isNyRegularMarketOpen() — required session gate (skipped when closed
 //                             unless opts.force)
@@ -267,7 +267,7 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
     .sort((a, b) => (priority.has(a[0]) ? 0 : 1) - (priority.has(b[0]) ? 0 : 1));
 
   const maxTickers = Math.max(10, Math.min(300, Number(opts.maxTickers) || 120));
-  const chartTfs = [30, 15, 60];
+  const chartTfs = [60];
   const nowMs = Date.now();
   const updatedAt = nowMs;
   const stmts = [];
