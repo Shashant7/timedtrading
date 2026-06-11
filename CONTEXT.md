@@ -69,7 +69,7 @@ npm run deploy:worker   # worker only (skip right-rail)
 - **Right side (order)**: Guide, Tour, FAQ, Ask AI, NotificationCenter (bell), UserBadge (avatar), hamburger (md:hidden). No Admin link and no "Paper · $1k/trade" in the right block; Admin lives only in the center nav tabs. Analysis uses buttons for Guide/Tour/Ask AI; other pages use links. Mobile menu includes same links + Contact.
 - **Breakpoint**: Use `md` (768px) for desktop nav and `md:hidden` for mobile menu so the full nav is visible on typical desktop widths.
 - **Styling**: `border-white/[0.06]`, `background: rgba(10,10,15,0.95)`, same logo and link styles. When adding a new page, copy the nav block from `index-react.html` and set the active link only.
-- **Global component**: Nav is currently duplicated per page. A future shared component (e.g. `shared-nav.js` mounting into `#global-nav-root`) would allow one place to edit; not yet implemented.
+- **Global component (2026-06-11)**: the five journey pages (today, active-trader, investor, portfolio, insights) now mount the header via `shared-nav.js` → `<div id="global-nav-root">` — edit links/structure in ONE file. Markup is byte-compatible with the old static blocks (`.nav-link.active`, Today's mint accent on /today only), and it injects at deferred-execution time, BEFORE the DOMContentLoaded consumers (`tt-nav-extras.js`, `tt-activity-strip.js`, `tt-bottom-nav.js`). Page-level `.topnav` CSS stays per page. Remaining pages with bespoke navs (faq/splash/terms/admin) migrate opportunistically.
 
 ## Stack
 
