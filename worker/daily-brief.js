@@ -4954,42 +4954,53 @@ function ensureLeadSentenceCase(text) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
-/** First substantive paragraph from Section 1 ("The Bigger Picture" prose). */
+/** Market Context / Bigger Picture blurb for Today hero (~150 words). */
 function extractBriefLead(content) {
   if (!content || typeof content !== "string") return null;
+  const MAX = 1400;
   const lines = content.split(/\r?\n/);
+  let afterTodaysThree = false;
   let capturing = false;
   const parts = [];
   for (const raw of lines) {
     const line = raw.trim();
     if (/^#{1,6}\s/.test(line)) {
-      if (/today'?s three/i.test(line)) {
+      const heading = line.replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "").trim();
+      if (/today'?s three/i.test(heading)) {
+        afterTodaysThree = true;
         capturing = false;
         parts.length = 0;
         continue;
       }
       if (capturing && parts.length > 0) break;
-      capturing = true;
-      parts.length = 0;
+      if (afterTodaysThree || /market\s*context/i.test(heading)) {
+        capturing = true;
+        parts.length = 0;
+        afterTodaysThree = true;
+        continue;
+      }
+      if (!capturing && parts.length === 0) {
+        capturing = true;
+        continue;
+      }
+      continue;
+    }
+    if (/^\d+\.\s/.test(line) && !capturing) {
+      afterTodaysThree = true;
       continue;
     }
     if (!capturing) continue;
-    if (!line) {
-      if (parts.length > 0) break;
-      continue;
-    }
+    if (!line) continue;
     if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
-    // Only skip lowercase-starting lines once we've started — those are
-    // soft-wrapped continuations, not the opening sentence.
     if (parts.length > 0 && /^[a-z;,]/.test(line)) continue;
     const cleaned = line.replace(/\*\*/g, "").trim();
-    if (cleaned.length < 20) continue;
+    if (cleaned.length < 12) continue;
     parts.push(cleaned);
-    if (parts.join(" ").length >= 200) break;
+    if (parts.join(" ").length >= MAX) break;
   }
   const text = parts.join(" ").replace(/\s+/g, " ").trim();
   if (text.length < 40) return null;
-  return ensureLeadSentenceCase(text.slice(0, 320));
+  return ensureLeadSentenceCase(text.slice(0, MAX));
 }
 
 /** Discord + in-app + email side effects (awaited by generateDailyBrief). */

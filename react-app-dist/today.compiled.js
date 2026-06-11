@@ -472,23 +472,56 @@ function BriefPreview({
     return fallback;
   };
   const leadSummary = typeof info.leadSummary === "string" ? info.leadSummary.trim() : "";
-  let fallbackSummary = leadSummary;
-  if (!fallbackSummary && typeof brief?.content === "string") {
-    const lines = brief.content.split(/\r?\n/);
-    let pastToc = false;
+  const extractMarketContextBlurb = (content, maxLen = 1400) => {
+    if (!content || typeof content !== "string") return "";
+    const lines = content.split(/\r?\n/);
+    let afterTodaysThree = false;
+    let capturing = false;
+    const parts = [];
     for (const raw of lines) {
       const line = raw.trim();
-      if (!line) continue;
       if (/^#{1,6}\s/.test(line)) {
-        pastToc = !/today'?s three/i.test(line);
+        const heading = line.replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "").trim();
+        if (/today'?s three/i.test(heading)) {
+          afterTodaysThree = true;
+          capturing = false;
+          parts.length = 0;
+          continue;
+        }
+        if (capturing && parts.length > 0) break;
+        if (afterTodaysThree || /market\s*context/i.test(heading)) {
+          capturing = true;
+          parts.length = 0;
+          afterTodaysThree = true;
+          continue;
+        }
+        if (!capturing && parts.length === 0) {
+          capturing = true;
+          continue;
+        }
         continue;
       }
-      if (!pastToc) continue;
+      if (/^\d+\.\s/.test(line) && !capturing) {
+        afterTodaysThree = true;
+        continue;
+      }
+      if (!capturing) continue;
+      if (!line) continue;
       if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
+      if (parts.length > 0 && /^[a-z;,]/.test(line)) continue;
       const cleaned = line.replace(/^\*+|\*+$/g, "").replace(/\*\*/g, "").trim();
-      if (cleaned.length < 30) continue;
-      fallbackSummary = cleaned.length > 560 ? cleaned.slice(0, 557).trimEnd() + "…" : cleaned;
-      break;
+      if (cleaned.length < 12) continue;
+      parts.push(cleaned);
+      if (parts.join(" ").length >= maxLen) break;
+    }
+    const text = parts.join(" ").replace(/\s+/g, " ").trim();
+    return text.length >= 40 ? text.slice(0, maxLen) : "";
+  };
+  let fallbackSummary = leadSummary;
+  if (typeof brief?.content === "string") {
+    const fromContent = extractMarketContextBlurb(brief.content);
+    if (fromContent.length > (fallbackSummary?.length || 0)) {
+      fallbackSummary = fromContent;
     }
   }
   const _plain = s => {
@@ -497,7 +530,7 @@ function BriefPreview({
     if (/^[A-Z0-9"('`]/.test(t)) return t;
     return t.charAt(0).toUpperCase() + t.slice(1);
   };
-  const summaryCap = wideHero ? 520 : 300;
+  const summaryCap = wideHero ? 1400 : 380;
   const punchCap = wideHero ? 360 : 220;
   const _cap = (s, max = summaryCap) => s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
   const _usableClosing = (() => {
@@ -522,7 +555,7 @@ function BriefPreview({
     return out;
   })();
   const summaryText = summarySentences.join(". ").replace(/\.\s*\./g, ".");
-  const showTopThree = wideHero ? top3.length > 0 : top3.length >= 3;
+  const showTopThree = wideHero ? top3.length > 0 && primaryLead.length < 200 : top3.length >= 3;
   const showClosingItalic = _usableClosing && !summarySentences.some(s => s.slice(0, 48) === _usableClosing.slice(0, 48)) && top3.length > 0 && primaryLead.length < 40;
   return h("section", {
     className: "tt-card tt-card-pad tt-row brief-preview-card"
@@ -4961,6 +4994,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781191062721:707697924
+// cache-bust:1781195682343:582726881
 
-// cache-bust:1781191062721:707697924
+// cache-bust:1781195682343:582726881
