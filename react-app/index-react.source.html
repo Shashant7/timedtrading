@@ -1947,7 +1947,9 @@
                 })();
                 updatedData[normalizedSym] = {
                   ...existing,
-                  ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
+                  ...(marketOpen
+                    ? { price: feedP, _live_price: feedP }
+                    : { price: feedP, close: feedP, _live_price: feedP }),
                   ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
@@ -2127,7 +2129,9 @@
                       return { _price_impulse_y: clampV(-pts * 3, 15), _price_impulse_x: clampV(pts * 1.5, 8), _price_impulse_pts: pts };
                     })();
                     queueWsUpdate(normalizedSym, {
-                      ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
+                      ...(marketOpen
+                        ? { price: feedP, _live_price: feedP }
+                        : { price: feedP, close: feedP, _live_price: feedP }),
                       ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                       _live_daily_high: priceInfo.dh,
                       _live_daily_low: priceInfo.dl,
@@ -2168,7 +2172,9 @@
                       catch (_) { return true; }
                     })();
                     queueWsUpdate(normalizedSym, {
-                      ...(marketOpen ? { price: u.last, _live_price: u.last } : {}),
+                      ...(marketOpen
+                        ? { price: u.last, _live_price: u.last }
+                        : { price: u.last, close: u.last, _live_price: u.last }),
                       _price_updated_at: u.lastTs || batchTs,
                       _session: u.session,
                       _market_open_at_feed: marketOpen,
