@@ -3244,28 +3244,43 @@
         }).filter(Boolean).sort((a, b) => a.time - b.time).filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
         const livePx = Number(livePrice);
         if (isIntradayTf && Number.isFinite(livePx) && livePx > 0 && raw.length > 0) {
-          const tfSec = tfMinutes * 60;
           const nowSec = Math.floor(Date.now() / 1000);
-          const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
           const last = raw[raw.length - 1];
-          if (last && last.time >= bucketStartSec - 2) {
-            raw = raw.slice();
-            const idx = raw.length - 1;
-            const prev = raw[idx];
-            raw[idx] = {
-              ...prev,
-              close: livePx,
-              high: Math.max(Number(prev.high), livePx),
-              low: Math.min(Number(prev.low), livePx)
-            };
+          if (tfMinutes === 240) {
+            const maxAgeSec = 6 * 3600;
+            if (last && nowSec - last.time < maxAgeSec) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx)
+              };
+            }
           } else {
-            raw = raw.concat([{
-              time: bucketStartSec,
-              open: livePx,
-              high: livePx,
-              low: livePx,
-              close: livePx
-            }]);
+            const tfSec = tfMinutes * 60;
+            const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
+            if (last && last.time >= bucketStartSec - 2) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx)
+              };
+            } else {
+              raw = raw.concat([{
+                time: bucketStartSec,
+                open: livePx,
+                high: livePx,
+                low: livePx,
+                close: livePx
+              }]);
+            }
           }
         } else if (isIntradayTf && raw.length > 2) {
           const tfSec = tfMinutes * 60;
@@ -19710,4 +19725,4 @@
   };
 })();
 
-// cache-bust:1781191062721:707697924
+// cache-bust:1781207104259:986812503

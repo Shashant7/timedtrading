@@ -688,9 +688,13 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             try {
               let priorityTickers = [];
               try {
-                const openTrades = ((await kvGetJSON(KV, "timed:trades:all")) || [])
-                  .filter((t) => t?.status === "OPEN" || t?.status === "TP_HIT_TRIM");
-                priorityTickers = openTrades.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean);
+                if (typeof deps.collectPriorityChartTickers === "function") {
+                  priorityTickers = await deps.collectPriorityChartTickers(env);
+                } else {
+                  const openTrades = ((await kvGetJSON(KV, "timed:trades:all")) || [])
+                    .filter((t) => t?.status === "OPEN" || t?.status === "TP_HIT_TRIM");
+                  priorityTickers = openTrades.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean);
+                }
               } catch (_) {}
               await deps.syncLivePricesToChartCandles(env, prices, {
                 priorityTickers,
@@ -698,6 +702,25 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               });
             } catch (syncErr) {
               console.warn("[LIVE_CANDLE_SYNC] price-feed hook failed:", String(syncErr?.message || syncErr).slice(0, 200));
+            }
+          })());
+        }
+
+        // Every 15 min during RTH: backfill 4H + D for open/alerted tickers.
+        // Live sync only patches 30/15/60m — structural TFs were days behind.
+        if (_marketOpen && env?.DB && typeof deps.refreshPriorityChartCandles === "function"
+            && typeof deps.collectPriorityChartTickers === "function"
+            && Number(utcMinute) % 15 === 0) {
+          ctx.waitUntil((async () => {
+            try {
+              const throttleKey = "timed:chart_refresh:last";
+              const last = Number(await KV.get(throttleKey)) || 0;
+              if (Date.now() - last < 12 * 60 * 1000) return;
+              await KV.put(throttleKey, String(Date.now()));
+              const tickers = await deps.collectPriorityChartTickers(env);
+              await deps.refreshPriorityChartCandles(env, tickers, { tfs: ["240", "D"], sinceDays: 7 });
+            } catch (e) {
+              console.warn("[CHART_REFRESH] price-feed hook failed:", String(e?.message || e).slice(0, 200));
             }
           })());
         }
