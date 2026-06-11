@@ -7263,6 +7263,12 @@
             title: "Close"
           }, "\u2715"))), v2Price > 0 && (() => {
             const _rthForChip = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : true;
+            const _priceTsMs = Number(priceSrc?._price_updated_at || priceSrc?.t || priceSrc?.ts || 0);
+            const _priceStale = _priceTsMs > 0 && Date.now() - _priceTsMs > 26 * 3600 * 1000;
+            const _staleAsOf = _priceStale ? new Date(_priceTsMs).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric"
+            }) : null;
             return React.createElement("div", {
               className: "flex items-baseline gap-3",
               style: {
@@ -7288,7 +7294,19 @@
                 opacity: 0.75,
                 fontSize: "0.85em"
               }
-            }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")")), !_rthForChip && React.createElement("span", {
+            }, "(", v2DayChange.dayChg >= 0 ? "+" : "−", "$", Math.abs(v2DayChange.dayChg).toFixed(2), ")")), _priceStale && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.06em",
+                color: "#f59e0b",
+                border: "1px solid rgba(245,158,11,0.45)",
+                background: "rgba(245,158,11,0.10)",
+                borderRadius: 6,
+                padding: "2px 7px"
+              },
+              title: `Last price update ${_staleAsOf}. The data pipeline is refreshing this symbol — treat the quote and derived levels as outdated.`
+            }, "\u26A0 STALE \u2014 AS OF ", _staleAsOf?.toUpperCase()), !_rthForChip && !_priceStale && React.createElement("span", {
               style: {
                 fontSize: 10,
                 fontWeight: 700,
@@ -7296,6 +7314,7 @@
                 color: "var(--ds-text-faint)"
               }
             }, "RTH CLOSE"), (() => {
+              if (_priceStale) return null;
               const ext = window.TimedPriceUtils?.getExtChange?.(priceSrc);
               if (!ext) return null;
               const dir = ext.pct >= 0 ? "up" : "dn";
@@ -19554,4 +19573,4 @@
   };
 })();
 
-// cache-bust:1781130245318:374142160
+// cache-bust:1781138385402:820021824
