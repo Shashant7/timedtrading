@@ -437,7 +437,7 @@ async function _resolveInvestorCioMemory(env, sym, tickerData, scoreData, explic
   }
 }
 
-export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice, position, scoreData, bucket, getTickerProfile, tickerData, memory }) {
+export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice, position, scoreData, bucket, getTickerProfile, tickerData, memory, riskEvent }) {
   const cfg = getLifecycleGateConfig(env);
   if (!cfg.types.rebalance_trim) {
     return { proceed: true, reasoning: "type_disabled" };
@@ -469,6 +469,24 @@ export async function cioReviewRebalanceTrim(env, { sym, direction, currentPrice
   proposal.position_shares = Number(position?.total_shares) || 0;
   proposal.position_cost_basis = Number(position?.cost_basis) || 0;
   proposal.investor_mode = true;
+  // 2026-06-11 — Event-risk trims route through this gate too (operator:
+  // "reduce due to earnings should be intelligent, not mechanic"). The
+  // proposal carries the concrete event so the CIO weighs HOLDING THROUGH
+  // it against trimming — its memory already has the Research Desk note
+  // (L15c), tactical overlay (L15b), event/episodic context (L7),
+  // exhaustion + technicals from tickerData. Discovery's missed big moves
+  // (ARM / SOXL / AMD) were earnings-BOOSTED — the gate exists so setups
+  // that are lining up can be held with reasoning instead of auto-cut.
+  if (riskEvent && typeof riskEvent === "object") {
+    proposal.risk_event = {
+      type: riskEvent.eventType || null,
+      key: riskEvent.eventKey || null,
+      date: riskEvent.dateKey || null,
+      scheduled_ts: riskEvent.scheduledTs || null,
+    };
+    proposal.decision_framing =
+      "Engine default is a pre-event risk-reduction TRIM. Decide whether this position should instead be HELD THROUGH the event: weigh the research-desk stance, tactical overlay, technicals/momentum, exhaustion, liquidity/imbalance context, and the catalyst itself. Strong, aligned setups into earnings are historically where outsized moves occur; weak or stretched ones are where gap risk bites.";
+  }
 
   const cioMemory = await _resolveInvestorCioMemory(env, sym, td, scoreData, memory);
 

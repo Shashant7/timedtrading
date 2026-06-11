@@ -898,6 +898,12 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Realized P&L", value: d.pnl != null ? `$${Number(d.pnl).toFixed(2)}` : "—", inline: true },
         { name: "Remaining", value: d.remaining != null ? `${Number(d.remaining).toFixed(2)} sh` : "—", inline: true },
         { name: "Reason", value: String(d.reasonLabel || d.reason || "—").replace(/_/g, " "), inline: false },
+        // 2026-06-11 — event-risk trims carry the concrete catalyst and,
+        // when the AI CIO reviewed the trim, its reasoning — so a trim
+        // into earnings reads as a considered decision, not a mechanical
+        // one (operator feedback after the IWM/TWLO signals).
+        ...(d.event_label ? [{ name: "Catalyst", value: String(d.event_label), inline: true }] : []),
+        ...(d.cio_reasoning ? [{ name: "AI CIO review", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
     position_close: {
@@ -911,6 +917,8 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Value", value: `$${Number(d.value || 0).toFixed(2)}`, inline: true },
         { name: "Realized P&L", value: d.pnl != null ? `$${Number(d.pnl).toFixed(2)}` : "—", inline: true },
         { name: "Reason", value: String(d.reasonLabel || d.reason || "—").replace(/_/g, " "), inline: false },
+        ...(d.event_label ? [{ name: "Catalyst", value: String(d.event_label), inline: true }] : []),
+        ...(d.cio_reasoning ? [{ name: "AI CIO review", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
   };
