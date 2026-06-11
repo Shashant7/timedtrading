@@ -104,9 +104,9 @@ export async function fetchBars(env, symbols, tfKey, start, end = null, limit = 
   return _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit);
 }
 
-export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit = 1000) {
+export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit = 1000, opts = {}) {
   if (getProvider(env) !== "twelvedata") return null;
-  const tdResult = await _tdFetchBars(env, symbols, tfKey, start, end, limit);
+  const tdResult = await _tdFetchBars(env, symbols, tfKey, start, end, limit, opts);
   return _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit);
 }
 
@@ -188,7 +188,7 @@ async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays
   return { bars: allBars };
 }
 
-async function _tdFetchBars(env, symbols, tfKey, start, end, limit) {
+async function _tdFetchBars(env, symbols, tfKey, start, end, limit, opts = {}) {
   const tdInterval = TF_TO_TD[tfKey];
 
   // 10min: fetch 5min bars in chunks (start+end per chunk) and aggregate
@@ -217,7 +217,7 @@ async function _tdFetchBars(env, symbols, tfKey, start, end, limit) {
     return { bars: {}, error: "bad_timeframe" };
   }
 
-  return tdFetchTimeSeries(env, symbols, tdInterval, start, end, limit);
+  return tdFetchTimeSeries(env, symbols, tdInterval, start, end, limit, opts);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -544,12 +544,12 @@ export async function cronFetchLatest(env, allTickers) {
 
   let totalUpserted = 0, totalErrors = 0;
 
-  const runTfBatch = async (tfs, tickers) => {
+  const runTfBatch = async (tfs, tickers, opts = {}) => {
     for (const tf of tfs) {
       try {
         const lookback = CRON_TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
         const start = new Date(Date.now() - lookback).toISOString();
-        const result = await fetchAllBars(env, tickers, tf, start, null, 10000);
+        const result = await fetchAllBars(env, tickers, tf, start, null, 10000, opts);
         if (!result?.bars) continue;
 
         const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
@@ -562,9 +562,31 @@ export async function cronFetchLatest(env, allTickers) {
     }
   };
 
+  // 2026-06-11 — SCORING-STALENESS ROOT CAUSE FIX. Two changes:
+  //
+  // 1. ORDER: aggregated (D/W/M) and stream-uncovered (60/240) tiers now
+  //    run FIRST. The old order ran the stream-REDUNDANT tier (5/10/15/30
+  //    — data the websocket already delivers) first, and with the default
+  //    8s inter-batch delay that tier alone took ~8+ minutes. The cron
+  //    invocation died before tier C ever ran, so D/W/M bars almost never
+  //    landed: census 2026-06-11 found 160/281 tickers whose NEWEST daily
+  //    bar was Jun 8 and only 3/282 with a current 4H bar — the */5
+  //    scoring engine (HTF score = M/W/D/4H EMAs + Ichimoku) was running
+  //    on days-old structure for most of the universe.
+  //
+  // 2. PACING: the D/W/M + 60/240 tiers pass batchDelayMs=2500 (vs the
+  //    8000 default tuned for a lower TD plan). At ~8 symbols/call this
+  //    is ~24 calls/min ≈ 192 credits/min — inside the Pro plan budget
+  //    with headroom — and brings the full top-of-hour pass (3 agg TFs ×
+  //    ~33 batches + 2 intraday TFs) under ~5 minutes so it completes
+  //    within the invocation.
+  //
+  // The redundant tier keeps the 8s pacing and runs last: if it gets cut
+  // off, the stream covers those TFs anyway.
+  const _fastPace = { batchDelayMs: 2500 };
+  await runTfBatch(aggregatedTfs, allTickers, _fastPace);
+  await runTfBatch(streamUncoveredIntradayTfs, uncoveredIntradayTickers, _fastPace);
   await runTfBatch(streamRedundantTfs, halfTickers);
-  await runTfBatch(streamUncoveredIntradayTfs, uncoveredIntradayTickers);
-  await runTfBatch(aggregatedTfs, allTickers);
 
   return { ok: true, upserted: totalUpserted, errors: totalErrors };
 }
