@@ -1851,6 +1851,17 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       } catch (_) { return []; }
     })(),
     openTrades: openTrades.slice(0, 15),
+    // D5 (2026-06-11) — per-position guidance (B4 nightly lane): the trim
+    // ladder plan + move-ending signal per open position, so the brief's
+    // Active Trader Report speaks to THE PLAN per position instead of
+    // restating raw stats. Best-effort: absent until the nightly lane has
+    // run at least once.
+    positionGuidance: await (async () => {
+      try {
+        const blob = await kvGetJSON(KV, "timed:guidance:all");
+        return blob?.positions && typeof blob.positions === "object" ? blob.positions : null;
+      } catch (_) { return null; }
+    })(),
     // Today's trade activity (Active Trader)
     todayEntries: todayTradeEntries.map(e => ({
       ticker: e.ticker, direction: e.direction, price: e.price,
@@ -3844,9 +3855,23 @@ ${data.openTrades.length > 0
         const _trimPct = Number(t.trimmedPct) || 0;
         const _sl = Number(t.sl) || 0;
         const _tp = Number(t.tp) || 0;
-        return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})`;
+        // D5 (2026-06-11) — append the engine's per-position PLAN (B4
+        // guidance lane) so the Active Trader Report can speak to where
+        // we are in the move + what changes the call, not just raw stats.
+        const _g = data.positionGuidance?.[String(t.ticker || "").toUpperCase()] || null;
+        const _gBits = [];
+        if (_g?.move_ending && _g.move_ending.level && _g.move_ending.level !== "NONE") {
+          _gBits.push(`move-ending signal ${_g.move_ending.level} (${_g.move_ending.score}/100)`);
+        }
+        if (_g?.ladder?.next) _gBits.push(`next level ${_g.ladder.next.name.replace("_", " ")} $${_g.ladder.next.price}`);
+        if (Array.isArray(_g?.what_changes_the_call) && _g.what_changes_the_call[0]) {
+          _gBits.push(`watch: ${String(_g.what_changes_the_call[0]).slice(0, 80)}`);
+        }
+        const _gLine = _gBits.length > 0 ? `\n  PLAN → ${_gBits.join(" · ")}` : "";
+        return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})${_gLine}`;
       }).join("\n")
     : "No open Active Trader positions."}
+> When a position carries a PLAN line, the Active Trader Report row MUST reflect it (the ladder level to act at, or the move-ending warning) — that is the engine's actual stance, not color.
 
 ## Active Trader — New Entries Today:
 ${(data.todayEntries || []).length > 0
