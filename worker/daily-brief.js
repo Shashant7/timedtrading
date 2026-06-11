@@ -4920,6 +4920,15 @@ function patchIndexPredictionProse(pred, sym, idx) {
   return blockB ? `${blockA}\n\n${blockB[0]}` : blockA;
 }
 
+/** Capitalize first letter so preview text never looks like a mid-sentence clip. */
+function ensureLeadSentenceCase(text) {
+  if (!text || typeof text !== "string") return text;
+  const t = text.trim();
+  if (!t) return t;
+  if (/^[A-Z0-9"('`]/.test(t)) return t;
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 /** First substantive paragraph from Section 1 ("The Bigger Picture" prose). */
 function extractBriefLead(content) {
   if (!content || typeof content !== "string") return null;
@@ -4945,14 +4954,17 @@ function extractBriefLead(content) {
       continue;
     }
     if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
-    if (/^[a-z;,]/.test(line)) continue;
+    // Only skip lowercase-starting lines once we've started — those are
+    // soft-wrapped continuations, not the opening sentence.
+    if (parts.length > 0 && /^[a-z;,]/.test(line)) continue;
     const cleaned = line.replace(/\*\*/g, "").trim();
     if (cleaned.length < 20) continue;
     parts.push(cleaned);
     if (parts.join(" ").length >= 200) break;
   }
   const text = parts.join(" ").replace(/\s+/g, " ").trim();
-  return text.length >= 40 ? text.slice(0, 320) : null;
+  if (text.length < 40) return null;
+  return ensureLeadSentenceCase(text.slice(0, 320));
 }
 
 /** Discord + in-app + email side effects (awaited by generateDailyBrief). */

@@ -485,14 +485,18 @@ function BriefPreview({
       }
       if (!pastToc) continue;
       if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
-      if (/^[a-z;,]/.test(line)) continue;
       const cleaned = line.replace(/^\*+|\*+$/g, "").replace(/\*\*/g, "").trim();
       if (cleaned.length < 30) continue;
       fallbackSummary = cleaned.length > 560 ? cleaned.slice(0, 557).trimEnd() + "…" : cleaned;
       break;
     }
   }
-  const _plain = s => String(s || "").replace(/\*\*/g, "").replace(/^[^:]{0,48}:\s*/, "").replace(/^[;:,.\s]+/, "").replace(/\s+/g, " ").trim();
+  const _plain = s => {
+    const t = String(s || "").replace(/\*\*/g, "").replace(/^[^:]{0,48}:\s*/, "").replace(/^[;:,.\s]+/, "").replace(/\s+/g, " ").trim();
+    if (!t) return t;
+    if (/^[A-Z0-9"('`]/.test(t)) return t;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
   const summaryCap = wideHero ? 520 : 300;
   const punchCap = wideHero ? 360 : 220;
   const _cap = (s, max = summaryCap) => s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
@@ -4839,6 +4843,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781147816918:253518376
+// cache-bust:1781148881375:858471721
 
-// cache-bust:1781147816918:253518376
+// cache-bust:1781148881375:858471721
