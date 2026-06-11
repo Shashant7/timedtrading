@@ -30706,7 +30706,7 @@
         "event_name": "VFS Earnings",
         "impact": "high",
         "surprise_pct": -4038093.55,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -30715,7 +30715,7 @@
         "event_name": "MTN Earnings",
         "impact": "high",
         "surprise_pct": -2.69,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -30724,7 +30724,7 @@
         "event_name": "CPB Earnings",
         "impact": "high",
         "surprise_pct": 3.46,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -30976,7 +30976,7 @@
         "event_name": "UNFI Earnings",
         "impact": "high",
         "surprise_pct": -2.84,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -30985,7 +30985,7 @@
         "event_name": "ASO Earnings",
         "impact": "high",
         "surprise_pct": 1.44,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -30994,7 +30994,7 @@
         "event_name": "CNM Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31003,7 +31003,7 @@
         "event_name": "CASY Earnings",
         "impact": "high",
         "surprise_pct": 29.97,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31012,7 +31012,7 @@
         "event_name": "SJM Earnings",
         "impact": "high",
         "surprise_pct": 3.98,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31318,7 +31318,7 @@
         "event_name": "CHWY Earnings",
         "impact": "high",
         "surprise_pct": 49.93,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31327,7 +31327,7 @@
         "event_name": "CNM Earnings",
         "impact": "high",
         "surprise_pct": 6.57,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31335,8 +31335,8 @@
         "event_type": "earnings",
         "event_name": "ORCL Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "surprise_pct": 5.44,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31479,8 +31479,8 @@
         "event_type": "earnings",
         "event_name": "NAVN Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "surprise_pct": 916.33,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31489,7 +31489,7 @@
         "event_name": "IDWM Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31498,7 +31498,7 @@
         "event_name": "NOBH Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31507,7 +31507,7 @@
         "event_name": "IVDN Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31516,7 +31516,7 @@
         "event_name": "IEHC Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31525,7 +31525,7 @@
         "event_name": "MSB Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31534,7 +31534,7 @@
         "event_name": "MAYS Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31543,7 +31543,7 @@
         "event_name": "FRD Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31552,7 +31552,7 @@
         "event_name": "YRD Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31561,7 +31561,7 @@
         "event_name": "BRRE Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31569,8 +31569,8 @@
         "event_type": "earnings",
         "event_name": "GLBS Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "surprise_pct": 198.04,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31579,7 +31579,7 @@
         "event_name": "RH Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31588,7 +31588,7 @@
         "event_name": "DAKT Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31596,8 +31596,8 @@
         "event_type": "earnings",
         "event_name": "SFIX Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "surprise_pct": 82.49,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31606,7 +31606,7 @@
         "event_name": "CRMT Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31615,7 +31615,7 @@
         "event_name": "ME Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31624,7 +31624,7 @@
         "event_name": "ATEX Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31633,7 +31633,7 @@
         "event_name": "ADBE Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       },
       {
@@ -31642,7 +31642,7 @@
         "event_name": "LEN Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.29,
+        "spy_reaction_pct": -1.58,
         "sector_reaction_pct": null
       }
     ],
@@ -31653,13 +31653,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 54.5756
+        "sql_duration_ms": 37.9744
       },
-      "duration": 54.5756,
+      "duration": 37.9744,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 3873353728,
+      "size_after": 3794063360,
       "rows_read": 3516,
       "rows_written": 0,
       "total_attempts": 1
