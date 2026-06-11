@@ -179,6 +179,14 @@
           var failsBad = isFinite(fails) && fails > 5;
           tiles.push(tile("Active incidents", isFinite(fails) ? String(fails) : "—",
             judge(failsBad, true), "Background jobs currently failing (self-healing retries run continuously)."));
+
+          var fresh = h.freshness || null;
+          if (fresh) {
+            var staleN = Number(fresh.stale) || 0;
+            tiles.push(tile("Data freshness", fresh.slo_ok ? "ALL FRESH" : staleN + " quarantined",
+              judge(staleN > 10, staleN <= 10),
+              "Every instrument's chart data is age-checked each scoring pass; stale data is quarantined and re-fetched automatically."));
+          }
         }
 
         TILES.innerHTML = tiles.join("");

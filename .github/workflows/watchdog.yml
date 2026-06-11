@@ -111,6 +111,15 @@ jobs:
                   FAILED="yes"; DETAIL="$DETAIL $BASE: scoring loop is ${SCORING_INT}min stale during RTH (engine worker down?)."
                 fi
               fi
+              # Freshness Doctrine (2026-06-11) — the Data Age Contract
+              # summary. A handful of quarantined tickers self-heal within
+              # 1-2 ticks; a persistent pile-up during RTH means the heal
+              # lane is losing the fight — page.
+              FRESH_STALE=$(echo "$HEALTH" | jq -r '.freshness.stale // "null"')
+              if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ]; then
+                FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${FRESH_STALE} tickers quarantined by the Data Age Contract (${FRESH_LIST})."
+              fi
             fi
 
             # FAILS now counts only ACTIVE tombstones (count > 0) — healed

@@ -30,6 +30,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Adding scripts/styles to a page, slow loads, page-switch speed, caching** | [frontend-performance.md](frontend-performance.md) |
 | Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
 | Cron tombstones / missed trims / CIO shadow vs live mismatch | [scoring-cron-cio-recovery.md](scoring-cron-cio-recovery.md) |
+| Stale scores / quarantined tickers / Data Age Contract (`_freshness`) | [freshness-doctrine.md](freshness-doctrine.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
 
 ## When to ADD a new skill
