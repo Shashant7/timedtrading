@@ -509,7 +509,7 @@ export async function backfillResearchDeskIndexAliases(env, { limit = 200 } = {}
       SELECT DISTINCT pub_id, ticker
         FROM ${PUBLICATION_TICKERS_TABLE}
        WHERE ticker IN (${placeholders})
-       LIMIT ?1
+       LIMIT ?${indexKeys.length + 1}
     `).bind(...indexKeys, limit).all();
     let totalTags = 0;
     const results = [];
