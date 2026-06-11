@@ -6189,6 +6189,19 @@
                     // for pre/post-market motion.
                     const _rthForChip = typeof isNyRegularMarketOpen === "function"
                       ? isNyRegularMarketOpen() : true;
+                    // 2026-06-11 — STALE-PRICE GUARD (SMCI incident). A VIP
+                    // user was shown a confident "$41.64 ▼ -11.22% RTH
+                    // CLOSE" while the price was 5 days old and the real
+                    // tape was $29. When the freshest timestamp we have for
+                    // this symbol is older than ~26h (i.e. not even
+                    // yesterday's session), say so LOUDLY instead of
+                    // rendering it as a live quote, and suppress the EXT
+                    // chip (equally stale).
+                    const _priceTsMs = Number(priceSrc?._price_updated_at || priceSrc?.t || priceSrc?.ts || 0);
+                    const _priceStale = _priceTsMs > 0 && (Date.now() - _priceTsMs) > 26 * 3600 * 1000;
+                    const _staleAsOf = _priceStale
+                      ? new Date(_priceTsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                      : null;
                     return (
                     <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
@@ -6202,12 +6215,22 @@
                           )}
                         </span>
                       )}
-                      {!_rthForChip && (
+                      {_priceStale && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 800, letterSpacing: "0.06em",
+                          color: "#f59e0b", border: "1px solid rgba(245,158,11,0.45)",
+                          background: "rgba(245,158,11,0.10)", borderRadius: 6, padding: "2px 7px",
+                        }} title={`Last price update ${_staleAsOf}. The data pipeline is refreshing this symbol — treat the quote and derived levels as outdated.`}>
+                          ⚠ STALE — AS OF {_staleAsOf?.toUpperCase()}
+                        </span>
+                      )}
+                      {!_rthForChip && !_priceStale && (
                         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "var(--ds-text-faint)" }}>
                           RTH CLOSE
                         </span>
                       )}
                       {(() => {
+                        if (_priceStale) return null; // EXT print is equally stale — don't render it as live
                         const ext = window.TimedPriceUtils?.getExtChange?.(priceSrc);
                         if (!ext) return null;
                         const dir = ext.pct >= 0 ? "up" : "dn";

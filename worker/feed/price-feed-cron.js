@@ -538,7 +538,22 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           // ticks either, since the sweep just re-confirms them cheaply).
           const STALE_SWEEP_MS = _marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
           const SWEEP_CAP = 48;
-          const _staleList = allTickers.filter((sym) => {
+          // 2026-06-11 v4 — sweep EVERYTHING in the price blob, not just
+          // the configured lists. SMCI was in neither SECTOR_MAP nor
+          // timed:tickers — it's a screener/discovery candidate that got
+          // seeded into timed:prices once and was then invisible to every
+          // feed path INCLUDING v2/v3 of this sweep (which iterated the
+          // configured lists). Anything the platform ever displays a
+          // price for lives in this blob — so the blob itself is the
+          // authoritative sweep universe. Futures / index gauges are
+          // excluded (REST equity quotes can't heal them; they have their
+          // own TV-heartbeat lane) so they don't permanently occupy the
+          // stale list and page the operator forever.
+          const _NON_SWEEPABLE = new Set(["SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX"]);
+          const _sweepEligible = (sym) => !/[!:.$/]/.test(sym) && !_NON_SWEEPABLE.has(sym);
+          const _sweepUniverse = [...new Set([...allTickers, ...Object.keys(prices)])];
+          const _staleList = _sweepUniverse.filter((sym) => {
+            if (!_sweepEligible(sym)) return false;
             const e = prices[sym];
             if (!e) return true;
             const t = Number(e.t) || 0;
