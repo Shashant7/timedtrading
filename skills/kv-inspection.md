@@ -80,6 +80,23 @@ available at last score. The most common gap is `tf_tech.W` or `tf_tech.M`
 **Critical**: the data is at `.prices`, NOT at the top level. When reading
 in code, always unwrap: `const livePrices = (await KV_TIMED.get("timed:prices", "json"))?.prices || {}`.
 
+### `timed:investor:scores` — Investor kanban / `/timed/investor/scores`
+
+Object keyed by ticker symbol (not an array). The Investor page reads this
+KV blob, **not** `/timed/all`. A ticker can be absent from `/timed/all` but
+still appear on Investor cards if this key was never cleaned.
+
+After `POST /timed/admin/purge-ticker`, verify the symbol is gone:
+
+```bash
+curl -s -H "X-API-Key: $TIMED_TRADING_API_KEY" \
+  "https://timed-trading-ingest.shashant.workers.dev/timed/investor/scores" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('DBA' in [t.get('ticker') for t in d.get('tickers',[])])"
+```
+
+Purge also clears `timed:investor:stages`, `rs-ranks`, and `prev-stages`.
+See `tasks/lessons.md` → "June 2026 — Price display, purge hygiene".
+
 ### `timed:all` — universe snapshot for dashboards
 
 ```json
