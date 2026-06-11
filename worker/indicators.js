@@ -6624,6 +6624,12 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       mode: _asOfTs > 0 ? "replay" : "live",
       marketOpen: typeof opts?.marketOpen === "boolean" ? opts.marketOpen : undefined,
     });
+    // Live-STALE activates the existing trade-management quarantine flag
+    // (processTradeSimulation refuses entries/exits/trims on it) so every
+    // live caller of this function gets the same contract.
+    if (tickerData._freshness.enforced && tickerData._freshness.grade === "STALE") {
+      tickerData.__candle_data_stale = true;
+    }
   } catch (_freshErr) {
     // The contract must never break scoring itself.
     console.warn(`[FRESHNESS] ${ticker} block compute failed:`, String(_freshErr?.message || _freshErr).slice(0, 120));
