@@ -11,6 +11,7 @@ import {
 } from "./profile-resolution.js";
 import { resolveRegimeVocabulary } from "./regime-vocabulary.js";
 import { recordAdaptiveLineageFact } from "./adaptive-lineage.js";
+import { computeFreshnessBlock } from "./freshness.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -6508,7 +6509,11 @@ export async function alpacaBackfill(env, tickers, _unused, tfKey = "all", opts 
  * @param {object} existingData - existing KV latest data for merge
  * @returns {Promise<object|null>} assembled tickerData or null if insufficient data
  */
-export async function computeServerSideScores(ticker, getCandles, env, existingData = null) {
+export async function computeServerSideScores(ticker, getCandles, env, existingData = null, opts = null) {
+  // `opts.asOfTs` — replay passes the historical "now" so the Data Age
+  // Contract (`_freshness`) is computed relative to the replayed moment, not
+  // the wall clock. NOTE: deliberately NOT forwarded into assembleTickerData
+  // (ORB/overnight asOf semantics) — replay behavior there is unchanged.
   const bundles = {};
   let hasData = false;
   const leadingLtf = normalizeTfKey(env?.LEADING_LTF || existingData?.leading_ltf || "10") || "10";
@@ -6535,12 +6540,25 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // Separate scoring candles, TD Sequential candles, and raw bars for regime
   const tdSeqCandles = {};
   const rawBars = {}; // Phase 2a: raw OHLC bars for regime detection
+  // Data Age Contract — newest candle ts per TF, fed to computeFreshnessBlock
+  // after assembly. Tracked for every scoring TF (even ones that fail the
+  // 50-bar bundle minimum) so missing/thin TFs surface as freshness gaps.
+  const tfNewestTs = {};
+  for (const tf of scoringTfs) tfNewestTs[tf] = 0;
 
   for (const { tf, result } of tfResults) {
     if (result?.ok && result.candles && result.candles.length > 0) {
       // Deduplicate candles BEFORE any computation (fixes duplicate daily bars
       // from multiple Alpaca backfill runs that store two entries per date)
       const deduped = deduplicateCandles(result.candles, tf);
+      if (scoringTfs.includes(tf)) {
+        let newest = 0;
+        for (const c of deduped) {
+          const ts = Number(c?.ts) || 0;
+          if (ts > newest) newest = ts;
+        }
+        tfNewestTs[tf] = newest;
+      }
       let bundleInput = deduped;
       // Weekly/monthly EMA(200) needs 200 unique bars; deduped D1 history is
       // often shorter. Use raw series so investor invalidation can quote a level.
@@ -6593,6 +6611,23 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   assembleOpts.enableExecutionProfileRuntime = runtimeProfileFlag;
   const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;
+
+  // ── Data Age Contract (Freshness Doctrine, 2026-06-11) ──
+  // Stamp `_freshness` on every scored payload so downstream consumers
+  // (computeRank, qualifiesForEnter, investor compute, /timed/health, UI)
+  // read ONE contract instead of re-deriving candle ages. Replay mode
+  // (asOfTs present) stamps a diagnostic-only block (enforced: false).
+  try {
+    const _asOfTs = Number(opts?.asOfTs) || 0;
+    tickerData._freshness = computeFreshnessBlock(tfNewestTs, {
+      nowMs: _asOfTs > 0 ? _asOfTs : Date.now(),
+      mode: _asOfTs > 0 ? "replay" : "live",
+      marketOpen: typeof opts?.marketOpen === "boolean" ? opts.marketOpen : undefined,
+    });
+  } catch (_freshErr) {
+    // The contract must never break scoring itself.
+    console.warn(`[FRESHNESS] ${ticker} block compute failed:`, String(_freshErr?.message || _freshErr).slice(0, 120));
+  }
 
   // ── Three-Tier Awareness: attach ticker profile if available ──
   const tickerProfile = normalizeLearnedTickerProfile(existingData?._tickerProfile || null, {
