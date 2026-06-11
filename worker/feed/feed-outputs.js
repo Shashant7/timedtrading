@@ -21,6 +21,144 @@
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
 
+const PF_FRESH_MS = 30 * 60 * 1000;
+
+/** Per-symbol trade timestamp from timed:prices — blob updated_at lies. */
+export function isPriceFeedTickFresh(pf, nowMs = Date.now()) {
+  const t = Number(pf?.t) || 0;
+  return t > 0 && (nowMs - t) <= PF_FRESH_MS;
+}
+
+/**
+ * Overlay one timed:prices row onto a ticker payload (snapshot / latest).
+ * Always writes live price; resolves prev_close with TD-first logic.
+ * Fresh per-symbol ticks bypass the 8% sanity cap (SMCI crash-day fix).
+ */
+export function overlayTimedPricesRow(obj, pf, opts = {}) {
+  const sym = String(opts.sym || obj?.ticker || "").toUpperCase();
+  const pricesUpdatedAt = Number(opts.pricesUpdatedAt) || Number(pf?.t) || Date.now();
+  const dailyCandlePc = Number(opts.dailyCandlePc) || 0;
+  const marketOpen = opts.marketOpen !== false;
+  if (!obj || !pf || !(Number(pf.p) > 0)) return obj;
+
+  const pfP = Number(pf.p);
+  const pfPc = Number(pf.pc);
+  const pfDp = Number(pf.dp);
+  const pfDc = Number(pf.dc);
+  const tickFresh = isPriceFeedTickFresh(pf);
+
+  obj.price = pfP;
+  obj._live_price = pfP;
+  obj._live_daily_high = pf.dh;
+  obj._live_daily_low = pf.dl;
+  obj._live_daily_volume = pf.dv;
+  obj._price_updated_at = Math.max(pricesUpdatedAt, Number(pf.t) || 0);
+
+  if (!marketOpen) {
+    const pfAhDp = Number(pf.ahdp);
+    const pfAhDc = Number(pf.ahdc);
+    const pfAhP = Number(pf.ahp);
+    const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+    const absCap = isCrypto ? 200 : 50;
+    if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
+      obj._ah_change_pct = pfAhDp;
+      obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
+      if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
+    }
+  }
+
+  const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
+    && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
+
+  const tdMoveConfirmed = pfPcUsable
+    && Number.isFinite(pfDp) && pfDp !== 0
+    && Math.abs(pfDp) > 8
+    && Math.abs((pfP - pfPc) / pfPc * 100 - pfDp) < 3;
+
+  let bestPc = 0;
+  let bestPcSource = "none";
+  if (pfPcUsable && (tickFresh || tdMoveConfirmed || Math.abs(pfDp) <= 8 || !Number.isFinite(pfDp))) {
+    bestPc = pfPc;
+    bestPcSource = "td";
+  } else if (dailyCandlePc > 0) {
+    bestPc = dailyCandlePc;
+    bestPcSource = "daily_candle";
+  } else if (obj.prev_close || obj._live_prev_close) {
+    bestPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+    bestPcSource = "stored";
+  }
+
+  if (!tickFresh && !tdMoveConfirmed && bestPc > 0 && pfP > 0
+      && Math.abs((pfP - bestPc) / bestPc * 100) > 8) {
+    if (bestPcSource === "td" && dailyCandlePc > 0
+        && Math.abs((pfP - dailyCandlePc) / dailyCandlePc * 100) <= 8) {
+      bestPc = dailyCandlePc;
+      bestPcSource = "daily_candle_fallback";
+    } else {
+      const storedPc = Number(obj.prev_close || obj._live_prev_close) || 0;
+      if (storedPc > 0 && Math.abs((pfP - storedPc) / storedPc * 100) <= 8) {
+        bestPc = storedPc;
+        bestPcSource = "stored_fallback";
+      } else {
+        bestPc = 0;
+        bestPcSource = "rejected_extreme";
+      }
+    }
+  }
+
+  if (bestPc > 0) {
+    obj._live_prev_close = bestPc;
+    obj.prev_close = bestPc;
+  } else if (tickFresh && pfPcUsable) {
+    obj._live_prev_close = pfPc;
+    obj.prev_close = pfPc;
+  }
+
+  if (bestPcSource === "td" && Number.isFinite(pfDp) && pfDp !== 0) {
+    obj.day_change_pct = pfDp;
+    obj.change_pct = pfDp;
+    if (Number.isFinite(pfDc) && pfDc !== 0) {
+      obj.day_change = pfDc;
+      obj.change = pfDc;
+    }
+  } else if (bestPc > 0 && pfP > 0) {
+    const computedDc = Math.round((pfP - bestPc) * 100) / 100;
+    const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
+    obj.day_change = computedDc;
+    obj.day_change_pct = computedDp;
+    obj.change = computedDc;
+    obj.change_pct = computedDp;
+  } else if (tickFresh && pfPcUsable) {
+    if (Number.isFinite(pfDp) && pfDp !== 0) {
+      obj.day_change_pct = pfDp;
+      obj.change_pct = pfDp;
+    }
+    if (Number.isFinite(pfDc) && pfDc !== 0) {
+      obj.day_change = pfDc;
+      obj.change = pfDc;
+    } else {
+      const computedDc = Math.round((pfP - pfPc) * 100) / 100;
+      const computedDp = Math.round(((pfP - pfPc) / pfPc) * 10000) / 100;
+      obj.day_change = computedDc;
+      obj.day_change_pct = computedDp;
+      obj.change = computedDc;
+      obj.change_pct = computedDp;
+    }
+  }
+
+  const pfTs = Math.max(pricesUpdatedAt, Number(pf.t) || 0);
+  if (pfTs > 0) {
+    const existingTs = Number(obj.ingest_ts) || Number(obj.ts) || 0;
+    const existingNorm = existingTs > 0 && existingTs < 1e12 ? existingTs * 1000 : existingTs;
+    if (pfTs > existingNorm) {
+      obj.ingest_ts = pfTs;
+      obj.ingest_time = new Date(pfTs).toISOString();
+    }
+  }
+
+  return obj;
+}
+
 function candleBucketTsMs(tsMs, tfMinutes) {
   const bucketMs = Number(tfMinutes) * 60 * 1000;
   if (!Number.isFinite(bucketMs) || bucketMs <= 0) return 0;
@@ -80,9 +218,11 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
         const updated = {
           ...existing,
           price: updatedPrice,
+          close: updatedPrice,
           prev_close: updatedPc || existing.prev_close,
           day_change: finalDc,
           day_change_pct: finalDp,
+          _price_updated_at: Number(snap.t) || now,
           ingest_ts: now,
           ingest_time: ingestTime,
         };

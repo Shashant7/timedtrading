@@ -40,6 +40,12 @@ Durable rules:
    Jun-10 candles (O=H=L=C=stale price) for the frozen symbols. After
    a price heal, backfill D candles for the affected window
    (skills/backfill-candles.md).
+5. **/timed/latest overlay order matters**: heartbeat ran AFTER
+   timed:prices and stomped live quotes → right rail flicker. Match
+   /timed/all: heartbeat first, timed:prices last. The 8% prev_close
+   sanity cap must bypass fresh per-symbol ticks and TD-native large
+   day_change (crash days like SMCI -28%). Heal: POST
+   /timed/admin/heal-stale-prices then D backfill. [2026-06-10]
 
 ## Tests must never hardcode calendar dates against a Date.now() window [2026-06-10]
 

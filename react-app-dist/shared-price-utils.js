@@ -382,9 +382,9 @@
     var k;
     for (k in b) { if (Object.prototype.hasOwnProperty.call(b, k)) out[k] = b[k]; }
     for (k in a) { if (Object.prototype.hasOwnProperty.call(a, k)) out[k] = a[k]; }
-    var aTs = Number(a._price_updated_at) || 0;
-    var bTs = Number(b._price_updated_at || b.ts) || 0;
-    var fresher = bTs > aTs ? b : a;
+    var aPts = Number(a._price_updated_at) || Number(a.ts) || 0;
+    var bPts = Number(b._price_updated_at) || Number(b.ts) || 0;
+    var fresher = bPts > aPts ? b : a;
     var liveKeys = [
       "_live_price", "_live_prev_close", "_price_updated_at",
       "_ah_price", "_ah_change", "_ah_change_pct",
@@ -393,6 +393,22 @@
     for (var i = 0; i < liveKeys.length; i++) {
       var key = liveKeys[i];
       if (fresher[key] != null) out[key] = fresher[key];
+    }
+    // Never let a stale /timed/latest price roll back a fresher live feed
+    // (SMCI rail header flicker: parent had ~$29 from WS, latest had $41).
+    var aLive = Number(a._live_price);
+    var bLive = Number(b._live_price);
+    var outPx = Number(out.price);
+    if (aLive > 0 && aPts >= bPts && outPx > 0 && Math.abs(aLive - outPx) / aLive > 0.05) {
+      out.price = aLive;
+      out.close = aLive;
+      out._live_price = aLive;
+      out._price_updated_at = aPts;
+    } else if (bLive > 0 && bPts > aPts && outPx > 0 && Math.abs(bLive - outPx) / bLive > 0.05) {
+      out.price = bLive;
+      out.close = bLive;
+      out._live_price = bLive;
+      out._price_updated_at = bPts;
     }
     if (!out.ticker) out.ticker = a.ticker || b.ticker;
     return out;
@@ -525,4 +541,4 @@
   };
 })();
 
-// cache-bust:1781138385402:820021824
+// cache-bust:1781139389204:457690997
