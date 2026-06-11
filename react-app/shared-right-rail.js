@@ -7280,6 +7280,101 @@
                         );
                       })()}
 
+                      {/* ── D2 (2026-06-11) FRESHNESS STATE ──────────────────
+                          The UI face of the Data Age Contract: when the
+                          payload says its candles are stale/aging, say so
+                          instead of rendering stale numbers as if fresh.
+                          Admins see the offending TFs; users see a calm
+                          "refreshing" chip. */}
+                      {(() => {
+                        const f = ticker?._freshness;
+                        if (!f || f.grade === "FRESH" || f.enforced === false) return null;
+                        const isStale = f.grade === "STALE";
+                        const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
+                        return (
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "8px 12px", marginBottom: 10, borderRadius: 10,
+                            background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
+                            border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
+                            fontSize: 11, color: "var(--ds-text-muted)",
+                          }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isStale ? "#f87171" : "#fbbf24" }} />
+                            <span>
+                              {isStale
+                                ? "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land."
+                                : "Some chart data is catching up — figures may lag a few minutes."}
+                              {window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── D2 (2026-06-11) POSITION GUIDANCE CARD ───────────
+                          The PLAN, first — rendered from the live payload
+                          advisories the engine already computes for open
+                          positions (B4): the trim ladder against ATR-fib
+                          targets and the forward-looking move-ending
+                          signal. No fetch; refreshes with the 5-min
+                          scoring cadence. */}
+                      {(() => {
+                        const ladder = ticker?._trim_ladder;
+                        const me = ticker?._move_ending;
+                        if (!ladder && !me) return null;
+                        const meColor = me?.level === "EXIT" ? "#f87171"
+                          : me?.level === "TRIM" ? "#f59e0b"
+                          : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
+                        const fmtP = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
+                        return (
+                          <div style={{
+                            background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
+                            border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
+                            borderRadius: 12, padding: "12px 14px", marginBottom: 10,
+                          }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)", marginBottom: 8 }}>
+                              POSITION GUIDANCE · THE PLAN
+                            </div>
+                            {ladder && Array.isArray(ladder.levels) && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: me ? 10 : 0 }}>
+                                {ladder.levels.map((l) => (
+                                  <div key={l.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                                    <span style={{
+                                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                                      background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))",
+                                    }} />
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, minWidth: 58 }}>{l.name.replace("_", " ")}</span>
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)" }}>{fmtP(l.price)}</span>
+                                    <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                      {l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`}
+                                    </span>
+                                  </div>
+                                ))}
+                                <div style={{ display: "flex", gap: 14, fontSize: 10, color: "var(--ds-text-muted)", marginTop: 3, fontFamily: "var(--tt-font-mono)" }}>
+                                  {ladder.sl != null && <span>Invalidation {fmtP(ladder.sl)}</span>}
+                                  {ladder.trimmed_pct > 0 && <span>{ladder.trimmed_pct}% trimmed</span>}
+                                  {ladder.next && <span>Next: {ladder.next.name.replace("_", " ")} {ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""}</span>}
+                                </div>
+                              </div>
+                            )}
+                            {me && (
+                              <div style={{ borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none", paddingTop: ladder ? 8 : 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: me.level !== "NONE" ? 5 : 0 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)" }}>MOVE-ENDING SIGNAL</span>
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 700, color: meColor }}>
+                                    {me.level} · {me.score}/100
+                                  </span>
+                                </div>
+                                {me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => (
+                                  <div key={i} style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                                    · {String(ev).replace(/ \(\+\d+\)$/, "")}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {/* ── INVESTOR PORTFOLIO CARD (2026-06-03) ──────────────
                           Shown when the Investor lane has an active holding
                           on this ticker. 2026-06-10: Snapshot is now
