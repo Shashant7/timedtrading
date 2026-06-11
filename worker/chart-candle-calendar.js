@@ -40,7 +40,12 @@ function isNyWeekday(weekday) {
 
 /**
  * Which chart TFs to backfill at this ET moment.
- * Runs on */5 cron when minute is 5 (hourly 1H) or 10 (Friday W).
+ * Runs on the every-5-minute cron when minute is 5 (hourly 1H) or 10
+ * (Friday W). NOTE: never write the cron pattern star-slash-five inside
+ * a block comment — the star-slash terminates the comment and the
+ * stray "5" broke the entire worker bundle (#621 deploy failure,
+ * 2026-06-11: all three worker deploys red while tests stayed green
+ * because no test imports this file).
  */
 export function getChartCalendarTasks(nowMs = Date.now()) {
   const et = getNyEtParts(nowMs);

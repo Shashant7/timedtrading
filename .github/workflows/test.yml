@@ -48,3 +48,15 @@ jobs:
           node --check worker/api.js
           node --check worker-bridge/bridge-index.js
           node --check react-app/_worker.js
+
+      # 2026-06-11 — full bundle check. `node --check` parses ONLY the
+      # entry file, not its imports: PR #621 shipped a syntax error in
+      # worker/chart-candle-calendar.js (a star-slash-five cron pattern
+      # inside a JSDoc comment terminated the comment), tests stayed
+      # green (no test imports that module), and ALL THREE worker
+      # deploys went red at wrangler-bundle time. This step fails the
+      # PR instead.
+      - name: Bundle-check the worker graph
+        run: |
+          node scripts/embed-dashboard.js
+          npx esbuild worker/index.js --bundle --format=esm --outfile=/dev/null
