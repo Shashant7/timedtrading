@@ -168,7 +168,10 @@
       if (s.includes("close") || s.includes("exit")) return "Exit recommended — close the position";
       return setupRaw ? setupRaw.replace(/_/g, " ") : "Holding";
     }
-    const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
+    const TF_ORDER = ["1H", "4H", "D", "W"];
+    const CHART_TF_CHIPS = ["60", "240", "D", "W"];
+    const chartTfLabel = tf => tf === "D" ? "D" : tf === "W" ? "W" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`;
+    const chartTfTitle = tf => tf === "D" ? "Daily" : tf === "W" ? "Weekly" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`;
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross",
       supertrend: "SuperTrend",
@@ -5265,7 +5268,7 @@
       const catalystsCacheRef = useRef(new Map());
       const catalystsForceRef = useRef(false);
       const [catalystsFetchNonce, setCatalystsFetchNonce] = useState(0);
-      const [chartTf, setChartTf] = useState("30");
+      const [chartTf, setChartTf] = useState("60");
       const [chartCandles, setChartCandles] = useState([]);
       const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
       const [chartLoading, setChartLoading] = useState(false);
@@ -5356,7 +5359,7 @@
         levels: true
       });
       const [chartExpanded, setChartExpanded] = useState(false);
-      const [modalTf, setModalTf] = useState("30");
+      const [modalTf, setModalTf] = useState("60");
       const [modalCandles, setModalCandles] = useState([]);
       const [modalLoading, setModalLoading] = useState(false);
       useEffect(() => {
@@ -7667,7 +7670,7 @@
                 style: {
                   padding: 2
                 }
-              }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+              }, CHART_TF_CHIPS.map(tf => React.createElement("button", {
                 key: `ctf-${tf}`,
                 onClick: () => setChartTf(tf),
                 className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
@@ -7675,7 +7678,7 @@
                   padding: "3px 8px",
                   fontSize: 10
                 }
-              }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+              }, chartTfLabel(tf)))), React.createElement("button", {
                 className: `ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`,
                 onClick: () => setChartOverlays(o => ({
                   ...o,
@@ -8017,7 +8020,15 @@
             fontFamily: "var(--tt-font-mono)",
             letterSpacing: "0.06em"
           }
-        }, tickerSymbol, " \xB7 ", chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`), React.createElement("div", {
+        }, tickerSymbol, " \xB7 ", chartTfTitle(chartTf), chartCandles.length >= 2 && (() => {
+          const last = chartCandles[chartCandles.length - 1];
+          const lastTs = Number(last?.ts ?? last?.t ?? last?.time ?? 0);
+          const tsMs = lastTs > 1e12 ? lastTs : lastTs > 1e9 ? lastTs * 1000 : 0;
+          if (!tsMs) return null;
+          const ageMin = Math.max(0, Math.round((Date.now() - tsMs) / 60000));
+          const ageLabel = ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin / 60)}h ago`;
+          return ` · ${ageLabel}`;
+        })()), React.createElement("div", {
           style: {
             display: "flex",
             alignItems: "center",
@@ -8028,7 +8039,7 @@
           style: {
             padding: 2
           }
-        }, ["15", "30", "60", "240", "D"].map(tf => React.createElement("button", {
+        }, CHART_TF_CHIPS.map(tf => React.createElement("button", {
           key: `charttab-tf-${tf}`,
           onClick: () => setChartTf(tf),
           className: `ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`,
@@ -8036,7 +8047,7 @@
             padding: "3px 8px",
             fontSize: 10
           }
-        }, tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`))), React.createElement("button", {
+        }, chartTfLabel(tf)))), React.createElement("button", {
           className: `ds-chip ds-chip--sm ${chartOverlays.levels ? "ds-chip--accent" : ""}`,
           onClick: () => setChartOverlays(o => ({
             ...o,
@@ -19625,9 +19636,6 @@
           }
         }
         const tfOptions = [{
-          label: "15m",
-          tf: "15"
-        }, {
           label: "1H",
           tf: "60"
         }, {
@@ -19725,4 +19733,4 @@
   };
 })();
 
-// cache-bust:1781207104259:986812503
+// cache-bust:1781211627065:450205696

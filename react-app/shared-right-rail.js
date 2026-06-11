@@ -202,7 +202,15 @@
     // ═══════════════════════════════════════════════════════════════════════
     // Shared Signal Snapshot & Trade Autopsy Helpers
     // ═══════════════════════════════════════════════════════════════════════
-    const TF_ORDER = ["15m", "30m", "1H", "4H", "D"];
+    const TF_ORDER = ["1H", "4H", "D", "W"];
+    // Ticker Detail chart surfaces structural TFs only (no 15m/30m).
+    const CHART_TF_CHIPS = ["60", "240", "D", "W"];
+    const chartTfLabel = (tf) => (
+      tf === "D" ? "D" : tf === "W" ? "W" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`
+    );
+    const chartTfTitle = (tf) => (
+      tf === "D" ? "Daily" : tf === "W" ? "Weekly" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`
+    );
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross", supertrend: "SuperTrend", ema_structure: "EMA structure",
       ema_depth: "EMA depth", rsi: "RSI", ema5_48: "EMA 5/48", s1_slope: "Slope",
@@ -3921,7 +3929,7 @@
         /* V2.1 round 11 (2026-05-04) — Default to 30m per user feedback:
            "default to 30m timeframe with indicators OFF" so the chart
            reads cleanly first; toggles available to enable. */
-        const [chartTf, setChartTf] = useState("30");
+        const [chartTf, setChartTf] = useState("60");
         const [chartCandles, setChartCandles] = useState([]);
         const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
         const [chartLoading, setChartLoading] = useState(false);
@@ -4024,7 +4032,7 @@
         // change). `ticker?.ticker` is the symbol string, stable
         // across object-reference changes for the same ticker.
         const [chartExpanded, setChartExpanded] = useState(false);
-        const [modalTf, setModalTf] = useState("30");
+        const [modalTf, setModalTf] = useState("60");
         const [modalCandles, setModalCandles] = useState([]);
         const [modalLoading, setModalLoading] = useState(false);
 
@@ -6668,13 +6676,13 @@
                         action={
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <div className="ds-chipgroup" style={{ padding: 2 }}>
-                              {["15", "30", "60", "240", "D"].map((tf) => (
+                              {CHART_TF_CHIPS.map((tf) => (
                                 <button
                                   key={`ctf-${tf}`}
                                   onClick={() => setChartTf(tf)}
                                   className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
                                   style={{ padding: "3px 8px", fontSize: 10 }}
-                                >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                                >{chartTfLabel(tf)}</button>
                               ))}
                             </div>
                             {/* 2026-06-10 (chart bounty) — S/R levels toggle.
@@ -6973,17 +6981,26 @@
                           gets the rest of the height. */}
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flex: "0 0 auto" }}>
                         <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", letterSpacing: "0.06em" }}>
-                          {tickerSymbol} · {chartTf === "D" ? "Daily" : chartTf === "60" ? "1H" : chartTf === "240" ? "4H" : `${chartTf}m`}
+                          {tickerSymbol} · {chartTfTitle(chartTf)}
+                          {chartCandles.length >= 2 && (() => {
+                            const last = chartCandles[chartCandles.length - 1];
+                            const lastTs = Number(last?.ts ?? last?.t ?? last?.time ?? 0);
+                            const tsMs = lastTs > 1e12 ? lastTs : lastTs > 1e9 ? lastTs * 1000 : 0;
+                            if (!tsMs) return null;
+                            const ageMin = Math.max(0, Math.round((Date.now() - tsMs) / 60000));
+                            const ageLabel = ageMin < 60 ? `${ageMin}m ago` : `${Math.round(ageMin / 60)}h ago`;
+                            return ` · ${ageLabel}`;
+                          })()}
                         </span>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div className="ds-chipgroup" style={{ padding: 2 }}>
-                            {["15", "30", "60", "240", "D"].map((tf) => (
+                            {CHART_TF_CHIPS.map((tf) => (
                               <button
                                 key={`charttab-tf-${tf}`}
                                 onClick={() => setChartTf(tf)}
                                 className={`ds-chipgroup__item ${chartTf === tf ? "ds-chipgroup__item--active" : ""}`}
                                 style={{ padding: "3px 8px", fontSize: 10 }}
-                              >{tf === "D" ? "D" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`}</button>
+                              >{chartTfLabel(tf)}</button>
                             ))}
                           </div>
                           <button
@@ -16726,7 +16743,6 @@
               }
 
               const tfOptions = [
-                { label: "15m", tf: "15" },
                 { label: "1H", tf: "60" },
                 { label: "4H", tf: "240" },
                 { label: "D", tf: "D" },
