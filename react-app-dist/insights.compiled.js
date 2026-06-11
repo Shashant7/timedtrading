@@ -1611,6 +1611,278 @@ function Disclosure({
     className: "ins-disclose-body"
   }, children) : null);
 }
+function ScrimmagePanel() {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/timed/scrimmage?_t=${Date.now()}`, {
+      credentials: "include"
+    }).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).then(j => {
+      if (alive) setData(j);
+    }).catch(e => {
+      if (alive) setErr(String(e?.message || e));
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (err) return h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      color: "var(--tt-text-dim)"
+    }
+  }, "Scrimmage data unavailable: " + err);
+  if (!data) return h("div", {
+    className: "sk",
+    style: {
+      height: 220,
+      borderRadius: 12
+    }
+  });
+  const sc = data.scorecard || null;
+  const calls = data.recent_calls || [];
+  const gradeColor = g => g === "A" || g === "B" ? "var(--tt-up)" : g === "C" ? "var(--tt-text-muted)" : g ? "var(--tt-dn-soft)" : "var(--tt-text-faint)";
+  const windowCard = (label, w, spyPct) => h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      flex: "1 1 160px",
+      minWidth: 150
+    }
+  }, h("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-dim)",
+      marginBottom: 6
+    }
+  }, label), w && w.n > 0 ? h(React.Fragment, null, h("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 20,
+      fontWeight: 700,
+      color: (w.pnl_usd || 0) >= 0 ? "var(--tt-up)" : "var(--tt-dn-soft)"
+    }
+  }, fmtUsd(w.pnl_usd)), h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      marginTop: 4,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `${w.n} trades · WR ${fmtPctRaw(w.win_rate_pct, 0)} · PF ${w.profit_factor ?? "—"}`), h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginTop: 2,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `exp ${fmtUsd(w.expectancy_usd)}/trade · dd ${fmtUsdPlain(w.max_drawdown_usd)}${Number.isFinite(spyPct) ? ` · SPY ${fmtPct(spyPct, 1)}` : ""}`)) : h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-faint)"
+    }
+  }, "no closed trades in window"));
+  return h("div", null, sc ? h(React.Fragment, null, h("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      marginBottom: 10
+    }
+  }, windowCard("LAST 7 DAYS", sc.windows?.d7, sc.spy_baseline?.d7_pct), windowCard("LAST 30 DAYS", sc.windows?.d30, sc.spy_baseline?.d30_pct), windowCard("LAST 90 DAYS", sc.windows?.d90, sc.spy_baseline?.d90_pct)), (sc.flags || []).length > 0 && h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)",
+      margin: "0 0 12px",
+      lineHeight: 1.5
+    }
+  }, (sc.flags || []).map((f, i) => h("div", {
+    key: i
+  }, "· " + f)))) : h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 10,
+      fontSize: 12,
+      color: "var(--tt-text-dim)"
+    }
+  }, "Edge Scorecard generates nightly at 22:00 UTC — first scoreboard appears after the next run."), h("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-dim)",
+      margin: "12px 0 6px"
+    }
+  }, `GRADED-CALL TAPE · every published call, assessed (${calls.length} most recent)`), calls.length === 0 ? h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-dim)"
+    }
+  }, "No calls in the ledger yet — entries start recording with the next signals the engine publishes.") : h("div", {
+    className: "tt-card",
+    style: {
+      overflow: "auto",
+      maxHeight: 420
+    }
+  }, h("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12
+    }
+  }, h("thead", null, h("tr", {
+    style: {
+      position: "sticky",
+      top: 0,
+      background: "var(--tt-bg-surface)"
+    }
+  }, ["WHEN", "TICKER", "CALL", "SOURCE", "VEHICLE", "STATUS", "GRADE", "MOVE"].map(c => h("th", {
+    key: c,
+    style: {
+      textAlign: "left",
+      padding: "8px 10px",
+      fontSize: 9,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-dim)",
+      borderBottom: "1px solid var(--tt-border)"
+    }
+  }, c)))), h("tbody", null, calls.map(r => h("tr", {
+    key: r.signal_id,
+    style: {
+      borderBottom: "1px solid var(--tt-border)"
+    }
+  }, h("td", {
+    style: {
+      padding: "7px 10px",
+      whiteSpace: "nowrap",
+      color: "var(--tt-text-dim)",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, fmtRelativeTime(r.published_at)), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontWeight: 700,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, r.ticker), h("td", {
+    style: {
+      padding: "7px 10px",
+      maxWidth: 340,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      color: "var(--tt-text-muted)"
+    },
+    title: r.thesis || ""
+  }, `${r.direction || ""} ${r.thesis || ""}`.trim()), h("td", {
+    style: {
+      padding: "7px 10px",
+      color: "var(--tt-text-dim)",
+      fontSize: 11
+    }
+  }, String(r.source || "").replace(/_/g, " ")), h("td", {
+    style: {
+      padding: "7px 10px",
+      color: "var(--tt-text-dim)",
+      fontSize: 11
+    }
+  }, r.vehicle || "—"), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontSize: 11,
+      color: r.status === "resolved" ? "var(--tt-text)" : "var(--tt-text-faint)"
+    }
+  }, r.status === "resolved" ? r.outcome || "resolved" : r.status), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontWeight: 700,
+      fontFamily: "var(--tt-font-mono)",
+      color: gradeColor(r.grade)
+    }
+  }, r.grade || "—"), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      color: Number(r.outcome_pct) >= 0 ? "var(--tt-up)" : "var(--tt-dn-soft)"
+    }
+  }, r.outcome_pct != null ? fmtPct(Number(r.outcome_pct), 1) : "—")))))), sc && (sc.per_setup || []).length > 0 && h(React.Fragment, null, h("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-dim)",
+      margin: "14px 0 6px"
+    }
+  }, "PER-SETUP (90D)"), h("div", {
+    className: "tt-card",
+    style: {
+      overflow: "auto"
+    }
+  }, h("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12
+    }
+  }, h("thead", null, h("tr", null, ["SETUP", "DIR", "N", "WR", "PF", "P&L"].map(c => h("th", {
+    key: c,
+    style: {
+      textAlign: "left",
+      padding: "8px 10px",
+      fontSize: 9,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-dim)",
+      borderBottom: "1px solid var(--tt-border)"
+    }
+  }, c)))), h("tbody", null, sc.per_setup.map((s, i) => h("tr", {
+    key: i,
+    style: {
+      borderBottom: "1px solid var(--tt-border)"
+    }
+  }, h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, s.setup), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontSize: 11,
+      color: "var(--tt-text-dim)"
+    }
+  }, s.direction), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, s.stats?.n), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, fmtPctRaw(s.stats?.win_rate_pct, 0)), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, s.stats?.profit_factor ?? "—"), h("td", {
+    style: {
+      padding: "7px 10px",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11,
+      color: (s.stats?.pnl_usd || 0) >= 0 ? "var(--tt-up)" : "var(--tt-dn-soft)"
+    }
+  }, fmtUsd(s.stats?.pnl_usd)))))))));
+}
 function InsightsApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
@@ -1665,7 +1937,12 @@ function InsightsApp() {
     allMeta,
     history,
     summary
-  }), h(CIOWatchlist, {
+  }), h(Disclosure, {
+    id: "scrimmage",
+    title: "Scrimmage Room",
+    sub: "the daily record — every published call, graded against candles",
+    defaultOpen: true
+  }, h(ScrimmagePanel)), h(CIOWatchlist, {
     allMeta,
     summary,
     history
@@ -1748,6 +2025,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781153964531:272510450
+// cache-bust:1781180450460:651804213
 
-// cache-bust:1781153964531:272510450
+// cache-bust:1781180450460:651804213
