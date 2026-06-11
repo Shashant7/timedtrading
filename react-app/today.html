@@ -1774,7 +1774,9 @@
           return c.length >= 24 && !/^[;,]/.test(c) ? c : "";
         })();
 
-        const primaryLead = _plain(leadSummary || fallbackSummary);
+        // fallbackSummary already prefers the longer client-parsed blurb over
+        // the truncated server leadSummary — do not || back to leadSummary.
+        const primaryLead = _plain(fallbackSummary);
         // Primary digest: show the full Market Context blurb when available.
         const summarySentences = (() => {
           if (primaryLead.length >= 40) return [_cap(primaryLead, summaryCap)];

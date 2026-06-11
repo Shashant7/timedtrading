@@ -537,7 +537,7 @@ function BriefPreview({
     const c = _plain(closing);
     return c.length >= 24 && !/^[;,]/.test(c) ? c : "";
   })();
-  const primaryLead = _plain(leadSummary || fallbackSummary);
+  const primaryLead = _plain(fallbackSummary);
   const summarySentences = (() => {
     if (primaryLead.length >= 40) return [_cap(primaryLead, summaryCap)];
     const cand = [];
@@ -4994,6 +4994,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781195682343:582726881
+// cache-bust:1781201204277:810815165
 
-// cache-bust:1781195682343:582726881
+// cache-bust:1781201204277:810815165
