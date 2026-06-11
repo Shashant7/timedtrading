@@ -90,9 +90,17 @@
       var openPx = Number(t.price ?? t.close);
       return openPx > 0 ? openPx : null;
     }
+    var px = Number(t.price ?? t._live_price);
     var close = Number(t.close);
+    var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+    // Stale close guard: scoring blobs sometimes leave close == prev_close
+    // (yesterday's reference) even after today's session. Prefer the live
+    // feed price when close looks poisoned (DELL / card stale-close lesson).
+    if (close > 0 && prev > 0 && Math.abs(close - prev) / prev < 0.0005
+        && px > 0 && Math.abs(px - prev) / prev > 0.001) {
+      return px;
+    }
     if (close > 0) return close;
-    var px = Number(t.price);
     if (px > 0) return px;
     var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
     return prev > 0 ? prev : null;

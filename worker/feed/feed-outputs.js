@@ -54,6 +54,13 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   obj._live_daily_volume = pf.dv;
   obj._price_updated_at = Math.max(pricesUpdatedAt, Number(pf.t) || 0);
 
+  // Outside RTH, pf.p is today's RTH close (extended print is ahp).
+  // Scoring snapshots often leave close == prev_close; cards must not
+  // read that stale close via getHeadlinePrice().
+  if (!marketOpen) {
+    obj.close = pfP;
+  }
+
   if (!marketOpen) {
     const pfAhDp = Number(pf.ahdp);
     const pfAhDc = Number(pf.ahdc);

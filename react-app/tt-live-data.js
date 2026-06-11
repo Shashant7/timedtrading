@@ -104,32 +104,9 @@
             const ahdc = Number(p.ahdc);
             const ahdp = Number(p.ahdp);
 
-            // 2026-05-27 (PR #319) — Market-closed RTH/EXT mixing fix.
-            //
-            // User report (2026-05-27 13:18 UTC): Kanban cards flicker
-            // between two prices (e.g. MU $895.88 → $957.50 → $895.88
-            // every 30-90s) and the RTH GAINERS row sometimes shows
-            // MU at $961 +28% (EXT-inflated) and sometimes $895 +19%
-            // (correct RTH-only).
-            //
-            // Root cause: `/timed/prices` `p.p` is the LATEST TICK,
-            // which after RTH close includes extended-hours moves.
-            // We were unconditionally overwriting `existing.price` with
-            // feedP → next refresh of `/timed/all` (90s cycle) puts
-            // RTH price back → bouncing.
-            //
-            // Backend already preserves `dc/dp/pc` correctly across
-            // session boundaries (per .cursor/rules/price-data-pipeline.mdc),
-            // so the bouncing is specifically `p` (price) when market
-            // is closed.
-            //
-            // Fix: when market is CLOSED, keep `existing.price` = RTH
-            // close (from the bundle); only write `_live_price` + the
-            // dedicated AH fields. Consumers that want the live tick
-            // for any reason can read `_live_price` directly.
-            //
-            // When market is OPEN, the existing behavior is correct
-            // (feedP IS the canonical price during RTH).
+            // Outside RTH, timed:prices `p` is today's RTH close; extended
+            // print lives in ahp/ahdc/ahdp. Always sync price/close from the
+            // feed so cards don't stick on a stale close == prev_close blob.
             const marketOpen = (() => {
               try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
               catch (_) { return true; }
@@ -137,10 +114,9 @@
 
             next[key] = {
               ...existing,
-              // Only overwrite canonical + live headline fields DURING RTH.
-              // Outside RTH, feedP may be a pre/post-market tick — keep the
-              // RTH close on price/_live_price; extended print goes to _ah_*.
-              ...(marketOpen ? { price: feedP, _live_price: feedP } : {}),
+              ...(marketOpen
+                ? { price: feedP, _live_price: feedP }
+                : { price: feedP, close: feedP, _live_price: feedP }),
               _price_updated_at: feedTs,
               _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
@@ -233,11 +209,17 @@
                   try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
                   catch (_) { return true; }
                 })();
-                if (marketOpen && existing._live_price !== undefined) {
+                if (existing._live_price !== undefined) {
+                  merged._live_price = existing._live_price;
                   merged.price = existing._live_price;
+                }
+                if (!marketOpen && existing.close !== undefined) {
+                  merged.close = existing.close;
                 }
                 if (existing.day_change !== undefined) merged.day_change = existing.day_change;
                 if (existing.day_change_pct !== undefined) merged.day_change_pct = existing.day_change_pct;
+                if (existing.change !== undefined) merged.change = existing.change;
+                if (existing.change_pct !== undefined) merged.change_pct = existing.change_pct;
               }
             }
             next[key] = merged;
