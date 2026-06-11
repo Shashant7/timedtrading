@@ -396,12 +396,14 @@ function buildHtmlPages() {
   walk(sourceDir);
 
   for (const relPath of htmlFiles) {
-    if (relPath === "index-react.html") continue;
+    // D4 retirement (2026-06-11, operator-approved): index-react.html now
+    // ships as the redirect stub in react-app/index-react.html. The legacy
+    // monolith source (index-react.source.html) stays in-repo as the
+    // component-logic reference but is NO LONGER compiled or shipped.
+    if (relPath === "index-react.source.html") continue;
 
-    const sourceRelPath = relPath === "index-react.source.html" ? relPath : relPath;
-    const outputRelPath = relPath === "index-react.source.html" ? "index-react.html" : relPath;
-    const sourceHtmlPath = path.join(sourceDir, sourceRelPath);
-    const outputHtmlPath = path.join(outputDir, outputRelPath);
+    const sourceHtmlPath = path.join(sourceDir, relPath);
+    const outputHtmlPath = path.join(outputDir, relPath);
 
     ensureDir(path.dirname(outputHtmlPath));
     compileHtmlSource(sourceHtmlPath, outputHtmlPath);
