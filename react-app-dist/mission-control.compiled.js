@@ -263,6 +263,7 @@ function StatusGrid({
   const briefSpyMean = Number(ba?.spy?.mean);
   const briefHits = Number.isFinite(briefSpyMean) ? Math.round(briefSpyMean * 100) : null;
   const worstStaleD = Number(dc?.by_tf?.D?.worst_stale?.days_stale);
+  const fsSummary = dc?.freshness || null;
   const cronFailing = Number(sh?.failing_count) || 0;
   const totalUsers = Number(eg?.total) || 0;
   const powerUsers = Number(eg?.buckets?.power) || 0;
@@ -317,7 +318,13 @@ function StatusGrid({
     sub: `${Number(ba?.total_scored) || 0} predictions scored`,
     status: briefHits == null ? null : briefHits >= 60 ? "ok" : briefHits >= 50 ? "warn" : "fail",
     href: "#perf"
-  }), tile({
+  }), fsSummary ? tile({
+    title: "FRESHNESS SLO",
+    value: fsSummary.slo_ok ? "✓ 0 stale" : `${Number(fsSummary.stale) || 0} stale`,
+    sub: `${Number(fsSummary.fresh) || 0} fresh · ${Number(fsSummary.aging) || 0} aging${Number(fsSummary.degraded) > 0 ? ` · ${fsSummary.degraded} no-score` : ""}${fsSummary.worst ? ` · worst ${fsSummary.worst.ticker} ${fsSummary.worst.tf}` : ""}`,
+    status: fsSummary.slo_ok ? "ok" : (Number(fsSummary.stale) || 0) >= 5 ? "fail" : "warn",
+    href: "#data"
+  }) : tile({
     title: "WORST-STALE (D)",
     value: Number.isFinite(worstStaleD) ? `${worstStaleD}d` : "—",
     sub: dc?.by_tf?.D?.worst_stale?.ticker || "—",
@@ -3898,6 +3905,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1781148881375:858471721
+// cache-bust:1781153964531:272510450
 
-// cache-bust:1781148881375:858471721
+// cache-bust:1781153964531:272510450
