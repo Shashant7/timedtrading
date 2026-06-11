@@ -708,6 +708,25 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
               ? "LIVE FSD-derived tactical overlay (CRO-applied) — refines WHEN to lean into a theme, never overrides the structural stance."
               : "Tactical overlay — refines WHEN to lean into a theme, never overrides the structural stance.",
           };
+          // B3 (2026-06-11) — MEASURED FSD accuracy from the Signal Outcome
+          // Ledger (nightly resolutions of applied tactical calls). Weigh
+          // FSD-aligned conviction by what FSD has actually been hitting,
+          // not by reputation. Absent until enough calls resolve.
+          try {
+            const acc = memoryCache?.fsdAccuracy;
+            if (acc && Number(acc.total_resolved) > 0) {
+              const g = (acc.groups || []).find((x) => x.source === "fsd_tactical") || acc.groups?.[0] || null;
+              if (g) {
+                mem.tactical_signals.measured_accuracy = {
+                  window_days: acc.days || 180,
+                  resolved: g.resolved ?? acc.total_resolved,
+                  win_rate_pct: g.win_rate ?? null,
+                  avg_move_pct: g.avg_pct ?? null,
+                  note: "Hit rate of FSD tactical calls graded against candles at horizon. Low sample = treat as anecdote.",
+                };
+              }
+            }
+          } catch (_) { /* accuracy attach is best-effort */ }
         }
       } catch (_) {
         // Tactical enrichment is best-effort — never break CIO memory.

@@ -169,6 +169,65 @@ export function optionsPlayToSignal(play, meta = {}) {
   };
 }
 
+/**
+ * B3 (2026-06-11) — Map FSD tactical signals (the CRO-applied overlay shape
+ * from worker/strategy-context.js / cro:tactical_overrides) into ledger
+ * rows so FSD's calls get GRADED like everything else we act on.
+ *
+ * Pair semantics: "RSP/SPY" = a RELATIVE call (numerator vs denominator) —
+ * graded on the ratio at horizon (payload.relative_to). Single symbols
+ * ("MAGS") grade as absolute directional calls.
+ * Direction inference from the freeform `direction` string: caution/short/
+ * avoid/de-risk/trim/under(weight)/bear → SHORT the first leg; everything
+ * else (favor/prefer/lean/bull/overweight) → LONG the first leg.
+ */
+export function fsdTacticalToSignals(signals, meta = {}) {
+  const out = [];
+  const publishedAt = Number(meta.publishedAt) || Date.now();
+  const refId = String(meta.proposalId || meta.vintage || "incode");
+  for (const sig of signals || []) {
+    if (!sig || typeof sig !== "object") continue;
+    const pairRaw = String(sig.pair || "").toUpperCase().trim();
+    if (!pairRaw) continue;
+    const legs = pairRaw.split("/").map((s) => s.trim()).filter(Boolean);
+    const ticker = legs[0];
+    if (!ticker || !/^[A-Z0-9.]{1,6}$/.test(ticker)) continue;
+    const relativeTo = legs.length > 1 && /^[A-Z0-9.]{1,6}$/.test(legs[1]) ? legs[1] : null;
+
+    const dirStr = String(sig.direction || "").toLowerCase();
+    const bearish = /(caution|short|avoid|de-?risk|trim|under|bear|fade|reduce)/.test(dirStr);
+    const direction = bearish ? "SHORT" : "LONG";
+
+    const horizonLabel = String(sig.horizon || "").toLowerCase();
+    const horizonDays =
+      horizonLabel === "tactical" ? 14
+      : horizonLabel === "intermediate" ? 30
+      : horizonLabel === "structural" ? 60
+      : 21;
+
+    out.push({
+      signal_id: `fsd:${refId}:${String(sig.signal || pairRaw).slice(0, 60)}`,
+      source: "fsd_tactical",
+      desk: "research",
+      ticker,
+      direction,
+      vehicle: "thesis",
+      published_at: publishedAt,
+      thesis: String(sig.evidence || sig.playbook_action || sig.signal || "").slice(0, 280),
+      ref_id: refId,
+      horizon_days: horizonDays,
+      payload: {
+        signal: sig.signal || null,
+        pair: pairRaw,
+        relative_to: relativeTo,
+        direction_raw: sig.direction || null,
+        horizon_label: sig.horizon || null,
+      },
+    });
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Pure resolution core (pinned by tests)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -265,6 +324,41 @@ export function classifyDirectionalOutcome(sig, bars) {
   return { outcome: "flat", grade: "C", outcome_pct: finalPct, resolve_note: "horizon_flat", resolved_ts: Number(last.ts) };
 }
 
+/**
+ * B3 — classify a RELATIVE call (ticker vs reference, e.g. RSP/SPY) at
+ * horizon. Judged on the close-ratio change from the first judged bar pair
+ * to the due-date pair; ±1% bands like absolute horizon verdicts. No
+ * target/stop touch logic — relative calls are horizon theses.
+ */
+export function classifyRelativeOutcome(sig, bars, refBars) {
+  const dir = String(sig?.direction || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const publishedAt = Number(sig?.published_at) || 0;
+  const dueTs = Number(sig?.due_ts) || 0;
+  const inWindow = (b) => Number(b?.ts) > publishedAt && (!dueTs || Number(b?.ts) <= dueTs);
+
+  const a = (bars || []).filter(inWindow);
+  const refByTs = new Map((refBars || []).filter(inWindow).map((b) => [Number(b.ts), Number(b.c)]));
+  // Align by exact bar ts (daily bars share timestamps).
+  const aligned = a
+    .map((b) => ({ ts: Number(b.ts), ratio: refByTs.has(Number(b.ts)) ? Number(b.c) / refByTs.get(Number(b.ts)) : null }))
+    .filter((r) => Number.isFinite(r.ratio) && r.ratio > 0);
+  if (aligned.length < 2) return null;
+
+  const first = aligned[0];
+  const last = aligned[aligned.length - 1];
+  const sgn = dir === "LONG" ? 1 : -1;
+  const ratioPct = ((last.ratio - first.ratio) / first.ratio) * 100 * sgn;
+  if (!Number.isFinite(ratioPct)) return null;
+
+  if (ratioPct >= 1) {
+    return { outcome: "win", grade: "B", outcome_pct: ratioPct, resolve_note: "relative_horizon_right", resolved_ts: last.ts };
+  }
+  if (ratioPct <= -1) {
+    return { outcome: "loss", grade: "D", outcome_pct: ratioPct, resolve_note: "relative_horizon_wrong", resolved_ts: last.ts };
+  }
+  return { outcome: "flat", grade: "C", outcome_pct: ratioPct, resolve_note: "relative_horizon_flat", resolved_ts: last.ts };
+}
+
 /** Due predicate: a signal is resolvable when its horizon has elapsed. */
 export function isSignalDue(sig, nowMs = Date.now()) {
   const expiry = Number(sig?.expiry_ts) || 0;
@@ -329,7 +423,23 @@ export async function resolveDueSignals(env, opts = {}) {
     const dueTs = Number(row.expiry_ts) > 0
       ? Number(row.expiry_ts)
       : (Number(row.published_at) || 0) + (Number(row.horizon_days) || 0) * DAY_MS;
-    const verdict = classifyDirectionalOutcome({ ...row, due_ts: dueTs }, bars);
+
+    // B3 — relative-pair calls (payload.relative_to, e.g. RSP vs SPY) are
+    // horizon theses judged on the close ratio; only when due.
+    let relativeTo = null;
+    try {
+      const payload = row.payload_json ? JSON.parse(row.payload_json) : null;
+      relativeTo = payload?.relative_to ? String(payload.relative_to).toUpperCase() : null;
+    } catch { /* malformed payload → treat as absolute */ }
+
+    let verdict;
+    if (relativeTo) {
+      verdict = due
+        ? classifyRelativeOutcome({ ...row, due_ts: dueTs }, bars, await loadBars(relativeTo, Number(row.published_at) || 0))
+        : null;
+    } else {
+      verdict = classifyDirectionalOutcome({ ...row, due_ts: dueTs }, bars);
+    }
 
     if (verdict) {
       // Early-resolve only on target/stop touch; horizon verdicts wait
