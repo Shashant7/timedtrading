@@ -8406,6 +8406,137 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, Math.round(v2Conv), "/100"))));
+        })(), (() => {
+          const f = ticker?._freshness;
+          if (!f || f.grade === "FRESH" || f.enforced === false) return null;
+          const isStale = f.grade === "STALE";
+          const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
+          return React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 12px",
+              marginBottom: 10,
+              borderRadius: 10,
+              background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
+              border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
+              fontSize: 11,
+              color: "var(--ds-text-muted)"
+            }
+          }, React.createElement("span", {
+            style: {
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: isStale ? "#f87171" : "#fbbf24"
+            }
+          }), React.createElement("span", null, isStale ? "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land." : "Some chart data is catching up — figures may lag a few minutes.", window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""));
+        })(), (() => {
+          const ladder = ticker?._trim_ladder;
+          const me = ticker?._move_ending;
+          if (!ladder && !me) return null;
+          const meColor = me?.level === "EXIT" ? "#f87171" : me?.level === "TRIM" ? "#f59e0b" : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
+          const fmtP = n => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
+          return React.createElement("div", {
+            style: {
+              background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
+              border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
+              borderRadius: 12,
+              padding: "12px 14px",
+              marginBottom: 10
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: "var(--ds-text-muted)",
+              marginBottom: 8
+            }
+          }, "POSITION GUIDANCE \xB7 THE PLAN"), ladder && Array.isArray(ladder.levels) && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 5,
+              marginBottom: me ? 10 : 0
+            }
+          }, ladder.levels.map(l => React.createElement("div", {
+            key: l.name,
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12
+            }
+          }, React.createElement("span", {
+            style: {
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))"
+            }
+          }), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              minWidth: 58
+            }
+          }, l.name.replace("_", " ")), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)"
+            }
+          }, fmtP(l.price)), React.createElement("span", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)"
+            }
+          }, l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`))), React.createElement("div", {
+            style: {
+              display: "flex",
+              gap: 14,
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 3,
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, ladder.sl != null && React.createElement("span", null, "Invalidation ", fmtP(ladder.sl)), ladder.trimmed_pct > 0 && React.createElement("span", null, ladder.trimmed_pct, "% trimmed"), ladder.next && React.createElement("span", null, "Next: ", ladder.next.name.replace("_", " "), " ", ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""))), me && React.createElement("div", {
+            style: {
+              borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none",
+              paddingTop: ladder ? 8 : 0
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: me.level !== "NONE" ? 5 : 0
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: "var(--ds-text-muted)"
+            }
+          }, "MOVE-ENDING SIGNAL"), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 11,
+              fontWeight: 700,
+              color: meColor
+            }
+          }, me.level, " \xB7 ", me.score, "/100")), me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => React.createElement("div", {
+            key: i,
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5
+            }
+          }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
         })(), effectiveInvestorTrade && (() => {
           const it = effectiveInvestorTrade;
           const dir = String(it?.direction || "LONG").toUpperCase();
@@ -19579,4 +19710,4 @@
   };
 })();
 
-// cache-bust:1781183088899:133092634
+// cache-bust:1781183685420:611683943
