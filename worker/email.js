@@ -1039,12 +1039,16 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const isEntry = type === "TRADE_ENTRY";
   const isExit = type === "TRADE_EXIT";
   const isTrim = type === "TRADE_TRIM";
+  // 2026-06-11 — TP-level cross (MU incident): a profit tier was reached;
+  // the model may trim, exit, or intentionally hold the runner. The alert
+  // carries plan-aware commentary (alert.commentary) plus level/next/stop.
+  const isCross = type === "TP_CROSS";
 
   const dir = String(direction || "").toUpperCase();
   const dirColor = dir === "LONG" ? "#10b981" : dir === "SHORT" ? "#f43f5e" : BRAND.textSecondary;
   const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "";
-  const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : "✂️";
-  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : "Position Trimmed"}`;
+  const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isCross ? "🎯" : "✂️";
+  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
   const _etTime = _fmtEtClock(action_ts);
 
@@ -1078,8 +1082,16 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       posLines.push(`Realized P&amp;L: <strong style="color:${_color}">${_pnl}</strong>`);
     }
   }
+  if (isCross) {
+    if (Number.isFinite(Number(alert.level))) posLines.push(`Target crossed: <strong style="color:#10b981">$${Number(alert.level).toFixed(2)}</strong>${alert.tier_label ? ` <span style="color:${BRAND.textSecondary}">(${alert.tier_label})</span>` : ""}`);
+    if (Number.isFinite(Number(price))) posLines.push(`Price now: <strong style="color:white">$${Number(price).toFixed(2)}</strong>${Number.isFinite(Number(pnlPct)) ? ` &nbsp;·&nbsp; <span style="color:${Number(pnlPct) >= 0 ? "#10b981" : "#f43f5e"}">${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct).toFixed(1)}% from entry</span>` : ""}`);
+    if (Number.isFinite(Number(entry))) posLines.push(`Entry: <strong style="color:white">$${Number(entry).toFixed(2)}</strong>${Number.isFinite(Number(alert.trimmed_pct)) ? ` &nbsp;·&nbsp; Trimmed so far: <strong style="color:white">${alert.trimmed_pct}%</strong>` : ""}`);
+    if (alert.next_target) posLines.push(`Next target: <strong style="color:#10b981">${alert.next_target}</strong>`);
+    if (alert.trailing_sl) posLines.push(`Trailing stop: <strong style="color:#f59e0b">${alert.trailing_sl}</strong>`);
+    if (alert.commentary) posLines.push(`<span style="color:${BRAND.textSecondary}">${String(alert.commentary).slice(0, 400)}</span>`);
+  }
   const posSection = posLines.length > 0
-    ? _section(isExit ? "Trade Summary" : "Position", posLines.join("<br>"))
+    ? _section(isExit ? "Trade Summary" : isCross ? "The Model's Plan" : "Position", posLines.join("<br>"))
     : "";
 
   // TRIMS ALONG THE WAY (exits only) — pulls the partial profit-takes that
