@@ -398,6 +398,7 @@ export async function resolveDueSignals(env, opts = {}) {
 
   let resolved = 0;
   let invalid = 0;
+  const resolvedRows = []; // compact — for activity-feed grading events
   const stmts = [];
   // One candle read per distinct ticker (signals cluster on actives).
   const barsCache = new Map();
@@ -459,6 +460,18 @@ export async function resolveDueSignals(env, opts = {}) {
           verdict.resolve_note, now,
         ));
         resolved++;
+        resolvedRows.push({
+          signal_id: row.signal_id,
+          ticker,
+          source: row.source,
+          desk: row.desk,
+          vehicle: row.vehicle,
+          direction: row.direction,
+          outcome: verdict.outcome,
+          grade: verdict.grade,
+          outcome_pct: Math.round(verdict.outcome_pct * 100) / 100,
+          resolve_note: verdict.resolve_note,
+        });
       }
       continue;
     }
@@ -486,7 +499,7 @@ export async function resolveDueSignals(env, opts = {}) {
   } catch (e) {
     return { ok: false, error_kind: "write_failed", hint: String(e?.message || e).slice(0, 200), scanned: rows.length, resolved, invalid };
   }
-  return { ok: true, scanned: rows.length, resolved, invalid };
+  return { ok: true, scanned: rows.length, resolved, invalid, resolved_rows: resolvedRows };
 }
 
 /**

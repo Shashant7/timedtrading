@@ -198,6 +198,17 @@
     if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT" };
     if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };
     if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase(), evType: "INVESTOR_SIGNAL" };
+    // D5 (2026-06-11) — resolution-time grading events from the Signal
+    // Outcome Ledger: every published call shows its grade on the strip
+    // the night it resolves. Wins read green, losses red, flats neutral.
+    if (t === "SIGNAL_GRADED") {
+      const oc = String(ev?.outcome || "").toLowerCase();
+      return {
+        cls: oc === "win" ? "ev-entry" : oc === "loss" ? "ev-exit" : "ev-trim",
+        label: `GRADED ${String(ev?.grade || "").toUpperCase()}`.trim(),
+        evType: "SIGNAL_GRADED",
+      };
+    }
     if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY" };
     if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY" };
     if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };
@@ -220,6 +231,11 @@
     if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY")) parts.push(String(ev.setup_grade));
     const reason = shortReason(ev?.reason);
     if (reason && (t === "EXIT" || t === "TRIM")) parts.push(reason);
+    if (t === "SIGNAL_GRADED") {
+      const pct = Number(ev?.outcome_pct);
+      if (Number.isFinite(pct)) parts.push(`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`);
+      if (ev?.source) parts.push(String(ev.source).replace(/_/g, " "));
+    }
     return parts.join(" · ");
   }
 
