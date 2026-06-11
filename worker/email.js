@@ -1691,3 +1691,165 @@ export async function getEmailOptedInUsers(env, prefKey) {
     return [];
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D5 (2026-06-11) — Weekly Investor Digest (operator-requested cadence:
+// per-event alerts stay; this adds the Friday-close weekly summary).
+//
+// Deterministic, no LLM: open holdings with unrealized %, the week's
+// actions (lots), the week's GRADED investor calls from the Signal Outcome
+// Ledger, and current accumulate candidates. Sent Friday after the close
+// to investor_alerts opted-in users — the weekend review, in one email.
+// Compliance voice: "the portfolio / this position", never "you/your".
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sendInvestorWeeklyDigest(env) {
+  const db = env?.DB;
+  const KV = env?.KV_TIMED || env?.KV;
+  if (!db) return { ok: false, error: "no_db" };
+
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  if (!opted.length) return { ok: true, sent: 0, recipients: 0 };
+
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+  const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
+  const fmtPct = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}%` : "—";
+
+  // ── Data: positions, week's lots, graded calls, accumulate candidates ──
+  let positions = [];
+  try {
+    positions = (await db.prepare(
+      `SELECT ticker, total_shares, avg_entry, cost_basis, first_entry_ts
+         FROM investor_positions WHERE status = 'OPEN' ORDER BY cost_basis DESC LIMIT 25`
+    ).all())?.results || [];
+  } catch (_) {}
+
+  let lots = [];
+  try {
+    lots = (await db.prepare(
+      `SELECT l.ticker, l.action, l.shares, l.price, l.ts, l.reason
+         FROM investor_lots l WHERE l.ts >= ?1 ORDER BY l.ts DESC LIMIT 30`
+    ).bind(weekAgo).all())?.results || [];
+  } catch (_) {}
+
+  let gradedCalls = [];
+  try {
+    gradedCalls = (await db.prepare(
+      `SELECT ticker, thesis, grade, outcome, outcome_pct, resolved_at
+         FROM signal_outcomes
+        WHERE source = 'investor_action' AND status = 'resolved' AND resolved_at >= ?1
+        ORDER BY resolved_at DESC LIMIT 15`
+    ).bind(weekAgo).all())?.results || [];
+  } catch (_) {}
+
+  let prices = {};
+  try {
+    const raw = KV ? JSON.parse((await KV.get("timed:prices")) || "{}") : {};
+    prices = raw?.prices || raw || {};
+  } catch (_) {}
+
+  let accumulate = [];
+  try {
+    const scores = KV ? JSON.parse((await KV.get("timed:investor:scores")) || "{}") : {};
+    accumulate = Object.entries(scores)
+      .filter(([, v]) => v && Number(v.score) >= 70 && v.accumZone?.inZone)
+      .sort((a, b) => Number(b[1].score) - Number(a[1].score))
+      .slice(0, 5)
+      .map(([t, v]) => ({ ticker: t, score: Number(v.score) }));
+  } catch (_) {}
+
+  // ── Compose ──────────────────────────────────────────────────────────────
+  const posRows = positions.map((p) => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const live = Number(prices?.[sym]?.p) || 0;
+    const entry = Number(p.avg_entry) || 0;
+    const pnlPct = live > 0 && entry > 0 ? ((live - entry) / entry) * 100 : null;
+    const color = pnlPct == null ? BRAND.textMuted : pnlPct >= 0 ? BRAND.green : "#ef4444";
+    return `<tr>
+      <td style="padding:6px 10px;font-weight:700">${sym}</td>
+      <td style="padding:6px 10px;text-align:right">${Number(p.total_shares || 0).toFixed(1)} sh</td>
+      <td style="padding:6px 10px;text-align:right">${fmtUsd(entry)}</td>
+      <td style="padding:6px 10px;text-align:right">${live > 0 ? fmtUsd(live) : "—"}</td>
+      <td style="padding:6px 10px;text-align:right;color:${color};font-weight:700">${fmtPct(pnlPct)}</td>
+    </tr>`;
+  }).join("");
+
+  const lotRows = lots.map((l) => {
+    const action = String(l.action || "").toUpperCase();
+    const color = action === "BUY" ? BRAND.green : BRAND.warning;
+    const when = new Date(Number(l.ts)).toLocaleDateString("en-US", { weekday: "short", timeZone: "America/New_York" });
+    return `<tr>
+      <td style="padding:5px 10px;color:${BRAND.textMuted}">${when}</td>
+      <td style="padding:5px 10px;font-weight:700">${String(l.ticker || "").toUpperCase()}</td>
+      <td style="padding:5px 10px;color:${color};font-weight:700">${action}</td>
+      <td style="padding:5px 10px;text-align:right">${Number(l.shares || 0).toFixed(1)} sh @ ${fmtUsd(l.price)}</td>
+      <td style="padding:5px 10px;color:${BRAND.textSecondary}">${String(l.reason || "").replace(/_/g, " ").slice(0, 40)}</td>
+    </tr>`;
+  }).join("");
+
+  const gradeRows = gradedCalls.map((g) => {
+    const grade = String(g.grade || "—").toUpperCase();
+    const color = grade === "A" || grade === "B" ? BRAND.green : grade === "C" ? BRAND.textSecondary : "#ef4444";
+    return `<tr>
+      <td style="padding:5px 10px;font-weight:700">${String(g.ticker || "").toUpperCase()}</td>
+      <td style="padding:5px 10px;color:${BRAND.textSecondary}">${String(g.thesis || "").slice(0, 60)}</td>
+      <td style="padding:5px 10px;text-align:center;color:${color};font-weight:800">${grade}</td>
+      <td style="padding:5px 10px;text-align:right;color:${Number(g.outcome_pct) >= 0 ? BRAND.green : "#ef4444"}">${fmtPct(g.outcome_pct)}</td>
+    </tr>`;
+  }).join("");
+
+  const tableHead = (cols) =>
+    `<tr>${cols.map((c) => `<th style="padding:6px 10px;text-align:${c.r ? "right" : c.c ? "center" : "left"};font-size:10px;letter-spacing:0.08em;color:${BRAND.textMuted};border-bottom:1px solid ${BRAND.border}">${c.t}</th>`).join("")}</tr>`;
+  const section = (title, inner) =>
+    `<div style="margin:18px 0">
+      <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${BRAND.textSecondary};margin-bottom:8px">${title}</div>
+      ${inner}
+    </div>`;
+  const table = (head, rows, empty) => rows
+    ? `<table style="width:100%;border-collapse:collapse;background:${BRAND.cardBg};border:1px solid ${BRAND.border};border-radius:8px;font-size:13px">${head}${rows}</table>`
+    : `<div style="color:${BRAND.textMuted};font-size:12px">${empty}</div>`;
+
+  const weekLabel = new Date(now).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/New_York" });
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Investor Week in Review</h2>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">Week ending ${weekLabel} — the portfolio, the week's actions, and how the engine's investor calls graded.</p>
+    ${section("CURRENT HOLDINGS", table(
+      tableHead([{ t: "TICKER" }, { t: "SHARES", r: 1 }, { t: "AVG ENTRY", r: 1 }, { t: "CURRENT", r: 1 }, { t: "UNREALIZED", r: 1 }]),
+      posRows, "No open investor positions."))}
+    ${section("THIS WEEK'S ACTIONS", table(
+      tableHead([{ t: "DAY" }, { t: "TICKER" }, { t: "ACTION" }, { t: "FILL", r: 1 }, { t: "REASON" }]),
+      lotRows, "No investor transactions this week."))}
+    ${section("THE WEEK'S CALLS, GRADED", table(
+      tableHead([{ t: "TICKER" }, { t: "CALL" }, { t: "GRADE", c: 1 }, { t: "MOVE", r: 1 }]),
+      gradeRows, "No investor calls resolved this week — grades land as horizons complete."))}
+    ${accumulate.length > 0 ? section("ON THE ACCUMULATION RADAR",
+      `<div style="font-size:13px;color:${BRAND.textPrimary}">${accumulate.map((a) => `<span style="display:inline-block;margin:0 8px 6px 0;padding:4px 10px;border:1px solid ${BRAND.border};border-radius:999px;background:${BRAND.cardBg}">${a.ticker} <span style="color:${BRAND.textMuted}">· ${a.score}</span></span>`).join("")}</div>
+      <p style="margin:6px 0 0;font-size:11px;color:${BRAND.textMuted}">Names currently in confirmed accumulation zones with investor score ≥ 70. Not recommendations — what the model is watching.</p>`) : ""}
+    <p style="margin:18px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
+  `;
+
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  let sent = 0;
+  for (const user of opted) {
+    try {
+      const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
+        ? await buildUnsubscribeUrl(baseUrl, user.email, "investor_alerts", env.EMAIL_HMAC_SECRET)
+        : null;
+      const html = emailLayout(bodyHtml, {
+        unsubscribeUrl,
+        preheader: `Investor week in review — ${positions.length} holdings, ${lots.length} actions, ${gradedCalls.length} graded calls.`,
+      });
+      const r = await sendEmail(env, {
+        to: user.email,
+        subject: `[INVESTOR · WEEKLY] Week in Review — ${weekLabel}`,
+        html,
+        category: "investor_weekly_digest",
+      });
+      if (r?.ok !== false) sent++;
+    } catch (e) {
+      console.warn(`[INVESTOR DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
+    }
+  }
+  console.log(`[INVESTOR DIGEST] weekly digest sent=${sent}/${opted.length}`);
+  return { ok: true, sent, recipients: opted.length };
+}
