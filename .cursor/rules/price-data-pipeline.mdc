@@ -19,9 +19,13 @@ alwaysApply: true
 
 ## Frontend: Single Source of Truth
 - `getDailyChange(t)` in `react-app/shared-price-utils.js` is the ONLY way to compute daily change. Returns `{ dayPct, dayChg }`.
+- `getHeadlinePrice(t)` is session-aware: RTH uses `_live_price`; outside RTH uses today's RTH close (`close`/`price`), never stale extended prints on the headline line.
 - Every page showing daily change MUST import `shared-price-utils.js` and use `getDailyChange()`. NEVER use raw `t.dailyChgPct` or inline computation.
 - Server endpoints returning ticker data MUST include field aliases (`prev_close`, `day_change_pct`, `day_change`) so getDailyChange's fallback chain works.
 - Applies to: Cards (index-react.html), Right Rail, Open Trades Table (trades page), Investor Dashboard, Top Movers bar.
+- **Outside RTH client merge**: `timed:prices` field `p` is the RTH close; extended print is `ahp`. Frontend polls (`tt-live-data.js`, index-react) MUST still write `price`, `close`, and `_live_price` when the market is closed. Do not skip the merge thinking `p` is an extended tick.
+- **`/timed/all` micro_cache**: the 5-min fast path MUST run `overlayTimedPricesRow` before returning — it bypasses the full assembly path that normally overlays live prices.
+- **`overlayTimedPricesRow`**: when `!marketOpen`, set `obj.close = pfP` so `getHeadlinePrice` does not read a stale `close == prev_close` scoring snapshot.
 
 ## RTH/ETH Movers
 - Top Gainers/Losers has two rows: RTH (intraday, `getDailyChange(t).dayPct`) and EXT (extended hours, `_ah_change_pct`).

@@ -3038,3 +3038,78 @@ Based on manual classification of 373 trades (140 bad_trade, 131 bad_exit, 85 go
 - **TD HTF Exhaustion (D/W buyer exhaustion) defers on healthy clouds**: The same cloud-aligned check gates the `TD_HTF_EXHAUST` trim/trail path. Aligned non-compressing clouds → 50% trim + defend; otherwise falls through to the original logic.
 - **SmartRunner `td_exhaustion_runner` close also defers**: The final SmartRunner evaluation for `td_exhaustion_runner` (1H/4H counter-prep ≥ 7 + RSI confirm) now checks cloud health before closing. Aligned, non-compressing clouds → defend instead of close.
 - **Trade Autopsy chart fix**: `autoScale: false` on the right price scale combined with non-existent `priceScale.setVisibleRange()` API calls left the chart with no valid range — rendering blank. Fixed by using `autoScale: true` and removing the broken manual range code. Added cascading fallback to daily timeframe if 15m data is unavailable. Execution markers (E/T/X) enlarged from radius 7→10 with label text.
+
+### June 2026 — Price display, purge hygiene, Daily Brief hero [2026-06-11]
+
+Session fixes landed in PRs #593–#596 (DBA removal, card stale close, investor
+purge caches, brief summary capitalization).
+
+#### Cards showed yesterday's close with 0% daily change
+
+Symptom: all ticker cards displayed a price equal to `prev_close` and no daily
+change percentage (or 0%).
+
+Root cause stack:
+
+1. **`overlayTimedPricesRow` updated `price`/`_live_price` but not `close`**
+   outside RTH. `getHeadlinePrice()` prefers `close` when the market is
+   closed, so it read a stale scoring snapshot where `close == prev_close`.
+2. **Frontend price merge skipped updates when market closed** (legacy PR #319
+   guard). TwelveData now separates RTH close (`p`) from extended (`ahp`), so
+   skipping the merge blocked the correct close from landing on cards.
+3. **`/timed/all` micro_cache fast path** returned cached payloads without
+   running the `timed:prices` overlay at all.
+
+Fix checklist:
+
+- `worker/feed/feed-outputs.js` — set `obj.close = pfP` when `!marketOpen`
+- `shared-price-utils.js` — stale-close guard when `close ≈ prev_close` but
+  `price` moved materially
+- `tt-live-data.js` + `index-react.source.html` — apply feed
+  `price/close/_live_price` outside RTH (EXT stays on `_ah_*`)
+- `worker/index.js` — overlay `timed:prices` on micro_cache hits before return
+
+Verify: `curl /timed/all` → `close` matches `price`, `prev_close` is prior
+day, `day_change_pct` non-zero; cards use `getDailyChange(t)`.
+
+#### Purged ticker still on Investor cards (DBA)
+
+Symptom: `/timed/all` and `/timed/prices` had no DBA, but Investor kanban
+still showed it as `core_hold`.
+
+Root cause: Investor UI reads **`/timed/investor/scores`** (KV blob
+`timed:investor:scores`), not `/timed/all`. `POST /timed/admin/purge-ticker`
+cleaned D1 + `timed:latest` + blocklist but left investor score caches intact.
+
+Fix checklist:
+
+- `purge-ticker` deletes ticker key from `timed:investor:scores`, `stages`,
+  `rs-ranks`, `prev-stages`
+- `GET /timed/investor/scores` filters `timed:removed` at read time
+- `POST /timed/investor/compute` excludes blocklisted tickers
+
+Verify: `curl /timed/investor/scores | jq '.tickers[] | select(.ticker=="DBA")'`
+→ empty; re-run purge if a stale KV row persists.
+
+#### Daily Brief summary on Today hero starts lowercase
+
+Symptom: Today page `.brief-summary` opened with a lowercase letter (e.g.
+"bulls defended 580…"), reading like mid-sentence clip.
+
+Root cause:
+
+1. **`_plain()` stripped text before the first colon** — `Risk-on tone: bulls…`
+   → `bulls…`
+2. **`extractBriefLead()` skipped every lowercase-starting line**, including
+   valid opening sentences and sometimes keeping only wrapped continuations.
+
+Fix: `ensureLeadSentenceCase()` in worker; capitalize after `_plain()` on
+Today; only skip lowercase lines in `extractBriefLead` when `parts.length > 0`
+(continuation guard, not opening sentence).
+
+#### Full ticker removal (DBA)
+
+When removing a ticker entirely: `POST /timed/admin/purge-ticker` with
+`confirm: "YES_PURGE"` + `alsoBlock: true`, then strip from `SECTOR_MAP`,
+`TT_SELECTED`, `configs/sector-map.json`, and frontend name maps. Production
+purge alone is not enough if investor scores KV still holds the symbol.
