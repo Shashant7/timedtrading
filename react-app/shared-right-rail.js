@@ -28,6 +28,18 @@
     const fmtUsdAbs = (deps.fmtUsdAbs != null && typeof deps.fmtUsdAbs === "function")
       ? deps.fmtUsdAbs
       : (n) => (Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—");
+
+    // Bottom padding for long tab bodies (Investor, Technicals, etc.) so
+    // the last panel clears the fixed bottom nav on mobile and the rail
+    // chrome on desktop workspace mode.
+    const RAIL_TAB_SCROLL_PAD = "max(88px, calc(64px + env(safe-area-inset-bottom, 0px)))";
+    const railTabBodyWrapStyle = {
+      display: "flex",
+      flexDirection: "column",
+      gap: "var(--ds-space-3)",
+      paddingBottom: RAIL_TAB_SCROLL_PAD,
+      WebkitOverflowScrolling: "touch",
+    };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -845,7 +857,7 @@
           }
         : null;
 
-      return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)" } },
+      return h("div", { style: railTabBodyWrapStyle },
 
         // 0. Catalyst banner — when ticker just had a major move
         catalystEvent && h("div", {
@@ -6887,7 +6899,7 @@
                     own scroll. In modal mode it just continues the body
                     flow as before. */}
                 <div
-                  className={`tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`}
+                  className={`tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`}
                   style={{
                     padding: "var(--ds-space-4)",
                     /* P0.7.162 (2026-05-14) — when the CHART tab is active,
@@ -9615,7 +9627,7 @@
 
                   {/* TECHNICALS TAB */}
                   {v2RailTab === "TECHNICALS" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* V2.1 round 11 (2026-05-04) — Bias Confirmation/Conflict
                           banner. Always renders at the top of Technicals so the
                           user knows whether HTF structure SUPPORTS or OPPOSES
@@ -10304,7 +10316,7 @@
                           </div>
                         </Panel>
                       )}
-                    </>
+                    </div>
                   )}
 
                   {/* FUNDAMENTALS TAB

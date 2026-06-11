@@ -276,11 +276,15 @@
         padding: var(--ds-space-3); /* P0.7.100-r2: slightly tighter than space-4 */
         border-right: 1px solid var(--ds-stroke);
         min-width: 0;
+        min-height: 0;
+        -webkit-overflow-scrolling: touch;
       }
       .tt-rail-shell--workspace > .tt-rail-area-right-pane {
         grid-area: right;
         overflow-y: auto;
         min-width: 0;
+        min-height: 0;
+        -webkit-overflow-scrolling: touch;
       }
       /* Chart canvas height by breakpoint. Stable via CSS so the JSX
          does not re-evaluate window.innerWidth on every render.

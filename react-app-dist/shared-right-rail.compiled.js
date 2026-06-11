@@ -19,6 +19,14 @@
       maximumFractionDigits: 2
     }).format(Number(v)) : "—";
     const fmtUsdAbs = deps.fmtUsdAbs != null && typeof deps.fmtUsdAbs === "function" ? deps.fmtUsdAbs : n => Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—";
+    const RAIL_TAB_SCROLL_PAD = "max(88px, calc(64px + env(safe-area-inset-bottom, 0px)))";
+    const railTabBodyWrapStyle = {
+      display: "flex",
+      flexDirection: "column",
+      gap: "var(--ds-space-3)",
+      paddingBottom: RAIL_TAB_SCROLL_PAD,
+      WebkitOverflowScrolling: "touch"
+    };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -1084,11 +1092,7 @@
         warning: "Investor classification uses weekly/monthly trends and is slow to digest catalysts of this size. The next score refresh (hourly) will reflect today's move."
       } : null;
       return h("div", {
-        style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--ds-space-3)"
-        }
+        style: railTabBodyWrapStyle
       }, catalystEvent && h("div", {
         style: {
           padding: "var(--ds-space-2)",
@@ -7963,7 +7967,7 @@
             }
           }, pcDir, " bias \xB7 ", aboveSubtitle.replace(/^Levels above .*? — /, "Above: "), " \xB7 ", belowSubtitle.replace(/^Levels below .*? — /, "Below: "))));
         })()), React.createElement("div", {
-          className: `tt-rail-area-right-pane flex-1 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`,
+          className: `tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`,
           style: {
             padding: "var(--ds-space-4)",
             ...(v2RailTab === "CHART" ? {
@@ -11457,7 +11461,9 @@
           className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
         }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement(React.Fragment, null, (() => {
+        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, (() => {
           const tfm = ticker?.tf_tech || {};
           const pcDir = String(predictionContract?.direction || "").toUpperCase();
           if (!pcDir) return null;
@@ -19573,4 +19579,4 @@
   };
 })();
 
-// cache-bust:1781138385402:820021824
+// cache-bust:1781145175537:101752428
