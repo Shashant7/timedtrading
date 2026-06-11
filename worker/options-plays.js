@@ -99,7 +99,7 @@ const THEME_LETF = {
   crypto_etf:        { long: "BITX", short: "BITI", factor: 2, note: "2× Bitcoin" },
 };
 
-function lookupLETF(ticker, themes = []) {
+export function lookupLETF(ticker, themes = []) {
   const sym = String(ticker || "").toUpperCase();
   if (SINGLE_NAME_LETF[sym]) return { ticker: sym, ...SINGLE_NAME_LETF[sym] };
   if (LETF_MAP[sym]) return { ticker: sym, ...LETF_MAP[sym] };
