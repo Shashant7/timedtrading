@@ -39,7 +39,23 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
       const _marketClosed = !_marketOpen;
       try {
         const userAddedForPriceFeed = await deps.d1GetActiveUserTickersCached(env);
-        const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPriceFeed])];
+        // 2026-06-11 — SMCI incident v3 (the ACTUAL root cause). The feed's
+        // symbol list was SECTOR_MAP + user-added only — but the live
+        // trading universe is the DYNAMIC `timed:tickers` KV list (screener
+        // promotions, theme adds). SMCI and 28 other universe tickers are
+        // NOT in the static SECTOR_MAP: they were seeded into timed:prices
+        // once (Jun 5, when added) and then NO feed path — not the stream,
+        // not the REST fallback, not the v1/v2 stale sweep (which iterate
+        // THIS list) — ever touched them again. A VIP user found SMCI 5.4
+        // days stale at $41.64 vs the real $29.27. The feed now covers the
+        // full union, so the stale sweep can actually reach every symbol
+        // the platform scores and displays.
+        let universeTickers = [];
+        try {
+          const u = await kvGetJSON(KV, "timed:tickers");
+          if (Array.isArray(u)) universeTickers = u.map((t) => String(t).toUpperCase()).filter(Boolean);
+        } catch (_) { /* universe list optional — static map still covers the core */ }
+        const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...universeTickers, ...userAddedForPriceFeed])];
 
         // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
         // Runs during 2-8 AM UTC when stocks aren't actively trading.
