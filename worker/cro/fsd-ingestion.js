@@ -51,6 +51,51 @@ const CASHTAG_RE = /\$([A-Z][A-Z0-9]{0,4}(?:\.[A-Z])?)\b/g;
 // matches a 2–5 char uppercase token wrapped in parens — very high-signal
 // in financial publication prose and almost never a false positive.
 const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9]{1,4})\)/g;
+// FSD prose often writes "^SPX", "SPX", or "US500" without a cashtag.
+const INDEX_MENTION_RE = /\^?(SPX500|US500|SPX)\b/gi;
+
+// 2026-06-11 — SPX is a cash index (removed from the tradable universe).
+// Research desk mentions still matter for the instruments we score/trade.
+export const RESEARCH_DESK_INDEX_ALIASES = {
+  SPX: ["SPY", "ES1!", "ES"],
+  SPX500: ["SPY", "ES1!", "ES"],
+  US500: ["SPY", "ES1!", "ES"],
+};
+
+/** Expand index tokens (SPX) to tradeable proxies when tagging publications. */
+export function expandResearchDeskTickerTags(tickers) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of tickers || []) {
+    const t = String(raw || "").toUpperCase().trim();
+    if (!t) continue;
+    const push = (sym) => {
+      if (!sym || seen.has(sym)) return;
+      seen.add(sym);
+      out.push(sym);
+    };
+    push(t);
+    for (const alias of RESEARCH_DESK_INDEX_ALIASES[t] || []) push(alias);
+  }
+  return out;
+}
+
+/** DB lookup keys for FSD intel — includes index sources that map to sym. */
+export function researchDeskIntelQueryTickers(ticker) {
+  const sym = String(ticker || "").toUpperCase().trim();
+  if (!sym) return [];
+  const indexSources = Object.entries(RESEARCH_DESK_INDEX_ALIASES)
+    .filter(([, targets]) => targets.includes(sym))
+    .map(([src]) => src);
+  return [...new Set([sym, ...indexSources])];
+}
+
+function textMentionsIndexToken(blob, token) {
+  const tok = String(token || "").toUpperCase();
+  if (!tok) return false;
+  const re = new RegExp(`(?:\\^${tok}\\b|\\$${tok}\\b|\\(${tok}\\)|\\b${tok}\\b)`, "i");
+  return re.test(blob);
+}
 
 /** True when title or excerpt actually references the requested ticker. */
 export function publicationMentionsTicker(title, excerpt, ticker) {
@@ -60,33 +105,37 @@ export function publicationMentionsTicker(title, excerpt, ticker) {
   if (!blob.trim()) return false;
   // Cashtag, parenthetical, or bare uppercase token with word boundaries.
   const re = new RegExp(`(?:\\$${sym}\\b|\\(${sym}\\)|\\b${sym}\\b)`, "i");
-  return re.test(blob);
+  if (re.test(blob)) return true;
+  // SPX cash-index mentions surface on SPY / ES / ES1! Catalysts panels.
+  const indexSources = Object.entries(RESEARCH_DESK_INDEX_ALIASES)
+    .filter(([, targets]) => targets.includes(sym))
+    .map(([src]) => src);
+  return indexSources.some((src) => textMentionsIndexToken(blob, src));
 }
 
 export function extractCashtagsFromText(text) {
   if (!text) return [];
   const seen = new Set();
   const out = [];
+  const push = (t) => {
+    const sym = String(t || "").toUpperCase().trim();
+    if (sym.length < 2) return;
+    if (CASHTAG_NOISE.has(sym)) return;
+    if (seen.has(sym)) return;
+    seen.add(sym);
+    out.push(sym);
+  };
   let m;
   CASHTAG_RE.lastIndex = 0;
-  while ((m = CASHTAG_RE.exec(text)) !== null) {
-    const t = m[1].toUpperCase();
-    if (t.length < 2) continue;
-    if (CASHTAG_NOISE.has(t)) continue;
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
-  }
+  while ((m = CASHTAG_RE.exec(text)) !== null) push(m[1]);
   PAREN_TICKER_RE.lastIndex = 0;
-  while ((m = PAREN_TICKER_RE.exec(text)) !== null) {
-    const t = m[1].toUpperCase();
-    if (t.length < 2) continue;
-    if (CASHTAG_NOISE.has(t)) continue;
-    if (seen.has(t)) continue;
-    seen.add(t);
-    out.push(t);
+  while ((m = PAREN_TICKER_RE.exec(text)) !== null) push(m[1]);
+  INDEX_MENTION_RE.lastIndex = 0;
+  while ((m = INDEX_MENTION_RE.exec(text)) !== null) {
+    const raw = String(m[1] || "").toUpperCase();
+    push(raw === "SPX500" ? "SPX500" : raw === "US500" ? "US500" : "SPX");
   }
-  return out;
+  return expandResearchDeskTickerTags(out);
 }
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -350,23 +399,26 @@ async function recordPublicationText(env, pubId, text) {
   }
   // Cashtag extraction — best-effort, never blocks the text write.
   try {
-    const tickers = extractCashtagsFromText(text);
-    if (tickers.length === 0) return;
-    const now = Date.now();
-    // Batch insert. D1 supports prepared statement batches via .batch(),
-    // but a simple loop is fine here — usually 1-8 tickers per pub.
-    for (let i = 0; i < tickers.length; i++) {
-      try {
-        await env.DB.prepare(`
-          INSERT OR REPLACE INTO ${PUBLICATION_TICKERS_TABLE}
-            (pub_id, ticker, position, tagged_at)
-          VALUES (?1, ?2, ?3, ?4)
-        `).bind(pubId, tickers[i], i, now).run();
-      } catch (_) { /* tolerate per-ticker errors */ }
-    }
+    await writePublicationTickerTags(env, pubId, extractCashtagsFromText(text));
   } catch (e) {
     console.warn("[CRO_INGESTION] cashtag tagging failed:", String(e?.message || e).slice(0, 200));
   }
+}
+
+async function writePublicationTickerTags(env, pubId, tickers) {
+  const tags = expandResearchDeskTickerTags(tickers);
+  if (!tags.length || !env?.DB || !pubId) return 0;
+  const now = Date.now();
+  for (let i = 0; i < tags.length; i++) {
+    try {
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO ${PUBLICATION_TICKERS_TABLE}
+          (pub_id, ticker, position, tagged_at)
+        VALUES (?1, ?2, ?3, ?4)
+      `).bind(pubId, tags[i], i, now).run();
+    } catch (_) { /* tolerate per-ticker errors */ }
+  }
+  return tags.length;
 }
 
 // ── Per-ticker FSD intel lookup (used by the Catalysts tab) ─────────────────
@@ -380,20 +432,23 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
   const db = env?.DB;
   if (!db || !ticker) return null;
   const sym = String(ticker).toUpperCase();
+  const queryTickers = researchDeskIntelQueryTickers(sym);
   const limit = Math.min(20, Math.max(1, Number(opts.limit) || 6));
   const lookbackDays = Math.max(1, Number(opts.lookbackDays) || 14);
   const since = Date.now() - lookbackDays * 86400000;
   try {
+    const placeholders = queryTickers.map((_, i) => `?${i + 1}`).join(",");
     const rows = await db.prepare(`
       SELECT p.pub_id, p.title, p.source, p.source_url, p.published_at,
-             p.fetched_at, p.proposal_id, p.applied_at, pt.position
+             p.fetched_at, p.proposal_id, p.applied_at, pt.position, pt.ticker AS matched_ticker
         FROM ${PUBLICATION_TICKERS_TABLE} pt
         JOIN ${PUBLICATIONS_TABLE} p ON p.pub_id = pt.pub_id
-       WHERE pt.ticker = ?1
-         AND p.fetched_at >= ?2
+       WHERE pt.ticker IN (${placeholders})
+         AND p.fetched_at >= ?${queryTickers.length + 1}
        ORDER BY p.fetched_at DESC
-       LIMIT ?3
-    `).bind(sym, since, limit).all();
+       LIMIT ?${queryTickers.length + 2}
+    `).bind(...queryTickers, since, limit).all();
+    const seenPub = new Set();
     let publications = (rows?.results || []).map((r) => ({
       pub_id: r.pub_id,
       title: r.title,
@@ -404,7 +459,12 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
       proposal_id: r.proposal_id,
       applied_at: r.applied_at,
       mention_position: r.position,
-    }));
+      matched_ticker: r.matched_ticker || null,
+    })).filter((p) => {
+      if (seenPub.has(p.pub_id)) return false;
+      seenPub.add(p.pub_id);
+      return true;
+    });
     if (publications.length === 0) {
       return { ticker: sym, count: 0, publications: [], lookback_days: lookbackDays };
     }
@@ -437,6 +497,33 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
   }
 }
 
+// Expand SPX/US500/SPX500 tags on already-tagged pubs so SPY + ES inherit intel.
+export async function backfillResearchDeskIndexAliases(env, { limit = 200 } = {}) {
+  await ensureCROIngestionSchema(env);
+  const db = env?.DB;
+  if (!db) return { ok: false, error_kind: "no_db" };
+  const indexKeys = Object.keys(RESEARCH_DESK_INDEX_ALIASES);
+  try {
+    const placeholders = indexKeys.map(() => "?").join(",");
+    const rows = await db.prepare(`
+      SELECT DISTINCT pub_id, ticker
+        FROM ${PUBLICATION_TICKERS_TABLE}
+       WHERE ticker IN (${placeholders})
+       LIMIT ?${indexKeys.length + 1}
+    `).bind(...indexKeys, limit).all();
+    let totalTags = 0;
+    const results = [];
+    for (const r of (rows?.results || [])) {
+      const tagged = await writePublicationTickerTags(env, r.pub_id, expandResearchDeskTickerTags([r.ticker]));
+      totalTags += tagged;
+      results.push({ pub_id: r.pub_id, source: r.ticker, tagged });
+    }
+    return { ok: true, pubs_processed: results.length, total_tags_written: totalTags, results };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
 // Backfill cashtag tags for already-ingested pubs that pre-date this code
 // path. Used by an admin endpoint so the operator can re-tag historical
 // publications without re-ingesting.
@@ -462,18 +549,9 @@ export async function backfillCashtagsForExistingPublications(env, { limit = 50 
         pubResults.push({ pub_id: r.pub_id, tagged: 0 });
         continue;
       }
-      const now = Date.now();
-      for (let i = 0; i < tickers.length; i++) {
-        try {
-          await db.prepare(`
-            INSERT OR REPLACE INTO ${PUBLICATION_TICKERS_TABLE}
-              (pub_id, ticker, position, tagged_at)
-            VALUES (?1, ?2, ?3, ?4)
-          `).bind(r.pub_id, tickers[i], i, now).run();
-        } catch (_) {}
-      }
-      totalTagged += tickers.length;
-      pubResults.push({ pub_id: r.pub_id, tagged: tickers.length, tickers });
+      const tagged = await writePublicationTickerTags(env, r.pub_id, tickers);
+      totalTagged += tagged;
+      pubResults.push({ pub_id: r.pub_id, tagged, tickers });
     }
     return { ok: true, pubs_processed: pubResults.length, total_tags_written: totalTagged, results: pubResults };
   } catch (e) {
