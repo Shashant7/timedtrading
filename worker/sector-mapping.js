@@ -115,7 +115,12 @@ const SECTOR_MAP = {
   'PLTR': 'Information Technology',
   'MDB': 'Information Technology',
   'PATH': 'Information Technology',
-  'PSTG': 'Information Technology',
+  // 2026-06-11 — SMCI was in ai_infra_compute cohort but missing from
+  // SECTOR_MAP, so it never entered /timed/all or the scoring snapshot
+  // (SMCI $41 vs $29 stale-price incident).
+  'SMCI': 'Information Technology',
+  'SNOW': 'Information Technology',
+  'ADBE': 'Information Technology',
   'CLS': 'Information Technology',
   'CRS': 'Information Technology',
   'SANM': 'Information Technology',
