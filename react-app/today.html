@@ -1262,23 +1262,8 @@
   </head>
   <body>
 
-    <nav class="topnav">
-      <div class="nav-row">
-        <a href="/today.html" class="nav-brand">
-          <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ttng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ttng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
-          Timed Trading
-        </a>
-        <div class="nav-links">
-          <a href="/today.html" class="nav-link today">Today</a>
-          <a href="/active-trader.html" class="nav-link">Active Trader</a>
-          <a href="/investor.html" class="nav-link">Investor</a>
-          <a href="/portfolio.html" class="nav-link">Portfolio</a>
-          <a href="/insights.html" class="nav-link">Insights</a>
-          <a href="/faq.html" class="nav-link faq">FAQ</a>
-          <a href="/learn.html" class="nav-link learn">Learn</a>
-        </div>
-      </div>
-    </nav>
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260611a"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
