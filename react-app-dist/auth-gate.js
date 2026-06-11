@@ -467,8 +467,8 @@
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            success_url: window.location.origin + "/index-react.html?stripe=success",
-            cancel_url: window.location.origin + "/index-react.html?stripe=cancel",
+            success_url: window.location.origin + "/today.html?stripe=success",
+            cancel_url: window.location.origin + "/today.html?stripe=cancel",
           }),
         });
         const json = await res.json();
@@ -2708,4 +2708,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1781187840756:14775491
+// cache-bust:1781190171844:520078402

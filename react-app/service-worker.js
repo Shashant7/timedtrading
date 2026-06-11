@@ -24,7 +24,7 @@ self.addEventListener("push", (event) => {
     badge: "/logo.svg",
     tag: data.tag || `timed-${Date.now()}`,
     data: {
-      url: data.link || data.url || "/index-react.html",
+      url: data.link || data.url || "/today.html",
       type: data.type || "system",
     },
     actions: [
@@ -46,7 +46,7 @@ self.addEventListener("notificationclick", (event) => {
 
   if (event.action === "dismiss") return;
 
-  const targetUrl = event.notification.data?.url || "/index-react.html";
+  const targetUrl = event.notification.data?.url || "/today.html";
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {

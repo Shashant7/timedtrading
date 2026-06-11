@@ -113,7 +113,7 @@ root redirect lives in `react-app/_worker.js`.
 | Insights | `/insights.html` | System Intelligence + CIO Watchlist |
 | Learn | `/learn.html` | Step Zero educational walkthrough |
 | Splash | `/splash.html` | Public landing |
-| Index | `/index-react.html` | **Legacy monolithic admin dashboard — still source-of-truth reference for component logic** |
+| Index | `/index-react.html` | **RETIRED 2026-06-11 (operator-approved)** — ships as a redirect stub to `/today.html` (query preserved for `?ticker=` deep links). `index-react.source.html` stays in-repo as the component-logic reference but is no longer compiled or shipped. `/investor-dashboard.html` likewise redirects to `/investor.html`. |
 
 **Rule:** journey pages must **port** existing components from
 `index-react.source.html` verbatim, not redesign them. Full handoff doc at
@@ -144,8 +144,12 @@ Update the Cloudflare Dashboard regex when adding any new `react-app/*.html`
 the over-aggressive May 30 version that gated `faq`, `learn`, and `proof`):
 
 ```
-(index-react|simulation-dashboard|daily-brief|alerts|investor-dashboard|today|active-trader|investor|portfolio|insights|calibration|mission-control|bridge-audit|screener|trade-autopsy|system-intelligence|ticker-management|admin-clients|brand-kit|debug-dashboard|model-dashboard|move-discovery)\.html
+(simulation-dashboard|daily-brief|alerts|today|active-trader|investor|portfolio|insights|calibration|mission-control|bridge-audit|screener|trade-autopsy|system-intelligence|ticker-management|admin-clients|brand-kit|debug-dashboard|model-dashboard|move-discovery)\.html
 ```
+
+(2026-06-11 — `index-react` and `investor-dashboard` removed from the regex:
+both are now public redirect stubs to gated journey pages. Leaving them in
+would put a login wall in front of a redirect for zero security gain.)
 
 **Public** marketing/info pages — **must NOT be added to CF Access**:
 `splash`, `terms`, `logout`, `proof`, `faq`, `learn`, `status` (public
