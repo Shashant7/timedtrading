@@ -139,6 +139,25 @@ export async function applyProposal(env, proposalId, { autoApproved = false, dec
   await markProposalApplied(env, proposalId, { apply_kind: "kv_override" });
   await markPublicationApplied(env, row.pub_id);
 
+  // B3 (2026-06-11) — record every applied tactical signal in the Signal
+  // Outcome Ledger so FSD's calls get graded against candles like
+  // everything else we act on ("actively learn from FSD"). Idempotent on
+  // signal_id; fire-and-forget — the apply path never blocks on it.
+  try {
+    const { recordSignal, fsdTacticalToSignals } = await import("../signal-outcomes.js");
+    const ledgerRows = fsdTacticalToSignals(blob.tactical_signals || [], {
+      proposalId,
+      vintage: blob.tactical_vintage || null,
+      publishedAt: Date.now(),
+    });
+    for (const s of ledgerRows) {
+      await recordSignal(env, s).catch(() => {});
+    }
+    if (ledgerRows.length > 0) {
+      console.log(`[CRO_APPLY] recorded ${ledgerRows.length} FSD tactical signal(s) in the outcome ledger`);
+    }
+  } catch (_) { /* ledger recording never blocks applies */ }
+
   // Best-effort Discord notify on system lane so the operator sees
   // what changed near-real-time. Never blocks; never throws.
   try {

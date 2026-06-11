@@ -50,11 +50,12 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     croNote: null,
     ctoLevels: null,
     tacticalOverride: null,
+    fsdAccuracy: null,
     fsdIntelByTicker: env?._cioMemoryCache?.fsdIntelByTicker || {},
   };
 
   if (KV) {
-    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw, gameplanRaw] = await Promise.all([
+    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw, gameplanRaw, fsdAccRaw] = await Promise.all([
       KV.get("timed:cro:latest").catch(() => null),
       KV.get("cro:tactical_overrides").catch(() => null),
       KV.get("timed:cto:latest").catch(() => null),
@@ -65,6 +66,10 @@ export async function ensureCioMemoryCache(env, opts = {}) {
       // 2026-06-10 — nightly Discovery Gameplan (worker/discovery/
       // gameplan.js): constraint mix + playbook usage + miss archetypes.
       KV.get("timed:discovery:gameplan").catch(() => null),
+      // B3 (2026-06-11) — measured FSD accuracy from the Signal Outcome
+      // Ledger (nightly). Lets Layer 15b weight FSD-aligned reasoning by
+      // FSD's measured hit rate, not reputation.
+      KV.get("timed:fsd:accuracy").catch(() => null),
     ]);
     cache.croNote = parseJson(croRaw);
     cache.tacticalOverride = parseJson(ovRaw);
@@ -74,6 +79,7 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     cache.livePrices = parseJson(lpRaw);
     cache.coverageGapsSummary = parseJson(gapsRaw);
     cache.discoveryGameplan = parseJson(gameplanRaw);
+    cache.fsdAccuracy = parseJson(fsdAccRaw);
   }
 
   if (env?.DB) {

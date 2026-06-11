@@ -4,6 +4,8 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyDirectionalOutcome,
+  classifyRelativeOutcome,
+  fsdTacticalToSignals,
   isSignalDue,
   optionsPlayToSignal,
 } from "./signal-outcomes.js";
@@ -125,6 +127,69 @@ describe("isSignalDue", () => {
   });
   it("no horizon → never due (caller must set one)", () => {
     expect(isSignalDue({ published_at: T0 }, T0 + 365 * DAY)).toBe(false);
+  });
+});
+
+describe("fsdTacticalToSignals (B3)", () => {
+  const signals = [
+    {
+      signal: "rsp_spy_breadth_breakout",
+      pair: "RSP/SPY",
+      direction: "favor_equal_weight_over_cap_weight",
+      horizon: "intermediate",
+      evidence: "RSP/SPY ratio broke its downtrend.",
+    },
+    {
+      signal: "mags_trendline_break",
+      pair: "MAGS",
+      direction: "caution_mag7_short_term",
+      horizon: "tactical",
+      evidence: "MAGS broke its rising trendline on heavy volume.",
+    },
+    { signal: "no_pair_skipped", pair: "", direction: "favor_x" },
+  ];
+
+  it("maps pair calls to relative LONG signals and caution calls to SHORT", () => {
+    const rows = fsdTacticalToSignals(signals, { proposalId: "prop-1", publishedAt: T0 });
+    expect(rows).toHaveLength(2);
+
+    const rsp = rows[0];
+    expect(rsp.ticker).toBe("RSP");
+    expect(rsp.direction).toBe("LONG");
+    expect(rsp.payload.relative_to).toBe("SPY");
+    expect(rsp.horizon_days).toBe(30); // intermediate
+    expect(rsp.source).toBe("fsd_tactical");
+    expect(rsp.signal_id).toBe("fsd:prop-1:rsp_spy_breadth_breakout");
+
+    const mags = rows[1];
+    expect(mags.ticker).toBe("MAGS");
+    expect(mags.direction).toBe("SHORT"); // "caution_*"
+    expect(mags.payload.relative_to).toBeNull();
+    expect(mags.horizon_days).toBe(14); // tactical
+  });
+});
+
+describe("classifyRelativeOutcome (B3)", () => {
+  const sig = { direction: "LONG", published_at: T0, due_ts: T0 + 10 * DAY };
+
+  it("wins when the ratio moves in the favored direction by >=1%", () => {
+    const bars = [bar(1, 0, 0, 100), bar(9, 0, 0, 105)]; // RSP +5%
+    const ref = [bar(1, 0, 0, 500), bar(9, 0, 0, 505)];  // SPY +1% → ratio +~4%
+    const v = classifyRelativeOutcome(sig, bars, ref);
+    expect(v.outcome).toBe("win");
+    expect(v.resolve_note).toBe("relative_horizon_right");
+    expect(v.outcome_pct).toBeGreaterThan(1);
+  });
+
+  it("loses when the ratio moves against; SHORT inverts", () => {
+    const bars = [bar(1, 0, 0, 100), bar(9, 0, 0, 100)];
+    const ref = [bar(1, 0, 0, 500), bar(9, 0, 0, 520)]; // ratio -3.8%
+    expect(classifyRelativeOutcome(sig, bars, ref).outcome).toBe("loss");
+    expect(classifyRelativeOutcome({ ...sig, direction: "SHORT" }, bars, ref).outcome).toBe("win");
+  });
+
+  it("returns null without two aligned bar pairs", () => {
+    expect(classifyRelativeOutcome(sig, [bar(1, 0, 0, 100)], [bar(2, 0, 0, 500)])).toBeNull();
   });
 });
 
