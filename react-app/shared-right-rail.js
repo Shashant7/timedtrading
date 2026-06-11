@@ -2076,28 +2076,46 @@
         // this, charts lagged hours behind timed:prices (MU incident).
         const livePx = Number(livePrice);
         if (isIntradayTf && Number.isFinite(livePx) && livePx > 0 && raw.length > 0) {
-          const tfSec = tfMinutes * 60;
           const nowSec = Math.floor(Date.now() / 1000);
-          const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
           const last = raw[raw.length - 1];
-          if (last && last.time >= bucketStartSec - 2) {
-            raw = raw.slice();
-            const idx = raw.length - 1;
-            const prev = raw[idx];
-            raw[idx] = {
-              ...prev,
-              close: livePx,
-              high: Math.max(Number(prev.high), livePx),
-              low: Math.min(Number(prev.low), livePx),
-            };
+          // 4H bars from the provider are session-aligned (9:30/13:30 ET),
+          // not UTC epoch buckets. Merging via floor(now/4h) appends orphan
+          // flat bars and hides missing completed candles (UUUU incident).
+          if (tfMinutes === 240) {
+            const maxAgeSec = 6 * 3600;
+            if (last && nowSec - last.time < maxAgeSec) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx),
+              };
+            }
           } else {
-            raw = raw.concat([{
-              time: bucketStartSec,
-              open: livePx,
-              high: livePx,
-              low: livePx,
-              close: livePx,
-            }]);
+            const tfSec = tfMinutes * 60;
+            const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
+            if (last && last.time >= bucketStartSec - 2) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx),
+              };
+            } else {
+              raw = raw.concat([{
+                time: bucketStartSec,
+                open: livePx,
+                high: livePx,
+                low: livePx,
+                close: livePx,
+              }]);
+            }
           }
         } else if (isIntradayTf && raw.length > 2) {
           // P0.7.145 — without livePrice, drop the still-forming bar to
