@@ -276,7 +276,6 @@ const SECTOR_MAP = {
   'IBB':  'Thematic ETF',
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
-  'DBA':  'Thematic ETF',
 
   // Commodity & Volatility ETFs (futures equivalents)
   'GLD': 'Commodity ETF',
@@ -538,7 +537,7 @@ const TICKER_TYPE_MAP = {
   // Thematic ETFs
   'IBB':  'thematic_etf', 'INFL': 'thematic_etf',
   'LIT':  'thematic_etf', 'GRNJ': 'thematic_etf',
-  'GRNI': 'thematic_etf', 'DBA':  'commodity_etf',
+  'GRNI': 'thematic_etf',
 
   // Commodity ETFs
   'GLD': 'commodity_etf', 'SLV': 'commodity_etf',

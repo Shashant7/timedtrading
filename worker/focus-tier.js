@@ -30,7 +30,7 @@
 // Hard-coded curated set — user-maintained, backtest-safe (no lookahead).
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
 export const TT_SELECTED_DEFAULT = new Set([
-  "AMGN","AMZN","AXP","BABA","BG","BRK-B","CLS","CRS","CRWV","CSX","DBA",
+  "AMGN","AMZN","AXP","BABA","BG","BRK-B","CLS","CRS","CRWV","CSX",
   "ETHA","GEV","GILD","JCI","MRK","MTB","PH","PWR","QXO","TSLA","TT","VST","WMT",
 ]);
 

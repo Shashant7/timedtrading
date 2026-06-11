@@ -237,7 +237,6 @@
     XLB: "Basic Materials", XLE: "Energy", XLRE: "Real Estate", XLU: "Utilities",
     XLV: "Healthcare", IBB: "Healthcare", INFL: "Thematic ETF", LIT: "Thematic ETF",
     RPG: "Thematic ETF", SPHB: "Thematic ETF", GRNJ: "Thematic ETF", GRNI: "Thematic ETF",
-    DBA: "Commodity ETF",
     AMZN: "Consumer Discretionary", TSLA: "Consumer Discretionary", NKE: "Consumer Discretionary",
     TJX: "Consumer Discretionary", HD: "Consumer Discretionary", MCD: "Consumer Discretionary",
     SBUX: "Consumer Discretionary", LOW: "Consumer Discretionary", NFLX: "Consumer Discretionary",
