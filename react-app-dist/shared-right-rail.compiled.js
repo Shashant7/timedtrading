@@ -9170,6 +9170,7 @@
           const up = ctoTickerLevels.top_upside?.[0] || null;
           const dn = ctoTickerLevels.top_downside?.[0] || null;
           if (!up && !dn) return null;
+          const read = ctoTickerLevels.read || null;
           const lvlRow = (lvl, dir) => lvl && React.createElement("div", {
             style: {
               display: "flex",
@@ -9202,7 +9203,29 @@
                 color: "var(--ds-text-faint)"
               }
             }, "statistical map \xB7 not a trade signal")
-          }, lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
+          }, read?.label && React.createElement("div", {
+            style: {
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              color: read.kind === "range" ? "var(--ds-warn, #fbbf24)" : read.kind === "upside" ? "var(--ds-up, #4ade80)" : read.kind === "downside" ? "var(--ds-dn, #f87171)" : "var(--ds-text-muted)",
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase"
+            }
+          }, read.label), read.blurb && React.createElement("span", {
+            style: {
+              fontSize: 11,
+              lineHeight: 1.45,
+              color: "var(--ds-text-muted)"
+            }
+          }, String(read.blurb))), lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
               fontSize: 11,
@@ -9213,9 +9236,10 @@
             style: {
               marginTop: 6,
               fontSize: 9.5,
-              color: "var(--ds-text-faint)"
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.45
             }
-          }, "Empirical hit rates from this ticker's own daily history, Markov-regime adjusted. Separate from the Trader Model plan above."));
+          }, "Upside and downside probabilities are scored independently. When both are high and close, read a range \u2014 not two bets. When one side leads by 12+ pts, lean that way for context only."));
         })(), ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
@@ -19804,4 +19828,4 @@
   };
 })();
 
-// cache-bust:1781234538650:846530162
+// cache-bust:1781236695459:349203653

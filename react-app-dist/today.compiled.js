@@ -1983,8 +1983,27 @@ function CTOLevelsPanel({
     style: {
       fontFamily: "var(--tt-font-mono)"
     },
-    title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}.`
+    title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}. Independent of the opposite side.`
   }, `${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)} · ${(Number(lvl.adj_prob) * 100).toFixed(0)}%`);
+  const readChip = it => {
+    const label = it.read_label;
+    if (!label) return null;
+    const kind = it.read_kind || "mixed";
+    const tone = kind === "range" ? "var(--tt-accent)" : kind === "upside" ? "var(--tt-up-soft)" : kind === "downside" ? "var(--tt-dn-soft)" : "var(--tt-text-muted)";
+    return h("span", {
+      style: {
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        color: tone,
+        border: `1px solid ${tone}44`,
+        borderRadius: 999,
+        padding: "2px 8px"
+      },
+      title: it.read_blurb || undefined
+    }, label);
+  };
   const row = it => h("div", {
     key: it.ticker,
     style: {
@@ -1997,7 +2016,7 @@ function CTOLevelsPanel({
       cursor: onSelectTicker ? "pointer" : "default"
     },
     onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
-    title: it.narrative || undefined
+    title: [it.read_blurb, it.narrative].filter(Boolean).join(" · ") || undefined
   }, h("span", {
     style: {
       fontFamily: "var(--tt-font-mono)",
@@ -2005,7 +2024,7 @@ function CTOLevelsPanel({
       fontSize: 12.5,
       minWidth: 46
     }
-  }, it.ticker), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
+  }, it.ticker), readChip(it), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
   return h("section", {
     className: "tt-card tt-card-pad",
     style: {
@@ -2022,19 +2041,30 @@ function CTOLevelsPanel({
     style: {
       fontSize: 11.5,
       color: "var(--tt-text-dim)",
-      marginBottom: 8
+      marginBottom: 8,
+      lineHeight: 1.55
     }
-  }, "Fib / ATR / pivot levels with empirical hit rates, Markov-regime adjusted. Statistical context — not engine trade signals.", ageMin != null && h("span", {
+  }, "Each row shows the strongest upside and downside magnets independently — not a single directional call. ", h("strong", {
+    style: {
+      color: "var(--tt-text-muted)",
+      fontWeight: 600
+    }
+  }, "Range map"), " = both levels hit often in a tight band (chop). ", h("strong", {
+    style: {
+      color: "var(--tt-text-muted)",
+      fontWeight: 600
+    }
+  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals.", ageMin != null && h("span", {
     style: {
       marginLeft: 6,
       color: "var(--tt-text-faint)"
     }
-  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`), feed.count != null && h("span", {
+  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`), feed.items.length > 0 && h("span", {
     style: {
       marginLeft: 6,
       color: "var(--tt-text-faint)"
     }
-  }, `· ${feed.items.length} tickers`)), h("div", {
+  }, `· ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} universe tickers have enough history)` : "")), h("div", {
     style: {
       maxHeight: 320,
       overflowY: "auto",
@@ -5112,6 +5142,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781234538650:846530162
+// cache-bust:1781236695459:349203653
 
-// cache-bust:1781234538650:846530162
+// cache-bust:1781236695459:349203653
