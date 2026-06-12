@@ -1380,8 +1380,16 @@
         const evening = isToday(briefWrap.evening) ? briefWrap.evening : null;
         const etMin = nyEtMinutes();
         if (etMin < 9 * 60) return null;
-        if (etMin >= 16 * 60) return evening || morning || null;
-        return morning || null;
+        if (etMin >= 16 * 60) {
+          if (evening) return { slot: evening, type: "evening" };
+          if (morning) return { slot: morning, type: "morning" };
+          return null;
+        }
+        if (morning) return { slot: morning, type: "morning" };
+        return null;
+      }
+      function briefReadLabel(briefSlot) {
+        return briefSlot === "evening" ? "EVENING READ" : "MORNING READ";
       }
       function isNyRegularMarketOpen() {
         try {
@@ -1589,9 +1597,10 @@
       }
 
       // ── Status header ──────────────────────────────────────────
-      function StatusHeader({ cal, briefDate, brief, data }) {
-        const hour = new Date().getHours();
-        const greeting = hour < 5 ? "Up early" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+      function StatusHeader({ cal, briefDate, brief, briefSlot, data }) {
+        const etMin = nyEtMinutes();
+        const etHour = Math.floor(etMin / 60);
+        const greeting = etHour < 5 ? "Up early" : etHour < 12 ? "Good morning" : etHour < 17 ? "Good afternoon" : "Good evening";
         return h("section", { className: "tt-status tt-row" },
           h("div", null,
             h("div", { className: "label" }, "TODAY"),
@@ -1611,7 +1620,7 @@
       }
 
       // ── Daily Brief preview ────────────────────────────────────
-      function BriefPreview({ brief }) {
+      function BriefPreview({ brief, briefSlot }) {
         // 2026-05-29 — re-render when OpenPositionsPreview publishes a
         // fresh trader-open count via window.__liveTraderOpenCount.
         // Brief is generated once at 4 PM ET so its built-in count is
@@ -1803,9 +1812,12 @@
           && top3.length > 0
           && primaryLead.length < 40;
 
+        const isEvening = briefSlot === "evening";
+        const readLabel = briefReadLabel(briefSlot);
+
         return h("section", { className: "tt-card tt-card-pad tt-row brief-preview-card" },
-          h("div", { className: "tt-sec-title" }, "DAILY BRIEF — MORNING READ"),
-          h("div", { className: "tt-sec-h" }, "What the model is watching today"),
+          h("div", { className: "tt-sec-title" }, `DAILY BRIEF — ${readLabel}`),
+          h("div", { className: "tt-sec-h" }, isEvening ? "How the session played out" : "What the model is watching today"),
           summaryText && h("p", { className: "brief-summary" }, summaryText),
           headline && h("p", { className: "brief-head", style: { fontSize: 12, color: "var(--tt-text-muted)", marginBottom: showTopThree ? 10 : 0 } }, headline),
           showTopThree && h("div", { className: "brief-three" },
@@ -2684,7 +2696,7 @@
         );
       }
 
-      function TodayHero({ brief, data, earnings, onSelectTicker }) {
+      function TodayHero({ brief, briefSlot, data, earnings, onSelectTicker }) {
         // 2026-05-30 (v3) — Tighter layout per user feedback "still funky
         // and has dead space". Two changes:
         //   1. Quick Glance moved UP — directly below the Brief, above
@@ -2707,7 +2719,7 @@
         },
           h("div", { className: "today-hero-brief-col", style: { minWidth: 0, display: "flex", flexDirection: "column", gap: 14 } },
             brief
-              ? h(BriefPreview, { brief })
+              ? h(BriefPreview, { brief, briefSlot })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
             // 2026-06-10 — QuickGlance removed: its regime / HMM / breadth
             // tiles folded into the Tier-1 RegimeLine in the status header;
@@ -2756,24 +2768,31 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}. Independent of the opposite side.`,
         }, `${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)} · ${(Number(lvl.adj_prob) * 100).toFixed(0)}%`);
+        const readMeta = (it) => {
+          if (it?.read_label) {
+            return { kind: it.read_kind || "mixed", label: it.read_label, blurb: it.read_blurb || null };
+          }
+          return window.TimedCTORead?.interpret(it?.top_upside, it?.top_downside) || null;
+        };
         const readChip = (it) => {
-          const label = it.read_label;
-          if (!label) return null;
-          const kind = it.read_kind || "mixed";
-          const tone = kind === "range" ? "var(--tt-accent)" : kind === "upside" ? "var(--tt-up-soft)" : kind === "downside" ? "var(--tt-dn-soft)" : "var(--tt-text-muted)";
+          const read = readMeta(it);
+          if (!read?.label) return null;
+          const tone = window.TimedCTORead?.tone(read.kind) || "var(--tt-text-muted)";
           return h("span", {
+            className: "tt-cto-read-tag",
             style: {
               fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-              color: tone, border: `1px solid ${tone}44`, borderRadius: 999, padding: "2px 8px",
+              color: tone, border: `1px solid ${tone}66`, borderRadius: 999, padding: "2px 8px",
+              background: `${tone}14`, flexShrink: 0,
             },
-            title: it.read_blurb || undefined,
-          }, label);
+            title: read.blurb || undefined,
+          }, read.label);
         };
         const row = (it) => h("div", {
           key: it.ticker,
           style: { display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid var(--tt-border)", flexWrap: "wrap", cursor: onSelectTicker ? "pointer" : "default" },
           onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
-          title: [it.read_blurb, it.narrative].filter(Boolean).join(" · ") || undefined,
+          title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined,
         },
           h("span", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, fontSize: 12.5, minWidth: 46 } }, it.ticker),
           readChip(it),
@@ -4894,6 +4913,7 @@
       function TodayApp() {
         const [data, setData] = useState(null);
         const [brief, setBrief] = useState(null);
+        const [briefSlot, setBriefSlot] = useState(null);
         const [earnings, setEarnings] = useState(null);
         const [cal, setCal] = useState(null);
         const [error, setError] = useState(null);
@@ -4952,7 +4972,9 @@
                 setData(merged);
               }
               if (b?.ok) {
-                setBrief(pickTodayBriefSlot(b.brief));
+                const picked = pickTodayBriefSlot(b.brief);
+                setBrief(picked?.slot || null);
+                setBriefSlot(picked?.type || b.active_slot || null);
               }
               if (e?.ok) setEarnings(e);
               if (c?.ok) setCal(c);
@@ -5125,8 +5147,8 @@
             //     Macro events, Earnings, Entry Zone, Movers, Bubble Map.
             //   Progressive disclosure: Day-Trade plan, Options plays,
             //     Universe heat map.
-            h(StatusHeader, { cal, briefDate: brief?.date, brief, data }),
-            h(TodayHero, { brief, data, earnings, onSelectTicker }),
+            h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
+            h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker }),
             // Tier 3 — what the model is currently managing.
             h(OpenPositionsPreview, { onSelectTicker }),
             // Tier 3.5 (D3) — how the model has been performing. "Yesterday,
@@ -5328,12 +5350,14 @@
               h("span", { className: "bp-loading" },
                 nyEtMinutes() < 9 * 60
                   ? "Morning brief publishes ~9:00 AM ET"
-                  : h(React.Fragment, null,
-                    h("span", { className: "bp-dots" },
-                      h("i", null), h("i", null), h("i", null),
+                  : nyEtMinutes() >= 16 * 60
+                    ? "Evening brief loading"
+                    : h(React.Fragment, null,
+                      h("span", { className: "bp-dots" },
+                        h("i", null), h("i", null), h("i", null),
+                      ),
+                      "Daily brief loading",
                     ),
-                    "Daily brief loading",
-                  ),
               ),
             ),
             // Section title — mirror BriefPreview's "EARLY READ" feel.

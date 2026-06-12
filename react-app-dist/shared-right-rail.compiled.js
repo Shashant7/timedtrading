@@ -9170,7 +9170,25 @@
           const up = ctoTickerLevels.top_upside?.[0] || null;
           const dn = ctoTickerLevels.top_downside?.[0] || null;
           if (!up && !dn) return null;
-          const read = ctoTickerLevels.read || null;
+          const read = (ctoTickerLevels.read?.label ? ctoTickerLevels.read : typeof window !== "undefined" && window.TimedCTORead?.interpret(up, dn)) || null;
+          const readTone = kind => {
+            if (kind === "range") return "var(--ds-warn, #fbbf24)";
+            if (kind === "upside") return "var(--ds-up, #4ade80)";
+            if (kind === "downside") return "var(--ds-dn, #f87171)";
+            return "var(--ds-text-muted)";
+          };
+          const readTag = read?.label ? React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: read.blurb || undefined,
+            style: {
+              color: readTone(read.kind),
+              borderColor: `${readTone(read.kind)}66`,
+              background: `${readTone(read.kind)}14`,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase"
+            }
+          }, read.label) : null;
           const lvlRow = (lvl, dir) => lvl && React.createElement("div", {
             style: {
               display: "flex",
@@ -9197,35 +9215,28 @@
           }, String(lvl.label || ""), Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : "", lvl.golden_gate ? " · GG" : ""));
           return React.createElement(Panel, {
             title: "Probabilistic Levels",
-            action: React.createElement("span", {
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+                justifyContent: "flex-end"
+              }
+            }, readTag, React.createElement("span", {
               style: {
                 fontSize: 9.5,
                 color: "var(--ds-text-faint)"
               }
-            }, "statistical map \xB7 not a trade signal")
-          }, read?.label && React.createElement("div", {
+            }, "statistical map \xB7 not a trade signal"))
+          }, read?.blurb && React.createElement("div", {
             style: {
               marginBottom: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              color: read.kind === "range" ? "var(--ds-warn, #fbbf24)" : read.kind === "upside" ? "var(--ds-up, #4ade80)" : read.kind === "downside" ? "var(--ds-dn, #f87171)" : "var(--ds-text-muted)",
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase"
-            }
-          }, read.label), read.blurb && React.createElement("span", {
-            style: {
               fontSize: 11,
               lineHeight: 1.45,
               color: "var(--ds-text-muted)"
             }
-          }, String(read.blurb))), lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
+          }, String(read.blurb)), lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
               fontSize: 11,
@@ -19828,4 +19839,4 @@
   };
 })();
 
-// cache-bust:1781236695459:349203653
+// cache-bust:1781237675789:278077267
