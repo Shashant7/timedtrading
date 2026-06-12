@@ -44,6 +44,21 @@ export const GRADE_FRESH = "FRESH";
 export const GRADE_AGING = "AGING";
 export const GRADE_STALE = "STALE";
 
+/** Stream-blocklisted / continuous-future symbols — no live intraday ingest. */
+export const FRESHNESS_EXEMPT_TICKERS = new Set([
+  "BTCUSD", "ETHUSD", "US500", "US100", "US30", "US2000", "VX1!",
+  "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
+]);
+
+/** True when stale intraday bars are expected (not a data regression). */
+export function isFreshnessExemptTicker(ticker) {
+  const t = String(ticker || "").toUpperCase();
+  if (!t) return false;
+  if (FRESHNESS_EXEMPT_TICKERS.has(t)) return true;
+  if (/[!]$/.test(t)) return true;
+  return false;
+}
+
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
@@ -233,6 +248,8 @@ export function computeFreshnessBlock(tfNewestTs, opts = {}) {
 
 /** True when this payload's freshness block says "quarantine me" (live STALE). */
 export function isQuarantinedByFreshness(payload) {
+  const sym = String(payload?.ticker || "").toUpperCase();
+  if (sym && isFreshnessExemptTicker(sym)) return false;
   const f = payload?._freshness;
   return !!(f && f.enforced && f.grade === GRADE_STALE);
 }
@@ -254,6 +271,10 @@ export function buildFreshnessSummary(entries, opts = {}) {
 
   for (const { ticker, block } of entries || []) {
     if (!block || typeof block !== "object") continue;
+    if (isFreshnessExemptTicker(ticker)) {
+      fresh++;
+      continue;
+    }
     if (block.grade === GRADE_STALE) {
       stale++;
       if (staleTickers.length < 25) {
