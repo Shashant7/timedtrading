@@ -1617,7 +1617,10 @@ function ResearchDeskPanel({
   return h("div", {
     className: "tt-card tt-card-pad",
     style: {
-      minWidth: 0
+      minWidth: 0,
+      height: "100%",
+      display: "flex",
+      flexDirection: "column"
     }
   }, h("div", {
     className: "tt-sec-title",
@@ -1716,7 +1719,7 @@ function ResearchDeskPanel({
       display: "flex",
       flexDirection: "column",
       gap: 0,
-      maxHeight: 300,
+      maxHeight: 260,
       overflowY: "auto",
       overflowX: "hidden",
       paddingRight: 4,
@@ -1967,21 +1970,9 @@ function TodayHero({
   onSelectTicker
 }) {
   return h("div", {
-    className: "today-hero",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1fr)",
-      gap: 14,
-      marginBottom: 14
-    }
+    className: "today-hero"
   }, h("div", {
-    className: "today-hero-brief-col",
-    style: {
-      minWidth: 0,
-      display: "flex",
-      flexDirection: "column",
-      gap: 14
-    }
+    className: "today-hero-brief-col"
   }, brief ? h(BriefPreview, {
     brief,
     briefSlot
@@ -1990,12 +1981,12 @@ function TodayHero({
     earnings,
     onSelectTicker
   })), h("div", {
-    style: {
-      minWidth: 0
-    }
+    className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
     onSelectTicker
-  }), h(CTOLevelsPanel, {
+  })), h("div", {
+    className: "today-hero-levels-col"
+  }, h(CTOLevelsPanel, {
     onSelectTicker
   })));
 }
@@ -2133,10 +2124,7 @@ function CTOLevelsPanel({
   }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
-    className: "tt-card tt-card-pad",
-    style: {
-      marginTop: 14
-    }
+    className: "tt-card tt-card-pad"
   }, h("div", {
     className: "tt-sec-title"
   }, "PROBABILISTIC LEVEL MAP"), h("div", {
@@ -2192,8 +2180,8 @@ function CTOLevelsPanel({
       lineHeight: 1.5
     }
   }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
+    className: "tt-cto-map-scroll",
     style: {
-      maxHeight: 320,
       overflowY: "auto",
       overflowX: "hidden",
       paddingRight: 4,
@@ -5274,6 +5262,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781286953375:846604829
+// cache-bust:1781294914055:698225467
 
-// cache-bust:1781286953375:846604829
+// cache-bust:1781294914055:698225467
