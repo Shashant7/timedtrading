@@ -247,7 +247,7 @@
     RKLB:'growth',NBIS:'growth',IREN:'growth',APLD:'growth',CRWD:'growth',PANW:'growth',
     MDB:'growth',PATH:'growth',NFLX:'growth',AVGO:'growth',ANET:'growth',META:'growth',
     TWLO:'growth',FSLR:'growth',BE:'growth',
-    WMT:'value',COST:'value',KO:'value',JPM:'value',GS:'value',PNC:'value',BK:'value',
+    WMT:'value',COST:'value',KO:'value',JPM:'value',GS:'value',PNC:'value',
     MSFT:'value',AAPL:'value',GOOGL:'value',UNH:'value',AMGN:'value',GILD:'value',
     UTHR:'value',CAT:'value',DE:'value',GE:'value',TJX:'value',INTU:'value',CSCO:'value',
     SPGI:'value',WM:'value',TT:'value',ETN:'value',PH:'value',EMR:'value',ULTA:'value',
