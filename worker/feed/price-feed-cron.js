@@ -26,6 +26,7 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { SECTOR_MAP } from "../sector-mapping.js";
+import { reconcileDailyChange } from "./prev-close-reconcile.js";
 
 // ─── Price feed (full + lightweight overnight modes) ────────────────────────
 // opts:
@@ -94,6 +95,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
                 const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                   : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+                const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp);
+                let usePc = reconciled.pc;
+                let useDc = reconciled.dc;
+                let useDp = reconciled.dp;
                 let extDc = 0, extDp = 0, extP = 0;
                 if (_marketClosed && !isCryptoSym) {
                   const nativeExtP = Number(snap.extendedPrice);
@@ -113,8 +118,8 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                     //      a real reversal).
                     const _driftPct = ((nativeExtP - displayPrice) / displayPrice) * 100;
                     const _absDrift = Math.abs(_driftPct);
-                    const _dirDisagree = Math.abs(dp) > 1.5
-                      && Math.sign(dp) !== Math.sign(_driftPct);
+                    const _dirDisagree = Math.abs(useDp) > 1.5
+                      && Math.sign(useDp) !== Math.sign(_driftPct);
                     const _looksStale = _absDrift > 8 || (_absDrift > 3 && _dirDisagree);
                     if (!_looksStale) {
                       extP = Math.round(nativeExtP * 100) / 100;
@@ -124,9 +129,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   }
                 }
                 const prev = existing[sym] || {};
-                const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
-                const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0));
-                let keepDc = dc, keepDp = dp;
+                const dayRolled = !isCryptoSym && _marketClosed && useDc === 0 && useDp === 0;
+                const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (usePc > 0 ? Math.round(usePc * 100) / 100 : (prev.pc || 0));
+                let keepDc = useDc, keepDp = useDp;
                 if (dayRolled) {
                   if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                   else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
@@ -375,6 +380,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
               const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
+              const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp);
+              let usePc = reconciled.pc;
+              let useDc = reconciled.dc;
+              let useDp = reconciled.dp;
               let extDc = 0, extDp = 0, extP = 0;
               if (_marketClosed && !isCryptoSym) {
                 const nativeExtP = Number(snap.extendedPrice);
@@ -384,8 +393,8 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   // reasoning (CRDO 6/3 incident).
                   const _driftPct = ((nativeExtP - displayPrice) / displayPrice) * 100;
                   const _absDrift = Math.abs(_driftPct);
-                  const _dirDisagree = Math.abs(dp) > 1.5
-                    && Math.sign(dp) !== Math.sign(_driftPct);
+                  const _dirDisagree = Math.abs(useDp) > 1.5
+                    && Math.sign(useDp) !== Math.sign(_driftPct);
                   const _looksStale = _absDrift > 8 || (_absDrift > 3 && _dirDisagree);
                   if (!_looksStale) {
                     extP = Math.round(nativeExtP * 100) / 100;
@@ -395,9 +404,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 }
               }
               const prev = prices[sym] || {};
-              const dayRolled = !isCryptoSym && _marketClosed && dc === 0 && dp === 0;
-              const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0));
-              let keepDc = dc, keepDp = dp;
+              const dayRolled = !isCryptoSym && _marketClosed && useDc === 0 && useDp === 0;
+              const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (usePc > 0 ? Math.round(usePc * 100) / 100 : (prev.pc || 0));
+              let keepDc = useDc, keepDp = useDp;
               if (dayRolled) {
                 if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                 else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
@@ -579,14 +588,17 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               const prev = prices[sym] || {};
               const nativeDc = Number(snap.change);
               const nativeDp = Number(snap.percentChange);
+              const rawDc = (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
+                : (pc > 0 ? Math.round((price - pc) * 100) / 100 : (prev.dc ?? 0));
+              const rawDp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
+                : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : (prev.dp ?? 0));
+              const reconciled = reconcileDailyChange(price, pc, rawDc, rawDp);
               prices[sym] = {
                 ...prev,
                 p: Math.round(price * 100) / 100,
-                pc: pc > 0 ? Math.round(pc * 100) / 100 : (prev.pc || 0),
-                dc: (Number.isFinite(nativeDc) && nativeDc !== 0) ? Math.round(nativeDc * 100) / 100
-                  : (pc > 0 ? Math.round((price - pc) * 100) / 100 : (prev.dc ?? 0)),
-                dp: (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
-                  : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : (prev.dp ?? 0)),
+                pc: reconciled.pc > 0 ? Math.round(reconciled.pc * 100) / 100 : (prev.pc || 0),
+                dc: reconciled.dc,
+                dp: reconciled.dp,
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
