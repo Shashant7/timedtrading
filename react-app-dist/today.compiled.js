@@ -2029,10 +2029,25 @@ function CTOLevelsPanel({
   const asOfLabel = predictionAsOf ? formatBarAsOf(predictionAsOf) : null;
   const indexRows = feed.items.filter(it => it.is_index);
   const movers = feed.items.filter(it => !it.is_index);
-  const probChip = (lvl, dir) => lvl && h("span", {
-    className: `ds-chip ds-chip--sm tt-cto-map-prob tt-cto-map-prob--${dir} ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
-    title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}. Independent of the opposite side.`
-  }, `${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)} · ${(Number(lvl.adj_prob) * 100).toFixed(0)}%`);
+  const formatDist = window.TimedCTORead?.formatDistance || (lvl => null);
+  const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
+  const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
+  const probChip = (lvl, dir) => {
+    if (!lvl) return h("span", {
+      className: `tt-cto-map-prob tt-cto-map-prob--${dir}`
+    }, "—");
+    const dist = formatDist(lvl);
+    const st = levelStatus(lvl.level_status);
+    const parts = [`${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)}`, `${(Number(lvl.adj_prob) * 100).toFixed(0)}%`, dist ? `${dist} away` : null, st && st.label !== "Open" ? st.label : null].filter(Boolean);
+    return h("span", {
+      className: `ds-chip ds-chip--sm tt-cto-map-prob tt-cto-map-prob--${dir} ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
+      style: st && st.label !== "Open" ? {
+        borderColor: `${st.tone}88`,
+        color: st.tone
+      } : undefined,
+      title: `${dir === "up" ? "Top upside" : "Top downside"} magnet ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% historical hit rate (regime-adjusted)${dist ? ` · ${dist} from live price` : ""}${st ? ` · ${st.label}` : ""}${lvl.golden_gate ? " · Golden Gate" : ""}. Distance updates with live quotes; hit/faded since the daily close anchor.`
+    }, parts.join(" · "));
+  };
   const readMeta = it => {
     if (it?.read_label) {
       return {
@@ -2047,7 +2062,18 @@ function CTOLevelsPanel({
     const read = readMeta(it);
     if (!read?.label) return null;
     const tone = window.TimedCTORead?.tone(read.kind) || "var(--tt-text-muted)";
+    const rs = readStatusMeta(it?.read_status?.status);
+    const rsLabel = it?.read_status?.label || rs?.label;
+    const rsTone = rs?.tone || tone;
     return h("span", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        minWidth: 0,
+        maxWidth: "100%"
+      }
+    }, h("span", {
       className: "tt-cto-read-tag tt-cto-map-read",
       style: {
         fontSize: 10,
@@ -2060,10 +2086,29 @@ function CTOLevelsPanel({
         padding: "2px 8px",
         background: `${tone}14`,
         display: "inline-block",
-        maxWidth: "100%"
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
       },
       title: read.blurb || undefined
-    }, read.label);
+    }, read.label), rsLabel && it?.read_status?.status !== "open" && h("span", {
+      className: "tt-cto-map-read",
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        color: rsTone,
+        border: `1px solid ${rsTone}66`,
+        borderRadius: 999,
+        padding: "1px 6px",
+        background: `${rsTone}14`,
+        whiteSpace: "nowrap",
+        flexShrink: 0
+      },
+      title: rsLabel
+    }, rsLabel));
   };
   const row = it => h("div", {
     key: it.ticker,
@@ -2121,7 +2166,16 @@ function CTOLevelsPanel({
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, asOfLabel), feed.items.length > 0 && h("span", null, ` · ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} with enough history)` : "")), h("div", {
+  }, asOfLabel), feed.items.length > 0 && h("span", null, ` · ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} with enough history)` : ""), feed.live_as_of_ms ? h("span", {
+    title: "Live distance and hit/faded tags use current quotes"
+  }, " · live status updated on load") : null), feed.learning && h("div", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-faint)",
+      marginBottom: 10,
+      lineHeight: 1.5
+    }
+  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
     style: {
       maxHeight: 320,
       overflowY: "auto",
@@ -5204,6 +5258,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781244715713:4079987
+// cache-bust:1781245161754:348213614
 
-// cache-bust:1781244715713:4079987
+// cache-bust:1781245161754:348213614

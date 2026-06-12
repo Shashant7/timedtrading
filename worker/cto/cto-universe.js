@@ -147,6 +147,7 @@ export function rollupRowFromCachedPayload(sym, cached) {
     bars: cached.bars || null,
     as_of_date: cached.as_of_date || null,
     bar_as_of_ms: cached.bar_as_of_ms || null,
+    anchor_price: cached.current_price ?? null,
     narrative: cached.narrative || null,
     top_upside: (cached.top_upside || []).slice(0, 1),
     top_downside: (cached.top_downside || []).slice(0, 1),

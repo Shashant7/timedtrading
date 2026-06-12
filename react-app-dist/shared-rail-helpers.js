@@ -788,9 +788,34 @@
     return "var(--tt-text-muted, #8AA39A)";
   }
 
+  function formatLevelDistance(lvl) {
+    const live = Number(lvl?.live_distance_pct);
+    const snap = Number(lvl?.distance_pct);
+    const d = Number.isFinite(live) ? live : snap;
+    if (!Number.isFinite(d)) return null;
+    return `${d > 0 ? "+" : ""}${d.toFixed(1)}%`;
+  }
+
+  function levelStatusMeta(status) {
+    if (status === "hit") return { label: "Hit", tone: "var(--tt-up-soft, #34d399)" };
+    if (status === "faded") return { label: "Faded", tone: "var(--tt-dn-soft, #f87171)" };
+    if (status === "open") return { label: "Open", tone: "var(--tt-text-faint, #5a7268)" };
+    return null;
+  }
+
+  function readStatusMeta(status) {
+    if (status === "confirmed" || status === "hit") return { label: "Playing out", tone: "var(--tt-up-soft, #34d399)" };
+    if (status === "against") return { label: "Against read", tone: "var(--tt-dn-soft, #f87171)" };
+    if (status === "partial") return { label: "Partial", tone: "var(--tt-accent, #f5c25c)" };
+    return null;
+  }
+
   window.TimedCTORead = {
     interpret: interpretCTORead,
     tone: ctoReadTone,
+    formatDistance: formatLevelDistance,
+    levelStatus: levelStatusMeta,
+    readStatus: readStatusMeta,
     formatBarAsOf(ms) {
       const n = Number(ms);
       if (!Number.isFinite(n) || n <= 0) return null;
@@ -811,4 +836,4 @@
   };
 })();
 
-// cache-bust:1781244715713:4079987
+// cache-bust:1781245161754:348213614
