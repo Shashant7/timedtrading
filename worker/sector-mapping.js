@@ -202,7 +202,6 @@ const SECTOR_MAP = {
   'AXP': 'Financials',
   'SPGI': 'Financials',
   'PNC': 'Financials',
-  'BK': 'Financials',
   'ALLY': 'Financials',
   'EWBC': 'Financials',
   'WAL': 'Financials',
@@ -273,6 +272,7 @@ const SECTOR_MAP = {
   // Thematic ETFs (biotech, lithium, inflation, granny shots etc.)
   'GRNJ': 'Thematic ETF',
   'GRNI': 'Thematic ETF',
+  'SPCX': 'Thematic ETF', // 2026-06-12 — SPAC & New Issue ETF; thin history, live quote OK
   'IBB':  'Thematic ETF',
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
@@ -567,7 +567,7 @@ const TICKER_TYPE_MAP = {
 
   // Value / Defensive
   'WMT': 'value', 'COST': 'value', 'KO': 'value', 'BRK-B': 'value',
-  'JPM': 'value', 'GS': 'value', 'PNC': 'value', 'BK': 'value',
+  'JPM': 'value', 'GS': 'value', 'PNC': 'value', 'ALLY': 'value',
   'MSFT': 'value', 'AAPL': 'value', 'GOOGL': 'value',
   'UNH': 'value', 'AMGN': 'value', 'GILD': 'value',
   'UTHR': 'value', 'CAT': 'value', 'DE': 'value', 'GE': 'value',

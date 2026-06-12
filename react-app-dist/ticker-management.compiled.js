@@ -47,7 +47,6 @@ const COMPANY_NAMES = {
   BA: "Boeing",
   BABA: "Alibaba",
   BE: "Bloom Energy",
-  BK: "BNY Mellon",
   BMNR: "Bitmine Immersion",
   BTCUSD: "Bitcoin",
   BWXT: "BWX Technologies",
@@ -175,6 +174,7 @@ const COMPANY_NAMES = {
   SO: "Southern Company",
   SOFI: "SoFi",
   SOXL: "Semis 3x ETF",
+  SPCX: "SPAC & New Issue ETF",
   SPGI: "S&P Global",
   SPG: "Simon Property",
   SPY: "S&P 500 ETF",
@@ -2009,6 +2009,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1781267946990:429130967
+// cache-bust:1781286953375:846604829
 
-// cache-bust:1781267946990:429130967
+// cache-bust:1781286953375:846604829
