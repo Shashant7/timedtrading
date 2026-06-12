@@ -38,6 +38,9 @@ curl -sS -X POST "$BASE/timed/investor/compute?key=$KEY" \
   | python3 -c "import json,sys; d=json.load(sys.stdin); print('investor tickers=', d.get('tickers'), 'skipped_stale=', (d.get('skipped_stale_candles') or {}).get('count'), 'topAccumulate=', len(d.get('topAccumulate') or []))"
 
 curl -sS "$BASE/timed/health" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); f=d.get('freshness',{}); print('[heal] health fresh=', f.get('fresh'), 'stale=', f.get('stale'), 'slo_ok=', f.get('slo_ok'))"
+  | python3 -c "import json,sys; d=json.load(sys.stdin); f=d.get('freshness',{}); print('[heal] health fresh=', f.get('fresh'), 'aging=', f.get('aging'), 'stale=', f.get('stale'), 'slo_ok=', f.get('slo_ok'))"
+
+curl -sS "$BASE/timed/investor/ticker?ticker=GILD&key=$KEY" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('[heal] GILD investor ok=', d.get('ok'), 'score=', d.get('score'))"
 
 echo "[heal] Done at $(date -u +%Y-%m-%dT%H:%M:%SZ)"

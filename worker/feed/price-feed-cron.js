@@ -693,8 +693,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
         ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, prices).catch(e => console.warn("[FRESHNESS]", e?.message)));
 
-        // Merge live quotes into chart TFs (30/15/60) so right-rail charts
-        // track the same price the header shows between */5 REST bar fetches.
+        // Merge live quotes into chart TFs (10/15/30/60) so right-rail
+        // charts and freshness grades track the same price the header shows
+        // between */5 REST bar fetches.
         if (_marketOpen && env?.DB) {
           ctx.waitUntil((async () => {
             try {
@@ -710,7 +711,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               } catch (_) {}
               await deps.syncLivePricesToChartCandles(env, prices, {
                 priorityTickers,
-                maxTickers: 160,
+                maxTickers: 280,
               });
             } catch (syncErr) {
               console.warn("[LIVE_CANDLE_SYNC] price-feed hook failed:", String(syncErr?.message || syncErr).slice(0, 200));

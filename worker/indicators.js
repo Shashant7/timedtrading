@@ -6629,6 +6629,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     // live caller of this function gets the same contract.
     if (tickerData._freshness.enforced && tickerData._freshness.grade === "STALE") {
       tickerData.__candle_data_stale = true;
+    } else {
+      delete tickerData.__candle_data_stale;
     }
   } catch (_freshErr) {
     // The contract must never break scoring itself.
