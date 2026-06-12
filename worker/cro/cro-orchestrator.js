@@ -270,14 +270,18 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     cycle_kind: "intraday",
   };
 
-  // 2026-06-11 — Hourly CTO refresh (respects 1h per-ticker KV cache).
+  // 2026-06-11 — Hourly: indices + open positions only (1h cache, wall-clock cap).
   try {
     const { runCTOUniverse } = await import("../cto/cto-service.js");
-    const r = await runCTOUniverse(env, { limit: 50, forceRefresh: false });
+    const r = await runCTOUniverse(env, { mode: "priority", forceRefresh: false });
     summary.cto = {
       ok: !!r.ok,
+      mode: r.mode,
       tickers_processed: r.tickers_processed,
       tickers_ok: r.tickers_ok,
+      tickers_in_rollup: r.tickers_in_rollup,
+      cache_hits: r.cache_hits,
+      stopped_early: r.stopped_early,
       elapsed_ms: r.elapsed_ms,
       force_refresh: false,
     };
@@ -416,13 +420,19 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     summary.errors.push(`schema_ensure_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
-  // 1. CTO universe rollup. Always runs; cheap and the CRO synthesis depends on it.
+  // 1. CTO universe rollup — daily pass over scored universe (24h cache on
+  //    non-priority names; priority names still respect 1h cache).
   try {
-    const r = await runCTOUniverse(env, { limit: 50 });
+    const r = await runCTOUniverse(env, { mode: "all", forceRefresh: false });
     summary.cto = {
       ok: !!r.ok,
+      mode: r.mode,
       tickers_processed: r.tickers_processed,
       tickers_ok: r.tickers_ok,
+      tickers_in_rollup: r.tickers_in_rollup,
+      scored_universe_size: r.scored_universe_size,
+      cache_hits: r.cache_hits,
+      stopped_early: r.stopped_early,
       headlines_count: (r.headlines || []).length,
       elapsed_ms: r.elapsed_ms,
     };
