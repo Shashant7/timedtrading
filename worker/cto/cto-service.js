@@ -386,7 +386,8 @@ export async function computeCTOForTicker(env, ticker, {
 
   const payload = {
     ticker: sym,
-    as_of_date: new Date().toISOString().slice(0, 10),
+    as_of_date: new Date(current.ts > 1e12 ? current.ts : current.ts * 1000).toISOString().slice(0, 10),
+    bar_as_of_ms: current.ts > 1e12 ? current.ts : current.ts * 1000,
     computed_at: Date.now(),
     current_price: Number(current.c.toFixed(4)),
     atr14: atr ? Number(atr.toFixed(4)) : null,
@@ -428,6 +429,11 @@ export async function computeCTOForTicker(env, ticker, {
     ).run();
   } catch (_) {}
 
+  try {
+    const { recordCTOSignals } = await import("./cto-live-status.js");
+    await recordCTOSignals(env, { ok: true, from_cache: false, ...payload });
+  } catch (_) {}
+
   return { ok: true, from_cache: false, ...payload };
 }
 
@@ -445,6 +451,9 @@ function toRollupRow(t, r) {
     from_cache: !!r.from_cache,
     error_kind: r.ok ? null : (r.error_kind || "unknown"),
     bars: r.bars || null,
+    as_of_date: r.as_of_date || null,
+    bar_as_of_ms: r.bar_as_of_ms || null,
+    anchor_price: r.current_price ?? null,
     narrative: r.narrative || null,
     top_upside: (r.top_upside || []).slice(0, 1),
     top_downside: (r.top_downside || []).slice(0, 1),
@@ -524,6 +533,9 @@ export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
     items.push({
       ticker: sym,
       narrative: row.narrative || null,
+      as_of_date: row.as_of_date || null,
+      bar_as_of_ms: row.bar_as_of_ms || null,
+      anchor_price: row.anchor_price ?? null,
       read_kind: read.kind,
       read_label: read.label,
       read_blurb: read.blurb,
@@ -555,11 +567,26 @@ export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
 export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
   const rollup = await loadCTOUniverse(env);
   if (!rollup) return { ok: false, error_kind: "no_rollup_yet" };
-  const items = buildCTOFeedItemsFromRollup(rollup, { limit });
+  let items = buildCTOFeedItemsFromRollup(rollup, { limit });
+  // Rollup rows may predate bar_as_of_ms — backfill from per-ticker KV (bounded).
+  let kvReads = 0;
+  for (const item of items) {
+    if (item.bar_as_of_ms) continue;
+    if (kvReads >= 30) break;
+    const cached = await loadCTOForTicker(env, item.ticker);
+    if (cached?.bar_as_of_ms) {
+      item.bar_as_of_ms = cached.bar_as_of_ms;
+      item.as_of_date = cached.as_of_date || item.as_of_date;
+    }
+    kvReads += 1;
+  }
+  const barTimes = items.map((i) => Number(i.bar_as_of_ms)).filter((n) => Number.isFinite(n) && n > 0);
+  const prediction_as_of_ms = barTimes.length ? Math.max(...barTimes) : null;
   const headlines = Array.isArray(rollup.headlines) ? rollup.headlines.slice(0, 12) : [];
-  const payload = {
+  const basePayload = {
     ok: true,
     generated_at: rollup.computed_at || Date.now(),
+    prediction_as_of_ms,
     tickers_processed: rollup.tickers_processed || 0,
     tickers_ok: rollup.tickers_ok || 0,
     headlines,
@@ -568,9 +595,23 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
   };
   try {
     const { syncCTOFeedKv } = await import("./cto-feed-kv.js");
-    await syncCTOFeedKv(env, payload);
+    await syncCTOFeedKv(env, basePayload);
   } catch (_) { /* best-effort */ }
-  return payload;
+  return enrichPublicCTOFeed(env, basePayload);
+}
+
+/** Apply live price + hit/faded status on every feed response. */
+export async function enrichPublicCTOFeed(env, feed) {
+  if (!feed?.items?.length) return feed;
+  const { enrichCTOFeedItemsWithAnchors, loadCTOLearningSummary } = await import("./cto-live-status.js");
+  const items = await enrichCTOFeedItemsWithAnchors(env, feed.items);
+  const learning = await loadCTOLearningSummary(env);
+  return {
+    ...feed,
+    items,
+    learning,
+    live_as_of_ms: Date.now(),
+  };
 }
 
 /**

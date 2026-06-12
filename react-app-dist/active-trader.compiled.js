@@ -297,6 +297,11 @@ function ATCard({
   openTrade
 }) {
   const sym = String(t?.ticker || "").toUpperCase();
+  useEffect(() => {
+    if (typeof window._dsEnsureSparkline === "function") {
+      window._dsEnsureSparkline(sym);
+    }
+  }, [sym]);
   const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
     dayPct: null,
     dayChg: null
@@ -1337,8 +1342,14 @@ function ActiveTraderApp() {
   }, [lanes, searchQuery, filterLane]);
   useEffect(() => {
     if (!ensureSpark) return;
-    const heads = [].concat(displayLanes.setup.slice(0, 6)).concat(displayLanes.enter.slice(0, 6)).concat(displayLanes.new.slice(0, 6)).concat(displayLanes.hold.slice(0, 12)).concat(displayLanes.defend.slice(0, 12)).concat(displayLanes.trim.slice(0, 6)).concat(displayLanes.exit.slice(0, 6));
-    heads.forEach(t => t?.ticker && ensureSpark(t.ticker));
+    const syms = new Set();
+    for (const lane of Object.values(displayLanes)) {
+      for (const t of lane || []) {
+        const s = String(t?.ticker || "").toUpperCase();
+        if (s) syms.add(s);
+      }
+    }
+    syms.forEach(s => ensureSpark(s));
   }, [displayLanes, ensureSpark]);
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
@@ -1670,6 +1681,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781237675789:278077267
+// cache-bust:1781245161754:348213614
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781245161754:348213614

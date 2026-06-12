@@ -1455,10 +1455,11 @@ function OpenPositionsPreview({
       marginBottom: 8
     }
   }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), h("div", {
+    className: "tt-open-pos-grid",
     style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
+      gap: 10
     }
   }, sorted.slice(0, 12).map(t => {
     const sym = String(t?.ticker || "").toUpperCase();
@@ -1494,30 +1495,43 @@ function OpenPositionsPreview({
     return h("button", {
       key: t?.trade_id || sym,
       onClick,
+      className: "tt-open-pos-chip",
       style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 8,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 6,
+        padding: "10px 12px",
+        borderRadius: 10,
         cursor: "pointer",
+        textAlign: "left",
         background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
         border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
         fontFamily: "var(--tt-font-mono)",
-        fontSize: 11,
-        transition: "border-color 0.15s"
+        transition: "border-color 0.15s, background 0.15s"
       },
       onMouseEnter: e => {
         e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))";
+        e.currentTarget.style.background = "rgba(255,255,255,0.045)";
       },
       onMouseLeave: e => {
         e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
+        e.currentTarget.style.background = "var(--tt-bg-elev, rgba(255,255,255,0.03))";
       },
-      title: `${sym} ${dir} · ${stage} · open in detail`
+      title: `${sym} ${dir} · ${stageDisplay} · open in detail`
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 6
+      }
     }, h("span", {
       style: {
-        fontWeight: 700,
-        color: "var(--tt-text)"
+        fontWeight: 800,
+        fontSize: 13,
+        color: "var(--tt-text)",
+        letterSpacing: "0.02em"
       }
     }, sym), h("span", {
       style: {
@@ -1526,29 +1540,40 @@ function OpenPositionsPreview({
         color: dirColor,
         letterSpacing: "0.08em"
       }
-    }, dir), Number.isFinite(pnlPct) && h("span", {
+    }, dir)), h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 6,
+        flexWrap: "wrap"
+      }
+    }, Number.isFinite(pnlPct) && h("span", {
       style: {
         color: pnlColor,
-        fontWeight: 600
+        fontWeight: 700,
+        fontSize: 12
       }
     }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`), h("span", {
       style: {
-        padding: "1px 6px",
-        borderRadius: 4,
+        padding: "2px 7px",
+        borderRadius: 999,
         fontSize: 9,
         fontWeight: 700,
         letterSpacing: "0.06em",
         color: stageMeta.color,
         background: stageMeta.bg,
-        border: `1px solid ${stageMeta.color}40`
+        border: `1px solid ${stageMeta.color}40`,
+        marginLeft: "auto"
       }
-    }, stageDisplay), t?._mode === "investor" && h("span", {
+    }, stageDisplay)), t?._mode === "investor" && h("span", {
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
-        letterSpacing: "0.08em"
+        letterSpacing: "0.1em",
+        alignSelf: "flex-start"
       }
-    }, "INV"));
+    }, "INVESTOR"));
   })));
 }
 function ResearchDeskPanel({
@@ -1999,16 +2024,30 @@ function CTOLevelsPanel({
     };
   }, []);
   if (!feed || !feed.items?.length) return null;
-  const ageMin = feed.generated_at ? Math.round((Date.now() - Number(feed.generated_at)) / 60000) : null;
+  const formatBarAsOf = window.TimedCTORead?.formatBarAsOf || (ms => null);
+  const predictionAsOf = feed.prediction_as_of_ms || Math.max(...feed.items.map(it => Number(it.bar_as_of_ms)).filter(n => Number.isFinite(n) && n > 0), 0) || null;
+  const asOfLabel = predictionAsOf ? formatBarAsOf(predictionAsOf) : null;
   const indexRows = feed.items.filter(it => it.is_index);
   const movers = feed.items.filter(it => !it.is_index);
-  const probChip = (lvl, dir) => lvl && h("span", {
-    className: `ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}. Independent of the opposite side.`
-  }, `${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)} · ${(Number(lvl.adj_prob) * 100).toFixed(0)}%`);
+  const formatDist = window.TimedCTORead?.formatDistance || (lvl => null);
+  const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
+  const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
+  const probChip = (lvl, dir) => {
+    if (!lvl) return h("span", {
+      className: `tt-cto-map-prob tt-cto-map-prob--${dir}`
+    }, "—");
+    const dist = formatDist(lvl);
+    const st = levelStatus(lvl.level_status);
+    const parts = [`${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)}`, `${(Number(lvl.adj_prob) * 100).toFixed(0)}%`, dist ? `${dist} away` : null, st && st.label !== "Open" ? st.label : null].filter(Boolean);
+    return h("span", {
+      className: `ds-chip ds-chip--sm tt-cto-map-prob tt-cto-map-prob--${dir} ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
+      style: st && st.label !== "Open" ? {
+        borderColor: `${st.tone}88`,
+        color: st.tone
+      } : undefined,
+      title: `${dir === "up" ? "Top upside" : "Top downside"} magnet ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% historical hit rate (regime-adjusted)${dist ? ` · ${dist} from live price` : ""}${st ? ` · ${st.label}` : ""}${lvl.golden_gate ? " · Golden Gate" : ""}. Distance updates with live quotes; hit/faded since the daily close anchor.`
+    }, parts.join(" · "));
+  };
   const readMeta = it => {
     if (it?.read_label) {
       return {
@@ -2023,8 +2062,19 @@ function CTOLevelsPanel({
     const read = readMeta(it);
     if (!read?.label) return null;
     const tone = window.TimedCTORead?.tone(read.kind) || "var(--tt-text-muted)";
+    const rs = readStatusMeta(it?.read_status?.status);
+    const rsLabel = it?.read_status?.label || rs?.label;
+    const rsTone = rs?.tone || tone;
     return h("span", {
-      className: "tt-cto-read-tag",
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        minWidth: 0,
+        maxWidth: "100%"
+      }
+    }, h("span", {
+      className: "tt-cto-read-tag tt-cto-map-read",
       style: {
         fontSize: 10,
         fontWeight: 700,
@@ -2035,32 +2085,45 @@ function CTOLevelsPanel({
         borderRadius: 999,
         padding: "2px 8px",
         background: `${tone}14`,
-        flexShrink: 0
+        display: "inline-block",
+        maxWidth: "100%",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap"
       },
       title: read.blurb || undefined
-    }, read.label);
+    }, read.label), rsLabel && it?.read_status?.status !== "open" && h("span", {
+      className: "tt-cto-map-read",
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+        color: rsTone,
+        border: `1px solid ${rsTone}66`,
+        borderRadius: 999,
+        padding: "1px 6px",
+        background: `${rsTone}14`,
+        whiteSpace: "nowrap",
+        flexShrink: 0
+      },
+      title: rsLabel
+    }, rsLabel));
   };
   const row = it => h("div", {
     key: it.ticker,
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "7px 0",
-      borderBottom: "1px solid var(--tt-border)",
-      flexWrap: "wrap",
-      cursor: onSelectTicker ? "pointer" : "default"
-    },
+    className: "tt-cto-map-row",
     onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
     title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined
   }, h("span", {
+    className: "tt-cto-map-sym"
+  }, it.ticker), readChip(it) || h("span", {
+    className: "tt-cto-map-read",
     style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontWeight: 700,
-      fontSize: 12.5,
-      minWidth: 46
+      color: "var(--tt-text-faint)",
+      fontSize: 10
     }
-  }, it.ticker), readChip(it), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
+  }, "—"), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
   return h("section", {
     className: "tt-card tt-card-pad",
     style: {
@@ -2090,17 +2153,29 @@ function CTOLevelsPanel({
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals.", ageMin != null && h("span", {
+  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals."), asOfLabel && h("div", {
     style: {
-      marginLeft: 6,
-      color: "var(--tt-text-faint)"
-    }
-  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`), feed.items.length > 0 && h("span", {
+      fontSize: 11,
+      color: "var(--tt-text-faint)",
+      marginBottom: 10,
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Last daily bar close used for empirical hit-rate math in this map"
+  }, "Predictions use daily closes through ", h("strong", {
     style: {
-      marginLeft: 6,
-      color: "var(--tt-text-faint)"
+      color: "var(--tt-text-muted)",
+      fontWeight: 600
     }
-  }, `· ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} universe tickers have enough history)` : "")), h("div", {
+  }, asOfLabel), feed.items.length > 0 && h("span", null, ` · ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} with enough history)` : ""), feed.live_as_of_ms ? h("span", {
+    title: "Live distance and hit/faded tags use current quotes"
+  }, " · live status updated on load") : null), feed.learning && h("div", {
+    style: {
+      fontSize: 10.5,
+      color: "var(--tt-text-faint)",
+      marginBottom: 10,
+      lineHeight: 1.5
+    }
+  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
     style: {
       maxHeight: 320,
       overflowY: "auto",
@@ -5183,6 +5258,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781237675789:278077267
+// cache-bust:1781245161754:348213614
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781245161754:348213614

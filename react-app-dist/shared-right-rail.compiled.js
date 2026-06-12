@@ -9189,12 +9189,32 @@
               textTransform: "uppercase"
             }
           }, read.label) : null;
+          const rs = ctoTickerLevels.read_status;
+          const rsMeta = typeof window !== "undefined" && window.TimedCTORead?.readStatus ? window.TimedCTORead.readStatus(rs?.status) : null;
+          const readStatusTag = rs?.label && rs?.status !== "open" ? React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: rs.label,
+            style: {
+              color: rsMeta?.tone || "var(--ds-text-muted)",
+              borderColor: `${rsMeta?.tone || "var(--ds-text-muted)"}66`,
+              background: `${rsMeta?.tone || "var(--ds-text-muted)"}14`,
+              fontWeight: 700,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase"
+            }
+          }, rs.label) : null;
+          const formatDist = typeof window !== "undefined" && window.TimedCTORead?.formatDistance ? window.TimedCTORead.formatDistance.bind(window.TimedCTORead) : lvl => {
+            const d = Number(lvl?.live_distance_pct ?? lvl?.distance_pct);
+            return Number.isFinite(d) ? `${d > 0 ? "+" : ""}${d.toFixed(1)}%` : null;
+          };
+          const levelStatus = typeof window !== "undefined" && window.TimedCTORead?.levelStatus ? window.TimedCTORead.levelStatus.bind(window.TimedCTORead) : () => null;
           const lvlRow = (lvl, dir) => lvl && React.createElement("div", {
             style: {
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "5px 0"
+              padding: "5px 0",
+              flexWrap: "wrap"
             }
           }, React.createElement("span", {
             className: `ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
@@ -9207,12 +9227,30 @@
               fontSize: 11,
               color: "var(--ds-text-body)"
             }
-          }, (Number(lvl.regime_adjusted_prob ?? lvl.adj_prob) * 100).toFixed(0), "% hit prob"), React.createElement("span", {
+          }, (Number(lvl.regime_adjusted_prob ?? lvl.adj_prob) * 100).toFixed(0), "% hit prob"), formatDist(lvl) && React.createElement("span", {
+            style: {
+              fontSize: 10.5,
+              color: "var(--ds-text-muted)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, formatDist(lvl), " away"), (() => {
+            const st = levelStatus(lvl.level_status);
+            return st && st.label !== "Open" ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                color: st.tone,
+                borderColor: `${st.tone}66`,
+                background: `${st.tone}14`,
+                fontSize: 9.5,
+                fontWeight: 700
+              }
+            }, st.label) : null;
+          })(), React.createElement("span", {
             style: {
               fontSize: 10.5,
               color: "var(--ds-text-muted)"
             }
-          }, String(lvl.label || ""), Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : "", lvl.golden_gate ? " · GG" : ""));
+          }, String(lvl.label || ""), lvl.golden_gate ? " · GG" : ""));
           return React.createElement(Panel, {
             title: "Probabilistic Levels",
             action: React.createElement("div", {
@@ -9223,7 +9261,7 @@
                 flexWrap: "wrap",
                 justifyContent: "flex-end"
               }
-            }, readTag, React.createElement("span", {
+            }, readTag, readStatusTag, React.createElement("span", {
               style: {
                 fontSize: 9.5,
                 color: "var(--ds-text-faint)"
@@ -9236,7 +9274,18 @@
               lineHeight: 1.45,
               color: "var(--ds-text-muted)"
             }
-          }, String(read.blurb)), lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
+          }, String(read.blurb)), lvlRow(up, "up"), lvlRow(dn, "dn"), (ctoTickerLevels.bar_as_of_ms || ctoTickerLevels.as_of_date) && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "Daily close used:", " ", typeof window !== "undefined" && window.TimedCTORead?.formatBarAsOf ? window.TimedCTORead.formatBarAsOf(ctoTickerLevels.bar_as_of_ms) || ctoTickerLevels.as_of_date : ctoTickerLevels.as_of_date || "—", Number.isFinite(Number(ctoTickerLevels.live_price)) && Number.isFinite(Number(ctoTickerLevels.anchor_price)) && React.createElement("span", {
+            style: {
+              marginLeft: 8
+            }
+          }, "Live $", Number(ctoTickerLevels.live_price).toFixed(2), " vs anchor $", Number(ctoTickerLevels.anchor_price).toFixed(2))), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
               fontSize: 11,
@@ -9250,7 +9299,7 @@
               color: "var(--ds-text-faint)",
               lineHeight: 1.45
             }
-          }, "Upside and downside probabilities are scored independently. When both are high and close, read a range \u2014 not two bets. When one side leads by 12+ pts, lean that way for context only."));
+          }, "Hit % comes from ~2 years of this ticker's daily bars. Distance and Hit/Faded tags update with live quotes since that daily close. Published magnets are logged for forward grading."));
         })(), ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
@@ -19839,4 +19888,4 @@
   };
 })();
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781245161754:348213614

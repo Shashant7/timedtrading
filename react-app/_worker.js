@@ -40,6 +40,7 @@ const ADMIN_ONLY_PAGES = new Set([
   "/trade-autopsy.html",
   "/debug-dashboard.html",
   "/model-dashboard.html",
+  "/model-performance.html",
   "/brand-kit.html",
   "/calibration.html",
   "/simulation-dashboard.html",

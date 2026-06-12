@@ -7915,16 +7915,61 @@
                             {read.label}
                           </span>
                         ) : null;
+                        const rs = ctoTickerLevels.read_status;
+                        const rsMeta = typeof window !== "undefined" && window.TimedCTORead?.readStatus
+                          ? window.TimedCTORead.readStatus(rs?.status)
+                          : null;
+                        const readStatusTag = rs?.label && rs?.status !== "open" ? (
+                          <span
+                            className="ds-chip ds-chip--sm"
+                            title={rs.label}
+                            style={{
+                              color: rsMeta?.tone || "var(--ds-text-muted)",
+                              borderColor: `${rsMeta?.tone || "var(--ds-text-muted)"}66`,
+                              background: `${rsMeta?.tone || "var(--ds-text-muted)"}14`,
+                              fontWeight: 700,
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {rs.label}
+                          </span>
+                        ) : null;
+                        const formatDist = typeof window !== "undefined" && window.TimedCTORead?.formatDistance
+                          ? window.TimedCTORead.formatDistance.bind(window.TimedCTORead)
+                          : (lvl) => {
+                            const d = Number(lvl?.live_distance_pct ?? lvl?.distance_pct);
+                            return Number.isFinite(d) ? `${d > 0 ? "+" : ""}${d.toFixed(1)}%` : null;
+                          };
+                        const levelStatus = typeof window !== "undefined" && window.TimedCTORead?.levelStatus
+                          ? window.TimedCTORead.levelStatus.bind(window.TimedCTORead)
+                          : () => null;
                         const lvlRow = (lvl, dir) => lvl && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", flexWrap: "wrap" }}>
                             <span className={`ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                               {dir === "up" ? "▲" : "▼"} ${Number(lvl.price).toFixed(2)}
                             </span>
                             <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-body)" }}>
                               {(Number(lvl.regime_adjusted_prob ?? lvl.adj_prob) * 100).toFixed(0)}% hit prob
                             </span>
+                            {formatDist(lvl) && (
+                              <span style={{ fontSize: 10.5, color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
+                                {formatDist(lvl)} away
+                              </span>
+                            )}
+                            {(() => {
+                              const st = levelStatus(lvl.level_status);
+                              return st && st.label !== "Open" ? (
+                                <span
+                                  className="ds-chip ds-chip--sm"
+                                  style={{ color: st.tone, borderColor: `${st.tone}66`, background: `${st.tone}14`, fontSize: 9.5, fontWeight: 700 }}
+                                >
+                                  {st.label}
+                                </span>
+                              ) : null;
+                            })()}
                             <span style={{ fontSize: 10.5, color: "var(--ds-text-muted)" }}>
-                              {String(lvl.label || "")}{Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : ""}{lvl.golden_gate ? " · GG" : ""}
+                              {String(lvl.label || "")}{lvl.golden_gate ? " · GG" : ""}
                             </span>
                           </div>
                         );
@@ -7934,6 +7979,7 @@
                             action={(
                               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
                                 {readTag}
+                                {readStatusTag}
                                 <span style={{ fontSize: 9.5, color: "var(--ds-text-faint)" }}>
                                   statistical map · not a trade signal
                                 </span>
@@ -7947,13 +7993,26 @@
                             )}
                             {lvlRow(up, "up")}
                             {lvlRow(dn, "dn")}
+                            {(ctoTickerLevels.bar_as_of_ms || ctoTickerLevels.as_of_date) && (
+                              <div style={{ marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                                Daily close used:{" "}
+                                {typeof window !== "undefined" && window.TimedCTORead?.formatBarAsOf
+                                  ? (window.TimedCTORead.formatBarAsOf(ctoTickerLevels.bar_as_of_ms) || ctoTickerLevels.as_of_date)
+                                  : (ctoTickerLevels.as_of_date || "—")}
+                                {Number.isFinite(Number(ctoTickerLevels.live_price)) && Number.isFinite(Number(ctoTickerLevels.anchor_price)) && (
+                                  <span style={{ marginLeft: 8 }}>
+                                    Live ${Number(ctoTickerLevels.live_price).toFixed(2)} vs anchor ${Number(ctoTickerLevels.anchor_price).toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {ctoTickerLevels.narrative && (
                               <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.5, color: "var(--ds-text-muted)" }}>
                                 {String(ctoTickerLevels.narrative).slice(0, 220)}
                               </div>
                             )}
                             <div style={{ marginTop: 6, fontSize: 9.5, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
-                              Upside and downside probabilities are scored independently. When both are high and close, read a range — not two bets. When one side leads by 12+ pts, lean that way for context only.
+                              Hit % comes from ~2 years of this ticker&apos;s daily bars. Distance and Hit/Faded tags update with live quotes since that daily close. Published magnets are logged for forward grading.
                             </div>
                           </Panel>
                         );
