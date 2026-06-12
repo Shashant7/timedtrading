@@ -472,6 +472,7 @@
       .lane.defend           { --lane-accent: #fb923c; }
       .lane.trim             { --lane-accent: #facc15; }
       .lane.exit             { --lane-accent: var(--tt-dn-soft); }
+      .lane.watching         { --lane-accent: #94a3b8; }
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
@@ -773,6 +774,13 @@
         const defend = [];
         const trim = [];
         const exit = [];
+        const watching = [];
+        const dayPctOf = (t) => {
+          try {
+            const dc = window.TimedPriceUtils?.getDailyChange?.(t);
+            return Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : 0;
+          } catch (_) { return 0; }
+        };
         for (const t of tickers) {
           if (!t || t.kanban_stage === null) continue;
           let stage = String(t?.kanban_stage || "").toLowerCase();
@@ -818,7 +826,8 @@
             case "defend": defend.push(t); break;
             case "trim":   trim.push(t);   break;
             case "exit":   exit.push(t);   break;
-            default: /* watch / unrecognized → not shown */ break;
+            case "watch":  watching.push(t); break;
+            default: break;
           }
         }
         // Sort discovery lanes (setup/enter) by score desc; management by symbol asc.
@@ -828,11 +837,16 @@
           if (sb !== sa) return sb - sa;
           return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
         };
+        const byDayMove = (a, b) => Math.abs(dayPctOf(b)) - Math.abs(dayPctOf(a))
+          || byScore(a, b);
         const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
         setup.sort(byScore); enter.sort(byScore);
+        watching.sort(byDayMove);
+        const WATCH_CAP = 24;
+        const watchingCapped = watching.slice(0, WATCH_CAP);
         newLane.sort(byAlpha); hold.sort(byAlpha);
         defend.sort(byAlpha); trim.sort(byAlpha); exit.sort(byAlpha);
-        return { setup, enter, new: newLane, hold, defend, trim, exit };
+        return { setup, enter, new: newLane, hold, defend, trim, exit, watching: watchingCapped, watchingTotal: watching.length };
       }
 
       // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
@@ -1036,6 +1050,20 @@
               style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
             }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`),
           ),
+          (() => {
+            const reason = String(t?.__setup_reason || t?.__entry_block_reason || "").trim();
+            if (!reason) return null;
+            const label = reason.replace(/^entry_qualified_but_blocked:/, "Blocked: ")
+              .replace(/^setup:/, "Setup: ")
+              .replace(/_/g, " ");
+            return h("div", {
+              style: {
+                marginTop: 4, fontSize: 9.5, lineHeight: 1.35,
+                color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)",
+              },
+              title: reason,
+            }, label.slice(0, 72));
+          })(),
           // EXT price/change — mirrors Market Pulse cards; getExtChange() owns rules.
           (() => {
             const ext = window.TimedPriceUtils?.getExtChange?.(t);
@@ -1193,10 +1221,13 @@
       }
 
       // ── KanbanLane — one row of the board.
-      function KanbanLane({ id, title, accentClass, tickers, sparkCache, savedSet, onToggleSaved, onOpen, tradeByTicker }) {
+      function KanbanLane({ id, title, accentClass, tickers, sparkCache, savedSet, onToggleSaved, onOpen, tradeByTicker, subtitle }) {
         return h("div", { className: `lane ${accentClass}` },
           h("div", { className: "lane-head" },
-            h("div", { className: "lane-name" }, title),
+            h("div", null,
+              h("div", { className: "lane-name" }, title),
+              subtitle && h("div", { style: { fontSize: 10, color: "var(--tt-text-faint)", marginTop: 2, fontWeight: 500 } }, subtitle),
+            ),
             h("div", { className: "lane-count" }, `${tickers.length} ${tickers.length === 1 ? "ticker" : "tickers"}`),
           ),
           h("div", { className: "lane-body" },
@@ -1389,7 +1420,11 @@
           const avgPl = plKnown > 0 ? totalPl / plKnown : null;
           const parts = [];
           if (openCount === 0) {
-            parts.push("No open trades right now — the model is in scouting mode.");
+            if (lanes.watchingTotal > 0 && lanes.setup.length === 0 && lanes.enter.length === 0) {
+              parts.push(`${lanes.watchingTotal} name${lanes.watchingTotal === 1 ? "" : "s"} moving in the universe — none in swing setup yet (see Watching lane).`);
+            } else {
+              parts.push("No open trades right now — the model is in scouting mode.");
+            }
           } else {
             const verbs = [];
             if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
@@ -1405,6 +1440,8 @@
             parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
           } else if (lanes.setup.length > 0) {
             parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
+          } else if (lanes.watchingTotal > lanes.watching?.length) {
+            parts.push(`${lanes.watchingTotal - (lanes.watching?.length || 0)} more scored names in watch (cap ${lanes.watching?.length || 0} shown).`);
           }
           if (lanes.exit.length > 0) {
             parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
@@ -1431,8 +1468,9 @@
               `+${openLanes.length - 20} more`,
             ),
           ),
-          (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0) && h("div", { className: "at-brief-row" },
+          (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0 || lanes.watchingTotal > 0) && h("div", { className: "at-brief-row" },
             h("span", { className: "at-brief-label" }, "Pipeline"),
+            lanes.watchingTotal > 0 && h("span", { className: "at-brief-chip" }, `Watching ${lanes.watchingTotal}`),
             lanes.setup.length > 0 && h("span", { className: "at-brief-chip" }, `Setup ${lanes.setup.length}`),
             lanes.enter.length > 0 && h("span", { className: "at-brief-chip" }, `In Review ${lanes.enter.length}`),
             lanes.new.length > 0   && h("span", { className: "at-brief-chip" }, `Initiated ${lanes.new.length}`),
@@ -1460,7 +1498,7 @@
           // one lane, but be defensive).
           const seen = new Set();
           const out = [];
-          for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit]) {
+          for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit, lanes.watching]) {
             if (!Array.isArray(arr)) continue;
             for (const t of arr) {
               const sym = String(t?.ticker || "").toUpperCase();
@@ -1576,6 +1614,7 @@
             ),
             h("div", null,
               h("div", { className: "tt-sec-title", style: { marginBottom: 6 } }, "THE LANES — AND WHEN TO ACT"),
+              lane("Watching", "scored and moving, but not in a swing setup yet. Context only — not an entry signal."),
               lane("Setup", "watching for a trigger. No action yet."),
               lane("In Review", "the CIO is evaluating an entry."),
               lane("Position Initiated", "a trade was just opened."),
@@ -1671,6 +1710,7 @@
         const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
 
         const laneCounts = useMemo(() => ({
+          watching: lanes.watchingTotal || lanes.watching?.length || 0,
           setup: lanes.setup.length,
           review: lanes.enter.length,
           hold: lanes.hold.length,
@@ -1693,9 +1733,11 @@
             defend: match(lanes.defend),
             trim: match(lanes.trim),
             exit: match(lanes.exit),
+            watching: match(lanes.watching),
           };
           if (!filterLane) return base;
-          const empty = { setup: [], enter: [], new: [], hold: [], defend: [], trim: [], exit: [] };
+          const empty = { setup: [], enter: [], new: [], hold: [], defend: [], trim: [], exit: [], watching: [] };
+          if (filterLane === "watching") return { ...empty, watching: base.watching };
           if (filterLane === "setup") return { ...empty, setup: base.setup };
           if (filterLane === "review") return { ...empty, enter: base.enter };
           if (filterLane === "hold") return { ...empty, hold: base.hold };
@@ -1861,11 +1903,11 @@
                   title: "Show all lanes",
                 }, "All"),
                 h("button", {
-                  className: "at-chip" + (filterLane === "setup" ? " active" : ""),
-                  onClick: () => setFilterLane(filterLane === "setup" ? null : "setup"),
-                  disabled: laneCounts.setup === 0,
-                  title: "Tickers forming a setup but not yet triggered",
-                }, `Setup${laneCounts.setup > 0 ? ` (${laneCounts.setup})` : ""}`),
+                  className: "at-chip" + (filterLane === "watching" ? " active" : ""),
+                  onClick: () => setFilterLane(filterLane === "watching" ? null : "watching"),
+                  disabled: laneCounts.watching === 0,
+                  title: "Scored universe names not yet in a swing setup — sorted by daily move",
+                }, `Watching${laneCounts.watching > 0 ? ` (${laneCounts.watching})` : ""}`),
                 h("button", {
                   className: "at-chip" + (filterLane === "review" ? " active" : ""),
                   onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
@@ -1913,6 +1955,7 @@
                   ),
                 )
               : [
+                  h(KanbanLane, { key: "watching",  id: "watching",  title: "Watching",          accentClass: "watching",  tickers: displayLanes.watching, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, subtitle: lanes.watchingTotal > (displayLanes.watching?.length || 0) ? `Top ${displayLanes.watching?.length || 0} by daily move` : "Scored — no swing setup yet" }),
                   h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: displayLanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                   h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: displayLanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
                   h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: displayLanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),

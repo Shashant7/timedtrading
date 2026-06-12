@@ -8006,6 +8006,9 @@
                                 )}
                               </div>
                             )}
+                            <div style={{ marginTop: 6, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
+                              Hit % = reach magnet within ~20 trading sessions (~1 month) in this ticker&apos;s history.
+                            </div>
                             {ctoTickerLevels.narrative && (
                               <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.5, color: "var(--ds-text-muted)" }}>
                                 {String(ctoTickerLevels.narrative).slice(0, 220)}

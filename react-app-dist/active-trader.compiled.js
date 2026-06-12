@@ -213,6 +213,15 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
   const defend = [];
   const trim = [];
   const exit = [];
+  const watching = [];
+  const dayPctOf = t => {
+    try {
+      const dc = window.TimedPriceUtils?.getDailyChange?.(t);
+      return Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : 0;
+    } catch (_) {
+      return 0;
+    }
+  };
   for (const t of tickers) {
     if (!t || t.kanban_stage === null) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
@@ -260,6 +269,9 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
       case "exit":
         exit.push(t);
         break;
+      case "watch":
+        watching.push(t);
+        break;
       default:
         break;
     }
@@ -270,9 +282,13 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
     if (sb !== sa) return sb - sa;
     return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
   };
+  const byDayMove = (a, b) => Math.abs(dayPctOf(b)) - Math.abs(dayPctOf(a)) || byScore(a, b);
   const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
   setup.sort(byScore);
   enter.sort(byScore);
+  watching.sort(byDayMove);
+  const WATCH_CAP = 24;
+  const watchingCapped = watching.slice(0, WATCH_CAP);
   newLane.sort(byAlpha);
   hold.sort(byAlpha);
   defend.sort(byAlpha);
@@ -285,7 +301,9 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
     hold,
     defend,
     trim,
-    exit
+    exit,
+    watching: watchingCapped,
+    watchingTotal: watching.length
   };
 }
 function ATCard({
@@ -548,6 +566,20 @@ function ATCard({
       fontSize: 10
     }
   }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), (() => {
+    const reason = String(t?.__setup_reason || t?.__entry_block_reason || "").trim();
+    if (!reason) return null;
+    const label = reason.replace(/^entry_qualified_but_blocked:/, "Blocked: ").replace(/^setup:/, "Setup: ").replace(/_/g, " ");
+    return h("div", {
+      style: {
+        marginTop: 4,
+        fontSize: 9.5,
+        lineHeight: 1.35,
+        color: "var(--ds-text-faint)",
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: reason
+    }, label.slice(0, 72));
+  })(), (() => {
     const ext = window.TimedPriceUtils?.getExtChange?.(t);
     if (!ext) return null;
     const extDir = ext.pct >= 0 ? "up" : "dn";
@@ -740,15 +772,23 @@ function KanbanLane({
   savedSet,
   onToggleSaved,
   onOpen,
-  tradeByTicker
+  tradeByTicker,
+  subtitle
 }) {
   return h("div", {
     className: `lane ${accentClass}`
   }, h("div", {
     className: "lane-head"
-  }, h("div", {
+  }, h("div", null, h("div", {
     className: "lane-name"
-  }, title), h("div", {
+  }, title), subtitle && h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      marginTop: 2,
+      fontWeight: 500
+    }
+  }, subtitle)), h("div", {
     className: "lane-count"
   }, `${tickers.length} ${tickers.length === 1 ? "ticker" : "tickers"}`)), h("div", {
     className: "lane-body"
@@ -946,7 +986,11 @@ function ATBrief({
     const avgPl = plKnown > 0 ? totalPl / plKnown : null;
     const parts = [];
     if (openCount === 0) {
-      parts.push("No open trades right now — the model is in scouting mode.");
+      if (lanes.watchingTotal > 0 && lanes.setup.length === 0 && lanes.enter.length === 0) {
+        parts.push(`${lanes.watchingTotal} name${lanes.watchingTotal === 1 ? "" : "s"} moving in the universe — none in swing setup yet (see Watching lane).`);
+      } else {
+        parts.push("No open trades right now — the model is in scouting mode.");
+      }
     } else {
       const verbs = [];
       if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
@@ -962,6 +1006,8 @@ function ATBrief({
       parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
     } else if (lanes.setup.length > 0) {
       parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
+    } else if (lanes.watchingTotal > lanes.watching?.length) {
+      parts.push(`${lanes.watchingTotal - (lanes.watching?.length || 0)} more scored names in watch (cap ${lanes.watching?.length || 0} shown).`);
     }
     if (lanes.exit.length > 0) {
       parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
@@ -989,11 +1035,13 @@ function ATBrief({
     className: "at-brief-label"
   }, `${openCount} Open`), openLanes.slice(0, 20).map(positionChip), openLanes.length > 20 && h("span", {
     className: "at-brief-chip"
-  }, `+${openLanes.length - 20} more`)), (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0) && h("div", {
+  }, `+${openLanes.length - 20} more`)), (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0 || lanes.watchingTotal > 0) && h("div", {
     className: "at-brief-row"
   }, h("span", {
     className: "at-brief-label"
-  }, "Pipeline"), lanes.setup.length > 0 && h("span", {
+  }, "Pipeline"), lanes.watchingTotal > 0 && h("span", {
+    className: "at-brief-chip"
+  }, `Watching ${lanes.watchingTotal}`), lanes.setup.length > 0 && h("span", {
     className: "at-brief-chip"
   }, `Setup ${lanes.setup.length}`), lanes.enter.length > 0 && h("span", {
     className: "at-brief-chip"
@@ -1014,7 +1062,7 @@ function ATBubbleMap({
     if (!lanes) return [];
     const seen = new Set();
     const out = [];
-    for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit]) {
+    for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit, lanes.watching]) {
       if (!Array.isArray(arr)) continue;
       for (const t of arr) {
         const sym = String(t?.ticker || "").toUpperCase();
@@ -1190,7 +1238,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "taking partial profits into a target."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Watching", "scored and moving, but not in a swing setup yet. Context only — not an entry signal."), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "taking partial profits into a target."), lane("Exit", "the model is closing or has closed it."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1282,6 +1330,7 @@ function ActiveTraderApp() {
   }, [data, tradeByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
   const laneCounts = useMemo(() => ({
+    watching: lanes.watchingTotal || lanes.watching?.length || 0,
     setup: lanes.setup.length,
     review: lanes.enter.length,
     hold: lanes.hold.length,
@@ -1302,7 +1351,8 @@ function ActiveTraderApp() {
       hold: match(lanes.hold),
       defend: match(lanes.defend),
       trim: match(lanes.trim),
-      exit: match(lanes.exit)
+      exit: match(lanes.exit),
+      watching: match(lanes.watching)
     };
     if (!filterLane) return base;
     const empty = {
@@ -1312,7 +1362,12 @@ function ActiveTraderApp() {
       hold: [],
       defend: [],
       trim: [],
-      exit: []
+      exit: [],
+      watching: []
+    };
+    if (filterLane === "watching") return {
+      ...empty,
+      watching: base.watching
     };
     if (filterLane === "setup") return {
       ...empty,
@@ -1525,11 +1580,11 @@ function ActiveTraderApp() {
     onClick: () => setFilterLane(null),
     title: "Show all lanes"
   }, "All"), h("button", {
-    className: "at-chip" + (filterLane === "setup" ? " active" : ""),
-    onClick: () => setFilterLane(filterLane === "setup" ? null : "setup"),
-    disabled: laneCounts.setup === 0,
-    title: "Tickers forming a setup but not yet triggered"
-  }, `Setup${laneCounts.setup > 0 ? ` (${laneCounts.setup})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "watching" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "watching" ? null : "watching"),
+    disabled: laneCounts.watching === 0,
+    title: "Scored universe names not yet in a swing setup — sorted by daily move"
+  }, `Watching${laneCounts.watching > 0 ? ` (${laneCounts.watching})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "review" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
     disabled: laneCounts.review === 0,
@@ -1583,6 +1638,18 @@ function ActiveTraderApp() {
       width: 280
     }
   })))))) : [h(KanbanLane, {
+    key: "watching",
+    id: "watching",
+    title: "Watching",
+    accentClass: "watching",
+    tickers: displayLanes.watching,
+    sparkCache,
+    savedSet: saved,
+    onToggleSaved: toggleSaved,
+    onOpen,
+    tradeByTicker,
+    subtitle: lanes.watchingTotal > (displayLanes.watching?.length || 0) ? `Top ${displayLanes.watching?.length || 0} by daily move` : "Scored — no swing setup yet"
+  }), h(KanbanLane, {
     key: "setup",
     id: "setup",
     title: "Setup",
@@ -1681,6 +1748,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781245161754:348213614
+// cache-bust:1781246643866:710678622
 
-// cache-bust:1781245161754:348213614
+// cache-bust:1781246643866:710678622

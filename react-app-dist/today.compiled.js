@@ -2123,7 +2123,10 @@ function CTOLevelsPanel({
       color: "var(--tt-text-faint)",
       fontSize: 10
     }
-  }, "—"), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
+  }, "—"), h("div", {
+    className: "tt-cto-map-levels"
+  }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
+  const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
     className: "tt-card tt-card-pad",
     style: {
@@ -2153,22 +2156,30 @@ function CTOLevelsPanel({
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals."), asOfLabel && h("div", {
+  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals."), h("div", {
+    className: "tt-cto-map-meta"
+  }, asOfLabel ? h("div", {
     style: {
-      fontSize: 11,
-      color: "var(--tt-text-faint)",
-      marginBottom: 10,
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Last daily bar close used for empirical hit-rate math in this map"
-  }, "Predictions use daily closes through ", h("strong", {
-    style: {
-      color: "var(--tt-text-muted)",
-      fontWeight: 600
+      marginBottom: 6,
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--tt-text-muted)"
     }
-  }, asOfLabel), feed.items.length > 0 && h("span", null, ` · ${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` (${feed.tickers_ok} of ${feed.tickers_processed} with enough history)` : ""), feed.live_as_of_ms ? h("span", {
-    title: "Live distance and hit/faded tags use current quotes"
-  }, " · live status updated on load") : null), feed.learning && h("div", {
+  }, "Levels computed from daily closes through ", h("strong", null, asOfLabel), feed.live_as_of_ms && h("span", {
+    style: {
+      color: "var(--tt-text-faint)"
+    }
+  }, " · live distance / hit tags refreshed on load")) : h("div", {
+    style: {
+      marginBottom: 6,
+      color: "var(--tt-accent)"
+    }
+  }, "Prediction anchor time unavailable — refresh the page or wait for the next CTO rollup."), h("div", null, h("strong", null, "Timeframe: "), `each hit % asks whether price reaches the magnet within ~${horizonBars} trading sessions (~1 month), based on this ticker's own daily history.`), feed.items.length > 0 && h("div", {
+    style: {
+      marginTop: 6,
+      fontSize: 10.5,
+      color: "var(--tt-text-faint)"
+    }
+  }, `${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history` : "")), feed.learning && h("div", {
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-faint)",
@@ -5258,6 +5269,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781245161754:348213614
+// cache-bust:1781246643866:710678622
 
-// cache-bust:1781245161754:348213614
+// cache-bust:1781246643866:710678622

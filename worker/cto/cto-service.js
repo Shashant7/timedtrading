@@ -587,6 +587,8 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
     ok: true,
     generated_at: rollup.computed_at || Date.now(),
     prediction_as_of_ms,
+    horizon_bars: HORIZON_BARS,
+    horizon_note: `Empirical hit rates ask whether price reaches each magnet within ~${HORIZON_BARS} trading sessions (~1 month).`,
     tickers_processed: rollup.tickers_processed || 0,
     tickers_ok: rollup.tickers_ok || 0,
     headlines,
