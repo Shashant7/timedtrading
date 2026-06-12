@@ -788,7 +788,27 @@
     return "var(--tt-text-muted, #8AA39A)";
   }
 
-  window.TimedCTORead = { interpret: interpretCTORead, tone: ctoReadTone };
+  window.TimedCTORead = {
+    interpret: interpretCTORead,
+    tone: ctoReadTone,
+    formatBarAsOf(ms) {
+      const n = Number(ms);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      try {
+        return new Date(n).toLocaleString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }) + " ET";
+      } catch (_) {
+        return new Date(n).toISOString().slice(0, 16).replace("T", " ");
+      }
+    },
+  };
 })();
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781244715713:4079987

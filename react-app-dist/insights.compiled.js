@@ -495,9 +495,9 @@ function CIOWatchlist({
       className: "tt-row"
     }, h("div", {
       className: "tt-sec-title"
-    }, "AI CIO WATCHLIST"), h("h2", {
+    }, "AI CIO · CURRENT VIEW"), h("h2", {
       className: "tt-sec-h2"
-    }, "What the model is hunting for"), h("div", {
+    }, "What the desk is weighing in on"), h("div", {
       className: "tt-card tt-card-pad",
       style: {
         color: "var(--tt-text-dim)"
@@ -508,14 +508,14 @@ function CIOWatchlist({
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "AI CIO WATCHLIST"), h("h2", {
+  }, "AI CIO · CURRENT VIEW"), h("h2", {
     className: "tt-sec-h2"
-  }, "What the model is hunting for and what it has learned"), h("p", {
+  }, "What the desk is weighing in on"), h("p", {
     className: "tt-sec-sub",
     style: {
       marginBottom: 14
     }
-  }, "Every closed trade feeds back into setup-level scoring. Patterns that work get more weight; patterns that don't get tightened or sidelined. This is the live read of that loop."), h("div", {
+  }, "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ", "This is guidance from the playbook and open risk — not a trade signal."), h("div", {
     className: "cio-grid"
   }, h("div", {
     className: "cio-card"
@@ -1883,37 +1883,36 @@ function ScrimmagePanel() {
     }
   }, fmtUsd(s.stats?.pnl_usd)))))))));
 }
-function InsightsApp() {
+function InsightsApp({
+  user
+}) {
   const [allMeta, setAllMeta] = useState(null);
-  const [history, setHistory] = useState(null);
   const [summary, setSummary] = useState(null);
-  const [brief, setBrief] = useState(null);
   const [universeChanges, setUniverseChanges] = useState(null);
   const [strategy, setStrategy] = useState(null);
   const [croNote, setCroNote] = useState(null);
   const [education, setEducation] = useState(null);
+  const [history, setHistory] = useState(null);
   const [error, setError] = useState(null);
-  const [dim, setDim] = useState("setup_name");
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [a, h_, b, u, s, sg, cn, ed] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/strategy`, {
+        const [a, u, s, sg, cn, ed, h_] = await Promise.all([fetchAllMeta(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/strategy`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/latest`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/education`, {
           credentials: "include"
-        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetchHistory()]);
         if (!alive) return;
         if (a) setAllMeta(a);
-        if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
-        if (b?.ok) setBrief(b);
         if (u?.ok) setUniverseChanges(u.events || []);
         if (s?.ok) setSummary(s);
         if (sg?.ok) setStrategy(sg);
         if (cn) setCroNote(cn);
         if (ed) setEducation(ed);
+        if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -1922,7 +1921,8 @@ function InsightsApp() {
       alive = false;
     };
   }, []);
-  const loading = !allMeta && !history && !error;
+  const loading = !strategy && !allMeta && !error;
+  const isAdmin = user && (user.role === "admin" || user.tier === "admin");
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -1931,73 +1931,39 @@ function InsightsApp() {
     className: "ins-hero"
   }, h("div", null, h("div", {
     className: "label"
-  }, "INSIGHTS"), h("h1", null, "System Intelligence"), h("div", {
+  }, "INSIGHTS"), h("h1", null, "Strategy Playbook"), h("div", {
     className: "sub"
-  }, "How the model is performing under the hood — and what it is learning. ", "Every closed trade feeds the AI CIO's retrospective: patterns that work get more weight, patterns that don't get tightened."))), h(ModelStatus, {
-    allMeta,
-    history,
-    summary
-  }), h(Disclosure, {
-    id: "scrimmage",
-    title: "Scrimmage Room",
-    sub: "the daily record — every published call, graded against candles",
-    defaultOpen: true
-  }, h(ScrimmagePanel)), h(CIOWatchlist, {
+  }, "How the desk frames the market — active playbook, stretched names to avoid, and the AI CIO's live read on what matters now. ", "Closed-trade performance and scrimmage stats live on the admin Model Performance page."), isAdmin && h("p", {
+    style: {
+      marginTop: 10,
+      fontSize: 12
+    }
+  }, h("a", {
+    href: "/model-performance.html",
+    style: {
+      color: "var(--tt-accent)",
+      textDecoration: "underline"
+    }
+  }, "Open Model Performance (admin)")))), h("section", {
+    className: "tt-row"
+  }, h(ActiveStrategyPanel, {
+    data: strategy
+  })), h("section", {
+    className: "tt-row"
+  }, h(StretchedNamesPanel, {
+    apiBase: API_BASE
+  })), h(CIOWatchlist, {
     allMeta,
     summary,
     history
-  }), h("section", {
-    className: "tt-row"
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 8,
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "VIEW"), h("div", {
-    className: "toggle-row"
-  }, h("button", {
-    className: dim === "setup_name" ? "active" : "",
-    onClick: () => setDim("setup_name")
-  }, "By Setup"), h("button", {
-    className: dim === "setup_grade" ? "active" : "",
-    onClick: () => setDim("setup_grade")
-  }, "By Grade"), h("button", {
-    className: dim === "exit_reason" ? "active" : "",
-    onClick: () => setDim("exit_reason")
-  }, "By Exit Reason")))), history !== null ? h(SetupBreakdown, {
-    history,
-    dim
-  }) : h("div", {
-    className: "sk",
-    style: {
-      height: 280,
-      borderRadius: 12
-    }
   }), h(Disclosure, {
-    id: "strategy",
-    title: "Active Strategy Playbook",
-    sub: "the FSD-informed framing the AI CIO + Daily Brief work from"
-  }, h(ActiveStrategyPanel, {
-    data: strategy
-  })), h(Disclosure, {
     id: "research-note",
     title: "Research Desk Daily Read",
-    sub: "CRO note in TT voice + concept education"
+    sub: "CRO synthesis in TT voice + concept education",
+    defaultOpen: true
   }, h(ResearchNotePanel, {
     note: croNote,
     education
-  })), h(Disclosure, {
-    id: "stretched",
-    title: "Stretched Names",
-    sub: "exhausted-momentum tickers the auto-rebalance is NOT adding"
-  }, h(StretchedNamesPanel, {
-    apiBase: API_BASE
   })), h(Disclosure, {
     id: "universe",
     title: "Universe Changes",
@@ -2025,6 +1991,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781237675789:278077267
+// cache-bust:1781244715713:4079987
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781244715713:4079987

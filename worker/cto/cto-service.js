@@ -386,7 +386,8 @@ export async function computeCTOForTicker(env, ticker, {
 
   const payload = {
     ticker: sym,
-    as_of_date: new Date().toISOString().slice(0, 10),
+    as_of_date: new Date(current.ts > 1e12 ? current.ts : current.ts * 1000).toISOString().slice(0, 10),
+    bar_as_of_ms: current.ts > 1e12 ? current.ts : current.ts * 1000,
     computed_at: Date.now(),
     current_price: Number(current.c.toFixed(4)),
     atr14: atr ? Number(atr.toFixed(4)) : null,
@@ -445,6 +446,8 @@ function toRollupRow(t, r) {
     from_cache: !!r.from_cache,
     error_kind: r.ok ? null : (r.error_kind || "unknown"),
     bars: r.bars || null,
+    as_of_date: r.as_of_date || null,
+    bar_as_of_ms: r.bar_as_of_ms || null,
     narrative: r.narrative || null,
     top_upside: (r.top_upside || []).slice(0, 1),
     top_downside: (r.top_downside || []).slice(0, 1),
@@ -524,6 +527,8 @@ export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
     items.push({
       ticker: sym,
       narrative: row.narrative || null,
+      as_of_date: row.as_of_date || null,
+      bar_as_of_ms: row.bar_as_of_ms || null,
       read_kind: read.kind,
       read_label: read.label,
       read_blurb: read.blurb,
@@ -556,10 +561,13 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
   const rollup = await loadCTOUniverse(env);
   if (!rollup) return { ok: false, error_kind: "no_rollup_yet" };
   const items = buildCTOFeedItemsFromRollup(rollup, { limit });
+  const barTimes = items.map((i) => Number(i.bar_as_of_ms)).filter((n) => Number.isFinite(n) && n > 0);
+  const prediction_as_of_ms = barTimes.length ? Math.max(...barTimes) : null;
   const headlines = Array.isArray(rollup.headlines) ? rollup.headlines.slice(0, 12) : [];
   const payload = {
     ok: true,
     generated_at: rollup.computed_at || Date.now(),
+    prediction_as_of_ms,
     tickers_processed: rollup.tickers_processed || 0,
     tickers_ok: rollup.tickers_ok || 0,
     headlines,

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <title>Insights — Timed Trading</title>
-    <meta name="description" content="System Intelligence: model status, setup-level performance, and weekly retrospective for the Timed Trading engine." />
+    <meta name="description" content="Strategy playbook, stretched names, and the AI CIO's current read — how Timed Trading frames the market and what the desk is weighing." />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27r%27%20x1%3D%276%27%20y1%3D%2742%27%20x2%3D%2742%27%20y2%3D%276%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%2334d399%27%2F%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%2367e8f9%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27url%28%23r%29%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Cline%20x1%3D%2719%27%20y1%3D%2718.5%27%20x2%3D%2716%27%20y2%3D%2715.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2719%27%20y2%3D%2718.5%27%20stroke%3D%27%23636366%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2729.5%27%20y1%3D%2716.5%27%20x2%3D%2732%27%20y2%3D%2712.9%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%271.2%27%20stroke-linecap%3D%27round%27%2F%3E%3Cline%20x1%3D%2724%27%20y1%3D%2724%27%20x2%3D%2729.5%27%20y2%3D%2716.5%27%20stroke%3D%27%2330d158%27%20stroke-width%3D%274%27%20stroke-linecap%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%271.3%27%20fill%3D%27%23000%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1033,8 +1033,8 @@
 
         if (!allMeta && !summary) {
           return h("section", { className: "tt-row" },
-            h("div", { className: "tt-sec-title" }, "AI CIO WATCHLIST"),
-            h("h2", { className: "tt-sec-h2" }, "What the model is hunting for"),
+            h("div", { className: "tt-sec-title" }, "AI CIO · CURRENT VIEW"),
+            h("h2", { className: "tt-sec-h2" }, "What the desk is weighing in on"),
             h("div", { className: "tt-card tt-card-pad", style: { color: "var(--tt-text-dim)" } },
               "Loading\u2026",
             ),
@@ -1042,10 +1042,11 @@
         }
 
         return h("section", { className: "tt-row" },
-          h("div", { className: "tt-sec-title" }, "AI CIO WATCHLIST"),
-          h("h2", { className: "tt-sec-h2" }, "What the model is hunting for and what it has learned"),
+          h("div", { className: "tt-sec-title" }, "AI CIO · CURRENT VIEW"),
+          h("h2", { className: "tt-sec-h2" }, "What the desk is weighing in on"),
           h("p", { className: "tt-sec-sub", style: { marginBottom: 14 } },
-            "Every closed trade feeds back into setup-level scoring. Patterns that work get more weight; patterns that don't get tightened or sidelined. This is the live read of that loop.",
+            "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ",
+            "This is guidance from the playbook and open risk — not a trade signal.",
           ),
           h("div", { className: "cio-grid" },
             // Active board — pill counts + live P&L summary + best/
@@ -1803,116 +1804,84 @@
         );
       }
 
-      function InsightsApp() {
+      function InsightsApp({ user }) {
         const [allMeta, setAllMeta] = useState(null);
-        const [history, setHistory] = useState(null);
         const [summary, setSummary] = useState(null);
-        const [brief, setBrief] = useState(null);
         const [universeChanges, setUniverseChanges] = useState(null);
         const [strategy, setStrategy] = useState(null);
         const [croNote, setCroNote] = useState(null);
         const [education, setEducation] = useState(null);
+        const [history, setHistory] = useState(null);
         const [error, setError] = useState(null);
-        const [dim, setDim] = useState("setup_name");
 
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const [a, h_, b, u, s, sg, cn, ed] = await Promise.all([
-                fetchAllMeta(), fetchHistory(), fetchBrief(), fetchUniverseChanges(),
+              const [a, u, s, sg, cn, ed, h_] = await Promise.all([
+                fetchAllMeta(),
+                fetchUniverseChanges(),
                 fetchLedgerSummary(),
-                // 2026-05-30 — Active Strategy panel data (FSD playbook).
                 fetch(`${API_BASE}/timed/strategy`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
                   .catch(() => null),
-                // 2026-06-04 — CRO daily research note + education (user-facing).
                 fetch(`${API_BASE}/timed/cro/latest`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
                   .catch(() => null),
                 fetch(`${API_BASE}/timed/cro/education`, { credentials: "include" })
                   .then(r => r.ok ? r.json() : null)
                   .catch(() => null),
+                fetchHistory(),
               ]);
               if (!alive) return;
               if (a) setAllMeta(a);
-              if (h_?.ok) setHistory(h_.trades || []);
-              else if (h_) setHistory([]);
-              if (b?.ok) setBrief(b);
               if (u?.ok) setUniverseChanges(u.events || []);
               if (s?.ok) setSummary(s);
               if (sg?.ok) setStrategy(sg);
               if (cn) setCroNote(cn);
               if (ed) setEducation(ed);
+              if (h_?.ok) setHistory(h_.trades || []);
+              else if (h_) setHistory([]);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
         }, []);
 
-        const loading = !allMeta && !history && !error;
+        const loading = !strategy && !allMeta && !error;
+        const isAdmin = user && (user.role === "admin" || user.tier === "admin");
 
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Insights" }),
           h("main", null,
-            // 2026-06-10 — Digestible reorder. The page now reads in three
-            // beats instead of six stacked walls:
-            //   1. Hero + the NUMBERS (ModelStatus KPIs) — the headline
-            //      question "how is the model doing?" answered first.
-            //   2. The actionable core — CIO watchlist + setup breakdown.
-            //   3. Context, collapsed — strategy playbook, research note,
-            //      stretched names, universe changes (open on demand,
-            //      state remembered).
             h("section", { className: "ins-hero" },
               h("div", null,
                 h("div", { className: "label" }, "INSIGHTS"),
-                h("h1", null, "System Intelligence"),
+                h("h1", null, "Strategy Playbook"),
                 h("div", { className: "sub" },
-                  "How the model is performing under the hood — and what it is learning. ",
-                  "Every closed trade feeds the AI CIO's retrospective: patterns that work get more weight, patterns that don't get tightened.",
+                  "How the desk frames the market — active playbook, stretched names to avoid, and the AI CIO's live read on what matters now. ",
+                  "Closed-trade performance and scrimmage stats live on the admin Model Performance page.",
+                ),
+                isAdmin && h("p", { style: { marginTop: 10, fontSize: 12 } },
+                  h("a", {
+                    href: "/model-performance.html",
+                    style: { color: "var(--tt-accent)", textDecoration: "underline" },
+                  }, "Open Model Performance (admin)"),
                 ),
               ),
             ),
-            // Beat 1 — the numbers.
-            h(ModelStatus, { allMeta, history, summary }),
-            // Beat 1.5 (C2) — the Scrimmage Room: training-camp scoreboard +
-            // the graded tape of every published call. Honest wins AND losses.
-            h(Disclosure, {
-              id: "scrimmage",
-              title: "Scrimmage Room",
-              sub: "the daily record — every published call, graded against candles",
-              defaultOpen: true,
-            }, h(ScrimmagePanel)),
-            // Beat 2 — the actionable core.
-            h(CIOWatchlist, { allMeta, summary, history }),
             h("section", { className: "tt-row" },
-              h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 } },
-                h("div", { className: "tt-sec-title" }, "VIEW"),
-                h("div", { className: "toggle-row" },
-                  h("button", { className: dim === "setup_name"  ? "active" : "", onClick: () => setDim("setup_name") }, "By Setup"),
-                  h("button", { className: dim === "setup_grade" ? "active" : "", onClick: () => setDim("setup_grade") }, "By Grade"),
-                  h("button", { className: dim === "exit_reason" ? "active" : "", onClick: () => setDim("exit_reason") }, "By Exit Reason"),
-                ),
-              ),
+              h(ActiveStrategyPanel, { data: strategy }),
             ),
-            history !== null
-              ? h(SetupBreakdown, { history, dim })
-              : h("div", { className: "sk", style: { height: 280, borderRadius: 12 } }),
-            // Beat 3 — context on demand.
-            h(Disclosure, {
-              id: "strategy",
-              title: "Active Strategy Playbook",
-              sub: "the FSD-informed framing the AI CIO + Daily Brief work from",
-            }, h(ActiveStrategyPanel, { data: strategy })),
+            h("section", { className: "tt-row" },
+              h(StretchedNamesPanel, { apiBase: API_BASE }),
+            ),
+            h(CIOWatchlist, { allMeta, summary, history }),
             h(Disclosure, {
               id: "research-note",
               title: "Research Desk Daily Read",
-              sub: "CRO note in TT voice + concept education",
+              sub: "CRO synthesis in TT voice + concept education",
+              defaultOpen: true,
             }, h(ResearchNotePanel, { note: croNote, education })),
-            h(Disclosure, {
-              id: "stretched",
-              title: "Stretched Names",
-              sub: "exhausted-momentum tickers the auto-rebalance is NOT adding",
-            }, h(StretchedNamesPanel, { apiBase: API_BASE })),
             h(Disclosure, {
               id: "universe",
               title: "Universe Changes",

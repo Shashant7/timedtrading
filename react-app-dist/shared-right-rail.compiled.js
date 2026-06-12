@@ -9236,7 +9236,14 @@
               lineHeight: 1.45,
               color: "var(--ds-text-muted)"
             }
-          }, String(read.blurb)), lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
+          }, String(read.blurb)), lvlRow(up, "up"), lvlRow(dn, "dn"), (ctoTickerLevels.bar_as_of_ms || ctoTickerLevels.as_of_date) && React.createElement("div", {
+            style: {
+              marginTop: 8,
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "Daily close used:", " ", typeof window !== "undefined" && window.TimedCTORead?.formatBarAsOf ? window.TimedCTORead.formatBarAsOf(ctoTickerLevels.bar_as_of_ms) || ctoTickerLevels.as_of_date : ctoTickerLevels.as_of_date || "—"), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
               fontSize: 11,
@@ -19839,4 +19846,4 @@
   };
 })();
 
-// cache-bust:1781237675789:278077267
+// cache-bust:1781244715713:4079987

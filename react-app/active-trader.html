@@ -838,6 +838,13 @@
       // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
       function ATCard({ t, onOpen, sparkSrc, isSaved, onToggleSaved, openTrade }) {
         const sym = String(t?.ticker || "").toUpperCase();
+        // Match index-react DsCompactCard: request sparkline on render so
+        // Setup-lane cards beyond the prefetch head still populate.
+        useEffect(() => {
+          if (typeof window._dsEnsureSparkline === "function") {
+            window._dsEnsureSparkline(sym);
+          }
+        }, [sym]);
         const dailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
           || (() => ({ dayPct: null, dayChg: null }));
         const dc = (() => { try { return dailyChange(t); } catch (_) { return null; } })();
@@ -1698,18 +1705,17 @@
           return base;
         }, [lanes, searchQuery, filterLane]);
 
-        // Pre-fetch sparklines for the visible top of each lane (first ~6)
+        // Pre-fetch sparklines for every card rendered in each lane.
         useEffect(() => {
           if (!ensureSpark) return;
-          const heads = []
-            .concat(displayLanes.setup.slice(0, 6))
-            .concat(displayLanes.enter.slice(0, 6))
-            .concat(displayLanes.new.slice(0, 6))
-            .concat(displayLanes.hold.slice(0, 12))
-            .concat(displayLanes.defend.slice(0, 12))
-            .concat(displayLanes.trim.slice(0, 6))
-            .concat(displayLanes.exit.slice(0, 6));
-          heads.forEach((t) => t?.ticker && ensureSpark(t.ticker));
+          const syms = new Set();
+          for (const lane of Object.values(displayLanes)) {
+            for (const t of lane || []) {
+              const s = String(t?.ticker || "").toUpperCase();
+              if (s) syms.add(s);
+            }
+          }
+          syms.forEach((s) => ensureSpark(s));
         }, [displayLanes, ensureSpark]);
 
         // Right rail overlay state — card clicks pop the slide-in panel
