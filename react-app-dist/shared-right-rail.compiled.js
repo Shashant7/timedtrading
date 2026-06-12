@@ -4942,6 +4942,26 @@
           cancelled = true;
         };
       }, [tickerSymbol, railTab, API_BASE]);
+      const [ctoTickerLevels, setCtoTickerLevels] = useState(null);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym || railTab !== "SNAPSHOT") return;
+        let cancelled = false;
+        setCtoTickerLevels(null);
+        (async () => {
+          try {
+            const j = await _cachedJson(`${API_BASE}/timed/cto/ticker?ticker=${encodeURIComponent(sym)}`, {
+              ttlMs: 5 * 60 * 1000,
+              maxAgeMs: 60 * 60 * 1000
+            });
+            if (cancelled || !j) return;
+            if (j?.ok && (j.top_upside?.length || j.top_downside?.length)) setCtoTickerLevels(j);else setCtoTickerLevels(null);
+          } catch (_) {}
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, railTab, API_BASE]);
       const [strategyAlignment, setStrategyAlignment] = useState(null);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -9145,6 +9165,56 @@
               color: "var(--ds-text-dim)"
             }
           }, "Decision: ", statusMeta.label.toLowerCase(), " \xB7 ", decidedLabel));
+        })(), ctoTickerLevels && (() => {
+          const up = ctoTickerLevels.top_upside?.[0] || null;
+          const dn = ctoTickerLevels.top_downside?.[0] || null;
+          if (!up && !dn) return null;
+          const lvlRow = (lvl, dir) => lvl && React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "5px 0"
+            }
+          }, React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, dir === "up" ? "▲" : "▼", " $", Number(lvl.price).toFixed(2)), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 11,
+              color: "var(--ds-text-body)"
+            }
+          }, (Number(lvl.regime_adjusted_prob ?? lvl.adj_prob) * 100).toFixed(0), "% hit prob"), React.createElement("span", {
+            style: {
+              fontSize: 10.5,
+              color: "var(--ds-text-muted)"
+            }
+          }, String(lvl.label || ""), Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : "", lvl.golden_gate ? " · GG" : ""));
+          return React.createElement(Panel, {
+            title: "\uD83D\uDCD0 CTO Levels",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 9.5,
+                color: "var(--ds-text-faint)"
+              }
+            }, "data science \xB7 not a trade signal")
+          }, lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
+            style: {
+              marginTop: 6,
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: "var(--ds-text-muted)"
+            }
+          }, String(ctoTickerLevels.narrative).slice(0, 220)), React.createElement("div", {
+            style: {
+              marginTop: 6,
+              fontSize: 9.5,
+              color: "var(--ds-text-faint)"
+            }
+          }, "Empirical hit rates from this ticker's own daily history, Markov-regime adjusted. Separate from the Trader Model plan above."));
         })(), ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
@@ -19733,4 +19803,4 @@
   };
 })();
 
-// cache-bust:1781211627065:450205696
+// cache-bust:1781232766803:580377575

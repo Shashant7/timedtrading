@@ -3091,6 +3091,34 @@ Fix checklist:
 Verify: `curl /timed/investor/scores | jq '.tickers[] | select(.ticker=="DBA")'`
 → empty; re-run purge if a stale KV row persists.
 
+#### CTO surfacing PR split (#627 / #628) — backend landed without UI + bad rank overlay [2026-06-12]
+
+Symptoms:
+
+1. **PR #627 description promised P1/P2 UI** (Today `CTOLevelsPanel`, Snapshot
+   CTO panel) but the GitHub branch only contained the **worker commit** — the
+   UI + `react-app-dist/` commit never reached `origin/cursor/cto-now-tab-scoring-7b37`
+   (local was 1 commit ahead of remote).
+2. **`check-dist` failed on PR #628** — `shared-right-rail.compiled.js` did not
+   match a fresh `npm run build:frontend` after `shared-right-rail.js` edits.
+3. **Officer rank CRO component used prose regex** on the daily note — mixed-tone
+   notes netted zero tilt; single-tone notes hit every merely-mentioned sector.
+
+Fix / merge path:
+
+- **Merge #628 only** (contains #627 worker work + UI + review fixes). **Close #627**
+  without merging — it is a strict subset with a misleading description.
+- CRO live-rank tilt must use **`cro:tactical_overrides` structured theme keys**
+  (same convention as promotion queue `W_TACTICAL`), not CRO note prose scanning.
+- `loadOfficerRankMap` needs the same **5-minute in-isolate cache** as theme-tilt
+  (runs on every `/timed/all` + scoring tick otherwise).
+- Any PR touching `react-app/shared-right-rail.js` MUST include a full
+  `npm run build:frontend` + committed `react-app-dist/` in the same push — the
+  right-rail compiles to `shared-right-rail.compiled.js`, not only page bundles.
+
+Verify after merge: `GET /timed/cto/feed` (auth), Today hero CTO panel (admin),
+Snapshot CTO card on SPY, vitest + check-dist green, worker deploy for rank tilt.
+
 #### Daily Brief summary on Today hero starts lowercase
 
 Symptom: Today page `.brief-summary` opened with a lowercase letter (e.g.

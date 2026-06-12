@@ -300,6 +300,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - **`/timed/all` micro_cache must overlay `timed:prices`**: The 5-min micro-cache fast path returned snapshot payloads without the live price overlay, so even the API served wrong `close` values. Always run `feedOverlayTimedPricesRow` before returning micro_cache hits. (PR #594)
 - **`purge-ticker` must drop investor KV caches**: `/timed/all` can be clean while `/timed/investor/scores` still serves a purged ticker (Investor cards). `POST /timed/admin/purge-ticker` now deletes keys from `timed:investor:scores`, `stages`, `rs-ranks`, `prev-stages`; read/compute paths filter `timed:removed`. (PR #595)
 - **Daily Brief Today hero summary lowercase (fixed)**: `_plain()` stripped label prefixes before the first colon (`Risk-on tone: bulls…` → `bulls…`); `extractBriefLead()` also skipped all lowercase-starting lines. Fix: capitalize first letter after `_plain()`; only skip lowercase lines when continuing a wrapped paragraph; `ensureLeadSentenceCase()` on stored `leadSummary`. (PR #596)
+- **CTO surfacing (#627→#628)**: Merge **#628 only** — #627 shipped worker-only while the PR body claimed P1/P2 UI; officer-rank CRO tilt must use structured `cro:tactical_overrides` (not daily-note prose regex); `loadOfficerRankMap` needs 5-min isolate cache like theme-tilt; `shared-right-rail.js` edits require full `npm run build:frontend` + committed dist or `check-dist` fails. (PR #628)
 
 **Trades**
 - `exit_ts` on ALL exit paths

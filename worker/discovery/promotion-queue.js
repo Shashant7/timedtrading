@@ -53,6 +53,7 @@ const W_SOCIAL = 10;
 // scores in favour of the on-thesis name.
 const W_STRATEGY = 8;
 const W_TACTICAL = 4; // max ± points from the gated FSD tactical-overlay nudge
+const W_CTO = 5;      // max ± from CTO probabilistic level alignment (gated)
 
 // ── Quality floors ───────────────────────────────────────────────────────
 const HARD_FLOOR_MARKET_CAP = 2_000_000_000; // $2B
@@ -605,6 +606,53 @@ function scoreStrategyAlignment(sym, latest, tacticalCtx) {
   }
 }
 
+/** CTO probabilistic level alignment — regime-adjusted upside/downside vs momentum. */
+function scoreCTOAlignment(sym, latest, ctoRow) {
+  if (!ctoRow || !ctoRow.ok) return { pts: 0, reason: null };
+  try {
+    const chg = Number(latest?.change_pct) || 0;
+    const up = ctoRow.top_upside?.[0];
+    const dn = ctoRow.top_downside?.[0];
+    const upProb = Number(up?.regime_adjusted_prob);
+    const dnProb = Number(dn?.regime_adjusted_prob);
+    let pts = 0;
+    const bits = [];
+    if (Number.isFinite(upProb) && upProb >= 0.65) {
+      const mag = Math.min(1, (upProb - 0.5) / 0.35);
+      const sign = chg >= 0 ? 1 : 0.5;
+      pts += Math.round(mag * W_CTO * sign);
+      bits.push(`upside ${up.label}@${Number(up.price).toFixed(2)} ${(upProb * 100).toFixed(0)}%`);
+    }
+    if (Number.isFinite(dnProb) && dnProb >= 0.65 && chg < -1) {
+      pts -= Math.round(Math.min(W_CTO, (dnProb - 0.5) * W_CTO));
+      bits.push(`downside risk ${dn.label}`);
+    }
+    pts = Math.max(-W_CTO, Math.min(W_CTO, pts));
+    return { pts, reason: bits.length ? bits.join("; ") : null, up_prob: upProb || null, dn_prob: dnProb || null };
+  } catch (_) {
+    return { pts: 0, reason: null };
+  }
+}
+
+async function buildCTOScoringContext(env) {
+  const ctx = { enabled: true, byTicker: {} };
+  try {
+    if (!env?.DB) return ctx;
+    const cfg = await env.DB.prepare(
+      `SELECT config_value FROM model_config WHERE config_key = 'cto_promotion_nudge_enabled'`,
+    ).first().catch(() => null);
+    const v = cfg ? String(cfg.config_value).toLowerCase() : "true";
+    if (v === "false" || v === "0") ctx.enabled = false;
+    const { loadCTOUniverse } = await import("../cto/cto-service.js");
+    const rollup = await loadCTOUniverse(env);
+    for (const row of rollup?.results || []) {
+      const sym = String(row?.ticker || "").toUpperCase();
+      if (sym) ctx.byTicker[sym] = row;
+    }
+  } catch (_) { ctx.enabled = false; }
+  return ctx;
+}
+
 // Build the (gated) FSD tactical-overlay nudge context once per scoring run.
 // Reads the operator flag + the live tactical override, mapping affected
 // themes/sectors to a favor (+1) / caution (-1) direction.
@@ -641,7 +689,7 @@ async function buildTacticalNudgeContext(env) {
 }
 
 // ── Main scorer ──────────────────────────────────────────────────────────
-function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary, socialSummary, tacticalCtx) {
+function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, newsSummary, insiderSummary, macroSnapshot, coverageGapsSummary, socialSummary, tacticalCtx, ctoCtx) {
   const sym = String(ticker || "").toUpperCase();
   const appearances = (allAppearances || []).filter((a) => String(a.ticker || "").toUpperCase() === sym);
   const themes = getThemesForTicker(sym);
@@ -656,6 +704,9 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const peerResult = scorePeer(themes, coverageGapsSummary);
   const socialResult = scoreSocial(socialSummary);
   const strategyResult = scoreStrategyAlignment(sym, latest, tacticalCtx);
+  const ctoResult = (ctoCtx && ctoCtx.enabled)
+    ? scoreCTOAlignment(sym, latest, ctoCtx.byTicker?.[sym])
+    : { pts: 0, reason: null };
 
   const components = {
     sustain: sustainPts,
@@ -667,6 +718,7 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
     peer: peerResult,
     social: socialResult,
     strategy: strategyResult,
+    cto: ctoResult,
     _raw_appearances: appearances,
   };
 
@@ -674,7 +726,7 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   const totalRaw =
     sustainPts + qualityPts + themeResult.pts + newsResult.pts +
     insiderResult.pts + macroResult.pts + peerResult.pts + socialResult.pts +
-    strategyResult.pts;
+    strategyResult.pts + ctoResult.pts;
   const deductions = redFlags.reduce((s, f) => s + f.deduction, 0);
   const totalScore = Math.max(-100, Math.min(SCORE_MAX, totalRaw - deductions));
 
@@ -796,6 +848,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
 
   // Gated FSD tactical-overlay nudge context (default OFF).
   const tacticalCtx = await buildTacticalNudgeContext(env);
+  const ctoCtx = await buildCTOScoringContext(env);
 
   // 5. Score every unique ticker.
   const now = Date.now();
@@ -805,7 +858,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
       const result = scoreCandidate(
         sym, latestBySym[sym], candidates, themeActivityByName,
         newsSummaries[sym], insiderSummaries[sym], macroSnapshot, coverageGapsSummary,
-        socialSummaries[sym], tacticalCtx,
+        socialSummaries[sym], tacticalCtx, ctoCtx,
       );
       result.in_universe = inUniverseSet.has(sym);
       // Annotate signals payload so the UI can render the badge without
