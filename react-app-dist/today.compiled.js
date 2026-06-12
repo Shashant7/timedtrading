@@ -1958,13 +1958,13 @@ function CTOLevelsPanel({
     let alive = true;
     const load = async () => {
       try {
-        const j = window.TTFetchCache ? await window.TTFetchCache.get(`${API_BASE || ""}/timed/cto/feed?limit=12`, {
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(`${API_BASE || ""}/timed/cto/feed?limit=30`, {
           ttlMs: 5 * 60 * 1000,
           maxAgeMs: 30 * 60 * 1000,
           fetchOpts: {
             credentials: "include"
           }
-        }) : await fetchJsonRetry(`${API_BASE || ""}/timed/cto/feed?limit=12`);
+        }) : await fetchJsonRetry(`${API_BASE || ""}/timed/cto/feed?limit=30`);
         if (alive && j?.ok && Array.isArray(j.items)) setFeed(j);
       } catch (_) {}
     };
@@ -1976,8 +1976,8 @@ function CTOLevelsPanel({
   }, []);
   if (!feed || !feed.items?.length) return null;
   const ageMin = feed.generated_at ? Math.round((Date.now() - Number(feed.generated_at)) / 60000) : null;
-  const indexRows = feed.items.filter(it => it.is_index).slice(0, 4);
-  const movers = feed.items.filter(it => !it.is_index).slice(0, 5);
+  const indexRows = feed.items.filter(it => it.is_index);
+  const movers = feed.items.filter(it => !it.is_index);
   const probChip = (lvl, dir) => lvl && h("span", {
     className: `ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
     style: {
@@ -2013,7 +2013,7 @@ function CTOLevelsPanel({
     }
   }, h("div", {
     className: "tt-sec-title"
-  }, "CTO DESK — PROBABILISTIC LEVELS"), h("div", {
+  }, "PROBABILISTIC LEVEL MAP"), h("div", {
     className: "tt-sec-h",
     style: {
       fontSize: 15
@@ -2024,12 +2024,25 @@ function CTOLevelsPanel({
       color: "var(--tt-text-dim)",
       marginBottom: 8
     }
-  }, "Fib / ATR / pivot levels with empirical hit rates, Markov-regime adjusted. Data-science context — not engine trade signals.", ageMin != null && h("span", {
+  }, "Fib / ATR / pivot levels with empirical hit rates, Markov-regime adjusted. Statistical context — not engine trade signals.", ageMin != null && h("span", {
     style: {
       marginLeft: 6,
       color: "var(--tt-text-faint)"
     }
-  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`)), indexRows.length > 0 && h("div", {
+  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`), feed.count != null && h("span", {
+    style: {
+      marginLeft: 6,
+      color: "var(--tt-text-faint)"
+    }
+  }, `· ${feed.items.length} tickers`)), h("div", {
+    style: {
+      maxHeight: 320,
+      overflowY: "auto",
+      overflowX: "hidden",
+      paddingRight: 4,
+      WebkitOverflowScrolling: "touch"
+    }
+  }, indexRows.length > 0 && h("div", {
     style: {
       marginBottom: 6
     }
@@ -2042,7 +2055,7 @@ function CTOLevelsPanel({
       textTransform: "uppercase",
       margin: "4px 0"
     }
-  }, "Index focus"), indexRows.map(row)), movers.length > 0 && h("div", null, h("div", {
+  }, "Index & sector focus"), indexRows.map(row)), movers.length > 0 && h("div", null, h("div", {
     style: {
       fontSize: 10,
       fontWeight: 700,
@@ -2051,7 +2064,7 @@ function CTOLevelsPanel({
       textTransform: "uppercase",
       margin: "8px 0 4px"
     }
-  }, "Highest-probability setups"), movers.map(row)));
+  }, "Highest-probability setups"), movers.map(row))));
 }
 function MarketState({
   data,
@@ -5099,6 +5112,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781232766803:580377575
+// cache-bust:1781234538650:846530162
 
-// cache-bust:1781232766803:580377575
+// cache-bust:1781234538650:846530162

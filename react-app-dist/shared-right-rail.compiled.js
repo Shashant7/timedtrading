@@ -4955,7 +4955,8 @@
               maxAgeMs: 60 * 60 * 1000
             });
             if (cancelled || !j) return;
-            if (j?.ok && (j.top_upside?.length || j.top_downside?.length)) setCtoTickerLevels(j);else setCtoTickerLevels(null);
+            const hasLevels = Array.isArray(j.top_upside) && j.top_upside.length > 0 || Array.isArray(j.top_downside) && j.top_downside.length > 0;
+            if (j?.ok !== false && hasLevels) setCtoTickerLevels(j);else setCtoTickerLevels(null);
           } catch (_) {}
         })();
         return () => {
@@ -9194,13 +9195,13 @@
             }
           }, String(lvl.label || ""), Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : "", lvl.golden_gate ? " · GG" : ""));
           return React.createElement(Panel, {
-            title: "\uD83D\uDCD0 CTO Levels",
+            title: "Probabilistic Levels",
             action: React.createElement("span", {
               style: {
                 fontSize: 9.5,
                 color: "var(--ds-text-faint)"
               }
-            }, "data science \xB7 not a trade signal")
+            }, "statistical map \xB7 not a trade signal")
           }, lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
@@ -19803,4 +19804,4 @@
   };
 })();
 
-// cache-bust:1781232766803:580377575
+// cache-bust:1781234538650:846530162

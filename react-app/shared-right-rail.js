@@ -3602,7 +3602,9 @@
             try {
               const j = await _cachedJson(`${API_BASE}/timed/cto/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 60 * 60 * 1000 });
               if (cancelled || !j) return;
-              if (j?.ok && (j.top_upside?.length || j.top_downside?.length)) setCtoTickerLevels(j);
+              const hasLevels = Array.isArray(j.top_upside) && j.top_upside.length > 0
+                || Array.isArray(j.top_downside) && j.top_downside.length > 0;
+              if (j?.ok !== false && hasLevels) setCtoTickerLevels(j);
               else setCtoTickerLevels(null);
             } catch (_) { /* best-effort — panel simply doesn't render */ }
           })();
@@ -7903,10 +7905,10 @@
                         );
                         return (
                           <Panel
-                            title="📐 CTO Levels"
+                            title="Probabilistic Levels"
                             action={(
                               <span style={{ fontSize: 9.5, color: "var(--ds-text-faint)" }}>
-                                data science · not a trade signal
+                                statistical map · not a trade signal
                               </span>
                             )}
                           >
