@@ -9194,9 +9194,13 @@
             }
           }, String(lvl.label || ""), Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : "", lvl.golden_gate ? " · GG" : ""));
           return React.createElement(Panel, {
-            icon: "\uD83D\uDCD0",
-            title: "CTO Levels",
-            sub: "probabilistic \xB7 data science, not a trade signal"
+            title: "\uD83D\uDCD0 CTO Levels",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 9.5,
+                color: "var(--ds-text-faint)"
+              }
+            }, "data science \xB7 not a trade signal")
           }, lvlRow(up, "up"), lvlRow(dn, "dn"), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
@@ -19799,4 +19803,4 @@
   };
 })();
 
-// cache-bust:1781231893295:221162515
+// cache-bust:1781232766803:580377575
