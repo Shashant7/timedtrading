@@ -530,7 +530,12 @@ export async function cronFetchLatest(env, allTickers) {
   //   tier C — aggregated TFs (D/W/M): top-of-hour only, full universe.
   //            ~250 tickers × 3 TFs × a handful of bars each is well within
   //            TwelveData's per-minute quota.
-  const streamRedundantTfs = ["5", "10", "15", "30"];
+  // 10/15/30 are freshness-critical (CRITICAL_RTH in freshness.js) but were
+  // lumped into "stream-redundant" and only half-refreshed each */5 tick.
+  // PriceStream updates timed:prices only — it does NOT write D1 — so half-
+  // slicing left ~half the universe STALE on 10m mid-session (GILD class).
+  const criticalIntradayTfs = ["10", "15", "30"];
+  const streamRedundantTfs = ["5"];
   const streamUncoveredIntradayTfs = ["60", "240"];
   const aggregatedTfs = isTopOfHour ? ["D", "W", "M"] : [];
 
@@ -540,7 +545,7 @@ export async function cronFetchLatest(env, allTickers) {
   // 60/240 use the half slice off-hour for rate control; at top-of-hour they
   // upgrade to the full universe (closes the second-half stale-bar gap).
   const uncoveredIntradayTickers = isTopOfHour ? allTickers : halfTickers;
-  console.log(`[TD CRON] redundant=[${streamRedundantTfs}] (half=${halfIdx}, ${halfTickers.length}/${allTickers.length}) uncovered_intraday=[${streamUncoveredIntradayTfs}] (${uncoveredIntradayTickers.length}/${allTickers.length}${isTopOfHour ? ", full @ top-of-hour" : ", half"}) slot=${slotIdx}${isTopOfHour ? ` + aggregated=[${aggregatedTfs}] full` : ""}`);
+  console.log(`[TD CRON] critical_intraday=[${criticalIntradayTfs}] (full ${allTickers.length}) redundant=[${streamRedundantTfs}] (half=${halfIdx}, ${halfTickers.length}/${allTickers.length}) uncovered_intraday=[${streamUncoveredIntradayTfs}] (${uncoveredIntradayTickers.length}/${allTickers.length}${isTopOfHour ? ", full @ top-of-hour" : ", half"}) slot=${slotIdx}${isTopOfHour ? ` + aggregated=[${aggregatedTfs}] full` : ""}`);
 
   let totalUpserted = 0, totalErrors = 0;
 
@@ -586,6 +591,7 @@ export async function cronFetchLatest(env, allTickers) {
   const _fastPace = { batchDelayMs: 2500 };
   await runTfBatch(aggregatedTfs, allTickers, _fastPace);
   await runTfBatch(streamUncoveredIntradayTfs, uncoveredIntradayTickers, _fastPace);
+  await runTfBatch(criticalIntradayTfs, allTickers, _fastPace);
   await runTfBatch(streamRedundantTfs, halfTickers);
 
   return { ok: true, upserted: totalUpserted, errors: totalErrors };

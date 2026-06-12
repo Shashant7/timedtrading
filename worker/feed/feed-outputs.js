@@ -266,8 +266,11 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
     .filter(([sym, snap]) => sym && Number(snap?.p) > 0)
     .sort((a, b) => (priority.has(a[0]) ? 0 : 1) - (priority.has(b[0]) ? 0 : 1));
 
-  const maxTickers = Math.max(10, Math.min(300, Number(opts.maxTickers) || 120));
-  const chartTfs = [60];
+  // Freshness Doctrine grades 10/30 as CRITICAL_RTH — patch all leading
+  // intraday TFs from the live quote so D1 ages stay within SLO between
+  // */5 REST bar fetches (PriceStream does NOT write ticker_candles).
+  const maxTickers = Math.max(10, Math.min(300, Number(opts.maxTickers) || 280));
+  const chartTfs = [10, 15, 30, 60];
   const nowMs = Date.now();
   const updatedAt = nowMs;
   const stmts = [];
