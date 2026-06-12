@@ -416,6 +416,20 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_volatility_expansion_enabled",             // default off
   "deep_audit_volatility_expansion_atr_pct",             // default 4
   "deep_audit_volatility_expansion_floor_delta",         // default 5
+  // 2026-06-12 — capture-rate PR #639: smart gates + early momentum breakout
+  "deep_audit_momentum_breakout_early_qualify_enabled",
+  "deep_audit_momentum_breakout_conviction_delta",
+  "deep_audit_momentum_breakout_min_rank",
+  "deep_audit_momentum_breakout_near_high_pct",
+  "deep_audit_momentum_breakout_early_min_rvol",
+  "deep_audit_ath_breakout_relax_tight_base_for_momentum",
+  "deep_audit_smart_gate_late_day_bypass_enabled",
+  "deep_audit_smart_gate_late_day_min_rank",
+  "deep_audit_smart_gate_late_day_min_rvol",
+  "deep_audit_smart_gate_late_day_min_conviction",
+  "deep_audit_smart_gate_macro_bypass_enabled",
+  "deep_audit_smart_gate_macro_min_rank",
+  "deep_audit_smart_gate_macro_min_conviction",
   // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
   "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long",  // default 0.75 (vs 0.60 base)
   // V15 P0.7.53 (2026-05-03) — extend lever 1 cohort relax to PROFIT_GIVEBACK + SMART_RUNNER
