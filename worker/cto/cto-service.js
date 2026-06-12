@@ -45,6 +45,7 @@ import {
   rollupRowFromCachedPayload,
   resolveScoredUniverseTickers,
 } from "./cto-universe.js";
+import { backfillItemBarAsOfMs, resolvePredictionAsOfMs } from "./cto-as-of.js";
 
 const KV_LATEST_KEY = "timed:cto:latest";
 const KV_TICKER_PREFIX = "timed:cto:ticker:";
@@ -578,10 +579,11 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
       item.bar_as_of_ms = cached.bar_as_of_ms;
       item.as_of_date = cached.as_of_date || item.as_of_date;
     }
+    backfillItemBarAsOfMs(item);
     kvReads += 1;
   }
-  const barTimes = items.map((i) => Number(i.bar_as_of_ms)).filter((n) => Number.isFinite(n) && n > 0);
-  const prediction_as_of_ms = barTimes.length ? Math.max(...barTimes) : null;
+  for (const item of items) backfillItemBarAsOfMs(item);
+  const prediction_as_of_ms = resolvePredictionAsOfMs(items, rollup.computed_at || Date.now());
   const headlines = Array.isArray(rollup.headlines) ? rollup.headlines.slice(0, 12) : [];
   const basePayload = {
     ok: true,

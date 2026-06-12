@@ -833,5 +833,54 @@
         return new Date(n).toISOString().slice(0, 16).replace("T", " ");
       }
     },
+    formatAsOfDate(dateStr) {
+      const raw = String(dateStr || "").trim();
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!m) return null;
+      try {
+        const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0));
+        return d.toLocaleDateString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }) + " ET (daily close)";
+      } catch (_) {
+        return raw.slice(0, 10) + " (daily close)";
+      }
+    },
+    resolveFeedAsOfLabel(feed) {
+      const formatBar = window.TimedCTORead?.formatBarAsOf || (() => null);
+      const formatDate = window.TimedCTORead?.formatAsOfDate || (() => null);
+      const ms = Number(feed?.prediction_as_of_ms);
+      if (Number.isFinite(ms) && ms > 0) {
+        const fromMs = formatBar(ms);
+        if (fromMs) return fromMs;
+      }
+      const items = Array.isArray(feed?.items) ? feed.items : [];
+      let bestBar = 0;
+      let bestDate = null;
+      for (const it of items) {
+        const bar = Number(it?.bar_as_of_ms);
+        if (Number.isFinite(bar) && bar > bestBar) bestBar = bar;
+        if (it?.as_of_date && (!bestDate || String(it.as_of_date) > bestDate)) {
+          bestDate = String(it.as_of_date).slice(0, 10);
+        }
+      }
+      if (bestBar > 0) {
+        const fromBar = formatBar(bestBar);
+        if (fromBar) return fromBar;
+      }
+      if (bestDate) {
+        const fromDate = formatDate(bestDate);
+        if (fromDate) return fromDate;
+      }
+      const gen = Number(feed?.generated_at || feed?.updated_at);
+      if (Number.isFinite(gen) && gen > 0) {
+        const fromGen = formatBar(gen);
+        if (fromGen) return fromGen + " (rollup refresh)";
+      }
+      return null;
+    },
   };
 })();
