@@ -51,6 +51,23 @@ describe("classifyConstraintMix", () => {
   });
 });
 
+describe("summarizeCTOCoverage", () => {
+  it("counts insufficient candle failures", async () => {
+    const { summarizeCTOCoverage } = await import("./gameplan.js");
+    const r = summarizeCTOCoverage({
+      results: [
+        { ok: true, low_sample: true },
+        { ok: false, error_kind: "insufficient_candles" },
+        { ok: false, error_kind: "insufficient_candles" },
+        { ok: true },
+      ],
+    });
+    expect(r.insufficient_candles).toBe(2);
+    expect(r.tickers_ok).toBe(2);
+    expect(r.low_sample).toBe(1);
+  });
+});
+
 describe("computePlaybookUsage", () => {
   it("detects a one-play offense with idle plays", () => {
     const r = computePlaybookUsage([

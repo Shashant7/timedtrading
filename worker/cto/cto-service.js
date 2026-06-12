@@ -413,7 +413,64 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
  * Compute CTO levels for an entire universe (typically the active screener +
  * open positions). Writes per-ticker blobs and a `timed:cto:latest` rollup.
  */
-export async function runCTOUniverse(env, { tickers, limit = 50 } = {}) {
+const INDEX_FOCUS = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP", "MAGS", "IGV", "SMH"]);
+
+/** Slim user-safe feed for Today / Now surfaces (mirrors CRO feed pattern). */
+export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
+  if (!rollup || !Array.isArray(rollup.results)) return [];
+  const items = [];
+  for (const row of rollup.results) {
+    if (!row?.ok) continue;
+    const sym = String(row.ticker || "").toUpperCase();
+    const up = row.top_upside?.[0] || null;
+    const dn = row.top_downside?.[0] || null;
+    items.push({
+      ticker: sym,
+      narrative: row.narrative || null,
+      top_upside: up ? {
+        label: up.label,
+        price: up.price,
+        adj_prob: up.regime_adjusted_prob,
+        distance_pct: up.distance_pct,
+        golden_gate: !!up.golden_gate,
+      } : null,
+      top_downside: dn ? {
+        label: dn.label,
+        price: dn.price,
+        adj_prob: dn.regime_adjusted_prob,
+        distance_pct: dn.distance_pct,
+        golden_gate: !!dn.golden_gate,
+      } : null,
+      is_index: INDEX_FOCUS.has(sym),
+      sort_prob: Math.max(Number(up?.regime_adjusted_prob) || 0, Number(dn?.regime_adjusted_prob) || 0),
+    });
+  }
+  items.sort((a, b) => (b.sort_prob || 0) - (a.sort_prob || 0));
+  return items.slice(0, limit);
+}
+
+export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
+  const rollup = await loadCTOUniverse(env);
+  if (!rollup) return { ok: false, error_kind: "no_rollup_yet" };
+  const items = buildCTOFeedItemsFromRollup(rollup, { limit });
+  const headlines = Array.isArray(rollup.headlines) ? rollup.headlines.slice(0, 12) : [];
+  const payload = {
+    ok: true,
+    generated_at: rollup.computed_at || Date.now(),
+    tickers_processed: rollup.tickers_processed || 0,
+    tickers_ok: rollup.tickers_ok || 0,
+    headlines,
+    items,
+    count: items.length,
+  };
+  try {
+    const { syncCTOFeedKv } = await import("./cto-feed-kv.js");
+    await syncCTOFeedKv(env, payload);
+  } catch (_) { /* best-effort */ }
+  return payload;
+}
+
+export async function runCTOUniverse(env, { tickers, limit = 50, forceRefresh = true } = {}) {
   await ensureCTOSchema(env);
   if (!tickers || tickers.length === 0) {
     // Default universe: open positions + recent screener candidates + key indexes.
@@ -441,7 +498,7 @@ export async function runCTOUniverse(env, { tickers, limit = 50 } = {}) {
   const results = [];
   for (const t of tickers.slice(0, limit)) {
     try {
-      const r = await computeCTOForTicker(env, t, { force: true });
+      const r = await computeCTOForTicker(env, t, { force: !!forceRefresh });
       // 2026-06-03 — Carry through error_kind + bars-available so the
       // Research Desk + rollup-consumer can see WHY a ticker failed.
       results.push({
@@ -485,6 +542,10 @@ export async function runCTOUniverse(env, { tickers, limit = 50 } = {}) {
   try {
     await env.KV.put(KV_LATEST_KEY, JSON.stringify(rollup), { expirationTtl: 4 * 3600 });
   } catch (_) {}
+
+  try {
+    await buildPublicCTOFeed(env, { limit: 30 });
+  } catch (_) { /* feed sync best-effort */ }
 
   return { ok: true, ...rollup };
 }

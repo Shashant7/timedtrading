@@ -249,15 +249,16 @@ async function maybeRefreshCRODailyNote(env, { hadNewExtractions = false, hadNew
 // were burning ~30-40 CPU-seconds per hour to recompute the same answer.
 //
 // runCROIntradayCycle does ONLY the FSD pipeline (ingest + extract +
-// apply). CTO + rotation stay in runCROFullCycle, which the daily 22:00
-// UTC cron continues to call. ~70-80% CPU saved on the hourly intraday lane.
+// apply) plus an hourly CTO universe refresh (cache-aware). Rotation
+// stays in runCROFullCycle, which the daily 22:00 UTC cron continues
+// to call.
 export async function runCROIntradayCycle(env, { force = false } = {}) {
   const t0 = Date.now();
   const summary = {
     ok: true,
     started_at: t0,
     elapsed_ms: null,
-    cto: { skipped: "intraday_skips_cto_universe" },
+    cto: { skipped: "pending" },
     rotation: { skipped: "intraday_skips_rotation_engine" },
     fsd_ingestion: { ok: false, skipped: null },
     extractions: [],
@@ -268,6 +269,22 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     errors: [],
     cycle_kind: "intraday",
   };
+
+  // 2026-06-11 — Hourly CTO refresh (respects 1h per-ticker KV cache).
+  try {
+    const { runCTOUniverse } = await import("../cto/cto-service.js");
+    const r = await runCTOUniverse(env, { limit: 50, forceRefresh: false });
+    summary.cto = {
+      ok: !!r.ok,
+      tickers_processed: r.tickers_processed,
+      tickers_ok: r.tickers_ok,
+      elapsed_ms: r.elapsed_ms,
+      force_refresh: false,
+    };
+  } catch (e) {
+    summary.cto = { ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 200) };
+    summary.errors.push(`cto_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
 
   try {
     await ensureCROIngestionSchema(env);

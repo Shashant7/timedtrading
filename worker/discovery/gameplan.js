@@ -209,10 +209,68 @@ export function buildMissArchetypes({ shouldHaveEntered = [], topMissed = [] } =
     .slice(0, 8);
 }
 
+/** CTO universe coverage — candle gaps that block probabilistic levels. */
+export function summarizeCTOCoverage(ctoRollup) {
+  const results = Array.isArray(ctoRollup?.results) ? ctoRollup.results : [];
+  let insufficient = 0;
+  let lowSample = 0;
+  let ok = 0;
+  for (const r of results) {
+    if (r.ok) { ok++; if (r.low_sample) lowSample++; }
+    else if (r.error_kind === "insufficient_candles") insufficient++;
+  }
+  return {
+    tickers_processed: results.length,
+    tickers_ok: ok,
+    insufficient_candles: insufficient,
+    low_sample: lowSample,
+    pct_insufficient: results.length ? rnd(insufficient / results.length * 100) : null,
+  };
+}
+
+/** Cross-ref idle plays with live CRO tactical overlay themes. */
+export function crossRefTacticalOverlay(usage, tacticalBlob) {
+  const signals = Array.isArray(tacticalBlob?.tactical_signals) ? tacticalBlob.tactical_signals : [];
+  const hotThemes = new Set();
+  for (const sig of signals) {
+    for (const th of (sig.affected_tier1_themes || [])) hotThemes.add(th);
+  }
+  return {
+    tactical_title: tacticalBlob?.tactical_title || null,
+    hot_themes: [...hotThemes].slice(0, 8),
+    idle_plays: usage?.plays_idle || [],
+    idle_while_tactical_live: (usage?.plays_idle?.length || 0) > 0 && signals.length > 0,
+  };
+}
+
+/** Top promotion-queue candidates awaiting operator review. */
+export async function loadPromotionPipeline(db, { limit = 5 } = {}) {
+  if (!db) return { needs_review: [], ready: 0 };
+  try {
+    const rows = await db.prepare(
+      `SELECT ticker, total_score, status, thesis_text
+         FROM discovery_promotion_queue
+        WHERE status IN ('needs_review', 'ready_to_add')
+        ORDER BY total_score DESC
+        LIMIT ?1`,
+    ).bind(limit).all();
+    const list = (rows?.results || []).map((r) => ({
+      ticker: r.ticker,
+      total_score: r.total_score,
+      status: r.status,
+      thesis_preview: String(r.thesis_text || "").slice(0, 120),
+    }));
+    const ready = list.filter((x) => x.status === "ready_to_add").length;
+    return { needs_review: list.filter((x) => x.status === "needs_review"), ready, top: list };
+  } catch (_) {
+    return { needs_review: [], ready: 0 };
+  }
+}
+
 /* ── Narrative ───────────────────────────────────────────────────────
  * One compact paragraph the officer prompts can carry verbatim.
  */
-export function buildGameplanNarrative({ capture, constraint, usage, archetypes } = {}) {
+export function buildGameplanNarrative({ capture, constraint, usage, archetypes, ctoCoverage, tacticalCross, promotionPipeline } = {}) {
   const bits = [];
   if (capture) {
     bits.push(`Capture ${capture.capture_rate ?? "?"}% of ${capture.total_moves ?? "?"} ATR-qualified moves over ${capture.window_days ?? "?"}d (${capture.missed_in_universe ?? "?"} in-universe misses, ${capture.missed_out_of_universe ?? "?"} out-of-universe).`);
@@ -237,6 +295,15 @@ export function buildGameplanNarrative({ capture, constraint, usage, archetypes 
   }
   if (archetypes?.length > 0) {
     bits.push(`Top repeated miss archetype: ${archetypes[0].archetype} (×${archetypes[0].count}).`);
+  }
+  if (ctoCoverage && ctoCoverage.insufficient_candles >= 3) {
+    bits.push(`CTO blocked on ${ctoCoverage.insufficient_candles} tickers (insufficient D-candles) — backfill candles before officers lean on probabilistic levels.`);
+  }
+  if (tacticalCross?.idle_while_tactical_live) {
+    bits.push(`CRO tactical overlay live (${(tacticalCross.tactical_title || "active").slice(0, 60)}) while ${tacticalCross.idle_plays.length} playbook plays sat idle — review whether gates or triggers are deferring valid setups in hot themes.`);
+  }
+  if (promotionPipeline?.needs_review?.length > 0) {
+    bits.push(`Promotion pipeline: ${promotionPipeline.needs_review.length} screener candidate(s) need review (top: ${promotionPipeline.needs_review.slice(0, 2).map((x) => x.ticker).join(", ")}).`);
   }
   return bits.join(" ").slice(0, 700);
 }
@@ -341,6 +408,37 @@ export async function buildDiscoveryGameplan(env, opts = {}) {
     });
   }
 
+  let ctoCoverage = null;
+  let tacticalCross = null;
+  let promotionPipeline = null;
+  try {
+    const ctoRaw = await KV.get("timed:cto:latest");
+    const ctoRollup = ctoRaw ? JSON.parse(ctoRaw) : null;
+    ctoCoverage = summarizeCTOCoverage(ctoRollup);
+    if (ctoCoverage.insufficient_candles >= 5) {
+      actions.push({
+        kind: "structural",
+        id: "cto_candle_backfill",
+        title: `${ctoCoverage.insufficient_candles} universe tickers lack D-candles for CTO levels — run candle backfill before officers rely on probabilistic targets.`,
+      });
+    }
+  } catch (_) {}
+  try {
+    const tacRaw = await KV.get("cro:tactical_overrides");
+    const tacBlob = tacRaw ? JSON.parse(tacRaw) : null;
+    tacticalCross = crossRefTacticalOverlay(usage, tacBlob);
+    if (tacticalCross.idle_while_tactical_live) {
+      actions.push({
+        kind: "structural",
+        id: "tactical_vs_idle_plays",
+        title: "Live CRO tactical overlay favors specific themes while multiple TT-core plays sat idle — align trigger coverage with the tactical rotation.",
+      });
+    }
+  } catch (_) {}
+  try {
+    promotionPipeline = await loadPromotionPipeline(db, { limit: 5 });
+  } catch (_) {}
+
   const gameplan = {
     generated: new Date().toISOString(),
     source: "discovery_gameplan_v1",
@@ -352,8 +450,11 @@ export async function buildDiscoveryGameplan(env, opts = {}) {
     diagnosis_present: !!report.diagnosis,
     playbook_usage: usage,
     miss_archetypes: archetypes,
+    cto_coverage: ctoCoverage,
+    tactical_cross: tacticalCross,
+    promotion_pipeline: promotionPipeline,
     actions: actions.slice(0, 10),
-    narrative: buildGameplanNarrative({ capture, constraint, usage, archetypes }),
+    narrative: buildGameplanNarrative({ capture, constraint, usage, archetypes, ctoCoverage, tacticalCross, promotionPipeline }),
   };
 
   /* 4. Persist: standalone KV blob for officers (small, cheap to load
