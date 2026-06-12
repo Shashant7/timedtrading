@@ -735,4 +735,58 @@
     getTradeLifecycleState,
     getActionDescription,
   };
+
+  /** Client mirror of worker/cto/cto-service.js interpretCTORead — tags stale cache rows. */
+  function interpretCTORead(topUpside, topDownside, leanThreshold = 0.12) {
+    const upP = Number(topUpside?.regime_adjusted_prob ?? topUpside?.adj_prob);
+    const dnP = Number(topDownside?.regime_adjusted_prob ?? topDownside?.adj_prob);
+    const upPx = Number(topUpside?.price);
+    const dnPx = Number(topDownside?.price);
+    if (!Number.isFinite(upP) && !Number.isFinite(dnP)) return null;
+    const spread = Math.abs((Number.isFinite(upP) ? upP : 0) - (Number.isFinite(dnP) ? dnP : 0));
+    const bothStrong = upP >= 0.55 && dnP >= 0.55;
+    let rangePct = null;
+    if (Number.isFinite(upPx) && Number.isFinite(dnPx) && upPx > dnPx) {
+      const mid = (upPx + dnPx) / 2;
+      if (mid > 0) rangePct = Number((((upPx - dnPx) / mid) * 100).toFixed(1));
+    }
+    if (bothStrong && spread < leanThreshold) {
+      return {
+        kind: "range",
+        label: "Range map",
+        blurb: rangePct != null
+          ? `Both magnets sit in a ${rangePct.toFixed(1)}% band and each hit often historically — read as chop between levels, not a directional pick.`
+          : "Both nearby levels hit often — read as a range between upside and downside magnets, not a directional pick.",
+      };
+    }
+    if (Number.isFinite(upP) && Number.isFinite(dnP) && upP - dnP >= leanThreshold) {
+      return {
+        kind: "upside",
+        label: "Upside lean",
+        blurb: `Upside ${topUpside?.label || "level"} (${(upP * 100).toFixed(0)}%) leads downside (${(dnP * 100).toFixed(0)}%) — prioritize the upper magnet when they conflict.`,
+      };
+    }
+    if (Number.isFinite(dnP) && Number.isFinite(upP) && dnP - upP >= leanThreshold) {
+      return {
+        kind: "downside",
+        label: "Downside lean",
+        blurb: `Downside ${topDownside?.label || "level"} (${(dnP * 100).toFixed(0)}%) leads upside (${(upP * 100).toFixed(0)}%) — prioritize the lower magnet when they conflict.`,
+      };
+    }
+    const lean = upP > dnP ? "up" : dnP > upP ? "down" : null;
+    return {
+      kind: lean === "up" ? "upside" : lean === "down" ? "downside" : "mixed",
+      label: lean === "up" ? "Upside edge" : lean === "down" ? "Downside edge" : "Compare sides",
+      blurb: "Use the higher hit-rate side as the primary magnet; these are historical tags, not entries.",
+    };
+  }
+
+  function ctoReadTone(kind) {
+    if (kind === "range") return "var(--tt-accent, #f5c25c)";
+    if (kind === "upside") return "var(--tt-up-soft, #34d399)";
+    if (kind === "downside") return "var(--tt-dn-soft, #f87171)";
+    return "var(--tt-text-muted, #8AA39A)";
+  }
+
+  window.TimedCTORead = { interpret: interpretCTORead, tone: ctoReadTone };
 })();

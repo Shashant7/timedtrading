@@ -7890,7 +7890,31 @@
                         const up = ctoTickerLevels.top_upside?.[0] || null;
                         const dn = ctoTickerLevels.top_downside?.[0] || null;
                         if (!up && !dn) return null;
-                        const read = ctoTickerLevels.read || null;
+                        const read = (ctoTickerLevels.read?.label
+                          ? ctoTickerLevels.read
+                          : (typeof window !== "undefined" && window.TimedCTORead?.interpret(up, dn))) || null;
+                        const readTone = (kind) => {
+                          if (kind === "range") return "var(--ds-warn, #fbbf24)";
+                          if (kind === "upside") return "var(--ds-up, #4ade80)";
+                          if (kind === "downside") return "var(--ds-dn, #f87171)";
+                          return "var(--ds-text-muted)";
+                        };
+                        const readTag = read?.label ? (
+                          <span
+                            className="ds-chip ds-chip--sm"
+                            title={read.blurb || undefined}
+                            style={{
+                              color: readTone(read.kind),
+                              borderColor: `${readTone(read.kind)}66`,
+                              background: `${readTone(read.kind)}14`,
+                              fontWeight: 700,
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {read.label}
+                          </span>
+                        ) : null;
                         const lvlRow = (lvl, dir) => lvl && (
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
                             <span className={`ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -7908,29 +7932,17 @@
                           <Panel
                             title="Probabilistic Levels"
                             action={(
-                              <span style={{ fontSize: 9.5, color: "var(--ds-text-faint)" }}>
-                                statistical map · not a trade signal
-                              </span>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {readTag}
+                                <span style={{ fontSize: 9.5, color: "var(--ds-text-faint)" }}>
+                                  statistical map · not a trade signal
+                                </span>
+                              </div>
                             )}
                           >
-                            {read?.label && (
-                              <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <span className="ds-chip ds-chip--sm" style={{
-                                  color: read.kind === "range" ? "var(--ds-warn, #fbbf24)"
-                                    : read.kind === "upside" ? "var(--ds-up, #4ade80)"
-                                    : read.kind === "downside" ? "var(--ds-dn, #f87171)"
-                                    : "var(--ds-text-muted)",
-                                  fontWeight: 700,
-                                  letterSpacing: "0.04em",
-                                  textTransform: "uppercase",
-                                }}>
-                                  {read.label}
-                                </span>
-                                {read.blurb && (
-                                  <span style={{ fontSize: 11, lineHeight: 1.45, color: "var(--ds-text-muted)" }}>
-                                    {String(read.blurb)}
-                                  </span>
-                                )}
+                            {read?.blurb && (
+                              <div style={{ marginBottom: 8, fontSize: 11, lineHeight: 1.45, color: "var(--ds-text-muted)" }}>
+                                {String(read.blurb)}
                               </div>
                             )}
                             {lvlRow(up, "up")}
