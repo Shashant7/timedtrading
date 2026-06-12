@@ -7890,6 +7890,7 @@
                         const up = ctoTickerLevels.top_upside?.[0] || null;
                         const dn = ctoTickerLevels.top_downside?.[0] || null;
                         if (!up && !dn) return null;
+                        const read = ctoTickerLevels.read || null;
                         const lvlRow = (lvl, dir) => lvl && (
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
                             <span className={`ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -7912,6 +7913,26 @@
                               </span>
                             )}
                           >
+                            {read?.label && (
+                              <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <span className="ds-chip ds-chip--sm" style={{
+                                  color: read.kind === "range" ? "var(--ds-warn, #fbbf24)"
+                                    : read.kind === "upside" ? "var(--ds-up, #4ade80)"
+                                    : read.kind === "downside" ? "var(--ds-dn, #f87171)"
+                                    : "var(--ds-text-muted)",
+                                  fontWeight: 700,
+                                  letterSpacing: "0.04em",
+                                  textTransform: "uppercase",
+                                }}>
+                                  {read.label}
+                                </span>
+                                {read.blurb && (
+                                  <span style={{ fontSize: 11, lineHeight: 1.45, color: "var(--ds-text-muted)" }}>
+                                    {String(read.blurb)}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {lvlRow(up, "up")}
                             {lvlRow(dn, "dn")}
                             {ctoTickerLevels.narrative && (
@@ -7919,8 +7940,8 @@
                                 {String(ctoTickerLevels.narrative).slice(0, 220)}
                               </div>
                             )}
-                            <div style={{ marginTop: 6, fontSize: 9.5, color: "var(--ds-text-faint)" }}>
-                              Empirical hit rates from this ticker's own daily history, Markov-regime adjusted. Separate from the Trader Model plan above.
+                            <div style={{ marginTop: 6, fontSize: 9.5, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
+                              Upside and downside probabilities are scored independently. When both are high and close, read a range — not two bets. When one side leads by 12+ pts, lean that way for context only.
                             </div>
                           </Panel>
                         );

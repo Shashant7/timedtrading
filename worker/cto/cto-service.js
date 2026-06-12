@@ -378,6 +378,7 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
     top_upside: ups,
     top_downside: dns,
     narrative,
+    read: interpretCTORead(ups[0], dns[0]),
     bars: candles.length,
     low_sample: lowSample,
   };
@@ -415,6 +416,65 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
  */
 const INDEX_FOCUS = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP", "MAGS", "IGV", "SMH"]);
 
+/** How to read the paired upside/downside chips shown in the level map. */
+export function interpretCTORead(topUpside, topDownside, { leanThreshold = 0.12 } = {}) {
+  const upP = Number(topUpside?.regime_adjusted_prob ?? topUpside?.adj_prob);
+  const dnP = Number(topDownside?.regime_adjusted_prob ?? topDownside?.adj_prob);
+  const upPx = Number(topUpside?.price);
+  const dnPx = Number(topDownside?.price);
+  if (!Number.isFinite(upP) && !Number.isFinite(dnP)) {
+    return { kind: "none", label: null, lean: null, prob_spread: null, range_pct: null, blurb: null };
+  }
+  const spread = Math.abs((Number.isFinite(upP) ? upP : 0) - (Number.isFinite(dnP) ? dnP : 0));
+  const bothStrong = (upP >= 0.55) && (dnP >= 0.55);
+  let rangePct = null;
+  if (Number.isFinite(upPx) && Number.isFinite(dnPx) && upPx > dnPx) {
+    const mid = (upPx + dnPx) / 2;
+    if (mid > 0) rangePct = Number((((upPx - dnPx) / mid) * 100).toFixed(1));
+  }
+  if (bothStrong && spread < leanThreshold) {
+    return {
+      kind: "range",
+      label: "Range map",
+      lean: null,
+      prob_spread: Number(spread.toFixed(3)),
+      range_pct: rangePct,
+      blurb: rangePct != null
+        ? `Both magnets sit in a ${rangePct.toFixed(1)}% band and each hit often historically — read as chop between levels, not a directional pick.`
+        : "Both nearby levels hit often — read as a range between upside and downside magnets, not a directional pick.",
+    };
+  }
+  if (Number.isFinite(upP) && Number.isFinite(dnP) && upP - dnP >= leanThreshold) {
+    return {
+      kind: "upside",
+      label: "Upside lean",
+      lean: "up",
+      prob_spread: Number(spread.toFixed(3)),
+      range_pct: rangePct,
+      blurb: `Upside ${topUpside?.label || "level"} (${(upP * 100).toFixed(0)}%) leads downside (${(dnP * 100).toFixed(0)}%) — prioritize the upper magnet when they conflict.`,
+    };
+  }
+  if (Number.isFinite(dnP) && Number.isFinite(upP) && dnP - upP >= leanThreshold) {
+    return {
+      kind: "downside",
+      label: "Downside lean",
+      lean: "down",
+      prob_spread: Number(spread.toFixed(3)),
+      range_pct: rangePct,
+      blurb: `Downside ${topDownside?.label || "level"} (${(dnP * 100).toFixed(0)}%) leads upside (${(upP * 100).toFixed(0)}%) — prioritize the lower magnet when they conflict.`,
+    };
+  }
+  const lean = upP > dnP ? "up" : dnP > upP ? "down" : null;
+  return {
+    kind: "mixed",
+    label: lean === "up" ? "Upside edge" : lean === "down" ? "Downside edge" : "Compare sides",
+    lean,
+    prob_spread: Number(spread.toFixed(3)),
+    range_pct: rangePct,
+    blurb: "Use the higher hit-rate side as the primary magnet; these are historical tags, not entries.",
+  };
+}
+
 /** Slim user-safe feed for Today / Now surfaces (mirrors CRO feed pattern). */
 export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
   if (!rollup || !Array.isArray(rollup.results)) return [];
@@ -424,9 +484,16 @@ export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
     const sym = String(row.ticker || "").toUpperCase();
     const up = row.top_upside?.[0] || null;
     const dn = row.top_downside?.[0] || null;
+    const read = interpretCTORead(up, dn);
     items.push({
       ticker: sym,
       narrative: row.narrative || null,
+      read_kind: read.kind,
+      read_label: read.label,
+      read_blurb: read.blurb,
+      prob_spread: read.prob_spread,
+      range_pct: read.range_pct,
+      lean: read.lean,
       top_upside: up ? {
         label: up.label,
         price: up.price,
