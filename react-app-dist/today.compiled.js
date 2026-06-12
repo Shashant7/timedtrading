@@ -109,8 +109,25 @@ function pickTodayBriefSlot(briefWrap) {
   const evening = isToday(briefWrap.evening) ? briefWrap.evening : null;
   const etMin = nyEtMinutes();
   if (etMin < 9 * 60) return null;
-  if (etMin >= 16 * 60) return evening || morning || null;
-  return morning || null;
+  if (etMin >= 16 * 60) {
+    if (evening) return {
+      slot: evening,
+      type: "evening"
+    };
+    if (morning) return {
+      slot: morning,
+      type: "morning"
+    };
+    return null;
+  }
+  if (morning) return {
+    slot: morning,
+    type: "morning"
+  };
+  return null;
+}
+function briefReadLabel(briefSlot) {
+  return briefSlot === "evening" ? "EVENING READ" : "MORNING READ";
 }
 function isNyRegularMarketOpen() {
   try {
@@ -392,10 +409,12 @@ function StatusHeader({
   cal,
   briefDate,
   brief,
+  briefSlot,
   data
 }) {
-  const hour = new Date().getHours();
-  const greeting = hour < 5 ? "Up early" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const etMin = nyEtMinutes();
+  const etHour = Math.floor(etMin / 60);
+  const greeting = etHour < 5 ? "Up early" : etHour < 12 ? "Good morning" : etHour < 17 ? "Good afternoon" : "Good evening";
   return h("section", {
     className: "tt-status tt-row"
   }, h("div", null, h("div", {
@@ -421,7 +440,8 @@ function StatusHeader({
   }));
 }
 function BriefPreview({
-  brief
+  brief,
+  briefSlot
 }) {
   const [_liveTick, _setLiveTick] = useState(0);
   const [wideHero, setWideHero] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 981px)").matches);
@@ -557,13 +577,15 @@ function BriefPreview({
   const summaryText = summarySentences.join(". ").replace(/\.\s*\./g, ".");
   const showTopThree = wideHero ? top3.length > 0 && primaryLead.length < 200 : top3.length >= 3;
   const showClosingItalic = _usableClosing && !summarySentences.some(s => s.slice(0, 48) === _usableClosing.slice(0, 48)) && top3.length > 0 && primaryLead.length < 40;
+  const isEvening = briefSlot === "evening";
+  const readLabel = briefReadLabel(briefSlot);
   return h("section", {
     className: "tt-card tt-card-pad tt-row brief-preview-card"
   }, h("div", {
     className: "tt-sec-title"
-  }, "DAILY BRIEF — MORNING READ"), h("div", {
+  }, `DAILY BRIEF — ${readLabel}`), h("div", {
     className: "tt-sec-h"
-  }, "What the model is watching today"), summaryText && h("p", {
+  }, isEvening ? "How the session played out" : "What the model is watching today"), summaryText && h("p", {
     className: "brief-summary"
   }, summaryText), headline && h("p", {
     className: "brief-head",
@@ -1914,6 +1936,7 @@ function DayTradePredictions({
 }
 function TodayHero({
   brief,
+  briefSlot,
   data,
   earnings,
   onSelectTicker
@@ -1935,7 +1958,8 @@ function TodayHero({
       gap: 14
     }
   }, brief ? h(BriefPreview, {
-    brief
+    brief,
+    briefSlot
   }) : h(BriefPlaceholder, {
     data,
     earnings,
@@ -4504,6 +4528,7 @@ function YesterdayGraded({
 function TodayApp() {
   const [data, setData] = useState(null);
   const [brief, setBrief] = useState(null);
+  const [briefSlot, setBriefSlot] = useState(null);
   const [earnings, setEarnings] = useState(null);
   const [cal, setCal] = useState(null);
   const [error, setError] = useState(null);
@@ -4537,7 +4562,9 @@ function TodayApp() {
           setData(merged);
         }
         if (b?.ok) {
-          setBrief(pickTodayBriefSlot(b.brief));
+          const picked = pickTodayBriefSlot(b.brief);
+          setBrief(picked?.slot || null);
+          setBriefSlot(picked?.type || b.active_slot || null);
         }
         if (e?.ok) setEarnings(e);
         if (c?.ok) setCal(c);
@@ -4680,9 +4707,11 @@ function TodayApp() {
     cal,
     briefDate: brief?.date,
     brief,
+    briefSlot,
     data
   }), h(TodayHero, {
     brief,
+    briefSlot,
     data,
     earnings,
     onSelectTicker
@@ -4924,7 +4953,7 @@ function BriefPlaceholder({
     className: "bp-countdown-lbl"
   }, " " + (sessionInfo.countdownLabel || ""))), h("span", {
     className: "bp-loading"
-  }, nyEtMinutes() < 9 * 60 ? "Morning brief publishes ~9:00 AM ET" : h(React.Fragment, null, h("span", {
+  }, nyEtMinutes() < 9 * 60 ? "Morning brief publishes ~9:00 AM ET" : nyEtMinutes() >= 16 * 60 ? "Evening brief loading" : h(React.Fragment, null, h("span", {
     className: "bp-dots"
   }, h("i", null), h("i", null), h("i", null)), "Daily brief loading"))), h("div", {
     className: "bp-section-title"
@@ -5112,6 +5141,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781234538650:846530162
+// cache-bust:1781235295621:649843278
 
-// cache-bust:1781234538650:846530162
+// cache-bust:1781235295621:649843278
