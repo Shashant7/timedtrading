@@ -46,13 +46,27 @@ carries a graded `_freshness` block and downstream consumers act on it.
 ## Heal + escalation chain
 
 1. Scoring tick detects live-STALE → queues ticker for in-tick
-   `DataProvider.backfill(env, [ticker], "all")` (max 8/tick, open positions
-   naturally first since they score first).
+   `DataProvider.backfill(env, [ticker], "all")` (max 24/tick — raised from
+   8 in PR #644; open positions naturally first since they score first).
+   **Exempt symbols (`isFreshnessExemptTicker` — futures/crypto) never
+   enter the queue** (2026-06-12: they were burning slots at 20+ futile
+   attempts ahead of real equities).
 2. Attempt counter `timed:freshness:heal:{ticker}` (TTL 6h). At >=2 attempts
    still stale → tombstone `freshness_quarantine_{ticker}` (skipDiscord;
    surfaces via watchdog/cron-status).
 3. Recovery (stale last tick, not stale now) → counter deleted +
-   `recordCronSuccess` heals the tombstone.
+   `recordCronSuccess` heals the tombstone. Exempt symbols with lingering
+   tombstones self-heal through the same sweep.
+4. **Degraded payloads** (score fails to assemble — `insufficient_candle_data`,
+   e.g. a thin new listing) get a full all-TF bootstrap backfill even when
+   SOME candles exist, rate-limited 1/6h via `timed:freshness:bootstrap:*`.
+5. **Investor compute**: a >=25% stale exclusion triggers an immediate
+   chunked 10/30/60/D backfill of the excluded tickers (20-min lock
+   `timed:investor:stale-heal-lock`) so the cron's 3x retry finds them FRESH.
+6. **9AM/3PM freshness monitor** (`candle_freshness_d`/`_60`) pages ONLY for
+   maintained symbols (SECTOR_MAP + user-added) — `ticker_candles` rows from
+   one-off backfills (NET class) can no longer page, and the monitor's
+   auto-heal no longer spends provider quota on them.
 
 ## One pane of glass
 
