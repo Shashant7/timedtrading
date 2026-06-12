@@ -89,6 +89,7 @@ function buildExtractionPrompt(text, playbook) {
       "• Use ONLY these exact sector names: " + sectorKeys,
       "• Do NOT invent new theme or sector names — if a publication discusses a concept not in the list, omit it (or wedge it into the closest existing key).",
       "• A 'tactical' classification is the norm — daily / weekly publications almost always fall here. Only flag a publication 'structural' if it explicitly argues a sector or theme STANCE change (overweight ↔ neutral ↔ underweight).",
+      "• EXCEPTION — any 'Sector Allocation' monthly update MUST be classification='structural' with populated sector_stance_changes[] (and theme_stance_changes[] when the 15% sleeve rotates). Extract model weights and strategist Overweight/Neutral/Underweight ratings into sector_stance_changes.",
       "• tactical_signals_add must be COMPLETE — replace, not extend. The next apply replaces the whole TACTICAL_SIGNALS array.",
       "• Every tactical signal MUST include affected_tier1_themes (from the theme list above) OR affected_sectors_overweight (from the sector list). Empty for both is allowed only for index-level signals (e.g. an SPX-only observation).",
       "• Be conservative. If the publication is unclear, leave fields null/empty rather than guess.",
@@ -212,6 +213,32 @@ async function readAutoApplyConfig(env) {
     }
   } catch (_) { /* defaults */ }
   return { minConfidence, allowStructural, trustedFsd };
+}
+
+/** True when the publication is the monthly Fundstrat sector allocation deck. */
+export function isSectorAllocationPublication(title, text = "") {
+  const blob = `${title || ""}\n${text || ""}`.slice(0, 4000);
+  return /sector\s+allocation/i.test(blob);
+}
+
+/**
+ * Force structural classification + guidance for sector allocation decks.
+ * Called after LLM extraction so trusted-FSD auto-apply hits the right path.
+ */
+export function applyPublicationTypeHints(parsed, { title, text } = {}) {
+  if (!parsed || typeof parsed !== "object") return parsed;
+  if (!isSectorAllocationPublication(title, text)) return parsed;
+  parsed.classification = "structural";
+  if (parsed.self_assessment && typeof parsed.self_assessment === "object") {
+    parsed.self_assessment.on_theme = parsed.self_assessment.on_theme !== false;
+    parsed.self_assessment.review_recommended = false;
+    if (!Number.isFinite(Number(parsed.self_assessment.confidence))) {
+      parsed.self_assessment.confidence = 0.85;
+    }
+    parsed.self_assessment.rationale = parsed.self_assessment.rationale
+      || "Sector Allocation monthly deck — structural stance + weight refresh.";
+  }
+  return parsed;
 }
 
 export function categorizeProposal(parsed) {
@@ -374,6 +401,13 @@ export async function extractPublicationToProposal(env, pubId, { model = null, f
   if (!row || !row.text_full) {
     return { ok: false, error_kind: "publication_text_missing", hint: `no row in cro_publication_text for pub_id=${pubId}` };
   }
+  let pubTitle = null;
+  try {
+    const meta = await env.DB.prepare(
+      `SELECT title FROM cro_publications WHERE pub_id = ? LIMIT 1`,
+    ).bind(pubId).first();
+    pubTitle = meta?.title || null;
+  } catch (_) {}
 
   // Idempotent: if a non-superseded proposal already exists and force=false,
   // return it. (Re-extraction supersedes prior pending proposals.)
@@ -404,6 +438,7 @@ export async function extractPublicationToProposal(env, pubId, { model = null, f
   try { parsed = JSON.parse(llm.content); } catch (e) {
     return { ok: false, error_kind: "llm_json_parse_failed", hint: String(e?.message || e).slice(0, 200), raw_preview: llm.content.slice(0, 400) };
   }
+  parsed = applyPublicationTypeHints(parsed, { title: pubTitle, text: row.text_full });
   const warnings = validateProposal(parsed, playbook);
   if (warnings.includes("not_an_object") || warnings.includes("classification_invalid")) {
     return { ok: false, error_kind: "validation_fatal", validation_warnings: warnings, raw_preview: JSON.stringify(parsed).slice(0, 400) };

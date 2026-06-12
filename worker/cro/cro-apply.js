@@ -34,43 +34,49 @@ const OVERRIDE_KV_KEY = "cro:tactical_overrides";
 const APPLIED_HISTORY_KV_KEY = "cro:tactical_overrides:history";
 
 // ── Public: load + write override blob ────────────────────────────────────────
+function croKv(env) {
+  return env?.KV_TIMED || env?.KV || null;
+}
+
 export async function loadTacticalOverrideBlob(env) {
   try {
-    const raw = await env?.KV?.get(OVERRIDE_KV_KEY);
+    const raw = await croKv(env)?.get(OVERRIDE_KV_KEY);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (_) { return null; }
 }
 
 export async function writeTacticalOverrideBlob(env, blob) {
-  if (!env?.KV) return { ok: false, error_kind: "kv_unavailable" };
+  const kv = croKv(env);
+  if (!kv) return { ok: false, error_kind: "kv_unavailable" };
   // KV values are bounded but plenty large for our shape (~2KB).
-  await env.KV.put(OVERRIDE_KV_KEY, JSON.stringify(blob));
+  await kv.put(OVERRIDE_KV_KEY, JSON.stringify(blob));
   // Best-effort short history (last 10 applies).
   try {
-    const histRaw = await env.KV.get(APPLIED_HISTORY_KV_KEY);
+    const histRaw = await kv.get(APPLIED_HISTORY_KV_KEY);
     const history = histRaw ? JSON.parse(histRaw) : [];
     history.unshift({ applied_at: Date.now(), proposal_id: blob?.proposal_id || null, source: blob?.source || null });
-    await env.KV.put(APPLIED_HISTORY_KV_KEY, JSON.stringify(history.slice(0, 10)));
+    await kv.put(APPLIED_HISTORY_KV_KEY, JSON.stringify(history.slice(0, 10)));
   } catch (_) {}
   return { ok: true };
 }
 
 export async function clearTacticalOverrideBlob(env, { reason = "operator_clear" } = {}) {
-  if (!env?.KV) return { ok: false, error_kind: "kv_unavailable" };
-  try { await env.KV.delete(OVERRIDE_KV_KEY); } catch (_) {}
+  const kv = croKv(env);
+  if (!kv) return { ok: false, error_kind: "kv_unavailable" };
+  try { await kv.delete(OVERRIDE_KV_KEY); } catch (_) {}
   try {
-    const histRaw = await env.KV.get(APPLIED_HISTORY_KV_KEY);
+    const histRaw = await kv.get(APPLIED_HISTORY_KV_KEY);
     const history = histRaw ? JSON.parse(histRaw) : [];
     history.unshift({ cleared_at: Date.now(), reason });
-    await env.KV.put(APPLIED_HISTORY_KV_KEY, JSON.stringify(history.slice(0, 10)));
+    await kv.put(APPLIED_HISTORY_KV_KEY, JSON.stringify(history.slice(0, 10)));
   } catch (_) {}
   return { ok: true };
 }
 
 export async function loadAppliedHistory(env) {
   try {
-    const raw = await env?.KV?.get(APPLIED_HISTORY_KV_KEY);
+    const raw = await croKv(env)?.get(APPLIED_HISTORY_KV_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch (_) { return []; }
 }
