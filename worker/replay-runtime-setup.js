@@ -430,6 +430,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_smart_gate_macro_bypass_enabled",
   "deep_audit_smart_gate_macro_min_rank",
   "deep_audit_smart_gate_macro_min_conviction",
+  // 2026-06-12 — MFE giveback ratchet (worker/pipeline/mfe-ratchet.js).
+  // Unsuppressible profit floor: peak MFE >= activation arms it; pnl below
+  // lock_frac * peak exits with reason mfe_ratchet_giveback.
+  "deep_audit_mfe_ratchet_enabled",                      // default true
+  "deep_audit_mfe_ratchet_activation_pct",               // default 2.0
+  "deep_audit_mfe_ratchet_lock_frac",                    // default 0.40
   // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
   "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long",  // default 0.75 (vs 0.60 base)
   // V15 P0.7.53 (2026-05-03) — extend lever 1 cohort relax to PROFIT_GIVEBACK + SMART_RUNNER
