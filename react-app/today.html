@@ -157,13 +157,13 @@
         margin-bottom: 14px;
         line-height: 1.55;
       }
-      /* Probabilistic Level Map — single-line rows, no chip wrap */
+      /* Probabilistic Level Map — ticker | read | stacked level chips */
       .tt-cto-map-row {
         display: grid;
-        grid-template-columns: 46px 92px minmax(0, 1fr) minmax(0, 1fr);
-        gap: 8px;
-        align-items: center;
-        padding: 7px 0;
+        grid-template-columns: 44px minmax(72px, 108px) minmax(0, 1fr);
+        gap: 6px 10px;
+        align-items: start;
+        padding: 8px 0;
         border-bottom: 1px solid var(--tt-border);
         cursor: pointer;
       }
@@ -172,31 +172,52 @@
         font-family: var(--tt-font-mono);
         font-weight: 700;
         font-size: 12.5px;
+        padding-top: 2px;
       }
       .tt-cto-map-read {
         min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        padding-top: 1px;
+      }
+      .tt-cto-map-levels {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
       }
       .tt-cto-map-prob {
+        display: block;
+        width: 100%;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         font-family: var(--tt-font-mono);
+        font-size: 10.5px;
+      }
+      .tt-cto-map-meta {
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        font-size: 11px;
+        line-height: 1.55;
+        color: var(--tt-text-dim);
+      }
+      .tt-cto-map-meta strong {
+        color: var(--tt-text-muted);
+        font-weight: 600;
       }
       @media (max-width: 640px) {
         .tt-cto-map-row {
-          grid-template-columns: 42px 1fr;
+          grid-template-columns: 40px 1fr;
           grid-template-areas:
             "sym read"
-            "up down";
+            "levels levels";
         }
         .tt-cto-map-sym { grid-area: sym; }
         .tt-cto-map-read { grid-area: read; }
-        .tt-cto-map-prob--up { grid-area: up; }
-        .tt-cto-map-prob--dn { grid-area: dn; }
+        .tt-cto-map-levels { grid-area: levels; }
       }
       .tt-pill {
         display: inline-flex;
@@ -2895,9 +2916,12 @@
         },
           h("span", { className: "tt-cto-map-sym" }, it.ticker),
           readChip(it) || h("span", { className: "tt-cto-map-read", style: { color: "var(--tt-text-faint)", fontSize: 10 } }, "—"),
-          probChip(it.top_upside, "up"),
-          probChip(it.top_downside, "dn"),
+          h("div", { className: "tt-cto-map-levels" },
+            probChip(it.top_upside, "up"),
+            probChip(it.top_downside, "dn"),
+          ),
         );
+        const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
         return h("section", { className: "tt-card tt-card-pad", style: { marginTop: 14 } },
           h("div", { className: "tt-sec-title" }, "PROBABILISTIC LEVEL MAP"),
           h("div", { className: "tt-sec-h", style: { fontSize: 15 } }, "Where the math says price gravitates"),
@@ -2908,21 +2932,28 @@
             h("strong", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } }, "Lean"),
             " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals.",
           ),
-          asOfLabel && h("div", {
-            style: { fontSize: 11, color: "var(--tt-text-faint)", marginBottom: 10, fontFamily: "var(--tt-font-mono)" },
-            title: "Last daily bar close used for empirical hit-rate math in this map",
-          },
-            "Predictions use daily closes through ",
-            h("strong", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } }, asOfLabel),
-            feed.items.length > 0 && h("span", null,
-              ` · ${feed.items.length} shown`,
+          h("div", { className: "tt-cto-map-meta" },
+            asOfLabel
+              ? h("div", { style: { marginBottom: 6, fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)" } },
+                  "Levels computed from daily closes through ",
+                  h("strong", null, asOfLabel),
+                  feed.live_as_of_ms && h("span", { style: { color: "var(--tt-text-faint)" } },
+                    " · live distance / hit tags refreshed on load",
+                  ),
+                )
+              : h("div", { style: { marginBottom: 6, color: "var(--tt-accent)" } },
+                  "Prediction anchor time unavailable — refresh the page or wait for the next CTO rollup.",
+                ),
+            h("div", null,
+              h("strong", null, "Timeframe: "),
+              `each hit % asks whether price reaches the magnet within ~${horizonBars} trading sessions (~1 month), based on this ticker's own daily history.`,
+            ),
+            feed.items.length > 0 && h("div", { style: { marginTop: 6, fontSize: 10.5, color: "var(--tt-text-faint)" } },
+              `${feed.items.length} shown`,
               Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed)
-                ? ` (${feed.tickers_ok} of ${feed.tickers_processed} with enough history)`
+                ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history`
                 : "",
             ),
-            feed.live_as_of_ms ? h("span", { title: "Live distance and hit/faded tags use current quotes" },
-              " · live status updated on load",
-            ) : null,
           ),
           feed.learning && h("div", {
             style: { fontSize: 10.5, color: "var(--tt-text-faint)", marginBottom: 10, lineHeight: 1.5 },

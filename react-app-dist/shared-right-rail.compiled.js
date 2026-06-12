@@ -9285,7 +9285,14 @@
             style: {
               marginLeft: 8
             }
-          }, "Live $", Number(ctoTickerLevels.live_price).toFixed(2), " vs anchor $", Number(ctoTickerLevels.anchor_price).toFixed(2))), ctoTickerLevels.narrative && React.createElement("div", {
+          }, "Live $", Number(ctoTickerLevels.live_price).toFixed(2), " vs anchor $", Number(ctoTickerLevels.anchor_price).toFixed(2))), React.createElement("div", {
+            style: {
+              marginTop: 6,
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "Hit % = reach magnet within ~20 trading sessions (~1 month) in this ticker's history."), ctoTickerLevels.narrative && React.createElement("div", {
             style: {
               marginTop: 6,
               fontSize: 11,
@@ -19888,4 +19895,4 @@
   };
 })();
 
-// cache-bust:1781245161754:348213614
+// cache-bust:1781247242691:622763036
