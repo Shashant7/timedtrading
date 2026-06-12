@@ -235,3 +235,91 @@ the learning_proposals bus; what's missing is the cadence.
 No entry gates, floors, or strategy knobs were touched — those are tier-2
 decisions for the operator (R2–R6 above give the exact sequence). This PR
 is the data plane (Goal 1) + this review (Goal 2).
+
+---
+
+## Part 4 — Signal autopsy + exit-clip quantification (2026-06-12 evening)
+
+Executed per the revised sequence (operator-approved). Data: the 63
+closed trades' D1 rows (`rank_trace_json` carries
+`focus_conviction_score` for 45 of them) + 16,430 60m candles for the 43
+traded tickers, used to compute true MFE/MAE per trade and 5-day
+post-exit continuation.
+
+### Finding 1 — the conviction signal does NOT discriminate live
+
+| | n | mean conviction | median |
+|---|---|---|---|
+| Winners | 13 | 83.7 | 92 |
+| Losers | 32 | 84.5 | 84.5 |
+
+- `corr(conviction, win) = -0.02`; `corr(conviction, pnl_pct) = +0.07`.
+- The **93+ bucket** (highest conviction, n=19): 31.6% WR, **-$892**.
+- Tier C (exploratory wide net, n=16): 25% WR, **-$1,657** — a pure drain.
+
+This is the composite-rank story (Pearson +0.002, V11 forensic)
+repeating on rank's replacement. Caveat: n=45 is small — but the shape
+(no separation anywhere in the distribution, worst bucket = highest
+conviction) means **threshold tuning (old R2) cannot work**. The floor
+replay sweep is cancelled in favor of signal repair: the conviction
+breakdown's live inputs need re-weighting against live outcomes (note
+`sector: no_sector_data` and `spy_baseline_missing` appear in stored
+breakdowns — some component signals were running on missing data, which
+is itself a freshness-class bug worth fixing first).
+
+### Finding 2 — losses are manufactured by give-back, not bad entries
+
+Across 55 measurable closed trades: **avg MFE +2.38% vs avg realized
+-0.69%** — three points of round-trip per trade.
+
+- 14 trades reached **MFE ≥ +2%** … and closed at **avg -0.09%**.
+- The HARD_LOSS_CAP cohort averaged **+6.45% MFE** before dying at
+  -3.77% (HIMX peaked **+26.85%**, closed -5.84% after 453h). The
+  earlier R3 hypothesis ("entries that never worked") is **wrong** —
+  these entries worked, then the engine watched the entire gain plus a
+  loss evaporate.
+- `SMART_RUNNER_SUPPORT_BREAK_CLOUD`: avg MFE **+11.22%**, realized
+  +0.45% — the support-break shield gives back ~10.8 points waiting for
+  structural confirmation (AA +17.9%→+0.7%, INTC +9.5%→0.0%,
+  TSM +9.3%→+0.7%, OKE +8.2%→+0.4%).
+
+**Counterfactual** (conservative: once MFE ≥ 2%, a trail locks 40% of
+peak, ignoring nothing else): the same 55 trades go from **-$2,602 to
++$436** (+$3,037), with only 12 trades changed; WR 34.5% → 41.8%. No
+entry-side change comes close to this per unit of risk.
+
+### Finding 3 — the fast-cut lanes systematically cut future winners
+
+5-day post-exit continuation in the trade's direction, by exit lane:
+
+| Exit lane | n | avg realized | avg post-5d continuation |
+|---|---|---|---|
+| atr_week_618_full_exit | 6 | +0.10% | **+8.25%** |
+| phase_i_mfe_fast_cut_2h | 3 | -1.09% | **+8.01%** |
+| atr_day_adverse_382_cut | 3 | -0.81% | **+7.16%** |
+| v13_hard_pnl_floor | 1 | -5.21% | **+12.40%** |
+| HARD_LOSS_CAP | 5 | -3.77% | +6.69% |
+| doctrine_force_exit | 6 | -1.28% | +3.66% |
+
+The trades were directionally right; the engine's patience was
+mis-calibrated in both directions at once — too impatient before the
+move (fast-cuts), too patient after the peak (no ratchet).
+
+### Revised priority order (supersedes Part 3 where they conflict)
+
+1. **MFE ratchet — the one change the data demands.** Once a trade's
+   MFE crosses ~2%, trail a floor at 40–50% of peak MFE (gap-risk
+   accepted), pre-trim AND post-trim, all exit lanes subordinate to it.
+   Validate via equal-scope replay; counterfactual above says +$3k/60d
+   and +7pts WR. Subsumes old R5 and the HARD_LOSS_CAP fix.
+2. **Conviction signal repair, not threshold tuning.** Fix the
+   missing-input components first (`no_sector_data`,
+   `spy_baseline_missing` in live breakdowns), then re-weight against
+   live outcomes. Suspend Tier C entries until the signal discriminates
+   (16 trades, -$1,657, 25% WR is paying for exploration that teaches
+   nothing while the score is noise).
+3. **Fast-cut lane review** with the post-exit table above as the
+   indictment: each lane keeps/loosens/loses its trigger based on
+   replayed expectancy including the continuation it currently forfeits.
+4. Direction/regime orientation + investor mechanics — unchanged from
+   Part 3 (R4, R6, R7).
