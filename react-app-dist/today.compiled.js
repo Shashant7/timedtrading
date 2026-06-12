@@ -1970,7 +1970,15 @@ function TodayHero({
   onSelectTicker
 }) {
   return h("div", {
-    className: "today-hero"
+    className: "today-hero",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, 0.85fr)",
+      gridTemplateRows: "auto auto",
+      gap: 14,
+      marginBottom: 14,
+      alignItems: "stretch"
+    }
   }, h("div", {
     className: "today-hero-brief-col"
   }, brief ? h(BriefPreview, {
@@ -2014,7 +2022,22 @@ function CTOLevelsPanel({
       clearTimeout(t);
     };
   }, []);
-  if (!feed || !feed.items?.length) return null;
+  if (!feed) {
+    return h("section", {
+      className: "tt-card tt-card-pad",
+      style: {
+        color: "var(--tt-text-muted)",
+        fontSize: 12
+      }
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "PROBABILISTIC LEVEL MAP"), h("div", {
+      style: {
+        marginTop: 8
+      }
+    }, "Loading level map…"));
+  }
+  if (!feed.items?.length) return null;
   const resolveFeedAsOfLabel = window.TimedCTORead?.resolveFeedAsOfLabel || (f => {
     const ms = Number(f?.prediction_as_of_ms);
     if (Number.isFinite(ms) && ms > 0 && window.TimedCTORead?.formatBarAsOf) {
@@ -4530,122 +4553,6 @@ function Disclosure({
     className: "tt-disclose-body"
   }, children) : null);
 }
-function YesterdayGraded({
-  onSelectTicker
-}) {
-  const [data, setData] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    fetch(`/timed/scrimmage?_t=${Date.now()}`, {
-      credentials: "include"
-    }).then(r => r.ok ? r.json() : null).then(j => {
-      if (alive && j?.ok) setData(j);
-    }).catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  const d7 = data?.scorecard?.windows?.d7;
-  const resolved = (data?.recent_calls || []).filter(c => c.status === "resolved").slice(0, 8);
-  if (!d7 && resolved.length === 0) return null;
-  const gradeColor = g => g === "A" || g === "B" ? "var(--tt-up)" : g === "C" ? "var(--tt-text-muted)" : "var(--tt-dn-soft)";
-  const fmtMoney = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}$${Math.abs(Math.round(n)).toLocaleString()}` : "—";
-  return h("section", {
-    className: "tt-row",
-    style: {
-      marginTop: 4
-    }
-  }, h("div", {
-    className: "tt-card tt-card-pad",
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 14,
-      flexWrap: "wrap"
-    }
-  }, h("div", {
-    style: {
-      minWidth: 170
-    }
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.1em",
-      color: "var(--tt-text-dim)",
-      marginBottom: 4
-    }
-  }, "THE RECORD · LAST 7 DAYS"), d7 && d7.n > 0 ? h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 13
-    }
-  }, h("span", {
-    style: {
-      fontWeight: 700,
-      fontSize: 17,
-      color: (d7.pnl_usd || 0) >= 0 ? "var(--tt-up)" : "var(--tt-dn-soft)"
-    }
-  }, fmtMoney(d7.pnl_usd)), h("span", {
-    style: {
-      color: "var(--tt-text-muted)",
-      marginLeft: 8,
-      fontSize: 11
-    }
-  }, `${d7.n} trades · WR ${d7.win_rate_pct != null ? d7.win_rate_pct.toFixed(0) : "—"}% · PF ${d7.profit_factor ?? "—"}`)) : h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-faint)"
-    }
-  }, "no closed trades this week")), resolved.length > 0 && h("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      flexWrap: "wrap",
-      flex: 1,
-      minWidth: 0
-    }
-  }, resolved.map(c => h("button", {
-    key: c.signal_id,
-    onClick: () => onSelectTicker && onSelectTicker(c.ticker),
-    title: `${c.thesis || ""} · ${c.resolve_note || ""}`,
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 5,
-      padding: "4px 9px",
-      borderRadius: 999,
-      cursor: "pointer",
-      background: "rgba(255,255,255,0.03)",
-      border: "1px solid var(--tt-border)",
-      fontSize: 11,
-      fontFamily: "var(--tt-font-mono)",
-      color: "var(--tt-text)"
-    }
-  }, h("span", {
-    style: {
-      fontWeight: 700
-    }
-  }, c.ticker), h("span", {
-    style: {
-      fontWeight: 700,
-      color: gradeColor(c.grade)
-    }
-  }, c.grade || "—"), c.outcome_pct != null && h("span", {
-    style: {
-      color: Number(c.outcome_pct) >= 0 ? "var(--tt-up)" : "var(--tt-dn-soft)"
-    }
-  }, `${Number(c.outcome_pct) >= 0 ? "+" : ""}${Number(c.outcome_pct).toFixed(1)}%`)))), h("a", {
-    href: "/insights.html",
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)",
-      whiteSpace: "nowrap",
-      textDecoration: "none",
-      borderBottom: "1px dotted var(--tt-text-faint)"
-    }
-  }, "full Scrimmage Room →")));
-}
 function TodayApp() {
   const [data, setData] = useState(null);
   const [brief, setBrief] = useState(null);
@@ -4837,8 +4744,6 @@ function TodayApp() {
     earnings,
     onSelectTicker
   }), h(OpenPositionsPreview, {
-    onSelectTicker
-  }), h(YesterdayGraded, {
     onSelectTicker
   }), data ? h(MarketState, {
     data,
@@ -5262,6 +5167,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781294914055:698225467
+// cache-bust:1781297106997:761482309
 
-// cache-bust:1781294914055:698225467
+// cache-bust:1781297106997:761482309
