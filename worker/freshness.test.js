@@ -11,6 +11,7 @@ import {
   buildFreshnessSummary,
   freshnessSloMs,
   isQuarantinedByFreshness,
+  isFreshnessExemptTicker,
   GRADE_FRESH,
   GRADE_AGING,
   GRADE_STALE,
@@ -150,6 +151,18 @@ describe("isQuarantinedByFreshness", () => {
     expect(isQuarantinedByFreshness({ _freshness: fresh })).toBe(false);
     expect(isQuarantinedByFreshness({})).toBe(false);
     expect(isQuarantinedByFreshness(null)).toBe(false);
+  });
+
+  it("does not quarantine stream-blocklisted / continuous-future symbols", () => {
+    const stale = computeFreshnessBlock(
+      { "10": RTH_NOW - 10 * HOUR },
+      { nowMs: RTH_NOW, marketOpen: true },
+    );
+    expect(isFreshnessExemptTicker("BTCUSD")).toBe(true);
+    expect(isFreshnessExemptTicker("ES1!")).toBe(true);
+    expect(isFreshnessExemptTicker("AAPL")).toBe(false);
+    expect(isQuarantinedByFreshness({ ticker: "BTCUSD", _freshness: stale })).toBe(false);
+    expect(isQuarantinedByFreshness({ ticker: "AAPL", _freshness: stale })).toBe(true);
   });
 });
 
