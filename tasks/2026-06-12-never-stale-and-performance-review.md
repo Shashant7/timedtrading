@@ -1,0 +1,237 @@
+# 2026-06-12 — Never-Stale Hardening + 60-Day Performance Review
+
+Operator ask (2026-06-12): (1) the system must never serve a stale score,
+price, or candle unless the provider itself is down; (2) review Discovery,
+Analysis, backtests, and the last 60 days of Active Trader + Investor
+performance and chart the path to the next level — especially Active Trader.
+
+---
+
+## Part 1 — Today's incident chain (what actually broke)
+
+| Time (ET) | Event |
+|---|---|
+| morning | 10/15/30m candles going STALE mid-session for ~half the universe (PriceStream writes `timed:prices` only, never D1; bar cron half-sliced 10/15/30 as "stream-redundant") |
+| ~14:00 | Investor compute excluded **114/255 tickers (45%)** under the Data Age Contract → `investor_compute_stale_candles` tombstone → Investor scoring visibly broken |
+| 18:25 | PR #644 merged: full-universe 10/15/30 every */5 tick, live-quote patching of forming bars, heal budget 8→24, hourly RTH catch-up sweep |
+| all day | Heal lane wasted slots retrying exempt symbols (ES1!/NQ1!/BTCUSD/… at 20+ futile attempts) ahead of real equities |
+
+PR #644 fixed the *feed cadence*. This PR closes the four remaining
+self-heal gaps (below). As of 21:00 UTC: 251/251 fresh, 0 tombstones.
+**The RTH proof comes Monday** — watch `/timed/health → freshness` during
+the first session.
+
+### The four gaps closed in this PR
+
+1. **Heal-queue exempt leak** (`worker/index.js` scoring cron). Exempt
+   symbols (continuous futures, crypto — `FRESHNESS_EXEMPT_TICKERS`) were
+   pushed into the heal queue every tick because the queue read
+   `_freshness.grade` directly instead of going through the exemption
+   helper. With the old budget of 8, ten permanently-stale exempt symbols
+   could starve every real equity out of the heal lane — a direct
+   contributor to the 45% investor exclusion. Now skipped, and their
+   lingering `freshness_quarantine_*` tombstones self-heal.
+2. **Degraded-payload bootstrap gate.** A ticker whose score fails to
+   assemble only auto-backfilled when it had ZERO candles. A thin new
+   listing (SPCX: D bars present, W/M/intraday missing) tombstoned
+   `insufficient_candle_data` forever with no heal. Now: any degraded
+   maintained ticker gets a full all-TF backfill, rate-limited 1/6h
+   (`timed:freshness:bootstrap:*`).
+3. **Freshness-monitor universe scope.** `candle_freshness_60` paged for
+   NET at 96.5h — a theme-map symbol nobody maintains that landed in
+   `ticker_candles` via a one-off backfill. The 9AM/3PM monitor now only
+   pages for SECTOR_MAP + user-added symbols, and its auto-heal stops
+   spending TwelveData quota on unmaintained symbols.
+4. **Investor compute heal-on-detection.** A ≥25% stale exclusion now
+   triggers an immediate chunked 10/30/60/D backfill of the excluded
+   tickers (20-min lock) so the cron's existing 3× retry finds them FRESH
+   instead of just tombstoning. "Heal where detected."
+
+### Known true provider gaps (not bugs)
+
+- **SPCX** has only ~2 daily bars at BOTH TwelveData and Alpaca — genuinely
+  thin new listing. It cannot score until enough history accumulates; the
+  new bootstrap lane retries cheaply every 6h and it will come online by
+  itself. Expect `score_ticker_SPCX` to reappear (rate-limited 1/hr) until then.
+- **Futures/crypto** (ES1!, BTCUSD, …) have no live intraday D1 ingest by
+  design — exempt from quarantine, used as reference series only.
+
+---
+
+## Part 2 — 60-day performance review
+
+### Active Trader — the headline numbers (2026-04-13 → 06-12)
+
+| Metric | Value |
+|---|---|
+| Entries / closed / open | 66 / 63 / 3 |
+| Win rate (closed) | **31.7%** (20W / 43L) |
+| Realized PnL | **-$3,162** |
+| Profit factor | **0.28** |
+| Avg win / avg loss | +$60.41 / **-$101.63** |
+| Open book MTM | **+$3,304** (GS +2.7%, MU +17.2%, SNDK +23.7%) |
+| Direction mix | **65 LONG / 1 SHORT** |
+| Median hold | winners 72h, losers 24h |
+| Entries since June 5 | **ZERO** (5 straight sessions) |
+
+Weekly: W15 +$504 → W19 **-$1,306** (17 trades, 17.6% WR) → W20 -$988 →
+W21 -$564 → W22 -$294 → W23 zero trades. The system progressively traded
+less and lost less, then went silent.
+
+### Why Active Trader went mute (June 5–12)
+
+Three stacked causes, in order of impact:
+
+1. **Conviction floor is the binding constraint.** Discovery's own
+   gameplan: 58.2% of 297 classified misses are `CONVICTION_TOO_LOW`.
+   Capture rate over 60d: **4.1%** of 691 ATR-qualified moves (655
+   missed, incl. 25 mega ≥15% LONG moves: SOXL +201%, ARM +157%,
+   DELL +123%, STRL +110%).
+2. **Funnel telemetry confirms it dried upstream**: the cohort-admission
+   log's last candidate is June 8 (DIA) — nothing even reached the smart
+   gates in the final 4 sessions.
+3. **Data quarantine blocked entries June 11–12**: live-STALE freshness
+   hard-blocks `qualifiesForEnter`; with ~half the universe intermittently
+   stale during RTH, even qualified setups were data-blocked (fixed today).
+
+### Dead-knob finding (code, important)
+
+`worker/pipeline/tt-core-entry.js` clamps every conviction floor to a
+hardcoded minimum — config can RAISE floors but can never LOWER them:
+
+```805:808:worker/pipeline/tt-core-entry.js
+      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
+      let _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+```
+
+Any discovery/COO proposal to relax `deep_audit_focus_min_entry_conviction`
+below 75 silently no-ops. The carve-outs (stack ±5, momentum-breakout −10
+floor-70) are the only working relaxation paths. If the operator wants the
+floor tunable, the clamps must move to a sane lower bound (e.g. 60) — a
+deliberate code change, flagged here rather than made unilaterally.
+
+### Live vs validated — the divergence that matters most
+
+| Setup | All-time (calibration, 302/60/47/46 trades) | Last 60d live |
+|---|---|---|
+| tt_gap_reversal_long | 59.9% WR, PF 3.38 | **25.0% WR, -$1,273** (20 trades) |
+| tt_ath_breakout | 45.7% WR, PF 1.05 | 33.3% WR, -$243 (15) |
+| tt_n_test_support | 36.7% WR, PF 1.24 | 46.2% WR, -$591 (13) |
+| tt_pullback | 48.9% WR, PF 0.96 | 33.3% WR, -$146 (3) |
+
+The flagship setup halved its WR live. Two candidate explanations, both
+actionable:
+
+- **Regime mismatch**: 65/66 entries were LONG while the CRO tactical
+  overlay turned defensive ("equities face downward pressure", hot themes
+  oil/gas/refiners). Meanwhile the two SHORT reversal plays — all-time
+  PF 7.3–8.9 — sat **idle** the whole window (gameplan flags this
+  explicitly: `idle_while_tactical_live: true`).
+- **Loss-side structure**: 5 exit classes produced 71% of gross losses —
+  HARD_LOSS_CAP -$1,240 (5 trades, 0 wins), sl_breached -$684,
+  doctrine_force_exit -$631 (6 trades, 0 wins), max_loss -$293,
+  atr_day_adverse -$254. HIMX sat 453h (19 days) before the "hard loss
+  cap" finally fired — that lane is a slow bleeder, not a circuit breaker.
+
+Also: the 2,301-trade cross-run finding "trimmed = the edge" has decayed —
+trimmed cohort last 60d is 40% WR and **-$1,260 net**. Trims fire but the
+retained runners round-trip.
+
+### Investor — 60-day review
+
+20 open positions, $75.9k cost basis, **-0.67% net** ($-508 MTM). Zero
+closed positions. Structure of the book:
+
+- **The June-1 lump**: 11 positions opened in ONE day at the local top of
+  the rotation. That batch carries every big loser: AVGO -16.5%,
+  FSLR -11.8%, ASTS -20.2%, CLS -14.7%, SATS -8.1% — and also the
+  winners CRS +19.2%, IESC +12.7%, WTS +12.0%. Single-day deployment is
+  uncompensated timing risk; tranching the same names over 2–3 weeks was
+  free risk reduction.
+- **Reduce signals ignored**: GOOGL (+19.9%) flagged `reduce` since
+  April and IWM (+13.9%) likewise — both still fully held. The stage
+  machine produces the right verdicts; nothing executes them.
+- **Quality floor on auto-init**: TWLO was auto-initiated at score **50**
+  in `watch` stage ("Auto-initiated: watch (score 50)"). Watch-stage
+  scores should not deploy capital.
+- **DCA off everywhere** (`dca_enabled=0` on all 20) — the down legs
+  (FSLR -12%, AVGO -16%) had no accumulation plan despite "accumulate"
+  stage labels.
+- **Yesterday's outage context**: investor scoring was additionally
+  blind for chunks of 06-11/06-12 (the freshness incident), which is why
+  it looked dead "until I noticed something."
+
+---
+
+## Part 3 — Next-level plan (ranked)
+
+**R1 — Data plane (this PR + #644).** Entries were data-blocked 2 of the
+last 5 sessions. No strategy tuning matters while inputs quarantine
+mid-session. Verify Monday during RTH: `curl /timed/health | jq .freshness`
+should hold `slo_ok=true` through the session.
+
+**R2 — Run the floor experiment instead of debating the floor.**
+The conviction floor is simultaneously (a) the binding constraint at 58.2%
+of misses and (b) NOT protecting live WR (31.7% at floor 80). Replay the
+last 60d at floors 70/75/80 with current guards (the focused-iter5
+equal-scope methodology), pick by PF + max-drawdown, not WR. Pre-req: the
+clamp fix above so 70 is even reachable. Expected outcome based on the
+miss archetypes: floor stays ~75–80 for chop but the **momentum/volatility
+carve-outs widen** (the 25 missed mega movers were trending, high-RVOL
+names — exactly what `deep_audit_volatility_expansion_*` and the new
+early-momentum qualification target).
+
+**R3 — Fix the loss asymmetry at the entry, not the exit.** At 31.7% WR
+the book needs avg-win/avg-loss > 2.2 to break even; it ran 0.59. The
+HARD_LOSS_CAP cohort (0 wins, -$1,240) consists of entries that never
+worked from bar one. Run the loss-autopsy replay on those 5 + the 6
+doctrine_force_exit trades: what did conviction/tier/regime say at entry?
+If (as the direction mix suggests) they were late LONGs into a defensive
+tape, the cheapest fix is a **CRO-tilt entry gate**: when the tactical
+overlay is defensive, require tier-A conviction for LONG entries (knob
+exists conceptually via `_theme_tilt`; today it only reorders the funnel).
+
+**R4 — Turn the short book on when the tape says so.** All-time
+tt_gap_reversal_short PF 8.86, tt_range_reversal_short idle — while the
+window's tactical was defensive, the engine fired 65 LONGs and 1 SHORT.
+The SPY-downtrend gate (`deep_audit_short_requires_spy_downtrend`) plus
+ticker-bearish-daily requirement is calibrated for crash tape, not
+rotation tape. Proposal: allow SHORT in `defensive rotation` tactical
+regime when the ticker's SECTOR is one of the flagged-weak themes and the
+ticker is below its daily EMA21 — shadow-mode first (log would-be entries
+for 2 weeks, then review).
+
+**R5 — Protect runner profits after trim.** Trimmed cohort went from "the
+edge" (+$208k across 2,301 archived trades) to -$1,260/60d. The
+RUNNER_STALE_FORCE_CLOSE + time-decaying shields exist; what's missing is
+a post-trim breakeven ratchet: after TP_HIT_TRIM, SL moves to entry +
+fees immediately (not at MFE ≥1%). Cheap config-level change, high PF
+impact at current WR.
+
+**R6 — Investor execution discipline.** Four mechanical changes:
+(a) max 3 new positions per day (tranche the rest);
+(b) execute `reduce` verdicts with an actual 25–33% trim after N sessions
+in-stage (CIO lifecycle Phase 1 was already scoped for investor trims);
+(c) auto-init floor: accumulate-stage + score ≥65 only (TWLO case);
+(d) enable DCA tranches on accumulate-stage positions so down legs buy.
+
+**R7 — Setup-name hygiene.** "TT Tt Gap Reversal Long", "TT Setup", and
+null setup_names are still flowing into D1 in the last 60 days — they
+fragment loop1/cohort learning (the same setup splits into 3 keys).
+The PR #432/#434 write-time fix needs the remaining upstream caller traced
+(logs were added; check `_trimSetupNameForDir` swap logs).
+
+**R8 — Make the discovery loop's output binding.** The nightly gameplan
+correctly identified everything in this review (capture 4.1%, conviction
+binding, idle shorts, mega-miss archetype) — it just has no teeth. Wire
+its tier-2 knob proposals into a weekly operator review ritual (15 min:
+approve/decline queue + capture trend). The loop is already deduped on
+the learning_proposals bus; what's missing is the cadence.
+
+### What was deliberately NOT changed here
+
+No entry gates, floors, or strategy knobs were touched — those are tier-2
+decisions for the operator (R2–R6 above give the exact sequence). This PR
+is the data plane (Goal 1) + this review (Goal 2).
