@@ -98,7 +98,19 @@ jobs:
         # `npm install` (not `npm ci`) because package-lock.json is gitignored.
         # `--no-audit --no-fund` keeps logs quiet; `--ignore-scripts` skips
         # native postinstall (e.g. better-sqlite3) we don't need for deploy.
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: |
+          _install() { npm install --no-audit --no-fund --ignore-scripts; }
+          _install
+          # 2026-06-11 — npm's optional-deps bug (npm/cli#4828) intermittently
+          # skips platform-specific binaries (e.g. @rolldown/binding-linux-
+          # x64-gnu), which kills vitest at startup ("Cannot find native
+          # binding") — it failed the tt-research deploy twice in two days.
+          # Verify the binding landed; one clean reinstall self-heals.
+          if ! npm ls @rolldown/binding-linux-x64-gnu >/dev/null 2>&1; then
+            echo "rolldown native binding missing — clean reinstall"
+            rm -rf node_modules
+            _install
+          fi
 
       # Gate the deploy on the test suite — broken modules must never
       # ship just because they bundle (full-system-review P1.7).

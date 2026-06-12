@@ -72,7 +72,19 @@ jobs:
 
       - name: Install root deps
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: |
+          _install() { npm install --no-audit --no-fund --ignore-scripts; }
+          _install
+          # 2026-06-11 — npm's optional-deps bug (npm/cli#4828) intermittently
+          # skips platform-specific binaries (e.g. @rolldown/binding-linux-
+          # x64-gnu), which kills vitest at startup ("Cannot find native
+          # binding") — it failed the tt-research deploy twice in two days.
+          # Verify the binding landed; one clean reinstall self-heals.
+          if ! npm ls @rolldown/binding-linux-x64-gnu >/dev/null 2>&1; then
+            echo "rolldown native binding missing — clean reinstall"
+            rm -rf node_modules
+            _install
+          fi
 
       - name: Run tests
         if: steps.cfsec.outputs.secrets-ok == 'true'
