@@ -9,6 +9,10 @@ import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
 import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
+import {
+  applyMomentumBreakoutConvictionCarveout,
+  stampMomentumBreakoutEarly,
+} from "../lib/smart-gates.js";
 
 const FRESHNESS_MIN = 0.3;
 const TT_CORE_TRACE_CASES = new Map([
@@ -735,6 +739,8 @@ export function evaluateEntry(ctx) {
     let _focusTier = null;
     let _focusConviction = null;
     if (_focusTierEnabled) {
+      // Structural momentum-breakout stamp (runs before trigger evaluation).
+      stampMomentumBreakoutEarly(d, ctx, daCfg, {});
       const historyStats = d?._env?._focusHistoryStats || null;
       // Live-only bonuses (empty in backtest, populated from KV in live)
       const currentGranny = d?._env?._currentGrannyHoldings || null;
@@ -851,6 +857,12 @@ export function evaluateEntry(ctx) {
           _entryMinConviction = _carveFloor;
         }
       }
+
+      _entryMinConviction = applyMomentumBreakoutConvictionCarveout(
+        _entryMinConviction,
+        d,
+        daCfg,
+      );
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
@@ -1375,11 +1387,17 @@ export function evaluateEntry(ctx) {
   //
   // DA-keyed so we can disable via deep_audit_ath_breakout_enabled=false.
   const _athBreakoutEnabled = String(daCfg.deep_audit_ath_breakout_enabled ?? "true") === "true";
+  const _momentumEarlyQualify = String(
+    daCfg.deep_audit_momentum_breakout_early_qualify_enabled ?? "true",
+  ) === "true";
   if (_athBreakoutEnabled) {
     const _athDs = d?.daily_structure || {};
     const _ath = _athDs?.ath52w;
     if (_ath && _ath.sample_size >= 60) {
-      const _athNearMax = Number(daCfg.deep_audit_ath_breakout_max_pct_below_high ?? 3.0);
+      const _athNearMax = Number(
+        daCfg.deep_audit_ath_breakout_max_pct_below_high
+        ?? (_momentumEarlyQualify ? 5.0 : 3.0),
+      );
       const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 5.0);
       const _athMinRvolStock = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
       const _athMinRvolEtf = Number(daCfg.deep_audit_ath_breakout_min_rvol_etf ?? 1.5);
@@ -1432,6 +1450,20 @@ export function evaluateEntry(ctx) {
           && (_rvol === 0 || _rvol >= _athMinRvol)
           && _hasFollowThrough;
         if (_conditionsLong) {
+          athBreakoutTrigger = true;
+        } else if (
+          _momentumEarlyQualify
+          && String(daCfg.deep_audit_ath_breakout_relax_tight_base_for_momentum ?? "true") === "true"
+          && d?.flags?.momentum_elite === true
+          && (_rvol === 0 || _rvol >= Math.max(1.5, _athMinRvol))
+          && _stateAllowsLong
+          && _ath.pct_below_high_252 != null
+          && _ath.pct_below_high_252 < Number(daCfg.deep_audit_momentum_breakout_near_high_pct ?? 8.0)
+          && _ath.breakout_above_prev_high === true
+          && _hasFollowThrough
+        ) {
+          // Mega-move forensics (ARM/AMD/SOXL): tight-base filter blocked
+          // valid momentum-elite ATH continuations. Allow when volume confirms.
           athBreakoutTrigger = true;
         }
       } else if (side === "SHORT") {
@@ -3798,6 +3830,10 @@ export function evaluateEntry(ctx) {
       },
     );
   }
+  stampMomentumBreakoutEarly(d, ctx, daCfg, {
+    athBreakoutTrigger,
+    momentumTrigger,
+  });
   if (athBreakoutTrigger) {
     return qualifyEntry(
       side === "LONG" ? "tt_ath_breakout" : "tt_atl_breakdown",
