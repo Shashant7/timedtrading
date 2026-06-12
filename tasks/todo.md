@@ -22,6 +22,13 @@
 
 ### Active
 
+- [x] **CTO universe + tiered refresh (2026-06-11).** Drop screener
+      candidates from CTO focus; use scored universe (`SECTOR_MAP` +
+      user-added). Hourly intraday CRO refreshes indices + open positions
+      (1h cache, 45s cap); daily full CRO pass refreshes remainder (24h
+      cache, 4m cap). Rollup merge preserves cached rows; D1 audit only on
+      fresh compute. Branch: `cursor/cto-universe-refresh-7b37`.
+
 - [x] **Performance tuning + journey-page design unification + docs
       (2026-06-10, PR pending).** Frontend perf pass (defer-everything,
       vendored CDN libs, immutable `?v=` caching via `_worker.js`,

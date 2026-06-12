@@ -33,9 +33,22 @@
 //    • Universe rollup:  KV `timed:cto:latest`              (1h TTL)
 //    • D1 audit table:   cto_level_snapshots                (rolling 30d)
 
+import {
+  INDEX_FOCUS,
+  KV_LAST_FULL_REFRESH,
+  CACHE_TTL_PRIORITY_SEC,
+  buildCTORefreshTickers,
+  cacheTtlForTicker,
+  mergeRollupResults,
+  MAX_ELAPSED_MS_FULL,
+  MAX_ELAPSED_MS_PRIORITY,
+  rollupRowFromCachedPayload,
+  resolveScoredUniverseTickers,
+} from "./cto-universe.js";
+
 const KV_LATEST_KEY = "timed:cto:latest";
 const KV_TICKER_PREFIX = "timed:cto:ticker:";
-const KV_TTL_SECONDS = 60 * 60;  // 1h
+const KV_TTL_SECONDS = CACHE_TTL_PRIORITY_SEC;
 const CTO_TABLE = "cto_level_snapshots";
 
 const HORIZON_BARS = 20;     // "within ~1 month" — matches the FSD-style
@@ -274,16 +287,24 @@ function regimeBiasMultiplier(bias, isUpside, horizonBars) {
 }
 
 // ── Per-ticker compute ────────────────────────────────────────────────────────
-export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS, force = false } = {}) {
+export async function computeCTOForTicker(env, ticker, {
+  horizon = HORIZON_BARS,
+  force = false,
+  cacheTtlSeconds = KV_TTL_SECONDS,
+  openPositions = null,
+} = {}) {
   await ensureCTOSchema(env);
   const sym = String(ticker).toUpperCase();
+  const ttlSec = Number(cacheTtlSeconds) > 0
+    ? Number(cacheTtlSeconds)
+    : cacheTtlForTicker(sym, { openPositions });
 
   if (!force) {
     try {
       const raw = await env?.KV?.get(KV_TICKER_PREFIX + sym);
       if (raw) {
         const cached = JSON.parse(raw);
-        if (cached && (Date.now() - (cached.computed_at || 0)) < KV_TTL_SECONDS * 1000) {
+        if (cached && (Date.now() - (cached.computed_at || 0)) < ttlSec * 1000) {
           return { ok: true, from_cache: true, ...cached };
         }
       }
@@ -383,11 +404,12 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
     low_sample: lowSample,
   };
 
+  const kvExpireSec = Math.max(ttlSec * 2, 3600);
   try {
-    await env?.KV?.put(KV_TICKER_PREFIX + sym, JSON.stringify(payload), { expirationTtl: KV_TTL_SECONDS * 2 });
+    await env?.KV?.put(KV_TICKER_PREFIX + sym, JSON.stringify(payload), { expirationTtl: kvExpireSec });
   } catch (_) {}
 
-  // D1 audit row.
+  // D1 audit row (fresh compute only — cache hits return above).
   try {
     const snapshotId = `${sym}_${payload.as_of_date}_${Date.now().toString(36)}`;
     await env.DB.prepare(`
@@ -411,10 +433,24 @@ export async function computeCTOForTicker(env, ticker, { horizon = HORIZON_BARS,
 
 // ── Universe cron entry point ────────────────────────────────────────────────
 /**
- * Compute CTO levels for an entire universe (typically the active screener +
- * open positions). Writes per-ticker blobs and a `timed:cto:latest` rollup.
+ * Compute CTO levels for the scored universe (SECTOR_MAP + user-added tickers).
+ * Tiered refresh: indices + open positions hourly; remainder daily.
  */
-const INDEX_FOCUS = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP", "MAGS", "IGV", "SMH"]);
+export { INDEX_FOCUS } from "./cto-universe.js";
+
+function toRollupRow(t, r) {
+  return {
+    ticker: t,
+    ok: !!r.ok,
+    from_cache: !!r.from_cache,
+    error_kind: r.ok ? null : (r.error_kind || "unknown"),
+    bars: r.bars || null,
+    narrative: r.narrative || null,
+    top_upside: (r.top_upside || []).slice(0, 1),
+    top_downside: (r.top_downside || []).slice(0, 1),
+    low_sample: !!r.low_sample,
+  };
+}
 
 /** How to read the paired upside/downside chips shown in the level map. */
 export function interpretCTORead(topUpside, topDownside, { leanThreshold = 0.12 } = {}) {
@@ -537,53 +573,94 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
   return payload;
 }
 
-export async function runCTOUniverse(env, { tickers, limit = 50, forceRefresh = true } = {}) {
+/**
+ * Compute CTO levels for the scored universe (tiered refresh).
+ * @param {"priority"|"full"|"all"} mode
+ *   priority — indices + open positions, hourly, 1h cache
+ *   full     — rest of scored universe, daily, 24h cache
+ *   all      — entire scored universe (admin override)
+ */
+export async function runCTOUniverse(env, {
+  tickers: tickersOverride = null,
+  limit = null,
+  forceRefresh = false,
+  mode = "all",
+  maxElapsedMs = null,
+} = {}) {
   await ensureCTOSchema(env);
+
+  const previousRollup = await loadCTOUniverse(env);
+  let universeMeta = null;
+  let tickers = tickersOverride;
+
   if (!tickers || tickers.length === 0) {
-    // Default universe: open positions + recent screener candidates + key indexes.
-    const set = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP", "MAGS", "IGV", "SMH"]);
-    try {
-      const open = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE status='OPEN'`).all();
-      for (const r of (open?.results || [])) {
-        const t = String(r.ticker || "").toUpperCase();
-        if (t) set.add(t);
-      }
-    } catch (_) {}
-    try {
-      const raw = await env.KV.get("timed:screener:candidates");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        for (const c of (parsed?.candidates || []).slice(0, 30)) {
-          if (c?.ticker) set.add(String(c.ticker).toUpperCase());
-        }
-      }
-    } catch (_) {}
-    tickers = Array.from(set).slice(0, limit);
+    universeMeta = await buildCTORefreshTickers(env, { mode, limit });
+    tickers = universeMeta.tickers;
   }
 
+  const scored = universeMeta?.scored || await resolveScoredUniverseTickers(env);
+  const openPositionsSet = universeMeta?.openPositionsSet || null;
+  const rollupUniverse = [...new Set([
+    ...scored,
+    ...INDEX_FOCUS,
+    ...(universeMeta?.openPositions || []),
+  ])].sort();
+  const elapsedBudget = maxElapsedMs ?? (mode === "priority" ? MAX_ELAPSED_MS_PRIORITY : MAX_ELAPSED_MS_FULL);
+
   const t0 = Date.now();
-  const results = [];
-  for (const t of tickers.slice(0, limit)) {
+  const processed = [];
+  let stoppedEarly = false;
+  let cacheHits = 0;
+  let computed = 0;
+
+  for (const t of tickers) {
+    if (Date.now() - t0 >= elapsedBudget) {
+      stoppedEarly = true;
+      break;
+    }
     try {
-      const r = await computeCTOForTicker(env, t, { force: !!forceRefresh });
-      // 2026-06-03 — Carry through error_kind + bars-available so the
-      // Research Desk + rollup-consumer can see WHY a ticker failed.
-      results.push({
-        ticker: t,
-        ok: !!r.ok,
-        error_kind: r.ok ? null : (r.error_kind || "unknown"),
-        bars: r.bars || null,
-        narrative: r.narrative || null,
-        top_upside: (r.top_upside || []).slice(0, 1),
-        top_downside: (r.top_downside || []).slice(0, 1),
-        low_sample: !!r.low_sample,
+      const ttl = cacheTtlForTicker(t, { openPositions: openPositionsSet });
+      const r = await computeCTOForTicker(env, t, {
+        force: !!forceRefresh,
+        cacheTtlSeconds: ttl,
+        openPositions: openPositionsSet,
       });
+      if (r.from_cache) cacheHits += 1;
+      else if (r.ok || r.error_kind) computed += 1;
+      processed.push(toRollupRow(t, r));
     } catch (e) {
-      results.push({ ticker: t, ok: false, error_kind: "exception", error: String(e?.message || e).slice(0, 150) });
+      computed += 1;
+      processed.push({
+        ticker: t,
+        ok: false,
+        error_kind: "exception",
+        error: String(e?.message || e).slice(0, 150),
+      });
     }
   }
 
-  // Universe headlines for the CRO + Daily Brief.
+  const results = mergeRollupResults(rollupUniverse, processed, previousRollup);
+
+  // On full/all passes, backfill any rollup names still missing via KV (bounded).
+  if (mode !== "priority" && results.length < rollupUniverse.length) {
+    const have = new Set(results.map((r) => r.ticker));
+    let kvReads = 0;
+    const KV_BACKFILL_CAP = 40;
+    for (const sym of rollupUniverse) {
+      if (have.has(sym)) continue;
+      if (kvReads >= KV_BACKFILL_CAP) break;
+      if (Date.now() - t0 >= elapsedBudget) break;
+      const cached = await loadCTOForTicker(env, sym);
+      const row = rollupRowFromCachedPayload(sym, cached);
+      if (row) {
+        results.push(row);
+        have.add(sym);
+      }
+      kvReads += 1;
+    }
+    results.sort((a, b) => String(a.ticker).localeCompare(String(b.ticker)));
+  }
+
   const headlines = [];
   for (const r of results) {
     if (!r.ok) continue;
@@ -600,8 +677,17 @@ export async function runCTOUniverse(env, { tickers, limit = 50, forceRefresh = 
   const rollup = {
     computed_at: Date.now(),
     elapsed_ms: Date.now() - t0,
-    tickers_processed: results.length,
+    mode,
+    tickers_requested: tickers.length,
+    tickers_processed: processed.length,
     tickers_ok: results.filter((r) => r.ok).length,
+    tickers_in_rollup: results.length,
+    scored_universe_size: scored.length,
+    rollup_universe_size: rollupUniverse.length,
+    cache_hits: cacheHits,
+    computed,
+    stopped_early: stoppedEarly,
+    force_refresh: !!forceRefresh,
     headlines: headlines.slice(0, 20),
     results,
   };
@@ -609,6 +695,12 @@ export async function runCTOUniverse(env, { tickers, limit = 50, forceRefresh = 
   try {
     await env.KV.put(KV_LATEST_KEY, JSON.stringify(rollup), { expirationTtl: 4 * 3600 });
   } catch (_) {}
+
+  if (mode === "full" || mode === "all") {
+    try {
+      await env.KV.put(KV_LAST_FULL_REFRESH, String(Date.now()), { expirationTtl: 7 * 86400 });
+    } catch (_) {}
+  }
 
   try {
     await buildPublicCTOFeed(env, { limit: 30 });
