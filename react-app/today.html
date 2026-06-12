@@ -129,11 +129,48 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* 2026-05-28 — Hero 2-col stacks below 980px so the Brief gets full
-         width on tablets/phones and the predictions strip drops beneath
-         it instead of being squeezed to a single column at unreadable size. */
+      /* Today hero — bento: Brief + Research on row 1; Level Map full width row 2.
+         Prior 1.7fr | 1fr stacked Desk+Levels in the narrow column pushed the
+         level map below the fold and left dead space beside a short brief. */
+      .today-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        grid-template-rows: auto auto;
+        gap: 14px;
+        margin-bottom: 14px;
+        align-items: stretch;
+      }
+      .today-hero-brief-col {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .today-hero-desk-col {
+        grid-column: 2;
+        grid-row: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .today-hero-levels-col {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        min-width: 0;
+      }
       @media (max-width: 980px) {
-        .today-hero { grid-template-columns: 1fr !important; }
+        .today-hero {
+          grid-template-columns: 1fr !important;
+          grid-template-rows: auto;
+        }
+        .today-hero-brief-col,
+        .today-hero-desk-col,
+        .today-hero-levels-col {
+          grid-column: 1;
+          grid-row: auto;
+        }
       }
       .tt-sec-title {
         font-size: 11px;
@@ -1026,6 +1063,21 @@
         .brief-preview-card .brief-summary {
           flex: 1;
           margin-bottom: 12px;
+        }
+        /* Level map full width: index focus | universe movers side by side */
+        .today-hero-levels-col .tt-cto-map-scroll {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 0 24px;
+          max-height: 300px;
+        }
+        .today-hero-levels-col .tt-cto-map-scroll > div:only-child {
+          grid-column: 1 / -1;
+        }
+      }
+      @media (max-width: 980px) {
+        .today-hero-levels-col .tt-cto-map-scroll {
+          max-height: 320px;
         }
       }
       /* Macro chip row */
@@ -2651,7 +2703,7 @@
           if (hr < 24) return `${hr}h ago`;
           return `${Math.floor(hr / 24)}d ago`;
         };
-        return h("div", { className: "tt-card tt-card-pad", style: { minWidth: 0 } },
+        return h("div", { className: "tt-card tt-card-pad", style: { minWidth: 0, height: "100%", display: "flex", flexDirection: "column" } },
           h("div", { className: "tt-sec-title", style: { marginBottom: 2 } }, "RESEARCH DESK"),
           h("div", { className: "tt-sec-h", style: { marginBottom: 10 } }, "Fresh from the research feed"),
           croNote && h("div", {
@@ -2687,7 +2739,7 @@
                 h("div", {
                   style: {
                     display: "flex", flexDirection: "column", gap: 0,
-                    maxHeight: 300, overflowY: "auto", overflowX: "hidden",
+                    maxHeight: 260, overflowY: "auto", overflowX: "hidden",
                     paddingRight: 4, WebkitOverflowScrolling: "touch",
                   },
                 },
@@ -2795,31 +2847,16 @@
         //      short enough for the Options sidebar on the right to feel
         //      proportional. Full per-index narrative + scorecard still
         //      live on the Daily Brief page for users who want depth.
-        return h("div", {
-          className: "today-hero",
-          style: {
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1fr)",
-            gap: 14,
-            marginBottom: 14,
-          },
-        },
-          h("div", { className: "today-hero-brief-col", style: { minWidth: 0, display: "flex", flexDirection: "column", gap: 14 } },
+        return h("div", { className: "today-hero" },
+          h("div", { className: "today-hero-brief-col" },
             brief
               ? h(BriefPreview, { brief, briefSlot })
               : h(BriefPlaceholder, { data, earnings, onSelectTicker }),
-            // 2026-06-10 — QuickGlance removed: its regime / HMM / breadth
-            // tiles folded into the Tier-1 RegimeLine in the status header;
-            // the top mover lives in the Movers strip.
           ),
-          // 2026-06-05 — Right column is now the Research Desk feed (keeps the
-          // Today page fresh with FSD research). Predictions + Options moved
-          // to their own full-width sections below the hero.
-          // 2026-06-12 (P1, PR #627 follow-through) — CTO probabilistic
-          // levels panel below the Desk feed: index focus + the highest-
-          // probability level setups across the universe.
-          h("div", { style: { minWidth: 0 } },
+          h("div", { className: "today-hero-desk-col" },
             h(ResearchDeskPanel, { onSelectTicker }),
+          ),
+          h("div", { className: "today-hero-levels-col" },
             h(CTOLevelsPanel, { onSelectTicker }),
           ),
         );
@@ -2926,7 +2963,7 @@
           ),
         );
         const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
-        return h("section", { className: "tt-card tt-card-pad", style: { marginTop: 14 } },
+        return h("section", { className: "tt-card tt-card-pad" },
           h("div", { className: "tt-sec-title" }, "PROBABILISTIC LEVEL MAP"),
           h("div", { className: "tt-sec-h", style: { fontSize: 15 } }, "Where the math says price gravitates"),
           h("div", { style: { fontSize: 11.5, color: "var(--tt-text-dim)", marginBottom: 8, lineHeight: 1.55 } },
@@ -2969,8 +3006,8 @@
             ),
           ),
           h("div", {
+            className: "tt-cto-map-scroll",
             style: {
-              maxHeight: 320,
               overflowY: "auto",
               overflowX: "hidden",
               paddingRight: 4,
