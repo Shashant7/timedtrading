@@ -2024,9 +2024,14 @@ function CTOLevelsPanel({
     };
   }, []);
   if (!feed || !feed.items?.length) return null;
-  const formatBarAsOf = window.TimedCTORead?.formatBarAsOf || (ms => null);
-  const predictionAsOf = feed.prediction_as_of_ms || Math.max(...feed.items.map(it => Number(it.bar_as_of_ms)).filter(n => Number.isFinite(n) && n > 0), 0) || null;
-  const asOfLabel = predictionAsOf ? formatBarAsOf(predictionAsOf) : null;
+  const resolveFeedAsOfLabel = window.TimedCTORead?.resolveFeedAsOfLabel || (f => {
+    const ms = Number(f?.prediction_as_of_ms);
+    if (Number.isFinite(ms) && ms > 0 && window.TimedCTORead?.formatBarAsOf) {
+      return window.TimedCTORead.formatBarAsOf(ms);
+    }
+    return null;
+  });
+  const asOfLabel = resolveFeedAsOfLabel(feed);
   const indexRows = feed.items.filter(it => it.is_index);
   const movers = feed.items.filter(it => !it.is_index);
   const formatDist = window.TimedCTORead?.formatDistance || (lvl => null);
@@ -5269,6 +5274,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781247242691:622763036
+// cache-bust:1781267946990:429130967
 
-// cache-bust:1781247242691:622763036
+// cache-bust:1781267946990:429130967
