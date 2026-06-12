@@ -79,25 +79,41 @@ jobs:
       - name: Post-deploy smoke
         if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
-          sleep 5
-          HEALTH=$(curl -s -m 15 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
-          echo "feed health: $HEALTH"
-          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
-            echo "::error::tt-feed /feed/health returned non-JSON after deploy"
-            exit 1
-          fi
-          OK=$(echo "$HEALTH" | jq -r '.ok // false')
-          ENABLED=$(echo "$HEALTH" | jq -r '.feed_enabled // false')
-          AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // "null"')
-          echo "ok=$OK feed_enabled=$ENABLED prices_age_sec=$AGE"
-          if [ "$OK" != "true" ]; then
-            echo "::error::tt-feed /feed/health did not return ok:true after deploy"
-            exit 1
-          fi
+          # Deploy can land between */1 cron ticks; retry freshness before failing.
+          MAX_AGE_SEC=180
+          RETRIES=4
+          SLEEP_SEC=20
+          OK="false"
+          ENABLED="false"
+          AGE="null"
+          HEALTH="{}"
+          for attempt in $(seq 1 "$RETRIES"); do
+            sleep "$SLEEP_SEC"
+            HEALTH=$(curl -s -m 15 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+            echo "feed health (attempt ${attempt}/${RETRIES}): $HEALTH"
+            if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+              echo "::error::tt-feed /feed/health returned non-JSON after deploy"
+              exit 1
+            fi
+            OK=$(echo "$HEALTH" | jq -r '.ok // false')
+            ENABLED=$(echo "$HEALTH" | jq -r '.feed_enabled // false')
+            AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // "null"')
+            echo "ok=$OK feed_enabled=$ENABLED prices_age_sec=$AGE"
+            if [ "$OK" != "true" ]; then
+              echo "::error::tt-feed /feed/health did not return ok:true after deploy"
+              exit 1
+            fi
+            if [ "$ENABLED" != "true" ] || [ "$AGE" = "null" ] || [ "$AGE" -le "$MAX_AGE_SEC" ]; then
+              break
+            fi
+            if [ "$attempt" -lt "$RETRIES" ]; then
+              echo "prices still stale (${AGE}s > ${MAX_AGE_SEC}s); waiting for next cron tick..."
+            fi
+          done
           # When the feed owns the */1 cron, also assert freshness (3 min
           # tolerance). While FEED_ENABLED=false the monolith owns the feed
           # and this check is informational only.
-          if [ "$ENABLED" = "true" ] && [ "$AGE" != "null" ] && [ "$AGE" -gt 180 ]; then
-            echo "::error::tt-feed owns the price feed but timed:prices is ${AGE}s stale"
+          if [ "$ENABLED" = "true" ] && [ "$AGE" != "null" ] && [ "$AGE" -gt "$MAX_AGE_SEC" ]; then
+            echo "::error::tt-feed owns the price feed but timed:prices is ${AGE}s stale after ${RETRIES} attempts"
             exit 1
           fi

@@ -76,7 +76,9 @@ function rnd(v, dp = 1) { return Math.round(v * Math.pow(10, dp)) / Math.pow(10,
  *   diagnosis breakdown   (move-discovery diagnosis, multi-day moves):
  *     low_rank/low_htf      → CONVICTION_TOO_LOW
  *     wrong_state           → WRONG_SIDE_BIAS
- *     low_completion        → CONVICTION_TOO_LOW
+ *     qualification_gap     → CONVICTION_TOO_LOW (early move, signals, floor gap)
+ *     late_stage            → tracked separately (move already extended)
+ *     low_completion        → legacy alias (still counted if present)
  *     no_signals            → NO_PLAY_FOR_MOVE  (no trigger we own fired)
  *     should_have_entered   → GENERIC_GATE_VETO (signals + scores were
  *                             there; something downstream blocked it)
@@ -104,7 +106,9 @@ export function classifyConstraintMix({ diagnosisBreakdown, coverageReasonMix, m
     UNIVERSE_GAP: Math.max(0, Number(missedOutOfUniverse) || 0),
   };
   const d = diagnosisBreakdown || {};
-  mix.CONVICTION_TOO_LOW += (Number(d.low_rank) || 0) + (Number(d.low_htf) || 0) + (Number(d.low_completion) || 0);
+  mix.CONVICTION_TOO_LOW += (Number(d.low_rank) || 0) + (Number(d.low_htf) || 0)
+    + (Number(d.qualification_gap) || 0) + (Number(d.low_completion) || 0);
+  mix.LATE_STAGE = Number(d.late_stage) || 0;
   mix.WRONG_SIDE_BIAS += Number(d.wrong_state) || 0;
   mix.NO_PLAY_FOR_MOVE += Number(d.no_signals) || 0;
   mix.GENERIC_GATE_VETO += Number(d.should_have_entered) || 0;

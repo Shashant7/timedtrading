@@ -10,7 +10,8 @@
      LOW_RANK             — rank < 60 during move
      LOW_HTF              — htf_score < 15
      WRONG_STATE          — state didn't match move direction
-     LOW_COMPLETION       — pattern completion < 50%
+     LATE_STAGE           — completion > 45% (move already extended)
+     QUALIFICATION_GAP    — early move + signals, rank/conviction never cleared
      NO_SIGNALS           — no squeeze/ema/st/momentum_elite fired
      NO_TRAIL_DATA        — no trail rows in window (coverage gap)
      SHOULD_HAVE_ENTERED  — everything looked good, real mystery
@@ -26,6 +27,8 @@
        facts SELECT, not one query per move.
      • Defensive on schema differences (older facts may lack newer
        columns — we only SELECT the core set). */
+
+import { normalizeCompletionPct } from "../lib/smart-gates.js";
 
 const DEFAULT_LIMIT = 200;
 const MS_PER_DAY = 86400000;
@@ -86,7 +89,8 @@ export async function runDiagnosis(env, opts = {}) {
     low_rank: 0,
     low_htf: 0,
     wrong_state: 0,
-    low_completion: 0,
+    late_stage: 0,
+    qualification_gap: 0,
     no_signals: 0,
     no_trail_data: 0,
     should_have_entered: 0,
@@ -169,6 +173,7 @@ export async function runDiagnosis(env, opts = {}) {
       const avgHtf = during.reduce((s, r) => s + (Number(r.htf_score_avg) || 0), 0) / n;
       const avgLtf = during.reduce((s, r) => s + (Number(r.ltf_score_avg) || 0), 0) / n;
       const avgCompletion = during.reduce((s, r) => s + (Number(r.completion) || 0), 0) / n;
+      const normCompletion = normalizeCompletionPct(avgCompletion) ?? 0;
       const hadSqueeze = during.some((r) => r.had_squeeze_release);
       const hadEmaCross = during.some((r) => r.had_ema_cross);
       const hadStFlip = during.some((r) => r.had_st_flip);
@@ -195,15 +200,22 @@ export async function runDiagnosis(env, opts = {}) {
       } else if (!dominantState.includes(wantedDir)) {
         reason = "WRONG_STATE"; detail = `state=${dominantState} but move=${move.direction}`;
         diagnosis.wrong_state++;
-      } else if (avgCompletion < 50) {
-        reason = "LOW_COMPLETION"; detail = `avg completion=${rnd(avgCompletion)}% (need >=50)`;
-        diagnosis.low_completion++;
+      } else if (normCompletion > 45) {
+        reason = "LATE_STAGE"; detail = `avg completion=${rnd(normCompletion)}% (>45%, move extended)`;
+        diagnosis.late_stage++;
       } else if (signalCount === 0) {
         reason = "NO_SIGNALS"; detail = "no squeeze/ema_cross/st_flip/momentum_elite fired";
         diagnosis.no_signals++;
+      } else if (avgRank >= 60 && avgHtf >= 15) {
+        reason = "QUALIFICATION_GAP";
+        detail = `early move (completion=${rnd(normCompletion)}%) with signals=${signalCount} but rank=${rnd(avgRank, 0)} kanban=${dominantKanban}`;
+        diagnosis.qualification_gap++;
+      } else if (normCompletion <= 45) {
+        reason = "NO_SIGNALS"; detail = `early move but insufficient rank/htf (rank=${rnd(avgRank, 0)} htf=${rnd(avgHtf)})`;
+        diagnosis.no_signals++;
       } else {
         reason = "SHOULD_HAVE_ENTERED";
-        detail = `rank=${rnd(avgRank, 0)} htf=${rnd(avgHtf)} completion=${rnd(avgCompletion)}% signals=${signalCount} kanban=${dominantKanban}`;
+        detail = `rank=${rnd(avgRank, 0)} htf=${rnd(avgHtf)} completion=${rnd(normCompletion)}% signals=${signalCount} kanban=${dominantKanban}`;
         diagnosis.should_have_entered++;
         if (shouldHaveEntered.length < 25) {
           shouldHaveEntered.push({
@@ -211,7 +223,7 @@ export async function runDiagnosis(env, opts = {}) {
             start_date: move.start_date, end_date: move.end_date,
             move_pct: move.move_pct, move_atr: move.move_atr,
             avg_rank: rnd(avgRank, 0), avg_htf: rnd(avgHtf), avg_ltf: rnd(avgLtf),
-            avg_completion: rnd(avgCompletion), dominant_state: dominantState,
+            avg_completion: rnd(normCompletion), dominant_state: dominantState,
             dominant_kanban: dominantKanban, signal_count: signalCount,
           });
         }

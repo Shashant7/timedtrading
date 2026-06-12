@@ -129,14 +129,36 @@ describe("runDiagnosis — classification", () => {
     expect(r.diagnosis.breakdown.low_rank).toBe(1);
   });
 
+  it("classifies as LATE_STAGE when normalized completion > 45%", async () => {
+    const startMs = new Date("2026-05-15T00:00:00Z").getTime();
+    const endMs = new Date("2026-05-20T23:59:59Z").getTime();
+    const trailRows = [
+      { bucket_ts: startMs + 86400000, htf_score_avg: 30, ltf_score_avg: 30, state: "HTF_BULL_LTF_BULL", rank: 80, completion: 0.72, had_squeeze_release: 1, had_ema_cross: 1, had_st_flip: 1, had_momentum_elite: 1, kanban_stage_end: "watch" },
+    ];
+    const report = {
+      moves: [{
+        ticker: "LATE", direction: "UP", capture: "MISSED",
+        start_date: "2026-05-15", end_date: "2026-05-20",
+        move_pct: 15, move_atr: 5,
+      }],
+    };
+    const kv = makeKv({ "timed:move-discovery": JSON.stringify(report) });
+    const db = makeDb((sql) => {
+      if (sql.includes("MIN(bucket_ts)")) return { results: [{ min_ts: startMs, max_ts: endMs, total_rows: 1 }] };
+      return { results: trailRows };
+    });
+    const r = await runDiagnosis(makeEnv({ db, kv }));
+    expect(r.ok).toBe(true);
+    expect(r.diagnosis.breakdown.late_stage).toBe(1);
+  });
+
   it("classifies as SHOULD_HAVE_ENTERED when everything looks good", async () => {
     const startMs = new Date("2026-05-15T00:00:00Z").getTime();
     const endMs = new Date("2026-05-20T23:59:59Z").getTime();
-    /* High rank, high HTF, matching state, signals fired — yet no entry.
-       This is the bucket the operator most wants surfaced. */
+    /* High rank, high HTF, matching state, signals fired, early completion. */
     const trailRows = [
-      { bucket_ts: startMs + 86400000, htf_score_avg: 30, ltf_score_avg: 30, state: "HTF_BULL_LTF_BULL", rank: 80, completion: 80, had_squeeze_release: 1, had_ema_cross: 1, had_st_flip: 1, had_momentum_elite: 1, kanban_stage_end: "in_review" },
-      { bucket_ts: startMs + 2 * 86400000, htf_score_avg: 35, ltf_score_avg: 35, state: "HTF_BULL_LTF_BULL", rank: 85, completion: 85, had_squeeze_release: 1, had_ema_cross: 1, had_st_flip: 1, had_momentum_elite: 1, kanban_stage_end: "in_review" },
+      { bucket_ts: startMs + 86400000, htf_score_avg: 30, ltf_score_avg: 30, state: "HTF_BULL_LTF_BULL", rank: 80, completion: 0.25, had_squeeze_release: 1, had_ema_cross: 1, had_st_flip: 1, had_momentum_elite: 1, kanban_stage_end: "in_review" },
+      { bucket_ts: startMs + 2 * 86400000, htf_score_avg: 35, ltf_score_avg: 35, state: "HTF_BULL_LTF_BULL", rank: 85, completion: 0.30, had_squeeze_release: 1, had_ema_cross: 1, had_st_flip: 1, had_momentum_elite: 1, kanban_stage_end: "in_review" },
     ];
     const report = {
       moves: [{
@@ -152,9 +174,8 @@ describe("runDiagnosis — classification", () => {
     });
     const r = await runDiagnosis(makeEnv({ db, kv }));
     expect(r.ok).toBe(true);
-    expect(r.diagnosis.breakdown.should_have_entered).toBe(1);
-    expect(r.diagnosis.should_have_entered).toHaveLength(1);
-    expect(r.diagnosis.should_have_entered[0].ticker).toBe("MYSTERY");
+    expect(r.diagnosis.breakdown.qualification_gap).toBe(1);
+    expect(r.diagnosis.should_have_entered).toHaveLength(0);
   });
 
   it("merges diagnosis back into the KV report (so dashboard sees it)", async () => {
