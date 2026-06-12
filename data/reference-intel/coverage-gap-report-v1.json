@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-06-12T10:39:31.088720+00:00",
+  "generated_at_utc": "2026-06-12T20:27:42.003110+00:00",
   "canonical_closed_rows": 6067,
   "reference_rows": 250,
   "coverage_map": {
@@ -8,7 +8,7 @@
         "Information Technology": 1217,
         "Basic Materials": 297,
         "Consumer Discretionary": 1110,
-        "Financials": 296,
+        "Financials": 291,
         "Crypto": 34,
         "Healthcare": 69,
         "Industrials": 1908,
@@ -18,7 +18,7 @@
         "Consumer Staples": 475,
         "Health Care": 59,
         "Precious Metals": 49,
-        "unknown": 4,
+        "unknown": 9,
         "Commodity ETF": 12
       },
       "direction": {
@@ -102,7 +102,7 @@
       "Information Technology": 0.0452,
       "Basic Materials": 0.1044,
       "Consumer Discretionary": 0.036,
-      "Financials": 0.0338,
+      "Financials": 0.0344,
       "Crypto": 0.0588,
       "Healthcare": 0.087,
       "Industrials": 0.0288,
@@ -364,7 +364,7 @@
       ],
       [
         "Financials|LONG",
-        266
+        261
       ],
       [
         "Basic Materials|LONG",
@@ -448,7 +448,7 @@
       ],
       [
         "unknown|LONG",
-        2
+        7
       ],
       [
         "unknown|SHORT",
@@ -547,10 +547,6 @@
       {
         "bucket": "Crypto|SHORT",
         "count": 1
-      },
-      {
-        "bucket": "unknown|LONG",
-        "count": 2
       },
       {
         "bucket": "unknown|SHORT",
