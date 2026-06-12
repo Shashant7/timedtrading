@@ -121,6 +121,49 @@ function urlJoin(base, path) {
   return base.replace(/\/+$/, "") + "/" + String(path || "").replace(/^\/+/, "");
 }
 
+/** Pull PDF attachment URLs from WP-rendered HTML (sector allocation decks, etc.). */
+export function extractPdfLinksFromHtml(html, baseUrl) {
+  const links = [];
+  const seen = new Set();
+  const re = /href=["']([^"']+\.pdf[^"']*)["']/gi;
+  let m;
+  while ((m = re.exec(String(html || ""))) !== null) {
+    let url = String(m[1] || "").replace(/&amp;/g, "&").trim();
+    if (!url) continue;
+    if (!/^https?:\/\//i.test(url)) url = urlJoin(baseUrl, url);
+    if (seen.has(url)) continue;
+    seen.add(url);
+    links.push(url);
+  }
+  return links;
+}
+
+async function fetchPdfAttachment(env, cfg, pdfUrl) {
+  const cookies = await getWpRestAuth(env, cfg);
+  const headers = {
+    "User-Agent": cfg.user_agent,
+    Accept: "application/pdf,*/*",
+  };
+  if (cookies?.length) headers.Cookie = serializeCookieHeader(cookies);
+  const { signal, done: req } = withTimeout(fetch(pdfUrl, { method: "GET", headers }), FETCH_TIMEOUT_MS);
+  const resp = await Object.assign(req, { signal });
+  if (!resp.ok) {
+    return { ok: false, error_kind: "pdf_http_error", hint: `GET ${pdfUrl} -> ${resp.status}` };
+  }
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  const buf = await resp.arrayBuffer();
+  if (!buf || buf.byteLength < 500) {
+    return { ok: false, error_kind: "pdf_too_small", hint: `GET ${pdfUrl} -> ${buf?.byteLength || 0} bytes` };
+  }
+  return {
+    ok: true,
+    content_type: ct.includes("pdf") ? ct : "application/pdf",
+    body_bytes_len: buf.byteLength,
+    body_bytes: buf,
+    pdf_url: pdfUrl,
+  };
+}
+
 // Decode WP-style "title.rendered" / "content.rendered" / "excerpt.rendered"
 // and strip a few common HTML entities so the LLM extractor sees clean text.
 function wpField(v) {
@@ -642,14 +685,27 @@ export async function fetchFSDPublication(env, sourceUrlOrId, opts = {}) {
       if (isGarbageFsdText(fullText)) {
         return { ok: false, error_kind: "wp_rest_garbage_content", hint: `post ${postId} content looks like paywall/chrome, not article body` };
       }
+      // 2026-06-12 — Sector Allocation + similar posts embed "download PDF"
+      // links in content.rendered while the allocation tables live only in the
+      // attachment. Fetch the first substantial PDF and return body_bytes so
+      // fsd-ingestion can extract tables via extractPdfTextHeuristic.
+      let pdfAttachment = null;
+      const pdfLinks = extractPdfLinksFromHtml(content, cfg.base_url);
+      for (const pdfUrl of pdfLinks.slice(0, 3)) {
+        const att = await fetchPdfAttachment(env, cfg, pdfUrl);
+        if (att.ok && att.body_bytes_len >= 5000) {
+          pdfAttachment = att;
+          break;
+        }
+      }
       return {
         ok: true,
-        content_type: "text/html",
-        body_bytes_len: fullText.length,
+        content_type: pdfAttachment ? (pdfAttachment.content_type || "application/pdf") : "text/html",
+        body_bytes_len: pdfAttachment?.body_bytes_len || fullText.length,
         body_text: fullText,
-        body_bytes: null,
-        pdf_url: null,
-        source_kind: "wp_rest_post",
+        body_bytes: pdfAttachment?.body_bytes || null,
+        pdf_url: pdfAttachment?.pdf_url || null,
+        source_kind: pdfAttachment ? "wp_rest_post_pdf_attachment" : "wp_rest_post",
         post_id: post.id,
         post_link: post.link || null,
       };

@@ -620,10 +620,17 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   }
 
   let text = "";
-  if (fetched.body_text) {
-    text = extractHtmlText(fetched.body_text);
-  } else if (fetched.body_bytes) {
-    text = extractPdfTextHeuristic(fetched.body_bytes);
+  const htmlText = fetched.body_text ? extractHtmlText(fetched.body_text) : "";
+  const pdfText = fetched.body_bytes ? extractPdfTextHeuristic(fetched.body_bytes) : "";
+  if (pdfText && htmlText) {
+    // Prefer PDF tables when present (sector allocation decks); keep HTML recap.
+    text = pdfText.length >= 800
+      ? `${pdfText}\n\n--- HTML RECAP ---\n${htmlText}`
+      : `${htmlText}\n\n--- PDF EXTRACT ---\n${pdfText}`;
+  } else if (htmlText) {
+    text = htmlText;
+  } else if (pdfText) {
+    text = pdfText;
   }
 
   await recordPublication(env, {

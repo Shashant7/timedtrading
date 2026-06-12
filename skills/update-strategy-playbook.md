@@ -36,6 +36,25 @@ this is the manual flow.
 A complete worked example: PR #446 (vintage `2026-06-02`, Daily
 Technical Strategy "Time to Favor Equal-Weighted SPX over Cap-Weighted").
 
+**CRO re-ingest (listeners beyond the playbook file):** after a manual
+structural bump, also re-ingest the source PDF so CRO/D1/KV listeners
+stay aligned:
+
+```bash
+TIMED_API_KEY=... node scripts/cro-ingest-pdf-blob.js \
+  --pdf docs/reference-pdfs/20260611-Sector-Allocation-June.pdf \
+  --title "June 2026 Sector Allocation Update" \
+  --extract --apply
+```
+
+Or re-fetch an existing FSD pub (now PDF-attachment aware):
+
+```bash
+curl -s -X POST "$BASE/timed/admin/cro/fsd/ingest" \
+  -H "X-API-Key: $TIMED_API_KEY" -H "Content-Type: application/json" \
+  -d '{"pub_id":"1535789","force":true}'
+```
+
 ---
 
 ## 1. Classify the publication
