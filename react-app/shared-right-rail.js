@@ -3586,6 +3586,29 @@
           return () => { cancelled = true; };
         }, [tickerSymbol, railTab, API_BASE]);
 
+        // 2026-06-12 (P2, PR #627 follow-through) — per-ticker CTO
+        // probabilistic levels for the Snapshot tab. Lazy: fetch only on
+        // Snapshot open + ticker change (server keeps a 1h per-ticker KV
+        // cache, so this is cheap). Rendered DISTINCT from the engine's
+        // predictionContract plan — these are the CTO's data-science
+        // levels (empirical hit rates, Markov-adjusted), not trade calls.
+        const [ctoTickerLevels, setCtoTickerLevels] = useState(null);
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || railTab !== "SNAPSHOT") return;
+          let cancelled = false;
+          setCtoTickerLevels(null);
+          (async () => {
+            try {
+              const j = await _cachedJson(`${API_BASE}/timed/cto/ticker?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 60 * 60 * 1000 });
+              if (cancelled || !j) return;
+              if (j?.ok && (j.top_upside?.length || j.top_downside?.length)) setCtoTickerLevels(j);
+              else setCtoTickerLevels(null);
+            } catch (_) { /* best-effort — panel simply doesn't render */ }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, railTab, API_BASE]);
+
         // 2026-05-30 — Strategy alignment chip (FSD playbook). Lazy-fetched
         // from /timed/strategy/ticker on ticker change. Lightweight; renders
         // only when the ticker is on/off-thesis (stance !== "neutral").
@@ -7851,6 +7874,52 @@
                                 Decision: {statusMeta.label.toLowerCase()} · {decidedLabel}
                               </div>
                             )}
+                          </Panel>
+                        );
+                      })()}
+
+                      {/* 2026-06-12 (P2) — CTO probabilistic levels panel.
+                          The CTO's data-science read for THIS ticker:
+                          Fib/ATR/pivot levels with empirical hit rates,
+                          Markov-regime adjusted. Deliberately visually +
+                          verbally distinct from the Trader Model plan above
+                          (these are gravity wells, not entries/stops). */}
+                      {ctoTickerLevels && (() => {
+                        const up = ctoTickerLevels.top_upside?.[0] || null;
+                        const dn = ctoTickerLevels.top_downside?.[0] || null;
+                        if (!up && !dn) return null;
+                        const lvlRow = (lvl, dir) => lvl && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+                            <span className={`ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                              {dir === "up" ? "▲" : "▼"} ${Number(lvl.price).toFixed(2)}
+                            </span>
+                            <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-body)" }}>
+                              {(Number(lvl.regime_adjusted_prob ?? lvl.adj_prob) * 100).toFixed(0)}% hit prob
+                            </span>
+                            <span style={{ fontSize: 10.5, color: "var(--ds-text-muted)" }}>
+                              {String(lvl.label || "")}{Number.isFinite(Number(lvl.distance_pct)) ? ` · ${Number(lvl.distance_pct) > 0 ? "+" : ""}${Number(lvl.distance_pct).toFixed(1)}% away` : ""}{lvl.golden_gate ? " · GG" : ""}
+                            </span>
+                          </div>
+                        );
+                        return (
+                          <Panel
+                            title="📐 CTO Levels"
+                            action={(
+                              <span style={{ fontSize: 9.5, color: "var(--ds-text-faint)" }}>
+                                data science · not a trade signal
+                              </span>
+                            )}
+                          >
+                            {lvlRow(up, "up")}
+                            {lvlRow(dn, "dn")}
+                            {ctoTickerLevels.narrative && (
+                              <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.5, color: "var(--ds-text-muted)" }}>
+                                {String(ctoTickerLevels.narrative).slice(0, 220)}
+                              </div>
+                            )}
+                            <div style={{ marginTop: 6, fontSize: 9.5, color: "var(--ds-text-faint)" }}>
+                              Empirical hit rates from this ticker's own daily history, Markov-regime adjusted. Separate from the Trader Model plan above.
+                            </div>
                           </Panel>
                         );
                       })()}

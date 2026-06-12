@@ -1946,7 +1946,112 @@ function TodayHero({
     }
   }, h(ResearchDeskPanel, {
     onSelectTicker
+  }), h(CTOLevelsPanel, {
+    onSelectTicker
   })));
+}
+function CTOLevelsPanel({
+  onSelectTicker
+}) {
+  const [feed, setFeed] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(`${API_BASE || ""}/timed/cto/feed?limit=12`, {
+          ttlMs: 5 * 60 * 1000,
+          maxAgeMs: 30 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        }) : await fetchJsonRetry(`${API_BASE || ""}/timed/cto/feed?limit=12`);
+        if (alive && j?.ok && Array.isArray(j.items)) setFeed(j);
+      } catch (_) {}
+    };
+    const t = setTimeout(load, 2500);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, []);
+  if (!feed || !feed.items?.length) return null;
+  const ageMin = feed.generated_at ? Math.round((Date.now() - Number(feed.generated_at)) / 60000) : null;
+  const indexRows = feed.items.filter(it => it.is_index).slice(0, 4);
+  const movers = feed.items.filter(it => !it.is_index).slice(0, 5);
+  const probChip = (lvl, dir) => lvl && h("span", {
+    className: `ds-chip ds-chip--sm ${dir === "up" ? "ds-chip--up" : "ds-chip--dn"}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: `${dir === "up" ? "Top upside" : "Top downside"} level ${lvl.label} at $${Number(lvl.price).toFixed(2)} — ${(Number(lvl.adj_prob) * 100).toFixed(0)}% empirical hit probability (regime-adjusted)${lvl.golden_gate ? " · Golden Gate level" : ""}.`
+  }, `${dir === "up" ? "▲" : "▼"} $${Number(lvl.price).toFixed(2)} · ${(Number(lvl.adj_prob) * 100).toFixed(0)}%`);
+  const row = it => h("div", {
+    key: it.ticker,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "7px 0",
+      borderBottom: "1px solid var(--tt-border)",
+      flexWrap: "wrap",
+      cursor: onSelectTicker ? "pointer" : "default"
+    },
+    onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
+    title: it.narrative || undefined
+  }, h("span", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 700,
+      fontSize: 12.5,
+      minWidth: 46
+    }
+  }, it.ticker), probChip(it.top_upside, "up"), probChip(it.top_downside, "dn"));
+  return h("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginTop: 14
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "CTO DESK — PROBABILISTIC LEVELS"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 15
+    }
+  }, "Where the math says price gravitates"), h("div", {
+    style: {
+      fontSize: 11.5,
+      color: "var(--tt-text-dim)",
+      marginBottom: 8
+    }
+  }, "Fib / ATR / pivot levels with empirical hit rates, Markov-regime adjusted. Data-science context — not engine trade signals.", ageMin != null && h("span", {
+    style: {
+      marginLeft: 6,
+      color: "var(--tt-text-faint)"
+    }
+  }, `· refreshed ${ageMin < 60 ? `${ageMin}m` : `${Math.round(ageMin / 60)}h`} ago`)), indexRows.length > 0 && h("div", {
+    style: {
+      marginBottom: 6
+    }
+  }, h("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-faint)",
+      textTransform: "uppercase",
+      margin: "4px 0"
+    }
+  }, "Index focus"), indexRows.map(row)), movers.length > 0 && h("div", null, h("div", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      color: "var(--tt-text-faint)",
+      textTransform: "uppercase",
+      margin: "8px 0 4px"
+    }
+  }, "Highest-probability setups"), movers.map(row)));
 }
 function MarketState({
   data,
@@ -4994,6 +5099,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781211627065:450205696
+// cache-bust:1781231893295:221162515
 
-// cache-bust:1781211627065:450205696
+// cache-bust:1781231893295:221162515
