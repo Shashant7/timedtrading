@@ -170,6 +170,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_short_requires_spy_downtrend",
   "deep_audit_short_spy_carveout_rank_min",
   "deep_audit_short_spy_carveout_cohorts",
+  // 2026-06-13 (Part 3, R4): short-book shadow mode — log-only.
+  "deep_audit_short_shadow_enabled",
+  "deep_audit_short_shadow_require_defensive",
+  "deep_audit_short_shadow_tactical_title",
   "deep_audit_short_sector_strength_gate",
   "deep_audit_short_sector_strength_rank_min",
   "deep_audit_max_loss_time_scaled_v2",
