@@ -61,6 +61,25 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   accum_zone_momentum_runner_min_confidence: 50,       // 10pt step above oversold branch (40) for selectivity
   accum_zone_momentum_runner_weekly_rsi_min: 50,       // healthy zone floor
   accum_zone_momentum_runner_weekly_rsi_max: 88,       // exhaustion gate
+
+  // 2026-06-13 — Investor execution discipline (tasks/2026-06-12-never-
+  // stale-and-performance-review.md Part 3, R6). The 60-day review found:
+  //   (a) the June-1 lump — 11 positions opened in ONE day at the local
+  //       top — uncompensated timing risk that tranching would have cut;
+  //   (b) reduce verdicts (GOOGL/IWM) flagged for months, never executed;
+  //   (c) TWLO auto-initiated at score 50 in WATCH stage — watch-stage
+  //       scores should not deploy capital;
+  //   (d) DCA off on every position, so accumulate-stage down legs never
+  //       bought.
+  // All four are config-gated with safe, reversible defaults.
+  max_new_positions_per_day: 3,                        // (a) tranche the rest
+  auto_init_require_accumulate: true,                  // (c) no watch-stage auto-inits
+  auto_init_min_score: 65,                             // (c) quality floor on capital deployment
+  reduce_trim_min_sessions: 2,                         // (b) consecutive reduce sessions before trimming
+  reduce_trim_pct: 0.30,                               // (b) 30% trim per reduce execution (25-33% band)
+  auto_dca_on_accumulate: true,                        // (d) enable DCA tranches on new accumulate inits
+  auto_dca_amount_pct: 0.02,                           // (d) 2% of capital per DCA tranche
+  auto_dca_frequency: "monthly",                       // (d) tranche cadence
 });
 
 /**
@@ -114,6 +133,39 @@ export function loadInvestorConfig(daCfg) {
   const mrRsiMax = Number(daCfg.deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max);
   if (Number.isFinite(mrRsiMax) && mrRsiMax >= 0 && mrRsiMax <= 100) {
     cfg.accum_zone_momentum_runner_weekly_rsi_max = mrRsiMax;
+  }
+  // 2026-06-13 (R6) — execution-discipline overrides.
+  const maxNew = Number(daCfg.deep_audit_investor_max_new_positions_per_day);
+  if (Number.isFinite(maxNew) && maxNew >= 0 && maxNew <= 50) {
+    cfg.max_new_positions_per_day = maxNew;
+  }
+  const aiReqAcc = daCfg.deep_audit_investor_auto_init_require_accumulate;
+  if (aiReqAcc === true || aiReqAcc === false) cfg.auto_init_require_accumulate = aiReqAcc;
+  else if (aiReqAcc === "true") cfg.auto_init_require_accumulate = true;
+  else if (aiReqAcc === "false") cfg.auto_init_require_accumulate = false;
+  const aiMinScore = Number(daCfg.deep_audit_investor_auto_init_min_score);
+  if (Number.isFinite(aiMinScore) && aiMinScore >= 0 && aiMinScore < 100) {
+    cfg.auto_init_min_score = aiMinScore;
+  }
+  const rtMinSess = Number(daCfg.deep_audit_investor_reduce_trim_min_sessions);
+  if (Number.isFinite(rtMinSess) && rtMinSess >= 0 && rtMinSess <= 30) {
+    cfg.reduce_trim_min_sessions = rtMinSess;
+  }
+  const rtPct = Number(daCfg.deep_audit_investor_reduce_trim_pct);
+  if (Number.isFinite(rtPct) && rtPct > 0 && rtPct < 1) {
+    cfg.reduce_trim_pct = rtPct;
+  }
+  const dcaAcc = daCfg.deep_audit_investor_auto_dca_on_accumulate;
+  if (dcaAcc === true || dcaAcc === false) cfg.auto_dca_on_accumulate = dcaAcc;
+  else if (dcaAcc === "true") cfg.auto_dca_on_accumulate = true;
+  else if (dcaAcc === "false") cfg.auto_dca_on_accumulate = false;
+  const dcaAmt = Number(daCfg.deep_audit_investor_auto_dca_amount_pct);
+  if (Number.isFinite(dcaAmt) && dcaAmt > 0 && dcaAmt < 0.5) {
+    cfg.auto_dca_amount_pct = dcaAmt;
+  }
+  const dcaFreq = daCfg.deep_audit_investor_auto_dca_frequency;
+  if (typeof dcaFreq === "string" && ["weekly", "monthly", "quarterly"].includes(dcaFreq)) {
+    cfg.auto_dca_frequency = dcaFreq;
   }
   return cfg;
 }

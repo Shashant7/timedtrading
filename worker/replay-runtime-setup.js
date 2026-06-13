@@ -513,6 +513,15 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_accum_zone_momentum_runner_min_confidence", // default 40
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min", // default 50
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max", // default 88
+  // 2026-06-13 (Part 3, R6) — investor execution discipline.
+  "deep_audit_investor_max_new_positions_per_day",             // default 3
+  "deep_audit_investor_auto_init_require_accumulate",          // default true
+  "deep_audit_investor_auto_init_min_score",                   // default 65
+  "deep_audit_investor_reduce_trim_min_sessions",              // default 2
+  "deep_audit_investor_reduce_trim_pct",                       // default 0.30
+  "deep_audit_investor_auto_dca_on_accumulate",                // default true
+  "deep_audit_investor_auto_dca_amount_pct",                   // default 0.02
+  "deep_audit_investor_auto_dca_frequency",                    // default monthly
   // Trajectory program — Phase 4 / 4.1 / 5 gates blob.
   // Stored as a JSON object so the owner can flip multiple gates from
   // one row without redeploy. Defaults all false / sensible-defaults in
