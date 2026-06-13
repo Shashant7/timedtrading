@@ -323,3 +323,65 @@ move (fast-cuts), too patient after the peak (no ratchet).
    replayed expectancy including the continuation it currently forfeits.
 4. Direction/regime orientation + investor mechanics — unchanged from
    Part 3 (R4, R6, R7).
+
+---
+
+## Part 5 — Implementation pass (2026-06-13)
+
+Operator follow-up: "awake our Active Trade Engine and refresh the configs
+with the data findings." #648 shipped only priority 1 (the MFE ratchet).
+This pass works through the rest of the revised order + the open R-items.
+Every change is **config-gated with safe defaults** and registered in
+`REPLAY_DA_KEYS` + the HTTP lazy-load list so it hot-reloads and replays.
+
+### Shipped
+
+| Item | Change | Default behavior |
+|---|---|---|
+| **P1 MFE ratchet** | Already in `main` (#648), on by default | `deep_audit_mfe_ratchet_enabled=true`, activation 2.0%, lock 0.40. **Validation still owed** (see below). |
+| **P2c dead-knob** | Floor clamps in BOTH entry paths now use a tunable absolute min `deep_audit_focus_floor_hard_min` (default 60) instead of hardcoded `Math.max(75/80/110)`. Config can finally LOWER a floor. | Floors unchanged (still 80) unless operator lowers them. |
+| **P2a Tier-C suspension** | `deep_audit_focus_suspend_tier_c` (default **true**) rejects Tier-C entries (`focus_tier_c_suspended`) in both paths. | Tier-C OFF — stops the 25% WR / -$1,657 drain. Reversible. |
+| **P2b conviction inputs** | `_sector`/`_sector_rating` resolved from static `SECTOR_MAP`/`SECTOR_RATINGS` before conviction compute (kills `no_sector_data`); `scoreSector` also reads env-backed `ctx.sectorRating`; sector + RS components stamp `input_missing` so residual gaps are auditable in `rank_trace`. | Sector signal now resolves for every maintained ticker. |
+| **P3 fast-cut lanes** | `deep_audit_phase_i_fast_cut_enabled` master kill-switch + tunable Tier-1 age window (`..._tier1_min_age_h`/`_max_age_h`, default 2/4). | Behavior unchanged; lanes now disable-able without a deploy. |
+| **R4 short shadow** | `evaluateShortShadow()` logs `[SHORT_SHADOW]` + stamps `d.__short_shadow` when, in a defensive regime, a flagged-weak-sector ticker below daily EMA21 is suppressed by the SPY-downtrend gate. **Observation-only** — never changes the decision. `deep_audit_short_shadow_enabled` (default true). | Shorts still NOT taken; we now collect the 2-week evidence. |
+| **R6 investor** | (a) max 3 new positions/ET day (KV counter across cycles); (b) reduce trim after 2 confirmed sessions at 30%; (c) auto-init floor = accumulate stage + score ≥ 65 (kills the TWLO/watch case); (d) DCA enabled on accumulate inits (2% monthly). All via `loadInvestorConfig`. | New discipline ON by default; all reversible. |
+| **R7 setup-name** | `d1UpsertTrade` treats `entry_path` as authoritative, heals the `TT Tt` artifact / key-mismatch, and logs `[SETUP_NAME]` with `trade_id`/`ticker`/`entry_path` on every heal + every null/`TT Setup` write so the upstream caller is finally traceable in logs. | Clean `setup_name` to D1; tracing for the remaining source. |
+
+### Owed — requires the replay harness / live data (NOT runnable in CI)
+
+1. **MFE ratchet validation.** Equal-scope replay of the last 60d to confirm
+   the +$3,037 / +7pt-WR counterfactual, plus the **Monday RTH proof** that
+   the open book (GS/MU/SNDK) does not get force-clipped on deploy. The code
+   ships on; this is the confirmation step.
+2. **Conviction re-weighting.** P2b fixed the *inputs*; re-weighting the
+   component scores against live outcomes (corr currently -0.02) needs the
+   closed-trade ledger + a replay sweep. Tier-C stays suspended until the
+   re-weighted signal separates winners from losers.
+3. **Fast-cut lane final tuning.** The kill-switch + tunable window are in;
+   the keep/loosen/kill decision per lane (using the continuation table)
+   is a replay-expectancy call.
+4. **Short shadow review.** After ~2 weeks of `[SHORT_SHADOW]` logs, review
+   would-be-short expectancy before relaxing the live SPY-downtrend gate for
+   rotation tape.
+
+### New config keys (defaults preserve or implement the findings)
+
+```
+# Entry / conviction
+deep_audit_focus_floor_hard_min            60       # absolute clamp (was hardcoded 75/80)
+deep_audit_focus_suspend_tier_c            true     # suspend the Tier-C drain
+# Exits
+deep_audit_phase_i_fast_cut_enabled        true     # master kill-switch
+deep_audit_phase_i_fast_cut_tier1_min_age_h 2
+deep_audit_phase_i_fast_cut_tier1_max_age_h 4
+# Short shadow (log-only)
+deep_audit_short_shadow_enabled            true
+deep_audit_short_shadow_require_defensive  true
+# Investor discipline
+deep_audit_investor_max_new_positions_per_day 3
+deep_audit_investor_auto_init_require_accumulate true
+deep_audit_investor_auto_init_min_score       65
+deep_audit_investor_reduce_trim_min_sessions  2
+deep_audit_investor_reduce_trim_pct           0.30
+deep_audit_investor_auto_dca_on_accumulate    true
+```
