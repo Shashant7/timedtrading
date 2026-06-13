@@ -280,6 +280,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_focus_tier_b_floor",
   "deep_audit_focus_tier_c_floor",
   "deep_audit_focus_min_entry_conviction",
+  // 2026-06-13 (Part 2/4): dead-knob fix + Tier-C suspension. hard_min is
+  // the tunable absolute clamp (default 60) so the floor can be LOWERED,
+  // not only raised; suspend_tier_c (default true) blocks the exploratory
+  // drain cohort until the conviction signal discriminates again.
+  "deep_audit_focus_floor_hard_min",
+  "deep_audit_focus_suspend_tier_c",
   "deep_audit_etf_precision_min_conviction",
   "deep_audit_focus_tier_a_winner_protect_mfe",
   "deep_audit_focus_tier_a_risk_budget_mult",

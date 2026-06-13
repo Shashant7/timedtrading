@@ -7,7 +7,11 @@ import { signalFreshness } from "../indicators.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
-import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
+import {
+  getTickerType as getTickerTypeForFocus,
+  getSector as getSectorForFocus,
+  getSectorRating as getSectorRatingForFocus,
+} from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
 import {
   applyMomentumBreakoutConvictionCarveout,
@@ -754,6 +758,29 @@ export function evaluateEntry(ctx) {
         } catch { /* ignore */ }
       }
 
+      // 2026-06-13 — NEVER-STALE CONVICTION INPUTS (tasks/2026-06-12-never-
+      // stale-and-performance-review.md Part 4, finding 1). The autopsy
+      // found `sector: no_sector_data` in live rank_trace breakdowns: the
+      // conviction sector component was running on a missing input because
+      // _sector / _sector_rating were only stamped on the investor-compute
+      // and replay-assembly paths, never on the Active-Trader entry ticker.
+      // SECTOR_MAP / SECTOR_RATINGS are static (no freshness dependency), so
+      // resolve them here exactly like _ticker_type above. We only fill when
+      // absent so a fresher live rating (env._sectorRatings) is never
+      // clobbered. This stops the signal scoring on missing data — the
+      // freshness-class bug Part 4 said to fix first.
+      try {
+        const _tkU = String(d.ticker || d.sym || "").toUpperCase();
+        if (_tkU && !d._sector) {
+          const _sec = getSectorForFocus(_tkU);
+          if (_sec) d._sector = _sec;
+        }
+        if (!d._sector_rating && d._sector) {
+          const _r = getSectorRatingForFocus(d._sector);
+          if (_r && _r.rating) d._sector_rating = _r.rating;
+        }
+      } catch { /* ignore — scoreSector falls back to neutral */ }
+
       try {
         const conv = computeConvictionScore({
           tickerData: d,
@@ -802,10 +829,26 @@ export function evaluateEntry(ctx) {
       //      noisy (now ±5 when structure agrees)
       // Conviction scores in calm grinds are now higher; floor 80 is
       // reachable without 11-day entry droughts.
-      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
-      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
-      const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
-      let _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+      //
+      // 2026-06-13 — DEAD-KNOB FIX (tasks/2026-06-12-never-stale-and-
+      // performance-review.md Part 2). The hard clamps below were
+      // Math.max(75/80/110, …), so any operator/COO proposal to LOWER
+      // a floor (e.g. deep_audit_focus_min_entry_conviction → 70) silently
+      // no-op'd — config could raise floors but never lower them. The
+      // 60-day review flagged this as the reason the floor experiment
+      // could not even be run. The absolute clamp is now itself a tunable
+      // (deep_audit_focus_floor_hard_min, default 60) so the floor is
+      // honestly adjustable while still guarding against a 0/negative
+      // mis-config. DEFAULTS ARE UNCHANGED (110/80/75/80) — this only
+      // makes the knobs reachable when the operator deliberately sets them.
+      const _floorHardMinRaw = Number(daCfg.deep_audit_focus_floor_hard_min);
+      const _floorHardMin = Number.isFinite(_floorHardMinRaw) && _floorHardMinRaw >= 0
+        ? _floorHardMinRaw
+        : 60;
+      const _tierAFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
+      let _entryMinConviction = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
 
       // V15 P0.7.11 (2026-04-27): STACKED-BULL CARVE-OUT.
       //
@@ -940,6 +983,22 @@ export function evaluateEntry(ctx) {
           tier: _focusTier,
           floor: _entryMinConviction,
           breakdown: _focusConviction.breakdown,
+        });
+      }
+      // 2026-06-13 — TIER C SUSPENSION (tasks/2026-06-12-never-stale-and-
+      // performance-review.md Part 4, finding 1). The live signal autopsy
+      // (n=45) showed conviction does NOT discriminate — corr(conviction,
+      // win) = -0.02 — and the exploratory Tier-C cohort was a pure drain:
+      // 16 trades, 25% WR, -$1,657. Until the conviction signal is repaired
+      // and re-validated against live outcomes, Tier-C entries teach nothing
+      // and cost money. Suspend them by default. Reversible via config
+      // (set deep_audit_focus_suspend_tier_c="false") once the signal
+      // separates winners from losers again.
+      const _suspendTierC = String(daCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
+      if (_focusTier === "C" && _suspendTierC) {
+        return rejectEntry("focus_tier_c_suspended", {
+          score: _focusConviction.score, tier: _focusTier,
+          note: "Tier C entries suspended pending conviction-signal repair (Part 4)",
         });
       }
       // Tier-specific extra floors for mixed-quality side (e.g. Tier C
