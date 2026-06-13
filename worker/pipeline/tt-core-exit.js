@@ -2,6 +2,8 @@
 // TT Core exit engine — ripster cloud exits + PDZ management + legacy safety nets.
 // Combined management for the primary engine.
 
+import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON } from "./mfe-ratchet.js";
+
 export function evaluateExit(ctx, position) {
   const d = ctx.raw;
   if (!position || position.status !== "OPEN") return null;
@@ -95,6 +97,22 @@ export function evaluateExit(ctx, position) {
       ? "max_loss_pdz_window_expired"
       : "max_loss";
     return result("exit", reason, "safety");
+  }
+
+  // ── MFE GIVEBACK RATCHET (2026-06-12) — unsuppressible profit floor ──
+  // Mirrors the inline check in worker/index.js classifyKanbanStage (which
+  // is authoritative for tt_core). Runs BEFORE the R6 proportional trail
+  // because R6 is suppressed by cloud-hold flags; the ratchet is not.
+  // See worker/pipeline/mfe-ratchet.js for the autopsy evidence.
+  {
+    const ratchet = evaluateMfeRatchet({
+      pnlPct,
+      position,
+      daCfg: ctx.config.deepAudit || {},
+    });
+    if (ratchet.fire) {
+      return result("exit", MFE_RATCHET_EXIT_REASON, "profit_management");
+    }
   }
 
   // ── R6 (2026-04-17): MFE-PROPORTIONAL STOP TRAIL ──
