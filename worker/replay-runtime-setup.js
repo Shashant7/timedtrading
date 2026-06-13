@@ -170,6 +170,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_short_requires_spy_downtrend",
   "deep_audit_short_spy_carveout_rank_min",
   "deep_audit_short_spy_carveout_cohorts",
+  // 2026-06-13 (Part 3, R4): short-book shadow mode — log-only.
+  "deep_audit_short_shadow_enabled",
+  "deep_audit_short_shadow_require_defensive",
+  "deep_audit_short_shadow_tactical_title",
   "deep_audit_short_sector_strength_gate",
   "deep_audit_short_sector_strength_rank_min",
   "deep_audit_max_loss_time_scaled_v2",
@@ -280,6 +284,18 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_focus_tier_b_floor",
   "deep_audit_focus_tier_c_floor",
   "deep_audit_focus_min_entry_conviction",
+  // 2026-06-13 (Part 2/4): dead-knob fix + Tier-C suspension. hard_min is
+  // the tunable absolute clamp (default 60) so the floor can be LOWERED,
+  // not only raised; suspend_tier_c (default true) blocks the exploratory
+  // drain cohort until the conviction signal discriminates again.
+  "deep_audit_focus_floor_hard_min",
+  "deep_audit_focus_suspend_tier_c",
+  // 2026-06-13 (Part 4, finding 3): fast-cut lane kill-switch + tunable
+  // Tier-1 entry-age window so replay can loosen the lanes that forfeit
+  // +7-12% of post-exit continuation.
+  "deep_audit_phase_i_fast_cut_enabled",
+  "deep_audit_phase_i_fast_cut_tier1_min_age_h",
+  "deep_audit_phase_i_fast_cut_tier1_max_age_h",
   "deep_audit_etf_precision_min_conviction",
   "deep_audit_focus_tier_a_winner_protect_mfe",
   "deep_audit_focus_tier_a_risk_budget_mult",
@@ -497,6 +513,15 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_accum_zone_momentum_runner_min_confidence", // default 40
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_min", // default 50
   "deep_audit_investor_accum_zone_momentum_runner_weekly_rsi_max", // default 88
+  // 2026-06-13 (Part 3, R6) — investor execution discipline.
+  "deep_audit_investor_max_new_positions_per_day",             // default 3
+  "deep_audit_investor_auto_init_require_accumulate",          // default true
+  "deep_audit_investor_auto_init_min_score",                   // default 65
+  "deep_audit_investor_reduce_trim_min_sessions",              // default 2
+  "deep_audit_investor_reduce_trim_pct",                       // default 0.30
+  "deep_audit_investor_auto_dca_on_accumulate",                // default true
+  "deep_audit_investor_auto_dca_amount_pct",                   // default 0.02
+  "deep_audit_investor_auto_dca_frequency",                    // default monthly
   // Trajectory program — Phase 4 / 4.1 / 5 gates blob.
   // Stored as a JSON object so the owner can flip multiple gates from
   // one row without redeploy. Defaults all false / sensible-defaults in

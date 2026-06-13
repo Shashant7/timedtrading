@@ -207,14 +207,22 @@ function scoreSector(tickerData, ctx) {
   // V13: worker emits `_sector_rating` (overweight / neutral / underweight)
   // based on Fundstrat's sector guidance. Use this as the primary signal
   // since it's always populated and already reflects the analyst view.
-  const rating = String(tickerData?._sector_rating || "").toLowerCase();
+  // 2026-06-13 (Part 4): also consult ctx.sectorRating, which is env-backed
+  // (env._sectorRatings[ticker]) and survives when the per-ticker stamp on
+  // `tickerData` is missing — closing one of the missing-input gaps the
+  // live signal autopsy flagged.
+  const rating = String(tickerData?._sector_rating || ctx?.sectorRating || "").toLowerCase();
   if (rating === "overweight") return { pts: 15, reason: "sector_overweight" };
   if (rating === "underweight") return { pts: 0, reason: "sector_underweight" };
   if (rating === "neutral") return { pts: 7, reason: "sector_neutral" };
 
   // Fallback to monthly backdrop sector leadership if rating missing
   const sector = String(tickerData?._sector || ctx?.sector || "").toLowerCase();
-  if (!sector) return { pts: 7, reason: "no_sector_data" };
+  // 2026-06-13 (Part 4): surface input_missing so a genuinely unresolvable
+  // sector is auditable in rank_trace_json instead of silently scoring a
+  // neutral 7. The entry path now stamps _sector from the static SECTOR_MAP
+  // before this runs, so this branch should be rare (truly unmapped symbol).
+  if (!sector) return { pts: 7, reason: "no_sector_data", input_missing: true };
   const leadership = ctx?.market?.monthlySectorTop || ctx?.monthlyBackdrop?.sector_leadership || [];
   const bottom = ctx?.market?.monthlySectorBottom || ctx?.monthlyBackdrop?.sector_bottom || [];
   const leadNorm = (Array.isArray(leadership) ? leadership : []).map(s => String(s).toLowerCase());
@@ -272,8 +280,16 @@ function scoreRelativeStrength(tickerData, ctx) {
   // in the entire run. Doubling weight to leverage what works.
 
   // No data path
+  // 2026-06-13 (Part 4): mark input_missing so the freshness-class gap the
+  // signal autopsy flagged (spy_baseline_missing AND no ticker slope) is
+  // queryable in rank_trace_json rather than hidden behind a neutral score.
   if (tickerSlope === 0 && tickerPctAboveE48 === 0) {
-    return { pts: 12, reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data" };
+    return {
+      pts: 12,
+      reason: spySlopeMissing ? "no_rs_data_spy_missing" : "no_rs_data",
+      input_missing: true,
+      spy_baseline_missing: spySlopeMissing,
+    };
   }
 
   // Relative slope: ticker vs SPY daily velocity (percentage points)

@@ -7,8 +7,13 @@ import { signalFreshness } from "../indicators.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
-import { getTickerType as getTickerTypeForFocus } from "../sector-mapping.js";
+import {
+  getTickerType as getTickerTypeForFocus,
+  getSector as getSectorForFocus,
+  getSectorRating as getSectorRatingForFocus,
+} from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
+import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   applyMomentumBreakoutConvictionCarveout,
   stampMomentumBreakoutEarly,
@@ -75,6 +80,78 @@ function deepAuditTickerSet(rawValue) {
       .map((v) => v.trim().toUpperCase())
       .filter(Boolean),
   );
+}
+
+/* 2026-06-13 — SHORT-BOOK SHADOW MODE (tasks/2026-06-12-never-stale-and-
+   performance-review.md Part 3, R4).
+
+   The 60-day review found the engine fired 65 LONG / 1 SHORT while the CRO
+   tactical overlay was defensive — the all-time-profitable reversal shorts
+   (tt_gap_reversal_short PF 8.86) sat idle because the SPY-downtrend gate is
+   calibrated for crash tape, not rotation tape. Before relaxing a live SHORT
+   gate (real capital), R4 asks to SHADOW: log would-be shorts that the gate
+   currently suppresses in a defensive-rotation regime, so two weeks of
+   observation can prove (or disprove) the edge first.
+
+   This evaluator is OBSERVATION-ONLY: it never changes the entry decision.
+   It stamps d.__short_shadow and logs [SHORT_SHADOW] when, in a defensive
+   tactical regime, a structurally-bearish ticker in a flagged-weak sector
+   below its daily EMA21 would have shorted but for the crash-tape gate.
+
+   Gate: deep_audit_short_shadow_enabled (default true — log-only, safe). */
+export function evaluateShortShadow({ d, ctx, daCfg, rejectMeta }) {
+  try {
+    if (String(daCfg?.deep_audit_short_shadow_enabled ?? "true") !== "true") return;
+
+    // Defensive tactical regime. Use the in-code desk posture headline
+    // (sync, no KV/IO) plus the monthly-cycle proxy threaded onto ctx.
+    const _titleDefensive = /defensive|rotation|caution/i.test(
+      String(daCfg?.deep_audit_short_shadow_tactical_title || STRATEGY_TACTICAL_TITLE || ""),
+    );
+    const _monthlyCycle = String(ctx?.market?.monthlyCycle || "").toLowerCase();
+    const _cycleDefensive = _monthlyCycle === "downtrend" || _monthlyCycle === "transitional";
+    const _requireDefensive = String(daCfg?.deep_audit_short_shadow_require_defensive ?? "true") === "true";
+    const defensiveRegime = _titleDefensive || _cycleDefensive;
+    if (_requireDefensive && !defensiveRegime) return;
+
+    // Flagged-weak sector: explicit underweight rating OR the ticker's
+    // sector is in this month's bottom-sector list.
+    const _sectorRating = String(d?._sector_rating || ctx?.sectorRating || "").toLowerCase();
+    const _sector = String(d?._sector || "").toLowerCase();
+    const _bottom = ctx?.market?.monthlySectorBottom;
+    const _bottomNorm = Array.isArray(_bottom) ? _bottom.map((s) => String(s).toLowerCase()) : [];
+    const weakSector = _sectorRating === "underweight"
+      || (_sector && _bottomNorm.some((s) => s.includes(_sector) || _sector.includes(s)));
+
+    // Ticker below its daily EMA21 (rotation weakness on the name itself).
+    const _daily = ctx?.daily || d?.daily_structure || {};
+    const _pctAboveE21 = Number(_daily?.pct_above_e21);
+    const _e21 = Number(_daily?.e21);
+    const _px = Number(_daily?.px ?? d?.price ?? d?.last_price);
+    const belowE21 = (Number.isFinite(_pctAboveE21) && _pctAboveE21 < 0)
+      || (Number.isFinite(_e21) && _e21 > 0 && Number.isFinite(_px) && _px > 0 && _px < _e21);
+
+    if (!(weakSector && belowE21)) return;
+
+    const shadow = {
+      mode: "shadow",
+      ticker: String(d?.ticker || d?.sym || "").toUpperCase(),
+      suppressed_by: rejectMeta?.reason || "phase_i_short_no_spy_downtrend",
+      defensive_regime: defensiveRegime,
+      monthly_cycle: _monthlyCycle || null,
+      sector: _sector || null,
+      sector_rating: _sectorRating || null,
+      weak_sector: !!weakSector,
+      below_e21: !!belowE21,
+      pct_above_e21: Number.isFinite(_pctAboveE21) ? _pctAboveE21 : null,
+      rank: rejectMeta?.rank ?? null,
+      ts: Number(ctx?.nowTs) || null,
+    };
+    if (d && typeof d === "object") d.__short_shadow = shadow;
+    console.log(`[SHORT_SHADOW] would-be SHORT suppressed by ${shadow.suppressed_by} — ${shadow.ticker} sector=${shadow.sector}(${shadow.sector_rating}) cycle=${shadow.monthly_cycle} pctAboveE21=${shadow.pct_above_e21}`);
+  } catch (_e) {
+    /* observation-only — never let a shadow bug touch the entry path */
+  }
 }
 
 function continuationProofActive({
@@ -754,6 +831,29 @@ export function evaluateEntry(ctx) {
         } catch { /* ignore */ }
       }
 
+      // 2026-06-13 — NEVER-STALE CONVICTION INPUTS (tasks/2026-06-12-never-
+      // stale-and-performance-review.md Part 4, finding 1). The autopsy
+      // found `sector: no_sector_data` in live rank_trace breakdowns: the
+      // conviction sector component was running on a missing input because
+      // _sector / _sector_rating were only stamped on the investor-compute
+      // and replay-assembly paths, never on the Active-Trader entry ticker.
+      // SECTOR_MAP / SECTOR_RATINGS are static (no freshness dependency), so
+      // resolve them here exactly like _ticker_type above. We only fill when
+      // absent so a fresher live rating (env._sectorRatings) is never
+      // clobbered. This stops the signal scoring on missing data — the
+      // freshness-class bug Part 4 said to fix first.
+      try {
+        const _tkU = String(d.ticker || d.sym || "").toUpperCase();
+        if (_tkU && !d._sector) {
+          const _sec = getSectorForFocus(_tkU);
+          if (_sec) d._sector = _sec;
+        }
+        if (!d._sector_rating && d._sector) {
+          const _r = getSectorRatingForFocus(d._sector);
+          if (_r && _r.rating) d._sector_rating = _r.rating;
+        }
+      } catch { /* ignore — scoreSector falls back to neutral */ }
+
       try {
         const conv = computeConvictionScore({
           tickerData: d,
@@ -802,10 +902,26 @@ export function evaluateEntry(ctx) {
       //      noisy (now ±5 when structure agrees)
       // Conviction scores in calm grinds are now higher; floor 80 is
       // reachable without 11-day entry droughts.
-      const _tierAFloor = Math.max(110, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
-      const _tierBFloor = Math.max(80, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
-      const _tierCFloor = Math.max(75, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
-      let _entryMinConviction = Math.max(75, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
+      //
+      // 2026-06-13 — DEAD-KNOB FIX (tasks/2026-06-12-never-stale-and-
+      // performance-review.md Part 2). The hard clamps below were
+      // Math.max(75/80/110, …), so any operator/COO proposal to LOWER
+      // a floor (e.g. deep_audit_focus_min_entry_conviction → 70) silently
+      // no-op'd — config could raise floors but never lower them. The
+      // 60-day review flagged this as the reason the floor experiment
+      // could not even be run. The absolute clamp is now itself a tunable
+      // (deep_audit_focus_floor_hard_min, default 60) so the floor is
+      // honestly adjustable while still guarding against a 0/negative
+      // mis-config. DEFAULTS ARE UNCHANGED (110/80/75/80) — this only
+      // makes the knobs reachable when the operator deliberately sets them.
+      const _floorHardMinRaw = Number(daCfg.deep_audit_focus_floor_hard_min);
+      const _floorHardMin = Number.isFinite(_floorHardMinRaw) && _floorHardMinRaw >= 0
+        ? _floorHardMinRaw
+        : 60;
+      const _tierAFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_a_floor ?? 110));
+      const _tierBFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_b_floor ?? 80));
+      const _tierCFloor = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_tier_c_floor ?? 75));
+      let _entryMinConviction = Math.max(_floorHardMin, Number(daCfg.deep_audit_focus_min_entry_conviction ?? 80));
 
       // V15 P0.7.11 (2026-04-27): STACKED-BULL CARVE-OUT.
       //
@@ -942,6 +1058,22 @@ export function evaluateEntry(ctx) {
           breakdown: _focusConviction.breakdown,
         });
       }
+      // 2026-06-13 — TIER C SUSPENSION (tasks/2026-06-12-never-stale-and-
+      // performance-review.md Part 4, finding 1). The live signal autopsy
+      // (n=45) showed conviction does NOT discriminate — corr(conviction,
+      // win) = -0.02 — and the exploratory Tier-C cohort was a pure drain:
+      // 16 trades, 25% WR, -$1,657. Until the conviction signal is repaired
+      // and re-validated against live outcomes, Tier-C entries teach nothing
+      // and cost money. Suspend them by default. Reversible via config
+      // (set deep_audit_focus_suspend_tier_c="false") once the signal
+      // separates winners from losers again.
+      const _suspendTierC = String(daCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
+      if (_focusTier === "C" && _suspendTierC) {
+        return rejectEntry("focus_tier_c_suspended", {
+          score: _focusConviction.score, tier: _focusTier,
+          note: "Tier C entries suspended pending conviction-signal repair (Part 4)",
+        });
+      }
       // Tier-specific extra floors for mixed-quality side (e.g. Tier C
       // needs stricter entry because we're casting a wider exploratory
       // net). If conviction < tier_c_floor AND tier is C, the entry is
@@ -1039,6 +1171,14 @@ export function evaluateEntry(ctx) {
           const rankHighEnough = rankScore >= _shortCarveRankMin;
           const cohortAllowed = _shortCarveCohorts.includes(String(d?._cohort || "").toLowerCase());
           if (!(rankHighEnough && cohortAllowed)) {
+            // R4 shadow: this is a structurally-valid SHORT setup the
+            // crash-tape SPY-downtrend gate is about to suppress. Log it
+            // for the 2-week rotation-tape review BEFORE rejecting. Pure
+            // observation — the rejection below is unchanged.
+            evaluateShortShadow({
+              d, ctx, daCfg,
+              rejectMeta: { reason: "phase_i_short_no_spy_downtrend", rank: rankScore },
+            });
             return rejectEntry("phase_i_short_no_spy_downtrend", {
               bearSignals, spyBelowE21, spyE21SlopeNeg, spyBearRegime,
               tickerBearishDaily, minBearSignals: _minBearSignals,
