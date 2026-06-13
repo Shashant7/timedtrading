@@ -286,6 +286,12 @@ export const REPLAY_DA_KEYS = [
   // drain cohort until the conviction signal discriminates again.
   "deep_audit_focus_floor_hard_min",
   "deep_audit_focus_suspend_tier_c",
+  // 2026-06-13 (Part 4, finding 3): fast-cut lane kill-switch + tunable
+  // Tier-1 entry-age window so replay can loosen the lanes that forfeit
+  // +7-12% of post-exit continuation.
+  "deep_audit_phase_i_fast_cut_enabled",
+  "deep_audit_phase_i_fast_cut_tier1_min_age_h",
+  "deep_audit_phase_i_fast_cut_tier1_max_age_h",
   "deep_audit_etf_precision_min_conviction",
   "deep_audit_focus_tier_a_winner_protect_mfe",
   "deep_audit_focus_tier_a_risk_budget_mult",
