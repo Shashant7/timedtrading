@@ -1719,11 +1719,12 @@ function ResearchDeskPanel({
       display: "flex",
       flexDirection: "column",
       gap: 0,
-      maxHeight: 260,
+      maxHeight: 480,
       overflowY: "auto",
       overflowX: "hidden",
       paddingRight: 4,
-      WebkitOverflowScrolling: "touch"
+      WebkitOverflowScrolling: "touch",
+      flex: 1
     }
   }, items.map((it, i) => {
     const id = it.pub_id || String(i);
@@ -1973,10 +1974,10 @@ function TodayHero({
     className: "today-hero",
     style: {
       display: "grid",
-      gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, 0.85fr)",
+      gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
       gridTemplateRows: "auto auto",
-      gap: 14,
-      marginBottom: 14,
+      gap: 16,
+      marginBottom: 16,
       alignItems: "stretch"
     }
   }, h("div", {
@@ -2147,32 +2148,39 @@ function CTOLevelsPanel({
   }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
-    className: "tt-card tt-card-pad"
+    className: "tt-card tt-card-pad",
+    style: {
+      height: "100%",
+      display: "flex",
+      flexDirection: "column",
+      minWidth: 0
+    }
   }, h("div", {
     className: "tt-sec-title"
   }, "PROBABILISTIC LEVEL MAP"), h("div", {
     className: "tt-sec-h",
     style: {
-      fontSize: 15
+      fontSize: 15,
+      marginBottom: 6
     }
   }, "Where the math says price gravitates"), h("div", {
     style: {
       fontSize: 11.5,
       color: "var(--tt-text-dim)",
-      marginBottom: 8,
-      lineHeight: 1.55
+      marginBottom: 10,
+      lineHeight: 1.5
     }
-  }, "Each row shows the strongest upside and downside magnets independently — not a single directional call. ", h("strong", {
+  }, "Upside and downside magnets shown independently — ", h("strong", {
     style: {
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Range map"), " = both levels hit often in a tight band (chop). ", h("strong", {
+  }, "Range map"), " when both hit often; ", h("strong", {
     style: {
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals."), h("div", {
+  }, "Lean"), " when one side leads by 12+ pts. Context only, not trade signals."), h("div", {
     className: "tt-cto-map-meta"
   }, asOfLabel ? h("div", {
     style: {
@@ -2208,7 +2216,9 @@ function CTOLevelsPanel({
       overflowY: "auto",
       overflowX: "hidden",
       paddingRight: 4,
-      WebkitOverflowScrolling: "touch"
+      WebkitOverflowScrolling: "touch",
+      flex: 1,
+      minHeight: 0
     }
   }, indexRows.length > 0 && h("div", {
     style: {
@@ -5167,6 +5177,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781297106997:761482309
+// cache-bust:1781375185445:118936090
 
-// cache-bust:1781297106997:761482309
+// cache-bust:1781375185445:118936090
