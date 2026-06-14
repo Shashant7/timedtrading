@@ -810,12 +810,78 @@
     return null;
   }
 
+  function pickLeadingMagnet(item) {
+    const lean = item?.lean;
+    const kind = item?.read_kind;
+    if (lean === "up" || kind === "upside") return item?.top_upside || null;
+    if (lean === "down" || kind === "downside") return item?.top_downside || null;
+    const upP = Number(item?.top_upside?.adj_prob) || 0;
+    const dnP = Number(item?.top_downside?.adj_prob) || 0;
+    return upP >= dnP ? (item?.top_upside || null) : (item?.top_downside || null);
+  }
+
+  /** Human label for move phase: early / confirming / exhausted / extended. */
+  function setupMoveMeta(item) {
+    const leading = pickLeadingMagnet(item);
+    if (!leading) return null;
+    const distRaw = Number(leading.live_distance_pct ?? leading.distance_pct);
+    const dist = Number.isFinite(distRaw) ? Math.abs(distRaw) : null;
+    const st = leading.level_status;
+    const rs = item?.read_status?.status;
+
+    if (st === "hit") {
+      return {
+        label: "At magnet",
+        tone: "var(--tt-up-soft, #34d399)",
+        blurb: "Live price reached the leading magnet — little runway left on this tag.",
+      };
+    }
+    if (st === "faded") {
+      return {
+        label: "Faded",
+        tone: "var(--tt-dn-soft, #f87171)",
+        blurb: "Price moved away from the lean — the setup lost its edge since the daily anchor.",
+      };
+    }
+    if (rs === "confirmed" || rs === "partial") {
+      const room = dist != null ? `${dist.toFixed(1)}% to target` : "move confirming";
+      return {
+        label: "Confirming",
+        tone: "var(--tt-up-soft, #34d399)",
+        blurb: `The lean is playing out — ${room}.`,
+      };
+    }
+    if (dist != null && dist <= 1.5) {
+      return {
+        label: "Early",
+        tone: "var(--tt-accent, #f5c25c)",
+        blurb: `Only ${dist.toFixed(1)}% to the leading magnet — early in the move with room if confirmation follows.`,
+      };
+    }
+    if (dist != null && dist <= 6) {
+      return {
+        label: "In play",
+        tone: "var(--tt-text-muted, #8AA39A)",
+        blurb: `${dist.toFixed(1)}% to the magnet — actionable distance with historical hit rate backing.`,
+      };
+    }
+    if (dist != null) {
+      return {
+        label: "Extended",
+        tone: "var(--tt-text-faint, #5a7268)",
+        blurb: `${dist.toFixed(1)}% away — higher hit rate but less confirmation that the move has started.`,
+      };
+    }
+    return null;
+  }
+
   window.TimedCTORead = {
     interpret: interpretCTORead,
     tone: ctoReadTone,
     formatDistance: formatLevelDistance,
     levelStatus: levelStatusMeta,
     readStatus: readStatusMeta,
+    setupMove: setupMoveMeta,
     formatBarAsOf(ms) {
       const n = Number(ms);
       if (!Number.isFinite(n) || n <= 0) return null;
@@ -885,4 +951,4 @@
   };
 })();
 
-// cache-bust:1781286953375:846604829
+// cache-bust:1781465025016:986545021
