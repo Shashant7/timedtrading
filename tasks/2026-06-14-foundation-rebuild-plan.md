@@ -182,7 +182,39 @@ self-evidencing, single-writer, calendar-anchored, and N→2 freshness points.**
   indicators only consume finalized bars for confirmation logic (TD9, EMA
   cross) and may consume the forming bar only where intended (live triggers).
 
-### 3.6 The contract the chain EXPOSES upward (this is the API everything uses)
+### 3.6 Retention is bounded by design — the D1 10 GB hard cap is a first-class constraint
+
+DECISION (2026-06-14, operator): **base intraday resolution = 5m, kept hot for
+a bounded window only.** D1 has a hard 10 GB ceiling, so the chain must have a
+*constant* hot footprint regardless of calendar time — it can never be an
+ever-growing table (today's `ticker_candles` is 10M rows / 5.5 GB and climbing,
+which is the anti-pattern we are removing).
+
+Sizing rule: **hot 5m window = deepest INTRADAY indicator lookback (in 5m bars)
++ buffer.** D/W/M never come from 5m — they come from the separate daily base —
+so the 5m window only has to cover the deepest *intraday* timeframe's lookback,
+not a monthly EMA200.
+
+Worked example (assumptions stated; tune to the real universe + indicator set):
+- ~78 RTH 5m bars/ticker/day; universe ~300 tickers; ~150 bytes/row effective.
+- Deepest intraday need ≈ 200×4H bars. A 4H bar = 48×5m bars ⇒ ~9,600 5m bars
+  ≈ ~125 trading days. Take **150 trading days** as the hot window (buffer).
+- Footprint: 300 × 78 × 150 ≈ **3.5M rows ≈ ~520 MB**. Daily base (≈250/yr) +
+  derived D/W/M are negligible (single-digit MB). **Total hot << 1 GB** — with
+  ~10× headroom under the cap, permanently, because the window doesn't grow.
+
+Mechanics:
+- A **retention job is part of the chain, not a bolt-on**: every advance, the
+  DO trims 5m base bars older than the hot window and ships them to **R2 as
+  parquet** (cold). Replay/backtest reads cold bars from R2 through the SAME
+  `getSeries` interface (`source: "as_of"`), so deep history is available for
+  research without bloating D1.
+- The daily base is kept fully (it's tiny) so D/W/M lookbacks are always
+  satisfied from hot storage.
+- If the universe or lookback grows, the window is the single knob; the
+  footprint stays computable and bounded before we ever approach the cap.
+
+### 3.7 The contract the chain EXPOSES upward (this is the API everything uses)
 ```
 getSeries(ticker, tf, { asOf, lookback }) -> {
   bars: Bar[],                 // contiguous, finalized unless asked otherwise
@@ -266,9 +298,12 @@ score(inputs) -> {
 | **platform** | hot snapshots, cold history, per-user sim | KV (hot), R2/parquet (cold candles), DO (per-user) |
 | **observability** | every layer emits coverage/freshness/version to one pane | health endpoint + watchdog |
 
-Storage note: `ticker_candles` is the largest table (10M rows / 5.5 GB today).
-Cold base bars age out to **R2 (parquet)**; the DO keeps the hot working window
-(enough for the deepest indicator lookback) in fast storage.
+Storage note: `ticker_candles` is the largest table (10M rows / 5.5 GB today)
+and grows unbounded — the anti-pattern. In the rebuild the hot 5m footprint is
+**constant and bounded** (≈520 MB at 150 trading days × ~300 tickers — see
+§3.6), well under the D1 10 GB hard cap with permanent headroom. Cold base bars
+age out to **R2 (parquet)** via the chain's own retention job and are read back
+through the same `getSeries` interface for replay/research.
 
 ---
 
@@ -319,14 +354,20 @@ pattern (see `skills/worker-topology.md`) and is reversible.
   the incident log. (If guards fire routinely, the foundation isn't done.)
 - **Determinism:** score and indicators are pure, versioned, and reproduce
   identically on a frozen candle corpus across runs and machines.
+- **Bounded footprint:** the D1 candle footprint stays under a fixed budget
+  (target < 1 GB, design headroom ~10× under the 10 GB cap) regardless of
+  calendar time, enforced by the chain's retention job — never an
+  ever-growing table.
 
 ---
 
 ## 9. Open design decisions (resolve before Phase 1 build)
 
-1. **Base intraday resolution** — 1m (maximally flexible, ~5x storage) vs 5m
-   (cheaper; can't derive sub-5m, which we don't trade). Leaning 5m given the
-   "hours/days/weeks" horizon, with 1m only if a setup ever needs it.
+1. ~~**Base intraday resolution**~~ — **RESOLVED 2026-06-14: 5m base, kept hot
+   for a bounded window only** (operator). 5m fits the hours/days/weeks horizon
+   and can derive every intraday TF we trade; the hot window is bounded so the
+   D1 footprint is constant and stays ~10× under the 10 GB cap (see §3.6).
+   Cold 5m ages to R2.
 2. **Provider for the base** — TwelveData primary (current SoT) with Alpaca as
    the contiguity-repair fallback; define the reconciliation rule when they
    disagree on a finalized bar.
