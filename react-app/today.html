@@ -152,6 +152,7 @@
         grid-column: 1;
         grid-row: 2;
         min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
       }
@@ -159,8 +160,33 @@
         grid-column: 2;
         grid-row: 2;
         min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
+      }
+      /* Research Desk — flex column card + scroll body (mirrors PML) */
+      .tt-desk-panel {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+      }
+      .tt-desk-feed-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .tt-desk-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding-right: 4px;
+        padding-bottom: 8px;
       }
       @media (max-width: 980px) {
         .today-hero {
@@ -1078,29 +1104,28 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* PLM sits in a half-width column — single scroll, taller cap */
+        /* PLM + Research Desk — scroll regions fill the paired column height */
         .today-hero-levels-col .tt-cto-map-scroll {
-          display: block;
-          max-height: min(520px, 62vh);
-        }
-        .today-hero-levels-col .tt-card {
-          height: 100%;
-        }
-        /* Research Desk — match PLM scroll height in the paired column */
-        .today-hero-desk-col .tt-card {
-          height: 100%;
-        }
-        .today-hero-desk-col .tt-desk-scroll {
           display: block;
           flex: 1;
           min-height: 0;
-          max-height: min(520px, 62vh);
+          max-height: none;
+        }
+        .today-hero-levels-col .tt-card,
+        .today-hero-levels-col .tt-cto-panel,
+        .today-hero-desk-col .tt-desk-panel {
+          flex: 1;
+          min-height: 0;
+          height: 100%;
+        }
+        .today-hero-desk-col .tt-desk-scroll {
+          flex: 1;
+          min-height: 0;
+          max-height: none;
         }
       }
       @media (max-width: 980px) {
-        .today-hero-levels-col .tt-cto-map-scroll {
-          max-height: none;
-        }
+        .today-hero-levels-col .tt-cto-map-scroll,
         .today-hero-desk-col .tt-desk-scroll {
           max-height: none;
         }
@@ -2728,12 +2753,12 @@
           if (hr < 24) return `${hr}h ago`;
           return `${Math.floor(hr / 24)}d ago`;
         };
-        return h("div", { className: "tt-card tt-card-pad", style: { minWidth: 0, height: "100%", display: "flex", flexDirection: "column" } },
-          h("div", { className: "tt-sec-title", style: { marginBottom: 2 } }, "RESEARCH DESK"),
-          h("div", { className: "tt-sec-h", style: { marginBottom: 10 } }, "Fresh from the research feed"),
+        return h("div", { className: "tt-card tt-card-pad tt-desk-panel" },
+          h("div", { className: "tt-sec-title", style: { marginBottom: 2, flexShrink: 0 } }, "RESEARCH DESK"),
+          h("div", { className: "tt-sec-h", style: { marginBottom: 10, flexShrink: 0 } }, "Fresh from the research feed"),
           croNote && h("div", {
             style: {
-              marginBottom: 10, padding: "10px 12px", borderRadius: 8,
+              marginBottom: 10, padding: "10px 12px", borderRadius: 8, flexShrink: 0,
               border: "1px solid rgba(139,92,246,0.35)", background: "rgba(139,92,246,0.06)",
             },
           },
@@ -2755,53 +2780,43 @@
               )),
             ),
           ),
-          items.length === 0
-            ? h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)" } },
-                feed ? "No research notes in the last 7 days." : "Loading research…")
-            : h("div", null,
-                h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em" } },
-                  `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
-                h("div", {
-                  className: "tt-desk-scroll",
-                  style: {
-                    display: "flex", flexDirection: "column", gap: 0,
-                    overflowY: "auto", overflowX: "hidden",
-                    paddingRight: 4, WebkitOverflowScrolling: "touch",
-                    flex: 1,
-                    minHeight: 0,
-                  },
-                },
-                items.map((it, i) => {
-                  const id = it.pub_id || String(i);
-                  const isOpen = openId === id;
-                  const hasMore = !!it.tt_summary;
-                  return h("div", { key: id, style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
-                    // Subtle category + time line (no FlashInsight / source labels).
-                    h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
-                      h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
-                      h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(it.published_at || it.fetched_at)),
-                    ),
-                    // Headline — click to reveal the TT version (full copy).
-                    h("button", {
-                      onClick: () => hasMore && setOpenId(isOpen ? null : id),
-                      style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: hasMore ? "pointer" : "default", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.4, fontWeight: 600 },
-                    },
-                      it.title,
-                      hasMore && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, isOpen ? "▴" : "▾"),
-                    ),
-                    // TT version (full copy) — TT's own write-up, shown on expand.
-                    isOpen && it.tt_summary && h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: "2px solid var(--tt-border-hi)" } }, it.tt_summary),
-                    (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5 } },
-                      it.tickers.map((tk) => h("button", {
-                        key: tk,
-                        onClick: () => onSelectTicker && onSelectTicker(tk),
-                        style: { fontSize: 10.5, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", background: "var(--tt-bg-elev, rgba(255,255,255,0.04))", border: "1px solid var(--tt-border-hi)", borderRadius: 5, padding: "1px 6px", cursor: "pointer" },
-                      }, tk)),
-                    ),
-                  );
-                }),
+          h("div", { className: "tt-desk-feed-body" },
+            items.length === 0
+              ? h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)" } },
+                  feed ? "No research notes in the last 7 days." : "Loading research…")
+              : h(React.Fragment, null,
+                  h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em", flexShrink: 0 } },
+                    `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
+                  h("div", { className: "tt-desk-scroll" },
+                    items.map((it, i) => {
+                      const id = it.pub_id || String(i);
+                      const isOpen = openId === id;
+                      const hasMore = !!it.tt_summary;
+                      return h("div", { key: id, style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
+                        h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
+                          h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
+                          h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(it.published_at || it.fetched_at)),
+                        ),
+                        h("button", {
+                          onClick: () => hasMore && setOpenId(isOpen ? null : id),
+                          style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: hasMore ? "pointer" : "default", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.4, fontWeight: 600 },
+                        },
+                          it.title,
+                          hasMore && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, isOpen ? "▴" : "▾"),
+                        ),
+                        isOpen && it.tt_summary && h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: "2px solid var(--tt-border-hi)" } }, it.tt_summary),
+                        (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5 } },
+                          it.tickers.map((tk) => h("button", {
+                            key: tk,
+                            onClick: () => onSelectTicker && onSelectTicker(tk),
+                            style: { fontSize: 10.5, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", background: "var(--tt-bg-elev, rgba(255,255,255,0.04))", border: "1px solid var(--tt-border-hi)", borderRadius: 5, padding: "1px 6px", cursor: "pointer" },
+                          }, tk)),
+                        ),
+                      );
+                    }),
+                  ),
                 ),
-              ),
+          ),
         );
       }
 
@@ -3020,7 +3035,7 @@
           ),
         );
         const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
-        return h("section", { className: "tt-card tt-card-pad", style: { height: "100%", display: "flex", flexDirection: "column", minWidth: 0 } },
+        return h("section", { className: "tt-card tt-card-pad tt-cto-panel", style: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1, minHeight: 0 } },
           h("div", { className: "tt-sec-title" }, "PROBABILISTIC LEVEL MAP"),
           h("div", { className: "tt-sec-h", style: { fontSize: 15, marginBottom: 6 } }, "Where the math says price gravitates"),
           h("div", { style: { fontSize: 11.5, color: "var(--tt-text-dim)", marginBottom: 10, lineHeight: 1.5 } },
