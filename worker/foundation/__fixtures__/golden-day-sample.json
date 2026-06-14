@@ -1,0 +1,15 @@
+{
+  "_comment": "SAMPLE golden-day parity fixture (format reference for scripts/parity-baseline.js). A real golden day is produced by the operator running the baseline runner against pre-prod/local with real data. Each side is a map of { ticker: { status, value, tier, components } } for the SAME as-of timestamp. Phase 0 success = live and replay are identical on this shape.",
+  "date": "2026-05-08",
+  "as_of_ms": 1746727200000,
+  "live": {
+    "AAPL": { "status": "SCORABLE", "value": 84, "tier": "B", "components": { "sector": 15, "rs": 20 } },
+    "MSFT": { "status": "SCORABLE", "value": 91, "tier": "A", "components": { "sector": 15, "rs": 25 } },
+    "NVDA": { "status": "SCORABLE", "value": 78, "tier": "B", "components": { "sector": 7, "rs": 20 } }
+  },
+  "replay": {
+    "AAPL": { "status": "SCORABLE", "value": 84, "tier": "B", "components": { "sector": 15, "rs": 20 } },
+    "MSFT": { "status": "SCORABLE", "value": 91, "tier": "A", "components": { "sector": 15, "rs": 25 } },
+    "NVDA": { "status": "SCORABLE", "value": 78, "tier": "B", "components": { "sector": 7, "rs": 20 } }
+  }
+}
