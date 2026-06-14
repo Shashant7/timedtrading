@@ -1,0 +1,1283 @@
+{
+  "contract": "parity_baseline_v1",
+  "date": "2026-06-12",
+  "generated_at": "2026-06-14T21:57:49.410Z",
+  "fields": [
+    "state",
+    "htf_score",
+    "ltf_score",
+    "score",
+    "completion",
+    "phase_pct",
+    "conviction"
+  ],
+  "tolerance": 0.5,
+  "inputs": {
+    "live": "/tmp/parity-live.json",
+    "replay": "/tmp/parity-replay.json"
+  },
+  "report": {
+    "identical": false,
+    "tickers_compared": 45,
+    "divergent": [
+      {
+        "ticker": "AA",
+        "field": "htf_score",
+        "live": 11.2,
+        "replay": 13.2,
+        "delta": 2
+      },
+      {
+        "ticker": "AA",
+        "field": "ltf_score",
+        "live": -6.3,
+        "replay": -11.8,
+        "delta": -5.500000000000001
+      },
+      {
+        "ticker": "AA",
+        "field": "score",
+        "live": 44,
+        "replay": 37,
+        "delta": -7
+      },
+      {
+        "ticker": "AA",
+        "field": "conviction",
+        "live": 19,
+        "replay": 44,
+        "delta": 25
+      },
+      {
+        "ticker": "AAPL",
+        "field": "htf_score",
+        "live": 15,
+        "replay": 18.1,
+        "delta": 3.1000000000000014
+      },
+      {
+        "ticker": "AAPL",
+        "field": "ltf_score",
+        "live": -18,
+        "replay": -15.6,
+        "delta": 2.4000000000000004
+      },
+      {
+        "ticker": "AAPL",
+        "field": "score",
+        "live": 52,
+        "replay": 41,
+        "delta": -11
+      },
+      {
+        "ticker": "AAPL",
+        "field": "conviction",
+        "live": 42,
+        "replay": 65,
+        "delta": 23
+      },
+      {
+        "ticker": "AEHR",
+        "field": "htf_score",
+        "live": 31.8,
+        "replay": 30.7,
+        "delta": -1.1000000000000014
+      },
+      {
+        "ticker": "AEHR",
+        "field": "ltf_score",
+        "live": 21.7,
+        "replay": 16.9,
+        "delta": -4.800000000000001
+      },
+      {
+        "ticker": "AEHR",
+        "field": "conviction",
+        "live": 74,
+        "replay": 64,
+        "delta": -10
+      },
+      {
+        "ticker": "APD",
+        "field": "state",
+        "live": "HTF_BEAR_LTF_BEAR",
+        "replay": "HTF_BEAR_LTF_PULLBACK",
+        "delta": null
+      },
+      {
+        "ticker": "APD",
+        "field": "htf_score",
+        "live": -12.8,
+        "replay": -9,
+        "delta": 3.8000000000000007
+      },
+      {
+        "ticker": "APD",
+        "field": "ltf_score",
+        "live": -2.5,
+        "replay": 5.5,
+        "delta": 8
+      },
+      {
+        "ticker": "APD",
+        "field": "score",
+        "live": 76,
+        "replay": 28,
+        "delta": -48
+      },
+      {
+        "ticker": "APD",
+        "field": "conviction",
+        "live": 56,
+        "replay": 61,
+        "delta": 5
+      },
+      {
+        "ticker": "BG",
+        "field": "htf_score",
+        "live": 31.9,
+        "replay": 35.3,
+        "delta": 3.3999999999999986
+      },
+      {
+        "ticker": "BG",
+        "field": "ltf_score",
+        "live": 1.6,
+        "replay": 8.4,
+        "delta": 6.800000000000001
+      },
+      {
+        "ticker": "BG",
+        "field": "score",
+        "live": 88,
+        "replay": 89,
+        "delta": 1
+      },
+      {
+        "ticker": "BG",
+        "field": "conviction",
+        "live": 84,
+        "replay": 99,
+        "delta": 15
+      },
+      {
+        "ticker": "CLS",
+        "field": "htf_score",
+        "live": 20.8,
+        "replay": 18.4,
+        "delta": -2.400000000000002
+      },
+      {
+        "ticker": "CLS",
+        "field": "ltf_score",
+        "live": 17.1,
+        "replay": 14.1,
+        "delta": -3.0000000000000018
+      },
+      {
+        "ticker": "CLS",
+        "field": "score",
+        "live": 75,
+        "replay": 100,
+        "delta": 25
+      },
+      {
+        "ticker": "CLS",
+        "field": "conviction",
+        "live": 69,
+        "replay": 84,
+        "delta": 15
+      },
+      {
+        "ticker": "CSX",
+        "field": "htf_score",
+        "live": 39.6,
+        "replay": 37.1,
+        "delta": -2.5
+      },
+      {
+        "ticker": "CSX",
+        "field": "ltf_score",
+        "live": 14.2,
+        "replay": 9.4,
+        "delta": -4.799999999999999
+      },
+      {
+        "ticker": "CSX",
+        "field": "score",
+        "live": 73,
+        "replay": 76,
+        "delta": 3
+      },
+      {
+        "ticker": "CSX",
+        "field": "conviction",
+        "live": 96,
+        "replay": 111,
+        "delta": 15
+      },
+      {
+        "ticker": "CW",
+        "field": "htf_score",
+        "live": 38.3,
+        "replay": 35.5,
+        "delta": -2.799999999999997
+      },
+      {
+        "ticker": "CW",
+        "field": "score",
+        "live": 81,
+        "replay": 91,
+        "delta": 10
+      },
+      {
+        "ticker": "CW",
+        "field": "conviction",
+        "live": 104,
+        "replay": 114,
+        "delta": 10
+      },
+      {
+        "ticker": "DE",
+        "field": "htf_score",
+        "live": 15.8,
+        "replay": 20.5,
+        "delta": 4.699999999999999
+      },
+      {
+        "ticker": "DE",
+        "field": "ltf_score",
+        "live": 17.5,
+        "replay": 5.6,
+        "delta": -11.9
+      },
+      {
+        "ticker": "DE",
+        "field": "score",
+        "live": 81,
+        "replay": 88,
+        "delta": 7
+      },
+      {
+        "ticker": "DE",
+        "field": "conviction",
+        "live": 52,
+        "replay": 70,
+        "delta": 18
+      },
+      {
+        "ticker": "DIA",
+        "field": "htf_score",
+        "live": 34,
+        "replay": 31.4,
+        "delta": -2.6000000000000014
+      },
+      {
+        "ticker": "DIA",
+        "field": "ltf_score",
+        "live": 14.4,
+        "replay": 16.3,
+        "delta": 1.9000000000000004
+      },
+      {
+        "ticker": "DIA",
+        "field": "score",
+        "live": 56,
+        "replay": 96,
+        "delta": 40
+      },
+      {
+        "ticker": "DIA",
+        "field": "conviction",
+        "live": 39,
+        "replay": 89,
+        "delta": 50
+      },
+      {
+        "ticker": "FIX",
+        "field": "ltf_score",
+        "live": 15.2,
+        "replay": 13.7,
+        "delta": -1.5
+      },
+      {
+        "ticker": "FIX",
+        "field": "score",
+        "live": 96,
+        "replay": 83,
+        "delta": -13
+      },
+      {
+        "ticker": "FIX",
+        "field": "conviction",
+        "live": 54,
+        "replay": 69,
+        "delta": 15
+      },
+      {
+        "ticker": "FN",
+        "field": "htf_score",
+        "live": -7.1,
+        "replay": -1.7,
+        "delta": 5.3999999999999995
+      },
+      {
+        "ticker": "FN",
+        "field": "ltf_score",
+        "live": 14.4,
+        "replay": 6.5,
+        "delta": -7.9
+      },
+      {
+        "ticker": "FN",
+        "field": "score",
+        "live": 38,
+        "replay": 63,
+        "delta": 25
+      },
+      {
+        "ticker": "FN",
+        "field": "conviction",
+        "live": 54,
+        "replay": 64,
+        "delta": 10
+      },
+      {
+        "ticker": "FSLR",
+        "field": "htf_score",
+        "live": 17.7,
+        "replay": 20.1,
+        "delta": 2.400000000000002
+      },
+      {
+        "ticker": "FSLR",
+        "field": "ltf_score",
+        "live": -7.7,
+        "replay": -4.3,
+        "delta": 3.4000000000000004
+      },
+      {
+        "ticker": "FSLR",
+        "field": "score",
+        "live": 62,
+        "replay": 72,
+        "delta": 10
+      },
+      {
+        "ticker": "FSLR",
+        "field": "conviction",
+        "live": 29,
+        "replay": 34,
+        "delta": 5
+      },
+      {
+        "ticker": "GEV",
+        "field": "htf_score",
+        "live": -13.8,
+        "replay": -5.2,
+        "delta": 8.600000000000001
+      },
+      {
+        "ticker": "GEV",
+        "field": "ltf_score",
+        "live": 23.7,
+        "replay": 17.5,
+        "delta": -6.199999999999999
+      },
+      {
+        "ticker": "GEV",
+        "field": "score",
+        "live": 72,
+        "replay": 73,
+        "delta": 1
+      },
+      {
+        "ticker": "GEV",
+        "field": "conviction",
+        "live": 49,
+        "replay": 54,
+        "delta": 5
+      },
+      {
+        "ticker": "GRNY",
+        "field": "htf_score",
+        "live": 7.3,
+        "replay": 21.2,
+        "delta": 13.899999999999999
+      },
+      {
+        "ticker": "GRNY",
+        "field": "ltf_score",
+        "live": 17.1,
+        "replay": 15.9,
+        "delta": -1.200000000000001
+      },
+      {
+        "ticker": "GRNY",
+        "field": "score",
+        "live": 55,
+        "replay": 84,
+        "delta": 29
+      },
+      {
+        "ticker": "GRNY",
+        "field": "conviction",
+        "live": 58,
+        "replay": 73,
+        "delta": 15
+      },
+      {
+        "ticker": "GS",
+        "field": "htf_score",
+        "live": 33,
+        "replay": 31.3,
+        "delta": -1.6999999999999993
+      },
+      {
+        "ticker": "GS",
+        "field": "ltf_score",
+        "live": 13.7,
+        "replay": 16.5,
+        "delta": 2.8000000000000007
+      },
+      {
+        "ticker": "GS",
+        "field": "score",
+        "live": 51,
+        "replay": 87,
+        "delta": 36
+      },
+      {
+        "ticker": "GS",
+        "field": "conviction",
+        "live": 100,
+        "replay": 75,
+        "delta": -25
+      },
+      {
+        "ticker": "HIMX",
+        "field": "htf_score",
+        "live": 16.4,
+        "replay": 0.7,
+        "delta": -15.7
+      },
+      {
+        "ticker": "HIMX",
+        "field": "ltf_score",
+        "live": -11.6,
+        "replay": -8.5,
+        "delta": 3.0999999999999996
+      },
+      {
+        "ticker": "HIMX",
+        "field": "score",
+        "live": 63,
+        "replay": 74,
+        "delta": 11
+      },
+      {
+        "ticker": "HIMX",
+        "field": "conviction",
+        "live": 42,
+        "replay": 27,
+        "delta": -15
+      },
+      {
+        "ticker": "INFL",
+        "field": "state",
+        "live": "HTF_BULL_LTF_BULL",
+        "replay": "HTF_BEAR_LTF_PULLBACK",
+        "delta": null
+      },
+      {
+        "ticker": "INFL",
+        "field": "htf_score",
+        "live": 1.3,
+        "replay": -8.3,
+        "delta": -9.600000000000001
+      },
+      {
+        "ticker": "INFL",
+        "field": "ltf_score",
+        "live": 13.7,
+        "replay": 9.8,
+        "delta": -3.8999999999999986
+      },
+      {
+        "ticker": "INFL",
+        "field": "score",
+        "live": 29,
+        "replay": 31,
+        "delta": 2
+      },
+      {
+        "ticker": "INFL",
+        "field": "conviction",
+        "live": 37,
+        "replay": 67,
+        "delta": 30
+      },
+      {
+        "ticker": "INTC",
+        "field": "htf_score",
+        "live": 26.1,
+        "replay": 28.9,
+        "delta": 2.799999999999997
+      },
+      {
+        "ticker": "INTC",
+        "field": "ltf_score",
+        "live": 16.6,
+        "replay": 20.8,
+        "delta": 4.199999999999999
+      },
+      {
+        "ticker": "INTC",
+        "field": "score",
+        "live": 99,
+        "replay": 100,
+        "delta": 1
+      },
+      {
+        "ticker": "INTC",
+        "field": "conviction",
+        "live": 89,
+        "replay": 94,
+        "delta": 5
+      },
+      {
+        "ticker": "IWM",
+        "field": "htf_score",
+        "live": 37.8,
+        "replay": 36,
+        "delta": -1.7999999999999972
+      },
+      {
+        "ticker": "IWM",
+        "field": "ltf_score",
+        "live": 13.1,
+        "replay": 15.2,
+        "delta": 2.0999999999999996
+      },
+      {
+        "ticker": "IWM",
+        "field": "score",
+        "live": 87,
+        "replay": 100,
+        "delta": 13
+      },
+      {
+        "ticker": "IWM",
+        "field": "conviction",
+        "live": 87,
+        "replay": 67,
+        "delta": -20
+      },
+      {
+        "ticker": "KO",
+        "field": "htf_score",
+        "live": 36.9,
+        "replay": 33.2,
+        "delta": -3.6999999999999957
+      },
+      {
+        "ticker": "KO",
+        "field": "ltf_score",
+        "live": 4.4,
+        "replay": 12.9,
+        "delta": 8.5
+      },
+      {
+        "ticker": "KO",
+        "field": "conviction",
+        "live": 85,
+        "replay": 90,
+        "delta": 5
+      },
+      {
+        "ticker": "LIT",
+        "field": "htf_score",
+        "live": 11.5,
+        "replay": 4.6,
+        "delta": -6.9
+      },
+      {
+        "ticker": "LIT",
+        "field": "ltf_score",
+        "live": 21.8,
+        "replay": 8.8,
+        "delta": -13
+      },
+      {
+        "ticker": "LIT",
+        "field": "score",
+        "live": 56,
+        "replay": 63,
+        "delta": 7
+      },
+      {
+        "ticker": "LRN",
+        "field": "htf_score",
+        "live": 27.8,
+        "replay": 34.1,
+        "delta": 6.300000000000001
+      },
+      {
+        "ticker": "LRN",
+        "field": "ltf_score",
+        "live": -18.8,
+        "replay": -14.9,
+        "delta": 3.9000000000000004
+      },
+      {
+        "ticker": "LRN",
+        "field": "score",
+        "live": 61,
+        "replay": 52,
+        "delta": -9
+      },
+      {
+        "ticker": "LRN",
+        "field": "conviction",
+        "live": 76,
+        "replay": 86,
+        "delta": 10
+      },
+      {
+        "ticker": "MLI",
+        "field": "htf_score",
+        "live": 28.2,
+        "replay": 26.5,
+        "delta": -1.6999999999999993
+      },
+      {
+        "ticker": "MLI",
+        "field": "score",
+        "live": 71,
+        "replay": 100,
+        "delta": 29
+      },
+      {
+        "ticker": "MLI",
+        "field": "conviction",
+        "live": 111,
+        "replay": 106,
+        "delta": -5
+      },
+      {
+        "ticker": "MTZ",
+        "field": "htf_score",
+        "live": -4.6,
+        "replay": -1.2,
+        "delta": 3.3999999999999995
+      },
+      {
+        "ticker": "MTZ",
+        "field": "ltf_score",
+        "live": 16.2,
+        "replay": 21.4,
+        "delta": 5.199999999999999
+      },
+      {
+        "ticker": "MTZ",
+        "field": "score",
+        "live": 38,
+        "replay": 67,
+        "delta": 29
+      },
+      {
+        "ticker": "MTZ",
+        "field": "conviction",
+        "live": 19,
+        "replay": 29,
+        "delta": 10
+      },
+      {
+        "ticker": "MU",
+        "field": "htf_score",
+        "live": 25.7,
+        "replay": 24.9,
+        "delta": -0.8000000000000007
+      },
+      {
+        "ticker": "MU",
+        "field": "ltf_score",
+        "live": 7.2,
+        "replay": 3.3,
+        "delta": -3.9000000000000004
+      },
+      {
+        "ticker": "MU",
+        "field": "score",
+        "live": 81,
+        "replay": 96,
+        "delta": 15
+      },
+      {
+        "ticker": "MU",
+        "field": "conviction",
+        "live": null,
+        "replay": 95,
+        "delta": null
+      },
+      {
+        "ticker": "NFLX",
+        "field": "htf_score",
+        "live": -29.7,
+        "replay": -28.6,
+        "delta": 1.0999999999999979
+      },
+      {
+        "ticker": "NFLX",
+        "field": "ltf_score",
+        "live": -22.1,
+        "replay": -20.7,
+        "delta": 1.4000000000000021
+      },
+      {
+        "ticker": "NFLX",
+        "field": "score",
+        "live": 82,
+        "replay": 96,
+        "delta": 14
+      },
+      {
+        "ticker": "NFLX",
+        "field": "conviction",
+        "live": 73,
+        "replay": 61,
+        "delta": -12
+      },
+      {
+        "ticker": "NXT",
+        "field": "state",
+        "live": "HTF_BEAR_LTF_PULLBACK",
+        "replay": "HTF_BULL_LTF_PULLBACK",
+        "delta": null
+      },
+      {
+        "ticker": "NXT",
+        "field": "htf_score",
+        "live": -2.3,
+        "replay": 6.7,
+        "delta": 9
+      },
+      {
+        "ticker": "NXT",
+        "field": "ltf_score",
+        "live": 12.6,
+        "replay": -3.4,
+        "delta": -16
+      },
+      {
+        "ticker": "NXT",
+        "field": "score",
+        "live": 58,
+        "replay": 65,
+        "delta": 7
+      },
+      {
+        "ticker": "NXT",
+        "field": "conviction",
+        "live": 59,
+        "replay": 40,
+        "delta": -19
+      },
+      {
+        "ticker": "OKE",
+        "field": "state",
+        "live": "HTF_BULL_LTF_PULLBACK",
+        "replay": "HTF_BULL_LTF_BULL",
+        "delta": null
+      },
+      {
+        "ticker": "OKE",
+        "field": "htf_score",
+        "live": 26,
+        "replay": 24.5,
+        "delta": -1.5
+      },
+      {
+        "ticker": "OKE",
+        "field": "ltf_score",
+        "live": -4.4,
+        "replay": 11.8,
+        "delta": 16.200000000000003
+      },
+      {
+        "ticker": "OKE",
+        "field": "score",
+        "live": 65,
+        "replay": 72,
+        "delta": 7
+      },
+      {
+        "ticker": "OKE",
+        "field": "conviction",
+        "live": 39,
+        "replay": 64,
+        "delta": 25
+      },
+      {
+        "ticker": "PWR",
+        "field": "htf_score",
+        "live": 6.3,
+        "replay": 10.6,
+        "delta": 4.3
+      },
+      {
+        "ticker": "PWR",
+        "field": "ltf_score",
+        "live": 17.1,
+        "replay": 15.4,
+        "delta": -1.700000000000001
+      },
+      {
+        "ticker": "PWR",
+        "field": "score",
+        "live": 87,
+        "replay": 88,
+        "delta": 1
+      },
+      {
+        "ticker": "PWR",
+        "field": "conviction",
+        "live": 69,
+        "replay": 84,
+        "delta": 15
+      },
+      {
+        "ticker": "RPG",
+        "field": "htf_score",
+        "live": 34.9,
+        "replay": 29.7,
+        "delta": -5.199999999999999
+      },
+      {
+        "ticker": "RPG",
+        "field": "ltf_score",
+        "live": 18.6,
+        "replay": 14.7,
+        "delta": -3.900000000000002
+      },
+      {
+        "ticker": "RPG",
+        "field": "score",
+        "live": 72,
+        "replay": 100,
+        "delta": 28
+      },
+      {
+        "ticker": "RPG",
+        "field": "conviction",
+        "live": 92,
+        "replay": 82,
+        "delta": -10
+      },
+      {
+        "ticker": "SANM",
+        "field": "htf_score",
+        "live": 18.8,
+        "replay": 21,
+        "delta": 2.1999999999999993
+      },
+      {
+        "ticker": "SANM",
+        "field": "ltf_score",
+        "live": 24.3,
+        "replay": 12.5,
+        "delta": -11.8
+      },
+      {
+        "ticker": "SANM",
+        "field": "conviction",
+        "live": 24,
+        "replay": 49,
+        "delta": 25
+      },
+      {
+        "ticker": "SNDK",
+        "field": "htf_score",
+        "live": 29.6,
+        "replay": 35.1,
+        "delta": 5.5
+      },
+      {
+        "ticker": "SNDK",
+        "field": "ltf_score",
+        "live": 19.7,
+        "replay": 17.4,
+        "delta": -2.3000000000000007
+      },
+      {
+        "ticker": "SNDK",
+        "field": "score",
+        "live": 82,
+        "replay": 100,
+        "delta": 18
+      },
+      {
+        "ticker": "SNDK",
+        "field": "conviction",
+        "live": 91,
+        "replay": 102,
+        "delta": 11
+      },
+      {
+        "ticker": "SPY",
+        "field": "htf_score",
+        "live": 5.2,
+        "replay": 15.9,
+        "delta": 10.7
+      },
+      {
+        "ticker": "SPY",
+        "field": "ltf_score",
+        "live": 13.9,
+        "replay": 12.4,
+        "delta": -1.5
+      },
+      {
+        "ticker": "SPY",
+        "field": "score",
+        "live": 88,
+        "replay": 100,
+        "delta": 12
+      },
+      {
+        "ticker": "SPY",
+        "field": "conviction",
+        "live": 80,
+        "replay": 103,
+        "delta": 23
+      },
+      {
+        "ticker": "STX",
+        "field": "htf_score",
+        "live": 36.3,
+        "replay": 34.4,
+        "delta": -1.8999999999999986
+      },
+      {
+        "ticker": "STX",
+        "field": "ltf_score",
+        "live": 19.3,
+        "replay": 15.9,
+        "delta": -3.4000000000000004
+      },
+      {
+        "ticker": "STX",
+        "field": "score",
+        "live": 74,
+        "replay": 96,
+        "delta": 22
+      },
+      {
+        "ticker": "STX",
+        "field": "conviction",
+        "live": 49,
+        "replay": 64,
+        "delta": 15
+      },
+      {
+        "ticker": "TLN",
+        "field": "state",
+        "live": "HTF_BEAR_LTF_PULLBACK",
+        "replay": "HTF_BULL_LTF_BULL",
+        "delta": null
+      },
+      {
+        "ticker": "TLN",
+        "field": "htf_score",
+        "live": -3.7,
+        "replay": 4.7,
+        "delta": 8.4
+      },
+      {
+        "ticker": "TLN",
+        "field": "ltf_score",
+        "live": 24.9,
+        "replay": 20.2,
+        "delta": -4.699999999999999
+      },
+      {
+        "ticker": "TLN",
+        "field": "score",
+        "live": 77,
+        "replay": 79,
+        "delta": 2
+      },
+      {
+        "ticker": "TLN",
+        "field": "conviction",
+        "live": 54,
+        "replay": 39,
+        "delta": -15
+      },
+      {
+        "ticker": "TSLA",
+        "field": "htf_score",
+        "live": -6,
+        "replay": -14.4,
+        "delta": -8.4
+      },
+      {
+        "ticker": "TSLA",
+        "field": "ltf_score",
+        "live": 19.3,
+        "replay": 15.7,
+        "delta": -3.6000000000000014
+      },
+      {
+        "ticker": "TSLA",
+        "field": "score",
+        "live": 46,
+        "replay": 55,
+        "delta": 9
+      },
+      {
+        "ticker": "TSLA",
+        "field": "conviction",
+        "live": 46,
+        "replay": 51,
+        "delta": 5
+      },
+      {
+        "ticker": "TSM",
+        "field": "htf_score",
+        "live": 30.5,
+        "replay": 28.6,
+        "delta": -1.8999999999999986
+      },
+      {
+        "ticker": "TSM",
+        "field": "ltf_score",
+        "live": 6.9,
+        "replay": 12.8,
+        "delta": 5.9
+      },
+      {
+        "ticker": "TSM",
+        "field": "score",
+        "live": 76,
+        "replay": 83,
+        "delta": 7
+      },
+      {
+        "ticker": "TSM",
+        "field": "conviction",
+        "live": 58,
+        "replay": 83,
+        "delta": 25
+      },
+      {
+        "ticker": "TT",
+        "field": "state",
+        "live": "HTF_BULL_LTF_BULL",
+        "replay": "HTF_BULL_LTF_PULLBACK",
+        "delta": null
+      },
+      {
+        "ticker": "TT",
+        "field": "htf_score",
+        "live": 10.8,
+        "replay": 5.2,
+        "delta": -5.6000000000000005
+      },
+      {
+        "ticker": "TT",
+        "field": "ltf_score",
+        "live": 8.9,
+        "replay": -1.1,
+        "delta": -10
+      },
+      {
+        "ticker": "TT",
+        "field": "score",
+        "live": 45,
+        "replay": 28,
+        "delta": -17
+      },
+      {
+        "ticker": "TT",
+        "field": "conviction",
+        "live": 95,
+        "replay": 100,
+        "delta": 5
+      },
+      {
+        "ticker": "UNP",
+        "field": "htf_score",
+        "live": 32.5,
+        "replay": 28.4,
+        "delta": -4.100000000000001
+      },
+      {
+        "ticker": "UNP",
+        "field": "conviction",
+        "live": 101,
+        "replay": 96,
+        "delta": -5
+      },
+      {
+        "ticker": "VMI",
+        "field": "htf_score",
+        "live": 35.9,
+        "replay": 34.8,
+        "delta": -1.1000000000000014
+      },
+      {
+        "ticker": "VMI",
+        "field": "ltf_score",
+        "live": 21.3,
+        "replay": 22.3,
+        "delta": 1
+      },
+      {
+        "ticker": "VMI",
+        "field": "conviction",
+        "live": 104,
+        "replay": 89,
+        "delta": -15
+      },
+      {
+        "ticker": "WDC",
+        "field": "htf_score",
+        "live": 30.2,
+        "replay": 24.5,
+        "delta": -5.699999999999999
+      },
+      {
+        "ticker": "WDC",
+        "field": "ltf_score",
+        "live": 19.2,
+        "replay": 17.1,
+        "delta": -2.099999999999998
+      },
+      {
+        "ticker": "WDC",
+        "field": "score",
+        "live": 71,
+        "replay": 88,
+        "delta": 17
+      },
+      {
+        "ticker": "WDC",
+        "field": "conviction",
+        "live": 49,
+        "replay": 64,
+        "delta": 15
+      },
+      {
+        "ticker": "XLE",
+        "field": "htf_score",
+        "live": 13.7,
+        "replay": 12.5,
+        "delta": -1.1999999999999993
+      },
+      {
+        "ticker": "XLE",
+        "field": "ltf_score",
+        "live": -16.6,
+        "replay": -14.3,
+        "delta": 2.3000000000000007
+      },
+      {
+        "ticker": "XLE",
+        "field": "score",
+        "live": 42,
+        "replay": 30,
+        "delta": -12
+      },
+      {
+        "ticker": "XLE",
+        "field": "conviction",
+        "live": 24,
+        "replay": 64,
+        "delta": 40
+      },
+      {
+        "ticker": "XLI",
+        "field": "htf_score",
+        "live": 28.6,
+        "replay": 24.9,
+        "delta": -3.700000000000003
+      },
+      {
+        "ticker": "XLI",
+        "field": "ltf_score",
+        "live": 18.7,
+        "replay": 14.3,
+        "delta": -4.399999999999999
+      },
+      {
+        "ticker": "XLI",
+        "field": "score",
+        "live": 63,
+        "replay": 76,
+        "delta": 13
+      },
+      {
+        "ticker": "XLI",
+        "field": "conviction",
+        "live": 69,
+        "replay": 89,
+        "delta": 20
+      },
+      {
+        "ticker": "XYZ",
+        "field": "state",
+        "live": "HTF_BEAR_LTF_PULLBACK",
+        "replay": "HTF_BULL_LTF_BULL",
+        "delta": null
+      },
+      {
+        "ticker": "XYZ",
+        "field": "htf_score",
+        "live": -2.7,
+        "replay": 6.6,
+        "delta": 9.3
+      },
+      {
+        "ticker": "XYZ",
+        "field": "ltf_score",
+        "live": 22.9,
+        "replay": 17.1,
+        "delta": -5.799999999999997
+      },
+      {
+        "ticker": "XYZ",
+        "field": "score",
+        "live": 45,
+        "replay": 62,
+        "delta": 17
+      },
+      {
+        "ticker": "XYZ",
+        "field": "conviction",
+        "live": 51,
+        "replay": 46,
+        "delta": -5
+      }
+    ],
+    "only_in_live": [],
+    "only_in_replay": [],
+    "summary": {
+      "identical": false,
+      "divergence_count": 177,
+      "divergent_tickers": 45,
+      "only_in_live": 0,
+      "only_in_replay": 0,
+      "fields": [
+        "state",
+        "htf_score",
+        "ltf_score",
+        "score",
+        "completion",
+        "phase_pct",
+        "conviction"
+      ],
+      "tolerance": 0.5
+    }
+  }
+}
