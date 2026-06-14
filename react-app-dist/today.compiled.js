@@ -1715,16 +1715,17 @@ function ResearchDeskPanel({
       letterSpacing: "0.04em"
     }
   }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), h("div", {
+    className: "tt-desk-scroll",
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 0,
-      maxHeight: 480,
       overflowY: "auto",
       overflowX: "hidden",
       paddingRight: 4,
       WebkitOverflowScrolling: "touch",
-      flex: 1
+      flex: 1,
+      minHeight: 0
     }
   }, items.map((it, i) => {
     const id = it.pub_id || String(i);
@@ -2052,6 +2053,7 @@ function CTOLevelsPanel({
   const formatDist = window.TimedCTORead?.formatDistance || (lvl => null);
   const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
   const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
+  const setupMoveMeta = window.TimedCTORead?.setupMove || (() => null);
   const probChip = (lvl, dir) => {
     if (!lvl) return h("span", {
       className: `tt-cto-map-prob tt-cto-map-prob--${dir}`
@@ -2085,13 +2087,24 @@ function CTOLevelsPanel({
     const rs = readStatusMeta(it?.read_status?.status);
     const rsLabel = it?.read_status?.label || rs?.label;
     const rsTone = rs?.tone || tone;
+    const move = setupMoveMeta(it);
     return h("span", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 4,
+        minWidth: 0,
+        maxWidth: "100%"
+      }
+    }, h("span", {
       style: {
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
         minWidth: 0,
-        maxWidth: "100%"
+        maxWidth: "100%",
+        flexWrap: "wrap"
       }
     }, h("span", {
       className: "tt-cto-read-tag tt-cto-map-read",
@@ -2128,7 +2141,15 @@ function CTOLevelsPanel({
         flexShrink: 0
       },
       title: rsLabel
-    }, rsLabel));
+    }, rsLabel)), move?.label && h("span", {
+      className: "tt-cto-setup-tag tt-cto-map-read",
+      style: {
+        color: move.tone,
+        border: `1px solid ${move.tone}66`,
+        background: `${move.tone}14`
+      },
+      title: move.blurb || undefined
+    }, move.label));
   };
   const row = it => h("div", {
     key: it.ticker,
@@ -2170,7 +2191,7 @@ function CTOLevelsPanel({
       marginBottom: 10,
       lineHeight: 1.5
     }
-  }, "Upside and downside magnets shown independently — ", h("strong", {
+  }, "Upside and downside magnets ranked by hit rate, distance to level, and whether the move is still early or already confirming. ", h("strong", {
     style: {
       color: "var(--tt-text-muted)",
       fontWeight: 600
@@ -2203,7 +2224,7 @@ function CTOLevelsPanel({
       fontSize: 10.5,
       color: "var(--tt-text-faint)"
     }
-  }, `${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history` : "")), feed.learning && h("div", {
+  }, `${feed.items.length} shown · top ${Math.min(30, feed.items.length)} by probability + distance`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_candidates) ? ` · ${feed.tickers_ok} candidates in pool` : Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history` : "")), feed.learning && h("div", {
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-faint)",
@@ -2242,7 +2263,7 @@ function CTOLevelsPanel({
       textTransform: "uppercase",
       margin: "8px 0 4px"
     }
-  }, "Highest-probability setups"), movers.map(row))));
+  }, `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`), movers.map(row))));
 }
 function MarketState({
   data,
@@ -5177,6 +5198,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781375185445:118936090
+// cache-bust:1781465025016:986545021
 
-// cache-bust:1781375185445:118936090
+// cache-bust:1781465025016:986545021

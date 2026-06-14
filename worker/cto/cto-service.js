@@ -521,59 +521,151 @@ export function interpretCTORead(topUpside, topDownside, { leanThreshold = 0.12 
   };
 }
 
-/** Slim user-safe feed for Today / Now surfaces (mirrors CRO feed pattern). */
-export function buildCTOFeedItemsFromRollup(rollup, { limit = 20 } = {}) {
-  if (!rollup || !Array.isArray(rollup.results)) return [];
-  const items = [];
-  for (const row of rollup.results) {
-    if (!row?.ok) continue;
-    const sym = String(row.ticker || "").toUpperCase();
-    const up = row.top_upside?.[0] || null;
-    const dn = row.top_downside?.[0] || null;
-    const read = interpretCTORead(up, dn);
-    items.push({
-      ticker: sym,
-      narrative: row.narrative || null,
-      as_of_date: row.as_of_date || null,
-      bar_as_of_ms: row.bar_as_of_ms || null,
-      anchor_price: row.anchor_price ?? null,
-      read_kind: read.kind,
-      read_label: read.label,
-      read_blurb: read.blurb,
-      prob_spread: read.prob_spread,
-      range_pct: read.range_pct,
-      lean: read.lean,
-      top_upside: up ? {
-        label: up.label,
-        price: up.price,
-        adj_prob: up.regime_adjusted_prob,
-        distance_pct: up.distance_pct,
-        golden_gate: !!up.golden_gate,
-      } : null,
-      top_downside: dn ? {
-        label: dn.label,
-        price: dn.price,
-        adj_prob: dn.regime_adjusted_prob,
-        distance_pct: dn.distance_pct,
-        golden_gate: !!dn.golden_gate,
-      } : null,
-      is_index: INDEX_FOCUS.has(sym),
-      sort_prob: Math.max(Number(up?.regime_adjusted_prob) || 0, Number(dn?.regime_adjusted_prob) || 0),
-    });
-  }
-  items.sort((a, b) => (b.sort_prob || 0) - (a.sort_prob || 0));
-  return items.slice(0, limit);
+/** Pick the primary magnet for ranking / UI (lean-aware). */
+export function pickLeadingCTOMagnet(item) {
+  const lean = item?.lean;
+  const kind = item?.read_kind;
+  if (lean === "up" || kind === "upside") return item?.top_upside || null;
+  if (lean === "down" || kind === "downside") return item?.top_downside || null;
+  const upP = Number(item?.top_upside?.adj_prob) || 0;
+  const dnP = Number(item?.top_downside?.adj_prob) || 0;
+  return upP >= dnP ? (item?.top_upside || null) : (item?.top_downside || null);
 }
 
-export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
+/**
+ * Composite attractiveness for the PML top-30: probability, actionable
+ * distance (early vs exhausted), move confirmation, remaining room.
+ */
+export function scoreCTOFeedItem(item) {
+  const leading = pickLeadingCTOMagnet(item);
+  const prob = Number(leading?.adj_prob) || Math.max(
+    Number(item?.top_upside?.adj_prob) || 0,
+    Number(item?.top_downside?.adj_prob) || 0,
+  );
+  const rawDist = Number(leading?.live_distance_pct ?? leading?.distance_pct);
+  const dist = Number.isFinite(rawDist) ? Math.abs(rawDist) : null;
+  const levelSt = leading?.level_status;
+
+  let distScore = 0.5;
+  if (levelSt === "hit") distScore = 0.12;
+  else if (levelSt === "faded") distScore = 0.22;
+  else if (dist != null) {
+    if (dist < 0.35) distScore = 0.5;
+    else if (dist <= 1.5) distScore = 0.95;
+    else if (dist <= 4) distScore = 1.0;
+    else if (dist <= 8) distScore = 0.78;
+    else if (dist <= 15) distScore = 0.48;
+    else distScore = 0.28;
+  }
+
+  const rs = item?.read_status?.status;
+  let confirmScore = 0.55;
+  if (rs === "confirmed") confirmScore = 1.0;
+  else if (rs === "partial") confirmScore = 0.88;
+  else if (rs === "open") confirmScore = 0.68;
+  else if (rs === "hit") confirmScore = 0.72;
+  else if (rs === "against") confirmScore = 0.18;
+
+  let potentialScore = 0.45;
+  if (levelSt === "hit") potentialScore = 0.08;
+  else if (levelSt === "faded") potentialScore = 0.15;
+  else if (dist != null) potentialScore = Math.min(dist / 8, 1);
+
+  const score = prob * 0.45 + distScore * 0.25 + confirmScore * 0.15 + potentialScore * 0.15;
+  return Number(score.toFixed(4));
+}
+
+/** Merge rollup rows with per-ticker KV so the feed can reach top 30. */
+export async function gatherCTOFeedCandidateRows(env, rollup, { maxKvReads = 150 } = {}) {
+  const byTicker = new Map();
+  for (const row of rollup?.results || []) {
+    if (!row?.ok) continue;
+    byTicker.set(String(row.ticker || "").toUpperCase(), row);
+  }
+  const scored = await resolveScoredUniverseTickers(env);
+  const candidates = [...new Set([...INDEX_FOCUS, ...scored])];
+  let kvReads = 0;
+  for (const sym of candidates) {
+    if (byTicker.has(sym)) continue;
+    if (kvReads >= maxKvReads) break;
+    const cached = await loadCTOForTicker(env, sym);
+    const row = rollupRowFromCachedPayload(sym, cached);
+    if (row) byTicker.set(sym, row);
+    kvReads += 1;
+  }
+  return Array.from(byTicker.values());
+}
+
+/** Rank feed items: index focus pinned, then top movers by composite score. */
+export function rankCTOFeedItems(items, { limit = 30 } = {}) {
+  const cap = Math.max(1, Number(limit) || 30);
+  const scored = (items || []).map((it) => ({
+    ...it,
+    sort_score: scoreCTOFeedItem(it),
+    sort_prob: Math.max(
+      Number(it?.top_upside?.adj_prob) || 0,
+      Number(it?.top_downside?.adj_prob) || 0,
+    ),
+  }));
+  const byScore = (a, b) => (b.sort_score || 0) - (a.sort_score || 0);
+  const indexes = scored.filter((it) => it.is_index).sort(byScore);
+  const movers = scored.filter((it) => !it.is_index).sort(byScore);
+  const moverSlots = Math.max(0, cap - indexes.length);
+  return [...indexes, ...movers.slice(0, moverSlots)].slice(0, cap);
+}
+
+function rowToFeedItem(row) {
+  const sym = String(row.ticker || "").toUpperCase();
+  const up = row.top_upside?.[0] || null;
+  const dn = row.top_downside?.[0] || null;
+  const read = interpretCTORead(up, dn);
+  return {
+    ticker: sym,
+    narrative: row.narrative || null,
+    as_of_date: row.as_of_date || null,
+    bar_as_of_ms: row.bar_as_of_ms || null,
+    anchor_price: row.anchor_price ?? null,
+    read_kind: read.kind,
+    read_label: read.label,
+    read_blurb: read.blurb,
+    prob_spread: read.prob_spread,
+    range_pct: read.range_pct,
+    lean: read.lean,
+    top_upside: up ? {
+      label: up.label,
+      price: up.price,
+      adj_prob: up.regime_adjusted_prob,
+      distance_pct: up.distance_pct,
+      golden_gate: !!up.golden_gate,
+    } : null,
+    top_downside: dn ? {
+      label: dn.label,
+      price: dn.price,
+      adj_prob: dn.regime_adjusted_prob,
+      distance_pct: dn.distance_pct,
+      golden_gate: !!dn.golden_gate,
+    } : null,
+    is_index: INDEX_FOCUS.has(sym),
+    sort_prob: Math.max(Number(up?.regime_adjusted_prob) || 0, Number(dn?.regime_adjusted_prob) || 0),
+  };
+}
+
+/** Slim user-safe feed for Today / Now surfaces (mirrors CRO feed pattern). */
+export function buildCTOFeedItemsFromRollup(rollup, { limit = 30 } = {}) {
+  const rows = Array.isArray(rollup?.results) ? rollup.results : [];
+  const items = rows.filter((row) => row?.ok).map(rowToFeedItem);
+  return rankCTOFeedItems(items, { limit });
+}
+
+export async function buildPublicCTOFeed(env, { limit = 30 } = {}) {
   const rollup = await loadCTOUniverse(env);
   if (!rollup) return { ok: false, error_kind: "no_rollup_yet" };
-  let items = buildCTOFeedItemsFromRollup(rollup, { limit });
-  // Rollup rows may predate bar_as_of_ms — backfill from per-ticker KV (bounded).
+  const rows = await gatherCTOFeedCandidateRows(env, rollup);
+  let items = rows.filter((row) => row?.ok).map(rowToFeedItem);
   let kvReads = 0;
   for (const item of items) {
     if (item.bar_as_of_ms) continue;
-    if (kvReads >= 30) break;
+    if (kvReads >= 40) break;
     const cached = await loadCTOForTicker(env, item.ticker);
     if (cached?.bar_as_of_ms) {
       item.bar_as_of_ms = cached.bar_as_of_ms;
@@ -592,16 +684,20 @@ export async function buildPublicCTOFeed(env, { limit = 20 } = {}) {
     horizon_bars: HORIZON_BARS,
     horizon_note: `Empirical hit rates ask whether price reaches each magnet within ~${HORIZON_BARS} trading sessions (~1 month).`,
     tickers_processed: rollup.tickers_processed || 0,
-    tickers_ok: rollup.tickers_ok || 0,
+    tickers_ok: rows.length,
+    tickers_candidates: rows.length,
     headlines,
     items,
     count: items.length,
   };
+  const enriched = await enrichPublicCTOFeed(env, basePayload);
+  enriched.items = rankCTOFeedItems(enriched.items, { limit });
+  enriched.count = enriched.items.length;
   try {
     const { syncCTOFeedKv } = await import("./cto-feed-kv.js");
-    await syncCTOFeedKv(env, basePayload);
+    await syncCTOFeedKv(env, enriched);
   } catch (_) { /* best-effort */ }
-  return enrichPublicCTOFeed(env, basePayload);
+  return enriched;
 }
 
 /** Apply live price + hit/faded status on every feed response. */

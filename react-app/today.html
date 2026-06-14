@@ -36,7 +36,7 @@
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260611-cto-asof"></script>
+    <script src="shared-rail-helpers.js?v=20260614-pml-rank"></script>
     <script src="shared-right-rail.compiled.js?v=20260610-verda3"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
@@ -247,6 +247,17 @@
       .tt-cto-map-meta strong {
         color: var(--tt-text-muted);
         font-weight: 600;
+      }
+      .tt-cto-setup-tag {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        border-radius: 999;
+        padding: 1px 6px;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
       @media (max-width: 640px) {
         .tt-cto-map-row {
@@ -1075,9 +1086,22 @@
         .today-hero-levels-col .tt-card {
           height: 100%;
         }
+        /* Research Desk — match PLM scroll height in the paired column */
+        .today-hero-desk-col .tt-card {
+          height: 100%;
+        }
+        .today-hero-desk-col .tt-desk-scroll {
+          display: block;
+          flex: 1;
+          min-height: 0;
+          max-height: min(520px, 62vh);
+        }
       }
       @media (max-width: 980px) {
         .today-hero-levels-col .tt-cto-map-scroll {
+          max-height: none;
+        }
+        .today-hero-desk-col .tt-desk-scroll {
           max-height: none;
         }
       }
@@ -2738,11 +2762,13 @@
                 h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em" } },
                   `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
                 h("div", {
+                  className: "tt-desk-scroll",
                   style: {
                     display: "flex", flexDirection: "column", gap: 0,
-                    maxHeight: 480, overflowY: "auto", overflowX: "hidden",
+                    overflowY: "auto", overflowX: "hidden",
                     paddingRight: 4, WebkitOverflowScrolling: "touch",
                     flex: 1,
+                    minHeight: 0,
                   },
                 },
                 items.map((it, i) => {
@@ -2916,6 +2942,7 @@
         const formatDist = window.TimedCTORead?.formatDistance || ((lvl) => null);
         const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
         const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
+        const setupMoveMeta = window.TimedCTORead?.setupMove || (() => null);
         const probChip = (lvl, dir) => {
           if (!lvl) return h("span", { className: `tt-cto-map-prob tt-cto-map-prob--${dir}` }, "—");
           const dist = formatDist(lvl);
@@ -2945,26 +2972,38 @@
           const rs = readStatusMeta(it?.read_status?.status);
           const rsLabel = it?.read_status?.label || rs?.label;
           const rsTone = rs?.tone || tone;
-          return h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0, maxWidth: "100%" } },
-            h("span", {
-              className: "tt-cto-read-tag tt-cto-map-read",
+          const move = setupMoveMeta(it);
+          return h("span", { style: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4, minWidth: 0, maxWidth: "100%" } },
+            h("span", { style: { display: "inline-flex", alignItems: "center", gap: 4, minWidth: 0, maxWidth: "100%", flexWrap: "wrap" } },
+              h("span", {
+                className: "tt-cto-read-tag tt-cto-map-read",
+                style: {
+                  fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+                  color: tone, border: `1px solid ${tone}66`, borderRadius: 999, padding: "2px 8px",
+                  background: `${tone}14`, display: "inline-block", maxWidth: "100%",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                },
+                title: read.blurb || undefined,
+              }, read.label),
+              rsLabel && it?.read_status?.status !== "open" && h("span", {
+                className: "tt-cto-map-read",
+                style: {
+                  fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+                  color: rsTone, border: `1px solid ${rsTone}66`, borderRadius: 999, padding: "1px 6px",
+                  background: `${rsTone}14`, whiteSpace: "nowrap", flexShrink: 0,
+                },
+                title: rsLabel,
+              }, rsLabel),
+            ),
+            move?.label && h("span", {
+              className: "tt-cto-setup-tag tt-cto-map-read",
               style: {
-                fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-                color: tone, border: `1px solid ${tone}66`, borderRadius: 999, padding: "2px 8px",
-                background: `${tone}14`, display: "inline-block", maxWidth: "100%",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                color: move.tone,
+                border: `1px solid ${move.tone}66`,
+                background: `${move.tone}14`,
               },
-              title: read.blurb || undefined,
-            }, read.label),
-            rsLabel && it?.read_status?.status !== "open" && h("span", {
-              className: "tt-cto-map-read",
-              style: {
-                fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-                color: rsTone, border: `1px solid ${rsTone}66`, borderRadius: 999, padding: "1px 6px",
-                background: `${rsTone}14`, whiteSpace: "nowrap", flexShrink: 0,
-              },
-              title: rsLabel,
-            }, rsLabel),
+              title: move.blurb || undefined,
+            }, move.label),
           );
         };
         const row = (it) => h("div", {
@@ -2985,7 +3024,7 @@
           h("div", { className: "tt-sec-title" }, "PROBABILISTIC LEVEL MAP"),
           h("div", { className: "tt-sec-h", style: { fontSize: 15, marginBottom: 6 } }, "Where the math says price gravitates"),
           h("div", { style: { fontSize: 11.5, color: "var(--tt-text-dim)", marginBottom: 10, lineHeight: 1.5 } },
-            "Upside and downside magnets shown independently — ",
+            "Upside and downside magnets ranked by hit rate, distance to level, and whether the move is still early or already confirming. ",
             h("strong", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } }, "Range map"),
             " when both hit often; ",
             h("strong", { style: { color: "var(--tt-text-muted)", fontWeight: 600 } }, "Lean"),
@@ -3008,10 +3047,12 @@
               `each hit % asks whether price reaches the magnet within ~${horizonBars} trading sessions (~1 month), based on this ticker's own daily history.`,
             ),
             feed.items.length > 0 && h("div", { style: { marginTop: 6, fontSize: 10.5, color: "var(--tt-text-faint)" } },
-              `${feed.items.length} shown`,
-              Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed)
-                ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history`
-                : "",
+              `${feed.items.length} shown · top ${Math.min(30, feed.items.length)} by probability + distance`,
+              Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_candidates)
+                ? ` · ${feed.tickers_ok} candidates in pool`
+                : Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed)
+                  ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history`
+                  : "",
             ),
           ),
           feed.learning && h("div", {
@@ -3039,7 +3080,8 @@
               indexRows.map(row),
             ),
             movers.length > 0 && h("div", null,
-              h("div", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--tt-text-faint)", textTransform: "uppercase", margin: "8px 0 4px" } }, "Highest-probability setups"),
+              h("div", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "var(--tt-text-faint)", textTransform: "uppercase", margin: "8px 0 4px" } },
+                `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`),
               movers.map(row),
             ),
           ),
