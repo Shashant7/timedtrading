@@ -1615,28 +1615,25 @@ function ResearchDeskPanel({
     return `${Math.floor(hr / 24)}d ago`;
   };
   return h("div", {
-    className: "tt-card tt-card-pad",
-    style: {
-      minWidth: 0,
-      height: "100%",
-      display: "flex",
-      flexDirection: "column"
-    }
+    className: "tt-card tt-card-pad tt-desk-panel"
   }, h("div", {
     className: "tt-sec-title",
     style: {
-      marginBottom: 2
+      marginBottom: 2,
+      flexShrink: 0
     }
   }, "RESEARCH DESK"), h("div", {
     className: "tt-sec-h",
     style: {
-      marginBottom: 10
+      marginBottom: 10,
+      flexShrink: 0
     }
   }, "Fresh from the research feed"), croNote && h("div", {
     style: {
       marginBottom: 10,
       padding: "10px 12px",
       borderRadius: 8,
+      flexShrink: 0,
       border: "1px solid rgba(139,92,246,0.35)",
       background: "rgba(139,92,246,0.06)"
     }
@@ -1702,31 +1699,23 @@ function ResearchDeskPanel({
       fontWeight: 700,
       color: "var(--tt-text-dim)"
     }
-  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), items.length === 0 ? h("div", {
+  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), h("div", {
+    className: "tt-desk-feed-body"
+  }, items.length === 0 ? h("div", {
     style: {
       fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h("div", null, h("div", {
+  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h(React.Fragment, null, h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-dim)",
       marginBottom: 8,
-      letterSpacing: "0.04em"
+      letterSpacing: "0.04em",
+      flexShrink: 0
     }
   }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), h("div", {
-    className: "tt-desk-scroll",
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 0,
-      overflowY: "auto",
-      overflowX: "hidden",
-      paddingRight: 4,
-      WebkitOverflowScrolling: "touch",
-      flex: 1,
-      minHeight: 0
-    }
+    className: "tt-desk-scroll"
   }, items.map((it, i) => {
     const id = it.pub_id || String(i);
     const isOpen = openId === id;
@@ -1811,7 +1800,7 @@ function ResearchDeskPanel({
         cursor: "pointer"
       }
     }, tk))));
-  }))));
+  })))));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -2169,12 +2158,13 @@ function CTOLevelsPanel({
   }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
-    className: "tt-card tt-card-pad",
+    className: "tt-card tt-card-pad tt-cto-panel",
     style: {
-      height: "100%",
       display: "flex",
       flexDirection: "column",
-      minWidth: 0
+      minWidth: 0,
+      flex: 1,
+      minHeight: 0
     }
   }, h("div", {
     className: "tt-sec-title"
@@ -5198,6 +5188,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781465025016:986545021
+// cache-bust:1781472586444:324413082
 
-// cache-bust:1781465025016:986545021
+// cache-bust:1781472586444:324413082
