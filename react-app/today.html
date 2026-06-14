@@ -164,29 +164,29 @@
         display: flex;
         flex-direction: column;
       }
-      /* Research Desk — flex column card + scroll body (mirrors PML) */
+      /* Research Desk — fixed-height scroll list */
       .tt-desk-panel {
         display: flex;
         flex-direction: column;
-        flex: 1;
-        min-height: 0;
         min-width: 0;
       }
       .tt-desk-feed-body {
         display: flex;
         flex-direction: column;
-        flex: 1;
-        min-height: 0;
-        overflow: hidden;
+        min-width: 0;
       }
       .tt-desk-scroll {
-        flex: 1;
-        min-height: 0;
         overflow-y: auto;
         overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
         padding-right: 4px;
-        padding-bottom: 8px;
+        /* Room so last row ticker tags aren't clipped by scroll edge / card pad */
+        padding-bottom: 16px;
+        scroll-padding-bottom: 12px;
+        box-sizing: border-box;
+      }
+      .tt-desk-item:last-child {
+        padding-bottom: 4px;
       }
       @media (max-width: 980px) {
         .today-hero {
@@ -1104,29 +1104,25 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* PLM + Research Desk — scroll regions fill the paired column height */
+        /* PLM — fixed scroll cap in the half-width column */
         .today-hero-levels-col .tt-cto-map-scroll {
           display: block;
-          flex: 1;
-          min-height: 0;
-          max-height: none;
+          max-height: min(520px, 62vh);
+          overflow-y: auto;
         }
-        .today-hero-levels-col .tt-card,
-        .today-hero-levels-col .tt-cto-panel,
-        .today-hero-desk-col .tt-desk-panel {
-          flex: 1;
-          min-height: 0;
-          height: 100%;
+        .today-hero-levels-col .tt-cto-panel {
+          height: auto;
         }
+        /* Research Desk — same fixed scroll height, not stretched to PLM */
         .today-hero-desk-col .tt-desk-scroll {
-          flex: 1;
-          min-height: 0;
-          max-height: none;
+          height: min(520px, 62vh);
+          max-height: min(520px, 62vh);
         }
       }
       @media (max-width: 980px) {
         .today-hero-levels-col .tt-cto-map-scroll,
         .today-hero-desk-col .tt-desk-scroll {
+          height: auto;
           max-height: none;
         }
       }
@@ -2792,7 +2788,7 @@
                       const id = it.pub_id || String(i);
                       const isOpen = openId === id;
                       const hasMore = !!it.tt_summary;
-                      return h("div", { key: id, style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
+                      return h("div", { key: id, className: "tt-desk-item", style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
                         h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
                           h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
                           h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(it.published_at || it.fetched_at)),
@@ -2805,7 +2801,7 @@
                           hasMore && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, isOpen ? "▴" : "▾"),
                         ),
                         isOpen && it.tt_summary && h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: "2px solid var(--tt-border-hi)" } }, it.tt_summary),
-                        (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5 } },
+                        (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5, marginBottom: 2 } },
                           it.tickers.map((tk) => h("button", {
                             key: tk,
                             onClick: () => onSelectTicker && onSelectTicker(tk),
@@ -3035,7 +3031,7 @@
           ),
         );
         const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
-        return h("section", { className: "tt-card tt-card-pad tt-cto-panel", style: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1, minHeight: 0 } },
+        return h("section", { className: "tt-card tt-card-pad tt-cto-panel", style: { display: "flex", flexDirection: "column", minWidth: 0 } },
           h("div", { className: "tt-sec-title" }, "PROBABILISTIC LEVEL MAP"),
           h("div", { className: "tt-sec-h", style: { fontSize: 15, marginBottom: 6 } }, "Where the math says price gravitates"),
           h("div", { style: { fontSize: 11.5, color: "var(--tt-text-dim)", marginBottom: 10, lineHeight: 1.5 } },

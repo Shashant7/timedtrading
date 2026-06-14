@@ -1722,6 +1722,7 @@ function ResearchDeskPanel({
     const hasMore = !!it.tt_summary;
     return h("div", {
       key: id,
+      className: "tt-desk-item",
       style: {
         padding: "8px 0",
         borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none"
@@ -1783,7 +1784,8 @@ function ResearchDeskPanel({
         display: "flex",
         gap: 5,
         flexWrap: "wrap",
-        marginTop: 5
+        marginTop: 5,
+        marginBottom: 2
       }
     }, it.tickers.map(tk => h("button", {
       key: tk,
@@ -2162,9 +2164,7 @@ function CTOLevelsPanel({
     style: {
       display: "flex",
       flexDirection: "column",
-      minWidth: 0,
-      flex: 1,
-      minHeight: 0
+      minWidth: 0
     }
   }, h("div", {
     className: "tt-sec-title"
@@ -5188,6 +5188,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781472586444:324413082
+// cache-bust:1781472997049:811559101
 
-// cache-bust:1781472586444:324413082
+// cache-bust:1781472997049:811559101
