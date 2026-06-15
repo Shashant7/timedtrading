@@ -91,6 +91,12 @@ TV_ACK_ALWAYS_200 = "true"
 ALPACA_ENABLED = "true"
 EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+# ── Candle-chain cutover (Phase 2): LTF (10/15/30/60) scored from the chain's
+# Alpaca-sourced 5m base via the DO hot-window; 240/D/W/M stay on legacy; both
+# fail-safe to legacy per-ticker when the chain isn't complete. Rollback = set
+# SCORE_CANDLE_SOURCE back to "legacy". CANDLE_CHAIN_INGEST keeps the DO fresh. ──
+CANDLE_CHAIN_INGEST = "1"
+SCORE_CANDLE_SOURCE = "hybrid_chain"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
@@ -304,6 +310,11 @@ TV_ACK_ALWAYS_200 = "true"
 ALPACA_ENABLED = "true"
 EXECUTION_MODE = "simulation"
 ALPACA_BASE_URL = "https://paper-api.alpaca.markets"
+# ── Candle-chain cutover (Phase 2): LTF from the chain's Alpaca-sourced 5m base
+# via the DO hot-window; 240/D/W/M stay legacy; fail-safe to legacy per-ticker.
+# Rollback = SCORE_CANDLE_SOURCE="legacy". ──
+CANDLE_CHAIN_INGEST = "1"
+SCORE_CANDLE_SOURCE = "hybrid_chain"
 # ── Data Provider: "twelvedata" or "alpaca" ──
 DATA_PROVIDER = "twelvedata"
 TWELVEDATA_PLAN = "pro"
