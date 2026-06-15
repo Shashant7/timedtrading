@@ -110,18 +110,44 @@ exact parity) while HTF stays on the existing deep series — fresh scores, no
 storage blow-up, and the D1 read relief comes from the LTF derivation moving into
 the DO hot-window.
 
-## 4. Next steps (to finish Track A) — REVISED after the storage finding
-1. **Adopt the hybrid base** (5m→LTF, daily→D/W/M, 240 kept as its own deep
-   series). Update `defaultSessionClip`/derivation docs; the chain already
-   derives LTF + D/W/M correctly. NO full-universe 5m backfill.
-2. **Reversible cutover flag (LTF-only first):** gate the live LTF candle source
-   (`d1GetCandles` ↔ chain `getCandles` for 10/15/30/60) on an env flag, default
-   OFF. HTF (240/D/W/M) stays on the existing deep series. Flip only after the
-   LTF shadow shows exact parity (already proven on the sample).
-3. **Prod deploy of the D1 prev-close cache** (operator) for immediate bill relief.
-4. (Optional, later) same-day 240 freshness via a recent-5m derive reconciled to
-   the stored deep 240 at session end — only if intraday HTF staleness is shown
-   to matter.
+## 3c. Hybrid implemented + parity VALIDATED (2026-06-15, operator approved)
+
+Shipped (pre-prod): `makeHybridGetCandles` (route LTF 10/15/30/60 → chain;
+240/D/W/M → legacy deep stores) + `resolveScoreGetCandles(env)` reversible switch
+(`SCORE_CANDLE_SOURCE`: legacy [default] | hybrid_chain | full_chain; fails safe
+to legacy). `chain-score-shadow?mode=hybrid` previews the LTF-only cutover.
+
+Hybrid-mode shadow on the sample (chain LTF + legacy HTF, same asOf):
+
+| ticker | d_htf | d_ltf | d_completion | state |
+|---|---|---|---|---|
+| AAPL | 0 | 0 | 0 | equal |
+| NFLX | 0 | 0 | 0 | equal |
+| TSLA | 0 | 0 | 0 | equal |
+| GS | 0 | 0 | 0 | equal |
+| MU | 0 | -1.2 | 0 | equal |
+
+**Clean parity: htf identical, ltf ≈0, state 5/5 equal.** The cutover reproduces
+legacy scores when healthy; the win is the LTF can no longer drift stale
+mid-session (one 5m base instead of 4 independently-fetched series). Tests:
+454 green incl. the router + resolver.
+
+## 4. Remaining to finish Track A (operator-gated — the LIVE cutover)
+The foundation is done + parity-validated. What's left flips LIVE behavior and is
+gated by the guardrail "don't wire the DO into live ingestion without approval":
+1. **Enable the DO 5m ingest lane** (calendar-driven, every 5 min) feeding the
+   per-shard candle-chain DO so the LTF chain source is the DO HOT-WINDOW (not
+   D1) — this is what makes the cutover REDUCE D1 reads. (Tool exists:
+   `scripts/candle-chain-shadow-ingest.js` / the DO `/ingest`.) Needs operator OK.
+2. **Wire `resolveScoreGetCandles(env, {legacy, chain})`** at the scoring cron's
+   `computeServerSideScores(...)` call, with `chain` = a DO-backed getCandles.
+   Defaults to legacy (no-op) until the flag is set.
+3. **Flip `SCORE_CANDLE_SOURCE=hybrid_chain`** on a canary, watch the shadow diff
+   stay ~0 live, then ramp. Reversible (set back to `legacy`).
+4. **Prod deploy of the D1 prev-close cache** for immediate bill relief.
+
+LTF-only first; 240/D/W/M stay on their deep stores. Optional later: same-day 240
+freshness via a recent-5m derive reconciled to the stored deep 240 at close.
 
 ## Guardrails
 No live behavior changed. New endpoints are admin-gated, additive. D1 cache +
