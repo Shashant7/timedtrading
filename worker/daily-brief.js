@@ -1065,12 +1065,14 @@ function mapBriefInvestorPositionRow(p, investorProfileMap = {}) {
 }
 
 /** Compact rows for infographic UI (trader + investor open books). */
-export function buildInfographicPositionRows(openTrades = [], investorPositions = [], priceFeedRaw = {}) {
+export function buildInfographicPositionRows(openTrades = [], investorPositions = [], priceFeedRaw = {}, marketOpen = true) {
   const pf = priceFeedRaw && typeof priceFeedRaw === "object" ? priceFeedRaw : {};
   const traderPositions = (openTrades || []).map((t) => {
     const td = pf[t.ticker] || {};
-    const dayPct = Number(td.dp);
-    const price = Number(td.p);
+    // Session-aware: outside RTH use the extended print so the email's open-book
+    // rows don't show yesterday's RTH close + change during pre/post-market.
+    const dayPct = liveDayPctFromPriceFeedRow(td, marketOpen);
+    const price = liveSpotFromPriceFeedRow(td, marketOpen);
     return {
       mode: "trader",
       tradeId: t.tradeId || null,
@@ -1087,8 +1089,8 @@ export function buildInfographicPositionRows(openTrades = [], investorPositions 
   const investorHoldings = (investorPositions || []).map((p) => {
     const sym = String(p.ticker || "").toUpperCase();
     const td = pf[sym] || {};
-    const dayPct = Number(td.dp);
-    const price = Number(td.p);
+    const dayPct = liveDayPctFromPriceFeedRow(td, marketOpen);
+    const price = liveSpotFromPriceFeedRow(td, marketOpen);
     const avgEntry = Number(p.avgEntry ?? p.avg_entry);
     const unrealPct = (price > 0 && avgEntry > 0) ? ((price - avgEntry) / avgEntry) * 100 : null;
     return {
@@ -1123,7 +1125,9 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
     fetchBriefInvestorPositionsFromD1(db),
   ]);
   const investorPositions = investorRaw.map((p) => mapBriefInvestorPositionRow(p));
-  const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf);
+  let _refreshMktOpen = true;
+  try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
+  const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf, _refreshMktOpen);
   infographic.traderPositions = traderPositions;
   infographic.investorHoldings = investorHoldings;
   if (!infographic.headline || typeof infographic.headline !== "object") {
@@ -1974,7 +1978,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, mktOpen),
     premarketGapContext: buildPremarketGapContext(_pf, mktOpen),
-    crossAssetContext: buildCrossAssetContext(_pf),
+    crossAssetContext: buildCrossAssetContext(_pf, mktOpen),
     priceFeedRaw: _pf,
     // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
     // synthesized 8-layer root-strategy verdict per top-conviction
@@ -2042,7 +2046,7 @@ function buildPriceFeedCrossRef(pf, marketOpen = true) {
   return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
 }
 
-function buildCrossAssetContext(pf) {
+function buildCrossAssetContext(pf, marketOpen = true) {
   if (!pf || typeof pf !== "object") return null;
   const assets = {
     "CL1! (Crude Oil)": pf["CL1!"],
@@ -2055,11 +2059,15 @@ function buildCrossAssetContext(pf) {
     "BTCUSD (Bitcoin)": pf["BTCUSD"],
     "ETHUSD (Ethereum)": pf["ETHUSD"],
   };
+  // Session-aware: outside RTH use the extended print (ahp/ahdp) so the AI's
+  // cross-asset narrative doesn't anchor on yesterday's RTH close pre-market.
+  const _xPct = (d) => { const v = liveDayPctFromPriceFeedRow(d, marketOpen); return Number.isFinite(v) ? v : 0; };
   const lines = [];
   for (const [label, d] of Object.entries(assets)) {
-    if (!d || !Number(d.p)) continue;
-    const price = Number(d.p);
-    const pct = Number(d.dp) || 0;
+    if (!d) continue;
+    const price = liveSpotFromPriceFeedRow(d, marketOpen);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const pct = _xPct(d);
     const dir = pct > 0.5 ? "rallying" : pct < -0.5 ? "declining" : "flat";
     lines.push(`${label}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%) — ${dir}`);
   }
@@ -2070,17 +2078,17 @@ function buildCrossAssetContext(pf) {
   const gc = pf["GC1!"];
   const tlt = pf["TLT"];
   const vx = pf["VX1!"];
-  if (cl && Math.abs(Number(cl.dp) || 0) > 1.5) {
-    interp.push(`Crude oil moving ${Number(cl.dp) > 0 ? "sharply higher — watch XLE for sympathy and inflation/rate path implications" : "sharply lower — potential relief for inflation expectations, watch XLE for downside"}`);
+  if (cl && Math.abs(_xPct(cl)) > 1.5) {
+    interp.push(`Crude oil moving ${_xPct(cl) > 0 ? "sharply higher — watch XLE for sympathy and inflation/rate path implications" : "sharply lower — potential relief for inflation expectations, watch XLE for downside"}`);
   }
-  if (gc && Math.abs(Number(gc.dp) || 0) > 1) {
-    interp.push(`Gold ${Number(gc.dp) > 0 ? "bid — classic risk-off signal, watch for rotation out of equities" : "selling off — risk-on appetite may be returning"}`);
+  if (gc && Math.abs(_xPct(gc)) > 1) {
+    interp.push(`Gold ${_xPct(gc) > 0 ? "bid — classic risk-off signal, watch for rotation out of equities" : "selling off — risk-on appetite may be returning"}`);
   }
-  if (tlt && Math.abs(Number(tlt.dp) || 0) > 0.8) {
-    interp.push(`Long Treasuries (TLT) ${Number(tlt.dp) > 0 ? "rallying — yields dropping, flight to safety" : "declining — yields rising, watch rate-sensitive tech names"}`);
+  if (tlt && Math.abs(_xPct(tlt)) > 0.8) {
+    interp.push(`Long Treasuries (TLT) ${_xPct(tlt) > 0 ? "rallying — yields dropping, flight to safety" : "declining — yields rising, watch rate-sensitive tech names"}`);
   }
-  if (vx && Number(vx.dp) !== 0) {
-    const vxPrice = Number(vx.p);
+  if (vx && _xPct(vx) !== 0) {
+    const vxPrice = liveSpotFromPriceFeedRow(vx, marketOpen) ?? Number(vx.p);
     if (vxPrice > 25) interp.push(`VIX at ${vxPrice.toFixed(1)} — elevated fear, expect wide swings and mean-reversion setups`);
     else if (vxPrice > 20) interp.push(`VIX at ${vxPrice.toFixed(1)} — caution warranted, ranges expanding`);
     else if (vxPrice < 15) interp.push(`VIX at ${vxPrice.toFixed(1)} — low vol, trend-following works, breakouts tend to be cleaner`);
@@ -4744,7 +4752,11 @@ function buildBriefInfographic(data, type) {
     // Prefer scenario.price (live, includes pre-market) over md.price
     // (which is often the cached RTH-close snapshot).
     const livePrice = Number(scenario?.price) || Number(md?.price);
-    const chg = Number(md?.changePct ?? md?.dp);
+    // md is the validated market row — validateMarketData patches the
+    // session-aware change into `day_change_pct` (pre-market gap %, not prev
+    // close). The old `changePct`/`dp` field names didn't exist on md → the
+    // email index card silently dropped the % badge. Read the real field first.
+    const chg = Number(md?.day_change_pct ?? md?.changePct ?? md?.dayChangePct ?? md?.dp);
     const atr = Number(scenario?.atr14 ?? tech?.atr14 ?? tech?.atr);
     const baseLevels = _normLevels(tech);
     let mergedLevels = baseLevels;
@@ -4871,6 +4883,7 @@ function buildBriefInfographic(data, type) {
     data.openTrades || [],
     data.investorPositions || [],
     data.priceFeedRaw || {},
+    data?.calendar?.marketOpen === true,
   );
 
   return {
