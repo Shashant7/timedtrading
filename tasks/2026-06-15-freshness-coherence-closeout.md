@@ -91,6 +91,25 @@ Two distinct issues behind the operator's report:
    date; reversible via `POST_CLOSE_DAILY_INGEST=off`. One-time backfill run for
    tonight: **781 daily bars / 267 tickers, 0 errors**; indices now anchor on Jun 15.
 
+## Overnight / pre-market handling (follow-up, 2026-06-15 ~23:20 UTC)
+Operator: "How do we handle overnight price movement — will it calculate in the
+morning with pre-market levels?"
+
+Semantics: the daily MAGNET levels (pivots/Fib/ATR/swings) are prior-session
+structure — one set per trading day, anchored on the latest CLOSED daily bar.
+They do NOT (and should not) move overnight; they advance once at the close via
+the post-close daily-`D` ingest above. What re-prices in the morning is the LIVE
+overlay: distance-to-level + hit/faded tags computed against the current price.
+
+Bug found + fixed (`cto-live-status.js` `loadLivePriceMap`): the overlay read
+`row.p`, which OUTSIDE RTH is yesterday's RTH close (per the price-data-pipeline
+contract) — so overnight/pre-market moves did NOT re-distance the levels in the
+morning. Now session-aware: outside RTH use the extended print (`ahp`); during
+RTH use `p` (TwelveData returns stale `ahp` while open, so gated on
+`isNyRegularMarketOpen`). Fixes both the feed overlay + the per-ticker right rail.
+Combined with the 4am-8pm ET hourly session refresh, the morning view now shows
+the overnight/pre-market price relative to the prior-close levels.
+
 ## TradingView webhook 401 (shipped earlier this session)
 `requireIngestKey()` (`worker/api.js`) accepts `TIMED_API_KEY` OR a dedicated,
 independently-rotatable `TV_INGEST_KEY`, and ALWAYS allows `?key=` (TV can't send
