@@ -118,10 +118,23 @@ export const HYBRID_CHAIN_TFS = ["10", "15", "30", "60"];
  */
 export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {}) {
   const chainSet = new Set((opts.chainTfs || HYBRID_CHAIN_TFS).map(String));
+  // FAIL-SAFE: if the chain can't satisfy a TF (base not deep/seeded enough, or
+  // it errors), fall back to the legacy reader for that TF. This makes flipping
+  // the cutover flag safe even before every ticker's 5m base is warm — a ticker
+  // simply stays on legacy until its chain series is complete. minBars guards
+  // against scoring on a too-short derived window.
+  const minBars = Number(opts.minBars) || 50;
+  const fallback = opts.fallbackOnIncomplete !== false;
   return async function getCandles(env, ticker, tf, limit = 300) {
-    return chainSet.has(String(tf))
-      ? chainGetCandles(env, ticker, tf, limit)
-      : legacyGetCandles(env, ticker, tf, limit);
+    if (!chainSet.has(String(tf))) return legacyGetCandles(env, ticker, tf, limit);
+    try {
+      const r = await chainGetCandles(env, ticker, tf, limit);
+      const enough = r && r.ok && Array.isArray(r.candles) && r.candles.length >= minBars && r.complete !== false;
+      if (enough || !fallback) return r;
+    } catch (_) { /* fall through to legacy */ }
+    const lg = await legacyGetCandles(env, ticker, tf, limit);
+    if (lg && typeof lg === "object") lg.fellBackFromChain = true;
+    return lg;
   };
 }
 
