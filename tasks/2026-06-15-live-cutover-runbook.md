@@ -1,5 +1,27 @@
 # Live Cutover Runbook — chain-backed LTF scoring (2026-06-15)
 
+## ✅ CUTOVER COMPLETE (2026-06-15 ~14:10 UTC)
+`SCORE_CANDLE_SOURCE=hybrid_chain` + `CANDLE_CHAIN_INGEST=1` deployed to
+production. LTF (10/15/30/60) now scores from the chain's **Alpaca-sourced 5m
+base** via the DO hot-window; 240/D/W/M stay on the legacy deep stores; per-ticker
+fail-safe to legacy. Post-cutover: health ok, **244 tickers scored, 0 cron
+failures**, and chain-vs-legacy parity **d_ltf=0 / d_htf=0 / state-equal** on the
+sampled basket. **Rollback:** set `SCORE_CANDLE_SOURCE=legacy` in
+`worker/wrangler.toml` (both `[vars]` and `[env.production.vars]`) + redeploy.
+
+### Immediate follow-up (tuning, not blocking)
+- **RTH freshness coverage:** the DO feed rotates ~40 tickers/`*/5` tick (~35-min
+  full rotation). During fast RTH a ticker whose DO edge lags fail-safes to
+  legacy (safe, no regression) until its next refresh. To maximize chain-active
+  time, raise the feed chunk size / cadence (e.g., `*/1` or larger `max`) and/or
+  add a forming-edge tolerance to the completeness check. Tune + watch D1 read
+  cost.
+- Re-run the offset=20 older-window 5m batch that hit a 502 during the initial TD
+  backfill (now superseded by Alpaca; verify those tickers' 5m depth).
+
+---
+
+
 Status after this session:
 - **Deployed to PRODUCTION** (`timed-trading-ingest`, default + production envs):
   the D1 prev-close cache (bill relief), the dormant candle-chain foundation, and
