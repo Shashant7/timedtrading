@@ -95,15 +95,37 @@ export class CandleChainShardCore {
     return { written: 0, ignored: String(tf) };
   }
 
-  /** Load the contiguous 5m base across [startMs, endMs) from session chunks. */
+  /**
+   * Load the contiguous 5m base across [startMs, endMs) from session chunks.
+   *
+   * ADDITIVE READ: the day-chunk keys are date-stamped (`b5:<T>:<YYYY-MM-DD>`), so
+   * we fetch ONLY the chunks whose date falls in the window (a bounded set of
+   * point-gets) instead of `storage.list`-ing the ENTIRE retained base (~150 days)
+   * on every read. A new bar only ever lands in today's chunk, so serving a 50-day
+   * score window must not re-scan 150 days × 255 tickers × every cron tick — that
+   * O(full-history) read is what overloaded the cron and dropped scoring back to
+   * stale legacy. Falls back to a prefix list only if the window is unbounded.
+   */
   async loadBase5(ticker, startMs, endMs) {
     const t = String(ticker).toUpperCase();
-    const map = await this.storage.list(`b5:${t}:`);
     const out = [];
-    for (const [, dayBars] of map) {
-      for (const b of dayBars) {
-        if (b.ts >= startMs && b.ts < endMs) out.push(b);
+    if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      const DAY = 24 * 60 * 60 * 1000;
+      // ET date keys spanning the window (±1 day cushions session/DST edges).
+      const days = new Set();
+      for (let ms = startMs - DAY; ms <= endMs + DAY; ms += DAY) days.add(etDateStr(ms));
+      const chunks = await Promise.all([...days].map((d) => this.storage.get(b5Key(t, d))));
+      for (const chunk of chunks) {
+        if (!Array.isArray(chunk)) continue;
+        for (const b of chunk) if (b.ts >= startMs && b.ts < endMs) out.push(b);
       }
+      return out.sort((a, b) => a.ts - b.ts);
+    }
+    // Unbounded fallback (no window) — full scan.
+    const map = await this.storage.list(`b5:${t}:`);
+    for (const [, dayBars] of map) {
+      if (!Array.isArray(dayBars)) continue;
+      for (const b of dayBars) out.push(b);
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
