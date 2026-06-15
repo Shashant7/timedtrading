@@ -164,7 +164,7 @@
         display: flex;
         flex-direction: column;
       }
-      /* Research Desk + PML — paired hero panels, fixed height + inner scroll on desktop */
+      /* Research Desk + PML — paired hero panels, fixed height + inner scroll */
       .tt-desk-panel,
       .tt-cto-panel {
         display: flex;
@@ -1143,20 +1143,25 @@
         }
       }
       @media (max-width: 980px) {
+        /* Stacked mobile: same fixed-height + scroll pattern, slightly shorter cap */
         .today-hero-desk-col .tt-desk-panel,
         .today-hero-levels-col .tt-cto-panel {
-          height: auto;
+          height: min(400px, 48vh);
+          max-height: min(400px, 48vh);
+          min-height: 0;
           flex: none;
+          overflow: hidden;
         }
         .today-hero-desk-col .tt-desk-feed-body,
         .today-hero-levels-col .tt-cto-feed-body {
-          flex: none;
-          overflow: visible;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
         }
         .today-hero-desk-col .tt-desk-scroll,
         .today-hero-levels-col .tt-cto-map-scroll {
-          flex: none;
-          max-height: none;
+          flex: 1;
+          min-height: 0;
         }
       }
       /* Macro chip row */
