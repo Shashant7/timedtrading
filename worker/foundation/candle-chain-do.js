@@ -56,15 +56,17 @@ export class CandleChainShard {
       }
       if (request.method === "GET" && url.pathname === "/series-ltf") {
         // Batch: derive ALL LTF timeframes (10/15/30/60) from the 5m base in ONE
-        // call, so the live score path makes a single DO subrequest per ticker.
+        // pass (single storage.list, not one-per-TF) so the live score path makes a
+        // single, SMALL DO subrequest per ticker. `cap` bounds each view to the
+        // freshest N bars (default 600 — enough for the 60m EMA200 stack) so the
+        // response stays ~200 KB instead of ~1 MB, which is what made the cron's
+        // chain read intermittently fail and fall back to stale legacy.
         const p = url.searchParams;
         const ticker = p.get("ticker");
         const startMs = Number(p.get("start")), endMs = Number(p.get("end"));
         const asOf = p.get("asOf") ? Number(p.get("asOf")) : endMs;
-        const views = {};
-        for (const tf of ["10", "15", "30", "60"]) {
-          views[tf] = await this.core.getSeries(ticker, tf, { startMs, endMs, asOf, source: "live" });
-        }
+        const cap = Number(p.get("cap")) || 600;
+        const views = await this.core.getSeriesMulti(ticker, ["10", "15", "30", "60"], { startMs, endMs, asOf, source: "live", cap });
         return json({ ok: true, views });
       }
       if (request.method === "GET" && url.pathname === "/integrity") {

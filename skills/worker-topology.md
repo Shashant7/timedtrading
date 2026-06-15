@@ -71,6 +71,28 @@ curl -s https://tt-feed.shashant.workers.dev/feed/health | jq
 - Cron execution check: `wrangler tail tt-engine --format pretty` during a
   */5 boundary, or read the run markers in KV (`skills/kv-inspection.md`).
 
+## BINDING PARITY — role workers need EVERY binding their lanes use (2026-06-15)
+
+The dedicated workers ship the monolith bundle but each `wrangler.toml` declares
+its OWN bindings + vars. A binding/var added to `worker/wrangler.toml` is NOT
+automatically on tt-engine/tt-feed/tt-research. If a lane that runs on a role
+worker uses a binding the monolith has but the role config lacks, the code's
+`if (env.SOME_BINDING)` guard silently fails and falls back — invisibly.
+
+**Incident (2026-06-15):** the candle-chain cutover added `CANDLE_CHAIN_SHARD` +
+`SCORE_CANDLE_SOURCE=hybrid_chain` to the monolith only. tt-engine runs `*/5`
+scoring but its config never bound `CANDLE_CHAIN_SHARD`, so the scorer skipped the
+chain entirely and scored on stale legacy → 93-95% freshness quarantine for days.
+Fix: cross-script binding on tt-engine
+(`class_name="CandleChainShard"`, `script_name="timed-trading-ingest"`) so it reads
+the SAME DO instances the monolith feeds, + the same `SCORE_CANDLE_SOURCE` var.
+
+**Rule:** when you add a binding or scoring/feed var to the monolith, add it to the
+role worker(s) that run the affected lane (engine = `*/5` scoring/trade path; feed =
+`*/1` price/candle feed). DOs stay owned by the monolith — reference them via
+`script_name`, never re-declare a migration on the role worker. A failing path with
+a silent fallback is invisible; prefer surfacing it (health field / tombstone).
+
 ## Where the role gate lives
 
 `worker/index.js` `scheduled()` — looks at `env.WORKER_ROLE`

@@ -19,9 +19,27 @@
 //  list(prefix) -> Map<key,val>.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ingestBase, normalizeDailyBars, canonicalDailyTs, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
-import { etDateStr } from "./trading-calendar.js";
+import { ingestBase, normalizeDailyBars, canonicalDailyTs, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs, DERIVED_INTRADAY_TFS } from "./candle-chain.js";
+import { etDateStr, expectedBuckets } from "./trading-calendar.js";
 import { reconcileDailyRollup, crossSourceConsensus } from "./reconcile.js";
+import { buildSeriesView } from "./series-contract.js";
+import {
+  materializeAllIntraday, materializeDailyDerived, readMaterialized, upsertSeries,
+  cursorTs, DEFAULT_MATERIALIZE_CAP, DEFAULT_TAIL_DAYS,
+} from "./candle-store.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const mtfKey = (t, tf) => `mtf:${t}:${tf}`;
+// TFs served from a MATERIALIZED series (derived once on ingest, read O(N)).
+//   • 10/15/30/60 — the 5m-DERIVED LTF chain (HYBRID_CHAIN_TFS). These are cheap
+//     to derive from months of 5m and are where the live≠backtest drift lived.
+//   • 240 is its OWN BRANCH — a 4H EMA200 needs ~6 months of 5m to derive, which
+//     is storage-prohibitive, so 240 (like D) stays its own deep/legacy series,
+//     NOT materialized from 5m. (DERIVED_INTRADAY_TFS still lists it for the
+//     shadow/parity derive path; the live chain just doesn't serve it.)
+//   • 5 + D are the bases themselves (read directly); W/M derive from the daily base.
+const MATERIALIZED_INTRADAY = new Set(["10", "15", "30", "60"]);
+const MATERIALIZED_DAILY = new Set(["W", "M"]);
 
 /** Stable FNV-1a hash → shard index. Deterministic across runs/machines. */
 export function shardForTicker(ticker, numShards = 16) {
@@ -80,6 +98,12 @@ export class CandleChainShardCore {
         await this.storage.put(key, merged);
         written += merged.length;
       }
+      // ADDITIVE MATERIALIZE: re-derive only the tail the new bars touch (or the
+      // full base on backfill) into the per-TF materialized series, so reads are
+      // O(N). `opts.materialize`: "tail" (default) | "full" (backfill) | "none".
+      if ((opts.materialize || "tail") !== "none") {
+        await this._materializeIntraday(t, bars, opts.materialize === "full");
+      }
       return maybeGate({ written, days: byDay.size });
     }
     if (String(tf) === "D") {
@@ -90,20 +114,45 @@ export class CandleChainShardCore {
       // 00:00Z/04:00Z double-write). Idempotent across re-ingest.
       const merged = normalizeDailyBars([...existing, ...bars]);
       await this.storage.put(key, merged);
+      if ((opts.materialize || "tail") !== "none") {
+        await this._materializeDailyDerived(t, merged);
+      }
       return maybeGate({ written: merged.length });
     }
     return { written: 0, ignored: String(tf) };
   }
 
-  /** Load the contiguous 5m base across [startMs, endMs) from session chunks. */
+  /**
+   * Load the contiguous 5m base across [startMs, endMs) from session chunks.
+   *
+   * ADDITIVE READ: the day-chunk keys are date-stamped (`b5:<T>:<YYYY-MM-DD>`), so
+   * we fetch ONLY the chunks whose date falls in the window (a bounded set of
+   * point-gets) instead of `storage.list`-ing the ENTIRE retained base (~150 days)
+   * on every read. A new bar only ever lands in today's chunk, so serving a 50-day
+   * score window must not re-scan 150 days × 255 tickers × every cron tick — that
+   * O(full-history) read is what overloaded the cron and dropped scoring back to
+   * stale legacy. Falls back to a prefix list only if the window is unbounded.
+   */
   async loadBase5(ticker, startMs, endMs) {
     const t = String(ticker).toUpperCase();
-    const map = await this.storage.list(`b5:${t}:`);
     const out = [];
-    for (const [, dayBars] of map) {
-      for (const b of dayBars) {
-        if (b.ts >= startMs && b.ts < endMs) out.push(b);
+    if (Number.isFinite(startMs) && Number.isFinite(endMs)) {
+      const DAY = 24 * 60 * 60 * 1000;
+      // ET date keys spanning the window (±1 day cushions session/DST edges).
+      const days = new Set();
+      for (let ms = startMs - DAY; ms <= endMs + DAY; ms += DAY) days.add(etDateStr(ms));
+      const chunks = await Promise.all([...days].map((d) => this.storage.get(b5Key(t, d))));
+      for (const chunk of chunks) {
+        if (!Array.isArray(chunk)) continue;
+        for (const b of chunk) if (b.ts >= startMs && b.ts < endMs) out.push(b);
       }
+      return out.sort((a, b) => a.ts - b.ts);
+    }
+    // Unbounded fallback (no window) — full scan.
+    const map = await this.storage.list(`b5:${t}:`);
+    for (const [, dayBars] of map) {
+      if (!Array.isArray(dayBars)) continue;
+      for (const b of dayBars) out.push(b);
     }
     return out.sort((a, b) => a.ts - b.ts);
   }
@@ -112,12 +161,127 @@ export class CandleChainShardCore {
     return (await this.storage.get(bdKey(String(ticker).toUpperCase()))) || [];
   }
 
-  /** Derive a timeframe's SeriesView from the stored bases. */
+  /** Newest stored 5m ts — the additive ingest cursor (0 if cold). */
+  async cursor5m(ticker) {
+    const t = String(ticker).toUpperCase();
+    // The newest bar lives in the latest day-chunk; check the last few ET days.
+    const now = Date.now();
+    for (let d = 0; d <= 6; d++) {
+      const chunk = await this.storage.get(b5Key(t, etDateStr(now - d * DAY_MS)));
+      if (Array.isArray(chunk) && chunk.length) return cursorTs(chunk);
+    }
+    return cursorTs(await this.loadBase5(t)); // cold/gap fallback (full scan, rare)
+  }
+
+  /** Incremental materialize of the 5m-derived LTF (10/15/30/60). `full`=backfill. */
+  async _materializeIntraday(t, ingestedBars, full = false) {
+    try {
+      let base5;
+      if (full) {
+        base5 = await this.loadBase5(t); // whole base (one-time backfill)
+      } else {
+        const maxTs = (ingestedBars || []).reduce((m, b) => Math.max(m, Number(b?.ts) || 0), 0) || Date.now();
+        base5 = await this.loadBase5(t, maxTs - (DEFAULT_TAIL_DAYS + 2) * DAY_MS, maxTs + DAY_MS);
+      }
+      if (!base5.length) return;
+      const prev = {};
+      for (const tf of MATERIALIZED_INTRADAY) prev[tf] = (await this.storage.get(mtfKey(t, tf))) || [];
+      const next = materializeAllIntraday(prev, base5, { tfs: [...MATERIALIZED_INTRADAY], tailDays: DEFAULT_TAIL_DAYS, full, cap: DEFAULT_MATERIALIZE_CAP });
+      for (const tf of MATERIALIZED_INTRADAY) await this.storage.put(mtfKey(t, tf), next[tf]);
+    } catch (_) { /* materialize is a cache; never block ingest */ }
+  }
+
+  /** Materialize W/M from the daily base (small → full re-derive each ingest). */
+  async _materializeDailyDerived(t, mergedDaily) {
+    try {
+      for (const tf of MATERIALIZED_DAILY) {
+        await this.storage.put(mtfKey(t, tf), materializeDailyDerived(mergedDaily, tf, { cap: DEFAULT_MATERIALIZE_CAP }));
+      }
+    } catch (_) { /* cache; never block ingest */ }
+  }
+
+  /**
+   * SeriesView for a timeframe. FAST PATH: serve the materialized series (O(N),
+   * no resample, no base scan) for the 5m-derived LTF + W/M. COLD/fallback: derive
+   * from the base once and materialize so the next read is fast. 5/D/240 read the
+   * base directly via deriveTimeframe (240 is its own branch — see header).
+   */
   async getSeries(ticker, tf, { startMs, endMs, asOf, source = "live" }) {
     const t = String(ticker).toUpperCase();
+    const tfu = String(tf);
+    if (MATERIALIZED_INTRADAY.has(tfu) || MATERIALIZED_DAILY.has(tfu)) {
+      const mat = await this.storage.get(mtfKey(t, tfu));
+      if (Array.isArray(mat) && mat.length) {
+        const inWindow = readMaterialized(mat, { startMs, endMs });
+        if (inWindow.length) {
+          const expected = (startMs != null && endMs != null) ? expectedBuckets({ tf: tfu, startMs, endMs }) : null;
+          return buildSeriesView({ ticker: t, tf: tfu, bars: inWindow, expectedTimestamps: expected, asOf: asOf ?? endMs, source });
+        }
+      }
+      // Cold (first read after backfill, or never materialized): derive + warm.
+      const view = await this._deriveFromBase(t, tfu, { startMs, endMs, asOf, source });
+      try {
+        if (view?.bars?.length) {
+          const prev = (await this.storage.get(mtfKey(t, tfu))) || [];
+          await this.storage.put(mtfKey(t, tfu), upsertSeries(prev, view.bars, DEFAULT_MATERIALIZE_CAP));
+        }
+      } catch (_) { /* warming is best-effort */ }
+      return view;
+    }
+    return this._deriveFromBase(t, tfu, { startMs, endMs, asOf, source });
+  }
+
+  /** Derive a TF straight from the stored bases (the original resample-on-read). */
+  async _deriveFromBase(t, tfu, { startMs, endMs, asOf, source = "live" }) {
     const base5 = await this.loadBase5(t, startMs, endMs);
     const baseDaily = await this.loadBaseDaily(t);
-    return deriveTimeframe(tf, { ticker: t, base5m: base5, baseDaily, asOf: asOf ?? endMs, windowStartMs: startMs, windowEndMs: endMs, source });
+    return deriveTimeframe(tfu, { ticker: t, base5m: base5, baseDaily, asOf: asOf ?? endMs, windowStartMs: startMs, windowEndMs: endMs, source });
+  }
+
+  /**
+   * SeriesView for MANY timeframes — the live score path's per-ticker read. FAST
+   * PATH: serve each materialized LTF from its stored series (O(N), no resample,
+   * no base load). Only if some requested TF is cold/unmaterialized do we load the
+   * 5m base ONCE and derive those. This is what makes the 5-min scoring cron
+   * cheap + reliable (the old path did a full storage.list + 4-TF re-resample
+   * per ticker).
+   */
+  async getSeriesMulti(ticker, tfs, { startMs, endMs, asOf, source = "live", cap = 0 } = {}) {
+    const t = String(ticker).toUpperCase();
+    const views = {};
+    const cold = [];
+    for (const tf of tfs) {
+      const tfu = String(tf);
+      if (MATERIALIZED_INTRADAY.has(tfu) || MATERIALIZED_DAILY.has(tfu)) {
+        const mat = await this.storage.get(mtfKey(t, tfu));
+        if (Array.isArray(mat) && mat.length) {
+          const inWindow = readMaterialized(mat, { startMs, endMs, limit: cap > 0 ? cap : undefined });
+          const expected = (startMs != null && endMs != null) ? expectedBuckets({ tf: tfu, startMs, endMs }) : null;
+          views[tfu] = buildSeriesView({ ticker: t, tf: tfu, bars: inWindow, expectedTimestamps: expected, asOf: asOf ?? endMs, source });
+          continue;
+        }
+      }
+      cold.push(tfu); // cold or a non-materialized TF (e.g. 240/5/D) → derive below
+    }
+    if (cold.length) {
+      const base5 = await this.loadBase5(t, startMs, endMs); // ONE load for all cold TFs
+      const baseDaily = await this.loadBaseDaily(t);
+      for (const tf of cold) {
+        const view = deriveTimeframe(tf, { ticker: t, base5m: base5, baseDaily, asOf: asOf ?? endMs, windowStartMs: startMs, windowEndMs: endMs, source });
+        if (cap > 0 && view && Array.isArray(view.bars) && view.bars.length > cap) {
+          view.bars = view.bars.slice(-cap);
+        }
+        views[tf] = view;
+        // warm the materialized series so the next read is on the fast path
+        if ((MATERIALIZED_INTRADAY.has(tf) || MATERIALIZED_DAILY.has(tf)) && view?.bars?.length) {
+          try {
+            const prev = (await this.storage.get(mtfKey(t, tf))) || [];
+            await this.storage.put(mtfKey(t, tf), upsertSeries(prev, view.bars, DEFAULT_MATERIALIZE_CAP));
+          } catch (_) { /* best-effort */ }
+        }
+      }
+    }
+    return views;
   }
 
   /** Integrity of the 5m base (the single freshness point) over a window. */

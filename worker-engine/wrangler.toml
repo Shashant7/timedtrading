@@ -91,9 +91,23 @@ name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
 script_name = "timed-trading-ingest"
 
+# Candle-chain shard DO — OWNED by the monolith (it has the SQLite migration +
+# the */1 feed that keeps it fresh). tt-engine reads the SAME instances via
+# script_name so the */5 scorer consumes the fresh chain LTF instead of stale
+# legacy. WITHOUT this binding the scorer's `env.CANDLE_CHAIN_SHARD` was undefined
+# → it skipped the chain entirely → scored on cost-throttled stale legacy →
+# freshness quarantine (the 2026-06-15 "scores not fresh" incident).
+[[durable_objects.bindings]]
+name = "CANDLE_CHAIN_SHARD"
+class_name = "CandleChainShard"
+script_name = "timed-trading-ingest"
+
 [vars]
 # ── Role split (Step 3) ──
 WORKER_ROLE = "engine"
+# ── Candle-chain cutover (must match the monolith so the SCORER uses the chain) ──
+SCORE_CANDLE_SOURCE = "hybrid_chain"
+CANDLE_CHAIN_INGEST = "1"
 # NOTE: ENGINE_ENABLED is NOT pinned here on purpose — set it via the CF
 # Dashboard when cutting over (code defaults to "false"; keep_vars above
 # makes the dashboard value survive deploys).

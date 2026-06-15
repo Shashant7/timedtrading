@@ -88,5 +88,32 @@ uptrend (longs unfloored).
 Net: the operator's "transitional" call is correct for the mega-cap complex, but the
 engine is applying that label (and SPY's weakness) to the *whole* universe — including
 the IWM/DIA names that are in clear uptrends. #1 restores live≡backtest; #2 fixes the
-benchmark mis-attribution. Neither is shipped yet — awaiting go-ahead (these change
-live entry discipline).
+benchmark mis-attribution.
+
+## IMPLEMENTED + DEPLOYED (2026-06-15) — #1/#2/#3
+`worker/market-regime-index.js` (21 tests) + cron wiring + trade-context + config keys.
+- #1 live cycle: the cron computes `_monthlyCycle` via cycleFromRegime (replay-parity).
+- #2 per-index: `POST /timed/admin/build-index-map` cached `timed:ticker-index-map`
+  (**134/260 = 52% non-SPY**: SPY 126, IWM 42, RSP 39, DIA 27, QQQ 26; CAT/CW/EME→IWM,
+  GE→DIA, RTX/CARR→RSP, INTC/STX→QQQ). Per-ticker `_monthly_cycle` from the home index.
+- #3 breadth: `env._monthlyCycle` = breadthAwareMarketCycle across the 5 indices.
+
+**VERIFIED EFFECTIVE:** CAT/RTX/GE/EME/INTC `_monthly_cycle = "uptrend"` and the entry
+gate reason moved from `h3_rank_below_transitional_floor` → `h3_consensus_below_min`
+— the strict transitional rank-92 floor on longs is GONE. Candidates are now gated by
+the legitimate multi-TF consensus (e.g. RTX 2/3 signals), as intended.
+
+## ⚠️ OPEN: freshness/chain-consumption reliability (NOT the cycle work)
+Live freshness is intermittently degraded (`timed:freshness:summary` swung 241→1→243
+across the session). Root: the chain DO IS fresh universe-wide (AMZN/GOOGL/CRM ~6 min,
+cron-fed via `*/1`) and the `*/1` feed works, but at SCORING time the hybrid
+intermittently falls back to STALE legacy for 10m/30m (e.g. CAT 10m=76 min) → the
+freshness quarantine caps rank to 10. So the cycle effect is real but the rank cap
+(from staleness) still blocks entries. The `fresher-wins` hybrid fix
+(chain-series-adapter.js) only helps when the chain read returns ≥minBars AND is
+fresher than legacy; when the cron's chain getCandles (`/series-ltf`, 70-day window,
+4 TFs in one DO call) returns unusable/empty under load, it falls to legacy.
+NEXT STEP (own focused run): trace the live `/series-ltf` read under the cron (likely
+shrink WINDOW_MS from 70d → ~45d for the LTF and/or check the DO call timing), so
+scoring reliably consumes the fresh chain it's already being fed. This is the
+foundation's last reliability gap.
