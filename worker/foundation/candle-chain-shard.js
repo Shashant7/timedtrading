@@ -120,6 +120,30 @@ export class CandleChainShardCore {
     return deriveTimeframe(tf, { ticker: t, base5m: base5, baseDaily, asOf: asOf ?? endMs, windowStartMs: startMs, windowEndMs: endMs, source });
   }
 
+  /**
+   * Derive MANY timeframes in ONE pass: load the 5m base + daily base ONCE, then
+   * derive each requested TF from the in-memory base. This is what the live score
+   * path calls per ticker — the per-TF getSeries() path did a FULL storage.list
+   * per TF (4× for LTF), and returned each view's full history (~8.5k bars/ticker,
+   * ~1 MB), which intermittently failed under the 255-ticker cron and dropped
+   * scoring back to STALE legacy → freshness quarantine. Here we list once and
+   * cap each view to the last `cap` bars so the response stays small + reliable.
+   */
+  async getSeriesMulti(ticker, tfs, { startMs, endMs, asOf, source = "live", cap = 0 } = {}) {
+    const t = String(ticker).toUpperCase();
+    const base5 = await this.loadBase5(t, startMs, endMs);      // ONE list, not one-per-TF
+    const baseDaily = await this.loadBaseDaily(t);
+    const views = {};
+    for (const tf of tfs) {
+      const view = deriveTimeframe(tf, { ticker: t, base5m: base5, baseDaily, asOf: asOf ?? endMs, windowStartMs: startMs, windowEndMs: endMs, source });
+      if (cap > 0 && view && Array.isArray(view.bars) && view.bars.length > cap) {
+        view.bars = view.bars.slice(-cap); // keep the freshest `cap` bars; shrinks payload
+      }
+      views[tf] = view;
+    }
+    return views;
+  }
+
   /** Integrity of the 5m base (the single freshness point) over a window. */
   async integrity(ticker, { startMs, endMs }) {
     const base5 = await this.loadBase5(ticker, startMs, endMs);

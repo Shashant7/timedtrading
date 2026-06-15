@@ -49,6 +49,24 @@ describe("shard core: ingest + derive", () => {
     expect(v.complete).toBe(true);
   });
 
+  it("getSeriesMulti derives many TFs in one pass (matches per-TF getSeries) + caps bars", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    await core.ingest("AAPL", "5", session5m(DAY));
+    const views = await core.getSeriesMulti("AAPL", ["10", "30", "60"], { startMs: openMs, endMs: closeMs, asOf: closeMs });
+    // identical to the per-TF path it replaces
+    for (const tf of ["10", "30", "60"]) {
+      const single = await core.getSeries("AAPL", tf, { startMs: openMs, endMs: closeMs, asOf: closeMs });
+      expect(views[tf].bars.length).toBe(single.bars.length);
+      expect(views[tf].complete).toBe(single.complete);
+    }
+    // cap keeps only the freshest N bars
+    const capped = await core.getSeriesMulti("AAPL", ["10"], { startMs: openMs, endMs: closeMs, asOf: closeMs, cap: 3 });
+    expect(capped["10"].bars.length).toBe(3);
+    const full = await core.getSeries("AAPL", "10", { startMs: openMs, endMs: closeMs, asOf: closeMs });
+    // the capped bars are the LAST (freshest) ones
+    expect(capped["10"].bars[capped["10"].bars.length - 1].ts).toBe(full.bars[full.bars.length - 1].ts);
+  });
+
   it("ingest is idempotent (re-ingest same bars → same base length)", async () => {
     const core = new CandleChainShardCore(memStorage());
     await core.ingest("MU", "5", session5m(DAY));
