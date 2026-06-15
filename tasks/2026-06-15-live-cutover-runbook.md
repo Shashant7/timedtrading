@@ -9,13 +9,15 @@ failures**, and chain-vs-legacy parity **d_ltf=0 / d_htf=0 / state-equal** on th
 sampled basket. **Rollback:** set `SCORE_CANDLE_SOURCE=legacy` in
 `worker/wrangler.toml` (both `[vars]` and `[env.production.vars]`) + redeploy.
 
-### Immediate follow-up (tuning, not blocking)
-- **RTH freshness coverage:** the DO feed rotates ~40 tickers/`*/5` tick (~35-min
-  full rotation). During fast RTH a ticker whose DO edge lags fail-safes to
-  legacy (safe, no regression) until its next refresh. To maximize chain-active
-  time, raise the feed chunk size / cadence (e.g., `*/1` or larger `max`) and/or
-  add a forming-edge tolerance to the completeness check. Tune + watch D1 read
-  cost.
+### ✅ Freshness tuning COMPLETE (2026-06-15 ~15:05 UTC)
+- Hybrid gate now uses a **recency check** (latest sliced bar within
+  `CANDLE_CHAIN_MAX_EDGE_MIN`=25m of asOf) instead of strict full-window
+  complete — so the RTH forming edge no longer forces a legacy fallback.
+- The DO feed **batch-fetches recent 5m directly from Alpaca** (real-time;
+  zero D1 reads) and runs **awaited on the light `*/1` cron** (not the heavy
+  `*/5`), chunk 80, full SECTOR_MAP universe ⇒ **all DO edges refresh within
+  ~3 min**. Verified live: never-manually-fed tickers (AMD/META/AVGO/INTC/AMZN)
+  edge age ~2.6 min; 0 cron failures. The chain is **active during RTH**.
 - Re-run the offset=20 older-window 5m batch that hit a 502 during the initial TD
   backfill (now superseded by Alpaca; verify those tickers' 5m depth).
 
