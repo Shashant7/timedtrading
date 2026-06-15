@@ -112,6 +112,22 @@ describe("chain-series-adapter: hybrid router (LTF→chain, rest→legacy)", () 
     expect((await h2({}, "X", "10")).source).toBe("chain");
     expect((await h2({}, "X", "60")).source).toBe("legacy");
   });
+
+  it("RTH freshness gate: accepts a fresh-edge chain even if strict-complete is false", async () => {
+    const now = 1_800_000_000_000;
+    const freshBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+    // complete:false (forming edge) but latest bar is 5 min old → within threshold
+    const freshChain = async () => ({ ok: true, source: "chain", complete: false, candles: freshBars });
+    const h = makeHybridGetCandles(freshChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    expect((await h({}, "X", "10", 300)).source).toBe("chain");
+  });
+  it("RTH freshness gate: falls back when the latest bar is stale (DO behind)", async () => {
+    const now = 1_800_000_000_000;
+    const staleBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - 3 * 3600_000 - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+    const staleChain = async () => ({ ok: true, source: "chain", complete: true, candles: staleBars });
+    const h = makeHybridGetCandles(staleChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    expect((await h({}, "X", "10", 300)).source).toBe("legacy");
+  });
 });
 
 describe("chain-series-adapter: reversible cutover resolver (default OFF)", () => {
