@@ -79,6 +79,26 @@ caps to 600 bars. Per-read cost is ~3× lower.
 - `POST /timed/admin/build-index-map` / `GET /timed/admin/index-map`.
 - `timed:debug:chain-read` KV — per-run chain-read ok/empty/err counts.
 
+## OUTCOME (2026-06-15 ~20:45 UTC) — RESOLVED + DEPLOYED
+Both root causes fixed and verified live:
+1. **Binding gap (RC#1):** tt-engine now binds `CANDLE_CHAIN_SHARD` + `SCORE_CANDLE_SOURCE=hybrid_chain`.
+2. **Cron read overload (RC#2):** the per-ticker chain read is now an O(N) read of the
+   MATERIALIZED per-TF series (incremental on ingest) instead of a full-base
+   re-resample. `loadBase5` is window-bounded. 240 stays its own branch.
+
+Verified after deploy (518 tests green; pre-prod validated; monolith + tt-engine
+deployed; DO warmed via force-feed):
+- `timed:debug:chain-read` = **ok:253, notok:0, err:0** (worker_role=engine,
+  score_candle_source=hybrid_chain, has_binding=true) — the WHOLE universe's chain
+  reads now succeed (was ~65 reaching the read at all, rest falling back to stale).
+- `timed:freshness:summary` = **stale 0 / 253, slo_ok:true** (was 243 stale).
+- Ranks un-capped: CAT 10→**99**, RTX→81, NVDA→74; entries gated by legitimate
+  discipline (`h3_consensus_below_min` / conviction), not the freshness quarantine.
+
+Steady-state (RTH): the `*/1` feed materializes the tail each minute (warm), the
+`*/5` scorer reads O(N) — no overload, no fallback. Monitor via
+`/timed/admin/worker-flags` (chain_read_diag) + `/timed/health` (freshness).
+
 ## PROCESS LESSON (for me / next agent)
 Read `skills/worker-topology.md` BEFORE touching cron/scoring/wrangler — it states
 plainly that tt-engine runs `*/5` scoring; that alone would have pointed at the
