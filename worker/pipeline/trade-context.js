@@ -180,10 +180,14 @@ export function buildTradeContext(tickerData, asOfTs = null) {
       htf_score: env?._marketRegime?.htf_score ?? d?.htf_score ?? null,
       cryptoLead: d._cryptoLead || null,
       // Phase-H.3 2026-04-20: monthly backdrop cycle label.
-      // Populated by replay-candle-batches.js (backdrop pre-loaded per
-      // replay date). Values: "uptrend" | "downtrend" | "transitional" | "".
+      // Values: "uptrend" | "downtrend" | "transitional" | "".
       // Drives regime-adaptive entry gates in tt-core-entry.js.
-      monthlyCycle: String(env?._monthlyCycle || d?._monthly_cycle || "").toLowerCase() || null,
+      // 2026-06-15: PER-TICKER cycle wins. The live cron stamps d._monthly_cycle
+      // from the ticker's HOME INDEX (trailing-beta map: a cyclical that tracks
+      // IWM/DIA is judged against IWM/DIA's regime, not SPY). env._monthlyCycle
+      // is the breadth-aware market fallback (and the replay-supplied value, which
+      // never set d._monthly_cycle → behavior there is unchanged).
+      monthlyCycle: String(d?._monthly_cycle || env?._monthlyCycle || "").toLowerCase() || null,
       // Top/bottom sector ETFs this month (for gating entries to winning
       // sector + blocking entries into losing sector).
       monthlySectorTop: env?._monthlySectorTop || null,

@@ -9,6 +9,17 @@ failures**, and chain-vs-legacy parity **d_ltf=0 / d_htf=0 / state-equal** on th
 sampled basket. **Rollback:** set `SCORE_CANDLE_SOURCE=legacy` in
 `worker/wrangler.toml` (both `[vars]` and `[env.production.vars]`) + redeploy.
 
+### ✅ Feed COVERAGE fixed (2026-06-15 ~15:55 UTC)
+The first cut left a fixed subset (TSLA/AMZN/SPY/IWM/QQQ) 30–170m stale because
+the rotating chunk starved any slice sharing a symbol Alpaca rejects, and the
+feed universe (SECTOR_MAP) missed scored benchmarks/open-positions. Rewrote the
+feed to: cover the **full SCORED universe** (snapshot keys ∪ SECTOR_MAP ∪
+timed:tickers) every */1 tick in independent **sub-batches** (25), skip crypto,
+**RTH-gated**, **non-blocking** (waitUntil). Verified: **0/18 stale, all ≤8m**
+incl. SPY/IWM/QQQ. The only cron "failures" are the legacy
+`freshness_quarantine_*` guard on ABNB/INFL — unrelated to the feed (and the
+class of guard the rebuild ultimately retires).
+
 ### ✅ Freshness tuning COMPLETE (2026-06-15 ~15:05 UTC)
 - Hybrid gate now uses a **recency check** (latest sliced bar within
   `CANDLE_CHAIN_MAX_EDGE_MIN`=25m of asOf) instead of strict full-window

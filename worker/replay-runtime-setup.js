@@ -154,6 +154,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_regime_downtrend_long_rank_min",
   "deep_audit_regime_downtrend_long_require_4h_bull",
   "deep_audit_regime_transitional_rank_min",
+  // 2026-06-15: live market-cycle (replay-parity) + per-index mapping + breadth.
+  "deep_audit_market_cycle_enabled",
+  "deep_audit_breadth_aware_cycle_enabled",
+  "deep_audit_per_index_cycle_enabled",
   "deep_audit_consensus_gate_enabled",
   "deep_audit_consensus_min_signals",
   "deep_audit_consensus_volume_rvol_min",

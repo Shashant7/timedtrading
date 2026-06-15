@@ -134,21 +134,38 @@ export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {
   // closed). maxEdgeStalenessMs = 0 keeps the strict `complete` gate (tests).
   const maxEdgeMs = Number(opts.maxEdgeStalenessMs) || 0;
   const asOf = Number(opts.asOf) || Date.now();
+  const _lastTs = (res) => {
+    const arr = res && Array.isArray(res.candles) ? res.candles : [];
+    return arr.length ? (Number(arr[arr.length - 1]?.ts) || 0) : 0;
+  };
   return async function getCandles(env, ticker, tf, limit = 300) {
     if (!chainSet.has(String(tf))) return legacyGetCandles(env, ticker, tf, limit);
+    let chainRes = null;
+    let okLen = false;
     try {
-      const r = await chainGetCandles(env, ticker, tf, limit);
-      const okLen = r && r.ok && Array.isArray(r.candles) && r.candles.length >= minBars;
+      chainRes = await chainGetCandles(env, ticker, tf, limit);
+      okLen = chainRes && chainRes.ok && Array.isArray(chainRes.candles) && chainRes.candles.length >= minBars;
       let usable;
       if (maxEdgeMs > 0) {
-        const last = okLen ? r.candles[r.candles.length - 1] : null;
+        const last = okLen ? chainRes.candles[chainRes.candles.length - 1] : null;
         usable = !!last && Number.isFinite(Number(last.ts)) && (asOf - Number(last.ts)) <= maxEdgeMs;
       } else {
-        usable = okLen && r.complete !== false;
+        usable = okLen && chainRes.complete !== false;
       }
-      if (usable || !fallback) return r;
-    } catch (_) { /* fall through to legacy */ }
+      if (usable || !fallback) return chainRes;
+    } catch (_) { chainRes = null; okLen = false; }
     const lg = await legacyGetCandles(env, ticker, tf, limit);
+    // FRESHER-WINS: the chain only "failed" here because its latest bar lagged
+    // the edge gate (feed catching up). Legacy D1 is chronically STALER (the
+    // candle sync is throttled for D1 cost), so blindly returning it would hand
+    // the scorer OLDER candles and trip the freshness quarantine (rank→cap) —
+    // the exact failure that froze entries. When the chain has enough history,
+    // return whichever source has the newer latest bar; never downgrade to
+    // staler data. (Outside RTH both are equally old ⇒ legacy, unchanged.)
+    if (okLen && _lastTs(chainRes) > _lastTs(lg)) {
+      chainRes.preferredOverStalerLegacy = true;
+      return chainRes;
+    }
     if (lg && typeof lg === "object") lg.fellBackFromChain = true;
     return lg;
   };

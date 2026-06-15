@@ -121,12 +121,26 @@ describe("chain-series-adapter: hybrid router (LTF→chain, rest→legacy)", () 
     const h = makeHybridGetCandles(freshChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
     expect((await h({}, "X", "10", 300)).source).toBe("chain");
   });
-  it("RTH freshness gate: falls back when the latest bar is stale (DO behind)", async () => {
+  it("RTH freshness gate: falls back to legacy when the chain edge is stale AND legacy is fresher", async () => {
     const now = 1_800_000_000_000;
     const staleBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - 3 * 3600_000 - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
     const staleChain = async () => ({ ok: true, source: "chain", complete: true, candles: staleBars });
-    const h = makeHybridGetCandles(staleChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    // legacy edge is FRESH (5 min old) → legitimately preferred over the 3h-stale chain
+    const freshLegacy = async (env, t, tf) => ({ ok: true, source: "legacy", candles: [{ ts: now - 5 * 60_000, o: 1, h: 1, l: 1, c: 1, v: 1 }] });
+    const h = makeHybridGetCandles(staleChain, freshLegacy, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
     expect((await h({}, "X", "10", 300)).source).toBe("legacy");
+  });
+  it("FRESHER-WINS: chain edge-stale but legacy is EVEN STALER → keep the chain (no downgrade)", async () => {
+    const now = 1_800_000_000_000;
+    // chain latest = 40 min old (just past the 25-min edge gate)
+    const chainBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - 40 * 60_000 - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+    const edgeStaleChain = async () => ({ ok: true, source: "chain", complete: true, candles: chainBars });
+    // legacy is 2h stale (the cost-throttled D1 reality) → must NOT be chosen over the fresher chain
+    const stalerLegacy = async () => ({ ok: true, source: "legacy", candles: [{ ts: now - 2 * 3600_000, o: 1, h: 1, l: 1, c: 1, v: 1 }] });
+    const h = makeHybridGetCandles(edgeStaleChain, stalerLegacy, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    const r = await h({}, "X", "10", 300);
+    expect(r.source).toBe("chain");
+    expect(r.preferredOverStalerLegacy).toBe(true);
   });
 });
 
