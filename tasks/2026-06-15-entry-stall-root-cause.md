@@ -63,6 +63,31 @@ restoring freshness directly restores cadence.
 Recommendation: (1) as the durable fix; (3) as a reversible interim ONLY with
 operator sign-off on the staleness window. Do NOT do (2) given the cost goal.
 
+## RESOLUTION (2026-06-15 ~17:50 UTC) — option 1 done
+Fixed by repairing the chain path (no D1-cost increase):
+- The earlier "DO is empty" was a **broken admin read** (the `series` proxy needs
+  `start`/`end`; without them `Number(null)=NaN` → `new Date(NaN)` → "Invalid time
+  value"). The DO actually holds **deep + fresh** 5m (CAT: 3246 bars over 28 days,
+  newest 2 min) and the `*/1` cron feed keeps it current (RTX/NVDA/GE 6 min old,
+  cron-fed only).
+- Real defect (now fixed): `makeHybridGetCandles` fell back to **legacy D1** whenever
+  the chain's edge lagged the freshness gate — but legacy is chronically staler
+  (cost-throttled sync), so the fallback handed the scorer OLDER candles and tripped
+  the quarantine. Fix: **prefer whichever source has the newer latest bar; never
+  downgrade to staler legacy** (`chain-series-adapter.js`, +2 tests, 20/20). Deployed.
+- Result, verified live: freshness `stale 241 → 1` (stable), ranks **un-capped**
+  (CAT 10→99, RTX→100, UNH/INTC/CARR→100). The universe is no longer quarantined.
+
+### What now gates entries (the engine working correctly on FRESH data)
+The binding gates are normal entry discipline, not the freshness cap:
+- `h3_consensus_below_min` — e.g. RTX has 2/3 consensus signals (momentum+sector;
+  trend/volume/phase not yet) in a **TRANSITIONAL** regime with **elevated VIX**.
+- `h3_rank_below_transitional_floor` (rank<92) / `focus_conviction_below_floor` for
+  weaker names.
+This is appropriate selectivity in a transitional/elevated-VIX tape; entries fire as
+setups gain multi-TF consensus — now computed on consistent, chain-derived data.
+Tuning the consensus/transitional thresholds is a SEPARATE calibration question.
+
 ## Tooling shipped
 `GET /timed/admin/entry-explain?ticker=X` (read-only) — live. Use it to confirm the
 fix: once data is fresh, `diag.rank` un-caps (10→~100) and `decision.qualifies`
