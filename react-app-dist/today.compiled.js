@@ -1628,12 +1628,22 @@ function ResearchDeskPanel({
       marginBottom: 10,
       flexShrink: 0
     }
-  }, "Fresh from the research feed"), croNote && h("div", {
+  }, "Fresh from the research feed"), h("div", {
+    className: "tt-desk-feed-body"
+  }, items.length === 0 && !croNote ? h("div", {
+    className: "tt-desk-scroll",
+    style: {
+      fontSize: 12,
+      color: "var(--tt-text-muted)"
+    }
+  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h("div", {
+    className: "tt-desk-scroll"
+  }, croNote && h("div", {
+    className: "tt-desk-cro-note",
     style: {
       marginBottom: 10,
       padding: "10px 12px",
       borderRadius: 8,
-      flexShrink: 0,
       border: "1px solid rgba(139,92,246,0.35)",
       background: "rgba(139,92,246,0.06)"
     }
@@ -1699,24 +1709,14 @@ function ResearchDeskPanel({
       fontWeight: 700,
       color: "var(--tt-text-dim)"
     }
-  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), h("div", {
-    className: "tt-desk-feed-body"
-  }, items.length === 0 ? h("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text-muted)"
-    }
-  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h(React.Fragment, null, h("div", {
+  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), items.length > 0 && h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-dim)",
       marginBottom: 8,
-      letterSpacing: "0.04em",
-      flexShrink: 0
+      letterSpacing: "0.04em"
     }
-  }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), h("div", {
-    className: "tt-desk-scroll"
-  }, items.map((it, i) => {
+  }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), items.map((it, i) => {
     const id = it.pub_id || String(i);
     const isOpen = openId === id;
     const hasMore = !!it.tt_summary;
@@ -1802,7 +1802,7 @@ function ResearchDeskPanel({
         cursor: "pointer"
       }
     }, tk))));
-  })))));
+  }))));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -5182,6 +5182,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781566961617:717886331
+// cache-bust:1781567849730:801331371
 
-// cache-bust:1781566961617:717886331
+// cache-bust:1781567849730:801331371
