@@ -918,29 +918,39 @@
     resolveFeedAsOfLabel(feed) {
       const formatBar = window.TimedCTORead?.formatBarAsOf || (() => null);
       const formatDate = window.TimedCTORead?.formatAsOfDate || (() => null);
-      const ms = Number(feed?.prediction_as_of_ms);
-      if (Number.isFinite(ms) && ms > 0) {
-        const fromMs = formatBar(ms);
-        if (fromMs) return fromMs;
-      }
-      const items = Array.isArray(feed?.items) ? feed.items : [];
-      let bestBar = 0;
-      let bestDate = null;
-      for (const it of items) {
-        const bar = Number(it?.bar_as_of_ms);
-        if (Number.isFinite(bar) && bar > bestBar) bestBar = bar;
-        if (it?.as_of_date && (!bestDate || String(it.as_of_date) > bestDate)) {
-          bestDate = String(it.as_of_date).slice(0, 10);
+      // A "daily close" anchor is a TRADING DAY, not a wall-clock instant.
+      // Daily bars are stamped at 00:00 UTC of the trading day, so rendering
+      // that instant in Eastern time shifts it to ~8 PM the PREVIOUS calendar
+      // day (e.g. a Jun-15 close shows as "Jun 14, 8:00 PM ET"). Resolve the
+      // trading-day DATE in UTC (the canonical convention) and render via the
+      // date formatter so the anchor reads as the correct session.
+      const msToUtcDate = (ms) => {
+        const n = Number(ms);
+        if (!Number.isFinite(n) || n <= 0) return null;
+        try { return new Date(n).toISOString().slice(0, 10); } catch (_) { return null; }
+      };
+      // 1) explicit feed-level date, else derive from prediction_as_of_ms (UTC).
+      let date = (typeof feed?.prediction_as_of_date === "string" && feed.prediction_as_of_date.slice(0, 10))
+        || msToUtcDate(feed?.prediction_as_of_ms);
+      // 2) else the freshest item as_of_date / bar_as_of_ms.
+      if (!date) {
+        const items = Array.isArray(feed?.items) ? feed.items : [];
+        let bestBar = 0;
+        let bestDate = null;
+        for (const it of items) {
+          const bar = Number(it?.bar_as_of_ms);
+          if (Number.isFinite(bar) && bar > bestBar) bestBar = bar;
+          if (it?.as_of_date && (!bestDate || String(it.as_of_date) > bestDate)) {
+            bestDate = String(it.as_of_date).slice(0, 10);
+          }
         }
+        date = bestDate || msToUtcDate(bestBar);
       }
-      if (bestBar > 0) {
-        const fromBar = formatBar(bestBar);
-        if (fromBar) return fromBar;
-      }
-      if (bestDate) {
-        const fromDate = formatDate(bestDate);
+      if (date) {
+        const fromDate = formatDate(date);
         if (fromDate) return fromDate;
       }
+      // 3) last resort: the rollup refresh time is a real instant → ET is fine.
       const gen = Number(feed?.generated_at || feed?.updated_at);
       if (Number.isFinite(gen) && gen > 0) {
         const fromGen = formatBar(gen);
@@ -951,4 +961,4 @@
   };
 })();
 
-// cache-bust:1781465025016:986545021
+// cache-bust:1781562687710:264215804
