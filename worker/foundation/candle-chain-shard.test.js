@@ -101,6 +101,69 @@ describe("shard core: ingest + derive", () => {
   });
 });
 
+describe("shard core: base-fidelity shadow gate", () => {
+  const DAY = "2026-06-12";
+  const { openMs, closeMs } = sessionBoundsUtc(DAY);
+  // a faithful daily bar = exact rollup of the 5m session, stamped at 00:00 UTC
+  function trueDailyFromSession(dateStr, bars) {
+    let o = bars[0].o, h = bars[0].h, l = bars[0].l, c = bars[bars.length - 1].c, v = 0;
+    for (const b of bars) { if (b.h > h) h = b.h; if (b.l < l) l = b.l; v += b.v; }
+    return { ts: Date.UTC(2026, 5, 12), o, h, l, c, v };
+  }
+
+  it("is DORMANT by default (no gate runs, no fid: key written)", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    const res = await core.ingest("AAPL", "5", session5m(DAY));
+    expect(res.fidelity).toBeUndefined();
+    expect(await core.lastFidelity("AAPL")).toBeNull();
+  });
+
+  it("gateOnIngest runs the shadow gate and records a report without blocking the write", async () => {
+    const core = new CandleChainShardCore(memStorage(), { gateOnIngest: true });
+    const s5 = session5m(DAY);
+    await core.ingest("AAPL", "D", [trueDailyFromSession(DAY, s5)]);
+    const res = await core.ingest("AAPL", "5", s5);
+    expect(res.written).toBe(78);                 // write still happened
+    expect(res.fidelity).toBeDefined();
+    expect(res.fidelity.reconcile.ok).toBe(true); // 5m rollup matches the daily H/L/V
+    expect((await core.lastFidelity("AAPL")).reconcile.ok).toBe(true);
+  });
+
+  it("flags a base gap via the reconcile report (shadow, still ok=false but no throw)", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    const s5 = session5m(DAY);
+    const provDaily = trueDailyFromSession(DAY, s5);   // provider saw the full day
+    await core.ingest("MU", "D", [provDaily]);
+    await core.ingest("MU", "5", s5.filter((b, i) => i !== s5.length - 1)); // drop the high bar
+    const report = await core.runShadowGate("MU", { startMs: openMs, endMs: closeMs });
+    expect(report.reconcile.ok).toBe(false);
+    expect(report.reconcile.mismatches.some((m) => m.field === "high")).toBe(true);
+  });
+
+  it("cross-source consensus flags a disagreeing alternate provider", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    const day = Date.UTC(2026, 5, 1);
+    await core.ingest("GS", "D", [{ ts: day, o: 1000, h: 1036.92, l: 1000.45, c: 1035.64, v: 1 }]);
+    const report = await core.baseFidelity("GS", { startMs: day, endMs: day + 86400000 }, {
+      altDaily: {
+        alpaca: [{ ts: day + 4 * 3600000, h: 1036.9, l: 1000.45, c: 1035.64, v: 1 }],  // agrees (rel band)
+        bad:    [{ ts: day, h: 1100, l: 1000.45, c: 1035.64, v: 1 }],                  // H way off
+      },
+    });
+    expect(report.consensus.days).toBe(1);
+    expect(report.consensus.outlier_counts.bad).toBe(1);
+    expect(report.consensus.outlier_counts.chain).toBeUndefined();
+  });
+
+  it("shadow gate NEVER throws even on a broken storage read", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    core.loadBase5 = async () => { throw new Error("storage exploded"); };
+    const report = await core.runShadowGate("AAPL", { startMs: 0, endMs: 1 });
+    expect(report.ok).toBeNull();
+    expect(report.error).toContain("storage exploded");
+  });
+});
+
 describe("shard core: bounded retention", () => {
   it("drops session chunks older than the hot window", async () => {
     const core = new CandleChainShardCore(memStorage(), { retentionTradingDays: 5 });

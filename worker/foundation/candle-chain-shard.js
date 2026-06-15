@@ -19,9 +19,9 @@
 //  list(prefix) -> Map<key,val>.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ingestBase, normalizeDailyBars, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
+import { ingestBase, normalizeDailyBars, canonicalDailyTs, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
 import { etDateStr } from "./trading-calendar.js";
-import { reconcileDailyRollup } from "./reconcile.js";
+import { reconcileDailyRollup, crossSourceConsensus } from "./reconcile.js";
 
 /** Stable FNV-1a hash → shard index. Deterministic across runs/machines. */
 export function shardForTicker(ticker, numShards = 16) {
@@ -42,15 +42,29 @@ export class CandleChainShardCore {
   constructor(storage, opts = {}) {
     this.storage = storage;
     this.retentionTradingDays = Number(opts.retentionTradingDays) || 150;
+    // DORMANT by default. When true, every 5m/D ingest also runs the base-
+    // fidelity shadow gate (reconcileDailyRollup [+ crossSourceConsensus]) and
+    // records the report — it NEVER blocks or alters the write. Phase 1 shadow.
+    this.gateOnIngest = opts.gateOnIngest === true;
   }
 
   /**
    * Ingest provider bars. tf "5" → chunked-by-session 5m base; tf "D" → daily
    * base. Other TFs are ignored (they are DERIVED, never stored). Idempotent.
+   *
+   * @param {Object} [opts] { gate?:boolean, fidelity?:object }  gate=true runs the
+   *   base-fidelity shadow gate after the write (also honored via gateOnIngest).
    */
-  async ingest(ticker, tf, bars) {
+  async ingest(ticker, tf, bars, opts = {}) {
     const t = String(ticker).toUpperCase();
     if (!Array.isArray(bars) || bars.length === 0) return { written: 0 };
+    const maybeGate = async (result) => {
+      if (this.gateOnIngest || opts.gate === true) {
+        // shadow: report-only, must never throw into the ingest path
+        result.fidelity = await this.runShadowGate(t, {}, opts.fidelity || {});
+      }
+      return result;
+    };
     if (String(tf) === "5") {
       const byDay = new Map();
       for (const b of bars) {
@@ -66,7 +80,7 @@ export class CandleChainShardCore {
         await this.storage.put(key, merged);
         written += merged.length;
       }
-      return { written, days: byDay.size };
+      return maybeGate({ written, days: byDay.size });
     }
     if (String(tf) === "D") {
       const key = bdKey(t);
@@ -76,7 +90,7 @@ export class CandleChainShardCore {
       // 00:00Z/04:00Z double-write). Idempotent across re-ingest.
       const merged = normalizeDailyBars([...existing, ...bars]);
       await this.storage.put(key, merged);
-      return { written: merged.length };
+      return maybeGate({ written: merged.length });
     }
     return { written: 0, ignored: String(tf) };
   }
@@ -121,6 +135,102 @@ export class CandleChainShardCore {
     const base5 = await this.loadBase5(ticker, startMs, endMs);
     const daily = await this.loadBaseDaily(ticker);
     return reconcileDailyRollup(base5, daily, opts);
+  }
+
+  /**
+   * Cross-source consensus of THIS chain's daily bars against one or more
+   * alternate-provider daily series (e.g. { alpaca:[bars], web:[bars] }), keyed
+   * by canonical trading day. Per the source-of-truth policy: where >= quorum
+   * sources agree on H/L/C that is ground truth; disagreements are flagged for
+   * audit (never silently overwritten). Pure aggregation over crossSourceConsensus.
+   */
+  _consensusAgainstDaily(chainDaily, altDailyMap, opts = {}) {
+    const byDay = (bars) => {
+      const m = new Map();
+      for (const b of bars || []) {
+        if (!b || !Number.isFinite(Number(b.ts))) continue;
+        m.set(canonicalDailyTs(Number(b.ts)), b);
+      }
+      return m;
+    };
+    const chain = byDay(chainDaily);
+    const alts = {};
+    for (const [name, bars] of Object.entries(altDailyMap || {})) alts[name] = byDay(bars);
+    let days = 0, agreed = 0;
+    const disagreements = [];
+    const outlierCounts = {};
+    for (const [day, cBar] of chain) {
+      const sources = { chain: cBar };
+      for (const [name, m] of Object.entries(alts)) { const b = m.get(day); if (b) sources[name] = b; }
+      if (Object.keys(sources).length < (opts.quorum ?? 2)) continue;
+      days++;
+      const con = crossSourceConsensus(sources, opts);
+      if (con.agreed) agreed++;
+      else disagreements.push({ ts: day, field_agreement: con.field_agreement, sources: con.sources });
+      for (const o of con.outliers) outlierCounts[o] = (outlierCounts[o] || 0) + 1;
+    }
+    return {
+      ok: disagreements.length === 0,
+      days, agreed,
+      agreement_pct: days ? +(100 * agreed / days).toFixed(2) : null,
+      disagreements: disagreements.slice(0, 50),
+      outlier_counts: outlierCounts,
+    };
+  }
+
+  /**
+   * BASE-FIDELITY report (the gate the chain runs in shadow): the internal
+   * roll-up completeness check (reconcileDailyRollup) plus, when alternate-
+   * provider daily bars are supplied, cross-source consensus. Report-only.
+   *
+   * @param {string} ticker
+   * @param {{startMs?:number,endMs?:number}} [window]  defaults to the stored 5m span
+   * @param {Object} [opts] { reconcile?:object, altDaily?:object, consensus?:object, asOf?:number }
+   */
+  async baseFidelity(ticker, window = {}, opts = {}) {
+    const t = String(ticker).toUpperCase();
+    let { startMs, endMs } = window;
+    if (startMs == null || endMs == null) {
+      const map = await this.storage.list(`b5:${t}:`);
+      let min = Infinity, max = -Infinity;
+      for (const [, dayBars] of map) for (const b of dayBars) { if (b.ts < min) min = b.ts; if (b.ts > max) max = b.ts; }
+      if (startMs == null) startMs = Number.isFinite(min) ? min : 0;
+      if (endMs == null) endMs = Number.isFinite(max) ? max + 1 : (opts.asOf ?? Date.now());
+    }
+    const base5 = await this.loadBase5(t, startMs, endMs);
+    const daily = await this.loadBaseDaily(t);
+    const reconcile = reconcileDailyRollup(base5, daily, opts.reconcile || {});
+    const consensus = (opts.altDaily && typeof opts.altDaily === "object")
+      ? this._consensusAgainstDaily(daily, opts.altDaily, opts.consensus || {})
+      : null;
+    return {
+      ok: reconcile.ok && (!consensus || consensus.ok),
+      checked_at: opts.asOf ?? Date.now(),
+      window: { startMs, endMs },
+      reconcile,
+      consensus,
+    };
+  }
+
+  /**
+   * Run baseFidelity in SHADOW: persist the latest report to `fid:<TICKER>` and
+   * NEVER throw (a fidelity failure must not break ingestion). Returns the report.
+   */
+  async runShadowGate(ticker, window = {}, opts = {}) {
+    const t = String(ticker).toUpperCase();
+    let report;
+    try {
+      report = await this.baseFidelity(t, window, opts);
+    } catch (e) {
+      report = { ok: null, error: String(e?.message || e).slice(0, 200), checked_at: Date.now() };
+    }
+    try { await this.storage.put(`fid:${t}`, report); } catch { /* best-effort */ }
+    return report;
+  }
+
+  /** Read the last persisted base-fidelity shadow report for a ticker. */
+  async lastFidelity(ticker) {
+    return (await this.storage.get(`fid:${String(ticker).toUpperCase()}`)) || null;
   }
 
   /** List the tickers this shard currently holds 5m base for. */

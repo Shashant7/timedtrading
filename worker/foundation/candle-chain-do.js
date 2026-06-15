@@ -41,8 +41,9 @@ export class CandleChainShard {
     try {
       if (request.method === "POST" && url.pathname === "/ingest") {
         const b = await request.json();
+        const ingestOpts = b.gate ? { gate: true, fidelity: b.fidelity || {} } : {};
         // serialize ingest so concurrent writes to a shard can't tear a session
-        return this.state.blockConcurrencyWhile(async () => json({ ok: true, ...(await this.core.ingest(b.ticker, b.tf, b.bars || [])) }));
+        return this.state.blockConcurrencyWhile(async () => json({ ok: true, ...(await this.core.ingest(b.ticker, b.tf, b.bars || [], ingestOpts)) }));
       }
       if (request.method === "GET" && url.pathname === "/series") {
         const p = url.searchParams;
@@ -63,6 +64,18 @@ export class CandleChainShard {
       if (request.method === "GET" && url.pathname === "/reconcile-daily") {
         const p = url.searchParams;
         return json({ ok: true, ...(await this.core.reconcileDaily(p.get("ticker"), { startMs: Number(p.get("start")), endMs: Number(p.get("end")) }, { requireOpenClose: p.get("oc") === "1" })) });
+      }
+      if (url.pathname === "/base-fidelity") {
+        // GET reads the last shadow report; POST runs the gate now (report-only).
+        const p = url.searchParams;
+        const ticker = p.get("ticker") || (request.method === "POST" ? (await request.clone().json().catch(() => ({}))).ticker : null);
+        if (request.method === "POST") {
+          const b = await request.json().catch(() => ({}));
+          const window = { startMs: b.startMs, endMs: b.endMs };
+          const report = await this.core.runShadowGate(b.ticker, window, b.opts || {});
+          return json({ ok: true, report });
+        }
+        return json({ ok: true, report: await this.core.lastFidelity(ticker) });
       }
       if (request.method === "POST" && url.pathname === "/retention") {
         const b = await request.json();
