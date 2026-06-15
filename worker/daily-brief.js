@@ -4808,11 +4808,14 @@ function buildBriefInfographic(data, type) {
   ].filter(Boolean);
 
   const pf = data.priceFeedRaw || {};
+  // Session-aware: outside RTH use the extended print (ahp/ahdp) so the email's
+  // macro strip never shows yesterday's RTH close during pre/post-market.
+  const _briefMktOpen = data?.calendar?.marketOpen === true;
   const _macroFor = (sym, label, hint) => {
     const d = pf[sym];
     if (!d) return null;
-    const price = Number(d.p);
-    const pct = Number(d.dp);
+    const price = liveSpotFromPriceFeedRow(d, _briefMktOpen);
+    const pct = liveDayPctFromPriceFeedRow(d, _briefMktOpen);
     if (!Number.isFinite(price)) return null;
     return {
       sym,
