@@ -51,11 +51,29 @@ a Durable Object wraps these with persistence later (see "staged" below).
 
 28 unit tests (calendar 12, resample 7, chain 9). Full suite green.
 
-### Staged next (Phase 1b — needs operator review; touches the live candle path)
+### Phase 1b — shadow reconcile + per-shard DO (done; DORMANT)
 
-- **Durable Object per ticker** wrapping `candle-chain.js` with D1 (hot 5m + daily) + R2 (cold 5m parquet) persistence and the calendar-driven ingestion scheduler.
-- **Raw-candle read endpoint** so the shadow reconciler can compare `resample(stored 5m)` vs the provider's separately-fetched higher-TF bars on pre-prod, proving the derive-from-base thesis against real data before any cutover.
-- **Shadow run** beside the current per-TF store; prove zero gaps for K weeks via the chain's own coverage report, then re-run the parity baseline (`tasks/2026-06-14-phase0-parity-baseline-result.md`) and watch the score/conviction divergence collapse.
+- **Shadow reconciler** (`scripts/candle-chain-shadow-reconcile.js`, read-only):
+  validated on real pre-prod data that `resample(5m base)` reproduces the
+  provider's bars — **100% OHLC match for 10/15/30m**; 60/240m differ only by
+  anchor convention. See `tasks/2026-06-15-phase1b-shadow-reconcile-result.md`.
+- **`candle-chain-shard.js`** — pure, storage-injected per-shard core: stable
+  `shardForTicker`, session-chunked 5m + daily base, ingest/derive/integrity,
+  and bounded `retentionSweep` (drops old session chunks → constant footprint).
+- **`candle-chain-do.js`** — the `CandleChainShard` Durable Object (per-shard,
+  single-writer), a thin adapter over the core using DO storage. Bound in
+  `wrangler.toml` (migration v6, `new_sqlite_classes`). **DORMANT** — nothing
+  schedules it; reachable only via `POST /timed/admin/candle-chain` (admin) or
+  the `candleShardStub` helper. Validated end-to-end on pre-prod: ingest 78 real
+  5m bars → derive complete 30m view → clean integrity.
+
+### Staged next (needs operator review; touches the live ingestion path)
+- R2 cold-storage offload for retention-swept 5m chunks.
+- Calendar-driven ingestion scheduler feeding the DO from the live feed (behind
+  the worker-role flag pattern), run in **shadow** beside the current per-TF
+  store; prove zero gaps for K weeks via the chain's coverage report, then
+  re-run the parity baseline and watch score/conviction divergence collapse.
+- Pin the canonical 60m/240m anchor (shadow-reconcile follow-up).
 
 ## What this layer does NOT do yet
 

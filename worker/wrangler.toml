@@ -41,6 +41,11 @@ class_name = "TradovateStream"
 name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
 
+# 2026-06-15 — Foundation Phase 1b: per-shard candle-chain DO (dormant; no cron).
+[[durable_objects.bindings]]
+name = "CANDLE_CHAIN_SHARD"
+class_name = "CandleChainShard"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["PriceHub"]
@@ -60,6 +65,10 @@ new_classes = ["BacktestRunner"]
 [[migrations]]
 tag = "v5"
 new_classes = ["TradovateStream"]
+
+[[migrations]]
+tag = "v6"
+new_sqlite_classes = ["CandleChainShard"]
 
 [vars]
 # 2026-05-29 — Cron self-fetch goes through the custom domain to avoid
@@ -236,6 +245,10 @@ class_name = "TradovateStream"
 name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
 
+[[env.production.durable_objects.bindings]]
+name = "CANDLE_CHAIN_SHARD"
+class_name = "CandleChainShard"
+
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
 # Secrets must be set via Cloudflare Dashboard or `wrangler secret put`
@@ -403,6 +416,10 @@ class_name = "TradovateStream"
 [[env.preprod.durable_objects.bindings]]
 name = "BACKTEST_RUNNER"
 class_name = "BacktestRunner"
+
+[[env.preprod.durable_objects.bindings]]
+name = "CANDLE_CHAIN_SHARD"
+class_name = "CandleChainShard"
 
 # Vars — mirror production EXCEPT:
 #   - EXECUTION_MODE forced to "simulation" (no real broker calls ever)
