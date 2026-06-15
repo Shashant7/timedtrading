@@ -18,7 +18,7 @@
 //  Pure, deterministic, no I/O.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { etDateStr } from "./trading-calendar.js";
+import { etDateStr, sessionBoundsUtc } from "./trading-calendar.js";
 
 // Daily bars are stamped at the trading day's 00:00 in the provider's
 // convention (TwelveData uses 00:00 UTC of the trading day). Mapping that with
@@ -117,13 +117,29 @@ function rollup(bars) {
  */
 export function reconcileDailyRollup(base5m, providerDaily, opts = {}) {
   const priceTol = opts.priceTol ?? 0.011;
+  // Relative band (default 5 bps) added to the absolute floor — high-priced
+  // names (MU/TSLA ~$1000) differ from the daily by a few cents at 2dp rounding,
+  // which a flat $0.011 floor falsely flagged (verified 2026-06-15). A genuine
+  // bad tick (e.g. a 4% spike) still exceeds 5 bps and is correctly flagged.
+  const relTol = opts.relTol ?? 0.0005;
   const volTolFrac = opts.volTolFrac ?? 0.005;
   const requireOC = opts.requireOpenClose === true;
+  // The provider daily bar is the REGULAR session (RTH). The 5m base may carry
+  // pre/post-market prints (verified 2026-06-15: stored 5m includes extended
+  // hours whose extreme ticks blew past the RTH daily H/L). Clip the roll-up to
+  // each day's RTH session so the comparison is apples-to-apples. Opt out with
+  // {clipToSession:false} only for an extended-hours-aware reconciliation.
+  const clipToSession = opts.clipToSession !== false;
 
   const byDay = new Map();
   for (const b of base5m || []) {
     if (!b || !Number.isFinite(Number(b.ts))) continue;
-    const d = etDateStr(Number(b.ts));
+    const ts = Number(b.ts);
+    const d = etDateStr(ts);
+    if (clipToSession) {
+      const sb = sessionBoundsUtc(d);
+      if (sb && (ts < sb.openMs || ts >= sb.closeMs)) continue; // drop extended-hours bars
+    }
     (byDay.get(d) || byDay.set(d, []).get(d)).push(b);
   }
   for (const arr of byDay.values()) arr.sort((a, b) => a.ts - b.ts);
@@ -135,7 +151,7 @@ export function reconcileDailyRollup(base5m, providerDaily, opts = {}) {
     dailyByDay.set(utcDateStr(Number(d.ts)), d);
   }
 
-  const pOk = (a, b) => Math.abs(a - b) <= priceTol;
+  const pOk = (a, b) => Math.abs(a - b) <= Math.max(priceTol, relTol * Math.max(Math.abs(a), Math.abs(b)));
   // Volume is NOT equality-reconcilable between intraday roll-up and the
   // official daily bar: the daily includes opening/closing-auction prints (and
   // odd-lots) that never appear in intraday bars (~10-25% of a day). Verified

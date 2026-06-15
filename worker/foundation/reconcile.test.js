@@ -1,7 +1,7 @@
 // worker/foundation/reconcile.test.js
 import { describe, it, expect } from "vitest";
 import { reconcileDailyRollup, crossSourceConsensus } from "./reconcile.js";
-import { expectedIntradayBuckets } from "./trading-calendar.js";
+import { expectedIntradayBuckets, sessionBoundsUtc } from "./trading-calendar.js";
 
 // Build a synthetic 5m session and the matching "provider daily" bar.
 function session5m(dateStr, base = 100) {
@@ -70,6 +70,20 @@ describe("reconcileDailyRollup (calculated-from-5m vs provider daily)", () => {
     const r = reconcileDailyRollup(bars, []); // no provider daily at all
     expect(r.missing_daily).toBe(1);
     expect(r.matched).toBe(0);
+  });
+
+  it("clips extended-hours 5m prints so the roll-up matches the RTH daily", () => {
+    const rth = session5m("2026-06-12");
+    const prov = trueDaily("2026-06-12", rth);            // official RTH daily
+    const sb = sessionBoundsUtc("2026-06-12");
+    const withExt = [
+      { ts: sb.openMs - 30 * 60000, o: 999, h: 999, l: 999, c: 999, v: 5 }, // pre-market spike high
+      ...rth,
+      { ts: sb.closeMs + 30 * 60000, o: 1, h: 1, l: 1, c: 1, v: 5 },        // after-hours crash low
+    ];
+    // default clips to RTH → matches; opt-out lets the extended ticks break H/L
+    expect(reconcileDailyRollup(withExt, [prov]).ok).toBe(true);
+    expect(reconcileDailyRollup(withExt, [prov], { clipToSession: false }).ok).toBe(false);
   });
 });
 
