@@ -146,6 +146,45 @@ gate rejected ~3/4 of candidates WITHOUT filtering by quality.
 (`deep_audit_focus_suspend_tier_c=false`; in REPLAY_DA_KEYS + the lazy-load list
 → hot-reloads). Reversible. Cadence should resume on the next entry cron.
 
+## ⚠️ CADENCE RE-DIAGNOSIS (2026-06-15 ~16:40 UTC) — the Tier-C theory is WRONG
+Deeper live investigation overturns the prior premise. The 10-day entry stall is
+NOT the conviction floor / Tier-C suspension:
+- Market is **bullish** (SPY/QQQ HTF_BULL_LTF_BULL, regime 4) — not a regime block.
+- **27 of 127** high-rank candidates pass the 80 floor (Tier B/A): CAT conv105,
+  RTX 106, CW 104, EME 94, XLRE 99, UNH 85, GE 80 — prime bullish names that
+  enter regardless of Tier-C. **Un-suspending Tier-C is redundant** with the 80
+  floor (both reject conviction<80) and does NOT explain why these B/A names sit.
+- Slots open (**3/6** positions). Portfolio risk breaker **off**
+  (`block_new_entries=false`, only **23.3%** deployed, DD 0%). No pause/kill flag.
+  No regime-shock directive.
+So the blocker is **downstream in the per-ticker entry funnel**, not conviction.
+
+### Strong suspect (defect, fix regardless): Phase-C Loop 1 stale scorecards
+`loop1_specialization_enabled=true`, but `phase-c:scorecards` is **FROZEN at
+2026-05-08** (>1 month stale). Loop 1 permanently enforces month-old, partly
+degenerate verdicts: **blocks** `momentum_score:trending:pullback_player:L`
+(wr=0% n=20), `ema_regime_confirmed_long:transitional:pullback_player:L` (0%),
+`tt_ath_breakout:trending:pullback_player:L` (15%); **raise_bar** on 7 more
+(tt_pullback:trending:* 36-38%, etc.). Only **6** LONG combos allowed (mostly
+gap_reversal / volatile_runner). The scorecard updater appears to have stopped
+feeding from live closes — a frozen learning gate is a bug.
+CAVEAT: entries DID flow 06-02..06-05 with loop1 already blocking since 05-08, so
+loop1 is not provably the SOLE 06-06 trigger — but stale enforcement is a real
+defect that narrows the LONG funnel and must be repaired or disabled.
+
+### Definitive next step (not yet done)
+The only way to pin the exact per-candidate rejection is an **entry-explain
+probe**: a read-only admin endpoint that runs `qualifiesForEnter` for a known
+candidate (CAT/RTX) and returns the FIRST failing gate. Recommend building it
+(read-only) before changing more knobs. Candidate levers once confirmed:
+(a) repair the loop1 scorecard updater or set `loop1_specialization_enabled=false`
+(reversible); (b) lower `deep_audit_focus_min_entry_conviction` (only if the floor
+is confirmed to bind). Do NOT stack blind config flips.
+
+### Changed this session (reversible)
+- `deep_audit_focus_suspend_tier_c=false` (live) — approved; harmless + correct
+  directionally, but per the above it is NOT the cadence fix on its own.
+
 ## CONVICTION REDESIGN (operator direction 2026-06-15) — make it predictive + CRO/CTO/CIO-aware
 
 ### Why conviction is broken today
