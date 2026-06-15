@@ -21,6 +21,26 @@ stack (60m e233 ≈ 33 trading days) needs **~2 months of 5m**. Today some ticke
 converge (GS d_ltf 0.2, MU 0) and some don't (AAPL 19.1, AEHR −20, NVDA −16.2)
 purely on 5m depth.
 
+## DEPLOYED STATE (2026-06-15, after this session)
+- **Live (`timed-trading-ingest`, both envs):** the cutover wiring is DEPLOYED
+  but OFF (`SCORE_CANDLE_SOURCE` unset ⇒ legacy). Verified live unchanged (AAPL
+  htf 15.1/ltf −16.8), health ok, 0 cron failures. Bill-relief cache active.
+- **Fail-safe hybrid + DO `/series-ltf` batch action + `resolveScoreGetCandles`
+  wired at the scoring cron (index.js ~92543).** 473 tests green.
+- **DO-backed path VALIDATED on pre-prod** (DO seeded ~2mo 5m for AAPL/NFLX/TSLA):
+  `mode=hybrid_do` → **d_ltf=0, d_htf=0, state equal** — the exact code the live
+  cron runs when flagged reproduces legacy scores byte-for-byte.
+- **Live 5m backfill RUNNING** (background, `/tmp/bf5m.log`) — ~2 months for the
+  universe, batched. (One transient 502 on the offset=20 older-window batch to
+  re-run.)
+
+## STILL TO BUILD before the flip is durable
+**Ongoing DO 5m ingest lane.** Seeding the DO is one-time; without a per-cycle
+feed the DO's 5m base goes stale → derived LTF becomes incomplete → the fail-safe
+drops back to legacy (safe, but no benefit). Add a 5m→DO push to the bar cron,
+gated by its own flag (default OFF). Then: seed DO (bulk) → enable ingest flag →
+flip `SCORE_CANDLE_SOURCE`.
+
 ## Clean cutover steps (in order)
 
 1. **Merge PR #661** → `main` (foundation + cache + cutover scaffolding; all
