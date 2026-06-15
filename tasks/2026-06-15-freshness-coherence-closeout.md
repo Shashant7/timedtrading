@@ -65,6 +65,32 @@ the **current price + distance/hit tags** on the pre-/post-market print and keep
 the surfaced movers off the 24h cache. A deeper "blend live price into the daily
 anchor" change was scoped but not shipped (it changes level math, not freshness).
 
+## PML "computed date shows yesterday" (follow-up, 2026-06-15 ~22:40 UTC)
+Two distinct issues behind the operator's report:
+
+1. **Display bug** (`shared-rail-helpers.js` `resolveFeedAsOfLabel` + `shared-right-rail.js`):
+   the daily anchor (`bar_as_of_ms` = 00:00 UTC of the trading day) was rendered in
+   Eastern time, shifting a Jun-15 close to "Jun 14, 8:00 PM ET". Fixed: render the
+   trading-day DATE in UTC via `formatAsOfDate` → "Jun 15, 2026 (daily close)".
+
+2. **Real staleness — today's daily bar wasn't ingested after the close.** Daily
+   levels (CTO/PML) AND scoring anchor on the latest CLOSED `tf='D'` bar in
+   `ticker_candles`. The freshness monitor only heals daily bars **>5 days stale**
+   (`STALE_D_DAYS=5`), runs only 9 AM + 3 PM ET, and nothing else fetched today's
+   bar post-close. Verified at the data layer: at 6:30 PM ET Monday, live D1 had **no
+   Jun-15 daily bar** for SPY/QQQ/IWM/DIA — the whole universe carried Friday's
+   anchor. Recomputing levels hourly cannot advance the anchor without a fresh daily
+   bar (pivots/Fib/ATR are prior-session structure — one set per trading day).
+
+   **Fix** (`worker/index.js`): a post-close daily-`D` universe ingest lane — once
+   per weekday session, 5–8 PM ET (bar is final), self-dispatches the same
+   `alpaca-backfill` the Sunday W/M deep-refresh uses; verifies today's bar landed
+   (SPY max D == ET date) before tombstoning (so a not-yet-final bar retries next
+   hour); then force-refreshes the CTO session set so the map re-anchors immediately.
+   The `*/5` scoring cron picks up the fresh D on its next tick. Idempotent per ET
+   date; reversible via `POST_CLOSE_DAILY_INGEST=off`. One-time backfill run for
+   tonight: **781 daily bars / 267 tickers, 0 errors**; indices now anchor on Jun 15.
+
 ## TradingView webhook 401 (shipped earlier this session)
 `requireIngestKey()` (`worker/api.js`) accepts `TIMED_API_KEY` OR a dedicated,
 independently-rotatable `TV_INGEST_KEY`, and ALWAYS allows `?key=` (TV can't send
