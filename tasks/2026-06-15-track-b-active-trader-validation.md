@@ -68,6 +68,41 @@ replay harness is warm. Owed items from
    already ship (`deep_audit_phase_i_fast_cut_*`).
 4. **Short-shadow review** (#4): after ~2 weeks of `[SHORT_SHADOW]` logs.
 
+## Wrap-up (2026-06-15) — what's done + what's handed off
+
+### Done this session
+- **Investor rebalance churn FIXED + deployed** (operator-reported IWM/TWLO
+  Add-then-Trim). Root cause: a `watch`-stage position below `WATCH_ALLOC_PCT`
+  got an auto-rebalance top-up (`auto_rebalance_watch` BUY) while the
+  exhaustion-trim sweep locked in 20% on the same `watch`+exhaustion condition
+  (`exhaustion_lock_in` SELL) in the SAME run/price — opposing signals, net a
+  trim, pure noise. Fix: never ADD to a watch position that is exhaustion-flagged
+  (the trim is the correct intent). Live, reversible via
+  `INVESTOR_WATCH_ADD_EXHAUSTION_GUARD=off`.
+- **Exit-structure read (594 trades):** healthy by construction — losers exit via
+  STOPS (max_loss/HARD_LOSS_CAP/atr_adverse/thesis_flip, all correctly negative,
+  small per-trade) and winners via PROFIT lanes (TP_FULL/HARD_FUSE_RSI/ST_FLIP/
+  peak_lock/mfe_decay, strongly positive). 51% WR, +$38.9K net. **No rash
+  keep/loosen/kill change warranted** — the MFE fast-cut lanes (0% WR) are
+  cutting dead money as intended; the profit-protection ratchet lanes are the
+  big winners (MFE ratchet #1 validated directionally).
+- **Biggest single bleed = `doctrine_force_exit` −$8,467 @ 7% WR**, and **51/58 of
+  those have `entry_path='(none)'`** (~49h holds). The bleed is concentrated in
+  UNTRACKED-entry positions force-exited after ~2 days — ties directly to the R7
+  entry-path-tracing item (#649). Action: trace/stamp those entry paths (R7) and
+  re-examine whether doctrine_force_exit is too aggressive on them, BEFORE any
+  config change.
+
+### Handed off (needs the replay harness — own focused run)
+- **MFE ratchet 60-day equal-scope replay** (#1): on-vs-off counterfactual +
+  Monday-RTH no-clip proof. (Directionally validated by the exit-lane data here.)
+- **Conviction re-weighting** (#2): replay-sweep each closed trade's `entry_ts`,
+  extract conviction components from `rank_trace_json`, correlate with pnl
+  (≈ -0.02 today), re-weight; Tier-C stays suspended until it discriminates.
+- **Fast-cut final tuning** (#3): start with `doctrine_force_exit` on
+  `(none)`-entry positions; needs the post-exit continuation table (replay).
+- **Short-shadow review** (#4): after ~2 weeks of `[SHORT_SHADOW]` logs.
+
 ## Guardrails
 Config-gated, safe defaults, replay-validated before any live weight change.
 Do NOT mix into the foundation PR. Keep on the #649 / Track B branch.
