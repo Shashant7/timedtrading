@@ -37,6 +37,31 @@ const DAY_MS = 24 * 60 * MIN;
 // Intraday TFs derived from the 5m base.
 export const DERIVED_INTRADAY_TFS = ["10", "15", "30", "60", "240"];
 
+// CANONICAL SESSION POLICY (matches the validated backtest/live basis, verified
+// 2026-06-15). The proven performance results were computed over intraday
+// candles whose session content is SOURCE-DEPENDENT in the legacy store:
+//   • 5m / 10m / 15m / 30m  → EXTENDED-HOURS-INCLUSIVE (Alpaca-sourced; the
+//     leading-LTF + LTF inputs the strategy actually traded on). Deriving these
+//     from the extended-hours 5m base WITHOUT clipping reproduces the legacy
+//     bundles byte-for-byte (emaDepth/ST/RSI/px identical).
+//   • 60m / 240m            → RTH-ONLY (different source/aggregation).
+// Clipping the sub-hourly TFs to RTH would DROP the pre/post-market bars the
+// backtest relied on and change every LTF score — so do NOT do it by default.
+// Override per call via opts.sessionClip (boolean | {tf:boolean}).
+const RTH_DERIVED_TFS = new Set(["60", "240", "1H", "4H"]);
+
+/** Whether a derived intraday TF clips to RTH (true) or includes extended hours. */
+export function defaultSessionClip(tf) {
+  return RTH_DERIVED_TFS.has(String(tf));
+}
+
+function resolveSessionClip(tf, override) {
+  if (override == null) return defaultSessionClip(tf);
+  if (typeof override === "boolean") return override;
+  const v = override[String(tf)];
+  return typeof v === "boolean" ? v : defaultSessionClip(tf);
+}
+
 /** Idempotent merge of incoming base bars into existing (dedupe by ts, sorted). */
 export function ingestBase(existing, incoming) {
   return normalizeBars([...(existing || []), ...(incoming || [])]);
@@ -105,13 +130,14 @@ export function nextExpectedBucketMs(lastTs, untilMs, tfMin = 5) {
  *
  * @returns {import("./series-contract.js").SeriesView}
  */
-export function deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source = "live" }) {
+export function deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source = "live", sessionClip }) {
   const tfu = String(tf);
   let bars;
   if (tfu === "5") {
+    // 5m base is served as-is (extended-hours-inclusive — the backtest basis).
     bars = normalizeBars(base5m);
   } else if (DERIVED_INTRADAY_TFS.includes(tfu)) {
-    bars = resampleIntradaySessions(base5m, Number(tfu));
+    bars = resampleIntradaySessions(base5m, Number(tfu), { clipToSession: resolveSessionClip(tfu, sessionClip) });
   } else if (tfu === "D") {
     bars = normalizeDailyBars(baseDaily);
   } else if (tfu === "W") {
@@ -137,11 +163,11 @@ export function deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowSta
  *
  * @returns {Object<string, import("./series-contract.js").SeriesView>}
  */
-export function deriveAllTimeframes({ ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source = "live", tfs }) {
+export function deriveAllTimeframes({ ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source = "live", tfs, sessionClip }) {
   const list = tfs || ["5", ...DERIVED_INTRADAY_TFS, "D", "W", "M"];
   const out = {};
   for (const tf of list) {
-    out[tf] = deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source });
+    out[tf] = deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowStartMs, windowEndMs, source, sessionClip });
   }
   return out;
 }

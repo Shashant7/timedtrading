@@ -69,13 +69,16 @@ export function resampleAligned(bars, tfMin, anchorMs = 0) {
  *     30-minute partial); the final 240m bar (13:30) covers 13:30–16:00 (a
  *     2.5-hour partial). Half-days (early 13:00 close) shorten these naturally
  *     because the session bounds come from the calendar.
- *   • RTH CLIP (default): base bars OUTSIDE [open, close) are dropped before
- *     bucketing, so pre/post-market 5m prints can NEVER spawn an out-of-session
- *     bucket (08:30, 16:30, …). This removes the "extra buckets / session-edge
- *     ts offset" the shadow reconcile saw on 60/240/10 and makes the derived
- *     series self-consistent: every derived bar is exactly the aggregate of the
- *     RTH 5m bars inside its window. Pass {clipToSession:false} for the raw
- *     (extended-hours-inclusive) resample used only by reconciliation tooling.
+ *   • RTH CLIP is OPT-IN per call ({clipToSession:true}); when set, base bars
+ *     OUTSIDE [open, close) are dropped before bucketing so pre/post-market 5m
+ *     prints can't spawn an out-of-session bucket. The CANDLE CHAIN applies this
+ *     PER TIMEFRAME to match the validated backtest basis (see candle-chain.js
+ *     `defaultSessionClip`): 60m/240m clip to RTH, but 5m/10m/15m/30m DELIBERATELY
+ *     keep extended hours — the proven performance results were computed over
+ *     extended-hours-inclusive sub-hourly candles (Alpaca-sourced), and clipping
+ *     them would change every LTF score. The daily-rollup reconcile also clips
+ *     (it compares to the official RTH daily). Default here is RTH-clip for the
+ *     generic util; chain callers pass the per-TF policy explicitly.
  *
  * @param {Array} base5m   ascending base bars (e.g. 5m)
  * @param {number} tfMin   target timeframe minutes (must be a multiple of base)

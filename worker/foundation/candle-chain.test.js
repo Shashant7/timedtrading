@@ -44,6 +44,32 @@ describe("candle-chain: canonical daily anchor + dedup", () => {
   });
 });
 
+describe("candle-chain: per-TF session policy (matches the backtest basis)", () => {
+  const { openMs, closeMs } = sessionBoundsUtc(DAY);
+  // a base with pre-market (09:00 ET) + after-hours (16:30 ET) 5m prints
+  const extBase = [
+    { ts: openMs - 30 * 60000, o: 1, h: 1, l: 1, c: 1, v: 5 },
+    ...session5m(DAY),
+    { ts: closeMs + 30 * 60000, o: 9, h: 9, l: 9, c: 9, v: 5 },
+  ];
+  const common = { ticker: "X", base5m: extBase, baseDaily: [], asOf: closeMs + 60 * 60000, windowStartMs: openMs - 60 * 60000, windowEndMs: closeMs + 60 * 60000 };
+
+  it("10/15/30 INCLUDE extended hours by default (the Alpaca-sourced LTF basis)", () => {
+    const v30 = deriveTimeframe("30", common);
+    // RTH 30m = 13 buckets; extended prints add buckets outside the session
+    expect(v30.bars.length).toBeGreaterThan(13);
+  });
+  it("60/240 are RTH-only by default (the legacy hourly basis)", () => {
+    const v60 = deriveTimeframe("60", common);
+    // every 60m bucket open is within the RTH session
+    expect(v60.bars.every((b) => b.ts >= openMs && b.ts < closeMs)).toBe(true);
+  });
+  it("sessionClip override forces RTH on a sub-hourly TF", () => {
+    const v10 = deriveTimeframe("10", { ...common, sessionClip: true });
+    expect(v10.bars.every((b) => b.ts >= openMs && b.ts < closeMs)).toBe(true);
+  });
+});
+
 describe("candle-chain: integrity (the single freshness point)", () => {
   it("complete when the full 5m session is present", () => {
     const r = checkBaseIntegrity(session5m(DAY), { startMs: openMs, endMs: closeMs });
