@@ -44,13 +44,26 @@ Added + deployed (both envs, dormant):
 - Validated on pre-prod: feed `fed>0`, DO 5m base `complete 468/468`; the
   DO-backed score path (`mode=hybrid_do`) = legacy (d_ltf=0, d_htf=0, state eq).
 
-## GO-LIVE SEQUENCE (operator; reversible)
+## CRITICAL FINDING (2026-06-15, live validation) — 5m base MUST be Alpaca-sourced
+Live validation surfaced the decisive correctness point: the chain's LTF must
+derive from an **Alpaca-sourced 5m base**, because the legacy 10m the backtest
+used is **Alpaca-sourced** in production. With a TwelveData 5m base the live
+shadow showed **AAPL d_ltf 13.9** (others 2-5). After re-backfilling AAPL's 5m
+via **Alpaca**, the live shadow showed **d_ltf 0, state equal** — exact parity.
+- Fixed `alpacaBackfill` to support `tf=5` (its `startDates` map lacked `"5"` ⇒
+  silently upserted 0). Deployed live.
+- **Universe-wide Alpaca 5m re-backfill is RUNNING** (tmux `bf5ma`,
+  `/tmp/bf5ma.log`, `scripts/backfill-5m-universe-alpaca.sh`). It REPLACES the
+  earlier TD 5m so the chain LTF matches the Alpaca/backtest basis.
+
+## GO-LIVE SEQUENCE (operator; reversible) — REVISED
+0. **Wait for the Alpaca 5m re-backfill** (`grep DONE-5M-ALPACA /tmp/bf5ma.log`).
+   (The earlier TD-based 5m must be superseded by Alpaca everywhere.)
 Set the two flags as Cloudflare **Workers → timed-trading-ingest → Settings →
 Variables** (reversible without redeploy), or in `wrangler.toml`
 `[env.production.vars]` + redeploy.
 
-1. **Wait for the 5m backfill** to finish: `grep DONE-5M-BACKFILL /tmp/bf5m.log`
-   (running in tmux `bf5m`). Re-run any 502-skipped batch.
+1. (superseded by step 0 — Alpaca 5m re-backfill)
 2. **Bulk-seed the live DO** (≈2 months of 5m → DO), chunked to stay under the
    subrequest limit — repeat ~8× (the KV cursor rotates):
    `for i in $(seq 1 8); do curl -s -XPOST "$LIVE/timed/admin/chain-do-feed?force=1&windowHours=1500&max=40&key=$KEY"; done`
