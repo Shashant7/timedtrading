@@ -7996,9 +7996,21 @@
                             {(ctoTickerLevels.bar_as_of_ms || ctoTickerLevels.as_of_date) && (
                               <div style={{ marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
                                 Daily close used:{" "}
-                                {typeof window !== "undefined" && window.TimedCTORead?.formatBarAsOf
-                                  ? (window.TimedCTORead.formatBarAsOf(ctoTickerLevels.bar_as_of_ms) || ctoTickerLevels.as_of_date)
-                                  : (ctoTickerLevels.as_of_date || "—")}
+                                {(() => {
+                                  // Daily anchor → render the TRADING-DAY date (UTC),
+                                  // not the 00:00-UTC instant in ET (which shifts to the
+                                  // prior evening, e.g. a Jun-15 close shows as "Jun 14").
+                                  const r = typeof window !== "undefined" ? window.TimedCTORead : null;
+                                  let date = (typeof ctoTickerLevels.as_of_date === "string" && ctoTickerLevels.as_of_date.slice(0, 10)) || null;
+                                  if (!date && Number(ctoTickerLevels.bar_as_of_ms) > 0) {
+                                    try { date = new Date(Number(ctoTickerLevels.bar_as_of_ms)).toISOString().slice(0, 10); } catch (_) {}
+                                  }
+                                  if (r?.formatAsOfDate && date) {
+                                    const lbl = r.formatAsOfDate(date);
+                                    if (lbl) return lbl;
+                                  }
+                                  return date || ctoTickerLevels.as_of_date || "—";
+                                })()}
                                 {Number.isFinite(Number(ctoTickerLevels.live_price)) && Number.isFinite(Number(ctoTickerLevels.anchor_price)) && (
                                   <span style={{ marginLeft: 8 }}>
                                     Live ${Number(ctoTickerLevels.live_price).toFixed(2)} vs anchor ${Number(ctoTickerLevels.anchor_price).toFixed(2)}

@@ -9281,7 +9281,20 @@
               color: "var(--ds-text-faint)",
               fontFamily: "var(--tt-font-mono)"
             }
-          }, "Daily close used:", " ", typeof window !== "undefined" && window.TimedCTORead?.formatBarAsOf ? window.TimedCTORead.formatBarAsOf(ctoTickerLevels.bar_as_of_ms) || ctoTickerLevels.as_of_date : ctoTickerLevels.as_of_date || "—", Number.isFinite(Number(ctoTickerLevels.live_price)) && Number.isFinite(Number(ctoTickerLevels.anchor_price)) && React.createElement("span", {
+          }, "Daily close used:", " ", (() => {
+            const r = typeof window !== "undefined" ? window.TimedCTORead : null;
+            let date = typeof ctoTickerLevels.as_of_date === "string" && ctoTickerLevels.as_of_date.slice(0, 10) || null;
+            if (!date && Number(ctoTickerLevels.bar_as_of_ms) > 0) {
+              try {
+                date = new Date(Number(ctoTickerLevels.bar_as_of_ms)).toISOString().slice(0, 10);
+              } catch (_) {}
+            }
+            if (r?.formatAsOfDate && date) {
+              const lbl = r.formatAsOfDate(date);
+              if (lbl) return lbl;
+            }
+            return date || ctoTickerLevels.as_of_date || "—";
+          })(), Number.isFinite(Number(ctoTickerLevels.live_price)) && Number.isFinite(Number(ctoTickerLevels.anchor_price)) && React.createElement("span", {
             style: {
               marginLeft: 8
             }
@@ -19895,4 +19908,4 @@
   };
 })();
 
-// cache-bust:1781465025016:986545021
+// cache-bust:1781565712636:647566210
