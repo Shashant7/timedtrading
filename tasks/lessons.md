@@ -3141,3 +3141,20 @@ When removing a ticker entirely: `POST /timed/admin/purge-ticker` with
 `confirm: "YES_PURGE"` + `alsoBlock: true`, then strip from `SECTOR_MAP`,
 `TT_SELECTED`, `configs/sector-map.json`, and frontend name maps. Production
 purge alone is not enough if investor scores KV still holds the symbol.
+
+## 2026-06-15 — The backtest scores off EXTENDED-HOURS intraday data (don't RTH-clip)
+
+Correction during the foundation rebuild (Phase 2). I assumed RTH-only intraday
+was "more correct" and RTH-clipped the candle-chain derive. WRONG: the proven
+performance is computed over extended-hours-inclusive intraday candles.
+- `worker/replay-candle-batches.js` does NO session filtering; `computeTfBundle`
+  scores EMA/ST/RSI over ALL bars. Only the ORB sub-feature + `isRTHNow()` LTF
+  weight blend are RTH-aware.
+- Stored intraday is SOURCE-dependent: 5/10/15/30m are Alpaca-sourced and
+  EXTENDED-HOURS-inclusive (10m spans 04:00–19:50 ET); 60/240m are RTH-only.
+- Deriving sub-hourly TFs from the extended-hours 5m base WITHOUT clipping
+  reproduces legacy bundles byte-for-byte; RTH-clip changes every LTF score.
+Rule: the candle chain's `defaultSessionClip` must match the backtest basis —
+5/10/15/30 = extended hours, 60/240 = RTH. Only the daily-rollup reconcile clips
+to RTH (it compares to the official RTH daily). Never blanket-RTH-clip the
+indicator derive.

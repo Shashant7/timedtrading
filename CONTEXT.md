@@ -182,6 +182,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Candle chain / backtest basis (2026-06-15, foundation rebuild Phase 2)**
+- The backtest scores off **extended-hours** intraday data. Replay does NO
+  session filtering and `computeTfBundle` uses all bars. Stored intraday is
+  source-dependent: **5/10/15/30m = extended hours** (Alpaca), **60/240m = RTH**.
+  The candle chain's `defaultSessionClip` must match this (never blanket-RTH-clip
+  the indicator derive); only the daily-rollup reconcile clips to RTH. Full note
+  in `tasks/lessons.md` + `tasks/2026-06-15-phase2-indicator-parity-result.md`.
+
 **Security & auth patterns (2026-06-09 hardening, PR #542 series — full
 playbook in `skills/security-auth-patterns.md`)**
 - Every config-mutating route gets `requireKeyOrAdmin` — the calibration

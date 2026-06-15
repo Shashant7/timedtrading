@@ -59,20 +59,47 @@ in. The chain's intraday is the correct, consistent series; the legacy's was the
 contaminated one. This is precisely "different inputs → different outputs → live
 ≠ backtest," now located and quantified.
 
-## Decision surfaced for Phase 2 (next)
-**Extended-hours policy for intraday indicator inputs.** The legacy engine fed
-extended-hours 10m bars (and an extended-hours "current price") into LTF scoring.
-Options:
-1. **RTH-only (current chain default)** — consistent, matches daily close,
-   matches the headline-price doctrine. Recommended; means LTF scores will
-   *intentionally* differ from legacy live (legacy was wrong here).
-2. Extended-hours-inclusive base — reproduces legacy LTF exactly but re-imports
-   the contamination. Only if a setup genuinely needs pre/post-market structure.
+## CORRECTION (operator-flagged 2026-06-15): the backtest USES extended hours
 
-The TRUE parity target is **chain-live ≡ chain-replay** (0 by construction, same
-RTH-clipped base both paths) — NOT chain ≡ legacy. The legacy comparison here is
-a migration sanity check: HTF/state transfer cleanly; LTF will shift by design
-and that shift is the contamination removal.
+The first draft of this result recommended RTH-only and called extended hours
+"contamination." **That was wrong.** The operator flagged that the proven
+performance results are computed off extended-hours data, and the code confirms
+it:
+- `worker/replay-candle-batches.js` does **no** session filtering — the backtest
+  scores over the full stored candles.
+- `computeTfBundle` computes EMA/SuperTrend/RSI over **all** bars (the only
+  RTH-specific code is the ORB sub-feature + the `isRTHNow()` LTF weight blend).
+- The stored intraday is **source-dependent**: 5/10/15/30m are Alpaca-sourced
+  and **extended-hours-inclusive** (10m spans 04:00–19:50 ET, ~63 bars/day vs 39
+  RTH); 60/240m are **RTH-only** (≈7 / 2 bars/day).
+
+Deriving the sub-hourly TFs from the extended-hours 5m base **without** clipping
+reproduces the legacy bundles **byte-for-byte** (GS 10m: emaDepth 15, RSI 55.3,
+px 1064.40, n=631 — identical), whereas RTH-clip is far off.
+
+**Fix shipped** — `candle-chain.defaultSessionClip` encodes the canonical policy
+that MATCHES the backtest basis: `5/10/15/30 = extended-hours`, `60/240 = RTH`
+(overridable via `opts.sessionClip`). The daily-rollup reconcile keeps its RTH
+clip (it compares to the official RTH daily — a separate, correct use).
+
+### Re-run with the corrected policy
+| layer | parity vs legacy |
+|---|---|
+| **ltf_score** | **10/10 exact** (was 0/10 under the wrong RTH-clip) |
+| **state** | **10/10** |
+| per-TF bundle fields | **10/10 on 10m, 15m, 30m, 60m, D** |
+| htf_score | 4/10 exact; residual is `W` only (chain resamples weekly from daily vs legacy's separately-fetched W) + depth-limited 240/M |
+
+The chain now **preserves the validated performance basis** and reproduces the
+legacy indicator inputs essentially exactly. The remaining htf residual is the
+weekly-derivation choice (resample-from-daily vs separate fetch — open decision
+§9.4) and intraday depth for 240/M (needs the deep-base backfill).
+
+### Remaining decision (narrowed)
+Whether to keep weekly **derived from the daily base** (resample) or **fetch W
+separately and reconcile** — affects htf by <1 pt today. Everything else
+reproduces the backtest. The TRUE parity target remains **chain-live ≡
+chain-replay** (0 by construction once both read the chain with this policy).
 
 ## Remaining for the full 45/45 re-run (deep-base requirement)
 - The shadow chain holds only a 10-day 5m base, so HTF `240` (and deep `M`) can't
