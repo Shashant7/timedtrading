@@ -63,6 +63,35 @@ describe("cto-universe", () => {
     expect(isPriorityTicker("KO", { openPositions: open })).toBe(false);
   });
 
+  it("session mode adds surfaced movers to priority and exposes the extra set", async () => {
+    const { tickers, mode, extra, extraSet } = await buildCTORefreshTickers(env, {
+      mode: "session",
+      surfaced: ["KO", "PLTR", "AAPL", "SPY", "ZZZNOTREAL"],
+    });
+    expect(mode).toBe("session");
+    // indices + positions still present
+    expect(tickers).toContain("SPY");
+    expect(tickers).toContain("AAPL");
+    // surfaced scored mover folded in
+    expect(tickers).toContain("KO");
+    expect(extra).toContain("KO");
+    // surfaced names that are indices/positions OR not scored are NOT in extra
+    expect(extra).not.toContain("SPY");
+    expect(extra).not.toContain("AAPL");
+    expect(extra).not.toContain("ZZZNOTREAL");
+    expect(extraSet.has("KO")).toBe(true);
+  });
+
+  it("session mode is capped and gives surfaced movers the 1h TTL via extra", () => {
+    const open = new Set(["AAPL"]);
+    const extra = new Set(["KO"]);
+    // KO would be 24h normally, but surfaced (extra) => 1h
+    expect(cacheTtlForTicker("KO", { openPositions: open, extra })).toBe(60 * 60);
+    expect(isPriorityTicker("KO", { openPositions: open, extra })).toBe(true);
+    // a non-surfaced, non-priority name is still 24h
+    expect(cacheTtlForTicker("XLU", { openPositions: open, extra })).toBe(24 * 60 * 60);
+  });
+
   it("merges hourly priority rows without dropping prior rollup entries", () => {
     const universe = ["SPY", "KO", "AAPL"];
     const processed = [{ ticker: "SPY", ok: true, narrative: "fresh spy" }];

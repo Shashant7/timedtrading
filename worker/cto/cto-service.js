@@ -42,6 +42,7 @@ import {
   mergeRollupResults,
   MAX_ELAPSED_MS_FULL,
   MAX_ELAPSED_MS_PRIORITY,
+  MAX_ELAPSED_MS_SESSION,
   rollupRowFromCachedPayload,
   resolveScoredUniverseTickers,
 } from "./cto-universe.js";
@@ -727,6 +728,7 @@ export async function runCTOUniverse(env, {
   forceRefresh = false,
   mode = "all",
   maxElapsedMs = null,
+  surfaced = null,
 } = {}) {
   await ensureCTOSchema(env);
 
@@ -735,18 +737,25 @@ export async function runCTOUniverse(env, {
   let tickers = tickersOverride;
 
   if (!tickers || tickers.length === 0) {
-    universeMeta = await buildCTORefreshTickers(env, { mode, limit });
+    universeMeta = await buildCTORefreshTickers(env, { mode, limit, surfaced });
     tickers = universeMeta.tickers;
   }
 
   const scored = universeMeta?.scored || await resolveScoredUniverseTickers(env);
   const openPositionsSet = universeMeta?.openPositionsSet || null;
+  // Surfaced movers get the 1h priority TTL during a session pass so gap-day
+  // levels re-anchor hourly instead of riding the 24h cache.
+  const extraSet = universeMeta?.extraSet || null;
   const rollupUniverse = [...new Set([
     ...scored,
     ...INDEX_FOCUS,
     ...(universeMeta?.openPositions || []),
   ])].sort();
-  const elapsedBudget = maxElapsedMs ?? (mode === "priority" ? MAX_ELAPSED_MS_PRIORITY : MAX_ELAPSED_MS_FULL);
+  const elapsedBudget = maxElapsedMs ?? (
+    mode === "priority" ? MAX_ELAPSED_MS_PRIORITY
+    : mode === "session" ? MAX_ELAPSED_MS_SESSION
+    : MAX_ELAPSED_MS_FULL
+  );
 
   const t0 = Date.now();
   const processed = [];
@@ -760,7 +769,7 @@ export async function runCTOUniverse(env, {
       break;
     }
     try {
-      const ttl = cacheTtlForTicker(t, { openPositions: openPositionsSet });
+      const ttl = cacheTtlForTicker(t, { openPositions: openPositionsSet, extra: extraSet });
       const r = await computeCTOForTicker(env, t, {
         force: !!forceRefresh,
         cacheTtlSeconds: ttl,
