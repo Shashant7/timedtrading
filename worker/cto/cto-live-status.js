@@ -2,6 +2,8 @@
 // Live honesty layer for CTO probabilistic levels: distance-to-level,
 // hit/faded status since the snapshot anchor, and signal_outcomes recording.
 
+import { isNyRegularMarketOpen } from "../market-calendar.js";
+
 const HORIZON_DAYS = 20;
 
 async function kvGetJSON(kv, key) {
@@ -14,16 +16,29 @@ async function kvGetJSON(kv, key) {
   }
 }
 
-/** Load { SYM: price } from timed:prices KV. */
+/**
+ * Load { SYM: price } from timed:prices KV — session-aware.
+ *
+ * Outside RTH (overnight / pre-market / post-market) the live overlay MUST use
+ * the extended print (`ahp`) so an overnight or pre-market move re-distances the
+ * level map in the morning. `p` outside RTH is yesterday's RTH CLOSE (per the
+ * price-data-pipeline contract), so using it would show "no movement" until the
+ * open. During RTH we MUST use `p` (the live RTH price) — TwelveData returns
+ * stale `ahp` while the market is open, so this is gated on the session.
+ */
 export async function loadLivePriceMap(env) {
   const kv = env?.KV_TIMED || env?.KV;
   const blob = await kvGetJSON(kv, "timed:prices");
   if (!blob) return {};
   const prices = blob.prices || blob;
+  let marketOpen = true;
+  try { marketOpen = isNyRegularMarketOpen(null); } catch (_) { marketOpen = true; }
   const out = {};
   for (const [sym, row] of Object.entries(prices || {})) {
-    const p = Number(row?.p ?? row?.price ?? row?.c ?? row?.close);
-    if (Number.isFinite(p) && p > 0) out[String(sym).toUpperCase()] = p;
+    const ext = Number(row?.ahp);
+    const rth = Number(row?.p ?? row?.price ?? row?.c ?? row?.close);
+    const px = (!marketOpen && Number.isFinite(ext) && ext > 0) ? ext : rth;
+    if (Number.isFinite(px) && px > 0) out[String(sym).toUpperCase()] = px;
   }
   return out;
 }
