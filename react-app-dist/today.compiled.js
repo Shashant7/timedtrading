@@ -2226,6 +2226,8 @@ function CTOLevelsPanel({
       flexShrink: 0
     }
   }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
+    className: "tt-cto-feed-body"
+  }, h("div", {
     className: "tt-cto-map-scroll"
   }, indexRows.length > 0 && h("div", {
     style: {
@@ -2249,7 +2251,7 @@ function CTOLevelsPanel({
       textTransform: "uppercase",
       margin: "8px 0 4px"
     }
-  }, `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`), movers.map(row))));
+  }, `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`), movers.map(row)))));
 }
 function MarketState({
   data,
@@ -5184,6 +5186,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781486402345:36007712
+// cache-bust:1781488925748:283433458
 
-// cache-bust:1781486402345:36007712
+// cache-bust:1781488925748:283433458
