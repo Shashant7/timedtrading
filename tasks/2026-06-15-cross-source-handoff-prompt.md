@@ -118,6 +118,55 @@ YOUR TASKS (in order)
    score/conviction divergence collapses vs the 45/45 baseline. Report the delta.
 
 ═══════════════════════════════════════════════════════════════════════════
+REMAINING ROADMAP AFTER YOUR TASKS (the full picture — two parallel tracks)
+═══════════════════════════════════════════════════════════════════════════
+Your tasks above finish base-fidelity (ground truth) + the rest of Phase 1.
+Beyond that, the program has TWO tracks. Full detail:
+tasks/2026-06-14-foundation-rebuild-plan.md (§7 phases) and
+tasks/2026-06-12-never-stale-and-performance-review.md (Part 5 "Owed").
+
+TRACK A — Foundation rebuild (strangler migration; each phase additive +
+reversible behind the worker-role flags; nothing live until proven in shadow):
+  • Phase 1 (finish): 60/240 anchor pin; daily ts normalization + dedup; R2
+    cold-storage offload for retention-swept 5m; calendar-driven SHADOW
+    ingestion feeding the DO beside the current store; prove zero gaps for K
+    weeks via the chain's own coverage report.
+  • Phase 2 — cut indicators + score onto the chain: indicators read ONLY via
+    getSeries (complete-gated); score returns UNSCORABLE on incomplete input;
+    re-run scripts/parity-baseline.js and confirm the 45/45 divergence
+    COLLAPSES. Add a CI parity gate (parity-baseline exits non-zero on diff).
+  • Phase 3 — execution on scorable-only payloads; UNIFY the two entry paths
+    (worker/pipeline/tt-core-entry.js evaluateEntry + worker/index.js
+    qualifiesForEnter — the dead-knob bug lived in BOTH copies).
+  • Phase 4 — delivery via Cloudflare Queues fan-out; per-user simulation into
+    Durable Objects; retire monolith cron lanes via the role-flag cutover;
+    worker/index.js (~92k lines) shrinks to an API/fallback shell.
+  • Cross-cutting hardening: single CONFIG REGISTRY (today a new deep_audit_*
+    key must be hand-added to BOTH REPLAY_DA_KEYS and the HTTP lazy-load list —
+    drift-prone); golden-day CI parity gate; calendar holiday-table maintenance.
+  • Open design decisions still to resolve (plan §9): canonical 60/240 anchor;
+    daily-base derivation (derive D from intraday vs separate fetch reconciled
+    at close); DO-per-shard count + R2 hot-window size; provider reconciliation
+    rule when TD vs Alpaca disagree (your Task 3 sets this).
+
+TRACK B — "Awaken the Active Trader engine" (performance-review #649; SEPARATE
+from the rebuild — these tune the CURRENT engine and need the replay harness /
+pre-prod, which is now ready). See Part 5 "Owed" of the review doc:
+  • MFE ratchet (#648) equal-scope 60-day replay validation + the Monday-RTH
+    proof that the open book (GS/MU/SNDK) isn't force-clipped.
+  • Conviction re-weighting against live outcomes (corr -0.02 today); Tier-C
+    stays suspended until the re-weighted signal discriminates.
+  • Fast-cut lane keep/loosen/kill per replayed expectancy (using the +7-12%
+    forfeited-continuation table).
+  • Short-book shadow review after ~2 weeks of [SHORT_SHADOW] logs before
+    relaxing the live SPY-downtrend gate.
+  Track B can run on the same pre-prod env. Keep it on its own branch/PR
+  (#649) — do NOT mix it into the foundation PR (#657).
+
+Prioritize Track A Phase 2 (it's what makes live match backtest); pick up
+Track B validations opportunistically since the harness is warm.
+
+═══════════════════════════════════════════════════════════════════════════
 MECHANICS / GOTCHAS (learned the hard way)
 ═══════════════════════════════════════════════════════════════════════════
 - Env: $TIMED_TRADING_API_KEY (admin), $CLOUDFLARE_API_TOKEN (wrangler).
@@ -138,5 +187,7 @@ MECHANICS / GOTCHAS (learned the hard way)
 DEFINITION OF DONE for this handoff: a committed cross-source ground-truth
 report (TD vs Alpaca vs web) across the basket with a documented source-of-truth
 policy, plus the 60m/240m anchor + daily-normalization fixes, all tested, on the
-branch with an updated PR. Do NOT enable any live behavior.
+branch with an updated PR. Do NOT enable any live behavior. THEN continue with
+the REMAINING ROADMAP above (Track A Phase 2 next), updating the plan docs as
+each phase lands so the next session inherits an accurate state.
 ```
