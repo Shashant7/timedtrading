@@ -134,6 +134,64 @@ history, saty_atr_proximity, phase/RSI alignment, setup bonuses) from
 This is a multi-step harness analysis (hours of backfill + per-trade scoring),
 best as a dedicated run — not a quick pass. Input + method are ready above.
 
+## CADENCE FIX SHIPPED (2026-06-15 ~16:24 UTC) — root cause of "Active Trader stopped"
+Diagnosis (live): **last entry 06-05, 10 days of ZERO entries.** Cause: the
+conviction funnel was choked — **78% of the universe is Tier-C (203/259); 76% of
+high-rank candidates (rank≥65) are Tier-C (87/114)** — and **Tier-C entries were
+suspended** (`deep_audit_focus_suspend_tier_c`, default true). Conviction median
+is **57/206** vs the tier cut (A≥110/B≥80/C<80), so almost everything lands in C;
+and per the 60-day review conviction is **non-predictive (corr -0.02)** — so the
+gate rejected ~3/4 of candidates WITHOUT filtering by quality.
+**Fix:** un-suspended Tier-C live via `POST /timed/admin/model-config`
+(`deep_audit_focus_suspend_tier_c=false`; in REPLAY_DA_KEYS + the lazy-load list
+→ hot-reloads). Reversible. Cadence should resume on the next entry cron.
+
+## CONVICTION REDESIGN (operator direction 2026-06-15) — make it predictive + CRO/CTO/CIO-aware
+
+### Why conviction is broken today
+`computeConvictionScore` (worker/focus-tier.js) uses an OLD component set
+(liquidity, volatility, trend, sector, RS, history, saty_atr, phase, rsi, +
+setup bonuses). Two failures:
+1. **Structurally low:** the big components — `relative_strength` (0-25) and
+   `history` (0-20, needs prior wins on the SAME ticker) — are ~0 for most names,
+   so conviction lands ~57 and everything is Tier-C. The A/B/C cuts (110/80) were
+   calibrated assuming those contribute; they usually don't.
+2. **Non-predictive (corr -0.02):** the components don't separate winners/losers.
+
+### Add the C-suite signals (the operator's insight — they're richer + already computed)
+- **CIO** (`__cio_lifecycle_decision` / `__cio_loop2_override`): `edge_remaining`
+  (0-1), `confidence`, `risk_flags`. → component `scoreCioEdge` (e.g. 0-20 from
+  edge_remaining × confidence; penalty on risk_flags). This is the strongest
+  candidate — the CIO already adjudicates edge.
+- **CTO** (`cto_upside` / `cto_downside` targets): reward-to-risk to the CTO
+  levels. → component `scoreCtoTargets` (0-15 from upside/downside skew).
+- **CRO** (`cro_theme_rank_boost` / FSD / research sentiment): theme tailwind.
+  → component `scoreCroTheme` (0-15 from theme rank + FSD).
+These plug into computeConvictionScore as new component scorers, config-gated.
+
+### Calibration: "see where conviction was wrong" (the replay sweep)
+The method that answers it directly:
+1. For each of the 639 closed trades, replay-score the ticker AS-OF `entry_ts` and
+   capture conviction (old + new components) + the outcome (pnl, win).
+2. **Reliability table:** bucket by conviction score (deciles) and tier → WR +
+   avg pnl per bucket. This SHOWS where conviction was wrong: high-conviction
+   buckets that lost, low-conviction buckets that won, monotonicity (should rise).
+3. **Per-component discrimination:** point-biserial corr / AUC of each component
+   (old AND new CIO/CTO/CRO) vs win. Rank; drop noise/inverted, up-weight
+   separating ones (logistic fit → weights).
+4. Re-score with new weights; confirm the reliability table is now monotone and
+   composite corr > 0; re-calibrate A/B/C cuts to the actual distribution.
+5. Re-enable Tier-C *selectively* (it's already on now as a stopgap) once the
+   score discriminates.
+
+### Tooling
+`scripts/conviction-sweep.js` (this branch) is the runnable harness scaffold:
+pulls closed trades, replays each at entry_ts on pre-prod, extracts the
+conviction breakdown, writes `data/parity/2026-conviction-sweep.json`, and emits
+the reliability table + per-component discrimination. Needs a pre-prod candle
+backfill for the ~170 traded tickers over the trade window first (heavy — own
+focused run).
+
 ## Guardrails
 Config-gated, safe defaults, replay-validated before any live weight change.
 Do NOT mix into the foundation PR. Keep on the #649 / Track B branch.
