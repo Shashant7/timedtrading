@@ -1,0 +1,2443 @@
+{
+  "contract": "shadow_reconcile_v1",
+  "db": "timed-trading-ledger-preprod",
+  "window": {
+    "start": "2026-06-01",
+    "end": "2026-06-12"
+  },
+  "generated_at": "2026-06-15T01:14:13.809Z",
+  "per_ticker": {
+    "AA": {
+      "10": {
+        "session": {
+          "stored": 666,
+          "derived": 666,
+          "ts_matched": 637,
+          "only_derived": 29,
+          "only_stored": 29,
+          "ohlc_matched": 637,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 666,
+          "derived": 666,
+          "ts_matched": 637,
+          "only_derived": 29,
+          "only_stored": 29,
+          "ohlc_matched": 637,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 445,
+          "derived": 445,
+          "ts_matched": 445,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 445,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 445,
+          "derived": 445,
+          "ts_matched": 445,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 445,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 228,
+          "derived": 228,
+          "ts_matched": 228,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 228,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 228,
+          "derived": 228,
+          "ts_matched": 228,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 228,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 122,
+          "ts_matched": 70,
+          "only_derived": 52,
+          "only_stored": 0,
+          "ohlc_matched": 64,
+          "ohlc_mismatch": 6,
+          "samples": [
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 84.099998,
+                "h": 84.38,
+                "l": 83.745,
+                "c": 83.82,
+                "v": 1062718,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 84.099998,
+                "h": 84.38,
+                "l": 83.745,
+                "c": 83.79,
+                "v": 1062698
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 81.76,
+                "h": 82.41,
+                "l": 80.5,
+                "c": 80.89,
+                "v": 4815822,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 81.76,
+                "h": 81.86,
+                "l": 80.835,
+                "c": 80.89,
+                "v": 717373
+              }
+            },
+            {
+              "ts": 1780687800000,
+              "derived": {
+                "ts": 1780687800000,
+                "o": 71.7,
+                "h": 72.54,
+                "l": 71.36,
+                "c": 72.5,
+                "v": 6625408,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780687800000,
+                "o": 71.7,
+                "h": 71.93,
+                "l": 71.36,
+                "c": 71.9,
+                "v": 956610
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 118,
+          "ts_matched": 0,
+          "only_derived": 118,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 37,
+          "ts_matched": 20,
+          "only_derived": 17,
+          "only_stored": 0,
+          "ohlc_matched": 14,
+          "ohlc_mismatch": 6,
+          "samples": [
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 83.17,
+                "h": 84.38,
+                "l": 82.96,
+                "c": 83.82,
+                "v": 2301641,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 83.17,
+                "h": 84.38,
+                "l": 82.96,
+                "c": 83.79,
+                "v": 2301621
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 81.43,
+                "h": 82.41,
+                "l": 80.5,
+                "c": 80.99,
+                "v": 5503418,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 81.43,
+                "h": 81.89,
+                "l": 80.835,
+                "c": 80.89,
+                "v": 1404899
+              }
+            },
+            {
+              "ts": 1780680600000,
+              "derived": {
+                "ts": 1780680600000,
+                "o": 72.6875,
+                "h": 73.080002,
+                "l": 71.36,
+                "c": 71.9892,
+                "v": 7801683,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780680600000,
+                "o": 72.6875,
+                "h": 73.080002,
+                "l": 71.36,
+                "c": 71.9,
+                "v": 2132885
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 31,
+          "ts_matched": 0,
+          "only_derived": 31,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1262
+    },
+    "AAPL": {
+      "10": {
+        "session": {
+          "stored": 859,
+          "derived": 859,
+          "ts_matched": 835,
+          "only_derived": 24,
+          "only_stored": 24,
+          "ohlc_matched": 835,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 859,
+          "derived": 859,
+          "ts_matched": 835,
+          "only_derived": 24,
+          "only_stored": 24,
+          "ohlc_matched": 835,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 580,
+          "derived": 580,
+          "ts_matched": 580,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 580,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 580,
+          "derived": 580,
+          "ts_matched": 580,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 580,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 299,
+          "derived": 299,
+          "ts_matched": 299,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 299,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 299,
+          "derived": 299,
+          "ts_matched": 299,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 299,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 163,
+          "ts_matched": 70,
+          "only_derived": 93,
+          "only_stored": 0,
+          "ohlc_matched": 60,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 307.435,
+                "h": 308.040009,
+                "l": 305.90991,
+                "c": 306.01,
+                "v": 5262202,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 307.435,
+                "h": 308.040009,
+                "l": 305.90991,
+                "c": 306.32001,
+                "v": 5261936
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 314.76001,
+                "h": 315.44,
+                "l": 314.029999,
+                "c": 315.35,
+                "v": 4596531,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 314.76001,
+                "h": 315.44,
+                "l": 314.029999,
+                "c": 315.19,
+                "v": 4596467
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 310.41501,
+                "h": 311.10001,
+                "l": 309.20001,
+                "c": 310.79,
+                "v": 6567263,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 310.41501,
+                "h": 311.10001,
+                "l": 309.20001,
+                "c": 310.38,
+                "v": 6562646
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 153,
+          "ts_matched": 0,
+          "only_derived": 153,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 49,
+          "ts_matched": 20,
+          "only_derived": 29,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 306.51999,
+                "h": 314.7232,
+                "l": 289.7849,
+                "c": 306.35,
+                "v": 12979326,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 306.51999,
+                "h": 308.39999,
+                "l": 305.90991,
+                "c": 306.32001,
+                "v": 12978890
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 314.67999,
+                "h": 315.45001,
+                "l": 313.755,
+                "c": 314.93,
+                "v": 11862185,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 314.67999,
+                "h": 315.45001,
+                "l": 313.755,
+                "c": 315.19,
+                "v": 11862109
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 309.19501,
+                "h": 313.9,
+                "l": 308.98001,
+                "c": 312.12,
+                "v": 12164377,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 309.19501,
+                "h": 311.10001,
+                "l": 308.98001,
+                "c": 310.38,
+                "v": 12159738
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 40,
+          "ts_matched": 0,
+          "only_derived": 40,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1672
+    },
+    "CLS": {
+      "10": {
+        "session": {
+          "stored": 702,
+          "derived": 702,
+          "ts_matched": 686,
+          "only_derived": 16,
+          "only_stored": 16,
+          "ohlc_matched": 686,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 702,
+          "derived": 702,
+          "ts_matched": 686,
+          "only_derived": 16,
+          "only_stored": 16,
+          "ohlc_matched": 686,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 473,
+          "derived": 473,
+          "ts_matched": 473,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 473,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 473,
+          "derived": 473,
+          "ts_matched": 473,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 473,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 247,
+          "derived": 247,
+          "ts_matched": 247,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 247,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 247,
+          "derived": 247,
+          "ts_matched": 247,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 247,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 135,
+          "ts_matched": 70,
+          "only_derived": 65,
+          "only_stored": 0,
+          "ohlc_matched": 61,
+          "ohlc_mismatch": 9,
+          "samples": [
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 471.495,
+                "h": 472.95999,
+                "l": 467,
+                "c": 469.97,
+                "v": 636576,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 471.495,
+                "h": 472.95999,
+                "l": 468.85999,
+                "c": 472.45999,
+                "v": 636488
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 460.20001,
+                "h": 461.41,
+                "l": 440.78,
+                "c": 443.49,
+                "v": 510115,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 460.20001,
+                "h": 461.059998,
+                "l": 456.70001,
+                "c": 458.51501,
+                "v": 395408
+              }
+            },
+            {
+              "ts": 1780601400000,
+              "derived": {
+                "ts": 1780601400000,
+                "o": 422.88,
+                "h": 426.42389,
+                "l": 421.16281,
+                "c": 424.02,
+                "v": 251931,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780601400000,
+                "o": 422.88,
+                "h": 426.42389,
+                "l": 421.16281,
+                "c": 425.11499,
+                "v": 251881
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 131,
+          "ts_matched": 0,
+          "only_derived": 131,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 42,
+          "ts_matched": 20,
+          "only_derived": 22,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 404.075012,
+                "h": 444.72,
+                "l": 402.47,
+                "c": 444.72,
+                "v": 1644912,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 404.075012,
+                "h": 427.76999,
+                "l": 402.47,
+                "c": 426.5,
+                "v": 1644836
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 466.89001,
+                "h": 474.024994,
+                "l": 466.82001,
+                "c": 469.97,
+                "v": 1309740,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 466.89001,
+                "h": 474.024994,
+                "l": 466.82001,
+                "c": 472.45999,
+                "v": 1309652
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 453.059998,
+                "h": 461.41,
+                "l": 430,
+                "c": 437.1,
+                "v": 889269,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 453.059998,
+                "h": 461.059998,
+                "l": 451.63,
+                "c": 458.51501,
+                "v": 774526
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 39,
+          "ts_matched": 0,
+          "only_derived": 39,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1362
+    },
+    "FSLR": {
+      "10": {
+        "session": {
+          "stored": 824,
+          "derived": 824,
+          "ts_matched": 783,
+          "only_derived": 41,
+          "only_stored": 41,
+          "ohlc_matched": 783,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 824,
+          "derived": 824,
+          "ts_matched": 783,
+          "only_derived": 41,
+          "only_stored": 41,
+          "ohlc_matched": 783,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 561,
+          "derived": 561,
+          "ts_matched": 561,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 561,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 561,
+          "derived": 561,
+          "ts_matched": 561,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 561,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 285,
+          "derived": 285,
+          "ts_matched": 285,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 285,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 285,
+          "derived": 285,
+          "ts_matched": 285,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 285,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 152,
+          "ts_matched": 70,
+          "only_derived": 82,
+          "only_stored": 0,
+          "ohlc_matched": 61,
+          "ohlc_mismatch": 9,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 298.51999,
+                "h": 304.98,
+                "l": 297.66501,
+                "c": 301.02,
+                "v": 866641,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 298.51999,
+                "h": 303.14001,
+                "l": 297.66501,
+                "c": 303,
+                "v": 592101
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 311.31,
+                "h": 313,
+                "l": 309.13501,
+                "c": 311.85,
+                "v": 650200,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 311.31,
+                "h": 312.029999,
+                "l": 309.13501,
+                "c": 310.82999,
+                "v": 544775
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 317.91501,
+                "h": 320,
+                "l": 311,
+                "c": 316.02,
+                "v": 489110,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 317.91501,
+                "h": 318.95001,
+                "l": 316.33499,
+                "c": 318.26999,
+                "v": 489110
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 145,
+          "ts_matched": 0,
+          "only_derived": 145,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 45,
+          "ts_matched": 20,
+          "only_derived": 25,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 298.26001,
+                "h": 304.98,
+                "l": 295.48001,
+                "c": 302,
+                "v": 1592514,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 298.26001,
+                "h": 303.14001,
+                "l": 295.48001,
+                "c": 303,
+                "v": 1317974
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 305.84,
+                "h": 313,
+                "l": 305.41,
+                "c": 311.95,
+                "v": 1257016,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 305.84,
+                "h": 313,
+                "l": 305.41,
+                "c": 310.82999,
+                "v": 1151591
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 312.82001,
+                "h": 320,
+                "l": 311,
+                "c": 315.0288,
+                "v": 787944,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 312.82001,
+                "h": 318.95001,
+                "l": 311.50009,
+                "c": 318.26999,
+                "v": 787944
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 38,
+          "ts_matched": 0,
+          "only_derived": 38,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1551
+    },
+    "GS": {
+      "10": {
+        "session": {
+          "stored": 631,
+          "derived": 631,
+          "ts_matched": 617,
+          "only_derived": 14,
+          "only_stored": 14,
+          "ohlc_matched": 617,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 631,
+          "derived": 631,
+          "ts_matched": 617,
+          "only_derived": 14,
+          "only_stored": 14,
+          "ohlc_matched": 617,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 424,
+          "derived": 424,
+          "ts_matched": 424,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 424,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 424,
+          "derived": 424,
+          "ts_matched": 424,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 424,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 218,
+          "derived": 218,
+          "ts_matched": 218,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 218,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 218,
+          "derived": 218,
+          "ts_matched": 218,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 218,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 119,
+          "ts_matched": 70,
+          "only_derived": 49,
+          "only_stored": 0,
+          "ohlc_matched": 65,
+          "ohlc_mismatch": 5,
+          "samples": [
+            {
+              "ts": 1780601400000,
+              "derived": {
+                "ts": 1780601400000,
+                "o": 1093.55005,
+                "h": 1096.55,
+                "l": 1085.2238,
+                "c": 1090.99,
+                "v": 888783,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780601400000,
+                "o": 1093.55005,
+                "h": 1095.61987,
+                "l": 1091.77002,
+                "c": 1092.73999,
+                "v": 334238
+              }
+            },
+            {
+              "ts": 1780687800000,
+              "derived": {
+                "ts": 1780687800000,
+                "o": 1039.72998,
+                "h": 1043.82996,
+                "l": 1037.41,
+                "c": 1037.57,
+                "v": 360516,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780687800000,
+                "o": 1039.72998,
+                "h": 1043.82996,
+                "l": 1038.35999,
+                "c": 1039.30005,
+                "v": 360506
+              }
+            },
+            {
+              "ts": 1781119800000,
+              "derived": {
+                "ts": 1781119800000,
+                "o": 1002.02002,
+                "h": 1008.932,
+                "l": 1000,
+                "c": 1001.98,
+                "v": 695835,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1781119800000,
+                "o": 1002.02002,
+                "h": 1007.73999,
+                "l": 1000.039978,
+                "c": 1000.60999,
+                "v": 335299
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 115,
+          "ts_matched": 0,
+          "only_derived": 115,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 38,
+          "ts_matched": 20,
+          "only_derived": 18,
+          "only_stored": 0,
+          "ohlc_matched": 13,
+          "ohlc_mismatch": 7,
+          "samples": [
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 1068.42004,
+                "h": 1071.59998,
+                "l": 1064.43005,
+                "c": 1066.21,
+                "v": 528810,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 1068.42004,
+                "h": 1071.59998,
+                "l": 1064.43005,
+                "c": 1065.050049,
+                "v": 528746
+              }
+            },
+            {
+              "ts": 1780594200000,
+              "derived": {
+                "ts": 1780594200000,
+                "o": 1086.85999,
+                "h": 1096.55,
+                "l": 1085.2238,
+                "c": 1092,
+                "v": 1343939,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780594200000,
+                "o": 1086.85999,
+                "h": 1095.61987,
+                "l": 1085.55005,
+                "c": 1092.73999,
+                "v": 789392
+              }
+            },
+            {
+              "ts": 1780680600000,
+              "derived": {
+                "ts": 1780680600000,
+                "o": 1052.81995,
+                "h": 1055.060059,
+                "l": 1035.59998,
+                "c": 1037.57,
+                "v": 846615,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780680600000,
+                "o": 1052.81995,
+                "h": 1055.060059,
+                "l": 1035.59998,
+                "c": 1039.30005,
+                "v": 846605
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 31,
+          "ts_matched": 0,
+          "only_derived": 31,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1222
+    },
+    "MU": {
+      "10": {
+        "session": {
+          "stored": 954,
+          "derived": 954,
+          "ts_matched": 944,
+          "only_derived": 10,
+          "only_stored": 10,
+          "ohlc_matched": 944,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 954,
+          "derived": 954,
+          "ts_matched": 944,
+          "only_derived": 10,
+          "only_stored": 10,
+          "ohlc_matched": 944,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 638,
+          "derived": 638,
+          "ts_matched": 638,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 638,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 638,
+          "derived": 638,
+          "ts_matched": 638,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 638,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 320,
+          "derived": 320,
+          "ts_matched": 320,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 320,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 320,
+          "derived": 320,
+          "ts_matched": 320,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 320,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 170,
+          "ts_matched": 70,
+          "only_derived": 100,
+          "only_stored": 0,
+          "ohlc_matched": 60,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 1033.099976,
+                "h": 1038.66,
+                "l": 1027.5,
+                "c": 1038.56,
+                "v": 5188007,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 1033.099976,
+                "h": 1037.69995,
+                "l": 1027.5,
+                "c": 1034.82996,
+                "v": 2790425
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 1059.15002,
+                "h": 1076.51904,
+                "l": 1047.5675,
+                "c": 1065,
+                "v": 5001941,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 1059.15002,
+                "h": 1076.51904,
+                "l": 1058.13,
+                "c": 1064.079956,
+                "v": 4998413
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 1074.40002,
+                "h": 1089.29004,
+                "l": 1065.9958,
+                "c": 1068,
+                "v": 4986310,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 1074.40002,
+                "h": 1089.29004,
+                "l": 1073.77002,
+                "c": 1079,
+                "v": 4562950
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 160,
+          "ts_matched": 0,
+          "only_derived": 160,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 50,
+          "ts_matched": 20,
+          "only_derived": 30,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 1042,
+                "h": 1046.96997,
+                "l": 928.41,
+                "c": 1039.45,
+                "v": 12324618,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 1042,
+                "h": 1046.96997,
+                "l": 1027.5,
+                "c": 1034.82996,
+                "v": 9925394
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 1045.68933,
+                "h": 1076.51904,
+                "l": 1014.5,
+                "c": 1065.028,
+                "v": 12012164,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 1045.68933,
+                "h": 1076.51904,
+                "l": 1041.25,
+                "c": 1064.079956,
+                "v": 12007284
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 1066.59998,
+                "h": 1089.29004,
+                "l": 1001.7244,
+                "c": 1050,
+                "v": 11258142,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 1066.59998,
+                "h": 1089.29004,
+                "l": 1062.5,
+                "c": 1079,
+                "v": 10827440
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 40,
+          "ts_matched": 0,
+          "only_derived": 40,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1889
+    },
+    "NFLX": {
+      "10": {
+        "session": {
+          "stored": 805,
+          "derived": 805,
+          "ts_matched": 796,
+          "only_derived": 9,
+          "only_stored": 9,
+          "ohlc_matched": 796,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 805,
+          "derived": 805,
+          "ts_matched": 796,
+          "only_derived": 9,
+          "only_stored": 9,
+          "ohlc_matched": 796,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 540,
+          "derived": 540,
+          "ts_matched": 540,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 540,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 540,
+          "derived": 540,
+          "ts_matched": 540,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 540,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 277,
+          "derived": 277,
+          "ts_matched": 277,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 277,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 277,
+          "derived": 277,
+          "ts_matched": 277,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 277,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 150,
+          "ts_matched": 70,
+          "only_derived": 80,
+          "only_stored": 0,
+          "ohlc_matched": 62,
+          "ohlc_mismatch": 8,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 85.965,
+                "h": 86.07,
+                "l": 85.68,
+                "c": 85.765,
+                "v": 3194984,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 85.965,
+                "h": 86.07,
+                "l": 85.8,
+                "c": 85.835,
+                "v": 3076964
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 81.565,
+                "h": 81.97,
+                "l": 81.4,
+                "c": 81.7991,
+                "v": 4959705,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 81.565,
+                "h": 81.695,
+                "l": 81.5,
+                "c": 81.53,
+                "v": 4959049
+              }
+            },
+            {
+              "ts": 1780601400000,
+              "derived": {
+                "ts": 1780601400000,
+                "o": 81.58,
+                "h": 81.863,
+                "l": 81.23,
+                "c": 81.3695,
+                "v": 7550077,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780601400000,
+                "o": 81.58,
+                "h": 81.62,
+                "l": 81.37,
+                "c": 81.57,
+                "v": 5146211
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 143,
+          "ts_matched": 0,
+          "only_derived": 143,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 46,
+          "ts_matched": 20,
+          "only_derived": 26,
+          "only_stored": 0,
+          "ohlc_matched": 11,
+          "ohlc_mismatch": 9,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 85.935,
+                "h": 90.9518,
+                "l": 81.7278,
+                "c": 85.73,
+                "v": 9022572,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 85.935,
+                "h": 86.22,
+                "l": 85.585,
+                "c": 85.835,
+                "v": 8904546
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 81.5051,
+                "h": 82.19,
+                "l": 76.9575,
+                "c": 82.05,
+                "v": 10419590,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 81.5051,
+                "h": 81.73,
+                "l": 81.3,
+                "c": 81.53,
+                "v": 10416910
+              }
+            },
+            {
+              "ts": 1780594200000,
+              "derived": {
+                "ts": 1780594200000,
+                "o": 81.75,
+                "h": 85.8549,
+                "l": 81.061,
+                "c": 81.4197,
+                "v": 13833571,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780594200000,
+                "o": 81.75,
+                "h": 81.84,
+                "l": 81.37,
+                "c": 81.57,
+                "v": 11429705
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 39,
+          "ts_matched": 0,
+          "only_derived": 39,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1596
+    },
+    "SNDK": {
+      "10": {
+        "session": {
+          "stored": 824,
+          "derived": 824,
+          "ts_matched": 783,
+          "only_derived": 41,
+          "only_stored": 41,
+          "ohlc_matched": 783,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 824,
+          "derived": 824,
+          "ts_matched": 783,
+          "only_derived": 41,
+          "only_stored": 41,
+          "ohlc_matched": 783,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 564,
+          "derived": 564,
+          "ts_matched": 564,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 564,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 564,
+          "derived": 564,
+          "ts_matched": 564,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 564,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 294,
+          "derived": 294,
+          "ts_matched": 294,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 294,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 294,
+          "derived": 294,
+          "ts_matched": 294,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 294,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 163,
+          "ts_matched": 70,
+          "only_derived": 93,
+          "only_stored": 0,
+          "ohlc_matched": 60,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 1754,
+                "h": 1770.68005,
+                "l": 1741.30005,
+                "c": 1761.47,
+                "v": 739628,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 1754,
+                "h": 1770.68005,
+                "l": 1741.30005,
+                "c": 1760,
+                "v": 738702
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 1735.060059,
+                "h": 1748.59998,
+                "l": 1710,
+                "c": 1723.99,
+                "v": 759079,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 1735.060059,
+                "h": 1748.59998,
+                "l": 1715.81006,
+                "c": 1716.089966,
+                "v": 757991
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 1834.52002,
+                "h": 1860.99988,
+                "l": 1801.22,
+                "c": 1806.101,
+                "v": 1918223,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 1834.52002,
+                "h": 1860.99988,
+                "l": 1821.055054,
+                "c": 1834.28992,
+                "v": 1461274
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 153,
+          "ts_matched": 0,
+          "only_derived": 153,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 50,
+          "ts_matched": 20,
+          "only_derived": 30,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 1761.37,
+                "h": 1774.75977,
+                "l": 1741.30005,
+                "c": 1764.22,
+                "v": 2068854,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 1761.37,
+                "h": 1774.75977,
+                "l": 1741.30005,
+                "c": 1760,
+                "v": 2067714
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 1739.099976,
+                "h": 1748.59998,
+                "l": 1710,
+                "c": 1722.01,
+                "v": 1689121,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 1739.099976,
+                "h": 1748.59998,
+                "l": 1715.81006,
+                "c": 1716.089966,
+                "v": 1687625
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 1803.089966,
+                "h": 1860.99988,
+                "l": 1751.23,
+                "c": 1776,
+                "v": 4220850,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 1803.089966,
+                "h": 1860.99988,
+                "l": 1797.050049,
+                "c": 1834.28992,
+                "v": 3762923
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 40,
+          "ts_matched": 0,
+          "only_derived": 40,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1568
+    },
+    "TSLA": {
+      "10": {
+        "session": {
+          "stored": 915,
+          "derived": 915,
+          "ts_matched": 894,
+          "only_derived": 21,
+          "only_stored": 21,
+          "ohlc_matched": 894,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 915,
+          "derived": 915,
+          "ts_matched": 894,
+          "only_derived": 21,
+          "only_stored": 21,
+          "ohlc_matched": 894,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 618,
+          "derived": 618,
+          "ts_matched": 618,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 618,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 618,
+          "derived": 618,
+          "ts_matched": 618,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 618,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 316,
+          "derived": 316,
+          "ts_matched": 316,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 316,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 316,
+          "derived": 316,
+          "ts_matched": 316,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 316,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 169,
+          "ts_matched": 70,
+          "only_derived": 99,
+          "only_stored": 0,
+          "ohlc_matched": 60,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 418.25,
+                "h": 422.95,
+                "l": 415.23,
+                "c": 416.25,
+                "v": 8558423,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 418.25,
+                "h": 418.45999,
+                "l": 415.45999,
+                "c": 415.70999,
+                "v": 5016375
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 420.37,
+                "h": 424.14999,
+                "l": 419.84,
+                "c": 423.06,
+                "v": 3904863,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 420.37,
+                "h": 424.14999,
+                "l": 419.84,
+                "c": 423.73999,
+                "v": 3903607
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 422.81,
+                "h": 424,
+                "l": 421.81009,
+                "c": 423.02,
+                "v": 2671227,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 422.81,
+                "h": 423.82999,
+                "l": 421.81009,
+                "c": 423.73001,
+                "v": 2670231
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 160,
+          "ts_matched": 0,
+          "only_derived": 160,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 50,
+          "ts_matched": 20,
+          "only_derived": 30,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 420.98001,
+                "h": 432.7936,
+                "l": 415.156,
+                "c": 415.525,
+                "v": 15657491,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 420.98001,
+                "h": 421.70999,
+                "l": 415.45999,
+                "c": 415.70999,
+                "v": 12113139
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 421.54001,
+                "h": 424.14999,
+                "l": 419.79999,
+                "c": 422.58,
+                "v": 8709526,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 421.54001,
+                "h": 424.14999,
+                "l": 419.79999,
+                "c": 423.73999,
+                "v": 8708088
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 419.42999,
+                "h": 424.91,
+                "l": 395.7978,
+                "c": 422.668,
+                "v": 10132882,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 419.42999,
+                "h": 424.91,
+                "l": 418.54999,
+                "c": 423.73001,
+                "v": 10131288
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 40,
+          "ts_matched": 0,
+          "only_derived": 40,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1790
+    },
+    "XLE": {
+      "10": {
+        "session": {
+          "stored": 952,
+          "derived": 952,
+          "ts_matched": 944,
+          "only_derived": 8,
+          "only_stored": 8,
+          "ohlc_matched": 944,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 952,
+          "derived": 952,
+          "ts_matched": 944,
+          "only_derived": 8,
+          "only_stored": 8,
+          "ohlc_matched": 944,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "15": {
+        "session": {
+          "stored": 634,
+          "derived": 634,
+          "ts_matched": 634,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 634,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 634,
+          "derived": 634,
+          "ts_matched": 634,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 634,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "30": {
+        "session": {
+          "stored": 320,
+          "derived": 320,
+          "ts_matched": 320,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 320,
+          "ohlc_mismatch": 0,
+          "samples": []
+        },
+        "clock": {
+          "stored": 320,
+          "derived": 320,
+          "ts_matched": 320,
+          "only_derived": 0,
+          "only_stored": 0,
+          "ohlc_matched": 320,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "60": {
+        "session": {
+          "stored": 70,
+          "derived": 170,
+          "ts_matched": 70,
+          "only_derived": 100,
+          "only_stored": 0,
+          "ohlc_matched": 60,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780342200000,
+              "derived": {
+                "ts": 1780342200000,
+                "o": 57.3399,
+                "h": 57.47,
+                "l": 57.2,
+                "c": 57.2993,
+                "v": 5091514,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780342200000,
+                "o": 57.3399,
+                "h": 57.47,
+                "l": 57.2,
+                "c": 57.305,
+                "v": 3753336
+              }
+            },
+            {
+              "ts": 1780428600000,
+              "derived": {
+                "ts": 1780428600000,
+                "o": 58.105,
+                "h": 58.11,
+                "l": 57.93,
+                "c": 57.9613,
+                "v": 3910650,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780428600000,
+                "o": 58.105,
+                "h": 58.11,
+                "l": 57.93,
+                "c": 57.95,
+                "v": 3029462
+              }
+            },
+            {
+              "ts": 1780515000000,
+              "derived": {
+                "ts": 1780515000000,
+                "o": 58.945,
+                "h": 59,
+                "l": 58.61,
+                "c": 58.7681,
+                "v": 11274061,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780515000000,
+                "o": 58.945,
+                "h": 59,
+                "l": 58.69,
+                "c": 58.73,
+                "v": 7584634
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 70,
+          "derived": 160,
+          "ts_matched": 0,
+          "only_derived": 160,
+          "only_stored": 70,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "240": {
+        "session": {
+          "stored": 20,
+          "derived": 50,
+          "ts_matched": 20,
+          "only_derived": 30,
+          "only_stored": 0,
+          "ohlc_matched": 10,
+          "ohlc_mismatch": 10,
+          "samples": [
+            {
+              "ts": 1780335000000,
+              "derived": {
+                "ts": 1780335000000,
+                "o": 57.16,
+                "h": 57.47,
+                "l": 53.4532,
+                "c": 57.3,
+                "v": 13015071,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780335000000,
+                "o": 57.16,
+                "h": 57.47,
+                "l": 57.074299,
+                "c": 57.305,
+                "v": 11676893
+              }
+            },
+            {
+              "ts": 1780421400000,
+              "derived": {
+                "ts": 1780421400000,
+                "o": 58.060001,
+                "h": 58.17,
+                "l": 57.91,
+                "c": 58.0157,
+                "v": 7808935,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780421400000,
+                "o": 58.060001,
+                "h": 58.17,
+                "l": 57.93,
+                "c": 57.95,
+                "v": 6927747
+              }
+            },
+            {
+              "ts": 1780507800000,
+              "derived": {
+                "ts": 1780507800000,
+                "o": 59.099998,
+                "h": 59.14,
+                "l": 58.61,
+                "c": 58.6989,
+                "v": 20544580,
+                "finalized": true
+              },
+              "stored": {
+                "ts": 1780507800000,
+                "o": 59.099998,
+                "h": 59.14,
+                "l": 58.68,
+                "c": 58.73,
+                "v": 16855153
+              }
+            }
+          ]
+        },
+        "clock": {
+          "stored": 20,
+          "derived": 40,
+          "ts_matched": 0,
+          "only_derived": 40,
+          "only_stored": 20,
+          "ohlc_matched": 0,
+          "ohlc_mismatch": 0,
+          "samples": []
+        }
+      },
+      "base5": 1880
+    }
+  },
+  "totals": {
+    "10": {
+      "session": {
+        "ts_matched": 7919,
+        "ohlc_matched": 7919,
+        "ohlc_mismatch": 0,
+        "only_derived": 213,
+        "only_stored": 213
+      },
+      "clock": {
+        "ts_matched": 7919,
+        "ohlc_matched": 7919,
+        "ohlc_mismatch": 0,
+        "only_derived": 213,
+        "only_stored": 213
+      }
+    },
+    "15": {
+      "session": {
+        "ts_matched": 5477,
+        "ohlc_matched": 5477,
+        "ohlc_mismatch": 0,
+        "only_derived": 0,
+        "only_stored": 0
+      },
+      "clock": {
+        "ts_matched": 5477,
+        "ohlc_matched": 5477,
+        "ohlc_mismatch": 0,
+        "only_derived": 0,
+        "only_stored": 0
+      }
+    },
+    "30": {
+      "session": {
+        "ts_matched": 2804,
+        "ohlc_matched": 2804,
+        "ohlc_mismatch": 0,
+        "only_derived": 0,
+        "only_stored": 0
+      },
+      "clock": {
+        "ts_matched": 2804,
+        "ohlc_matched": 2804,
+        "ohlc_mismatch": 0,
+        "only_derived": 0,
+        "only_stored": 0
+      }
+    },
+    "60": {
+      "session": {
+        "ts_matched": 700,
+        "ohlc_matched": 613,
+        "ohlc_mismatch": 87,
+        "only_derived": 813,
+        "only_stored": 0
+      },
+      "clock": {
+        "ts_matched": 0,
+        "ohlc_matched": 0,
+        "ohlc_mismatch": 0,
+        "only_derived": 1438,
+        "only_stored": 700
+      }
+    },
+    "240": {
+      "session": {
+        "ts_matched": 200,
+        "ohlc_matched": 108,
+        "ohlc_mismatch": 92,
+        "only_derived": 257,
+        "only_stored": 0
+      },
+      "clock": {
+        "ts_matched": 0,
+        "ohlc_matched": 0,
+        "ohlc_mismatch": 0,
+        "only_derived": 378,
+        "only_stored": 200
+      }
+    }
+  }
+}
