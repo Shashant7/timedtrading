@@ -76,17 +76,30 @@ The candle store spans three workers, matching the existing role split. The DO i
 the single owner; the other workers bind it via `script_name="timed-trading-ingest"`
 (same pattern as PRICE_HUB etc. — no DO migration moves).
 
-| Concern | Worker / lane | How |
+| Concern | Worker / lane (TODAY) | How |
 |---|---|---|
-| **Feed** (fetch new 5m, additive) | **tt-feed** `*/1` (feed role) | the chain feed is a `*/1` lane → it belongs with the price feed on tt-feed, not the monolith. Cursor-based fetch → ingest into the DO. Needs the `CANDLE_CHAIN_SHARD` binding added to `worker-feed/wrangler.toml`. |
-| **Store + incremental materialize** | **CandleChainShard DO** (monolith-owned) | `ingest()` appends base + materializes the affected tail; `getSeriesMulti()` reads materialized O(N). |
-| **Read for scoring** | **tt-engine** `*/5` (engine role) | reads `getSeriesMulti` (materialized). Binding + `SCORE_CANDLE_SOURCE` added to `worker-engine/wrangler.toml` (done). |
+| **Feed** (fetch new 5m → DO) | **monolith** `*/1` (`_feedCandleChainDO`, gated by `CANDLE_CHAIN_INGEST`, RTH-only) | the monolith owns the DO + runs the residual `*/1` lanes. It keeps the chain fresh (verified). NOT on tt-feed (see below). |
+| **Store + incremental materialize** | **CandleChainShard DO** (monolith-owned) | `ingest()` appends base + materializes the affected tail (10/15/30/60) / W/M; `getSeriesMulti()` reads materialized O(N). |
+| **Read for scoring** | **tt-engine** `*/5` (engine role) | reads `getSeriesMulti` (materialized). Binding + `SCORE_CANDLE_SOURCE` added to `worker-engine/wrangler.toml` (DONE — this was the incident fix). |
 | **Admin / backfill / API** | **monolith** | owns the DO + the backfill + diagnostic endpoints. |
 
-So the build extends the decomposition rather than fighting it: the chain feed
-moves to the feed role (gated like the price feed), the DO stays the owner, and
-each role worker binds what its lane needs (the binding-parity rule from
-`skills/worker-topology.md`).
+**Topology reality + decomposition path.** `tt-feed` is a THIN worker
+(`main = feed-index.js`) that runs ONLY the price-QUOTE pipeline — it does NOT run
+the monolith bundle, so it can't run `_feedCandleChainDO` as-is. The chain candle
+feed is therefore a **monolith `*/1` lane** today (correct per the decomposition:
+the monolith runs lanes not yet externalized, and it owns the DO). The CRITICAL
+decomposition gap was that the *scorer* (`tt-engine`, a role-split that DOES run
+the bundle) lacked the `CANDLE_CHAIN_SHARD` binding — now fixed.
+
+To FINISH decomposing the candle feed off the monolith (so the monolith can reach
+its API-only end state), the clean move is to run the chain feed on a feed-role
+worker. Two options, deferred + documented:
+  (A) convert `tt-feed` to a ROLE SPLIT (like tt-engine/tt-research: same bundle,
+      `WORKER_ROLE="feed"`), so it runs ALL `*/1` lanes incl. the chain feed —
+      unifies the pattern; or
+  (B) add a `worker/feed/candle-feed.js` lane that the thin `feed-index.js` calls,
+      + the `CANDLE_CHAIN_SHARD` binding on `worker-feed/wrangler.toml`.
+Until then the monolith `*/1` chain feed is the correct, working placement.
 
 ## Build order (each step pure + unit-tested before wiring)
 1. `candle-store.js` (pure): incremental `materializeTail`, `upsertSeries`,
