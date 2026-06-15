@@ -2,7 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   windowForTf, makeChainGetCandlesFromBases, getSeriesFromBases,
-  makeHybridGetCandles, HYBRID_CHAIN_TFS,
+  makeHybridGetCandles, HYBRID_CHAIN_TFS, resolveScoreGetCandles,
 } from "./chain-series-adapter.js";
 import { evaluateScore } from "./score-contract.js";
 import { expectedIntradayBuckets, sessionBoundsUtc, tradingDaysInRange } from "./trading-calendar.js";
@@ -96,6 +96,37 @@ describe("chain-series-adapter: hybrid router (LTF→chain, rest→legacy)", () 
     const h2 = makeHybridGetCandles(chainGC, legacyGC, { chainTfs: ["10"] });
     expect((await h2({}, "X", "10")).source).toBe("chain");
     expect((await h2({}, "X", "60")).source).toBe("legacy");
+  });
+});
+
+describe("chain-series-adapter: reversible cutover resolver (default OFF)", () => {
+  const legacyGC = async (env, t, tf) => ({ ok: true, tf, source: "legacy", candles: [] });
+  const chainGC = async (env, t, tf) => ({ ok: true, tf, source: "chain", candles: [] });
+  const opts = { legacyGetCandles: legacyGC, chainGetCandles: chainGC };
+
+  it("defaults to LEGACY when the flag is unset (zero behavior change)", async () => {
+    const gc = resolveScoreGetCandles({}, opts);
+    expect((await gc({}, "X", "10")).source).toBe("legacy");
+    expect((await gc({}, "X", "240")).source).toBe("legacy");
+  });
+  it("hybrid_chain → chain LTF, legacy 240/D/W/M", async () => {
+    const gc = resolveScoreGetCandles({ SCORE_CANDLE_SOURCE: "hybrid_chain" }, opts);
+    expect((await gc({}, "X", "10")).source).toBe("chain");
+    expect((await gc({}, "X", "60")).source).toBe("chain");
+    expect((await gc({}, "X", "240")).source).toBe("legacy");
+    expect((await gc({}, "X", "D")).source).toBe("legacy");
+  });
+  it("full_chain → chain everywhere", async () => {
+    const gc = resolveScoreGetCandles({ SCORE_CANDLE_SOURCE: "full_chain" }, opts);
+    expect((await gc({}, "X", "240")).source).toBe("chain");
+  });
+  it("unknown flag value fails safe to legacy", async () => {
+    const gc = resolveScoreGetCandles({ SCORE_CANDLE_SOURCE: "bogus" }, opts);
+    expect((await gc({}, "X", "10")).source).toBe("legacy");
+  });
+  it("missing chain source ⇒ legacy regardless of flag", async () => {
+    const gc = resolveScoreGetCandles({ SCORE_CANDLE_SOURCE: "hybrid_chain" }, { legacyGetCandles: legacyGC });
+    expect((await gc({}, "X", "10")).source).toBe("legacy");
   });
 });
 

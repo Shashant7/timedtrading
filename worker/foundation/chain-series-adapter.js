@@ -124,3 +124,25 @@ export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {
       : legacyGetCandles(env, ticker, tf, limit);
   };
 }
+
+/**
+ * REVERSIBLE CUTOVER RESOLVER. Picks the candle source for the live score path
+ * based on `env.SCORE_CANDLE_SOURCE`:
+ *   • unset / "legacy" (DEFAULT) → the legacy per-TF reader (ZERO behavior change)
+ *   • "hybrid_chain"             → chain LTF (10/15/30/60) + legacy 240/D/W/M
+ *   • "full_chain"               → chain serves every TF (240 needs deep 5m)
+ *
+ * The flag defaults OFF, so wiring this into the scoring path is a no-op until
+ * the operator flips it — and flipping back is a one-value change. The chain
+ * source must be the DO hot-window (not D1) for the cutover to REDUCE D1 reads;
+ * pass that as `chainGetCandles`.
+ */
+export function resolveScoreGetCandles(env, { legacyGetCandles, chainGetCandles, chainTfs } = {}) {
+  const mode = String(env?.SCORE_CANDLE_SOURCE || "legacy").toLowerCase();
+  if (!chainGetCandles || mode === "legacy") return legacyGetCandles;
+  if (mode === "full_chain") return chainGetCandles;
+  if (mode === "hybrid_chain") {
+    return makeHybridGetCandles(chainGetCandles, legacyGetCandles, { chainTfs: chainTfs || HYBRID_CHAIN_TFS });
+  }
+  return legacyGetCandles; // unknown value ⇒ fail safe to legacy
+}
