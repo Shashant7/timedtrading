@@ -21,6 +21,7 @@
 
 import { ingestBase, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
 import { etDateStr } from "./trading-calendar.js";
+import { reconcileDailyRollup } from "./reconcile.js";
 
 /** Stable FNV-1a hash → shard index. Deterministic across runs/machines. */
 export function shardForTicker(ticker, numShards = 16) {
@@ -106,6 +107,17 @@ export class CandleChainShardCore {
   async integrity(ticker, { startMs, endMs }) {
     const base5 = await this.loadBase5(ticker, startMs, endMs);
     return checkBaseIntegrity(base5, { startMs, endMs });
+  }
+
+  /**
+   * Base-FIDELITY self-check (the "calculated vs source" guarantee): roll up the
+   * 5m base per day and compare High/Low/Volume to the stored provider daily
+   * bar. Any missing/extra/bad 5m bar surfaces here, anchor-independently.
+   */
+  async reconcileDaily(ticker, { startMs, endMs }, opts) {
+    const base5 = await this.loadBase5(ticker, startMs, endMs);
+    const daily = await this.loadBaseDaily(ticker);
+    return reconcileDailyRollup(base5, daily, opts);
   }
 
   /** List the tickers this shard currently holds 5m base for. */

@@ -60,6 +60,10 @@ export class CandleChainShard {
       if (request.method === "GET" && url.pathname === "/tickers") {
         return json({ ok: true, tickers: await this.core.listTickers() });
       }
+      if (request.method === "GET" && url.pathname === "/reconcile-daily") {
+        const p = url.searchParams;
+        return json({ ok: true, ...(await this.core.reconcileDaily(p.get("ticker"), { startMs: Number(p.get("start")), endMs: Number(p.get("end")) }, { requireOpenClose: p.get("oc") === "1" })) });
+      }
       if (request.method === "POST" && url.pathname === "/retention") {
         const b = await request.json();
         return this.state.blockConcurrencyWhile(async () => json({ ok: true, ...(await this.core.retentionSweep(b.ticker, Number(b.asOf) || Date.now())) }));
