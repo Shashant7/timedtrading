@@ -43,20 +43,31 @@ function median(nums) {
  * This is the determination LOGIC; the fetchers (TwelveData, Alpaca, web/exa,
  * Finnhub) are the wiring that feeds it.
  *
+ * Tolerance is the LARGER of an absolute floor (`priceTol`) and a relative band
+ * (`relTol` × anchor price). The relative band matters at high prices: a $950
+ * stock's 5m bars routinely differ by a few cents between SIP feeds (< 0.01%),
+ * which an absolute $0.02 floor alone would falsely flag as a disagreement
+ * (verified 2026-06-15 on MU 5m). Daily official OHLC are "round" and agree
+ * inside the absolute floor, so the default relTol is conservative.
+ *
  * @param {Object<string,{o?,h,l,c,v?}>} sources  e.g. { td:{...}, alpaca:{...}, web:{...} }
- * @param {Object} [opts] { fields=["h","l","c"], priceTol=0.02, quorum=2 }
+ * @param {Object} [opts] { fields=["h","l","c"], priceTol=0.02, relTol=0.0005, quorum=2 }
  * @returns {{ agreed:boolean, consensus:object, field_agreement:object,
  *             outliers:string[], sources:string[] }}
  */
 export function crossSourceConsensus(sources, opts = {}) {
   const fields = opts.fields || ["h", "l", "c"];
-  const tol = opts.priceTol ?? 0.02;
+  const absTol = opts.priceTol ?? 0.02;
+  const relTol = opts.relTol ?? 0.0005; // 5 bps of price
   const quorum = opts.quorum ?? 2;
   const names = Object.keys(sources || {});
   const consensus = {};
   const field_agreement = {};
   const outliers = new Set();
   let agreed = names.length >= quorum;
+
+  // Two prices agree if within max(absolute floor, relative band of their level).
+  const within = (a, b) => Math.abs(a - b) <= Math.max(absTol, relTol * Math.max(Math.abs(a), Math.abs(b)));
 
   for (const f of fields) {
     const vals = names
@@ -65,7 +76,7 @@ export function crossSourceConsensus(sources, opts = {}) {
     // largest cluster whose members are all within tol of an anchor
     let best = [];
     for (const a of vals) {
-      const g = vals.filter((b) => Math.abs(b.v - a.v) <= tol);
+      const g = vals.filter((b) => within(b.v, a.v));
       if (g.length > best.length) best = g;
     }
     field_agreement[f] = best.length;

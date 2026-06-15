@@ -1,0 +1,500 @@
+{
+  "generated_at": "2026-06-15T02:29:48.376Z",
+  "params": {
+    "tf": "D",
+    "start": "2026-06-01",
+    "end": "2026-06-12",
+    "priceTol": 0.02,
+    "basket": 45
+  },
+  "summary": {
+    "cases": 450,
+    "agreed": 447,
+    "agreement_pct": 99.33,
+    "disagreements": 3,
+    "missing_one_source": 0,
+    "volume_ratio_median_alpaca_over_td": 1.0006
+  },
+  "disagreements": [
+    {
+      "ticker": "INFL",
+      "day": "2026-06-02",
+      "td": {
+        "h": 52.34,
+        "l": 51.78,
+        "c": 52.31
+      },
+      "alpaca": {
+        "h": 52.34,
+        "l": 51.58,
+        "c": 52.28
+      },
+      "field_agreement": {
+        "h": 2,
+        "l": 1,
+        "c": 1
+      },
+      "delta": {
+        "h": 0,
+        "l": 0.2,
+        "c": 0.03
+      }
+    },
+    {
+      "ticker": "INFL",
+      "day": "2026-06-03",
+      "td": {
+        "h": 52.38,
+        "l": 52,
+        "c": 52
+      },
+      "alpaca": {
+        "h": 52.42,
+        "l": 51.95,
+        "c": 52.03
+      },
+      "field_agreement": {
+        "h": 1,
+        "l": 1,
+        "c": 1
+      },
+      "delta": {
+        "h": -0.04,
+        "l": 0.05,
+        "c": -0.03
+      }
+    },
+    {
+      "ticker": "INFL",
+      "day": "2026-06-04",
+      "td": {
+        "h": 52.575,
+        "l": 52.29,
+        "c": 52.45
+      },
+      "alpaca": {
+        "h": 52.595,
+        "l": 52.11,
+        "c": 52.45
+      },
+      "field_agreement": {
+        "h": 2,
+        "l": 1,
+        "c": 2
+      },
+      "delta": {
+        "h": -0.02,
+        "l": 0.18,
+        "c": 0
+      }
+    }
+  ],
+  "missing": [],
+  "perTicker": {
+    "AA": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "AAPL": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "AEHR": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "APD": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "BG": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "CLS": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "CSX": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "CW": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "DE": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "DIA": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "FIX": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "FN": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "FSLR": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "GEV": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "GRNY": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "GS": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "HIMX": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "INFL": {
+      "days": 10,
+      "agreed": 7,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 3,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "INTC": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "IWM": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "KO": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "LIT": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "LRN": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "MLI": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "MTZ": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "MU": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "NFLX": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "NXT": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "OKE": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "PWR": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "RPG": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "SANM": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "SNDK": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "SPY": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "STX": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "TLN": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "TSLA": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "TSM": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "TT": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "UNP": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "VMI": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "WDC": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "XLE": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "XLI": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "XYZ": {
+      "days": 10,
+      "agreed": 10,
+      "td_only": 0,
+      "alpaca_only": 0,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    }
+  }
+}

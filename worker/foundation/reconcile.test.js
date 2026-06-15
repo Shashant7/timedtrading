@@ -104,4 +104,27 @@ describe("crossSourceConsensus (cross-provider ground truth)", () => {
     expect(r.agreed).toBe(false);
     expect(r.consensus.h).toBeNull();
   });
+
+  it("uses a RELATIVE band at high prices (a few cents on a ~$950 5m bar agree)", () => {
+    // MU 5m 2026-06-08 ground truth: TD vs Alpaca differed by 0.02-0.25 on ~$955,
+    // i.e. < 0.03% — real agreement, not a disagreement.
+    const hi = {
+      td: { h: 961.75, l: 953.0, c: 954.87 },
+      alpaca: { h: 962.0, l: 953.0, c: 954.87 }, // H differs $0.25 (~0.026%)
+    };
+    // absolute-only floor would flag it...
+    expect(crossSourceConsensus(hi, { relTol: 0 }).agreed).toBe(false);
+    // ...the default relative band (5 bps) correctly accepts it.
+    expect(crossSourceConsensus(hi).agreed).toBe(true);
+    expect(crossSourceConsensus(hi).consensus.h).toBeGreaterThan(961);
+  });
+
+  it("still flags a genuine gross disagreement at high prices", () => {
+    const r = crossSourceConsensus({
+      td: { h: 961.75, l: 953.0, c: 954.87 },
+      alpaca: { h: 980.0, l: 953.0, c: 954.87 }, // H off by ~2% → real outlier
+    });
+    expect(r.field_agreement.h).toBe(1);
+    expect(r.consensus.h).toBeNull();
+  });
 });

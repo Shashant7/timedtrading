@@ -1,0 +1,3808 @@
+{
+  "generated_at": "2026-06-15T02:29:50.736Z",
+  "params": {
+    "tf": "5",
+    "start": "2026-06-08",
+    "end": "2026-06-09",
+    "priceTol": 0.02,
+    "basket": 5
+  },
+  "summary": {
+    "cases": 772,
+    "agreed": 771,
+    "agreement_pct": 99.87,
+    "disagreements": 1,
+    "missing_one_source": 743,
+    "volume_ratio_median_alpaca_over_td": 1.0015
+  },
+  "disagreements": [
+    {
+      "ticker": "INFL",
+      "day": "1780927800000",
+      "td": {
+        "h": 51.18,
+        "l": 51.15,
+        "c": 51.15
+      },
+      "alpaca": {
+        "h": 51.18,
+        "l": 51.155,
+        "c": 51.18
+      },
+      "field_agreement": {
+        "h": 2,
+        "l": 2,
+        "c": 1
+      },
+      "delta": {
+        "h": 0,
+        "l": -0.005,
+        "c": -0.03
+      }
+    }
+  ],
+  "missing": [
+    {
+      "ticker": "AAPL",
+      "day": "1780905600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780905900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780906200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780906500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780906800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780907100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780907400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780907700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780908000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780908300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780908600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780908900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780909200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780909500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780909800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780910100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780910400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780910700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780911000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780911300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780911600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780911900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780912200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780912500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780912800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780913100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780913400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780913700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780914000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780914300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780914600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780914900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780915200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780915500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780915800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780916100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780916400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780916700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780917000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780917300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780917600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780917900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780918200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780918500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780918800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780919100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780919400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780919700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780920000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780920300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780920600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780920900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780921200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780921500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780921800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780922100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780922400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780922700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780923000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780923300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780923600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780923900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780924200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780924500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780924800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780925100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780948800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780949100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780949400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780949700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780950000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780950300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780950600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780950900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780951200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780951500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780951800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780952100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780952400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780952700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780953000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780953300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780953600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780953900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780954200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780954500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780954800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780955100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780955400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780955700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780956000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780956300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780956600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780956900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780957200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780957500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780957800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780958100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780958400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780958700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780959000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780959300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780959600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780959900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780960200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780960500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780960800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780961100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780961400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780961700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780962000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780962300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780962600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780962900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780992000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780992300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780992600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780992900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780993200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780993500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780993800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780994100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780994400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780994700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780995000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780995300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780995600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780995900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780996200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780996500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780996800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780997100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780997400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780997700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780998000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780998300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780998600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780998900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780999200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780999500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1780999800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781000100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781000400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781000700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781001000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781001300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781001600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781001900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781002200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781002500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781002800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781003100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781003400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781003700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781004000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781004300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781004600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781004900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781005200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781005500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781005800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781006100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781006400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781006700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781007000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781007300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781007600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781007900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781008200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781008500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781008800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781009100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781009400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781009700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781010000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781010300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781010600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781010900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781011200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781011500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781035200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781035500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781035800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781036100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781036400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781036700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781037000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781037300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781037600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781037900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781038200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781038500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781038800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781039100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781039400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781039700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781040000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781040300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781040600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781040900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781041200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781041500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781041800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781042100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781042400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781042700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781043000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781043300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781043600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781043900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781044200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781044500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781044800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781045100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781045400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781045700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781046000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781046300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781046600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781046900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781047200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781047500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781047800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781048100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781048400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781048700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781049000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "AAPL",
+      "day": "1781049300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780905600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780905900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780906200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780906500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780906800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780907100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780907400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780907700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780908000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780908300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780908600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780908900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780909200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780909500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780909800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780910100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780910400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780910700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780911000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780911300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780911600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780911900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780912200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780912500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780912800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780913100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780913400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780913700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780914000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780914300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780914600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780914900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780915200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780915500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780915800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780916100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780916400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780916700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780917000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780917300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780917600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780917900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780918200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780918500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780918800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780919100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780919400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780919700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780920000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780920300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780920600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780920900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780921200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780921500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780921800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780922100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780922400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780922700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780923000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780923300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780923600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780923900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780924200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780924500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780924800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780925100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780948800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780949100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780949400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780949700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780950000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780950300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780950600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780950900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780951200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780951500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780951800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780952100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780952400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780952700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780953000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780953300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780953600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780953900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780954200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780954500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780954800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780955100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780955400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780955700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780956000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780956300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780956600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780956900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780957200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780957500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780957800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780958100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780958400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780958700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780959000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780959300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780959600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780959900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780960200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780960500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780960800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780961100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780961400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780961700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780962000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780962300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780962600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780962900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780992000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780992300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780992600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780992900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780993200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780993500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780993800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780994100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780994400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780994700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780995000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780995300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780995600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780995900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780996200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780996500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780996800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780997100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780997400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780997700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780998000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780998300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780998600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780998900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780999200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780999500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1780999800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781000100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781000400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781000700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781001000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781001300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781001600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781001900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781002200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781002500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781002800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781003100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781003400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781003700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781004000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781004300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781004600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781004900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781005200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781005500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781005800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781006100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781006400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781006700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781007000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781007300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781007600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781007900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781008200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781008500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781008800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781009100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781009400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781009700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781010000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781010300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781010600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781010900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781011200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781011500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781035200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781035500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781035800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781036100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781036400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781036700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781037000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781037300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781037600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781037900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781038200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781038500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781038800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781039100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781039400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781039700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781040000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781040300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781040600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781040900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781041200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781041500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781041800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781042100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781042400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781042700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781043000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781043300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781043600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781043900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781044200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781044500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781044800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781045100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781045400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781045700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781046000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781046300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781046600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781046900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781047200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781047500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781047800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781048100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781048400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781048700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781049000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "MU",
+      "day": "1781049300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780905600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780906500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780911300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780913100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780913400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780916400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780917000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780917900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780918200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780919100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780919400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780919700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780920000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780920300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780921200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780921500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780921800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780922100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780922400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780922700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780923000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780923300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780923600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780923900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780924200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780924500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780924800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780925100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780948800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780949100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780951800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780955100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780956000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780956300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780956600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780959000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780961100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780962600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780992000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780993500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1780994100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781002800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781003400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781004000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781004600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781005200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781005800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781006700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781007000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781008200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781008500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781009100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781009700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781010000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781010300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781010600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781011200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781011500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781035200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781035500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781037300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781040300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781042700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781046900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781047200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781047500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781048100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "GS",
+      "day": "1781049300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780905600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780905900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780906200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780906500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780906800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780907400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780907700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780908000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780908300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780908600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780908900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780909500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780909800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780910100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780910400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780910700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780911000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780911300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780911600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780911900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780912800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780913100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780913400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780913700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780914000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780914300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780914600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780914900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780915200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780915500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780915800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780916100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780916400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780916700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780917000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780917300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780917600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780917900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780918200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780918500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780918800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780919100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780919400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780919700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780920000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780920300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780920600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780920900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780921200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780921500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780921800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780922100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780922400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780922700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780923000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780923300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780923600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780923900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780924200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780924500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780924800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780925100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780948800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780949100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780949400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780949700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780950000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780950300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780950600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780950900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780951200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780951500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780951800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780952100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780952700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780953000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780953600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780953900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780954200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780954800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780955100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780955400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780955700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780956000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780956300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780956600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780956900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780957200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780957500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780957800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780958100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780958400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780958700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780959000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780959300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780959600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780959900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780960200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780960500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780960800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780961100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780961400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780961700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780962000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780962300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780962600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780962900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780992000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780992300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780992600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780993200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780993800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780994100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780994700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780995300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780995600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780996200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780996500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780996800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780997100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780997400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780998000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780998300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780998600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780998900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780999200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780999500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1780999800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781000100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781000400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781000700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781001000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781001600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781001900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781002200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781002800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781003100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781003400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781003700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781004000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781004300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781004600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781004900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781005200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781005500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781005800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781006100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781006400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781006700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781007000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781007300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781007600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781007900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781008200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781008500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781008800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781009100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781009400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781009700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781010000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781010300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781010600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781010900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781011200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781011500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781035200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781035500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781035800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781036100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781036400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781036700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781037000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781037300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781037600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781037900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781038200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781038500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781038800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781039100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781039400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781039700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781040000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781040300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781040600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781040900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781041200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781041500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781041800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781042100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781042400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781042700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781043000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781043300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781043600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781043900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781044200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781044500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781044800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781045100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781045700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781046000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781046300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781046600000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781046900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781047200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781047500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781047800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781048100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781048400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781048700000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781049000000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "NFLX",
+      "day": "1781049300000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780919400000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780948800000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780955100000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780957200000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780957500000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1780959900000",
+      "present": "alpaca"
+    },
+    {
+      "ticker": "INFL",
+      "day": "1781035200000",
+      "present": "alpaca"
+    }
+  ],
+  "perTicker": {
+    "AAPL": {
+      "days": 156,
+      "agreed": 156,
+      "td_only": 0,
+      "alpaca_only": 228,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "MU": {
+      "days": 156,
+      "agreed": 156,
+      "td_only": 0,
+      "alpaca_only": 228,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "GS": {
+      "days": 156,
+      "agreed": 156,
+      "td_only": 0,
+      "alpaca_only": 68,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "NFLX": {
+      "days": 156,
+      "agreed": 156,
+      "td_only": 0,
+      "alpaca_only": 212,
+      "disagree": 0,
+      "td_error": null,
+      "alpaca_error": null
+    },
+    "INFL": {
+      "days": 148,
+      "agreed": 147,
+      "td_only": 0,
+      "alpaca_only": 7,
+      "disagree": 1,
+      "td_error": null,
+      "alpaca_error": null
+    }
+  }
+}
