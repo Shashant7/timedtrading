@@ -101,6 +101,41 @@ separately and reconcile** — affects htf by <1 pt today. Everything else
 reproduces the backtest. The TRUE parity target remains **chain-live ≡
 chain-replay** (0 by construction once both read the chain with this policy).
 
+## "Fix weekly?" — diagnosed 2026-06-15: weekly is NOT broken; it's DEPTH
+
+Operator asked if weekly is the next fix. Investigated:
+- The chain's **resampled weekly OHLC is byte-identical to the legacy stored
+  weekly** week-for-week (GS last 6 weeks O/H/L/C match to the penny). The only
+  difference is a cosmetic timestamp on holiday-shortened weeks (chain anchors
+  the bar at the first *trading* day, e.g. Tue 05-26 after Memorial Day; legacy
+  at the ISO Monday 05-25) — self-consistent for the chain. **No resample bug.**
+- The htf residual is **history depth + the W/M storage model**, not weekly
+  logic. Pre-prod's stored series for GS:
+  - daily = 908 rows / **490 unique days** (rest are the 2025 00:00Z/04:00Z
+    double-write the chain correctly dedups), only **2024-07 → 2026-06 (~2yr)**.
+  - **M = 44 bars (< 50 scoring threshold → legacy MONTHLY bundle is NULL)**.
+  - W = 191 rows but ~104 unique weeks (also double-write-inflated, ~2yr).
+  So the pre-prod-legacy HTF was computed on a **shallow, double-write-
+  contaminated** history with **no monthly and no weekly EMA200**.
+- Deepening the chain's daily base to 2020 (≈1620 bars) made the chain derive
+  **clean, deep** W/M — which then DIVERGED MORE from the shallow pre-prod
+  legacy (htf 4/10 → 1/10 exact). That is the chain being **more correct**, not
+  a regression: the pre-prod legacy is the confounded side (Phase 0 confound #1).
+
+### Conclusion + corrected next step
+- **Do not "fix weekly"** — the resample is correct.
+- The pre-prod legacy is the WRONG parity baseline (shallow + double-write). The
+  right target is **chain vs LIVE deep scores**, and ultimately **chain-replay ≡
+  chain-live** (0 by construction).
+- Next, in order:
+  1. **W/M derivation decision (§9.4)**: keep W/M **derived from a deep, deduped
+     daily base** (recommended — already byte-exact on OHLC and removes the
+     double-write) vs fetch-separately. This is strategy-affecting → operator call.
+  2. **Deepen the chain base across the basket** to match live depth: daily to
+     ~5yr (done for the 10-ticker sample) for W/M EMA200; **5m to several months
+     for 240** (the last depth gap — 240 still can't build on a 10-day window).
+  3. Run parity **chain-deep vs LIVE deep** (or chain≡chain) and wire the CI gate.
+
 ## Remaining for the full 45/45 re-run (deep-base requirement)
 - The shadow chain holds only a 10-day 5m base, so HTF `240` (and deep `M`) can't
   be exercised from 5m yet. Deepen the chain 5m base (Alpaca/TD; months) + the

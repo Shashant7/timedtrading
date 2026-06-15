@@ -1,6 +1,6 @@
 {
   "contract": "chain_indicator_parity_v1",
-  "generated_at": "2026-06-15T03:34:14.756Z",
+  "generated_at": "2026-06-15T11:08:32.604Z",
   "db": "timed-trading-ledger-preprod",
   "window": {
     "start": "2026-06-01",
@@ -16,12 +16,12 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 16.7,
+        "htf": 22.7,
         "ltf": -13.8,
         "state": "HTF_BULL_LTF_PULLBACK",
         "leadingLtf": "10"
       },
-      "htf_equal": true,
+      "htf_equal": false,
       "ltf_equal": true,
       "state_equal": true,
       "per_tf": {
@@ -134,10 +134,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 68.77,
+            "emaDepth": 10,
+            "emaStructure": 1,
+            "emaMomentum": 0.8,
+            "stDir": -1,
+            "rsi": 63.28,
+            "atrRatio": 1.25,
+            "phaseZone": "MEDIUM"
+          },
           "equal": null,
           "legacy_bars": 45,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -152,17 +161,17 @@
           },
           "chain": {
             "px": 68.77,
-            "emaDepth": 9,
+            "emaDepth": 12,
             "emaStructure": 1,
             "emaMomentum": 0.09999999999999998,
             "stDir": -1,
-            "rsi": 57.85,
+            "rsi": 57.86,
             "atrRatio": 1.2,
             "phaseZone": "LOW"
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -186,8 +195,8 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 913,
-          "chain_bars": 490
+          "legacy_bars": 2043,
+          "chain_bars": 1620
         }
       }
     },
@@ -199,7 +208,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 17.8,
+        "htf": 24.3,
         "ltf": -17.4,
         "state": "HTF_BULL_LTF_PULLBACK",
         "leadingLtf": "10"
@@ -317,10 +326,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 291.13,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 63.81,
+            "atrRatio": 1.14,
+            "phaseZone": "MEDIUM"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -335,17 +353,17 @@
           },
           "chain": {
             "px": 291.13,
-            "emaDepth": 8,
+            "emaDepth": 11,
             "emaStructure": 1,
             "emaMomentum": 0.09999999999999998,
             "stDir": -1,
-            "rsi": 58.45,
+            "rsi": 58.46,
             "atrRatio": 1.13,
             "phaseZone": "LOW"
           },
           "equal": false,
           "legacy_bars": 274,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -369,8 +387,8 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 919,
-          "chain_bars": 490
+          "legacy_bars": 2049,
+          "chain_bars": 1620
         }
       }
     },
@@ -382,7 +400,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 14.4,
+        "htf": 20.3,
         "ltf": 15.5,
         "state": "HTF_BULL_LTF_BULL",
         "leadingLtf": "10"
@@ -500,10 +518,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 393.12,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 75.22,
+            "atrRatio": 2.01,
+            "phaseZone": "HIGH"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -518,7 +545,7 @@
           },
           "chain": {
             "px": 393.12,
-            "emaDepth": 12,
+            "emaDepth": 15,
             "emaStructure": 1,
             "emaMomentum": 1,
             "stDir": -1,
@@ -528,7 +555,7 @@
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -552,8 +579,8 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -565,7 +592,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 17,
+        "htf": 23.6,
         "ltf": -9.5,
         "state": "HTF_BULL_LTF_PULLBACK",
         "leadingLtf": "10"
@@ -683,10 +710,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 267.31,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 59.25,
+            "atrRatio": 1.13,
+            "phaseZone": "LOW"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -701,7 +737,7 @@
           },
           "chain": {
             "px": 267.31,
-            "emaDepth": 11,
+            "emaDepth": 14,
             "emaStructure": 1,
             "emaMomentum": 0.8,
             "stDir": -1,
@@ -711,7 +747,7 @@
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -735,8 +771,8 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -748,7 +784,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 24.3,
+        "htf": 30.4,
         "ltf": 20.2,
         "state": "HTF_BULL_LTF_BULL",
         "leadingLtf": "10"
@@ -866,10 +902,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 1062.75,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 80.37,
+            "atrRatio": 1.3,
+            "phaseZone": "EXTREME"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -884,7 +929,7 @@
           },
           "chain": {
             "px": 1062.75,
-            "emaDepth": 12,
+            "emaDepth": 15,
             "emaStructure": 1,
             "emaMomentum": 1,
             "stDir": -1,
@@ -894,7 +939,7 @@
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -918,8 +963,8 @@
             "phaseZone": "MEDIUM"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -931,7 +976,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 17.9,
+        "htf": 23.5,
         "ltf": 16.9,
         "state": "HTF_BULL_LTF_BULL",
         "leadingLtf": "10"
@@ -1049,10 +1094,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 981.61,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 87.43,
+            "atrRatio": 2.9,
+            "phaseZone": "EXTREME"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -1067,7 +1121,7 @@
           },
           "chain": {
             "px": 981.61,
-            "emaDepth": 12,
+            "emaDepth": 15,
             "emaStructure": 1,
             "emaMomentum": 1,
             "stDir": -1,
@@ -1077,7 +1131,7 @@
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -1101,8 +1155,8 @@
             "phaseZone": "MEDIUM"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -1114,7 +1168,7 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": -18.5,
+        "htf": -13.7,
         "ltf": -22.6,
         "state": "HTF_BEAR_LTF_BEAR",
         "leadingLtf": "10"
@@ -1232,10 +1286,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 80.34,
+            "emaDepth": 3,
+            "emaStructure": 0.2,
+            "emaMomentum": -1,
+            "stDir": 1,
+            "rsi": 45.04,
+            "atrRatio": 1.1,
+            "phaseZone": "LOW"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -1250,17 +1313,17 @@
           },
           "chain": {
             "px": 80.34,
-            "emaDepth": 0,
-            "emaStructure": -1,
+            "emaDepth": 2,
+            "emaStructure": -0.04000000000000001,
             "emaMomentum": -1,
             "stDir": -1,
-            "rsi": 36.15,
+            "rsi": 36.16,
             "atrRatio": 0.91,
             "phaseZone": "LOW"
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -1284,8 +1347,8 @@
             "phaseZone": "MEDIUM"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -1480,12 +1543,12 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 9.1,
+        "htf": 17.2,
         "ltf": 14.2,
         "state": "HTF_BULL_LTF_BULL",
         "leadingLtf": "10"
       },
-      "htf_equal": true,
+      "htf_equal": false,
       "ltf_equal": true,
       "state_equal": true,
       "per_tf": {
@@ -1598,10 +1661,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 406.43,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 57.51,
+            "atrRatio": 0.98,
+            "phaseZone": "LOW"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -1616,17 +1688,17 @@
           },
           "chain": {
             "px": 406.43,
-            "emaDepth": 8,
+            "emaDepth": 11,
             "emaStructure": 1,
             "emaMomentum": 0.09999999999999998,
             "stDir": 1,
-            "rsi": 50.63,
+            "rsi": 50.64,
             "atrRatio": 1.03,
             "phaseZone": "LOW"
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -1650,8 +1722,8 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     },
@@ -1663,12 +1735,12 @@
         "leadingLtf": "10"
       },
       "chain": {
-        "htf": 11.3,
+        "htf": 17.7,
         "ltf": -15.1,
         "state": "HTF_BULL_LTF_PULLBACK",
         "leadingLtf": "10"
       },
-      "htf_equal": true,
+      "htf_equal": false,
       "ltf_equal": true,
       "state_equal": true,
       "per_tf": {
@@ -1781,10 +1853,19 @@
         },
         "M": {
           "legacy": null,
-          "chain": null,
+          "chain": {
+            "px": 57.55,
+            "emaDepth": 11,
+            "emaStructure": 1,
+            "emaMomentum": 1,
+            "stDir": -1,
+            "rsi": 68.37,
+            "atrRatio": 1.11,
+            "phaseZone": "MEDIUM"
+          },
           "equal": null,
           "legacy_bars": 44,
-          "chain_bars": 25
+          "chain_bars": 78
         },
         "W": {
           "legacy": {
@@ -1799,7 +1880,7 @@
           },
           "chain": {
             "px": 57.55,
-            "emaDepth": 9,
+            "emaDepth": 12,
             "emaStructure": 1,
             "emaMomentum": 0.09999999999999998,
             "stDir": -1,
@@ -1809,7 +1890,7 @@
           },
           "equal": false,
           "legacy_bars": 191,
-          "chain_bars": 102
+          "chain_bars": 337
         },
         "D": {
           "legacy": {
@@ -1833,18 +1914,18 @@
             "phaseZone": "LOW"
           },
           "equal": true,
-          "legacy_bars": 908,
-          "chain_bars": 490
+          "legacy_bars": 2038,
+          "chain_bars": 1620
         }
       }
     }
   },
   "summary": {
     "tickers": 10,
-    "htf_match": 4,
+    "htf_match": 1,
     "ltf_match": 10,
     "state_match": 10,
-    "htf_match_pct": 40,
+    "htf_match_pct": 10,
     "ltf_match_pct": 100,
     "state_match_pct": 100,
     "per_tf_field_match": {
