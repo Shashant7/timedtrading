@@ -8,7 +8,34 @@
 // behavior via the exported authenticateUser().
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { authenticateUser } from "./api.js";
+import { authenticateUser, requireIngestKey } from "./api.js";
+
+function ingestReq(url) { return new Request(url, { method: "POST" }); }
+function ingestReqHdr(url, hdr) { return new Request(url, { method: "POST", headers: hdr }); }
+
+describe("requireIngestKey — TradingView webhook auth (?key= always allowed; dedicated TV key)", () => {
+  const ENV_BOTH = { TIMED_API_KEY: "main-key", TV_INGEST_KEY: "tv-key", ALLOW_QUERY_API_KEY: "false" };
+  it("accepts the dedicated TV_INGEST_KEY via ?key= even when ALLOW_QUERY_API_KEY=false", () => {
+    expect(requireIngestKey(ingestReq("https://w/timed/ingest-candles?key=tv-key"), ENV_BOTH)).toBeNull();
+  });
+  it("accepts the main TIMED_API_KEY via ?key= (TV can't send headers)", () => {
+    expect(requireIngestKey(ingestReq("https://w/timed/ingest-candles?key=main-key"), ENV_BOTH)).toBeNull();
+  });
+  it("accepts either key via X-API-Key header too", () => {
+    expect(requireIngestKey(ingestReqHdr("https://w/timed/ingest-candles", { "X-API-Key": "tv-key" }), ENV_BOTH)).toBeNull();
+  });
+  it("rejects a wrong/stale key (the 401 the operator saw)", () => {
+    const r = requireIngestKey(ingestReq("https://w/timed/ingest-candles?key=stale-old-key"), ENV_BOTH);
+    expect(r).not.toBeNull();
+    expect(r.status).toBe(401);
+  });
+  it("rejects when no key configured at all", () => {
+    expect(requireIngestKey(ingestReq("https://w/timed/ingest-candles?key=x"), {}).status).toBe(401);
+  });
+  it("still works with only the main key set (TV_INGEST_KEY unset)", () => {
+    expect(requireIngestKey(ingestReq("https://w/timed/ingest-candles?key=main-key"), { TIMED_API_KEY: "main-key" })).toBeNull();
+  });
+});
 
 function b64url(obj) {
   return Buffer.from(JSON.stringify(obj))

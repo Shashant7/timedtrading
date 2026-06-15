@@ -170,6 +170,37 @@ export function requireKeyOr401(req, env) {
   );
 }
 
+/**
+ * Auth for TradingView webhook INGEST endpoints (candle / heartbeat capture).
+ *
+ * TradingView webhooks CANNOT send custom headers — only a URL + JSON body — so
+ * these endpoints MUST accept a `?key=` query param. They accept EITHER the main
+ * `TIMED_API_KEY` OR a dedicated, independently-rotatable `TV_INGEST_KEY`. This
+ * decouples the webhook from the admin key: rotating the admin key (or the
+ * security migration that flips `ALLOW_QUERY_API_KEY=false`) must NEVER silently
+ * 401 the candle capture and leave prices stale — the 2026-06-15 incident.
+ *
+ * Low-privilege by design: only the ingest/heartbeat routes use this, so the TV
+ * key can be a simple, rotatable value that grants candle capture and nothing
+ * else. `?key=` is always permitted here (TV's only option) regardless of the
+ * global `ALLOW_QUERY_API_KEY` flag.
+ */
+export function requireIngestKey(req, env) {
+  const keys = [env.TV_INGEST_KEY, env.TIMED_API_KEY].filter(Boolean);
+  if (keys.length === 0) {
+    return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+  }
+  const headerKey =
+    req.headers.get("X-API-Key") ||
+    (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (headerKey && keys.includes(headerKey)) return null;
+  try {
+    const qKey = new URL(req.url).searchParams.get("key");
+    if (qKey && keys.includes(qKey)) return null;
+  } catch (_) { /* malformed URL → fall through to 401 */ }
+  return sendJSON({ ok: false, error: "unauthorized" }, 401, corsHeaders(env, req));
+}
+
 // COST OPTIMIZATION: Rate limiting now uses Workers Cache API (caches.default)
 // instead of KV. The Cache API is free and eliminates ~6-10M KV read+write
 // operations per month (~$15-25/month savings).
