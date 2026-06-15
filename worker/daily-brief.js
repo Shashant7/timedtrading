@@ -27,6 +27,67 @@ import {
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
 
+/** Live session spot from a timed:prices row — extended print when RTH is closed. */
+export function liveSpotFromPriceFeedRow(row, marketOpen = true) {
+  if (!row) return null;
+  const rthP = Number(row.p);
+  const extP = Number(row.ahp);
+  if (!marketOpen && Number.isFinite(extP) && extP > 0) return extP;
+  return Number.isFinite(rthP) && rthP > 0 ? rthP : null;
+}
+
+/** Session-aware day change % from a timed:prices row. */
+export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
+  if (!row) return null;
+  if (!marketOpen) {
+    const ahDp = Number(row.ahdp);
+    if (Number.isFinite(ahDp) && ahDp !== 0) return ahDp;
+    const spot = liveSpotFromPriceFeedRow(row, false);
+    const pc = Number(row.pc);
+    if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0) {
+      return Math.round(((spot - pc) / pc) * 10000) / 100;
+    }
+  }
+  const dp = Number(row.dp);
+  return Number.isFinite(dp) ? dp : null;
+}
+
+/** Session-aware day change $ from a timed:prices row. */
+export function liveDayChgFromPriceFeedRow(row, marketOpen = true) {
+  if (!row) return null;
+  if (!marketOpen) {
+    const ahDc = Number(row.ahdc);
+    if (Number.isFinite(ahDc) && ahDc !== 0) return ahDc;
+    const spot = liveSpotFromPriceFeedRow(row, false);
+    const pc = Number(row.pc);
+    if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0) {
+      return Math.round((spot - pc) * 100) / 100;
+    }
+  }
+  const dc = Number(row.dc);
+  return Number.isFinite(dc) ? dc : null;
+}
+
+function buildPremarketGapContext(pf, marketOpen) {
+  if (marketOpen || !pf || typeof pf !== "object") return null;
+  const lines = [];
+  for (const sym of ["SPY", "QQQ", "IWM", "ES1!", "NQ1!", "DIA"]) {
+    const row = pf[sym];
+    const pc = Number(row?.pc);
+    const spot = liveSpotFromPriceFeedRow(row, false);
+    if (!Number.isFinite(pc) || !Number.isFinite(spot) || pc <= 0) continue;
+    const gapPct = ((spot - pc) / pc) * 100;
+    if (Math.abs(gapPct) >= 0.35) {
+      lines.push(
+        `${sym}: prior close $${pc.toFixed(2)} → pre-market $${spot.toFixed(2)} `
+        + `(${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(2)}% gap). Price is ALREADY away from Friday's close — `
+        + `do NOT describe the open as "inside range" or "near prior close".`,
+      );
+    }
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // D1 Schema
 // ═══════════════════════════════════════════════════════════════════════
@@ -1164,6 +1225,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const isHoliday = cal ? isEquityHoliday(cal, today) : false;
   const isEarlyClose = cal ? isEquityEarlyClose(cal, today) : false;
   const dayOfWeekLabel = getETWeekdayLabel();
+  const mktOpen = cal ? isNyRegularMarketOpen(cal, new Date()) : false;
 
   // Parallel data fetching
   let [
@@ -1342,7 +1404,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   // Validate market data — if scoring payload has stale or absurd data, fix using price feed.
   // ES≠SPY and NQ≠QQQ in price scale, but daily change % IS comparable.
-  function validateMarketData(data, ticker, proxyTicker, pf, sameScale) {
+  function validateMarketData(data, ticker, proxyTicker, pf, sameScale, marketOpen) {
     if (!data) return data;
     const price = Number(data.price) || 0;
     const dayPct = Number(data.day_change_pct) || 0;
@@ -1351,8 +1413,16 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     const pfData = (pfExact && Number(pfExact.p) > 0) ? pfExact : pfProxy;
     if (!pfData || !Number(pfData.p)) return data;
 
-    const proxyPct = Number(pfData.dp) || 0;
+    const liveSpot = liveSpotFromPriceFeedRow(pfData, marketOpen);
+    const livePct = liveDayPctFromPriceFeedRow(pfData, marketOpen);
+    const liveChg = liveDayChgFromPriceFeedRow(pfData, marketOpen);
+    const proxyPct = Number.isFinite(livePct) ? livePct : (Number(pfData.dp) || 0);
+    const proxyChg = Number.isFinite(liveChg) ? liveChg : (Number(pfData.dc) || 0);
     const needsFix = price <= 0 || Math.abs(dayPct) > 5;
+    const needsPremarket = !marketOpen
+      && Number.isFinite(liveSpot)
+      && liveSpot > 0
+      && (price <= 0 || Math.abs(liveSpot - price) > 0.05);
     const ts = Number(data.ts || data.ingest_ts) || 0;
     const ageH = ts > 0 ? (Date.now() - ts) / 3600000 : 999;
     // 2026-05-26 — Morning Daily Brief was rendering SPY/QQQ/IWM
@@ -1371,13 +1441,15 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     const pfFresher = pfTs > 0 && pfTs > ts && ageH * 60 > 30;
     const isStale = ageH > 24 || pfFresher;
 
-    if (needsFix || isStale) {
-      const reason = needsFix
-        ? `stale (price=${price}, dayPct=${dayPct}%)`
-        : (pfFresher
-          ? `${ageH.toFixed(1)}h old, price-feed fresher (pf_ts ${Math.round((Date.now() - pfTs) / 60000)}m vs data ${Math.round((Date.now() - ts) / 60000)}m)`
-          : `${ageH.toFixed(0)}h old`);
-      console.log(`[BRIEF] ${ticker} data ${reason}. Using ${proxyTicker} change % from price feed.`);
+    if (needsFix || isStale || needsPremarket) {
+      const reason = needsPremarket
+        ? `pre-market spot $${liveSpot} vs stale $${price}`
+        : needsFix
+          ? `stale (price=${price}, dayPct=${dayPct}%)`
+          : (pfFresher
+            ? `${ageH.toFixed(1)}h old, price-feed fresher (pf_ts ${Math.round((Date.now() - pfTs) / 60000)}m vs data ${Math.round((Date.now() - ts) / 60000)}m)`
+            : `${ageH.toFixed(0)}h old`);
+      console.log(`[BRIEF] ${ticker} data ${reason}. Using ${pfData === pfExact ? ticker : proxyTicker} from price feed.`);
 
       // Always safe to copy daily change percentage from the chosen feed source.
       data.day_change_pct = proxyPct;
@@ -1387,31 +1459,39 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       }
 
       if (pfData === pfExact || sameScale) {
-        // SPY→SPY, QQQ→QQQ: price scales match, copy price and dollar change
-        // Also applies to ES1!/NQ1! when exact futures feed is present.
-        data.price = Number(pfData.p);
-        data.day_change = Number(pfData.dc) || 0;
+        // SPY→SPY, QQQ→QQQ: price scales match, copy live/pre-market spot.
+        if (Number.isFinite(liveSpot) && liveSpot > 0) {
+          data.price = liveSpot;
+          data.day_change = proxyChg;
+        }
+      } else if (pfData === pfExact && Number.isFinite(liveSpot) && liveSpot > 0) {
+        // ES1!/NQ1!: own scale but exact futures row — use live/pre-market spot.
+        data.price = liveSpot;
+        data.day_change = proxyChg;
       } else {
-        // ES→SPY proxy: keep original price if >0, estimate dollar change from %
+        // ES→SPY proxy fallback: keep original price if >0, estimate dollar change from %
         if (price > 0) {
           data.day_change = +(price * proxyPct / 100).toFixed(2);
+        } else if (Number.isFinite(liveSpot) && liveSpot > 0) {
+          data.price = liveSpot;
+          data.day_change = proxyChg;
         }
       }
     }
     return data;
   }
 
-  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false);
-  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false);
-  spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true);
-  qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true);
+  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false, mktOpen);
+  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false, mktOpen);
+  spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true, mktOpen);
+  qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true, mktOpen);
   // 2026-05-27 (PR #320) — IWM was MISSING from the validate list.
   // Symptom: SPY/QQQ in the morning brief showed pre-market price
   // (validate refreshed from price-feed) but IWM was stuck at the
   // prior daily close. Same shape as the bug PR #283 fixed for SPY/
   // QQQ — just never extended to IWM. Adding now so all three index
   // ETFs get pre-market refresh consistently.
-  iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true);
+  iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true, mktOpen);
 
   // Process sector performance — prefer timed:prices over stale timed:latest
   // day_change_pct. SPY/QQQ/IWM already get validateMarketData(); sector
@@ -1420,9 +1500,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const sectors = SECTOR_ETFS.map(sym => {
     const d = sectorDataArr.find(s => s.sym === sym)?.data || {};
     const pfRow = _pf?.[sym];
-    const pfPct = Number(pfRow?.dp);
-    const pfPrice = Number(pfRow?.p);
-    const pfDc = Number(pfRow?.dc);
+    const pfPct = liveDayPctFromPriceFeedRow(pfRow, mktOpen);
+    const pfPrice = liveSpotFromPriceFeedRow(pfRow, mktOpen);
+    const pfDc = liveDayChgFromPriceFeedRow(pfRow, mktOpen);
     const scoredPct = Number(d?.day_change_pct ?? d?.change_pct);
     const dayChangePct = Number.isFinite(pfPct)
       ? pfPct
@@ -1730,9 +1810,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       ]);
     }
   } catch (_) {}
+  diaData = validateMarketData(diaData, "DIA", "DIA", _pf, true, mktOpen);
   const diaTechnical = summarizeTechnical(
     diaCandles?.candles || [], [], diaCandlesM5?.candles || [], diaData, [], []
   );
+
+  const liveSpotForSym = (sym) => liveSpotFromPriceFeedRow(_pf?.[sym], mktOpen);
 
   // V15 P0.7.72 — Phase 2 Q1 unification.
   // Build canonical scenarios for the indices using the SAME helper that
@@ -1743,10 +1826,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   try {
     const { buildTickerScenario } = await import("./ticker-scenario.js");
     [spyScenario, qqqScenario, iwmScenario, diaScenario] = await Promise.all([
-      buildTickerScenario(env, "SPY").catch(() => null),
-      buildTickerScenario(env, "QQQ").catch(() => null),
-      buildTickerScenario(env, "IWM").catch(() => null),
-      buildTickerScenario(env, "DIA").catch(() => null),
+      buildTickerScenario(env, "SPY", { priceOverride: liveSpotForSym("SPY") }).catch(() => null),
+      buildTickerScenario(env, "QQQ", { priceOverride: liveSpotForSym("QQQ") }).catch(() => null),
+      buildTickerScenario(env, "IWM", { priceOverride: liveSpotForSym("IWM") }).catch(() => null),
+      buildTickerScenario(env, "DIA", { priceOverride: liveSpotForSym("DIA") }).catch(() => null),
     ]);
   } catch (e) {
     console.warn("[DailyBrief] canonical scenario import/build failed:", String(e).slice(0, 200));
@@ -1788,6 +1871,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       isFriday,
       isHoliday,
       isEarlyClose,
+      marketOpen: mktOpen,
     },
     market: {
       ES: extractedEs ? {
@@ -1888,7 +1972,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // 2026-06-10 — prior-brief excerpt for BOTH cadences (morning gets
     // yesterday's evening). Continuity + anti-repetition fuel.
     priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
-    priceFeedCrossRef: buildPriceFeedCrossRef(_pf),
+    priceFeedCrossRef: buildPriceFeedCrossRef(_pf, mktOpen),
+    premarketGapContext: buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf),
     priceFeedRaw: _pf,
     // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
@@ -1911,9 +1996,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
         for (const k of Object.keys(md)) {
           const v = md[k];
           if (!v) continue;
+          const spot = liveSpotFromPriceFeedRow(v, mktOpen);
           norm[k] = {
-            price: Number(v.p) || null,
-            dayChangePct: Number(v.dp) || 0,
+            price: Number.isFinite(spot) ? spot : (Number(v.p) || null),
+            dayChangePct: liveDayPctFromPriceFeedRow(v, mktOpen) ?? (Number(v.dp) || 0),
             prev_close: Number(v.pc) || null,
             open: Number(v.op) || null,
           };
@@ -1940,17 +2026,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   };
 }
 
-function buildPriceFeedCrossRef(pf) {
+function buildPriceFeedCrossRef(pf, marketOpen = true) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
   const tickers = ["SPY", "RSP", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA", "BTCUSD", "ETHUSD"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
     if (!d || !Number(d.p)) continue;
-    const price = Number(d.p);
-    const pct = Number(d.dp) || 0;
-    const chg = Number(d.dc) || 0;
-    lines.push(`${sym}: $${price.toFixed(2)} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
+    const price = liveSpotFromPriceFeedRow(d, marketOpen) ?? Number(d.p);
+    const pct = liveDayPctFromPriceFeedRow(d, marketOpen) ?? (Number(d.dp) || 0);
+    const chg = liveDayChgFromPriceFeedRow(d, marketOpen) ?? (Number(d.dc) || 0);
+    const extTag = !marketOpen && Number(d.ahp) > 0 ? " pre-mkt" : "";
+    lines.push(`${sym}: $${price.toFixed(2)}${extTag} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
   }
   return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
 }
@@ -3591,6 +3678,7 @@ async function buildMorningPrompt(data, env) {
         : "";
   return `Generate the MORNING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 9:00 AM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
+${data.premarketGapContext ? `\n## Pre-Market Gap Alert (MUST lead Big Picture / index sections when present):\n${data.premarketGapContext}\nWhen this block is present, the indices have ALREADY gapped vs the prior session close. Use the pre-market prices in Market Data and Price Feed — NOT Friday's RTH close — as "current price". Do NOT write that SPY/QQQ/IWM are "opening inside range", "near prior close", or "unchanged at the open" when the gap is material.\n` : ""}
 
 ${await getStrategyBriefAsync(env)}
 
@@ -3613,6 +3701,7 @@ ${(() => {
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
+${!data.calendar?.marketOpen ? "NOTE: Outside regular trading hours, prices marked pre-mkt use the extended-hours print (ahp), not the prior RTH close in `p`. Day-change % is vs prior close (pc)." : ""}
 
 ## Cross-Asset Context (USE for cross-asset correlated analysis):
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
