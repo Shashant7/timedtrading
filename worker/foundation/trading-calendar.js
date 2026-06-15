@@ -77,6 +77,19 @@ export function isTradingDay(dateStr) {
   return true;
 }
 
+/**
+ * 00:00:00 UTC of a trading-date string — the CANONICAL DAILY/WEEKLY/MONTHLY
+ * bar anchor (plan §9.4, resolved 2026-06-15). Providers stamp daily bars near
+ * midnight (TwelveData at 00:00 UTC, Alpaca at 00:00 ET = 04:00 UTC); both
+ * normalize to this single anchor so a trading day has exactly ONE daily bar
+ * (kills the legacy 00:00Z/04:00Z double-write). Distinct from intraday bars,
+ * which are stamped at session time.
+ */
+export function tradingDateUtcMs(dateStr) {
+  const { y, m, d } = parseDateStr(dateStr);
+  return Date.UTC(y, m - 1, d);
+}
+
 /** RTH session bounds in UTC ms for a date, or null if not a trading day. */
 export function sessionBoundsUtc(dateStr) {
   if (!isTradingDay(dateStr)) return null;
@@ -152,8 +165,10 @@ export function expectedBuckets({ tf, startMs, endMs }) {
     return out;
   }
 
+  // D/W/M anchor at 00:00 UTC of the trading day (the canonical daily anchor),
+  // matching how daily bars are normalized on ingest (tradingDateUtcMs).
   if (tfu === "D") {
-    return days.map((day) => sessionBoundsUtc(day).openMs).filter((ts) => ts >= startMs && ts <= endMs);
+    return days.map((day) => tradingDateUtcMs(day)).filter((ts) => ts >= startMs && ts <= endMs);
   }
 
   if (tfu === "W") {
@@ -163,7 +178,7 @@ export function expectedBuckets({ tf, startMs, endMs }) {
     for (const day of days) {
       const dow = dayOfWeek(day);              // 1=Mon..5=Fri
       const monday = addDays(day, -(dow - 1));
-      if (!seen.has(monday)) { seen.add(monday); out.push(sessionBoundsUtc(day).openMs); }
+      if (!seen.has(monday)) { seen.add(monday); out.push(tradingDateUtcMs(day)); }
     }
     return out.filter((ts) => ts >= startMs && ts <= endMs);
   }
@@ -173,7 +188,7 @@ export function expectedBuckets({ tf, startMs, endMs }) {
     const out = [];
     for (const day of days) {
       const ym = day.slice(0, 7);
-      if (!seen.has(ym)) { seen.add(ym); out.push(sessionBoundsUtc(day).openMs); }
+      if (!seen.has(ym)) { seen.add(ym); out.push(tradingDateUtcMs(day)); }
     }
     return out.filter((ts) => ts >= startMs && ts <= endMs);
   }

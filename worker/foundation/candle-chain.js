@@ -33,12 +33,37 @@ import {
 } from "./resample.js";
 
 const MIN = 60_000;
+const DAY_MS = 24 * 60 * MIN;
 // Intraday TFs derived from the 5m base.
 export const DERIVED_INTRADAY_TFS = ["10", "15", "30", "60", "240"];
 
 /** Idempotent merge of incoming base bars into existing (dedupe by ts, sorted). */
 export function ingestBase(existing, incoming) {
   return normalizeBars([...(existing || []), ...(incoming || [])]);
+}
+
+/**
+ * Canonical daily-bar timestamp: 00:00:00 UTC of the bar's UTC calendar date
+ * (the trading day). Providers stamp daily near midnight in different zones
+ * (TwelveData 00:00 UTC; Alpaca 00:00 ET = 04:00 UTC; some at the open) — all
+ * collapse to this single anchor. Since the epoch is UTC-aligned, flooring to
+ * the day boundary yields 00:00 UTC of that UTC date.
+ */
+export function canonicalDailyTs(ts) {
+  return Math.floor(Number(ts) / DAY_MS) * DAY_MS;
+}
+
+/**
+ * Normalize + dedup a daily series: snap every bar to its canonical daily anchor
+ * and de-duplicate by ts (last write wins). This is what kills the legacy
+ * 00:00Z/04:00Z daily double-write — both stamps map to the same anchor and
+ * collapse to one bar per trading day.
+ */
+export function normalizeDailyBars(bars) {
+  const mapped = (Array.isArray(bars) ? bars : [])
+    .filter((b) => b && Number.isFinite(Number(b.ts)))
+    .map((b) => ({ ...b, ts: canonicalDailyTs(Number(b.ts)) }));
+  return normalizeBars(mapped);
 }
 
 /**
@@ -88,11 +113,11 @@ export function deriveTimeframe(tf, { ticker, base5m, baseDaily, asOf, windowSta
   } else if (DERIVED_INTRADAY_TFS.includes(tfu)) {
     bars = resampleIntradaySessions(base5m, Number(tfu));
   } else if (tfu === "D") {
-    bars = normalizeBars(baseDaily);
+    bars = normalizeDailyBars(baseDaily);
   } else if (tfu === "W") {
-    bars = resampleDailyToWeekly(baseDaily);
+    bars = resampleDailyToWeekly(normalizeDailyBars(baseDaily));
   } else if (tfu === "M") {
-    bars = resampleDailyToMonthly(baseDaily);
+    bars = resampleDailyToMonthly(normalizeDailyBars(baseDaily));
   } else {
     bars = [];
   }

@@ -19,7 +19,7 @@
 //  list(prefix) -> Map<key,val>.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { ingestBase, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
+import { ingestBase, normalizeDailyBars, deriveTimeframe, checkBaseIntegrity, hotWindowStartMs } from "./candle-chain.js";
 import { etDateStr } from "./trading-calendar.js";
 import { reconcileDailyRollup } from "./reconcile.js";
 
@@ -71,7 +71,10 @@ export class CandleChainShardCore {
     if (String(tf) === "D") {
       const key = bdKey(t);
       const existing = (await this.storage.get(key)) || [];
-      const merged = ingestBase(existing, bars);
+      // Normalize to the canonical daily anchor + dedup, so a trading day has
+      // exactly ONE bar regardless of provider stamp convention (kills the
+      // 00:00Z/04:00Z double-write). Idempotent across re-ingest.
+      const merged = normalizeDailyBars([...existing, ...bars]);
       await this.storage.put(key, merged);
       return { written: merged.length };
     }

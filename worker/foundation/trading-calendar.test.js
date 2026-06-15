@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   isTradingDay, isHoliday, isHalfDay, sessionBoundsUtc,
   etWallToUtcMs, etDateStr, expectedIntradayBuckets, tradingDaysInRange,
-  expectedBuckets, addDays,
+  expectedBuckets, addDays, tradingDateUtcMs,
 } from "./trading-calendar.js";
 
 describe("trading-calendar: trading days", () => {
@@ -60,9 +60,11 @@ describe("trading-calendar: expected grids", () => {
     const days = tradingDaysInRange("2026-06-15", "2026-06-22");
     expect(days).toEqual(["2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18", "2026-06-22"]);
   });
-  it("expectedBuckets D = one per trading day", () => {
-    const start = sessionBoundsUtc("2026-06-15").openMs;
+  it("expectedBuckets D = one per trading day, anchored at 00:00 UTC", () => {
+    const start = tradingDateUtcMs("2026-06-15");
     const end = sessionBoundsUtc("2026-06-22").closeMs;
-    expect(expectedBuckets({ tf: "D", startMs: start, endMs: end }).length).toBe(5);
+    const grid = expectedBuckets({ tf: "D", startMs: start, endMs: end });
+    expect(grid.length).toBe(5);
+    expect(grid[0]).toBe(Date.UTC(2026, 5, 15)); // 00:00 UTC, not the 13:30 open
   });
 });

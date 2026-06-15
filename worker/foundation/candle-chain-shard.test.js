@@ -68,10 +68,29 @@ describe("shard core: ingest + derive", () => {
 
   it("derives D/W/M from the stored daily base", async () => {
     const core = new CandleChainShardCore(memStorage());
-    const daily = Array.from({ length: 40 }, (_, d) => ({ ts: Date.UTC(2026, 2, 16, 13, 30) + d * 7 * 86400000, o: d, h: d + 1, l: d - 1, c: d, v: 1 }));
+    const daily = Array.from({ length: 40 }, (_, d) => ({ ts: Date.UTC(2026, 2, 16) + d * 7 * 86400000, o: d, h: d + 1, l: d - 1, c: d, v: 1 }));
     await core.ingest("TSLA", "D", daily);
     const vd = await core.getSeries("TSLA", "D", { startMs: daily[0].ts, endMs: daily[daily.length - 1].ts + 1, asOf: Date.now() });
     expect(vd.bars.length).toBe(40);
+  });
+
+  it("normalizes daily ts to the canonical anchor + dedups the 00:00Z/04:00Z double-write", async () => {
+    const core = new CandleChainShardCore(memStorage());
+    const day = Date.UTC(2026, 5, 1); // 2026-06-01 00:00 UTC
+    // legacy dual-write: same trading day stamped at 00:00Z AND 00:00 ET (04:00Z),
+    // plus a session-open (13:30Z) stamp — all are the SAME trading day.
+    await core.ingest("AAPL", "D", [
+      { ts: day, o: 1, h: 2, l: 0.5, c: 1.5, v: 10 },
+      { ts: day + 4 * 3600000, o: 1, h: 2, l: 0.5, c: 1.5, v: 10 },
+      { ts: day + 13.5 * 3600000, o: 1, h: 2, l: 0.5, c: 1.9, v: 11 }, // last write wins
+    ]);
+    const base = await core.loadBaseDaily("AAPL");
+    expect(base.length).toBe(1);               // collapsed to one bar
+    expect(base[0].ts).toBe(day);              // canonical 00:00 UTC anchor
+    expect(base[0].c).toBe(1.9);               // last write wins on dedup
+    // re-ingest is idempotent (no second bar appears)
+    await core.ingest("AAPL", "D", [{ ts: day + 4 * 3600000, o: 1, h: 2, l: 0.5, c: 1.9, v: 11 }]);
+    expect((await core.loadBaseDaily("AAPL")).length).toBe(1);
   });
 
   it("listTickers returns held tickers", async () => {

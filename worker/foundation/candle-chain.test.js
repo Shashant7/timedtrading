@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   ingestBase, checkBaseIntegrity, deriveTimeframe, deriveAllTimeframes,
   nextExpectedBucketMs, hotWindowStartMs, DERIVED_INTRADAY_TFS,
+  canonicalDailyTs, normalizeDailyBars,
 } from "./candle-chain.js";
 import { expectedIntradayBuckets, sessionBoundsUtc } from "./trading-calendar.js";
 
@@ -21,6 +22,25 @@ describe("candle-chain: ingest", () => {
     const merged = ingestBase(a, b);
     expect(merged.map((x) => x.ts)).toEqual([10, 20, 30]);
     expect(merged.find((x) => x.ts === 20).c).toBe(99); // last write wins
+  });
+});
+
+describe("candle-chain: canonical daily anchor + dedup", () => {
+  const day = Date.UTC(2026, 5, 1); // 2026-06-01 00:00 UTC
+  it("canonicalDailyTs floors any same-day stamp to 00:00 UTC", () => {
+    expect(canonicalDailyTs(day)).toBe(day);                    // 00:00Z
+    expect(canonicalDailyTs(day + 4 * 3600000)).toBe(day);      // 00:00 ET (04:00Z)
+    expect(canonicalDailyTs(day + 13.5 * 3600000)).toBe(day);   // session open
+  });
+  it("normalizeDailyBars collapses the 00:00Z/04:00Z double-write", () => {
+    const out = normalizeDailyBars([
+      { ts: day, c: 1 },
+      { ts: day + 4 * 3600000, c: 2 },           // dup of same day, later write wins
+      { ts: day + 86400000, c: 3 },              // next day
+    ]);
+    expect(out.length).toBe(2);
+    expect(out[0].ts).toBe(day);
+    expect(out[0].c).toBe(2);
   });
 });
 
