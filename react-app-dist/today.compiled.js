@@ -2164,22 +2164,26 @@ function CTOLevelsPanel({
   }, h("div", {
     className: "tt-sec-title",
     style: {
-      flexShrink: 0
+      flexShrink: 0,
+      marginBottom: 2
     }
   }, "PROBABILISTIC LEVEL MAP"), h("div", {
     className: "tt-sec-h",
     style: {
       fontSize: 15,
-      marginBottom: 6,
+      marginBottom: 8,
       flexShrink: 0
     }
   }, "Where the math says price gravitates"), h("div", {
+    className: "tt-cto-feed-body"
+  }, h("div", {
+    className: "tt-cto-map-scroll"
+  }, h("div", {
     style: {
       fontSize: 11.5,
       color: "var(--tt-text-dim)",
       marginBottom: 10,
-      lineHeight: 1.5,
-      flexShrink: 0
+      lineHeight: 1.5
     }
   }, "Upside and downside magnets ranked by hit rate, distance to level, and whether the move is still early or already confirming. ", h("strong", {
     style: {
@@ -2192,10 +2196,7 @@ function CTOLevelsPanel({
       fontWeight: 600
     }
   }, "Lean"), " when one side leads by 12+ pts. Context only, not trade signals."), h("div", {
-    className: "tt-cto-map-meta",
-    style: {
-      flexShrink: 0
-    }
+    className: "tt-cto-map-meta"
   }, asOfLabel ? h("div", {
     style: {
       marginBottom: 6,
@@ -2222,14 +2223,9 @@ function CTOLevelsPanel({
       fontSize: 10.5,
       color: "var(--tt-text-faint)",
       marginBottom: 10,
-      lineHeight: 1.5,
-      flexShrink: 0
+      lineHeight: 1.5
     }
-  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
-    className: "tt-cto-feed-body"
-  }, h("div", {
-    className: "tt-cto-map-scroll"
-  }, indexRows.length > 0 && h("div", {
+  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), indexRows.length > 0 && h("div", {
     style: {
       marginBottom: 6
     }
@@ -5186,6 +5182,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781489701747:955783034
+// cache-bust:1781494243971:402989990
 
-// cache-bust:1781489701747:955783034
+// cache-bust:1781494243971:402989990
