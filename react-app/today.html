@@ -164,7 +164,7 @@
         display: flex;
         flex-direction: column;
       }
-      /* Research Desk + PML — paired hero panels, equal card height on desktop */
+      /* Research Desk + PML — paired hero panels, fixed height + inner scroll on desktop */
       .tt-desk-panel,
       .tt-cto-panel {
         display: flex;
@@ -1117,18 +1117,25 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* Row 2: Research Desk | PML — equal card height, scroll fills remainder */
+        /* Row 2: Research Desk | PML — fixed equal height, scroll overflow */
         .today-hero-desk-col,
         .today-hero-levels-col {
-          align-self: stretch;
+          align-self: start;
         }
         .today-hero-desk-col .tt-desk-panel,
         .today-hero-levels-col .tt-cto-panel {
-          flex: 1;
-          height: 100%;
+          height: min(520px, 62vh);
+          max-height: min(520px, 62vh);
           min-height: 0;
+          flex: none;
+          overflow: hidden;
         }
-        /* PML + Research Desk scroll areas share the matched card height */
+        .today-hero-desk-col .tt-desk-feed-body,
+        .today-hero-levels-col .tt-cto-feed-body {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
         .today-hero-desk-col .tt-desk-scroll,
         .today-hero-levels-col .tt-cto-map-scroll {
           flex: 1;
