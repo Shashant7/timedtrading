@@ -2,6 +2,7 @@
 import { describe, it, expect } from "vitest";
 import {
   windowForTf, makeChainGetCandlesFromBases, getSeriesFromBases,
+  makeHybridGetCandles, HYBRID_CHAIN_TFS,
 } from "./chain-series-adapter.js";
 import { evaluateScore } from "./score-contract.js";
 import { expectedIntradayBuckets, sessionBoundsUtc, tradingDaysInRange } from "./trading-calendar.js";
@@ -70,6 +71,31 @@ describe("chain-series-adapter: getCandles backed by the chain", () => {
     const r = await getCandles({}, "AAPL", "10", 300);
     expect(typeof r.complete).toBe("boolean");
     expect(r.coverage).toBeTruthy();
+  });
+});
+
+describe("chain-series-adapter: hybrid router (LTF→chain, rest→legacy)", () => {
+  const calls = [];
+  const chainGC = async (env, t, tf) => { calls.push(["chain", tf]); return { ok: true, tf, source: "chain", candles: [] }; };
+  const legacyGC = async (env, t, tf) => { calls.push(["legacy", tf]); return { ok: true, tf, source: "legacy", candles: [] }; };
+  const hybrid = makeHybridGetCandles(chainGC, legacyGC);
+
+  it("routes 10/15/30/60 to the chain", async () => {
+    for (const tf of HYBRID_CHAIN_TFS) {
+      const r = await hybrid({}, "AAPL", tf, 300);
+      expect(r.source).toBe("chain");
+    }
+  });
+  it("routes 240/D/W/M to legacy (deep stores)", async () => {
+    for (const tf of ["240", "D", "W", "M"]) {
+      const r = await hybrid({}, "AAPL", tf, 300);
+      expect(r.source).toBe("legacy");
+    }
+  });
+  it("honors a custom chainTfs set", async () => {
+    const h2 = makeHybridGetCandles(chainGC, legacyGC, { chainTfs: ["10"] });
+    expect((await h2({}, "X", "10")).source).toBe("chain");
+    expect((await h2({}, "X", "60")).source).toBe("legacy");
   });
 });
 

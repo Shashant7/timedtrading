@@ -98,3 +98,29 @@ export function getSeriesFromBases({ base5m = [], baseDaily = [] }) {
 export function makeChainGetCandlesFromBases(bases, opts = {}) {
   return makeChainGetCandles(getSeriesFromBases(bases), opts);
 }
+
+// The LTF timeframes the chain serves in the HYBRID model — the layer where the
+// live≠backtest drift lived (each was an independently-fetched, drift-prone
+// series). Derived from one RTH/extended 5m base ⇒ consistent by construction.
+export const HYBRID_CHAIN_TFS = ["10", "15", "30", "60"];
+
+/**
+ * HYBRID getCandles: route a fixed set of timeframes to the CHAIN and let all
+ * others fall through to the LEGACY reader. Rationale (storage-driven, verified
+ * 2026-06-15): deriving the DEEP HTF 240 EMA-stack from 5m needs ~years of 5m
+ * (~50–100× storage), so 240/D/W/M stay on their existing deep stores while the
+ * LTF (10/15/30/60) — cheap to derive from months of 5m and where the drift was
+ * — comes from the chain. This is the cutover surface: flip LTF-only first.
+ *
+ * @param {Function} chainGetCandles  (env,ticker,tf,limit)=>{ok,candles,...}
+ * @param {Function} legacyGetCandles (env,ticker,tf,limit)=>{ok,candles,...}
+ * @param {Object} [opts] { chainTfs?: string[] }  defaults to HYBRID_CHAIN_TFS
+ */
+export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {}) {
+  const chainSet = new Set((opts.chainTfs || HYBRID_CHAIN_TFS).map(String));
+  return async function getCandles(env, ticker, tf, limit = 300) {
+    return chainSet.has(String(tf))
+      ? chainGetCandles(env, ticker, tf, limit)
+      : legacyGetCandles(env, ticker, tf, limit);
+  };
+}
