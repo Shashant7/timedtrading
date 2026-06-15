@@ -2160,26 +2160,26 @@ function CTOLevelsPanel({
   }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
-    className: "tt-card tt-card-pad tt-cto-panel",
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      minWidth: 0
-    }
+    className: "tt-card tt-card-pad tt-cto-panel"
   }, h("div", {
-    className: "tt-sec-title"
+    className: "tt-sec-title",
+    style: {
+      flexShrink: 0
+    }
   }, "PROBABILISTIC LEVEL MAP"), h("div", {
     className: "tt-sec-h",
     style: {
       fontSize: 15,
-      marginBottom: 6
+      marginBottom: 6,
+      flexShrink: 0
     }
   }, "Where the math says price gravitates"), h("div", {
     style: {
       fontSize: 11.5,
       color: "var(--tt-text-dim)",
       marginBottom: 10,
-      lineHeight: 1.5
+      lineHeight: 1.5,
+      flexShrink: 0
     }
   }, "Upside and downside magnets ranked by hit rate, distance to level, and whether the move is still early or already confirming. ", h("strong", {
     style: {
@@ -2192,7 +2192,10 @@ function CTOLevelsPanel({
       fontWeight: 600
     }
   }, "Lean"), " when one side leads by 12+ pts. Context only, not trade signals."), h("div", {
-    className: "tt-cto-map-meta"
+    className: "tt-cto-map-meta",
+    style: {
+      flexShrink: 0
+    }
   }, asOfLabel ? h("div", {
     style: {
       marginBottom: 6,
@@ -2219,18 +2222,11 @@ function CTOLevelsPanel({
       fontSize: 10.5,
       color: "var(--tt-text-faint)",
       marginBottom: 10,
-      lineHeight: 1.5
+      lineHeight: 1.5,
+      flexShrink: 0
     }
   }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
-    className: "tt-cto-map-scroll",
-    style: {
-      overflowY: "auto",
-      overflowX: "hidden",
-      paddingRight: 4,
-      WebkitOverflowScrolling: "touch",
-      flex: 1,
-      minHeight: 0
-    }
+    className: "tt-cto-map-scroll"
   }, indexRows.length > 0 && h("div", {
     style: {
       marginBottom: 6
@@ -5188,6 +5184,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781474863682:131272651
+// cache-bust:1781486402345:36007712
 
-// cache-bust:1781474863682:131272651
+// cache-bust:1781486402345:36007712
