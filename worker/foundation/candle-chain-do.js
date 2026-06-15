@@ -54,6 +54,19 @@ export class CandleChainShard {
         });
         return json({ ok: true, view });
       }
+      if (request.method === "GET" && url.pathname === "/series-ltf") {
+        // Batch: derive ALL LTF timeframes (10/15/30/60) from the 5m base in ONE
+        // call, so the live score path makes a single DO subrequest per ticker.
+        const p = url.searchParams;
+        const ticker = p.get("ticker");
+        const startMs = Number(p.get("start")), endMs = Number(p.get("end"));
+        const asOf = p.get("asOf") ? Number(p.get("asOf")) : endMs;
+        const views = {};
+        for (const tf of ["10", "15", "30", "60"]) {
+          views[tf] = await this.core.getSeries(ticker, tf, { startMs, endMs, asOf, source: "live" });
+        }
+        return json({ ok: true, views });
+      }
       if (request.method === "GET" && url.pathname === "/integrity") {
         const p = url.searchParams;
         return json({ ok: true, ...(await this.core.integrity(p.get("ticker"), { startMs: Number(p.get("start")), endMs: Number(p.get("end")) })) });

@@ -75,33 +75,65 @@ describe("chain-series-adapter: getCandles backed by the chain", () => {
 });
 
 describe("chain-series-adapter: hybrid router (LTF→chain, rest→legacy)", () => {
-  const calls = [];
-  const chainGC = async (env, t, tf) => { calls.push(["chain", tf]); return { ok: true, tf, source: "chain", candles: [] }; };
-  const legacyGC = async (env, t, tf) => { calls.push(["legacy", tf]); return { ok: true, tf, source: "legacy", candles: [] }; };
+  const bars = (n) => Array.from({ length: n }, (_, i) => ({ ts: i, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+  const chainGC = async (env, t, tf) => ({ ok: true, tf, source: "chain", complete: true, candles: bars(80) });
+  const legacyGC = async (env, t, tf) => ({ ok: true, tf, source: "legacy", candles: bars(300) });
   const hybrid = makeHybridGetCandles(chainGC, legacyGC);
 
-  it("routes 10/15/30/60 to the chain", async () => {
+  it("routes 10/15/30/60 to the chain when it has enough bars", async () => {
     for (const tf of HYBRID_CHAIN_TFS) {
-      const r = await hybrid({}, "AAPL", tf, 300);
-      expect(r.source).toBe("chain");
+      expect((await hybrid({}, "AAPL", tf, 300)).source).toBe("chain");
     }
   });
   it("routes 240/D/W/M to legacy (deep stores)", async () => {
     for (const tf of ["240", "D", "W", "M"]) {
-      const r = await hybrid({}, "AAPL", tf, 300);
-      expect(r.source).toBe("legacy");
+      expect((await hybrid({}, "AAPL", tf, 300)).source).toBe("legacy");
     }
+  });
+  it("FAIL-SAFE: chain TF with too few bars falls back to legacy", async () => {
+    const shallowChain = async () => ({ ok: true, source: "chain", complete: true, candles: bars(10) });
+    const h = makeHybridGetCandles(shallowChain, legacyGC);
+    const r = await h({}, "X", "10", 300);
+    expect(r.source).toBe("legacy");
+    expect(r.fellBackFromChain).toBe(true);
+  });
+  it("FAIL-SAFE: chain error falls back to legacy", async () => {
+    const boom = async () => { throw new Error("DO down"); };
+    const h = makeHybridGetCandles(boom, legacyGC);
+    expect((await h({}, "X", "10", 300)).source).toBe("legacy");
+  });
+  it("FAIL-SAFE: chain incomplete window falls back to legacy", async () => {
+    const incomplete = async () => ({ ok: true, source: "chain", complete: false, candles: bars(80) });
+    const h = makeHybridGetCandles(incomplete, legacyGC);
+    expect((await h({}, "X", "10", 300)).source).toBe("legacy");
   });
   it("honors a custom chainTfs set", async () => {
     const h2 = makeHybridGetCandles(chainGC, legacyGC, { chainTfs: ["10"] });
     expect((await h2({}, "X", "10")).source).toBe("chain");
     expect((await h2({}, "X", "60")).source).toBe("legacy");
   });
+
+  it("RTH freshness gate: accepts a fresh-edge chain even if strict-complete is false", async () => {
+    const now = 1_800_000_000_000;
+    const freshBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+    // complete:false (forming edge) but latest bar is 5 min old → within threshold
+    const freshChain = async () => ({ ok: true, source: "chain", complete: false, candles: freshBars });
+    const h = makeHybridGetCandles(freshChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    expect((await h({}, "X", "10", 300)).source).toBe("chain");
+  });
+  it("RTH freshness gate: falls back when the latest bar is stale (DO behind)", async () => {
+    const now = 1_800_000_000_000;
+    const staleBars = Array.from({ length: 80 }, (_, i) => ({ ts: now - 3 * 3600_000 - (80 - i) * 300_000, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+    const staleChain = async () => ({ ok: true, source: "chain", complete: true, candles: staleBars });
+    const h = makeHybridGetCandles(staleChain, legacyGC, { maxEdgeStalenessMs: 25 * 60_000, asOf: now });
+    expect((await h({}, "X", "10", 300)).source).toBe("legacy");
+  });
 });
 
 describe("chain-series-adapter: reversible cutover resolver (default OFF)", () => {
-  const legacyGC = async (env, t, tf) => ({ ok: true, tf, source: "legacy", candles: [] });
-  const chainGC = async (env, t, tf) => ({ ok: true, tf, source: "chain", candles: [] });
+  const _b = Array.from({ length: 80 }, (_, i) => ({ ts: i, o: 1, h: 1, l: 1, c: 1, v: 1 }));
+  const legacyGC = async (env, t, tf) => ({ ok: true, tf, source: "legacy", candles: _b });
+  const chainGC = async (env, t, tf) => ({ ok: true, tf, source: "chain", complete: true, candles: _b });
   const opts = { legacyGetCandles: legacyGC, chainGetCandles: chainGC };
 
   it("defaults to LEGACY when the flag is unset (zero behavior change)", async () => {

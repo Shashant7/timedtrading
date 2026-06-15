@@ -118,10 +118,39 @@ export const HYBRID_CHAIN_TFS = ["10", "15", "30", "60"];
  */
 export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {}) {
   const chainSet = new Set((opts.chainTfs || HYBRID_CHAIN_TFS).map(String));
+  // FAIL-SAFE: if the chain can't satisfy a TF (base not deep/seeded enough, or
+  // it errors), fall back to the legacy reader for that TF. This makes flipping
+  // the cutover flag safe even before every ticker's 5m base is warm — a ticker
+  // simply stays on legacy until its chain series is complete. minBars guards
+  // against scoring on a too-short derived window.
+  const minBars = Number(opts.minBars) || 50;
+  const fallback = opts.fallbackOnIncomplete !== false;
+  // RTH-freshness gate. Strict full-window `complete` over-falls-back during RTH
+  // because the latest forming/just-closed bar lags the DO feed. When
+  // maxEdgeStalenessMs > 0 we instead accept the chain if it has enough bars AND
+  // its LATEST sliced bar is within that staleness of asOf — i.e. the working
+  // window the bundle actually uses is current. Outside RTH the latest bar is
+  // older than the threshold → fall back to legacy (identical scores; market
+  // closed). maxEdgeStalenessMs = 0 keeps the strict `complete` gate (tests).
+  const maxEdgeMs = Number(opts.maxEdgeStalenessMs) || 0;
+  const asOf = Number(opts.asOf) || Date.now();
   return async function getCandles(env, ticker, tf, limit = 300) {
-    return chainSet.has(String(tf))
-      ? chainGetCandles(env, ticker, tf, limit)
-      : legacyGetCandles(env, ticker, tf, limit);
+    if (!chainSet.has(String(tf))) return legacyGetCandles(env, ticker, tf, limit);
+    try {
+      const r = await chainGetCandles(env, ticker, tf, limit);
+      const okLen = r && r.ok && Array.isArray(r.candles) && r.candles.length >= minBars;
+      let usable;
+      if (maxEdgeMs > 0) {
+        const last = okLen ? r.candles[r.candles.length - 1] : null;
+        usable = !!last && Number.isFinite(Number(last.ts)) && (asOf - Number(last.ts)) <= maxEdgeMs;
+      } else {
+        usable = okLen && r.complete !== false;
+      }
+      if (usable || !fallback) return r;
+    } catch (_) { /* fall through to legacy */ }
+    const lg = await legacyGetCandles(env, ticker, tf, limit);
+    if (lg && typeof lg === "object") lg.fellBackFromChain = true;
+    return lg;
   };
 }
 
@@ -137,12 +166,14 @@ export function makeHybridGetCandles(chainGetCandles, legacyGetCandles, opts = {
  * source must be the DO hot-window (not D1) for the cutover to REDUCE D1 reads;
  * pass that as `chainGetCandles`.
  */
-export function resolveScoreGetCandles(env, { legacyGetCandles, chainGetCandles, chainTfs } = {}) {
+export function resolveScoreGetCandles(env, { legacyGetCandles, chainGetCandles, chainTfs, maxEdgeStalenessMs, asOf } = {}) {
   const mode = String(env?.SCORE_CANDLE_SOURCE || "legacy").toLowerCase();
   if (!chainGetCandles || mode === "legacy") return legacyGetCandles;
   if (mode === "full_chain") return chainGetCandles;
   if (mode === "hybrid_chain") {
-    return makeHybridGetCandles(chainGetCandles, legacyGetCandles, { chainTfs: chainTfs || HYBRID_CHAIN_TFS });
+    return makeHybridGetCandles(chainGetCandles, legacyGetCandles, {
+      chainTfs: chainTfs || HYBRID_CHAIN_TFS, maxEdgeStalenessMs, asOf,
+    });
   }
   return legacyGetCandles; // unknown value ⇒ fail safe to legacy
 }
