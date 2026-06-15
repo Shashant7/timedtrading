@@ -103,6 +103,37 @@ replay harness is warm. Owed items from
   `(none)`-entry positions; needs the post-exit continuation table (replay).
 - **Short-shadow review** (#4): after ~2 weeks of `[SHORT_SHADOW]` logs.
 
+## Conviction re-weighting (#2) — method + readiness (2026-06-15)
+
+**Goal:** re-weight the `computeConvictionScore` components so conviction
+separates winners from losers (corr ≈ -0.02 today), which is the gate to
+**un-suspend Tier-C** (`deep_audit_focus_suspend_tier_c`).
+
+**Input READY:** 639 closed trades w/ `entry_ts` + `ticker` + `pnl`
+(2025-07-01 → 2026-06-05, 323 wins = 50.5% WR) in live D1 `trades` (read-only).
+
+**Why it needs a replay sweep:** conviction components are NOT persisted on the
+trade (`signal_snapshot_json` lacks them). They must be reconstructed by
+re-scoring each ticker at its `entry_ts` and reading the conviction breakdown
+(`computeConvictionScore` components: liquidity, volatility, trend, sector, RS,
+history, saty_atr_proximity, phase/RSI alignment, setup bonuses) from
+`rank_trace_json`.
+
+**Sweep plan (own focused run — substantial):**
+1. Backfill pre-prod candles for the ~50+ traded tickers over 2025-07→2026-06
+   (the harness needs complete history at each entry_ts). NB: the chain now
+   provides this for LTF, but a deep daily/240 backfill is still needed.
+2. For each trade, candle-replay-score the ticker as-of `entry_ts`; extract the
+   conviction component vector.
+3. Correlate each component (and the composite) with `pnl` / win-flag across the
+   639 trades; rank components by discriminative power (point-biserial / AUC).
+4. Re-weight (down-weight non-discriminating components, up-weight the
+   separating ones); re-run the correlation to confirm separation improves.
+5. Only then un-suspend Tier-C, config-gated, and watch live.
+
+This is a multi-step harness analysis (hours of backfill + per-trade scoring),
+best as a dedicated run — not a quick pass. Input + method are ready above.
+
 ## Guardrails
 Config-gated, safe defaults, replay-validated before any live weight change.
 Do NOT mix into the foundation PR. Keep on the #649 / Track B branch.
