@@ -13,8 +13,10 @@ export const CACHE_TTL_DAILY_SEC = 24 * 60 * 60;        // 24h — rest of score
 
 /** Wall-clock guards — keep hourly pass cheap; cap daily recompute budget. */
 export const MAX_ELAPSED_MS_PRIORITY = 45_000;
+export const MAX_ELAPSED_MS_SESSION = 90_000;   // session pass: indices+positions+surfaced movers
 export const MAX_ELAPSED_MS_FULL = 240_000;
 export const MAX_TICKERS_PRIORITY = 48;
+export const MAX_TICKERS_SESSION = 64;           // bounded so the 4am-8pm ET hourly pass stays cheap
 
 async function loadRemovedTickers(env) {
   const kv = env?.KV_TIMED || env?.KV;
@@ -71,30 +73,38 @@ export async function resolveScoredUniverseTickers(env) {
   return merged;
 }
 
-export function isPriorityTicker(sym, { openPositions = null } = {}) {
+export function isPriorityTicker(sym, { openPositions = null, extra = null } = {}) {
   const s = String(sym || "").toUpperCase();
   if (INDEX_FOCUS.has(s)) return true;
   if (openPositions && openPositions.has(s)) return true;
+  // `extra` carries the currently-surfaced PML feed names during a session
+  // pass so gapped movers get the 1h TTL (refresh hourly) instead of 24h.
+  if (extra && extra.has(s)) return true;
   return false;
 }
 
-export function cacheTtlForTicker(sym, { openPositions = null } = {}) {
-  return isPriorityTicker(sym, { openPositions })
+export function cacheTtlForTicker(sym, { openPositions = null, extra = null } = {}) {
+  return isPriorityTicker(sym, { openPositions, extra })
     ? CACHE_TTL_PRIORITY_SEC
     : CACHE_TTL_DAILY_SEC;
 }
 
 /**
  * Build the ticker list for a refresh pass.
- * @param {"priority"|"full"|"all"} mode
- *   priority — indices + open positions (hourly)
+ * @param {"priority"|"session"|"full"|"all"} mode
+ *   priority — indices + open positions (hourly, ≤48)
+ *   session  — indices + open positions + currently-surfaced PML feed movers
+ *              (hourly across 4am-8pm ET so gap-day levels re-anchor, ≤64)
  *   full     — scored universe minus priority (daily)
  *   all      — entire scored universe (admin / first run)
+ * @param {string[]} surfaced  Tickers currently shown in the PML feed; folded
+ *   into the session set + flagged as `extra` so they get the 1h TTL.
  */
-export async function buildCTORefreshTickers(env, { mode = "all", limit = null } = {}) {
+export async function buildCTORefreshTickers(env, { mode = "all", limit = null, surfaced = null } = {}) {
   const scored = await resolveScoredUniverseTickers(env);
   const openList = await loadOpenPositionTickers(env);
   const openPositions = new Set(openList);
+  const scoredSet = new Set(scored);
 
   const priority = [...new Set([...INDEX_FOCUS, ...openList])]
     .filter((t) => scored.includes(t) || INDEX_FOCUS.has(t) || openPositions.has(t))
@@ -105,9 +115,19 @@ export async function buildCTORefreshTickers(env, { mode = "all", limit = null }
       return a.localeCompare(b);
     });
 
+  // Surfaced movers (prior PML feed) that are still in the scored universe.
+  const extraSet = new Set(
+    (Array.isArray(surfaced) ? surfaced : [])
+      .map((t) => String(t || "").toUpperCase())
+      .filter((t) => t && scoredSet.has(t) && !INDEX_FOCUS.has(t) && !openPositions.has(t)),
+  );
+
   let tickers;
   if (mode === "priority") {
     tickers = priority;
+  } else if (mode === "session") {
+    // indices + positions first, then surfaced movers (the gap-sensitive names).
+    tickers = [...priority, ...[...extraSet].sort()];
   } else if (mode === "full") {
     const priSet = new Set(priority);
     tickers = scored.filter((t) => !priSet.has(t));
@@ -120,9 +140,9 @@ export async function buildCTORefreshTickers(env, { mode = "all", limit = null }
     });
   }
 
-  const cap = mode === "priority"
-    ? Math.min(limit || MAX_TICKERS_PRIORITY, MAX_TICKERS_PRIORITY)
-    : limit;
+  let cap = limit;
+  if (mode === "priority") cap = Math.min(limit || MAX_TICKERS_PRIORITY, MAX_TICKERS_PRIORITY);
+  else if (mode === "session") cap = Math.min(limit || MAX_TICKERS_SESSION, MAX_TICKERS_SESSION);
 
   if (cap && cap > 0) tickers = tickers.slice(0, cap);
 
@@ -131,6 +151,8 @@ export async function buildCTORefreshTickers(env, { mode = "all", limit = null }
     tickers,
     scored,
     priority,
+    extra: [...extraSet],
+    extraSet,
     openPositions: openList,
     openPositionsSet: openPositions,
   };
