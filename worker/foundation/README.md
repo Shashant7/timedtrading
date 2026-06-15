@@ -38,9 +38,45 @@ and exits non-zero on divergence (so it can gate CI once the rebuild lands).
 See the header of `scripts/parity-baseline.js` for how to export the two sides
 without any live writes.
 
-## What Phase 0 does NOT include
+## Phase 1 — candle chain core (pure, tested; not yet wired live)
 
-- No candle-chain implementation (resample, DO-per-ticker, retention) — that is
-  Phase 1.
+The chain's logic, built on the Phase 0 contracts. Pure and storage-agnostic —
+a Durable Object wraps these with persistence later (see "staged" below).
+
+| File | Role |
+|---|---|
+| `trading-calendar.js` | The "what bar SHOULD exist" source. US RTH sessions (DST-correct via `Intl`), holiday + half-day tables, and `expectedBuckets({tf,startMs,endMs})` — the calendar grid that feeds the SeriesView `coverage`/`complete` contract. This is what makes freshness *computable* instead of guarded. |
+| `resample.js` | Deterministic OHLCV resampling: one 5m base → 10/15/30/60/240 (session-anchored), daily base → W/M. `o=first,h=max,l=min,c=last,v=sum`. Collapses 8 independent freshness points to 2; a 30m bar is always exactly its constituent 5m bars. |
+| `candle-chain.js` | Ties it together: `ingestBase` (idempotent merge), `checkBaseIntegrity` (computed gaps + exact heal ranges — the single freshness point), `deriveAllTimeframes` (every TF as a SeriesView with an honest `complete` flag), `nextExpectedBucketMs` (calendar-driven ingestion cursor), `hotWindowStartMs` (bounded retention per §3.6). |
+
+28 unit tests (calendar 12, resample 7, chain 9). Full suite green.
+
+### Phase 1b — shadow reconcile + per-shard DO (done; DORMANT)
+
+- **Shadow reconciler** (`scripts/candle-chain-shadow-reconcile.js`, read-only):
+  validated on real pre-prod data that `resample(5m base)` reproduces the
+  provider's bars — **100% OHLC match for 10/15/30m**; 60/240m differ only by
+  anchor convention. See `tasks/2026-06-15-phase1b-shadow-reconcile-result.md`.
+- **`candle-chain-shard.js`** — pure, storage-injected per-shard core: stable
+  `shardForTicker`, session-chunked 5m + daily base, ingest/derive/integrity,
+  and bounded `retentionSweep` (drops old session chunks → constant footprint).
+- **`candle-chain-do.js`** — the `CandleChainShard` Durable Object (per-shard,
+  single-writer), a thin adapter over the core using DO storage. Bound in
+  `wrangler.toml` (migration v6, `new_sqlite_classes`). **DORMANT** — nothing
+  schedules it; reachable only via `POST /timed/admin/candle-chain` (admin) or
+  the `candleShardStub` helper. Validated end-to-end on pre-prod: ingest 78 real
+  5m bars → derive complete 30m view → clean integrity.
+
+### Staged next (needs operator review; touches the live ingestion path)
+- R2 cold-storage offload for retention-swept 5m chunks.
+- Calendar-driven ingestion scheduler feeding the DO from the live feed (behind
+  the worker-role flag pattern), run in **shadow** beside the current per-TF
+  store; prove zero gaps for K weeks via the chain's coverage report, then
+  re-run the parity baseline and watch score/conviction divergence collapse.
+- Pin the canonical 60m/240m anchor (shadow-reconcile follow-up).
+
+## What this layer does NOT do yet
+
+- No live wiring — nothing in `worker/index.js` imports these; runtime behavior is unchanged.
 - No change to the current scoring/exit logic.
-- No new freshness guard — the whole point is to design freshness in (Phase 1+).
+- No new freshness guard — the whole point is to design freshness in.
