@@ -34,12 +34,35 @@ purely on 5m depth.
   universe, batched. (One transient 502 on the offset=20 older-window batch to
   re-run.)
 
-## STILL TO BUILD before the flip is durable
-**Ongoing DO 5m ingest lane.** Seeding the DO is one-time; without a per-cycle
-feed the DO's 5m base goes stale → derived LTF becomes incomplete → the fail-safe
-drops back to legacy (safe, but no benefit). Add a 5m→DO push to the bar cron,
-gated by its own flag (default OFF). Then: seed DO (bulk) → enable ingest flag →
-flip `SCORE_CANDLE_SOURCE`.
+## ALL MACHINERY NOW BUILT + DEPLOYED LIVE (OFF) — go-live is operator flags
+Added + deployed (both envs, dormant):
+- Ongoing DO 5m ingest lane `_feedCandleChainDO` wired into the `*/5` cron via
+  `ctx.waitUntil`, gated `CANDLE_CHAIN_INGEST` (default OFF). Rotates ~40
+  tickers/tick, reads a 4h 5m window from D1, pushes to the per-shard DO.
+- `POST /timed/admin/chain-do-feed?force=1&windowHours=<H>&max=<N>&tickers=<csv>`
+  — runs the feed on-demand; with a WIDE window it doubles as the **bulk DO seed**.
+- Validated on pre-prod: feed `fed>0`, DO 5m base `complete 468/468`; the
+  DO-backed score path (`mode=hybrid_do`) = legacy (d_ltf=0, d_htf=0, state eq).
+
+## GO-LIVE SEQUENCE (operator; reversible)
+Set the two flags as Cloudflare **Workers → timed-trading-ingest → Settings →
+Variables** (reversible without redeploy), or in `wrangler.toml`
+`[env.production.vars]` + redeploy.
+
+1. **Wait for the 5m backfill** to finish: `grep DONE-5M-BACKFILL /tmp/bf5m.log`
+   (running in tmux `bf5m`). Re-run any 502-skipped batch.
+2. **Bulk-seed the live DO** (≈2 months of 5m → DO), chunked to stay under the
+   subrequest limit — repeat ~8× (the KV cursor rotates):
+   `for i in $(seq 1 8); do curl -s -XPOST "$LIVE/timed/admin/chain-do-feed?force=1&windowHours=1500&max=40&key=$KEY"; done`
+3. **Verify live parity** on the basket:
+   `GET /timed/admin/chain-score-shadow?ticker=<T>&mode=hybrid_do` → expect
+   `d_ltf≈0, state_equal=true`. Any ticker not yet seeded simply falls back to legacy.
+4. **Enable ongoing freshness:** set `CANDLE_CHAIN_INGEST=1`. (Tuning: raise the
+   feed chunk size / window if RTH edge-staleness causes too many legacy
+   fallbacks — each ticker currently refreshes ~every 35 min.)
+5. **Flip the score source:** set `SCORE_CANDLE_SOURCE=hybrid_chain`. Watch
+   `chain-score-shadow` diffs stay ~0 and trades/alerts look normal.
+   **Rollback:** set `SCORE_CANDLE_SOURCE=legacy` (instant, no redeploy).
 
 ## Clean cutover steps (in order)
 
