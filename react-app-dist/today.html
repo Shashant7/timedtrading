@@ -10,35 +10,35 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781297106997" />
-    <script defer src="/vendor/react.production.min.js?v=1781297106997"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781297106997"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781297106997" />
-<script defer src="/vendor/marked.min.js?v=1781297106997"></script>
-    <script defer src="auth-gate.js?v=1781297106997"></script>
-    <script defer src="tt-fetch-cache.js?v=1781297106997"></script>
-    <script defer src="tt-live-data.js?v=1781297106997"></script>
-    <script src="tt-bottom-nav.js?v=1781297106997" defer></script>
-    <script src="tt-nav-extras.js?v=1781297106997" defer></script>
-    <script src="tt-global-search.js?v=1781297106997" defer></script>
-    <script src="tt-rail-bridge.js?v=1781297106997" defer></script>
-    <script src="tt-activity-strip.js?v=1781297106997" defer></script>
-    <script defer src="shared-price-utils.js?v=1781297106997"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781494243971" />
+    <script defer src="/vendor/react.production.min.js?v=1781494243971"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781494243971"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781494243971" />
+<script defer src="/vendor/marked.min.js?v=1781494243971"></script>
+    <script defer src="auth-gate.js?v=1781494243971"></script>
+    <script defer src="tt-fetch-cache.js?v=1781494243971"></script>
+    <script defer src="tt-live-data.js?v=1781494243971"></script>
+    <script src="tt-bottom-nav.js?v=1781494243971" defer></script>
+    <script src="tt-nav-extras.js?v=1781494243971" defer></script>
+    <script src="tt-global-search.js?v=1781494243971" defer></script>
+    <script src="tt-rail-bridge.js?v=1781494243971" defer></script>
+    <script src="tt-activity-strip.js?v=1781494243971" defer></script>
+    <script defer src="shared-price-utils.js?v=1781494243971"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1781297106997"></script>
+    <script defer src="ds-components.js?v=1781494243971"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="shared-bubble-chart.compiled.js?v=1781297106997"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1781494243971"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781297106997"></script>
-    <script defer src="shared-rail-helpers.js?v=1781297106997"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1781297106997"></script>
-    <script defer src="ticker-spider-chart.js?v=1781297106997"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1781297106997"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781494243971"></script>
+    <script defer src="shared-rail-helpers.js?v=1781494243971"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1781494243971"></script>
+    <script defer src="ticker-spider-chart.js?v=1781494243971"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1781494243971"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -128,19 +128,19 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* Today hero — bento: Brief + Research on row 1; Level Map full width row 2.
-         Prior 1.7fr | 1fr stacked Desk+Levels in the narrow column pushed the
-         level map below the fold and left dead space beside a short brief. */
+      /* Today hero — row 1: Daily Brief full width; row 2: Research Desk | PLM.
+         Prior layout squeezed Brief beside Desk and buried PLM in a cramped
+         full-width scroll with 300px cap + 2-col inner grid. */
       .today-hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         grid-template-rows: auto auto;
-        gap: 14px;
-        margin-bottom: 14px;
+        gap: 16px;
+        margin-bottom: 16px;
         align-items: stretch;
       }
       .today-hero-brief-col {
-        grid-column: 1;
+        grid-column: 1 / -1;
         grid-row: 1;
         min-width: 0;
         display: flex;
@@ -148,16 +148,57 @@
         gap: 14px;
       }
       .today-hero-desk-col {
-        grid-column: 2;
-        grid-row: 1;
+        grid-column: 1;
+        grid-row: 2;
         min-width: 0;
+        min-height: 0;
         display: flex;
         flex-direction: column;
       }
       .today-hero-levels-col {
-        grid-column: 1 / -1;
+        grid-column: 2;
         grid-row: 2;
         min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      /* Research Desk + PML — paired hero panels, fixed height + inner scroll on desktop */
+      .tt-desk-panel,
+      .tt-cto-panel {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .tt-desk-feed-body,
+      .tt-cto-feed-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .tt-desk-scroll,
+      .tt-cto-map-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding-right: 4px;
+        box-sizing: border-box;
+      }
+      .tt-desk-scroll {
+        padding-bottom: 16px;
+        scroll-padding-bottom: 12px;
+      }
+      .tt-cto-map-scroll {
+        padding-bottom: 12px;
+        scroll-padding-bottom: 8px;
+      }
+      .tt-desk-item:last-child {
+        padding-bottom: 4px;
       }
       @media (max-width: 980px) {
         .today-hero {
@@ -196,10 +237,10 @@
       /* Probabilistic Level Map — ticker | read | stacked level chips */
       .tt-cto-map-row {
         display: grid;
-        grid-template-columns: 44px minmax(72px, 108px) minmax(0, 1fr);
-        gap: 6px 10px;
+        grid-template-columns: 52px minmax(88px, 132px) minmax(0, 1fr);
+        gap: 8px 12px;
         align-items: start;
-        padding: 8px 0;
+        padding: 10px 0;
         border-bottom: 1px solid var(--tt-border);
         cursor: pointer;
       }
@@ -226,13 +267,14 @@
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        line-height: 1.45;
         font-family: var(--tt-font-mono);
-        font-size: 10.5px;
+        font-size: 11px;
       }
       .tt-cto-map-meta {
         margin-bottom: 12px;
-        padding: 10px 12px;
+        padding: 10px 14px;
         border-radius: 10px;
         border: 1px solid var(--tt-border);
         background: var(--tt-bg-elev);
@@ -243,6 +285,17 @@
       .tt-cto-map-meta strong {
         color: var(--tt-text-muted);
         font-weight: 600;
+      }
+      .tt-cto-setup-tag {
+        display: inline-block;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        border-radius: 999;
+        padding: 1px 6px;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
       @media (max-width: 640px) {
         .tt-cto-map-row {
@@ -1063,20 +1116,46 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* Level map full width: index focus | universe movers side by side */
-        .today-hero-levels-col .tt-cto-map-scroll {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-          gap: 0 24px;
-          max-height: 300px;
+        /* Row 2: Research Desk | PML — fixed equal height, scroll overflow */
+        .today-hero-desk-col,
+        .today-hero-levels-col {
+          align-self: start;
         }
-        .today-hero-levels-col .tt-cto-map-scroll > div:only-child {
-          grid-column: 1 / -1;
+        .today-hero-desk-col .tt-desk-panel,
+        .today-hero-levels-col .tt-cto-panel {
+          height: min(520px, 62vh);
+          max-height: min(520px, 62vh);
+          min-height: 0;
+          flex: none;
+          overflow: hidden;
+        }
+        .today-hero-desk-col .tt-desk-feed-body,
+        .today-hero-levels-col .tt-cto-feed-body {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+        .today-hero-desk-col .tt-desk-scroll,
+        .today-hero-levels-col .tt-cto-map-scroll {
+          flex: 1;
+          min-height: 0;
         }
       }
       @media (max-width: 980px) {
+        .today-hero-desk-col .tt-desk-panel,
+        .today-hero-levels-col .tt-cto-panel {
+          height: auto;
+          flex: none;
+        }
+        .today-hero-desk-col .tt-desk-feed-body,
+        .today-hero-levels-col .tt-cto-feed-body {
+          flex: none;
+          overflow: visible;
+        }
+        .today-hero-desk-col .tt-desk-scroll,
         .today-hero-levels-col .tt-cto-map-scroll {
-          max-height: 320px;
+          flex: none;
+          max-height: none;
         }
       }
       /* Macro chip row */
@@ -1375,7 +1454,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1781297106997"></script>
+    <script defer src="shared-nav.js?v=1781494243971"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -1391,7 +1470,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1781297106997"></script>
+    <script defer src="today.compiled.js?v=1781494243971"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -1400,4 +1479,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781297106997:761482309 -->
+<!-- cache-bust:1781494243971:402989990 -->

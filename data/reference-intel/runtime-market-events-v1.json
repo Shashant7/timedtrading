@@ -32085,13 +32085,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 31.3872
+        "sql_duration_ms": 41.2081
       },
-      "duration": 31.3872,
+      "duration": 41.2081,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 3771420672,
+      "size_after": 3767042048,
       "rows_read": 3564,
       "rows_written": 0,
       "total_attempts": 1

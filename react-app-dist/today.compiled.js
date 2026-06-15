@@ -1615,28 +1615,25 @@ function ResearchDeskPanel({
     return `${Math.floor(hr / 24)}d ago`;
   };
   return h("div", {
-    className: "tt-card tt-card-pad",
-    style: {
-      minWidth: 0,
-      height: "100%",
-      display: "flex",
-      flexDirection: "column"
-    }
+    className: "tt-card tt-card-pad tt-desk-panel"
   }, h("div", {
     className: "tt-sec-title",
     style: {
-      marginBottom: 2
+      marginBottom: 2,
+      flexShrink: 0
     }
   }, "RESEARCH DESK"), h("div", {
     className: "tt-sec-h",
     style: {
-      marginBottom: 10
+      marginBottom: 10,
+      flexShrink: 0
     }
   }, "Fresh from the research feed"), croNote && h("div", {
     style: {
       marginBottom: 10,
       padding: "10px 12px",
       borderRadius: 8,
+      flexShrink: 0,
       border: "1px solid rgba(139,92,246,0.35)",
       background: "rgba(139,92,246,0.06)"
     }
@@ -1702,35 +1699,30 @@ function ResearchDeskPanel({
       fontWeight: 700,
       color: "var(--tt-text-dim)"
     }
-  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), items.length === 0 ? h("div", {
+  }, `${obs.category || "Observation"}: `), (obs.claim || obs.text || "").slice(0, 160))))), h("div", {
+    className: "tt-desk-feed-body"
+  }, items.length === 0 ? h("div", {
     style: {
       fontSize: 12,
       color: "var(--tt-text-muted)"
     }
-  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h("div", null, h("div", {
+  }, feed ? "No research notes in the last 7 days." : "Loading research…") : h(React.Fragment, null, h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-dim)",
       marginBottom: 8,
-      letterSpacing: "0.04em"
+      letterSpacing: "0.04em",
+      flexShrink: 0
     }
   }, `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`), h("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 0,
-      maxHeight: 260,
-      overflowY: "auto",
-      overflowX: "hidden",
-      paddingRight: 4,
-      WebkitOverflowScrolling: "touch"
-    }
+    className: "tt-desk-scroll"
   }, items.map((it, i) => {
     const id = it.pub_id || String(i);
     const isOpen = openId === id;
     const hasMore = !!it.tt_summary;
     return h("div", {
       key: id,
+      className: "tt-desk-item",
       style: {
         padding: "8px 0",
         borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none"
@@ -1792,7 +1784,8 @@ function ResearchDeskPanel({
         display: "flex",
         gap: 5,
         flexWrap: "wrap",
-        marginTop: 5
+        marginTop: 5,
+        marginBottom: 2
       }
     }, it.tickers.map(tk => h("button", {
       key: tk,
@@ -1809,7 +1802,7 @@ function ResearchDeskPanel({
         cursor: "pointer"
       }
     }, tk))));
-  }))));
+  })))));
 }
 function DayTradePredictions({
   onSelectTicker
@@ -1973,10 +1966,10 @@ function TodayHero({
     className: "today-hero",
     style: {
       display: "grid",
-      gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, 0.85fr)",
+      gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
       gridTemplateRows: "auto auto",
-      gap: 14,
-      marginBottom: 14,
+      gap: 16,
+      marginBottom: 16,
       alignItems: "stretch"
     }
   }, h("div", {
@@ -2051,6 +2044,7 @@ function CTOLevelsPanel({
   const formatDist = window.TimedCTORead?.formatDistance || (lvl => null);
   const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
   const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
+  const setupMoveMeta = window.TimedCTORead?.setupMove || (() => null);
   const probChip = (lvl, dir) => {
     if (!lvl) return h("span", {
       className: `tt-cto-map-prob tt-cto-map-prob--${dir}`
@@ -2084,13 +2078,24 @@ function CTOLevelsPanel({
     const rs = readStatusMeta(it?.read_status?.status);
     const rsLabel = it?.read_status?.label || rs?.label;
     const rsTone = rs?.tone || tone;
+    const move = setupMoveMeta(it);
     return h("span", {
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        gap: 4,
+        minWidth: 0,
+        maxWidth: "100%"
+      }
+    }, h("span", {
       style: {
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
         minWidth: 0,
-        maxWidth: "100%"
+        maxWidth: "100%",
+        flexWrap: "wrap"
       }
     }, h("span", {
       className: "tt-cto-read-tag tt-cto-map-read",
@@ -2127,7 +2132,15 @@ function CTOLevelsPanel({
         flexShrink: 0
       },
       title: rsLabel
-    }, rsLabel));
+    }, rsLabel)), move?.label && h("span", {
+      className: "tt-cto-setup-tag tt-cto-map-read",
+      style: {
+        color: move.tone,
+        border: `1px solid ${move.tone}66`,
+        background: `${move.tone}14`
+      },
+      title: move.blurb || undefined
+    }, move.label));
   };
   const row = it => h("div", {
     key: it.ticker,
@@ -2147,32 +2160,42 @@ function CTOLevelsPanel({
   }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
-    className: "tt-card tt-card-pad"
+    className: "tt-card tt-card-pad tt-cto-panel"
   }, h("div", {
-    className: "tt-sec-title"
+    className: "tt-sec-title",
+    style: {
+      flexShrink: 0,
+      marginBottom: 2
+    }
   }, "PROBABILISTIC LEVEL MAP"), h("div", {
     className: "tt-sec-h",
     style: {
-      fontSize: 15
+      fontSize: 15,
+      marginBottom: 8,
+      flexShrink: 0
     }
   }, "Where the math says price gravitates"), h("div", {
+    className: "tt-cto-feed-body"
+  }, h("div", {
+    className: "tt-cto-map-scroll"
+  }, h("div", {
     style: {
       fontSize: 11.5,
       color: "var(--tt-text-dim)",
-      marginBottom: 8,
-      lineHeight: 1.55
+      marginBottom: 10,
+      lineHeight: 1.5
     }
-  }, "Each row shows the strongest upside and downside magnets independently — not a single directional call. ", h("strong", {
+  }, "Upside and downside magnets ranked by hit rate, distance to level, and whether the move is still early or already confirming. ", h("strong", {
     style: {
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Range map"), " = both levels hit often in a tight band (chop). ", h("strong", {
+  }, "Range map"), " when both hit often; ", h("strong", {
     style: {
       color: "var(--tt-text-muted)",
       fontWeight: 600
     }
-  }, "Lean"), " = one side leads by 12+ pts — use that magnet for context. Not engine trade signals."), h("div", {
+  }, "Lean"), " when one side leads by 12+ pts. Context only, not trade signals."), h("div", {
     className: "tt-cto-map-meta"
   }, asOfLabel ? h("div", {
     style: {
@@ -2195,22 +2218,14 @@ function CTOLevelsPanel({
       fontSize: 10.5,
       color: "var(--tt-text-faint)"
     }
-  }, `${feed.items.length} shown`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history` : "")), feed.learning && h("div", {
+  }, `${feed.items.length} shown · top ${Math.min(30, feed.items.length)} by probability + distance`, Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_candidates) ? ` · ${feed.tickers_ok} candidates in pool` : Number.isFinite(feed.tickers_ok) && Number.isFinite(feed.tickers_processed) ? ` · ${feed.tickers_ok} of ${feed.tickers_processed} with enough history` : "")), feed.learning && h("div", {
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-faint)",
       marginBottom: 10,
       lineHeight: 1.5
     }
-  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), h("div", {
-    className: "tt-cto-map-scroll",
-    style: {
-      overflowY: "auto",
-      overflowX: "hidden",
-      paddingRight: 4,
-      WebkitOverflowScrolling: "touch"
-    }
-  }, indexRows.length > 0 && h("div", {
+  }, feed.learning.empirical_note, feed.learning.forward_note && h("span", null, " ", feed.learning.forward_note), Number.isFinite(feed.learning.forward_win_rate_pct) && h("span", null, ` Forward win rate on graded magnets: ${feed.learning.forward_win_rate_pct}%.`)), indexRows.length > 0 && h("div", {
     style: {
       marginBottom: 6
     }
@@ -2232,7 +2247,7 @@ function CTOLevelsPanel({
       textTransform: "uppercase",
       margin: "8px 0 4px"
     }
-  }, "Highest-probability setups"), movers.map(row))));
+  }, `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`), movers.map(row)))));
 }
 function MarketState({
   data,
@@ -5167,6 +5182,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781297106997:761482309
+// cache-bust:1781494243971:402989990
 
-// cache-bust:1781297106997:761482309
+// cache-bust:1781494243971:402989990
