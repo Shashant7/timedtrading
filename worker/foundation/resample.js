@@ -56,15 +56,34 @@ export function resampleAligned(bars, tfMin, anchorMs = 0) {
 }
 
 /**
- * Session-anchored intraday resample of a multi-day base series. Splits base
- * bars by ET trading day, anchors each session at its RTH open, resamples
- * within the session, and concatenates. This is the canonical intraday derive.
+ * Session-anchored intraday resample of a multi-day base series — THE canonical
+ * intraday derive. Splits base bars by ET trading day, anchors each session at
+ * its RTH open (09:30 ET), resamples within the session, and concatenates.
+ *
+ * CANONICAL 60m / 240m ANCHOR (pinned 2026-06-15, plan §9.1):
+ *   • Buckets are anchored to the SESSION OPEN, not the wall-clock hour. So 60m
+ *     bars open at 09:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30 — matching
+ *     the standard US-equity 1H convention (e.g. TradingView). 240m opens at
+ *     09:30 and 13:30.
+ *   • PARTIAL LAST BAR: the final 60m bar (15:30) covers only 15:30–16:00 (a
+ *     30-minute partial); the final 240m bar (13:30) covers 13:30–16:00 (a
+ *     2.5-hour partial). Half-days (early 13:00 close) shorten these naturally
+ *     because the session bounds come from the calendar.
+ *   • RTH CLIP (default): base bars OUTSIDE [open, close) are dropped before
+ *     bucketing, so pre/post-market 5m prints can NEVER spawn an out-of-session
+ *     bucket (08:30, 16:30, …). This removes the "extra buckets / session-edge
+ *     ts offset" the shadow reconcile saw on 60/240/10 and makes the derived
+ *     series self-consistent: every derived bar is exactly the aggregate of the
+ *     RTH 5m bars inside its window. Pass {clipToSession:false} for the raw
+ *     (extended-hours-inclusive) resample used only by reconciliation tooling.
  *
  * @param {Array} base5m   ascending base bars (e.g. 5m)
  * @param {number} tfMin   target timeframe minutes (must be a multiple of base)
+ * @param {Object} [opts]  { clipToSession=true }
  * @returns {Array} derived bars, ascending
  */
-export function resampleIntradaySessions(base5m, tfMin) {
+export function resampleIntradaySessions(base5m, tfMin, opts = {}) {
+  const clipToSession = opts.clipToSession !== false;
   const sorted = sortBars(base5m);
   const byDay = new Map();
   for (const b of sorted) {
@@ -76,7 +95,12 @@ export function resampleIntradaySessions(base5m, tfMin) {
   for (const day of [...byDay.keys()].sort()) {
     const sb = sessionBoundsUtc(day);
     const anchor = sb ? sb.openMs : byDay.get(day)[0].ts; // fall back to first bar if non-session
-    for (const bar of resampleAligned(byDay.get(day), tfMin, anchor)) out.push(bar);
+    let dayBars = byDay.get(day);
+    if (clipToSession && sb) {
+      dayBars = dayBars.filter((b) => b.ts >= sb.openMs && b.ts < sb.closeMs);
+    }
+    if (dayBars.length === 0) continue;
+    for (const bar of resampleAligned(dayBars, tfMin, anchor)) out.push(bar);
   }
   return out;
 }
