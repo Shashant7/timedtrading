@@ -496,11 +496,20 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "3-month return vs SPY",
         }, `3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%`),
-        liveStagePending && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--solid",
-          style: { fontFamily: "var(--tt-font-mono)", color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)" },
-          title: `Live re-score would move to ${liveStagePending.stage} (S${Math.round(Number(liveStagePending.score) || 0)}). Kanban keeps cached lane until the next investor compute cron.`,
-        }, `LIVE → ${String(liveStagePending.stage || "").replace(/^research_/, "").replace(/_/g, " ").toUpperCase()}`),
+        liveStagePending && (() => {
+          const _friendly = {
+            research_avoid: "Avoid", research_low: "Low Conviction",
+            research_on_watch: "On Radar", accumulate: "Accumulate",
+            core_hold: "Core Hold", watch: "Hold & Watch", reduce: "Reduce",
+          };
+          const _ps = String(liveStagePending.stage || "");
+          const _label = _friendly[_ps] || _ps.replace(/^research_/, "").replace(/_/g, " ");
+          return React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            style: { fontFamily: "var(--tt-font-mono)", color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)" },
+            title: `Heads up: the latest live score (S${Math.round(Number(liveStagePending.score) || 0)}) reclassifies this as "${_label}". The lane shown is the last committed classification — it moves to ${_label} on the next investor refresh.`,
+          }, `NEXT → ${_label.toUpperCase()}`);
+        })(),
       ),
     );
   }
