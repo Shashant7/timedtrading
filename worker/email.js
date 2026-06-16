@@ -55,7 +55,7 @@ function _vixColor(bucket) {
 }
 
 function _ggColor(gg) {
-  return gg === "OPEN_UP" ? "#34d399" : gg === "OPEN_DOWN" ? "#ef4444" : "#9ca3af";
+  return (gg === "OPEN_UP" || gg === "COMPLETE_UP") ? "#34d399" : (gg === "OPEN_DOWN" || gg === "COMPLETE_DN") ? "#fb7185" : "#9ca3af";
 }
 
 function _pctColor(p) {
@@ -64,7 +64,28 @@ function _pctColor(p) {
 }
 
 function _ggLabel(gg) {
-  return gg === "OPEN_UP" ? "▲ GG Up" : gg === "OPEN_DOWN" ? "▼ GG Down" : "◆ Neutral";
+  // Plain-language bias (matches the web brief), not Saty "GG" jargon.
+  return (gg === "OPEN_UP" || gg === "COMPLETE_UP") ? "▲ Bullish" : (gg === "OPEN_DOWN" || gg === "COMPLETE_DN") ? "▼ Bearish" : "◆ Neutral";
+}
+
+/** Plain-language "what it means for equities" tag for a cross-asset row. */
+function _macroRead(m) {
+  const s = String(m?.sym || m?.label || "").toUpperCase();
+  const v = Number(m?.chgPct);
+  const up = Number.isFinite(v) && v > 0.15;
+  const dn = Number.isFinite(v) && v < -0.15;
+  if (s.includes("VIX") || s.includes("VX")) {
+    const lvl = Number(m?.value);
+    if (Number.isFinite(lvl) && lvl >= 20) return "fear elevated";
+    if (Number.isFinite(lvl) && lvl < 14) return "calm tape";
+    return up ? "hedging up" : dn ? "calmer" : "steady";
+  }
+  if (s.includes("BTC") || s.includes("ETH")) return up ? "risk appetite on" : dn ? "risk-off" : "flat";
+  if (s.includes("CL") || s.includes("CRUDE") || s.includes("OIL") || s.includes("USO")) return up ? "energy bid · cost push" : dn ? "consumer relief" : "flat";
+  if (s.includes("GC") || s.includes("GOLD") || s.includes("GLD") || s.includes("SI") || s.includes("SILVER")) return up ? "risk-off hedge bid" : dn ? "risk-on" : "flat";
+  if (s.includes("TLT") || s.includes("BOND") || s.includes("ZB") || s.includes("ZN") || s.includes("TREASUR")) return up ? "yields down · duration bid" : dn ? "yields up · growth headwind" : "flat";
+  if (s.includes("DXY") || s.includes("DOLLAR") || s.includes("UUP")) return up ? "headwind for risk" : dn ? "tailwind for risk" : "flat";
+  return up ? "bid" : dn ? "soft" : "flat";
 }
 
 /**
@@ -136,27 +157,58 @@ export function buildEmailInfographic(infographic) {
        </table>`
     : "";
 
-  // ── Index rows (SPY/QQQ/IWM with price + GG) ──
+  // ── Index Playbook rows (parity with the web brief: bias + expected move +
+  //    the call-side and put-side plays + a one-line weekly read) ──
   let indicesHtml = "";
   if (indices.length > 0) {
+    const _n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
     const rows = indices.map(idx => {
       const lvls = idx.levels || {};
       const gg = lvls.goldenGate || "NEUTRAL";
-      const price = idx.price ?? lvls.currentPrice;
+      const price = _n(idx.price ?? lvls.currentPrice);
       const chgPct = idx.chgPct;
+      const atr = _n(idx.atr);
+      const gp = lvls.gamePlan || null;
+      const dayProb = lvls.goldenGateProbability;
+      const ggPct = (dayProb && gg !== "NEUTRAL" && _n(dayProb.day) != null) ? ` · ${Math.round(_n(dayProb.day) * 100)}%` : "";
+      // Calls / Puts plays
+      let playsHtml = "";
+      const bt = _n(gp?.bullTrigger), btg = _n(gp?.bullTarget);
+      const rt = _n(gp?.bearTrigger), rtg = _n(gp?.bearTarget);
+      if (bt != null && btg != null) {
+        const pct = (btg - bt) / bt * 100;
+        const arm = price != null ? (price >= bt ? "in play" : `+${((bt - price) / price * 100).toFixed(2)}% to arm`) : "";
+        playsHtml += `<tr><td style="padding:2px 0;font-size:11.5px;color:#34d399;font-variant-numeric:tabular-nums">▲ Calls ${price != null && price >= bt ? "armed" : `over $${bt.toFixed(2)}`} → $${btg.toFixed(2)} <span style="color:rgba(52,211,153,0.7)">(+${pct.toFixed(1)}%)</span> <span style="color:${BRAND.textMuted}">${arm}</span></td></tr>`;
+      }
+      if (rt != null && rtg != null) {
+        const pct = (rtg - rt) / rt * 100;
+        const arm = price != null ? (price <= rt ? "in play" : `${((rt - price) / price * 100).toFixed(2)}% to arm`) : "";
+        playsHtml += `<tr><td style="padding:2px 0;font-size:11.5px;color:#fb7185;font-variant-numeric:tabular-nums">▼ Puts ${price != null && price <= rt ? "armed" : `under $${rt.toFixed(2)}`} → $${rtg.toFixed(2)} <span style="color:rgba(251,113,133,0.7)">(${pct.toFixed(1)}%)</span> <span style="color:${BRAND.textMuted}">${arm}</span></td></tr>`;
+      }
+      // Weekly one-liner
+      let weekLine = "";
+      const wl = idx.weeklyLevels || null;
+      if (wl) {
+        const wgg = wl.goldenGate || "NEUTRAL";
+        const wUp = _n(wl.levels?.["+61.8%"]), wDn = _n(wl.levels?.["-61.8%"]);
+        const wlo = _n(wl.levels?.["-38.2%"]), whi = _n(wl.levels?.["+38.2%"]);
+        if ((wgg === "OPEN_UP" || wgg === "COMPLETE_UP") && wUp != null) weekLine = `▲ Bullish · toward $${wUp.toFixed(2)} by Fri`;
+        else if ((wgg === "OPEN_DOWN" || wgg === "COMPLETE_DN") && wDn != null) weekLine = `▼ Bearish · toward $${wDn.toFixed(2)} by Fri`;
+        else if (wlo != null && whi != null) weekLine = `◆ Range $${wlo.toFixed(2)}–$${whi.toFixed(2)}`;
+      }
+      const weekHtml = weekLine
+        ? `<tr><td style="padding:5px 0 0;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:${BRAND.textSecondary}"><span style="color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em;font-size:9px;margin-right:5px">This week</span>${_esc(weekLine)}</td></tr>`
+        : "";
       return `<tr>
         <td style="padding:10px 12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);border-radius:6px" valign="top">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr>
-              <td style="font-size:13px;font-weight:700;color:white">${_esc(idx.sym)}</td>
-              <td align="right" style="font-size:11px;font-weight:600;color:${_ggColor(gg)}">${_ggLabel(gg)}</td>
+              <td style="font-size:13px;font-weight:700;color:white">${_esc(idx.sym)} <span style="font-size:11px;font-weight:600;color:${_ggColor(gg)}">${_ggLabel(gg)}${ggPct}</span></td>
+              <td align="right" style="font-size:15px;font-weight:700;color:white;font-variant-numeric:tabular-nums">${price != null ? `$${price.toFixed(2)}` : "—"}${chgPct != null ? ` <span style="font-size:11px;font-weight:600;color:${_pctColor(chgPct)}">${chgPct >= 0 ? "+" : ""}${Number(chgPct).toFixed(2)}%</span>` : ""}</td>
             </tr>
-            <tr>
-              <td colspan="2" style="padding-top:4px">
-                <span style="font-size:16px;font-weight:700;color:white;font-variant-numeric:tabular-nums">${price != null ? `$${Number(price).toFixed(2)}` : "—"}</span>
-                ${chgPct != null ? `<span style="margin-left:8px;font-size:12px;font-weight:600;color:${_pctColor(chgPct)};font-variant-numeric:tabular-nums">${chgPct >= 0 ? "+" : ""}${Number(chgPct).toFixed(2)}%</span>` : ""}
-              </td>
-            </tr>
+            ${atr != null ? `<tr><td colspan="2" align="right" style="font-size:9px;color:${BRAND.textMuted};font-variant-numeric:tabular-nums">expected move today ±$${atr.toFixed(2)}</td></tr>` : ""}
+            ${playsHtml ? `<tr><td colspan="2" style="padding-top:5px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${playsHtml}</table></td></tr>` : ""}
+            ${weekHtml ? `<tr><td colspan="2" style="padding-top:4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0">${weekHtml}</table></td></tr>` : ""}
           </table>
         </td>
       </tr>
@@ -164,21 +216,52 @@ export function buildEmailInfographic(infographic) {
     }).join("");
     indicesHtml = `
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+        <tr><td style="padding:0 0 4px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Index playbook · today's plays</td></tr>
         ${rows}
       </table>`;
   }
 
-  // ── Macro strip ──
+  // ── Macro strip (with a plain-language "what it means for equities" tag) ──
   let macroHtml = "";
   if (macro.length > 0) {
     const cells = macro.slice(0, 5).map(m => {
       const color = m.bucket ? _vixColor(m.bucket) : _pctColor(m.chgPct);
-      return `<td style="padding:6px 10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:6px;min-width:80px">
+      const read = _macroRead(m);
+      return `<td style="padding:6px 10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:6px;min-width:80px" valign="top">
         <div style="font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:${BRAND.textMuted}">${_esc(m.label || m.sym)}</div>
         <div style="font-size:13px;font-weight:600;color:${color};font-variant-numeric:tabular-nums;margin-top:2px">${_esc(Number(m.value).toFixed(2))}${m.chgPct != null ? ` · ${m.chgPct >= 0 ? "+" : ""}${Number(m.chgPct).toFixed(1)}%` : ""}</div>
+        ${read ? `<div style="font-size:8.5px;color:${BRAND.textMuted};margin-top:2px;line-height:1.3">${_esc(read)}</div>` : ""}
       </td>`;
     }).join("");
     macroHtml = `<table role="presentation" cellpadding="0" cellspacing="4" style="margin:0 0 14px"><tr>${cells}</tr></table>`;
+  }
+
+  // ── Sector tape read (breadth + leader/laggard + risk-on vs defensive tilt) ──
+  let sectorsHtml = "";
+  {
+    const secs = (Array.isArray(infographic.sectors) ? infographic.sectors : []).filter(s => Number.isFinite(Number(s.chgPct)));
+    if (secs.length > 0) {
+      const greens = secs.filter(s => Number(s.chgPct) > 0).length;
+      const total = secs.length;
+      const sorted = [...secs].sort((a, b) => Number(b.chgPct) - Number(a.chgPct));
+      const leader = sorted[0], laggard = sorted[sorted.length - 1];
+      const avgOf = (syms) => { const xs = secs.filter(s => syms.includes(s.sym)); return xs.length ? xs.reduce((a, s) => a + Number(s.chgPct), 0) / xs.length : null; };
+      const roAvg = avgOf(["XLK", "XLY", "XLC", "XLI"]);
+      const defAvg = avgOf(["XLP", "XLU", "XLV", "XLRE"]);
+      const breadth = total ? greens / total : 0;
+      let tone = "Mixed tape", toneColor = "#9ca3af";
+      if (breadth >= 0.6 && (roAvg ?? 0) >= (defAvg ?? 0)) { tone = "Risk-on tape"; toneColor = "#34d399"; }
+      else if (breadth <= 0.4) { tone = "Risk-off tape"; toneColor = "#fb7185"; }
+      else if ((defAvg ?? 0) > (roAvg ?? 0)) { tone = "Defensive tilt"; toneColor = "#fbbf24"; }
+      const fp = (v) => `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%`;
+      const read = `${greens}/${total} sectors green`
+        + (leader ? ` · ${_esc(leader.sym)} leads (${fp(leader.chgPct)})` : "")
+        + (laggard && laggard !== leader ? `, ${_esc(laggard.sym)} lags (${fp(laggard.chgPct)})` : "");
+      sectorsHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">
+        <tr><td style="padding:0 0 3px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Sectors today</td></tr>
+        <tr><td style="font-size:12px;line-height:1.45"><span style="font-weight:700;color:${toneColor}">${tone}</span> <span style="color:${BRAND.textSecondary}">— ${read}</span></td></tr>
+      </table>`;
+    }
   }
 
   // ── Events (today's macro + earnings) ──
@@ -247,7 +330,7 @@ export function buildEmailInfographic(infographic) {
       </table>`
     : "";
 
-  const body = topThreeHtml + headlineHtml + indicesHtml + macroHtml + eventsHtml + headlinesHtml + risksOppsHtml + closingHtml;
+  const body = topThreeHtml + headlineHtml + indicesHtml + sectorsHtml + macroHtml + eventsHtml + headlinesHtml + risksOppsHtml + closingHtml;
   if (!body.trim()) return "";
 
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px;background:rgba(255,255,255,0.015);border:1px solid ${BRAND.border};border-radius:10px">
