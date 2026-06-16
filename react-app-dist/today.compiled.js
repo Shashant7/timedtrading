@@ -2053,6 +2053,23 @@ function CTOLevelsPanel({
   const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
   const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
   const setupMoveMeta = window.TimedCTORead?.setupMove || (() => null);
+  const spotLabelFor = it => {
+    const live = Number(it?.live_price);
+    const anchor = Number(it?.anchor_price);
+    const px = Number.isFinite(live) && live > 0 ? live : Number.isFinite(anchor) && anchor > 0 ? anchor : null;
+    if (!Number.isFinite(px)) return null;
+    const asOfMs = Number(feed?.live_as_of_ms) || Number(it?.bar_as_of_ms);
+    const fmtBar = window.TimedCTORead?.formatBarAsOf;
+    const fmtDate = window.TimedCTORead?.formatAsOfDate;
+    const timeStr = fmtBar && asOfMs ? fmtBar(asOfMs) : null;
+    const compactTime = timeStr ? timeStr.replace(/, \d{4}/, "") : null;
+    const usingLive = Number.isFinite(live) && live > 0;
+    const anchorDate = it?.as_of_date ? fmtDate?.(it.as_of_date) : null;
+    return {
+      text: `$${px.toFixed(2)}${compactTime ? ` · ${compactTime}` : ""}`,
+      title: usingLive ? `Distances use live spot $${live.toFixed(2)}${compactTime ? ` (${compactTime})` : ""}. Hit % is from daily history; levels anchor on the prior session close.` : `Distances use daily close $${px.toFixed(2)}${anchorDate ? ` (${anchorDate})` : ""}.`
+    };
+  };
   const probChip = (lvl, dir) => {
     if (!lvl) return h("span", {
       className: `tt-cto-map-prob tt-cto-map-prob--${dir}`
@@ -2150,22 +2167,28 @@ function CTOLevelsPanel({
       title: move.blurb || undefined
     }, move.label));
   };
-  const row = it => h("div", {
-    key: it.ticker,
-    className: "tt-cto-map-row",
-    onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
-    title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined
-  }, h("span", {
-    className: "tt-cto-map-sym"
-  }, it.ticker), readChip(it) || h("span", {
-    className: "tt-cto-map-read",
-    style: {
-      color: "var(--tt-text-faint)",
-      fontSize: 10
-    }
-  }, "—"), h("div", {
-    className: "tt-cto-map-levels"
-  }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
+  const row = it => {
+    const spot = spotLabelFor(it);
+    return h("div", {
+      key: it.ticker,
+      className: "tt-cto-map-row",
+      onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
+      title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined
+    }, h("span", {
+      className: "tt-cto-map-sym"
+    }, h("span", null, it.ticker), spot && h("span", {
+      className: "tt-cto-map-spot",
+      title: spot.title
+    }, spot.text)), readChip(it) || h("span", {
+      className: "tt-cto-map-read",
+      style: {
+        color: "var(--tt-text-faint)",
+        fontSize: 10
+      }
+    }, "—"), h("div", {
+      className: "tt-cto-map-levels"
+    }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
+  };
   const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
   return h("section", {
     className: "tt-card tt-card-pad tt-cto-panel"
@@ -5190,6 +5213,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781625103764:708969166
+// cache-bust:1781626301000:557418510
 
-// cache-bust:1781625103764:708969166
+// cache-bust:1781626301000:557418510
