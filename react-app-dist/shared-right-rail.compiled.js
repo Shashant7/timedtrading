@@ -3285,11 +3285,6 @@
               }]);
             }
           }
-        } else if (isIntradayTf && raw.length > 2) {
-          const tfSec = tfMinutes * 60;
-          const nowSec = Math.floor(Date.now() / 1000);
-          const last = raw[raw.length - 1];
-          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
         }
         for (let i = 0; i < raw.length; i++) {
           const c = raw[i];
@@ -11379,7 +11374,18 @@
               fontWeight: 700,
               fontSize: "var(--ds-fs-body)"
             }
-          }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.confidence > 0 && React.createElement("span", {
+          }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.matched_by === "ticker_lifecycle" && React.createElement("span", {
+            title: "Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)",
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.12em",
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: "rgba(96,165,250,0.12)",
+              color: "var(--ds-text-muted)",
+              border: "1px solid var(--ds-stroke)"
+            }
+          }, "LATEST"), cioVerdict.confidence > 0 && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: "var(--ds-fs-caption)",
@@ -19908,4 +19914,4 @@
   };
 })();
 
-// cache-bust:1781625103764:708969166
+// cache-bust:1781629038957:729370068

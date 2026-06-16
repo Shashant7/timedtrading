@@ -2125,14 +2125,18 @@
               }]);
             }
           }
-        } else if (isIntradayTf && raw.length > 2) {
-          // P0.7.145 — without livePrice, drop the still-forming bar to
-          // avoid transient upstream reconciliation flashes.
-          const tfSec = tfMinutes * 60;
-          const nowSec = Math.floor(Date.now() / 1000);
-          const last = raw[raw.length - 1];
-          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
         }
+        // 2026-06-16 — DO NOT drop the still-forming bar when livePrice is
+        // momentarily absent. The old P0.7.145 drop fought a transient
+        // reconciliation flash, but combined with the livePrice merge above it
+        // TOGGLES the bar count: livePrice present → forming bar kept/merged;
+        // livePrice null (a single empty poll / interaction-time re-render) →
+        // forming bar dropped. That ±1 length change between renders defeats the
+        // last-bar fast path (which only handles same-length or +1), forcing a
+        // full candleSeries.setData() redraw — the chart "paints then repaints"
+        // flicker the operator reported. Keeping the forming bar makes the count
+        // stable across livePrice flips + the 30s RTH re-poll, so live updates
+        // always take the smooth series.update() path.
 
         // Pass 1: clamp wicks that are wildly wider than the body
         for (let i = 0; i < raw.length; i++) {
@@ -9649,6 +9653,15 @@
                                   <span style={{ color: _decisionColor, fontWeight: 700, fontSize: "var(--ds-fs-body)" }}>
                                     {_decisionIcon} {cioVerdict.decision}
                                   </span>
+                                  {cioVerdict.matched_by === "ticker_lifecycle" && (
+                                    <span title="Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)" style={{
+                                      fontSize: 9, letterSpacing: "0.12em",
+                                      padding: "1px 6px", borderRadius: 4,
+                                      background: "rgba(96,165,250,0.12)",
+                                      color: "var(--ds-text-muted)",
+                                      border: "1px solid var(--ds-stroke)",
+                                    }}>LATEST</span>
+                                  )}
                                   {cioVerdict.confidence > 0 && (
                                     <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
                                       {(cioVerdict.confidence * 100).toFixed(0)}% conf
