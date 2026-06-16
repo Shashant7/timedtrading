@@ -923,6 +923,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1781646342448:371045066
+// cache-bust:1781651636430:114969903
 
-// cache-bust:1781646342448:371045066
+// cache-bust:1781651636430:114969903
