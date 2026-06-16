@@ -91,8 +91,15 @@
       return openPx > 0 ? openPx : null;
     }
     var px = Number(t.price ?? t._live_price);
+    var live = Number(t._live_price);
     var close = Number(t.close);
     var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+    // Stale snapshot guard: /timed/all can leave price == prev_close while
+    // usePriceFeed has already locked today's RTH close on _live_price (GS).
+    if (live > 0 && px > 0 && Math.abs(live - px) > 0.001 && prev > 0
+        && Math.abs(px - prev) / prev < 0.001 && Math.abs(live - prev) / prev > 0.001) {
+      px = live;
+    }
     // Stale close guard: scoring blobs sometimes leave close == prev_close
     // (yesterday's reference) even after today's session. Prefer the live
     // feed price when close looks poisoned (DELL / card stale-close lesson).
@@ -102,7 +109,6 @@
     }
     if (close > 0) return close;
     if (px > 0) return px;
-    var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
     return prev > 0 ? prev : null;
   }
 
