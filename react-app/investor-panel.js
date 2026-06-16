@@ -22,6 +22,15 @@
     return tier === "act_now" || tier === "ready";
   }
 
+  function investorRsFields(t) {
+    const rs1m = t?.rs?.rs1m ?? t?.rs1m;
+    const rs3m = t?.rs?.rs3m ?? t?.rs3m;
+    return {
+      rs1m: rs1m != null && Number.isFinite(Number(rs1m)) ? Number(rs1m) : null,
+      rs3m: rs3m != null && Number.isFinite(Number(rs3m)) ? Number(rs3m) : null,
+    };
+  }
+
   /* 2026-06-06 — Kanban lane placement. Accumulate means buy-now only:
      stage accumulate + act_now/ready tier. Monitor/stale demote to
      On Radar (unowned) or Hold & Watch (owned) so lane matches detail. */
@@ -89,6 +98,9 @@
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
     const score = Number(t.score) || 0;
+    const rsFields = investorRsFields(t);
+    const liveStagePending = t._live_stage_pending && typeof t._live_stage_pending === "object"
+      ? t._live_stage_pending : null;
     const _dc = getDailyChange(t);
     const dayPct = Number.isFinite(_dc?.dayPct) ? Number(_dc.dayPct) : null;
     const price = Number.isFinite(Number(t.price)) ? Number(t.price) : null;
@@ -474,16 +486,21 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "Relative strength percentile (vs universe)",
         }, `RS ${t.rsRank}`),
-        t.rs?.rs1m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(t.rs.rs1m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+        rsFields.rs1m != null && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${Number(rsFields.rs1m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "1-month return vs SPY",
-        }, `1M ${Number(t.rs.rs1m) >= 0 ? "+" : ""}${Number(t.rs.rs1m).toFixed(1)}%`),
-        t.rs?.rs3m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(t.rs.rs3m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+        }, `1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%`),
+        rsFields.rs3m != null && React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${Number(rsFields.rs3m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "3-month return vs SPY",
-        }, `3M ${Number(t.rs.rs3m) >= 0 ? "+" : ""}${Number(t.rs.rs3m).toFixed(1)}%`),
+        }, `3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%`),
+        liveStagePending && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--solid",
+          style: { fontFamily: "var(--tt-font-mono)", color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)" },
+          title: `Live re-score would move to ${liveStagePending.stage} (S${Math.round(Number(liveStagePending.score) || 0)}). Kanban keeps cached lane until the next investor compute cron.`,
+        }, `LIVE → ${String(liveStagePending.stage || "").replace(/^research_/, "").replace(/_/g, " ").toUpperCase()}`),
       ),
     );
   }
