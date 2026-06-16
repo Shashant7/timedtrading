@@ -1984,7 +1984,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // 2026-06-10 — prior-brief excerpt for BOTH cadences (morning gets
     // yesterday's evening). Continuity + anti-repetition fuel.
     priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
-    priceFeedCrossRef: buildPriceFeedCrossRef(_pf, mktOpen),
+    priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
     premarketGapContext: buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf, mktOpen),
     priceFeedRaw: _pf,
