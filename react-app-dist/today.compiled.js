@@ -3076,10 +3076,10 @@ function computeInsightChips(allTickers, opts) {
   chips.push({
     id: "all",
     label: "All",
-    count: allTickers.length,
+    count: allTickers.filter(hasBubbleMapScores).length,
     tickers: null,
     row: "focus",
-    tooltip: "Show every ticker in the universe — use this to search for tickers not in Focus."
+    tooltip: "Show every scored ticker in the universe — use search for unscored placeholders."
   });
   if (savedSet.size > 0) {
     const savedTickers = allTickers.filter(t => savedSet.has(TT_NORM_TICKER(t?.ticker)));
@@ -3412,8 +3412,31 @@ function useOpenTrades(enabled) {
   }, [enabled, refresh]);
   return tradeByTicker;
 }
+function hasBubbleMapScores(t) {
+  return Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score));
+}
+function parseTickerSearchQuery(query) {
+  const raw = String(query || "").trim();
+  if (!raw) return {
+    type: "none"
+  };
+  if (raw.includes(",") && !raw.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/i)) {
+    return {
+      type: "multi-ticker",
+      tickers: raw.split(",").map(t => TT_NORM_TICKER(t.trim())).filter(Boolean)
+    };
+  }
+  return {
+    type: "substring",
+    q: raw.toUpperCase()
+  };
+}
 function applyFilters(tickers, f, chips) {
-  const q = String(f?.query || "").trim().toUpperCase();
+  const q = String(f?.query || "").trim();
+  const search = parseTickerSearchQuery(q);
+  const multiSet = search.type === "multi-ticker" ? new Set(search.tickers) : null;
+  const substringQ = search.type === "substring" ? search.q : "";
+  const explicitSearch = !!(multiSet || substringQ);
   const activeId = f?.activeChip || null;
   const addOns = f?.addOns instanceof Set ? f.addOns : new Set();
   const chip = activeId && activeId !== "all" ? (chips || []).find(c => c.id === activeId) : null;
@@ -3432,7 +3455,12 @@ function applyFilters(tickers, f, chips) {
     for (const s of addOnSets) {
       if (!s.has(sym)) return false;
     }
-    if (q && !sym.includes(q)) return false;
+    if (multiSet) {
+      if (!multiSet.has(sym)) return false;
+    } else if (substringQ && !sym.includes(substringQ)) {
+      return false;
+    }
+    if (!explicitSearch && !hasBubbleMapScores(t)) return false;
     return true;
   });
 }
@@ -3947,7 +3975,9 @@ function BubbleMapViewportSplit({
   rankedTickerPositions,
   sparkCache,
   ensureSpark,
-  onSelectTicker
+  onSelectTicker,
+  filters,
+  setFilters
 }) {
   return h("section", {
     className: "tt-row"
@@ -4010,7 +4040,9 @@ function BubbleMapViewportSplit({
     rankedTickers,
     rankedTickerPositions,
     embedded: true,
-    onSelectTicker
+    onSelectTicker,
+    filters,
+    setFilters
   }))));
 }
 function SharedBubbleMapSection({
@@ -4021,10 +4053,14 @@ function SharedBubbleMapSection({
   rankedTickers: rtProp,
   rankedTickerPositions: rtpProp,
   embedded = false,
-  onSelectTicker
+  onSelectTicker,
+  filters,
+  setFilters
 }) {
   const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
+  const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
+  const bubbleSearchRef = useRef(null);
   const rankedTickersLocal = useMemo(() => {
     if (Array.isArray(rtProp) && rtProp.length > 0) return rtProp;
     if (!getRankedTickers || !data) return [];
@@ -4043,6 +4079,15 @@ function SharedBubbleMapSection({
     return m;
   }, [rankedTickersLocal, rtpProp]);
   const [hovered, setHovered] = useState(null);
+  useEffect(() => {
+    if (!bubbleSearchOpen) return;
+    const t = setTimeout(() => {
+      try {
+        bubbleSearchRef.current?.focus();
+      } catch (_) {}
+    }, 50);
+    return () => clearTimeout(t);
+  }, [bubbleSearchOpen]);
   if (!SharedChart) {
     return h(BubbleMap, {
       allTickers,
@@ -4116,7 +4161,7 @@ function SharedBubbleMapSection({
       }
       window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     },
-    onBackgroundClick: () => {},
+    onBackgroundClick: () => setBubbleSearchOpen(true),
     selectedTicker: null,
     selectedTrail: null,
     isTimeTravelActive: false,
@@ -4125,7 +4170,53 @@ function SharedBubbleMapSection({
     forwardReturns: null,
     activeInsightTickers: null,
     layoutMode: "score"
-  })));
+  }), bubbleSearchOpen && h("div", {
+    className: "bm-quick-search-overlay",
+    onClick: e => {
+      if (e.target === e.currentTarget) setBubbleSearchOpen(false);
+    }
+  }, h("div", {
+    className: "bm-quick-search-panel",
+    onClick: e => e.stopPropagation()
+  }, h("div", {
+    className: "bm-quick-search-head"
+  }, h("span", {
+    className: "bm-quick-search-title"
+  }, "Search tickers"), h("button", {
+    type: "button",
+    className: "bm-quick-search-close",
+    onClick: () => setBubbleSearchOpen(false),
+    "aria-label": "Close search"
+  }, "\u00d7")), h("input", {
+    ref: bubbleSearchRef,
+    type: "search",
+    className: "bm-quick-search-input",
+    placeholder: "Search tickers (e.g. AAPL, MSFT, TSLA)",
+    value: filters?.query || "",
+    onChange: e => {
+      if (typeof setFilters !== "function") return;
+      setFilters(prev => ({
+        ...prev,
+        query: e.target.value
+      }));
+    },
+    onKeyDown: e => {
+      if (e.key === "Escape") {
+        setBubbleSearchOpen(false);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      const raw = String(e.target.value || "").trim().toUpperCase();
+      if (!raw || raw.includes(",")) return;
+      const hit = (visible || []).find(t => String(t?.ticker || "").toUpperCase() === raw) || (allTickers || []).find(t => String(t?.ticker || "").toUpperCase() === raw);
+      if (hit && typeof onSelectTicker === "function") {
+        onSelectTicker(raw);
+        setBubbleSearchOpen(false);
+      }
+    }
+  }), h("p", {
+    className: "bm-quick-search-hint"
+  }, "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card.")))));
   if (embedded) return chartBody;
   return h("section", {
     className: "tt-row"
@@ -4166,8 +4257,16 @@ function BubbleMap({
   const yScale = v => VB.my + (domain.yMax - (Number(v) || 0)) / (2 * domain.yMax) * plotH;
   const cx0 = xScale(0);
   const cy0 = yScale(0);
-  const q = String(query || "").trim().toUpperCase();
-  const matchesQuery = sym => q.length > 0 && String(sym).toUpperCase().startsWith(q);
+  const q = String(query || "").trim();
+  const search = parseTickerSearchQuery(q);
+  const multiSet = search.type === "multi-ticker" ? new Set(search.tickers) : null;
+  const substringQ = search.type === "substring" ? search.q : "";
+  const matchesQuery = sym => {
+    const S = String(sym || "").toUpperCase();
+    if (multiSet) return multiSet.has(S);
+    if (substringQ) return S.includes(substringQ);
+    return false;
+  };
   const radiusFor = t => {
     const r = Math.min(Math.abs(Number(t.htf_score) || 0), 35);
     return 6 + r / 35 * 16;
@@ -4683,6 +4782,7 @@ function TodayApp() {
     savedSet
   }), [allTickers, isAdmin, savedSet]);
   const visible = useMemo(() => applyFilters(allTickers, filters, chips), [allTickers, filters, chips]);
+  const scoredCount = useMemo(() => allTickers.filter(hasBubbleMapScores).length, [allTickers]);
   const rankedTickers = useMemo(() => {
     const TT = window.TimedBubbleChart;
     if (!TT?.getRankedTickers || !data) return [];
@@ -4825,7 +4925,7 @@ function TodayApp() {
     layout: "row"
   })), data ? h(AnalysisControls, {
     chips,
-    totalCount: allTickers.length,
+    totalCount: scoredCount,
     visibleCount: visible.length,
     filters,
     setFilters
@@ -4838,7 +4938,9 @@ function TodayApp() {
     rankedTickerPositions,
     sparkCache,
     ensureSpark,
-    onSelectTicker
+    onSelectTicker,
+    filters,
+    setFilters
   }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",
@@ -5213,6 +5315,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781631551128:576973963
+// cache-bust:1781642629741:258241121
 
-// cache-bust:1781631551128:576973963
+// cache-bust:1781642629741:258241121
