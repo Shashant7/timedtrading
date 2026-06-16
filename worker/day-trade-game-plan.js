@@ -114,12 +114,15 @@ export function buildOvernightDayTradeGamePlan({
   dayAtr,
   overnightRange = null,
   openingRange = null,
+  trendBias = 0,
   snakeCase = false,
 }) {
   const px = Number(curPrice);
   const anc = Number(anchor);
   const atr = Number(dayAtr);
   if (!(px > 0 && anc > 0 && atr > 0)) return null;
+
+  const dayLean = computeDayLean({ curPrice: px, anchor: anc, dayAtr: atr, overnightRange, openingRange, trendBias });
 
   const oHi = Number(overnightRange?.high) || px;
   const oLo = Number(overnightRange?.low) || px;
@@ -151,6 +154,12 @@ export function buildOvernightDayTradeGamePlan({
     playbook: "overnight_or",
     overnight_range: overnightRange,
     opening_range: openingRange,
+    // Directional lean so the brief leads with the favored side instead of
+    // presenting bull/bear symmetrically.
+    lean: dayLean.lean,
+    lean_score: dayLean.score,
+    lean_conviction: dayLean.conviction,
+    lean_reasons: dayLean.reasons,
   };
 
   if (!snakeCase) return plan;
@@ -164,7 +173,76 @@ export function buildOvernightDayTradeGamePlan({
     playbook: plan.playbook,
     overnight_range: plan.overnight_range,
     opening_range: plan.opening_range,
+    lean: plan.lean,
+    lean_score: plan.lean_score,
+    lean_conviction: plan.lean_conviction,
+    lean_reasons: plan.lean_reasons,
   };
+}
+
+/**
+ * Day-trade directional LEAN — answers "which way is the tape leaning TODAY?"
+ *
+ * The Day Trader only cares about today/tomorrow, distinct from the
+ * Active Trader's multi-day `state` bias (HTF_BULL/BEAR). The prior game plan
+ * emitted bull AND bear triggers symmetrically, leaving the reader with no
+ * edge ("too many competing layers"). This collapses the near-term evidence
+ * into a single favored side so the brief can LEAD with it.
+ *
+ * Evidence (each contributes to a signed score):
+ *   - gap vs prior close (normalized by day ATR)
+ *   - position vs the overnight-range midpoint
+ *   - opening-range break (only once the OR window has resolved) — strongest
+ *   - `trendBias` from the caller: daily structure / regime (−1..+1)
+ *
+ * @returns {{ lean: "LONG"|"SHORT"|"NEUTRAL", score:number, conviction:"high"|"medium"|"low", reasons:string[] }}
+ */
+export function computeDayLean({
+  curPrice,
+  anchor,
+  dayAtr,
+  overnightRange = null,
+  openingRange = null,
+  trendBias = 0,
+} = {}) {
+  const px = Number(curPrice);
+  const anc = Number(anchor);
+  const atr = Number(dayAtr);
+  let score = 0;
+  const reasons = [];
+
+  if (px > 0 && anc > 0 && atr > 0) {
+    const gapAtr = (px - anc) / atr;
+    if (gapAtr <= -0.12) { score -= 1; reasons.push("trading below the prior close"); }
+    else if (gapAtr >= 0.12) { score += 1; reasons.push("trading above the prior close"); }
+  }
+
+  if (overnightRange && Number.isFinite(Number(overnightRange.high)) && Number.isFinite(Number(overnightRange.low))) {
+    const hi = Number(overnightRange.high);
+    const lo = Number(overnightRange.low);
+    const mid = (hi + lo) / 2;
+    const band = Math.max((hi - lo) * 0.1, 1e-9);
+    if (px < mid - band) { score -= 1; reasons.push("under the overnight midpoint"); }
+    else if (px > mid + band) { score += 1; reasons.push("over the overnight midpoint"); }
+  }
+
+  // Opening-range break is the highest-conviction intraday tell, but only
+  // once the OR window has resolved (otherwise it's noise).
+  if (openingRange && openingRange.resolved) {
+    const orHi = Number(openingRange.high);
+    const orLo = Number(openingRange.low);
+    if (Number.isFinite(orLo) && px < orLo) { score -= 1.5; reasons.push("broke the opening range low"); }
+    else if (Number.isFinite(orHi) && px > orHi) { score += 1.5; reasons.push("broke the opening range high"); }
+  }
+
+  const tb = Math.max(-1, Math.min(1, Number(trendBias) || 0));
+  if (tb <= -0.34) { score += tb; reasons.push("daily structure is down"); }
+  else if (tb >= 0.34) { score += tb; reasons.push("daily structure is up"); }
+
+  const lean = score <= -1.5 ? "SHORT" : score >= 1.5 ? "LONG" : "NEUTRAL";
+  const mag = Math.abs(score);
+  const conviction = mag >= 3 ? "high" : mag >= 1.5 ? "medium" : "low";
+  return { lean, score: rnd(score), conviction, reasons };
 }
 
 export function isIndexDayTradeEtf(ticker) {

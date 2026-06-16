@@ -2526,6 +2526,9 @@ export async function refreshInfographicLiveGamePlans(infographic, env, priceMap
           bullTarget: fmt(gp.bull_target),
           bearTrigger: fmt(gp.bear_trigger),
           bearTarget: fmt(gp.bear_target),
+          lean: gp.lean || "NEUTRAL",
+          leanConviction: gp.lean_conviction || "low",
+          leanReasons: Array.isArray(gp.lean_reasons) ? gp.lean_reasons : [],
         },
         gamePlanSource: mktOpen ? "live" : "live_ext",
       };
@@ -2568,9 +2571,25 @@ export function buildLiveKeyLevelsEntries(indices) {
         ? ` Week GG is ${weekGg}${weekProb != null ? ` (${Math.round(weekProb * 100)}% prob)` : ""} — frame today's action against that weekly backdrop.`
         : " Week GG is neutral — intraday rotation dominates.";
 
-      const gpClause = (Number.isFinite(gp.bullTrigger) || Number.isFinite(gp.bearTrigger))
-        ? ` Bull break above $${_f(gp.bullTrigger)} → $${_f(gp.bullTarget)}; bear break below $${_f(gp.bearTrigger)} → $${_f(gp.bearTarget)}.`
-        : "";
+      // Lead with the favored side (the day-trader's edge) instead of a
+      // symmetric bull/bear menu. The non-favored side becomes the flip /
+      // invalidation level rather than a competing call.
+      const _lean = String(gp.lean || "NEUTRAL").toUpperCase();
+      const _conv = gp.leanConviction ? ` (${gp.leanConviction} conviction)` : "";
+      const _bullStr = `bull above $${_f(gp.bullTrigger)} → $${_f(gp.bullTarget)}`;
+      const _bearStr = `bear below $${_f(gp.bearTrigger)} → $${_f(gp.bearTarget)}`;
+      const _why = Array.isArray(gp.leanReasons) && gp.leanReasons.length
+        ? ` (${gp.leanReasons.slice(0, 3).join(", ")})` : "";
+      let gpClause = "";
+      if (Number.isFinite(gp.bullTrigger) || Number.isFinite(gp.bearTrigger)) {
+        if (_lean === "SHORT") {
+          gpClause = ` Lean SHORT${_conv}${_why} — primary play ${_bearStr}; flips long only on ${_bullStr}.`;
+        } else if (_lean === "LONG") {
+          gpClause = ` Lean LONG${_conv}${_why} — primary play ${_bullStr}; flips short only on ${_bearStr}.`;
+        } else {
+          gpClause = ` No clean lean yet — stay two-sided: ${_bullStr}; ${_bearStr}.`;
+        }
+      }
 
       return {
         sym,
@@ -3799,7 +3818,11 @@ ${(() => {
     const curStr = Number.isFinite(curPx) && curPx > 0 ? `current $${curPx.toFixed(2)}` : "";
     const midStr = Number.isFinite(mid) ? `Saty pivot $${mid}` : "";
     const head = [curStr, midStr, range].filter(Boolean).join(" · ");
-    lines.push(`${sym}: ${head}${head ? " | " : ""}BULL break above $${gp.bullTrigger} → target $${gp.bullTarget} | BEAR break below $${gp.bearTrigger} → target $${gp.bearTarget}`);
+    const _ln = String(gp.lean || "NEUTRAL").toUpperCase();
+    const _lnStr = _ln === "SHORT" ? `LEAN SHORT${gp.lean_conviction ? ` (${gp.lean_conviction})` : ""} — `
+                 : _ln === "LONG" ? `LEAN LONG${gp.lean_conviction ? ` (${gp.lean_conviction})` : ""} — `
+                 : "NO CLEAN LEAN — ";
+    lines.push(`${sym}: ${head}${head ? " | " : ""}${_lnStr}BULL break above $${gp.bullTrigger} → target $${gp.bullTarget} | BEAR break below $${gp.bearTrigger} → target $${gp.bearTarget}`);
   }
   return lines.length > 0 ? lines.join("\n") : "Use SMC support/resistance levels as triggers.";
 })()}
