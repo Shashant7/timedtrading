@@ -85,7 +85,7 @@
      RS HIGH badge. Stage + lane convey intent; no standalone BUY chip.
      Logo + monogram + 1H spark
      borrowed from window.DS just like DsCompactCard. */
-  function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
+  function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker, entryPosture }) {
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
     const score = Number(t.score) || 0;
@@ -165,7 +165,17 @@
         (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastActionType))
       );
     const actionTier = deriveActionTier(t);
-    const tierMeta = actionTier ? ACTION_TIER_META[actionTier] : null;
+    // 2026-06-16 — Pre-event pause: when the model is holding new entries ahead
+    // of a macro event (FOMC/CPI/…), an Accumulate name that's normally ACT NOW
+    // is NOT buy-now right now — show "PAUSED · <event>" + the model's reasoning
+    // so the UI doesn't push users to enter into a name the model is standing
+    // down on. Same gate the auto-rebalance add path uses (event_risk_window).
+    const _entryPaused = !!(entryPosture && entryPosture.holdNewEntries
+      && stage === "accumulate"
+      && (actionTier === "act_now" || actionTier === "ready"));
+    const tierMeta = _entryPaused
+      ? { label: `PAUSED · ${entryPosture.eventKey || "EVENT"}`, color: "#f59e0b", title: entryPosture.guidance || "The model is holding new entries ahead of a macro event." }
+      : (actionTier ? ACTION_TIER_META[actionTier] : null);
     const watchingLabel = (() => {
       if (!isOwned) return null;
       // Execution-ready names should not read "monitoring for trigger"
@@ -213,12 +223,18 @@
       textAlign: "left",
       padding: "var(--ds-space-3)",
       // 2026-06-06 — execution-ready accumulate cards get a green left rail.
-      ...(actionTier === "act_now" && !isSelected ? {
+      // Suppressed during a pre-event pause (amber, not green — the model isn't
+      // buying right now).
+      ...(actionTier === "act_now" && !isSelected && !_entryPaused ? {
         borderLeft: "3px solid rgba(34,197,94,0.85)",
         boxShadow: "inset 3px 0 0 rgba(34,197,94,0.25)",
       } : {}),
-      ...(actionTier === "ready" && !isSelected && actionTier !== "act_now" ? {
+      ...(actionTier === "ready" && !isSelected && actionTier !== "act_now" && !_entryPaused ? {
         borderLeft: "3px solid rgba(74,222,128,0.55)",
+      } : {}),
+      ...(_entryPaused && !isSelected ? {
+        borderLeft: "3px solid rgba(245,158,11,0.7)",
+        boxShadow: "inset 3px 0 0 rgba(245,158,11,0.18)",
       } : {}),
       // Owned positions get a violet halo (matches the Investor mode accent dot
       // on the section header). Selected / TT Selected take precedence.
@@ -536,8 +552,9 @@
     );
   }
 
-  function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker }) {
+  function ActionKanban({ tickers, onSelect, selectedTicker, savedTickers, toggleSavedTicker, entryPosture }) {
     const laneScrollRef = useRef({});
+    const _entryHold = !!(entryPosture && entryPosture.holdNewEntries);
     /* V15 P0.7.152 (2026-05-14) — lane order follows the action arc.
        User spec: "We need to present the lanes in order of action:
        On Radar → Accumulate → Core Hold → Hold & Watch → Reduce →
@@ -585,7 +602,7 @@
         return (Number(b?.score) || 0) - (Number(a?.score) || 0);
       });
     }
-    const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker });
+    const renderCard = (t) => React.createElement(InvestorCard, { key: t.ticker, t, onSelect, selectedTicker, savedTickers: savedTickers || new Set(), toggleSavedTicker, entryPosture });
 
     /* V2.1 round 5 (2026-05-01) — Per user: "nothing is ever in any
        other lanes". Hide lanes that have zero tickers so the layout
@@ -626,9 +643,11 @@
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
-          hint: stageMeta[stage].title,
-          action: stageMeta[stage].action,
-          actionColor: stageMeta[stage].actionColor,
+          hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+          // During a pre-event hold the Accumulate lane chip flips from "BUY NOW"
+          // (green) to "PAUSED · <event>" (amber) — the model isn't buying yet.
+          action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: laneCount(stage),
@@ -1092,6 +1111,36 @@
         }, loading ? "Loading\u2026" : "\u21BB Refresh"),
       ),
       React.createElement(MarketHealthBar, { health, loading }),
+      /* 2026-06-16 — Pre-event ENTRY PAUSE banner. When the model is holding new
+         entries ahead of a binary macro event (FOMC/CPI/…), explain WHY at the
+         top of the page (model voice) so the Accumulate "PAUSED" badges have
+         context and users aren't nudged to enter into a name the model is
+         standing down on. Surfaces scores.entryPosture from /timed/investor/scores. */
+      (() => {
+        const ep = scores?.entryPosture;
+        if (!ep || !ep.holdNewEntries) return null;
+        const until = Number(ep.untilTs);
+        const untilLabel = Number.isFinite(until) && until > 0
+          ? new Date(until).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" }) + " ET"
+          : null;
+        return React.createElement("div", {
+          style: {
+            padding: "12px 16px", marginBottom: "var(--ds-space-3)", borderRadius: 10,
+            border: "1px solid rgba(245,158,11,0.35)", background: "rgba(245,158,11,0.08)",
+          },
+        },
+          React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" } },
+            React.createElement("span", { style: { fontSize: 14 } }, "\u23F8"),
+            React.createElement("span", { style: { fontWeight: 800, fontSize: 13, color: "#fbbf24", letterSpacing: "0.02em" } },
+              `Model is holding new entries${ep.eventLabel ? ` ahead of ${ep.eventLabel}` : ""}`),
+            untilLabel && React.createElement("span", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" } }, untilLabel),
+          ),
+          React.createElement("div", { style: { fontSize: 12.5, color: "var(--ds-text-body)", lineHeight: 1.5 } },
+            ep.guidance || "The model is pausing new entries ahead of a macro event; Accumulate candidates stay queued and open once it clears."),
+          React.createElement("div", { style: { fontSize: 10.5, color: "var(--ds-text-muted)", marginTop: 5 } },
+            "Accumulate names show PAUSED until the event clears — this is guidance, not a buy signal right now."),
+        );
+      })(),
       /* Narrative panel — Daily-Brief-style commentary above the lanes.
          V15 P0.7.144 — multi-line layout so nothing gets cut off.
          Order: Market summary → Actionable counts → Recent model actions
@@ -1156,6 +1205,7 @@
             selectedTicker,
             savedTickers: savedTickers || new Set(),
             toggleSavedTicker,
+            entryPosture: scores?.entryPosture,
           })
         : React.createElement("div", { className: "card p-8 text-center text-[#6E867D]" },
             React.createElement("div", { className: "text-lg mb-2" }, "No investor data yet"),
@@ -1184,4 +1234,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1781616141643:921132745
+// cache-bust:1781625103764:708969166

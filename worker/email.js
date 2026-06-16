@@ -1948,3 +1948,155 @@ export async function sendInvestorWeeklyDigest(env) {
   console.log(`[INVESTOR DIGEST] weekly digest sent=${sent}/${opted.length}`);
   return { ok: true, sent, recipients: opted.length };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Investor REBALANCE digest — ONE email per rebalance cycle, grouped by action.
+// 2026-06-16 — Operator: the hourly rebalance fired 35+ individual emails (one
+// per trim) ahead of FOMC. The Investor persona is low-cadence and felt spammed.
+// Replace the per-lot blast with a single consolidated email that lists all
+// tickers per action, clustered by reason (e.g. every name trimmed "ahead of
+// FOMC" in one line). Sent to investor_alerts opted-in users.
+// Compliance voice: "the portfolio / this position", never "you/your".
+// ─────────────────────────────────────────────────────────────────────────────
+function _reasonGroupLabel(item) {
+  const ev = String(item?.event_label || item?.eventLabel || "").trim();
+  if (ev) return ev;
+  const r = String(item?.reason || "").toLowerCase();
+  if (r.includes("exhaustion") || r.includes("lock_in")) return "Exhaustion / locking in gains";
+  if (r.includes("event_risk") || r.includes("event-risk")) return "Event risk";
+  if (r.includes("reduce_stage") || r.includes("auto_reduce")) return "Trend weakened (reduce signal)";
+  return r ? r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Risk management";
+}
+
+export async function sendInvestorRebalanceDigest(env, summary) {
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  const trims = Array.isArray(summary?.trims) ? summary.trims : [];
+  const added = Array.isArray(summary?.added) ? summary.added : [];
+  const opened = Array.isArray(summary?.opened) ? summary.opened : [];
+  const totalActions = trims.length + added.length + opened.length;
+  if (totalActions === 0) return { ok: true, sent: 0, recipients: 0, reason: "no_actions" };
+  if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
+
+  const nowLabel = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const chip = (sym) => `<span style="display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border:1px solid ${BRAND.border};border-radius:999px;background:${BRAND.cardBg};font-weight:700;font-size:12px">${_esc(String(sym || "").toUpperCase())}</span>`;
+  const section = (title, color, inner) =>
+    `<div style="margin:16px 0">
+      <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${color};margin-bottom:8px">${_esc(title)}</div>
+      ${inner}
+    </div>`;
+
+  const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : null;
+  const fmtPnl = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : "-"}$${Math.abs(Number(n)).toFixed(2)}` : null;
+  // Group trims by reason (so "ahead of FOMC" names cluster), and within each
+  // group show one row per ticker WITH its AI CIO reasoning — parity with the
+  // per-ticker Discord embed (operator: include CIO guidance per ticker).
+  const trimGroups = new Map();
+  for (const t of trims) {
+    const key = _reasonGroupLabel(t);
+    if (!trimGroups.has(key)) trimGroups.set(key, []);
+    trimGroups.get(key).push(t);
+  }
+  const trimRow = (t) => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    const closed = !!t?.closed;
+    const detail = [
+      closed ? "position closed" : (Number.isFinite(Number(t?.shares)) ? `trimmed ${Number(t.shares).toFixed(2)} sh` : "trimmed"),
+      fmtUsd(t?.price) ? `@ ${fmtUsd(t.price)}` : null,
+      fmtPnl(t?.pnl) ? `· P&L ${fmtPnl(t.pnl)}` : null,
+    ].filter(Boolean).join(" ");
+    const cio = String(t?.cio_reasoning || "").trim();
+    return `<div style="margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid ${BRAND.border}">
+      <div><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>
+      ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-top:3px;line-height:1.45"><span style="color:${BRAND.textMuted};font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
+    </div>`;
+  };
+  const trimInner = [...trimGroups.entries()].map(([reason, items]) =>
+    `<div style="margin-bottom:12px">
+       <div style="font-size:12px;font-weight:700;color:${BRAND.textPrimary};margin-bottom:6px">${_esc(reason)} <span style="color:${BRAND.textMuted};font-weight:400">(${items.length})</span></div>
+       ${items.map(trimRow).join("")}
+     </div>`).join("");
+
+  const addedSyms = added.map((x) => String(x?.ticker || "").toUpperCase());
+  const openedSyms = opened.map((x) => String(x?.ticker || "").toUpperCase());
+
+  const headlineBits = [];
+  if (trims.length) headlineBits.push(`${trims.length} trimmed/reduced`);
+  if (added.length) headlineBits.push(`${added.length} added`);
+  if (opened.length) headlineBits.push(`${opened.length} opened`);
+
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Investor Rebalance — ${_esc(nowLabel)} ET</h2>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">The model's long-horizon portfolio cycle ran: ${_esc(headlineBits.join(" · "))}. One summary, grouped by action — no per-ticker blast.</p>
+    ${trims.length ? section("TRIMMED / REDUCED", BRAND.warning || "#f59e0b", trimInner) : ""}
+    ${added.length ? section("ADDED TO EXISTING", BRAND.green, `<div>${addedSyms.map(chip).join("")}</div>`) : ""}
+    ${opened.length ? section("NEW STARTER POSITIONS", BRAND.green, `<div>${openedSyms.map(chip).join("")}</div>`) : ""}
+    <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Long-horizon portfolio actions — not short-term trade signals. The model phases in and out gradually.</p>
+    <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
+  `;
+
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  let sent = 0;
+  for (const user of opted) {
+    try {
+      const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
+        ? await buildUnsubscribeUrl(baseUrl, user.email, "investor_alerts", env.EMAIL_HMAC_SECRET)
+        : null;
+      const html = emailLayout(bodyHtml, {
+        unsubscribeUrl,
+        preheader: `Investor rebalance — ${headlineBits.join(", ")}.`,
+      });
+      const r = await sendEmail(env, {
+        to: user.email,
+        subject: `[INVESTOR] Rebalance — ${headlineBits.join(", ")}`,
+        html,
+        category: "investor_rebalance_digest",
+      });
+      if (r?.ok !== false) sent++;
+    } catch (e) {
+      console.warn(`[INVESTOR REBALANCE DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
+    }
+  }
+  console.log(`[INVESTOR REBALANCE DIGEST] sent=${sent}/${opted.length} (trims=${trims.length} added=${added.length} opened=${opened.length})`);
+  return { ok: true, sent, recipients: opted.length };
+}
+
+/** One consolidated Discord embed for the rebalance cycle (grouped by action,
+ *  with per-ticker AI CIO guidance — parity with the old per-lot embeds). */
+export function buildInvestorRebalanceDiscordEmbed(summary) {
+  const trims = Array.isArray(summary?.trims) ? summary.trims : [];
+  const added = Array.isArray(summary?.added) ? summary.added : [];
+  const opened = Array.isArray(summary?.opened) ? summary.opened : [];
+  if (trims.length + added.length + opened.length === 0) return null;
+  const fields = [];
+  if (trims.length) {
+    // Reason overview (one line per reason group).
+    const groups = new Map();
+    for (const t of trims) {
+      const key = _reasonGroupLabel(t);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(String(t?.ticker || "").toUpperCase());
+    }
+    const overview = [...groups.entries()].map(([r, syms]) => `**${r}** (${syms.length}): ${syms.join(", ")}`).join("\n").slice(0, 1020);
+    fields.push({ name: `🔻 Trimmed / Reduced (${trims.length})`, value: overview || "—" });
+    // Per-ticker AI CIO guidance (Discord embed = max 25 fields / ~6000 chars,
+    // so cap and point overflow to the email digest which carries them all).
+    const withCio = trims.filter((t) => String(t?.cio_reasoning || "").trim());
+    const CAP = 18;
+    for (const t of withCio.slice(0, CAP)) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      fields.push({ name: `🔻 ${sym}`, value: String(t.cio_reasoning).trim().slice(0, 360) });
+    }
+    if (withCio.length > CAP) {
+      fields.push({ name: "…", value: `+${withCio.length - CAP} more with AI CIO notes — see the email digest.` });
+    }
+  }
+  if (added.length) fields.push({ name: `➕ Added (${added.length})`, value: added.map((x) => String(x?.ticker || "").toUpperCase()).join(", ").slice(0, 1020) || "—" });
+  if (opened.length) fields.push({ name: `🟢 New positions (${opened.length})`, value: opened.map((x) => String(x?.ticker || "").toUpperCase()).join(", ").slice(0, 1020) || "—" });
+  return {
+    title: "Investor Rebalance — portfolio cycle",
+    description: "Long-horizon portfolio actions, grouped by reason — with AI CIO guidance per name. One summary per cycle.",
+    color: 0x8b5cf6,
+    fields: fields.slice(0, 25),
+    timestamp: new Date().toISOString(),
+  };
+}
