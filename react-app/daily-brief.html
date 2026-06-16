@@ -20,6 +20,9 @@
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
     <script src="ds-components.js?v=20260501a"></script>
+    <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
+         the brief. Reuses the shared SVG plot from the Today page. -->
+    <script src="shared-bubble-chart.compiled.js?v=20260616"></script>
     <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
          Active Trader + Investor links (open trade count / actionable
          count), bottom nav on mobile, global search overlay, activity
@@ -29,6 +32,17 @@
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
+    <style>
+      /* 2026-06-16 — Bubble map embed (parity with active-trader.html). */
+      .db-bubble-row { margin-top: 40px; }
+      .db-bubble-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+      .db-bubble-legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--tt-text-muted, #6E867D); flex-wrap: wrap; align-items: center; }
+      .db-bubble-legend .bdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+      .db-bubble-card { padding: 0; overflow: hidden; border-radius: 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); }
+      .db-bubble-stage { position: relative; height: min(72vh, 760px); min-height: 520px; }
+      @media (max-width: 1024px) { .db-bubble-stage { height: 70vh; min-height: 480px; } }
+      @media (max-width: 720px) { .db-bubble-stage { height: 68vh; min-height: 420px; } }
+    </style>
     <style>
       /* 2026-05-26 — Nav-link styles ported from today.html so the
          shared tt-nav-extras.js badges + Admin dropdown render
@@ -2235,6 +2249,105 @@
         );
       }
 
+      // Market-pulse universe (public set — mirrors today.html's MARKET_PULSE_PUBLIC_SYMBOLS).
+      const BRIEF_MARKET_PULSE_SYMBOLS = [
+        "SPY","RSP","QQQ","IWM","GLD","SLV","USO","BTCUSD","ETHUSD",
+        "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
+      ];
+
+      // Bubble map at the end of the brief — the market-pulse universe plus the
+      // current open positions, plotted on the same momentum × trend SVG the
+      // Today page uses (window.TimedBubbleChart). Needs /timed/all for the
+      // ltf_score/htf_score axes (the brief payload only carries price/PnL), so
+      // it renders for admins/Pro the same way the Today map does; empty → hidden.
+      function BriefBubbleMap({ allData, brief }) {
+        const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
+        const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
+        const [hovered, setHovered] = useState(null);
+
+        const posSyms = useMemo(() => {
+          const s = new Set();
+          for (const slot of ["evening", "morning"]) {
+            const info = brief?.[slot]?.infographic;
+            if (!info) continue;
+            for (const p of (info.traderPositions || [])) { const t = String(p?.ticker || "").toUpperCase(); if (t) s.add(t); }
+            for (const p of (info.investorHoldings || [])) { const t = String(p?.ticker || "").toUpperCase(); if (t) s.add(t); }
+          }
+          return s;
+        }, [brief]);
+
+        const visible = useMemo(() => {
+          if (!allData || typeof allData !== "object") return [];
+          const symSet = new Set([...BRIEF_MARKET_PULSE_SYMBOLS, ...posSyms]);
+          const out = [];
+          for (const sym of symSet) {
+            const row = allData[sym];
+            if (!row) continue;
+            const ltf = Number(row.ltf_score);
+            const htf = Number(row.htf_score);
+            if (!Number.isFinite(ltf) || !Number.isFinite(htf)) continue; // need scores to plot
+            out.push({ ticker: sym, ...row, _isOpenPosition: posSyms.has(sym) });
+          }
+          return out;
+        }, [allData, posSyms]);
+
+        const rankedTickers = useMemo(() => {
+          if (!getRankedTickers || !allData) return [];
+          try { return getRankedTickers(allData) || []; } catch { return []; }
+        }, [allData]);
+        const rankedTickerPositions = useMemo(() => {
+          const m = new Map();
+          rankedTickers.forEach((t, idx) => { if (t?.ticker) m.set(t.ticker, idx + 1); });
+          return m;
+        }, [rankedTickers]);
+
+        if (!SharedChart || visible.length === 0) return null;
+
+        const openCount = visible.filter((t) => t._isOpenPosition).length;
+        return (
+          <section className="db-bubble-row">
+            <div className="db-bubble-head">
+              <div>
+                <div className="text-[9px] uppercase tracking-wider text-[#6E867D]">Bubble map</div>
+                <h2 className="tt-editorial" style={{ fontSize: "20px", lineHeight: 1.15, color: "var(--tt-text-0)", letterSpacing: "-0.02em", margin: "2px 0 2px" }}>
+                  Market pulse &amp; open positions on momentum &times; trend
+                </h2>
+                <p className="text-[12px]" style={{ color: "var(--tt-text-3, #6E867D)" }}>
+                  {visible.length} tickers{openCount > 0 ? ` · ${openCount} open positions` : ""} — x: LTF momentum, y: HTF trend strength
+                </p>
+              </div>
+              <div className="db-bubble-legend">
+                <span><span className="bdot" style={{ background: "#22c55e" }} />Bull aligned</span>
+                <span><span className="bdot" style={{ background: "#38F2A1" }} />Pullback</span>
+                <span><span className="bdot" style={{ background: "#f43f5e" }} />Bear aligned</span>
+              </div>
+            </div>
+            <div className="db-bubble-card">
+              <div className="db-bubble-stage">
+                <SharedChart
+                  tickers={visible}
+                  allData={allData}
+                  rankedTickers={rankedTickers}
+                  rankedTickerPositions={rankedTickerPositions}
+                  hoveredTicker={hovered}
+                  onHover={setHovered}
+                  onBubbleClick={(sym) => { window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`; }}
+                  onBackgroundClick={() => {}}
+                  selectedTicker={null}
+                  selectedTrail={null}
+                  isTimeTravelActive={false}
+                  highlightTrailPoint={null}
+                  thesisMode={false}
+                  forwardReturns={null}
+                  activeInsightTickers={null}
+                  layoutMode="score"
+                />
+              </div>
+            </div>
+          </section>
+        );
+      }
+
       function App({ user }) {
         const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
         const isAdmin = user?.role === "admin" || user?.tier === "admin";
@@ -2246,6 +2359,7 @@
         const [selectedArchive, setSelectedArchive] = useState(null);
         const [selectedArchiveData, setSelectedArchiveData] = useState(null);
         const [archiveDetailLoading, setArchiveDetailLoading] = useState(false);
+        const [allData, setAllData] = useState(null);
 
         // Fetch current brief
         const fetchBrief = useCallback(async () => {
@@ -2259,6 +2373,20 @@
             console.error("Failed to fetch brief:", e);
           } finally {
             setLoading(false);
+          }
+        }, []);
+
+        // Scoring snapshot for the end-of-brief bubble map (ltf/htf scores).
+        // Same source the Today bubble map uses; admin-gated like all live data.
+        const fetchAllScores = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" });
+            if (!res.ok) return;
+            const j = await res.json();
+            const d = (j && typeof j === "object" && j.data && typeof j.data === "object") ? j.data : j;
+            if (d && typeof d === "object") setAllData(d);
+          } catch (e) {
+            console.error("Failed to fetch scores for bubble map:", e);
           }
         }, []);
 
@@ -2346,12 +2474,13 @@
           fetchBrief();
           fetchIntraday();
           fetchArchive();
+          fetchAllScores();
           fetch(`${API_BASE}/timed/usage`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ feature: "daily_brief_view" }) }).catch(() => {});
           localStorage.setItem("tt_brief_seen", String(Date.now()));
           // Auto-refresh intraday insights every 5 minutes during market hours
           const intradayRefresh = setInterval(fetchIntraday, 5 * 60 * 1000);
           return () => clearInterval(intradayRefresh);
-        }, [fetchBrief, fetchIntraday, fetchArchive]);
+        }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores]);
 
         // Determine current ET time for placeholder logic
         const etNow = useMemo(() => {
@@ -2464,6 +2593,9 @@
                   ) : (
                     <BriefPlaceholder type="morning" />
                   )}
+
+                  {/* 4. Bubble map — market pulse + open positions (momentum × trend) */}
+                  <BriefBubbleMap allData={allData} brief={brief} />
                 </div>
               )}
 

@@ -2175,6 +2175,127 @@ function IntradayFlash({
     }
   }))))));
 }
+const BRIEF_MARKET_PULSE_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+function BriefBubbleMap({
+  allData,
+  brief
+}) {
+  const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
+  const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
+  const [hovered, setHovered] = useState(null);
+  const posSyms = useMemo(() => {
+    const s = new Set();
+    for (const slot of ["evening", "morning"]) {
+      const info = brief?.[slot]?.infographic;
+      if (!info) continue;
+      for (const p of info.traderPositions || []) {
+        const t = String(p?.ticker || "").toUpperCase();
+        if (t) s.add(t);
+      }
+      for (const p of info.investorHoldings || []) {
+        const t = String(p?.ticker || "").toUpperCase();
+        if (t) s.add(t);
+      }
+    }
+    return s;
+  }, [brief]);
+  const visible = useMemo(() => {
+    if (!allData || typeof allData !== "object") return [];
+    const symSet = new Set([...BRIEF_MARKET_PULSE_SYMBOLS, ...posSyms]);
+    const out = [];
+    for (const sym of symSet) {
+      const row = allData[sym];
+      if (!row) continue;
+      const ltf = Number(row.ltf_score);
+      const htf = Number(row.htf_score);
+      if (!Number.isFinite(ltf) || !Number.isFinite(htf)) continue;
+      out.push({
+        ticker: sym,
+        ...row,
+        _isOpenPosition: posSyms.has(sym)
+      });
+    }
+    return out;
+  }, [allData, posSyms]);
+  const rankedTickers = useMemo(() => {
+    if (!getRankedTickers || !allData) return [];
+    try {
+      return getRankedTickers(allData) || [];
+    } catch {
+      return [];
+    }
+  }, [allData]);
+  const rankedTickerPositions = useMemo(() => {
+    const m = new Map();
+    rankedTickers.forEach((t, idx) => {
+      if (t?.ticker) m.set(t.ticker, idx + 1);
+    });
+    return m;
+  }, [rankedTickers]);
+  if (!SharedChart || visible.length === 0) return null;
+  const openCount = visible.filter(t => t._isOpenPosition).length;
+  return React.createElement("section", {
+    className: "db-bubble-row"
+  }, React.createElement("div", {
+    className: "db-bubble-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
+  }, "Bubble map"), React.createElement("h2", {
+    className: "tt-editorial",
+    style: {
+      fontSize: "20px",
+      lineHeight: 1.15,
+      color: "var(--tt-text-0)",
+      letterSpacing: "-0.02em",
+      margin: "2px 0 2px"
+    }
+  }, "Market pulse & open positions on momentum \xD7 trend"), React.createElement("p", {
+    className: "text-[12px]",
+    style: {
+      color: "var(--tt-text-3, #6E867D)"
+    }
+  }, visible.length, " tickers", openCount > 0 ? ` · ${openCount} open positions` : "", " \u2014 x: LTF momentum, y: HTF trend strength")), React.createElement("div", {
+    className: "db-bubble-legend"
+  }, React.createElement("span", null, React.createElement("span", {
+    className: "bdot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), React.createElement("span", null, React.createElement("span", {
+    className: "bdot",
+    style: {
+      background: "#38F2A1"
+    }
+  }), "Pullback"), React.createElement("span", null, React.createElement("span", {
+    className: "bdot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned"))), React.createElement("div", {
+    className: "db-bubble-card"
+  }, React.createElement("div", {
+    className: "db-bubble-stage"
+  }, React.createElement(SharedChart, {
+    tickers: visible,
+    allData: allData,
+    rankedTickers: rankedTickers,
+    rankedTickerPositions: rankedTickerPositions,
+    hoveredTicker: hovered,
+    onHover: setHovered,
+    onBubbleClick: sym => {
+      window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    },
+    onBackgroundClick: () => {},
+    selectedTicker: null,
+    selectedTrail: null,
+    isTimeTravelActive: false,
+    highlightTrailPoint: null,
+    thesisMode: false,
+    forwardReturns: null,
+    activeInsightTickers: null,
+    layoutMode: "score"
+  }))));
+}
 function App({
   user
 }) {
@@ -2188,6 +2309,7 @@ function App({
   const [selectedArchive, setSelectedArchive] = useState(null);
   const [selectedArchiveData, setSelectedArchiveData] = useState(null);
   const [archiveDetailLoading, setArchiveDetailLoading] = useState(false);
+  const [allData, setAllData] = useState(null);
   const fetchBrief = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/timed/daily-brief`, {
@@ -2201,6 +2323,20 @@ function App({
       console.error("Failed to fetch brief:", e);
     } finally {
       setLoading(false);
+    }
+  }, []);
+  const fetchAllScores = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/timed/all`, {
+        cache: "no-store",
+        credentials: "include"
+      });
+      if (!res.ok) return;
+      const j = await res.json();
+      const d = j && typeof j === "object" && j.data && typeof j.data === "object" ? j.data : j;
+      if (d && typeof d === "object") setAllData(d);
+    } catch (e) {
+      console.error("Failed to fetch scores for bubble map:", e);
     }
   }, []);
   const fetchIntraday = useCallback(async () => {
@@ -2283,6 +2419,7 @@ function App({
     fetchBrief();
     fetchIntraday();
     fetchArchive();
+    fetchAllScores();
     fetch(`${API_BASE}/timed/usage`, {
       method: "POST",
       credentials: "include",
@@ -2296,7 +2433,7 @@ function App({
     localStorage.setItem("tt_brief_seen", String(Date.now()));
     const intradayRefresh = setInterval(fetchIntraday, 5 * 60 * 1000);
     return () => clearInterval(intradayRefresh);
-  }, [fetchBrief, fetchIntraday, fetchArchive]);
+  }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores]);
   const etNow = useMemo(() => {
     const d = new Date();
     const et = d.toLocaleString("en-US", {
@@ -2577,6 +2714,9 @@ function App({
     type: "morning"
   }) : React.createElement(BriefPlaceholder, {
     type: "morning"
+  }), React.createElement(BriefBubbleMap, {
+    allData: allData,
+    brief: brief
   })), selectedArchive && React.createElement("div", {
     className: "mt-6"
   }, React.createElement("div", {
@@ -2687,6 +2827,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781578631708:602228534
+// cache-bust:1781582413862:971874962
 
-// cache-bust:1781578631708:602228534
+// cache-bust:1781582413862:971874962
