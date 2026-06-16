@@ -3285,11 +3285,6 @@
               }]);
             }
           }
-        } else if (isIntradayTf && raw.length > 2) {
-          const tfSec = tfMinutes * 60;
-          const nowSec = Math.floor(Date.now() / 1000);
-          const last = raw[raw.length - 1];
-          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
         }
         for (let i = 0; i < raw.length; i++) {
           const c = raw[i];
@@ -19908,4 +19903,4 @@
   };
 })();
 
-// cache-bust:1781625103764:708969166
+// cache-bust:1781627624130:630723962

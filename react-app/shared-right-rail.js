@@ -2125,14 +2125,18 @@
               }]);
             }
           }
-        } else if (isIntradayTf && raw.length > 2) {
-          // P0.7.145 — without livePrice, drop the still-forming bar to
-          // avoid transient upstream reconciliation flashes.
-          const tfSec = tfMinutes * 60;
-          const nowSec = Math.floor(Date.now() / 1000);
-          const last = raw[raw.length - 1];
-          if (last && last.time + tfSec > nowSec + 5) raw = raw.slice(0, -1);
         }
+        // 2026-06-16 — DO NOT drop the still-forming bar when livePrice is
+        // momentarily absent. The old P0.7.145 drop fought a transient
+        // reconciliation flash, but combined with the livePrice merge above it
+        // TOGGLES the bar count: livePrice present → forming bar kept/merged;
+        // livePrice null (a single empty poll / interaction-time re-render) →
+        // forming bar dropped. That ±1 length change between renders defeats the
+        // last-bar fast path (which only handles same-length or +1), forcing a
+        // full candleSeries.setData() redraw — the chart "paints then repaints"
+        // flicker the operator reported. Keeping the forming bar makes the count
+        // stable across livePrice flips + the 30s RTH re-poll, so live updates
+        // always take the smooth series.update() path.
 
         // Pass 1: clamp wicks that are wildly wider than the body
         for (let i = 0; i < raw.length; i++) {
