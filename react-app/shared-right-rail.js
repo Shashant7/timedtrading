@@ -9653,6 +9653,15 @@
                                   <span style={{ color: _decisionColor, fontWeight: 700, fontSize: "var(--ds-fs-body)" }}>
                                     {_decisionIcon} {cioVerdict.decision}
                                   </span>
+                                  {cioVerdict.matched_by === "ticker_lifecycle" && (
+                                    <span title="Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)" style={{
+                                      fontSize: 9, letterSpacing: "0.12em",
+                                      padding: "1px 6px", borderRadius: 4,
+                                      background: "rgba(96,165,250,0.12)",
+                                      color: "var(--ds-text-muted)",
+                                      border: "1px solid var(--ds-stroke)",
+                                    }}>LATEST</span>
+                                  )}
                                   {cioVerdict.confidence > 0 && (
                                     <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
                                       {(cioVerdict.confidence * 100).toFixed(0)}% conf
