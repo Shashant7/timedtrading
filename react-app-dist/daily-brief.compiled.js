@@ -282,7 +282,7 @@ function BriefInfographic({
     }, unreal >= 0 ? "+" : "", unreal.toFixed(1), "%"), Number.isFinite(day) && Math.abs(day) >= 0.01 && React.createElement("span", {
       className: "text-[#6E867D]"
     }, "(", day >= 0 ? "+" : "", day.toFixed(2), "% today)"));
-  })))), indicies.length > 0 && React.createElement("div", {
+  })))), false && indicies.length > 0 && React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-2"
   }, indicies.map(idx => {
     const lvls = idx.levels || {};
@@ -520,21 +520,52 @@ function BriefInfographic({
     })());
   })), indicies.some(i => i.levels?.gamePlan) && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
-  }, "Game Plan triggers"), React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-3 gap-2"
+  }, "Index playbook \xB7 today's options plays"), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-2"
   }, indicies.filter(i => i.levels?.gamePlan).map(idx => {
+    const lvls = idx.levels || {};
+    const wlvls = idx.weeklyLevels || null;
     const gp = idx.levels.gamePlan;
     const cp = liveFor(idx.sym, idx.levels.currentPrice ?? idx.price);
     const bullArmed = cp != null && cp >= gp.bullTrigger;
     const bearArmed = cp != null && cp <= gp.bearTrigger;
     const bullPct = (gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100;
     const bearPct = (gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100;
+    const gg = effectiveGg(lvls.goldenGate, cp, lvls);
+    const dayProb = lvls.goldenGateProbability;
+    const biasUp = gg === "OPEN_UP" || gg === "COMPLETE_UP";
+    const biasDn = gg === "OPEN_DOWN" || gg === "COMPLETE_DN";
+    const biasColor = biasUp ? "#34d399" : biasDn ? "#fb7185" : "#8AA39A";
+    const biasLabel = (biasUp ? "▲ Bullish" : biasDn ? "▼ Bearish" : "◆ Neutral") + (dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "");
+    const pivot = lvls.anchor ?? lvls.liveDayRange?.anchor ?? null;
+    const wgg = effectiveGg(wlvls?.goldenGate, cp, wlvls);
+    const weekProb = wlvls?.goldenGateProbability;
+    const weekUp = wgg === "OPEN_UP" || wgg === "COMPLETE_UP";
+    const weekDn = wgg === "OPEN_DOWN" || wgg === "COMPLETE_DN";
+    const weekColor = weekUp ? "#34d399" : weekDn ? "#fb7185" : "#8AA39A";
+    const weekLine = (() => {
+      if (!wlvls) return null;
+      const dr = weekProb?.daysRemaining;
+      const drT = dr != null ? ` · ${dr}d left` : "";
+      const wp = weekProb && wgg !== "NEUTRAL" ? ` ${(weekProb.week * 100).toFixed(0)}%` : "";
+      const wUp618 = wlvls.levels?.["+61.8%"];
+      const wDn618 = wlvls.levels?.["-61.8%"];
+      const wlo = wlvls.levels?.["-38.2%"];
+      const whi = wlvls.levels?.["+38.2%"];
+      if (weekUp && wUp618 != null) return `▲ Bullish${wp} · toward $${wUp618.toFixed(2)} by Fri${drT}`;
+      if (weekDn && wDn618 != null) return `▼ Bearish${wp} · toward $${wDn618.toFixed(2)} by Fri${drT}`;
+      return wlo != null && whi != null ? `◆ Range $${wlo.toFixed(2)}–$${whi.toFixed(2)}${drT}` : `◆ Range-bound${drT}`;
+    })();
     let scaleLo,
       scaleHi,
       pricePctOnBar = 50;
     if (gp.bearTarget != null && gp.bullTarget != null) {
-      scaleLo = Math.min(gp.bearTarget, gp.bearTrigger);
-      scaleHi = Math.max(gp.bullTarget, gp.bullTrigger);
+      const _pts = [gp.bearTarget, gp.bearTrigger, gp.bullTrigger, gp.bullTarget, pivot, cp].filter(v => Number.isFinite(v));
+      scaleLo = Math.min(..._pts);
+      scaleHi = Math.max(..._pts);
+      const _pad = (scaleHi - scaleLo) * 0.05 || 1;
+      scaleLo -= _pad;
+      scaleHi += _pad;
       if (cp != null && scaleHi > scaleLo) {
         pricePctOnBar = Math.max(0, Math.min(100, (cp - scaleLo) / (scaleHi - scaleLo) * 100));
       }
@@ -548,19 +579,26 @@ function BriefInfographic({
       key: "gp-" + idx.sym,
       className: "p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]"
     }, React.createElement("div", {
-      className: "flex items-center justify-between mb-2"
+      className: "flex items-center justify-between mb-0.5"
     }, React.createElement("div", {
       className: "flex items-center gap-2"
     }, React.createElement("span", {
-      className: "text-[12px] font-semibold text-white"
+      className: "text-[13px] font-bold text-white"
     }, idx.sym), React.createElement("span", {
-      className: "text-[9px] font-semibold tracking-wider",
+      className: "text-[10px] font-semibold",
       style: {
-        color: stageColor
+        color: biasColor
       }
-    }, stageLabel)), cp != null && React.createElement("span", {
-      className: "text-[11px] text-white font-semibold tabular-nums"
-    }, "$", cp.toFixed(2))), React.createElement("div", {
+    }, biasLabel)), cp != null && React.createElement("span", {
+      className: "text-[13px] text-white font-bold tabular-nums"
+    }, "$", cp.toFixed(2), React.createElement("span", {
+      className: "ml-1 text-[9px] font-semibold",
+      style: {
+        color: _mktOpen ? "#34d399" : "#fbbf24"
+      }
+    }, _mktOpen ? "live" : "ext"))), React.createElement("div", {
+      className: "text-[9px] text-[#6E867D] mb-2 text-right tabular-nums"
+    }, idx.atr != null ? `expected move today ±$${idx.atr.toFixed(2)}` : ""), React.createElement("div", {
       className: "relative mb-2 mt-3",
       style: {
         height: 24
@@ -615,34 +653,31 @@ function BriefInfographic({
         border: "1.5px solid #0B1410"
       }
     }))), React.createElement("div", {
-      className: "flex items-start justify-between text-[9px] tabular-nums mb-2"
+      className: "space-y-1 text-[10px] tabular-nums"
     }, React.createElement("div", {
-      className: "text-left"
-    }, React.createElement("div", {
-      className: "text-[#fb7185] font-semibold"
-    }, "\u25BC $", gp.bearTrigger.toFixed(2)), React.createElement("div", {
-      className: "text-[#6E867D]"
-    }, "\u2192 $", gp.bearTarget.toFixed(2), " ", React.createElement("span", {
-      className: "text-[#fb7185]/70"
-    }, "(", bearPct.toFixed(1), "%)"))), React.createElement("div", {
-      className: "text-right"
-    }, React.createElement("div", {
+      className: "flex items-center justify-between gap-2"
+    }, React.createElement("span", {
       className: "text-[#34d399] font-semibold"
-    }, "$", gp.bullTrigger.toFixed(2), " \u25B2"), React.createElement("div", {
-      className: "text-[#6E867D]"
-    }, "$", gp.bullTarget.toFixed(2), " \u2190 ", React.createElement("span", {
+    }, "\u25B2 Calls ", bullArmed ? "armed" : `over $${gp.bullTrigger.toFixed(2)}`, " \u2192 $", gp.bullTarget.toFixed(2), " ", React.createElement("span", {
       className: "text-[#34d399]/70"
-    }, "(+", bullPct.toFixed(1), "%)")))), React.createElement("div", {
-      className: "text-[10px] text-[#8AA39A] tabular-nums pt-1.5 border-t border-white/[0.04]"
-    }, bullArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
-      className: "text-[#34d399]"
-    }, "\u25CF"), " Above bull trigger by ", ((cp - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2), "% \u2014 target $", gp.bullTarget.toFixed(2), " (+", bullPct.toFixed(1), "%)") : bearArmed && cp != null ? React.createElement("span", null, React.createElement("span", {
-      className: "text-[#fb7185]"
-    }, "\u25CF"), " Below bear trigger by ", ((gp.bearTrigger - cp) / gp.bearTrigger * 100).toFixed(2), "% \u2014 target $", gp.bearTarget.toFixed(2), " (", bearPct.toFixed(1), "%)") : cp != null ? React.createElement("span", null, "\u25CB Between triggers \u2014 needs ", React.createElement("span", {
-      className: "text-[#34d399]"
-    }, ((gp.bullTrigger - cp) / cp * 100).toFixed(2), "%"), " up or ", React.createElement("span", {
-      className: "text-[#fb7185]"
-    }, ((cp - gp.bearTrigger) / cp * 100).toFixed(2), "%"), " down") : "No live price"));
+    }, "(+", bullPct.toFixed(1), "%)")), React.createElement("span", {
+      className: "text-[#6E867D] flex-shrink-0"
+    }, cp == null ? "" : bullArmed ? "in play" : `+${((gp.bullTrigger - cp) / cp * 100).toFixed(2)}% to arm`)), React.createElement("div", {
+      className: "flex items-center justify-between gap-2"
+    }, React.createElement("span", {
+      className: "text-[#fb7185] font-semibold"
+    }, "\u25BC Puts ", bearArmed ? "armed" : `under $${gp.bearTrigger.toFixed(2)}`, " \u2192 $", gp.bearTarget.toFixed(2), " ", React.createElement("span", {
+      className: "text-[#fb7185]/70"
+    }, "(", bearPct.toFixed(1), "%)")), React.createElement("span", {
+      className: "text-[#6E867D] flex-shrink-0"
+    }, cp == null ? "" : bearArmed ? "in play" : `${((gp.bearTrigger - cp) / cp * 100).toFixed(2)}% to arm`))), weekLine && React.createElement("div", {
+      className: "text-[10px] tabular-nums mt-2 pt-1.5 border-t border-white/[0.04]",
+      style: {
+        color: weekColor
+      }
+    }, React.createElement("span", {
+      className: "text-[#6E867D] uppercase tracking-wide text-[8px] mr-1"
+    }, "This week"), weekLine));
   }))), sectors.length > 0 && (() => {
     const themes = {
       "Risk-On / Cyclical": ["XLK", "XLY", "XLC", "XLI"],
@@ -676,9 +711,45 @@ function BriefInfographic({
       if (v > -0.3) return "#fbbf24";
       return "#ef4444";
     };
+    const _withPct = sectors.filter(s => Number.isFinite(s.chgPct));
+    const _greens = _withPct.filter(s => s.chgPct > 0).length;
+    const _total = _withPct.length;
+    const _sorted = [..._withPct].sort((a, b) => b.chgPct - a.chgPct);
+    const _leader = _sorted[0] || null;
+    const _laggard = _sorted[_sorted.length - 1] || null;
+    const _avgOf = arr => {
+      const xs = _withPct.filter(s => arr.includes(s.sym));
+      return xs.length ? xs.reduce((a, s) => a + s.chgPct, 0) / xs.length : null;
+    };
+    const _roAvg = _avgOf(themes["Risk-On / Cyclical"]);
+    const _defAvg = _avgOf(themes["Defensive / Yield"]);
+    const _breadth = _total ? _greens / _total : 0;
+    let _toneWord = "Mixed tape",
+      _toneColor = "#8AA39A";
+    if (_breadth >= 0.6 && (_roAvg ?? 0) >= (_defAvg ?? 0)) {
+      _toneWord = "Risk-on tape";
+      _toneColor = "#34d399";
+    } else if (_breadth <= 0.4) {
+      _toneWord = "Risk-off tape";
+      _toneColor = "#fb7185";
+    } else if ((_defAvg ?? 0) > (_roAvg ?? 0)) {
+      _toneWord = "Defensive tilt";
+      _toneColor = "#fbbf24";
+    }
+    const _fmtPct = v => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+    const _tapeRead = _total ? `${_greens}/${_total} sectors green` + (_leader ? ` · ${_leader.sym} leads (${_fmtPct(_leader.chgPct)})` : "") + (_laggard && _laggard !== _leader ? `, ${_laggard.sym} lags (${_fmtPct(_laggard.chgPct)})` : "") : null;
     return React.createElement("div", null, React.createElement("div", {
       className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
-    }, "Sectors today (grouped)"), React.createElement("div", {
+    }, "Sectors today (grouped)"), _tapeRead && React.createElement("div", {
+      className: "text-[10px] mb-1.5 leading-snug"
+    }, React.createElement("span", {
+      className: "font-semibold",
+      style: {
+        color: _toneColor
+      }
+    }, _toneWord), React.createElement("span", {
+      className: "text-[#8AA39A]"
+    }, " \u2014 ", _tapeRead)), React.createElement("div", {
       className: "space-y-1.5"
     }, Object.entries(grouped).map(([theme, syms]) => {
       const avg = syms.reduce((a, s) => a + (s.chgPct ?? 0), 0) / syms.length;
@@ -722,24 +793,46 @@ function BriefInfographic({
     }, React.createElement("span", null, s.sym), React.createElement("span", {
       className: "tabular-nums"
     }, s.chgPct != null ? `${s.chgPct >= 0 ? "+" : ""}${s.chgPct.toFixed(2)}%` : "")))))));
-  })(), macro.length > 0 && React.createElement("div", null, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
-  }, "Macro cross-asset"), React.createElement("div", {
-    className: "grid grid-cols-2 md:grid-cols-5 gap-1.5"
-  }, macro.map(m => React.createElement("div", {
-    key: m.sym + m.label,
-    className: "px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]",
-    title: m.hint || ""
-  }, React.createElement("div", {
-    className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
-  }, m.label), React.createElement("div", {
-    className: "text-[12px] font-semibold text-white tabular-nums"
-  }, m.sym === "VIX" ? m.value.toFixed(2) : m.value.toFixed(2)), m.chgPct != null && React.createElement("div", {
-    className: "text-[10px] tabular-nums",
-    style: {
-      color: pctColor(m.chgPct)
-    }
-  }, m.chgPct >= 0 ? "+" : "", m.chgPct.toFixed(2), "%"))))), (risks.length > 0 || opps.length > 0) && React.createElement("div", {
+  })(), macro.length > 0 && (() => {
+    const macroRead = m => {
+      const s = String(m.sym || m.label || "").toUpperCase();
+      const v = Number(m.chgPct);
+      const up = Number.isFinite(v) && v > 0.15;
+      const dn = Number.isFinite(v) && v < -0.15;
+      if (s.includes("VIX") || s.includes("VX")) {
+        const lvl = Number(m.value);
+        if (Number.isFinite(lvl) && lvl >= 20) return "fear elevated";
+        if (Number.isFinite(lvl) && lvl < 14) return "calm tape";
+        return up ? "hedging up" : dn ? "calmer" : "steady";
+      }
+      if (s.includes("BTC") || s.includes("ETH")) return up ? "risk appetite on" : dn ? "risk-off" : "flat";
+      if (s.includes("CL") || s.includes("CRUDE") || s.includes("OIL") || s.includes("USO")) return up ? "energy bid · cost push" : dn ? "consumer relief" : "flat";
+      if (s.includes("GC") || s.includes("GOLD") || s.includes("GLD") || s.includes("SI") || s.includes("SILVER")) return up ? "risk-off hedge bid" : dn ? "risk-on" : "flat";
+      if (s.includes("TLT") || s.includes("BOND") || s.includes("ZB") || s.includes("ZN") || s.includes("TREASUR")) return up ? "yields down · duration bid" : dn ? "yields up · growth headwind" : "flat";
+      if (s.includes("DXY") || s.includes("DOLLAR") || s.includes("UUP")) return up ? "headwind for risk" : dn ? "tailwind for risk" : "flat";
+      return up ? "bid" : dn ? "soft" : "flat";
+    };
+    return React.createElement("div", null, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
+    }, "Macro cross-asset"), React.createElement("div", {
+      className: "grid grid-cols-2 md:grid-cols-5 gap-1.5"
+    }, macro.map(m => React.createElement("div", {
+      key: m.sym + m.label,
+      className: "px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]",
+      title: m.hint || ""
+    }, React.createElement("div", {
+      className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
+    }, m.label), React.createElement("div", {
+      className: "text-[12px] font-semibold text-white tabular-nums"
+    }, m.value.toFixed(2)), m.chgPct != null && React.createElement("div", {
+      className: "text-[10px] tabular-nums",
+      style: {
+        color: pctColor(m.chgPct)
+      }
+    }, m.chgPct >= 0 ? "+" : "", m.chgPct.toFixed(2), "%"), React.createElement("div", {
+      className: "text-[8px] text-[#6E867D] leading-tight mt-0.5"
+    }, macroRead(m))))));
+  })(), (risks.length > 0 || opps.length > 0) && React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-2"
   }, risks.length > 0 && React.createElement("div", {
     className: "p-2 rounded bg-red-500/5 border border-red-500/20"
@@ -2830,6 +2923,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781565712636:647566210
+// cache-bust:1781575224157:539901120
 
-// cache-bust:1781565712636:647566210
+// cache-bust:1781575224157:539901120

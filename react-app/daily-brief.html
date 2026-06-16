@@ -505,8 +505,13 @@
               </div>
             )}
 
-            {/* Index cards (V15 P0.7.42 — Day & Week GG with close-prob) */}
-            {indicies.length > 0 && (
+            {/* 2026-06-16 — The separate Day/Week ATR "Index levels" cards were
+               consolidated into the single options-oriented "Index Playbook"
+               below (bias + expected move + Calls/Puts plays + weekly read on one
+               card), which removes the redundancy the operator flagged and keeps
+               price always on the ladder. Disabled (not deleted) pending review of
+               the new design; remove this dead block once the playbook is signed off. */}
+            {false && indicies.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                 {indicies.map((idx) => {
                   const lvls = idx.levels || {};
@@ -756,25 +761,56 @@
                already armed. */}
             {indicies.some((i) => i.levels?.gamePlan) && (
               <div>
-                <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Game Plan triggers</div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Index playbook · today's options plays</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {indicies.filter((i) => i.levels?.gamePlan).map((idx) => {
+                    const lvls = idx.levels || {};
+                    const wlvls = idx.weeklyLevels || null;
                     const gp = idx.levels.gamePlan;
                     const cp = liveFor(idx.sym, idx.levels.currentPrice ?? idx.price);
                     const bullArmed = cp != null && cp >= gp.bullTrigger;
                     const bearArmed = cp != null && cp <= gp.bearTrigger;
                     const bullPct = ((gp.bullTarget - gp.bullTrigger) / gp.bullTrigger * 100);
                     const bearPct = ((gp.bearTarget - gp.bearTrigger) / gp.bearTrigger * 100);
+                    // Model bias (Saty golden-gate) + typical daily move (for strike/expiry sizing).
+                    const gg = effectiveGg(lvls.goldenGate, cp, lvls);
+                    const dayProb = lvls.goldenGateProbability;
+                    const biasUp = gg === "OPEN_UP" || gg === "COMPLETE_UP";
+                    const biasDn = gg === "OPEN_DOWN" || gg === "COMPLETE_DN";
+                    const biasColor = biasUp ? "#34d399" : biasDn ? "#fb7185" : "#8AA39A";
+                    const biasLabel = (biasUp ? "▲ Bullish" : biasDn ? "▼ Bearish" : "◆ Neutral") + (dayProb && gg !== "NEUTRAL" ? ` · ${(dayProb.day * 100).toFixed(0)}%` : "");
+                    const pivot = lvls.anchor ?? lvls.liveDayRange?.anchor ?? null;
+                    // Weekly one-liner (bias + 61.8% target by Friday).
+                    const wgg = effectiveGg(wlvls?.goldenGate, cp, wlvls);
+                    const weekProb = wlvls?.goldenGateProbability;
+                    const weekUp = wgg === "OPEN_UP" || wgg === "COMPLETE_UP";
+                    const weekDn = wgg === "OPEN_DOWN" || wgg === "COMPLETE_DN";
+                    const weekColor = weekUp ? "#34d399" : weekDn ? "#fb7185" : "#8AA39A";
+                    const weekLine = (() => {
+                      if (!wlvls) return null;
+                      const dr = weekProb?.daysRemaining; const drT = dr != null ? ` · ${dr}d left` : "";
+                      const wp = weekProb && wgg !== "NEUTRAL" ? ` ${(weekProb.week * 100).toFixed(0)}%` : "";
+                      const wUp618 = wlvls.levels?.["+61.8%"]; const wDn618 = wlvls.levels?.["-61.8%"];
+                      const wlo = wlvls.levels?.["-38.2%"]; const whi = wlvls.levels?.["+38.2%"];
+                      if (weekUp && wUp618 != null) return `▲ Bullish${wp} · toward $${wUp618.toFixed(2)} by Fri${drT}`;
+                      if (weekDn && wDn618 != null) return `▼ Bearish${wp} · toward $${wDn618.toFixed(2)} by Fri${drT}`;
+                      return (wlo != null && whi != null) ? `◆ Range $${wlo.toFixed(2)}–$${whi.toFixed(2)}${drT}` : `◆ Range-bound${drT}`;
+                    })();
                     // 2026-05-26 — Kanban-card-style progress bar.
                     // Visual: BEAR_TARGET ←─── BEAR_TRIGGER ─── PRICE ─── BULL_TRIGGER ───→ BULL_TARGET
                     // Two milestone tick marks (the triggers) inside a track,
                     // with the current price marker positioned proportionally
                     // between the two trigger ends. Colored zones (red on the
                     // bear side, green on the bull side) make the bias obvious.
+                    // Auto-scale the ladder to ALWAYS include the current price (and
+                    // pivot) so the marker never pegs off the end of the bar.
                     let scaleLo, scaleHi, pricePctOnBar = 50;
                     if (gp.bearTarget != null && gp.bullTarget != null) {
-                      scaleLo = Math.min(gp.bearTarget, gp.bearTrigger);
-                      scaleHi = Math.max(gp.bullTarget, gp.bullTrigger);
+                      const _pts = [gp.bearTarget, gp.bearTrigger, gp.bullTrigger, gp.bullTarget, pivot, cp].filter((v) => Number.isFinite(v));
+                      scaleLo = Math.min(..._pts);
+                      scaleHi = Math.max(..._pts);
+                      const _pad = (scaleHi - scaleLo) * 0.05 || 1;
+                      scaleLo -= _pad; scaleHi += _pad;
                       if (cp != null && scaleHi > scaleLo) {
                         pricePctOnBar = Math.max(0, Math.min(100, ((cp - scaleLo) / (scaleHi - scaleLo)) * 100));
                       }
@@ -786,13 +822,18 @@
                     const stageLabel = stage === "BULL_ARMED" ? "▲ BULL ARMED" : stage === "BEAR_ARMED" ? "▼ BEAR ARMED" : "◆ NEUTRAL";
                     return (
                       <div key={"gp-" + idx.sym} className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                        <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center justify-between mb-0.5">
                           <div className="flex items-center gap-2">
-                            <span className="text-[12px] font-semibold text-white">{idx.sym}</span>
-                            <span className="text-[9px] font-semibold tracking-wider" style={{color: stageColor}}>{stageLabel}</span>
+                            <span className="text-[13px] font-bold text-white">{idx.sym}</span>
+                            <span className="text-[10px] font-semibold" style={{color: biasColor}}>{biasLabel}</span>
                           </div>
-                          {cp != null && <span className="text-[11px] text-white font-semibold tabular-nums">${cp.toFixed(2)}</span>}
+                          {cp != null && (
+                            <span className="text-[13px] text-white font-bold tabular-nums">${cp.toFixed(2)}
+                              <span className="ml-1 text-[9px] font-semibold" style={{color: _mktOpen ? "#34d399" : "#fbbf24"}}>{_mktOpen ? "live" : "ext"}</span>
+                            </span>
+                          )}
                         </div>
+                        <div className="text-[9px] text-[#6E867D] mb-2 text-right tabular-nums">{idx.atr != null ? `expected move today ±$${idx.atr.toFixed(2)}` : ""}</div>
                         {/* Progress track */}
                         <div className="relative mb-2 mt-3" style={{height: 24}}>
                           <div className="absolute inset-y-0 left-0 right-0 rounded-full" style={{height: 8, top: 8, background: "linear-gradient(90deg, rgba(244,63,94,0.18) 0%, rgba(244,63,94,0.10) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bearTriggerPctOnBar + "%, rgba(148,163,184,0.08) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.10) " + bullTriggerPctOnBar + "%, rgba(52,211,153,0.18) 100%)"}}></div>
@@ -811,27 +852,23 @@
                             </div>
                           )}
                         </div>
-                        {/* Trigger labels under the bar */}
-                        <div className="flex items-start justify-between text-[9px] tabular-nums mb-2">
-                          <div className="text-left">
-                            <div className="text-[#fb7185] font-semibold">▼ ${gp.bearTrigger.toFixed(2)}</div>
-                            <div className="text-[#6E867D]">→ ${gp.bearTarget.toFixed(2)} <span className="text-[#fb7185]/70">({bearPct.toFixed(1)}%)</span></div>
+                        {/* Calls / Puts plays — trigger → target, % move, distance to arm */}
+                        <div className="space-y-1 text-[10px] tabular-nums">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[#34d399] font-semibold">▲ Calls {bullArmed ? "armed" : `over $${gp.bullTrigger.toFixed(2)}`} → ${gp.bullTarget.toFixed(2)} <span className="text-[#34d399]/70">(+{bullPct.toFixed(1)}%)</span></span>
+                            <span className="text-[#6E867D] flex-shrink-0">{cp == null ? "" : bullArmed ? "in play" : `+${((gp.bullTrigger - cp) / cp * 100).toFixed(2)}% to arm`}</span>
                           </div>
-                          <div className="text-right">
-                            <div className="text-[#34d399] font-semibold">${gp.bullTrigger.toFixed(2)} ▲</div>
-                            <div className="text-[#6E867D]">${gp.bullTarget.toFixed(2)} ← <span className="text-[#34d399]/70">(+{bullPct.toFixed(1)}%)</span></div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[#fb7185] font-semibold">▼ Puts {bearArmed ? "armed" : `under $${gp.bearTrigger.toFixed(2)}`} → ${gp.bearTarget.toFixed(2)} <span className="text-[#fb7185]/70">({bearPct.toFixed(1)}%)</span></span>
+                            <span className="text-[#6E867D] flex-shrink-0">{cp == null ? "" : bearArmed ? "in play" : `${((gp.bearTrigger - cp) / cp * 100).toFixed(2)}% to arm`}</span>
                           </div>
                         </div>
-                        {/* Status line */}
-                        <div className="text-[10px] text-[#8AA39A] tabular-nums pt-1.5 border-t border-white/[0.04]">
-                          {bullArmed && cp != null ? (
-                            <span><span className="text-[#34d399]">●</span> Above bull trigger by {((cp - gp.bullTrigger) / gp.bullTrigger * 100).toFixed(2)}% — target ${gp.bullTarget.toFixed(2)} (+{bullPct.toFixed(1)}%)</span>
-                          ) : bearArmed && cp != null ? (
-                            <span><span className="text-[#fb7185]">●</span> Below bear trigger by {((gp.bearTrigger - cp) / gp.bearTrigger * 100).toFixed(2)}% — target ${gp.bearTarget.toFixed(2)} ({bearPct.toFixed(1)}%)</span>
-                          ) : cp != null ? (
-                            <span>○ Between triggers — needs <span className="text-[#34d399]">{((gp.bullTrigger - cp) / cp * 100).toFixed(2)}%</span> up or <span className="text-[#fb7185]">{((cp - gp.bearTrigger) / cp * 100).toFixed(2)}%</span> down</span>
-                          ) : "No live price"}
-                        </div>
+                        {/* Weekly read */}
+                        {weekLine && (
+                          <div className="text-[10px] tabular-nums mt-2 pt-1.5 border-t border-white/[0.04]" style={{color: weekColor}}>
+                            <span className="text-[#6E867D] uppercase tracking-wide text-[8px] mr-1">This week</span>{weekLine}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -876,9 +913,35 @@
                 if (v > -0.3) return "#fbbf24";
                 return "#ef4444";
               };
+              // One-line "tape read": breadth + leader/laggard + risk-on vs defensive tilt,
+              // so the rotation story is legible at a glance before scanning the chips.
+              const _withPct = sectors.filter((s) => Number.isFinite(s.chgPct));
+              const _greens = _withPct.filter((s) => s.chgPct > 0).length;
+              const _total = _withPct.length;
+              const _sorted = [..._withPct].sort((a, b) => b.chgPct - a.chgPct);
+              const _leader = _sorted[0] || null;
+              const _laggard = _sorted[_sorted.length - 1] || null;
+              const _avgOf = (arr) => { const xs = _withPct.filter((s) => arr.includes(s.sym)); return xs.length ? xs.reduce((a, s) => a + s.chgPct, 0) / xs.length : null; };
+              const _roAvg = _avgOf(themes["Risk-On / Cyclical"]);
+              const _defAvg = _avgOf(themes["Defensive / Yield"]);
+              const _breadth = _total ? _greens / _total : 0;
+              let _toneWord = "Mixed tape", _toneColor = "#8AA39A";
+              if (_breadth >= 0.6 && (_roAvg ?? 0) >= (_defAvg ?? 0)) { _toneWord = "Risk-on tape"; _toneColor = "#34d399"; }
+              else if (_breadth <= 0.4) { _toneWord = "Risk-off tape"; _toneColor = "#fb7185"; }
+              else if ((_defAvg ?? 0) > (_roAvg ?? 0)) { _toneWord = "Defensive tilt"; _toneColor = "#fbbf24"; }
+              const _fmtPct = (v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+              const _tapeRead = _total
+                ? `${_greens}/${_total} sectors green` + (_leader ? ` · ${_leader.sym} leads (${_fmtPct(_leader.chgPct)})` : "") + (_laggard && _laggard !== _leader ? `, ${_laggard.sym} lags (${_fmtPct(_laggard.chgPct)})` : "")
+                : null;
               return (
                 <div>
                   <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Sectors today (grouped)</div>
+                  {_tapeRead && (
+                    <div className="text-[10px] mb-1.5 leading-snug">
+                      <span className="font-semibold" style={{ color: _toneColor }}>{_toneWord}</span>
+                      <span className="text-[#8AA39A]"> — {_tapeRead}</span>
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     {Object.entries(grouped).map(([theme, syms]) => {
                       const avg = syms.reduce((a, s) => a + (s.chgPct ?? 0), 0) / syms.length;
@@ -926,26 +989,49 @@
             })()}
 
             {/* Macro rail */}
-            {macro.length > 0 && (
-              <div>
-                <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Macro cross-asset</div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
-                  {macro.map((m) => (
-                    <div key={m.sym + m.label} className="px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]" title={m.hint || ""}>
-                      <div className="text-[9px] uppercase tracking-wider text-[#6E867D]">{m.label}</div>
-                      <div className="text-[12px] font-semibold text-white tabular-nums">
-                        {m.sym === "VIX" ? m.value.toFixed(2) : m.value.toFixed(2)}
-                      </div>
-                      {m.chgPct != null && (
-                        <div className="text-[10px] tabular-nums" style={{ color: pctColor(m.chgPct) }}>
-                          {m.chgPct >= 0 ? "+" : ""}{m.chgPct.toFixed(2)}%
+            {macro.length > 0 && (() => {
+              // Plain-language "what it means for equities" tag per cross-asset,
+              // so the rail reads as signal rather than a wall of raw numbers.
+              const macroRead = (m) => {
+                const s = String(m.sym || m.label || "").toUpperCase();
+                const v = Number(m.chgPct);
+                const up = Number.isFinite(v) && v > 0.15;
+                const dn = Number.isFinite(v) && v < -0.15;
+                if (s.includes("VIX") || s.includes("VX")) {
+                  const lvl = Number(m.value);
+                  if (Number.isFinite(lvl) && lvl >= 20) return "fear elevated";
+                  if (Number.isFinite(lvl) && lvl < 14) return "calm tape";
+                  return up ? "hedging up" : dn ? "calmer" : "steady";
+                }
+                if (s.includes("BTC") || s.includes("ETH")) return up ? "risk appetite on" : dn ? "risk-off" : "flat";
+                if (s.includes("CL") || s.includes("CRUDE") || s.includes("OIL") || s.includes("USO")) return up ? "energy bid · cost push" : dn ? "consumer relief" : "flat";
+                if (s.includes("GC") || s.includes("GOLD") || s.includes("GLD") || s.includes("SI") || s.includes("SILVER")) return up ? "risk-off hedge bid" : dn ? "risk-on" : "flat";
+                if (s.includes("TLT") || s.includes("BOND") || s.includes("ZB") || s.includes("ZN") || s.includes("TREASUR")) return up ? "yields down · duration bid" : dn ? "yields up · growth headwind" : "flat";
+                if (s.includes("DXY") || s.includes("DOLLAR") || s.includes("UUP")) return up ? "headwind for risk" : dn ? "tailwind for risk" : "flat";
+                return up ? "bid" : dn ? "soft" : "flat";
+              };
+              return (
+                <div>
+                  <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Macro cross-asset</div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-1.5">
+                    {macro.map((m) => (
+                      <div key={m.sym + m.label} className="px-2 py-1.5 rounded bg-white/[0.02] border border-white/[0.05]" title={m.hint || ""}>
+                        <div className="text-[9px] uppercase tracking-wider text-[#6E867D]">{m.label}</div>
+                        <div className="text-[12px] font-semibold text-white tabular-nums">
+                          {m.value.toFixed(2)}
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {m.chgPct != null && (
+                          <div className="text-[10px] tabular-nums" style={{ color: pctColor(m.chgPct) }}>
+                            {m.chgPct >= 0 ? "+" : ""}{m.chgPct.toFixed(2)}%
+                          </div>
+                        )}
+                        <div className="text-[8px] text-[#6E867D] leading-tight mt-0.5">{macroRead(m)}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Risks / Opportunities */}
             {(risks.length > 0 || opps.length > 0) && (
