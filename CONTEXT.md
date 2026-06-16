@@ -197,9 +197,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 **Day-trade lean + PML horizon (2026-06-16)**
 - Day-trade game plan now emits a directional **lean** (`computeDayLean` in
   `worker/day-trade-game-plan.js`) — distinct from the Active Trader's multi-day
-  `state` bias. The brief leads with the favored side instead of a symmetric
-  bull/bear menu. Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day)
-  → Investor (long haul); keep each lane's horizon honest.
+  `state` bias. ONE source (`game_plan.lean`) drives all three day-trader
+  surfaces: the brief **Index Playbook**, the Today **Day-Trade Predictions**
+  (narrative leads with the lean), and the Today **Index Options Plays**
+  (`buildDayTradePlay` honors a conviction lean — 0/1DTE is same-day, so the day
+  lean overrides the multi-day confluence gate; low conviction falls back).
+  Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
+  (long haul); keep each lane's horizon honest.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and
