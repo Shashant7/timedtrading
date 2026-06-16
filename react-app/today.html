@@ -164,7 +164,7 @@
         display: flex;
         flex-direction: column;
       }
-      /* Research Desk + PML — paired hero panels, fixed height + inner scroll on desktop */
+      /* Research Desk + PML — paired hero panels, fixed height + inner scroll */
       .tt-desk-panel,
       .tt-cto-panel {
         display: flex;
@@ -1143,20 +1143,25 @@
         }
       }
       @media (max-width: 980px) {
+        /* Stacked mobile: same fixed-height + scroll pattern, slightly shorter cap */
         .today-hero-desk-col .tt-desk-panel,
         .today-hero-levels-col .tt-cto-panel {
-          height: auto;
+          height: min(400px, 48vh);
+          max-height: min(400px, 48vh);
+          min-height: 0;
           flex: none;
+          overflow: hidden;
         }
         .today-hero-desk-col .tt-desk-feed-body,
         .today-hero-levels-col .tt-cto-feed-body {
-          flex: none;
-          overflow: visible;
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
         }
         .today-hero-desk-col .tt-desk-scroll,
         .today-hero-levels-col .tt-cto-map-scroll {
-          flex: none;
-          max-height: none;
+          flex: 1;
+          min-height: 0;
         }
       }
       /* Macro chip row */
@@ -2785,65 +2790,64 @@
         return h("div", { className: "tt-card tt-card-pad tt-desk-panel" },
           h("div", { className: "tt-sec-title", style: { marginBottom: 2, flexShrink: 0 } }, "RESEARCH DESK"),
           h("div", { className: "tt-sec-h", style: { marginBottom: 10, flexShrink: 0 } }, "Fresh from the research feed"),
-          croNote && h("div", {
-            style: {
-              marginBottom: 10, padding: "10px 12px", borderRadius: 8, flexShrink: 0,
-              border: "1px solid rgba(139,92,246,0.35)", background: "rgba(139,92,246,0.06)",
-            },
-          },
-            h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } },
-              h("span", { style: { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", color: "#a78bfa", textTransform: "uppercase" } }, "CRO Daily Note"),
-              h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(croNote.produced_at)),
-            ),
-            h("button", {
-              onClick: () => setCroOpen(!croOpen),
-              style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: "pointer", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.45, fontWeight: 600 },
-            },
-              (croNote.verdict || "Daily research synthesis").slice(0, croOpen ? 2000 : 180),
-              (croNote.verdict || "").length > 180 && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, croOpen ? "▴" : "▾"),
-            ),
-            croOpen && Array.isArray(croNote.observations) && croNote.observations.length > 0 && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4 } },
-              croNote.observations.slice(0, 3).map((obs, idx) => h("div", { key: idx, style: { fontSize: 11.5, color: "var(--tt-text-muted)", lineHeight: 1.4 } },
-                h("span", { style: { fontWeight: 700, color: "var(--tt-text-dim)" } }, `${obs.category || "Observation"}: `),
-                (obs.claim || obs.text || "").slice(0, 160),
-              )),
-            ),
-          ),
           h("div", { className: "tt-desk-feed-body" },
-            items.length === 0
-              ? h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)" } },
+            items.length === 0 && !croNote
+              ? h("div", { className: "tt-desk-scroll", style: { fontSize: 12, color: "var(--tt-text-muted)" } },
                   feed ? "No research notes in the last 7 days." : "Loading research…")
-              : h(React.Fragment, null,
-                  h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em", flexShrink: 0 } },
-                    `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
-                  h("div", { className: "tt-desk-scroll" },
-                    items.map((it, i) => {
-                      const id = it.pub_id || String(i);
-                      const isOpen = openId === id;
-                      const hasMore = !!it.tt_summary;
-                      return h("div", { key: id, className: "tt-desk-item", style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
-                        h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
-                          h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
-                          h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(it.published_at || it.fetched_at)),
-                        ),
-                        h("button", {
-                          onClick: () => hasMore && setOpenId(isOpen ? null : id),
-                          style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: hasMore ? "pointer" : "default", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.4, fontWeight: 600 },
-                        },
-                          it.title,
-                          hasMore && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, isOpen ? "▴" : "▾"),
-                        ),
-                        isOpen && it.tt_summary && h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: "2px solid var(--tt-border-hi)" } }, it.tt_summary),
-                        (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5, marginBottom: 2 } },
-                          it.tickers.map((tk) => h("button", {
-                            key: tk,
-                            onClick: () => onSelectTicker && onSelectTicker(tk),
-                            style: { fontSize: 10.5, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", background: "var(--tt-bg-elev, rgba(255,255,255,0.04))", border: "1px solid var(--tt-border-hi)", borderRadius: 5, padding: "1px 6px", cursor: "pointer" },
-                          }, tk)),
-                        ),
-                      );
-                    }),
+              : h("div", { className: "tt-desk-scroll" },
+                  croNote && h("div", {
+                    className: "tt-desk-cro-note",
+                    style: {
+                      marginBottom: 10, padding: "10px 12px", borderRadius: 8,
+                      border: "1px solid rgba(139,92,246,0.35)", background: "rgba(139,92,246,0.06)",
+                    },
+                  },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } },
+                      h("span", { style: { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", color: "#a78bfa", textTransform: "uppercase" } }, "CRO Daily Note"),
+                      h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(croNote.produced_at)),
+                    ),
+                    h("button", {
+                      onClick: () => setCroOpen(!croOpen),
+                      style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: "pointer", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.45, fontWeight: 600 },
+                    },
+                      (croNote.verdict || "Daily research synthesis").slice(0, croOpen ? 2000 : 180),
+                      (croNote.verdict || "").length > 180 && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, croOpen ? "▴" : "▾"),
+                    ),
+                    croOpen && Array.isArray(croNote.observations) && croNote.observations.length > 0 && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4 } },
+                      croNote.observations.slice(0, 3).map((obs, idx) => h("div", { key: idx, style: { fontSize: 11.5, color: "var(--tt-text-muted)", lineHeight: 1.4 } },
+                        h("span", { style: { fontWeight: 700, color: "var(--tt-text-dim)" } }, `${obs.category || "Observation"}: `),
+                        (obs.claim || obs.text || "").slice(0, 160),
+                      )),
+                    ),
                   ),
+                  items.length > 0 && h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginBottom: 8, letterSpacing: "0.04em" } },
+                    `Last 7 days · ${items.length} note${items.length === 1 ? "" : "s"}`),
+                  items.map((it, i) => {
+                    const id = it.pub_id || String(i);
+                    const isOpen = openId === id;
+                    const hasMore = !!it.tt_summary;
+                    return h("div", { key: id, className: "tt-desk-item", style: { padding: "8px 0", borderBottom: i < items.length - 1 ? "1px solid var(--tt-border)" : "none" } },
+                      h("div", { style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 3 } },
+                        h("span", { style: { fontSize: 9.5, fontWeight: 600, letterSpacing: "0.06em", color: "var(--tt-text-dim)", textTransform: "uppercase" } }, it.category_label || "Editorial"),
+                        h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginLeft: "auto" } }, ago(it.published_at || it.fetched_at)),
+                      ),
+                      h("button", {
+                        onClick: () => hasMore && setOpenId(isOpen ? null : id),
+                        style: { display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: hasMore ? "pointer" : "default", fontSize: 12.5, color: "var(--tt-text)", lineHeight: 1.4, fontWeight: 600 },
+                      },
+                        it.title,
+                        hasMore && h("span", { style: { color: "var(--tt-text-dim)", fontWeight: 400, marginLeft: 6, fontSize: 11 } }, isOpen ? "▴" : "▾"),
+                      ),
+                      isOpen && it.tt_summary && h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", lineHeight: 1.5, marginTop: 6, paddingLeft: 10, borderLeft: "2px solid var(--tt-border-hi)" } }, it.tt_summary),
+                      (it.tickers && it.tickers.length > 0) && h("div", { style: { display: "flex", gap: 5, flexWrap: "wrap", marginTop: 5, marginBottom: 2 } },
+                        it.tickers.map((tk) => h("button", {
+                          key: tk,
+                          onClick: () => onSelectTicker && onSelectTicker(tk),
+                          style: { fontSize: 10.5, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", background: "var(--tt-bg-elev, rgba(255,255,255,0.04))", border: "1px solid var(--tt-border-hi)", borderRadius: 5, padding: "1px 6px", cursor: "pointer" },
+                        }, tk)),
+                      ),
+                    );
+                  }),
                 ),
           ),
         );
