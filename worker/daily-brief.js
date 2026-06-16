@@ -1230,6 +1230,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const isEarlyClose = cal ? isEquityEarlyClose(cal, today) : false;
   const dayOfWeekLabel = getETWeekdayLabel();
   const mktOpen = cal ? isNyRegularMarketOpen(cal, new Date()) : false;
+  // The EVENING brief headline is the RTH SESSION move (today's close vs
+  // yesterday's close), NOT the after-hours drift. The price feed serves the
+  // RTH close in `p`/`dp` and the extended print in `ahp`/`ahdp`; outside RTH
+  // the session-aware helpers would otherwise return the ~0% after-hours change
+  // (operator saw "SPY closed at $754.48 (-0.02%)"). So for the evening brief we
+  // validate the index rows with RTH semantics. The MORNING brief keeps the live
+  // session state so it reports the pre-market gap.
+  const _briefSessionMktOpen = String(type || "").toLowerCase() === "evening" ? true : mktOpen;
 
   // Parallel data fetching
   let [
@@ -1485,17 +1493,17 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     return data;
   }
 
-  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false, mktOpen);
-  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false, mktOpen);
-  spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true, mktOpen);
-  qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true, mktOpen);
+  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false, _briefSessionMktOpen);
+  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false, _briefSessionMktOpen);
+  spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true, _briefSessionMktOpen);
+  qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true, _briefSessionMktOpen);
   // 2026-05-27 (PR #320) — IWM was MISSING from the validate list.
   // Symptom: SPY/QQQ in the morning brief showed pre-market price
   // (validate refreshed from price-feed) but IWM was stuck at the
   // prior daily close. Same shape as the bug PR #283 fixed for SPY/
   // QQQ — just never extended to IWM. Adding now so all three index
   // ETFs get pre-market refresh consistently.
-  iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true, mktOpen);
+  iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true, _briefSessionMktOpen);
 
   // Process sector performance — prefer timed:prices over stale timed:latest
   // day_change_pct. SPY/QQQ/IWM already get validateMarketData(); sector
@@ -1814,7 +1822,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       ]);
     }
   } catch (_) {}
-  diaData = validateMarketData(diaData, "DIA", "DIA", _pf, true, mktOpen);
+  diaData = validateMarketData(diaData, "DIA", "DIA", _pf, true, _briefSessionMktOpen);
   const diaTechnical = summarizeTechnical(
     diaCandles?.candles || [], [], diaCandlesM5?.candles || [], diaData, [], []
   );
@@ -3611,21 +3619,20 @@ function buildRetailFriendlyOutputSpec(type) {
   // the Daily Brief is the hook to get users to come back in to the
   // site and trust the model."
   const sections = isEvening
-    ? `1. **Session Recap & Context** (~100 words)
-2. **The Desk's Read** (~80 words — WHY today happened: synthesize the CRO Research Desk note + today's macro prints (actual vs estimate) + rotation evidence into ONE causal narrative. If tech sold off because a hot jobs/CPI print repriced rates, or because an IPO is pulling fund flows, SAY THAT. No section may contradict this read.)
-3. **Sector Themes** (~80 words)
-4. **ES Prediction Scorecard** (today's call vs what actually happened — exact same format for SPY, QQQ, IWM)
-5. **SPY Prediction Scorecard** (same shape as ES)
-6. **QQQ Prediction Scorecard** (same shape as ES)
-7. **IWM Prediction Scorecard** (same shape as ES)
-8. **Key Levels & Structural Update** (combined — bullets per index with the structural note alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer can drop charts in)
-9. **Looking Ahead** (~80 words — tomorrow's macro calendar entries BY NAME with time + consensus where provided)
-10. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — what lane it's in and WHY it's on the radar: the setup forming, the theme running, the catalyst. These mirror the site's Setup/In-Review lanes so readers can click through and see the same list.)
-11. **Risk Factors** (1-2 key risks, ≤20 words each)
-12. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
-13. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`
-    : `1. **Market Context** (~100 words)
-2. **The Desk's Read** (~80 words — WHY the tape is set up this way: synthesize the CRO Research Desk note + macro prints/calendar + rotation evidence into ONE causal narrative for the day ahead. Name the forces: rate repricing, IPO supply pulling fund flows, sector rotation, earnings.)
+    ? `1. **The Desk's Read** (~90 words — LEAD WITH THIS. The WHY behind today: synthesize the CRO Research Desk note + today's macro prints (actual vs estimate) + rotation/flows into ONE causal narrative. If tech led because a soft CPI repriced rates, or an IPO pulled fund flows, SAY THAT. Name the forces. No later section may contradict this read.)
+2. **Sector Themes** (~80 words — leading/lagging groups and WHY; rotation + breadth verdict)
+3. **ES Prediction Scorecard** (today's call vs what actually happened — exact same format for SPY, QQQ, IWM)
+4. **SPY Prediction Scorecard** (same shape as ES)
+5. **QQQ Prediction Scorecard** (same shape as ES)
+6. **IWM Prediction Scorecard** (same shape as ES)
+7. **Key Levels & Structural Update** (~200 words combined — OPEN with 2-3 sentences of session recap & context: what drove today in one causal sentence, the VIX close + what it implies for tomorrow, any notable cross-asset move, and the close-vs-open character + breadth for SPY/QQQ/IWM. Quote each index's close and TODAY'S SESSION change % EXACTLY as given in the market-data block — these are the RTH close vs prior close; do NOT infer them or use the tiny after-hours drift. THEN per-index bullets with the structural note alongside the levels. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] placeholders so the renderer drops charts in.)
+8. **Looking Ahead** (~80 words — tomorrow's macro calendar entries BY NAME with time + consensus where provided)
+9. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — what lane it's in and WHY it's on the radar: the setup forming, the theme running, the catalyst. These mirror the site's Setup/In-Review lanes so readers can click through and see the same list.)
+10. **Risk Factors** (1-2 key risks, ≤20 words each)
+11. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
+12. **Investor Portfolio** (~80 words — per holding: ticker, today's chg%, total return%, thesis status, DCA opportunities)`
+    : `1. **The Desk's Read** (~90 words — LEAD WITH THIS. The WHY the tape is set up this way: synthesize the CRO Research Desk note + macro prints/calendar + rotation evidence into ONE causal narrative for the day ahead. Name the forces: rate repricing, IPO supply pulling fund flows, sector rotation, earnings. No later section may contradict this read.)
+2. **Market Context** (~90 words — macro backdrop + cross-asset + VIX in one picture; lead with what it MEANS)
 3. **Sector Themes** (~80 words)
 4. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after the prints land, lead with actual vs estimate)
 5. **ES Prediction** (today's game plan — exact same format for SPY, QQQ, IWM)
@@ -3660,18 +3667,18 @@ ${sections}
 - **When you reference cross-asset moves, explain WHY they matter to equity traders.** Don't say "XLK's relationship with crude and gold" — say "Technology stocks usually weaken when crude oil spikes (energy costs hit margins) and gold rallies (recession fear). Today both moved against tech."
 - **Translate jargon.** First time you use any of these, parenthetically define them: SMC, FVG, BSL/SSL, ATR, RSI, MACD, OPEX, VWAP, SuperTrend, EMA. Example: "Fair Value Gap (FVG — an unfilled price gap from a fast move that often gets revisited)".
 - **Lead with WHAT IT MEANS, then the data.** Bad: "SPY closed at $755.27, ATR 7.02, above the 50d EMA at $742." Good: "SPY held its rising 50-day average and closed near the high of the day — a bullish read for the next session."
-- **Per-index Prediction Scorecards (sections 3-6 evening, 4-7 morning) MUST use the SAME schema as ES** so they can be compared at a glance. For each index produce:
+- **Per-index Prediction Scorecards (sections 3-6 evening, 5-8 morning) MUST use the SAME schema as ES** so they can be compared at a glance. For each index produce:
   - One narrative sentence (the prose)
   - Bull above $X → $Y target (+Z%)
   - Bear below $X → $Y target (-Z%)
   - Range today: $LOW – $HIGH
   - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
-- **Chart placeholders** in section 7/8: write \`[CHART: SPY]\` on its own line where you want the SPY 15m or daily chart to render. Same for QQQ, IWM. The renderer will substitute with an actual chart. Put the chart RIGHT NEXT TO the commentary for that index — interleave, don't batch all charts at the end.
+- **Chart placeholders** in the "Key Levels" section (Structural Update evening / Game Plan morning): write \`[CHART: SPY]\` on its own line where you want the SPY 15m or daily chart to render. Same for QQQ, IWM. The renderer will substitute with an actual chart. Put the chart RIGHT NEXT TO the commentary for that index — interleave, don't batch all charts at the end.
 - **Active Trader / Investor Portfolio** sections must reference the actual open positions list provided in the data. Each row ≤ 25 words.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
 
-CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The 13 sections, in this order, are the required output.
+CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The sections listed above, in this exact order, are the required output — do NOT add a separate "Session Recap" or "Market Context" heading beyond what is listed.
 `;
 }
 
