@@ -182,6 +182,41 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Ticker registry = single source of truth (2026-06-16, PR #683 — skill: `skills/ticker-registry.md`)**
+- ONE registry. If a symbol is in it, the system scores it. Mutated only via
+  ADD: Admin / User Slot / ETF Sync / Screener Promotion; REMOVE: Admin / User
+  Slot / ETF Sync. `MARKET_PULSE_SYMS` are context (pulse bar), NOT registry.
+- `worker/universe.js` `resolveScoringUniverse()` is the canonical resolver used
+  by BOTH the scoring cron and `/timed/tickers` (they cannot diverge). Never
+  re-union ticker sources inline; call the resolver or read `/timed/tickers`.
+- Root cause of the (0,0) Bubble-Map cluster: screener promotion wrote only KV
+  `timed:tickers`, but the cron scored only `SECTOR_MAP ∪ user_tickers` →
+  orphans (in registry, never scored). PR #680 hid them on the frontend; #683
+  scores the full registry so orphans can't exist.
+
+**Day-trade lean + PML horizon (2026-06-16)**
+- Day-trade game plan now emits a directional **lean** (`computeDayLean` in
+  `worker/day-trade-game-plan.js`) — distinct from the Active Trader's multi-day
+  `state` bias. ONE source (`game_plan.lean`) drives all three day-trader
+  surfaces: the brief **Index Playbook**, the Today **Day-Trade Predictions**
+  (narrative leads with the lean), and the Today **Index Options Plays**
+  (`buildDayTradePlay` honors a conviction lean — 0/1DTE is same-day, so the day
+  lean overrides the multi-day confluence gate; low conviction falls back).
+  Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
+  (long haul); keep each lane's horizon honest.
+- PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
+  Close magnets + a 20-day window made every level read "highly likely"; a
+  ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and
+  `cto-live-status.js` HORIZON_DAYS in sync.
+
+**Active Trader no-fire is usually VALID on a neutral/bearish day (2026-06-16)**
+- If AT makes no entries, check the entry gate before assuming a bug:
+  `GET /timed/admin/entry-explain?ticker=X`. Common valid rejects:
+  `h3_consensus_below_min`, `focus_conviction_below_floor`,
+  `focus_tier_c_below_c_floor`. 0 rows in `ai_cio_decisions` means nothing
+  reached the CIO gate (qualification is upstream of CIO). AT hunts durable
+  LONG moves — it correctly sits out range/bearish days where the play is puts.
+
 **Candle chain / backtest basis (2026-06-15, foundation rebuild Phase 2)**
 - The backtest scores off **extended-hours** intraday data. Replay does NO
   session filtering and `computeTfBundle` uses all bars. Stored intraday is

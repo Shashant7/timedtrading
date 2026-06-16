@@ -4,7 +4,10 @@
 
 import { isNyRegularMarketOpen } from "../market-calendar.js";
 
-const HORIZON_DAYS = 20;
+// 2026-06-16 — Tuned 20 → 10 sessions (~2 weeks) to match cto-service's
+// HORIZON_BARS. Operator: a 20-day window is too long given how close the
+// magnets sit to price. Keep in sync with cto-service.js HORIZON_BARS.
+const HORIZON_DAYS = 10;
 
 async function kvGetJSON(kv, key) {
   if (!kv) return null;
@@ -205,7 +208,7 @@ export async function loadCTOLearningSummary(env) {
       forward_signals: n,
       forward_resolved: resolved,
       forward_win_rate_pct: resolved > 0 ? Number(((wins / resolved) * 100).toFixed(1)) : null,
-      empirical_note: "Hit % on each row comes from ~2 years of this ticker's daily bars (how often a similar-distance level was reached within ~20 sessions).",
+      empirical_note: `Hit % on each row comes from ~2 years of this ticker's daily bars (how often a similar-distance level was reached within ~${HORIZON_DAYS} sessions).`,
       forward_note: resolved > 0
         ? `${resolved} published CTO magnets graded so far (${wins} reached target before horizon).`
         : "Top magnets are now logged for forward grading; hit rates still come from historical candle math until enough resolve.",

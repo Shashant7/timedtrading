@@ -321,12 +321,25 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
     const overnightRange = computeOvernightRangeFromM5(m5Candles);
     const openingRange = computeOpeningRangeFromM5(m5Candles);
     const anchor = Number(prevClose) || price;
+    // Daily structure nudge for the day lean: last close vs 5-day SMA,
+    // clamped to ±1 (±1% deviation ≈ full weight). Minor vs the intraday
+    // evidence, but tilts NEUTRAL tape toward the prevailing daily drift.
+    let _trendBias = 0;
+    try {
+      const _closes = (dailies || []).map((d) => Number(d.c)).filter(Number.isFinite);
+      if (_closes.length >= 6) {
+        const _sma5 = _closes.slice(-5).reduce((a, b) => a + b, 0) / 5;
+        const _last = _closes[_closes.length - 1];
+        if (_sma5 > 0) _trendBias = Math.max(-1, Math.min(1, ((_last - _sma5) / _sma5) / 0.01));
+      }
+    } catch (_) {}
     game_plan = buildOvernightDayTradeGamePlan({
       curPrice: price,
       anchor,
       dayAtr: atr14,
       overnightRange,
       openingRange,
+      trendBias: _trendBias,
       snakeCase: true,
     });
   }
