@@ -447,28 +447,27 @@
       NaN
     );
 
-    // Canonical worker ahdp is vs today's RTH close — derive a consistent
-    // EXT print when upstream extended_price is stale but ahdp is fresh.
-    if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05) {
-      var derivedPx = Math.round(headline * (1 + pct / 100) * 100) / 100;
-      if (!(px > 0)) px = derivedPx;
-      if (!Number.isFinite(chg)) chg = Math.round((derivedPx - headline) * 100) / 100;
-      // Reject stale extended_price that disagrees with ahdp-derived print.
-      if (px > 0 && Math.abs(px - derivedPx) / derivedPx > 0.02) px = derivedPx;
-    } else if (headline > 0 && px > 0 && Math.abs(px - headline) > 0.001) {
-      if (!Number.isFinite(pct)) pct = Math.round(((px - headline) / headline) * 10000) / 100;
+    var hasDistinctExtPx = headline > 0 && px > 0 && Math.abs(px - headline) > 0.001;
+
+    // When the extended print differs from today's RTH close, derive % from
+    // price — never trust cached ahdp if it disagrees (GS: ahp below close
+    // but stale ahdp still +0.66%).
+    if (hasDistinctExtPx) {
+      pct = Math.round(((px - headline) / headline) * 10000) / 100;
+      chg = Math.round((px - headline) * 100) / 100;
+    } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
+      // No extended print — fall back to cached ahdp only when ahp is absent.
+      px = Math.round(headline * (1 + pct / 100) * 100) / 100;
       if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
+      hasDistinctExtPx = Math.abs(px - headline) > 0.001;
+    } else if (headline > 0 && px > 0 && !Number.isFinite(pct)) {
+      pct = Math.round(((px - headline) / headline) * 10000) / 100;
+      chg = Math.round((px - headline) * 100) / 100;
+      hasDistinctExtPx = Math.abs(px - headline) > 0.001;
     }
 
-    // Show EXT when extended print differs from RTH headline — even tiny
-    // index moves (SPY ~0.03% AH) must render on Market Pulse chips.
-    var hasDistinctExtPx = headline > 0 && px > 0 && Math.abs(px - headline) > 0.001;
-    if (hasDistinctExtPx && (!Number.isFinite(pct) || Math.abs(pct) < 0.05)) {
-      pct = Math.round(((px - headline) / headline) * 10000) / 100;
-      if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
-    }
-    if (!hasDistinctExtPx && (!Number.isFinite(pct) || Math.abs(pct) < 0.05)) return null;
-    if (!(px > 0)) return { pct: pct, price: null, chg: Number.isFinite(chg) ? chg : null };
+    if (!hasDistinctExtPx) return null;
+    if (!(px > 0)) return null;
 
     // Cross-session stale guard (e.g. CRDO/MU extended_price lagging RTH).
     if (headline > 0) {
