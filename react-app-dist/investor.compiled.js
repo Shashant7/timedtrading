@@ -3,7 +3,8 @@ const {
   useState,
   useEffect,
   useMemo,
-  useCallback
+  useCallback,
+  useRef
 } = React;
 const h = React.createElement;
 const API_BASE = "";
@@ -104,12 +105,16 @@ function InvBubbleMap({
   scores,
   onSelectTicker,
   searchQuery,
+  setSearchQuery,
   filterGroup,
   savedTickers
 }) {
   const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
   const [hovered, setHovered] = useState(null);
+  const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
+  const bubbleSearchRef = useRef(null);
+  const matchSearch = window.TTBubbleSearchUtils?.matchesTickerSearchQuery || ((sym, q) => !String(q || "").trim() || String(sym || "").toUpperCase().includes(String(q || "").trim().toUpperCase()));
   const scoreBySym = useMemo(() => {
     const m = new Map();
     const list = Array.isArray(scores?.tickers) ? scores.tickers : Array.isArray(scores) ? scores : [];
@@ -146,16 +151,24 @@ function InvBubbleMap({
     }
     return m;
   }, [scoreBySym]);
+  useEffect(() => {
+    if (!bubbleSearchOpen) return;
+    const t = setTimeout(() => {
+      try {
+        bubbleSearchRef.current?.focus();
+      } catch (_) {}
+    }, 50);
+    return () => clearTimeout(t);
+  }, [bubbleSearchOpen]);
   const visible = useMemo(() => {
     if (!data) return [];
-    const q = String(searchQuery || "").trim().toUpperCase();
     const filter = String(filterGroup || "").toUpperCase();
     const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => {
       const sym = String(t?.ticker || "").toUpperCase();
-      if (q && !sym.includes(q)) return false;
+      if (searchQuery && !matchSearch(sym, searchQuery)) return false;
       if (filter === "SAVED") {
         if (!savedTickers || savedTickers.size === 0) return false;
         if (!savedTickers.has(sym)) return false;
@@ -195,7 +208,7 @@ function InvBubbleMap({
         _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null
       } : t;
     });
-  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym]);
+  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym, matchSearch]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -253,7 +266,7 @@ function InvBubbleMap({
     onBubbleClick: sym => {
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     },
-    onBackgroundClick: () => {},
+    onBackgroundClick: () => setBubbleSearchOpen(true),
     selectedTicker: null,
     selectedTrail: null,
     isTimeTravelActive: false,
@@ -262,7 +275,49 @@ function InvBubbleMap({
     forwardReturns: null,
     activeInsightTickers: null,
     layoutMode: "score"
-  }))));
+  }), bubbleSearchOpen && h("div", {
+    className: "bm-quick-search-overlay",
+    onClick: e => {
+      if (e.target === e.currentTarget) setBubbleSearchOpen(false);
+    }
+  }, h("div", {
+    className: "bm-quick-search-panel",
+    onClick: e => e.stopPropagation()
+  }, h("div", {
+    className: "bm-quick-search-head"
+  }, h("span", {
+    className: "bm-quick-search-title"
+  }, "Search tickers"), h("button", {
+    type: "button",
+    className: "bm-quick-search-close",
+    onClick: () => setBubbleSearchOpen(false),
+    "aria-label": "Close search"
+  }, "\u00d7")), h("input", {
+    ref: bubbleSearchRef,
+    type: "search",
+    className: "bm-quick-search-input",
+    placeholder: "Search tickers (e.g. NVDA, MSFT, TSLA)",
+    value: searchQuery || "",
+    onChange: e => {
+      if (typeof setSearchQuery === "function") setSearchQuery(e.target.value);
+    },
+    onKeyDown: e => {
+      if (e.key === "Escape") {
+        setBubbleSearchOpen(false);
+        return;
+      }
+      if (e.key !== "Enter") return;
+      const raw = String(e.target.value || "").trim().toUpperCase();
+      if (!raw || raw.includes(",")) return;
+      const hit = visible.find(t => String(t?.ticker || "").toUpperCase() === raw);
+      if (hit && typeof onSelectTicker === "function") {
+        onSelectTicker(raw);
+        setBubbleSearchOpen(false);
+      }
+    }
+  }), h("p", {
+    className: "bm-quick-search-hint"
+  }, "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card."))))));
 }
 function AccountStrip() {
   const [acc, setAcc] = useState(null);
@@ -689,7 +744,7 @@ function InvestorApp() {
   })), h("input", {
     type: "text",
     className: "inv-search",
-    placeholder: "Search ticker (e.g. NVDA, AAPL, GOOGL, MSFT)",
+    placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
     value: searchQuery,
     onChange: e => setSearchQuery(e.target.value),
     "aria-label": "Search Investor tickers"
@@ -757,6 +812,7 @@ function InvestorApp() {
     data,
     scores: investorScores,
     searchQuery,
+    setSearchQuery,
     filterGroup,
     savedTickers: saved,
     onSelectTicker
@@ -777,6 +833,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781631551128:576973963
+// cache-bust:1781643125221:624239716
 
-// cache-bust:1781631551128:576973963
+// cache-bust:1781643125221:624239716

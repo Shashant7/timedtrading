@@ -10,31 +10,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781631551128" />
-    <script defer src="/vendor/react.production.min.js?v=1781631551128"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781631551128"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781631551128" />
-<script defer src="auth-gate.js?v=1781631551128"></script>
-    <script defer src="tt-fetch-cache.js?v=1781631551128"></script>
-    <script defer src="tt-live-data.js?v=1781631551128"></script>
-    <script src="tt-bottom-nav.js?v=1781631551128" defer></script>
-    <script src="tt-nav-extras.js?v=1781631551128" defer></script>
-    <script src="tt-global-search.js?v=1781631551128" defer></script>
-    <script src="tt-rail-bridge.js?v=1781631551128" defer></script>
-    <script src="tt-activity-strip.js?v=1781631551128" defer></script>
-    <script defer src="shared-price-utils.js?v=1781631551128"></script>
-    <script defer src="ds-components.js?v=1781631551128"></script>
-    <script defer src="investor-panel.js?v=1781631551128"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1781643125221" />
+    <script defer src="/vendor/react.production.min.js?v=1781643125221"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1781643125221"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1781643125221" />
+<script defer src="auth-gate.js?v=1781643125221"></script>
+    <script defer src="tt-fetch-cache.js?v=1781643125221"></script>
+    <script defer src="tt-live-data.js?v=1781643125221"></script>
+    <script src="tt-bottom-nav.js?v=1781643125221" defer></script>
+    <script src="tt-nav-extras.js?v=1781643125221" defer></script>
+    <script src="tt-global-search.js?v=1781643125221" defer></script>
+    <script src="tt-rail-bridge.js?v=1781643125221" defer></script>
+    <script src="tt-activity-strip.js?v=1781643125221" defer></script>
+    <script defer src="shared-price-utils.js?v=1781643125221"></script>
+    <script defer src="ds-components.js?v=1781643125221"></script>
+    <script defer src="investor-panel.js?v=1781643125221"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="shared-bubble-chart.compiled.js?v=1781631551128"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781631551128"></script>
-    <script defer src="shared-rail-helpers.js?v=1781631551128"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1781631551128"></script>
-    <script defer src="ticker-spider-chart.js?v=1781631551128"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1781631551128"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1781643125221"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1781643125221"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781643125221"></script>
+    <script defer src="shared-rail-helpers.js?v=1781643125221"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1781643125221"></script>
+    <script defer src="ticker-spider-chart.js?v=1781643125221"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1781643125221"></script>
     <style>
       :root {
         /* 2026-06-10 — VERDA MIGRATION (matches today.html exactly).
@@ -353,6 +354,65 @@
       @media (max-width: 720px) {
         .inv-bubble-stage { height: 70vh; min-height: 460px; }
       }
+      .bm-quick-search-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 10, 8, 0.45);
+        backdrop-filter: blur(2px);
+      }
+      .bm-quick-search-panel {
+        width: min(340px, calc(100% - 32px));
+        background: rgba(15, 17, 23, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+        padding: 16px;
+      }
+      .bm-quick-search-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .bm-quick-search-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .bm-quick-search-close {
+        border: 0;
+        background: transparent;
+        color: var(--tt-text-faint);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+      }
+      .bm-quick-search-close:hover { color: var(--tt-text); }
+      .bm-quick-search-input {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--tt-text);
+        font-size: 13px;
+      }
+      .bm-quick-search-input:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .bm-quick-search-hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--tt-text-faint);
+      }
       @media (max-width: 720px) {
         .inv-hero { grid-template-columns: 1fr; }
         .inv-hero h1 { font-size: 18px; }
@@ -389,7 +449,7 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1781631551128"></script>
+    <script defer src="shared-nav.js?v=1781643125221"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. See same block in
          today.html — auto-mount via querySelector("nav.topnav") was
@@ -402,7 +462,7 @@
       </main>
     </div>
 
-    <script defer src="investor.compiled.js?v=1781631551128"></script>
+    <script defer src="investor.compiled.js?v=1781643125221"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -410,4 +470,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1781631551128:576973963 -->
+<!-- cache-bust:1781643125221:624239716 -->

@@ -30,6 +30,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
+    <script src="tt-bubble-search-utils.js?v=20260615a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
@@ -787,6 +788,65 @@
       }
       .bmv-bubble { min-width: 0; }
       .bmv-bubble .tt-card { padding: 0; overflow: hidden; }
+      .bm-quick-search-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 10, 8, 0.45);
+        backdrop-filter: blur(2px);
+      }
+      .bm-quick-search-panel {
+        width: min(340px, calc(100% - 32px));
+        background: rgba(15, 17, 23, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+        padding: 16px;
+      }
+      .bm-quick-search-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .bm-quick-search-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .bm-quick-search-close {
+        border: 0;
+        background: transparent;
+        color: var(--tt-text-faint);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+      }
+      .bm-quick-search-close:hover { color: var(--tt-text); }
+      .bm-quick-search-input {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--tt-text);
+        font-size: 13px;
+      }
+      .bm-quick-search-input:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .bm-quick-search-hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--tt-text-faint);
+      }
 
       /* Viewport — list of ds-tickercards (production DS).
          Intentionally NO outer background/border: AT's viewport is just
@@ -3880,18 +3940,13 @@
           tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered.",
         });
 
-        // ── All — full universe, no chip narrowing (lets search find any ticker) ──
-        // User-requested 2026-05-20: needs to search for tickers not in Focus
-        // (e.g. early ideas before they land in Kanban). The applyFilters
-        // function already treats `activeChip === "all"` as "no chip
-        // narrowing", but we need an explicit chip for the user to click.
-        // Pass a sentinel `tickers: null` so applyFilters falls through;
-        // count is the full universe size.
+        // ── All — full scored universe (placeholders without HTF/LTF stay hidden
+        // until scored; explicit search can still surface them).
         chips.push({
-          id: "all", label: "All", count: allTickers.length,
+          id: "all", label: "All", count: allTickers.filter(hasBubbleMapScores).length,
           tickers: null,
           row: "focus",
-          tooltip: "Show every ticker in the universe — use this to search for tickers not in Focus.",
+          tooltip: "Show every scored ticker in the universe — use search for unscored placeholders.",
         });
 
         // ── Saved — user's starred tickers (top-level, always first) ──
@@ -4253,8 +4308,22 @@
 
       // Master filter — narrow by activeChip + query, applied once at the
       // TodayApp level so Bubble Map + Heat Map + Viewport all agree.
+      function hasBubbleMapScores(t) {
+        const fn = window.TTBubbleSearchUtils?.hasBubbleMapScores;
+        return fn ? fn(t) : (Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score)));
+      }
+
+      function parseTickerSearchQuery(query) {
+        const fn = window.TTBubbleSearchUtils?.parseTickerSearchQuery;
+        return fn ? fn(query) : { type: String(query || "").trim() ? "substring" : "none", q: String(query || "").trim().toUpperCase() };
+      }
+
       function applyFilters(tickers, f, chips) {
-        const q = String(f?.query || "").trim().toUpperCase();
+        const q = String(f?.query || "").trim();
+        const search = parseTickerSearchQuery(q);
+        const multiSet = search.type === "multi-ticker" ? new Set(search.tickers) : null;
+        const substringQ = search.type === "substring" ? search.q : "";
+        const explicitSearch = !!(multiSet || substringQ);
         const activeId = f?.activeChip || null;
         const addOns = (f?.addOns instanceof Set) ? f.addOns : new Set();
         // Null / "all" / "__cleared__" → no chip narrowing, show every ticker.
@@ -4286,7 +4355,15 @@
           for (const s of addOnSets) {
             if (!s.has(sym)) return false;
           }
-          if (q && !sym.includes(q)) return false;
+          if (multiSet) {
+            if (!multiSet.has(sym)) return false;
+          } else if (substringQ && !sym.includes(substringQ)) {
+            return false;
+          }
+          // Universe placeholders merged from /timed/tickers have no HTF/LTF
+          // scores yet — they render at (0,0) and clutter the map center.
+          // Keep them out unless the operator explicitly searched for them.
+          if (!explicitSearch && !hasBubbleMapScores(t)) return false;
           return true;
         });
       }
@@ -4784,7 +4861,7 @@
       // beside the Bubble Map (right), mirroring Active Trader's split
       // experience. On narrow screens (<1100px) they stack vertically.
       // ═══════════════════════════════════════════════════════════
-      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker }) {
+      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters }) {
         return h("section", { className: "tt-row" },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
             h("div", null,
@@ -4807,6 +4884,8 @@
                 rankedTickers, rankedTickerPositions,
                 embedded: true,
                 onSelectTicker,
+                filters,
+                setFilters,
               }),
             ),
           ),
@@ -4833,9 +4912,11 @@
       // Falls back to the in-page lightweight BubbleMap if the shared
       // module hasn't loaded yet (first paint / network failure).
       // ═══════════════════════════════════════════════════════════
-      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker }) {
+      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker, filters, setFilters }) {
         const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
         const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
+        const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
+        const bubbleSearchRef = useRef(null);
 
         // Compute rankedTickers / rankedTickerPositions once per data change,
         // unless the parent already passed them (split-layout case).
@@ -4853,6 +4934,14 @@
 
         // Hover + selected state for the bubble plot (local to this section).
         const [hovered, setHovered] = useState(null);
+
+        useEffect(() => {
+          if (!bubbleSearchOpen) return;
+          const t = setTimeout(() => {
+            try { bubbleSearchRef.current?.focus(); } catch (_) {}
+          }, 50);
+          return () => clearTimeout(t);
+        }, [bubbleSearchOpen]);
 
         // If the shared module didn't load (network blip / dev), gracefully
         // fall back to the simpler in-page BubbleMap so the page still works.
@@ -4887,7 +4976,7 @@
                 if (typeof onSelectTicker === "function") { onSelectTicker(sym); return; }
                 window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
               },
-              onBackgroundClick: () => {},
+              onBackgroundClick: () => setBubbleSearchOpen(true),
               selectedTicker: null,
               selectedTrail: null,
               isTimeTravelActive: false,
@@ -4897,6 +4986,54 @@
               activeInsightTickers: null,
               layoutMode: "score",
             }),
+            bubbleSearchOpen && h("div", {
+              className: "bm-quick-search-overlay",
+              onClick: (e) => { if (e.target === e.currentTarget) setBubbleSearchOpen(false); },
+            },
+              h("div", {
+                className: "bm-quick-search-panel",
+                onClick: (e) => e.stopPropagation(),
+              },
+                h("div", { className: "bm-quick-search-head" },
+                  h("span", { className: "bm-quick-search-title" }, "Search tickers"),
+                  h("button", {
+                    type: "button",
+                    className: "bm-quick-search-close",
+                    onClick: () => setBubbleSearchOpen(false),
+                    "aria-label": "Close search",
+                  }, "\u00d7"),
+                ),
+                h("input", {
+                  ref: bubbleSearchRef,
+                  type: "search",
+                  className: "bm-quick-search-input",
+                  placeholder: "Search tickers (e.g. AAPL, MSFT, TSLA)",
+                  value: filters?.query || "",
+                  onChange: (e) => {
+                    if (typeof setFilters !== "function") return;
+                    setFilters((prev) => ({ ...prev, query: e.target.value }));
+                  },
+                  onKeyDown: (e) => {
+                    if (e.key === "Escape") {
+                      setBubbleSearchOpen(false);
+                      return;
+                    }
+                    if (e.key !== "Enter") return;
+                    const raw = String(e.target.value || "").trim().toUpperCase();
+                    if (!raw || raw.includes(",")) return;
+                    const hit = (visible || []).find((t) => String(t?.ticker || "").toUpperCase() === raw)
+                      || (allTickers || []).find((t) => String(t?.ticker || "").toUpperCase() === raw);
+                    if (hit && typeof onSelectTicker === "function") {
+                      onSelectTicker(raw);
+                      setBubbleSearchOpen(false);
+                    }
+                  },
+                }),
+                h("p", { className: "bm-quick-search-hint" },
+                  "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card.",
+                ),
+              ),
+            ),
           ),
         );
 
@@ -4935,8 +5072,16 @@
         const cx0 = xScale(0);
         const cy0 = yScale(0);
 
-        const q = String(query || "").trim().toUpperCase();
-        const matchesQuery = (sym) => q.length > 0 && String(sym).toUpperCase().startsWith(q);
+        const q = String(query || "").trim();
+        const search = parseTickerSearchQuery(q);
+        const multiSet = search.type === "multi-ticker" ? new Set(search.tickers) : null;
+        const substringQ = search.type === "substring" ? search.q : "";
+        const matchesQuery = (sym) => {
+          const S = String(sym || "").toUpperCase();
+          if (multiSet) return multiSet.has(S);
+          if (substringQ) return S.includes(substringQ);
+          return false;
+        };
 
         // Bigger plot = bigger bubbles. Range 6..22 px (was 4..16).
         const radiusFor = (t) => {
@@ -5301,6 +5446,7 @@
         const { saved: savedSet } = useSavedTickers();
         const chips   = useMemo(() => computeInsightChips(allTickers, { isAdmin, savedSet }), [allTickers, isAdmin, savedSet]);
         const visible = useMemo(() => applyFilters(allTickers, filters, chips),     [allTickers, filters, chips]);
+        const scoredCount = useMemo(() => allTickers.filter(hasBubbleMapScores).length, [allTickers]);
         const rankedTickers = useMemo(() => {
           const TT = window.TimedBubbleChart;
           if (!TT?.getRankedTickers || !data) return [];
@@ -5466,7 +5612,7 @@
             data
               ? h(AnalysisControls, {
                   chips,
-                  totalCount: allTickers.length,
+                  totalCount: scoredCount,
                   visibleCount: visible.length,
                   filters,
                   setFilters,
@@ -5483,6 +5629,8 @@
                   sparkCache,
                   ensureSpark,
                   onSelectTicker,
+                  filters,
+                  setFilters,
                 })
               : h(BubbleViewportSkeleton, null),
             data && h(Disclosure, {

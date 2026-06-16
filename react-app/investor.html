@@ -30,6 +30,7 @@
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
+    <script src="tt-bubble-search-utils.js?v=20260615a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="shared-rail-helpers.js?v=20260610-verda3"></script>
@@ -354,6 +355,65 @@
       @media (max-width: 720px) {
         .inv-bubble-stage { height: 70vh; min-height: 460px; }
       }
+      .bm-quick-search-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(6, 10, 8, 0.45);
+        backdrop-filter: blur(2px);
+      }
+      .bm-quick-search-panel {
+        width: min(340px, calc(100% - 32px));
+        background: rgba(15, 17, 23, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+        padding: 16px;
+      }
+      .bm-quick-search-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .bm-quick-search-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--tt-text-dim);
+      }
+      .bm-quick-search-close {
+        border: 0;
+        background: transparent;
+        color: var(--tt-text-faint);
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0 4px;
+      }
+      .bm-quick-search-close:hover { color: var(--tt-text); }
+      .bm-quick-search-input {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--tt-text);
+        font-size: 13px;
+      }
+      .bm-quick-search-input:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+      .bm-quick-search-hint {
+        margin-top: 8px;
+        font-size: 10px;
+        color: var(--tt-text-faint);
+      }
       @media (max-width: 720px) {
         .inv-hero { grid-template-columns: 1fr; }
         .inv-hero h1 { font-size: 18px; }
@@ -404,7 +464,7 @@
     </div>
 
     <script type="text/babel">
-      const { useState, useEffect, useMemo, useCallback } = React;
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
       const h = React.createElement;
       const API_BASE = "";
 
@@ -491,10 +551,14 @@
       //    Saved) so the bubble plot scope matches what the cards
       //    below show. User feedback: "The Search and Filters should
       //    apply to the Bubble Map as well."
-      function InvBubbleMap({ data, scores, onSelectTicker, searchQuery, filterGroup, savedTickers }) {
+      function InvBubbleMap({ data, scores, onSelectTicker, searchQuery, setSearchQuery, filterGroup, savedTickers }) {
         const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
         const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
         const [hovered, setHovered] = useState(null);
+        const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
+        const bubbleSearchRef = useRef(null);
+        const matchSearch = window.TTBubbleSearchUtils?.matchesTickerSearchQuery
+          || ((sym, q) => !String(q || "").trim() || String(sym || "").toUpperCase().includes(String(q || "").trim().toUpperCase()));
 
         // Build a stage map from /timed/investor/scores. The endpoint
         // returns { tickers: [{ ticker, stage, ... }] } so we hash by
@@ -568,17 +632,22 @@
           return m;
         }, [scoreBySym]);
 
+        useEffect(() => {
+          if (!bubbleSearchOpen) return;
+          const t = setTimeout(() => {
+            try { bubbleSearchRef.current?.focus(); } catch (_) {}
+          }, 50);
+          return () => clearTimeout(t);
+        }, [bubbleSearchOpen]);
+
         const visible = useMemo(() => {
           if (!data) return [];
-          const q = String(searchQuery || "").trim().toUpperCase();
           const filter = String(filterGroup || "").toUpperCase();
           const arr = Object.entries(data)
             .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
             .filter((t) => {
               const sym = String(t?.ticker || "").toUpperCase();
-              // Search filter — substring match on symbol (mirrors
-              // InvestorPanel's behavior at line 694 of investor-panel.js).
-              if (q && !sym.includes(q)) return false;
+              if (searchQuery && !matchSearch(sym, searchQuery)) return false;
               // Saved filter — same as the panel.
               if (filter === "SAVED") {
                 if (!savedTickers || savedTickers.size === 0) return false;
@@ -637,7 +706,7 @@
               _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null,
             } : t;
           });
-        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym]);
+        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym, matchSearch]);
 
         const rankedTickers = useMemo(() => {
           if (!getRankedTickers || !data) return [];
@@ -677,7 +746,7 @@
                   if (typeof onSelectTicker === "function") onSelectTicker(sym);
                   else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
                 },
-                onBackgroundClick: () => {},
+                onBackgroundClick: () => setBubbleSearchOpen(true),
                 selectedTicker: null,
                 selectedTrail: null,
                 isTimeTravelActive: false,
@@ -687,6 +756,52 @@
                 activeInsightTickers: null,
                 layoutMode: "score",
               }),
+              bubbleSearchOpen && h("div", {
+                className: "bm-quick-search-overlay",
+                onClick: (e) => { if (e.target === e.currentTarget) setBubbleSearchOpen(false); },
+              },
+                h("div", {
+                  className: "bm-quick-search-panel",
+                  onClick: (e) => e.stopPropagation(),
+                },
+                  h("div", { className: "bm-quick-search-head" },
+                    h("span", { className: "bm-quick-search-title" }, "Search tickers"),
+                    h("button", {
+                      type: "button",
+                      className: "bm-quick-search-close",
+                      onClick: () => setBubbleSearchOpen(false),
+                      "aria-label": "Close search",
+                    }, "\u00d7"),
+                  ),
+                  h("input", {
+                    ref: bubbleSearchRef,
+                    type: "search",
+                    className: "bm-quick-search-input",
+                    placeholder: "Search tickers (e.g. NVDA, MSFT, TSLA)",
+                    value: searchQuery || "",
+                    onChange: (e) => {
+                      if (typeof setSearchQuery === "function") setSearchQuery(e.target.value);
+                    },
+                    onKeyDown: (e) => {
+                      if (e.key === "Escape") {
+                        setBubbleSearchOpen(false);
+                        return;
+                      }
+                      if (e.key !== "Enter") return;
+                      const raw = String(e.target.value || "").trim().toUpperCase();
+                      if (!raw || raw.includes(",")) return;
+                      const hit = visible.find((t) => String(t?.ticker || "").toUpperCase() === raw);
+                      if (hit && typeof onSelectTicker === "function") {
+                        onSelectTicker(raw);
+                        setBubbleSearchOpen(false);
+                      }
+                    },
+                  }),
+                  h("p", { className: "bm-quick-search-hint" },
+                    "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card.",
+                  ),
+                ),
+              ),
             ),
           ),
         );
@@ -1103,7 +1218,7 @@
                 h("input", {
                   type: "text",
                   className: "inv-search",
-                  placeholder: "Search ticker (e.g. NVDA, AAPL, GOOGL, MSFT)",
+                  placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
                   value: searchQuery,
                   onChange: (e) => setSearchQuery(e.target.value),
                   "aria-label": "Search Investor tickers",
@@ -1193,6 +1308,7 @@
               data,
               scores: investorScores,
               searchQuery,
+              setSearchQuery,
               filterGroup,
               savedTickers: saved,
               onSelectTicker,
