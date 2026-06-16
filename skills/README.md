@@ -31,6 +31,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | Adding / flipping / debugging a CIO lifecycle hook (entry skip, trim, SL, defend) | [ai-cio-lifecycle.md](ai-cio-lifecycle.md) |
 | Cron tombstones / missed trims / CIO shadow vs live mismatch | [scoring-cron-cio-recovery.md](scoring-cron-cio-recovery.md) |
 | Stale scores / quarantined tickers / Data Age Contract (`_freshness`) | [freshness-doctrine.md](freshness-doctrine.md) |
+| **"Various ticker lists" / unscored symbols clustering at (0,0) / add-remove a ticker / registry source of truth** | [ticker-registry.md](ticker-registry.md) |
 | Add/grade a published signal (options plays, desk calls, investor actions) | [signal-outcome-ledger.md](signal-outcome-ledger.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
 
