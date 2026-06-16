@@ -2189,7 +2189,8 @@ function CTOLevelsPanel({
       className: "tt-cto-map-levels"
     }, probChip(it.top_upside, "up"), probChip(it.top_downside, "dn")));
   };
-  const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
+  const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 10;
+  const horizonLabel = horizonBars >= 18 ? "~1 month" : horizonBars >= 8 ? "~2 weeks" : "~1 week";
   return h("section", {
     className: "tt-card tt-card-pad tt-cto-panel"
   }, h("div", {
@@ -2243,7 +2244,7 @@ function CTOLevelsPanel({
       marginBottom: 6,
       color: "var(--tt-accent)"
     }
-  }, "Prediction anchor time unavailable — refresh the page or wait for the next CTO rollup."), h("div", null, h("strong", null, "Timeframe: "), `each hit % asks whether price reaches the magnet within ~${horizonBars} trading sessions (~1 month), based on this ticker's own daily history.`), feed.items.length > 0 && h("div", {
+  }, "Prediction anchor time unavailable — refresh the page or wait for the next CTO rollup."), h("div", null, h("strong", null, "Timeframe: "), `each hit % asks whether price reaches the magnet within ~${horizonBars} trading sessions (${horizonLabel}), based on this ticker's own daily history.`), feed.items.length > 0 && h("div", {
     style: {
       marginTop: 6,
       fontSize: 10.5,
@@ -5307,6 +5308,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781646342448:371045066
+// cache-bust:1781651636430:114969903
 
-// cache-bust:1781646342448:371045066
+// cache-bust:1781651636430:114969903

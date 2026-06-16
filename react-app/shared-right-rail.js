@@ -8038,7 +8038,11 @@
                               </div>
                             )}
                             <div style={{ marginTop: 6, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>
-                              Hit % = reach magnet within ~20 trading sessions (~1 month) in this ticker&apos;s history.
+                              {(() => {
+                                const hb = Number(ctoTickerLevels.horizon_bars) > 0 ? Number(ctoTickerLevels.horizon_bars) : 10;
+                                const hl = hb >= 18 ? "~1 month" : hb >= 8 ? "~2 weeks" : "~1 week";
+                                return `Hit % = reach magnet within ~${hb} trading sessions (${hl}) in this ticker's history.`;
+                              })()}
                             </div>
                             {ctoTickerLevels.narrative && (
                               <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.5, color: "var(--ds-text-muted)" }}>
