@@ -30,6 +30,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
+    <script src="tt-bubble-search-utils.js?v=20260615a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
@@ -4308,23 +4309,13 @@
       // Master filter — narrow by activeChip + query, applied once at the
       // TodayApp level so Bubble Map + Heat Map + Viewport all agree.
       function hasBubbleMapScores(t) {
-        return Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score));
+        const fn = window.TTBubbleSearchUtils?.hasBubbleMapScores;
+        return fn ? fn(t) : (Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score)));
       }
 
-      // Comma-delimited multi-ticker search (mirrors index-react parseNaturalLanguageQuery).
       function parseTickerSearchQuery(query) {
-        const raw = String(query || "").trim();
-        if (!raw) return { type: "none" };
-        if (
-          raw.includes(",") &&
-          !raw.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/i)
-        ) {
-          return {
-            type: "multi-ticker",
-            tickers: raw.split(",").map((t) => TT_NORM_TICKER(t.trim())).filter(Boolean),
-          };
-        }
-        return { type: "substring", q: raw.toUpperCase() };
+        const fn = window.TTBubbleSearchUtils?.parseTickerSearchQuery;
+        return fn ? fn(query) : { type: String(query || "").trim() ? "substring" : "none", q: String(query || "").trim().toUpperCase() };
       }
 
       function applyFilters(tickers, f, chips) {

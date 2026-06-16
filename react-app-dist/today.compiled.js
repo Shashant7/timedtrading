@@ -3413,22 +3413,14 @@ function useOpenTrades(enabled) {
   return tradeByTicker;
 }
 function hasBubbleMapScores(t) {
-  return Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score));
+  const fn = window.TTBubbleSearchUtils?.hasBubbleMapScores;
+  return fn ? fn(t) : Number.isFinite(Number(t?.ltf_score)) && Number.isFinite(Number(t?.htf_score));
 }
 function parseTickerSearchQuery(query) {
-  const raw = String(query || "").trim();
-  if (!raw) return {
-    type: "none"
-  };
-  if (raw.includes(",") && !raw.match(/rank|rr|risk|reward|phase|completion|moved|points|prime|squeeze|corridor|momentum|top|long|short|setup|above|over|below|under/i)) {
-    return {
-      type: "multi-ticker",
-      tickers: raw.split(",").map(t => TT_NORM_TICKER(t.trim())).filter(Boolean)
-    };
-  }
-  return {
-    type: "substring",
-    q: raw.toUpperCase()
+  const fn = window.TTBubbleSearchUtils?.parseTickerSearchQuery;
+  return fn ? fn(query) : {
+    type: String(query || "").trim() ? "substring" : "none",
+    q: String(query || "").trim().toUpperCase()
   };
 }
 function applyFilters(tickers, f, chips) {
@@ -5315,6 +5307,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781642629741:258241121
+// cache-bust:1781643125221:624239716
 
-// cache-bust:1781642629741:258241121
+// cache-bust:1781643125221:624239716

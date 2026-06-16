@@ -936,11 +936,11 @@
           list = list.filter(t => allowed.has(t.ticker));
         } else list = [];
       }
-      const q = searchQuery && searchQuery.trim()
-        ? searchQuery.trim().toUpperCase()
-        : "";
+      const q = searchQuery && searchQuery.trim() ? searchQuery.trim() : "";
+      const matchSearch = window.TTBubbleSearchUtils?.matchesTickerSearchQuery
+        || ((sym, query) => !query || String(sym || "").toUpperCase().includes(String(query || "").trim().toUpperCase()));
       if (q) {
-        list = list.filter(t => t.ticker.includes(q));
+        list = list.filter((t) => matchSearch(t.ticker, q));
       }
       if (filterGroup === "SAVED" && savedTickers && savedTickers.size > 0) {
         list = list.filter(t => savedTickers.has(t.ticker));
