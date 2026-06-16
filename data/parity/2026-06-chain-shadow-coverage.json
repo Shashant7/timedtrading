@@ -1,162 +1,129 @@
 {
   "contract": "chain_shadow_coverage_v1",
-  "generated_at": "2026-06-15T02:51:33.519Z",
+  "generated_at": "2026-06-15T12:49:44.535Z",
   "pre": "https://timed-trading-ingest-preprod.shashant.workers.dev",
   "db": "timed-trading-ledger-preprod",
   "window": {
-    "start": "2026-06-01",
-    "end": "2026-06-12",
-    "trading_days": 10
+    "start": "2026-04-15",
+    "end": "2026-06-13",
+    "trading_days": 42
   },
   "per_ticker": {
-    "AA": {
-      "base5_ingested": 1262,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
-    },
     "AAPL": {
-      "base5_ingested": 1672,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
+      "base5_ingested": 7535,
+      "daily_ingested": 1620,
+      "expected": 3276,
+      "present": 3276,
       "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
-    },
-    "CLS": {
-      "base5_ingested": 1362,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
-    },
-    "FSLR": {
-      "base5_ingested": 1551,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
+      "complete_days": 42,
+      "day_count": 42,
       "zero_gap": true,
       "day_gaps": [],
       "reconcile_ok": false,
       "reconcile_mismatches": [
         {
-          "date": "2026-06-02",
-          "field": "low",
-          "base": 297.76001,
-          "provider": 296.89001,
-          "delta": 0.8700000000000045
-        }
-      ],
-      "fidelity_ok": false
-    },
-    "GS": {
-      "base5_ingested": 1222,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
-    },
-    "MU": {
-      "base5_ingested": 1889,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": false,
-      "reconcile_mismatches": [
+          "date": "2026-04-15",
+          "field": "volume",
+          "base": 2409320,
+          "provider": 49913500,
+          "delta": -47504180
+        },
         {
-          "date": "2026-06-04",
-          "field": "high",
-          "base": 1079.56995,
-          "provider": 1036.37,
-          "delta": 43.19995000000017
+          "date": "2026-04-30",
+          "field": "volume",
+          "base": 45398109,
+          "provider": 91848200,
+          "delta": -46450091
+        },
+        {
+          "date": "2026-05-29",
+          "field": "volume",
+          "base": 33280584,
+          "provider": 70026800,
+          "delta": -36746216
         }
       ],
       "fidelity_ok": false
     },
     "NFLX": {
-      "base5_ingested": 1596,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
-    },
-    "SNDK": {
-      "base5_ingested": 1568,
-      "daily_ingested": 334,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
+      "base5_ingested": 7398,
+      "daily_ingested": 1620,
+      "expected": 3276,
+      "present": 3275,
+      "gap_buckets": 1,
+      "complete_days": 41,
+      "day_count": 42,
+      "zero_gap": false,
+      "day_gaps": [
+        {
+          "day": "2026-04-15",
+          "expected": 78,
+          "present": 77,
+          "gaps": [
+            [
+              1776279600000,
+              1776279600000
+            ]
+          ]
+        }
+      ],
       "reconcile_ok": false,
       "reconcile_mismatches": [
         {
-          "date": "2026-06-04",
+          "date": "2026-04-15",
+          "field": "volume",
+          "base": 2563820,
+          "provider": 38023700,
+          "delta": -35459880
+        },
+        {
+          "date": "2026-05-05",
           "field": "high",
-          "base": 1831.5,
-          "provider": 1825.90002,
-          "delta": 5.5999799999999595
+          "base": 91.23,
+          "provider": 91.28,
+          "delta": -0.04999999999999716
         }
       ],
       "fidelity_ok": false
     },
     "TSLA": {
-      "base5_ingested": 1790,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
+      "base5_ingested": 7805,
+      "daily_ingested": 1620,
+      "expected": 3276,
+      "present": 3275,
+      "gap_buckets": 1,
+      "complete_days": 41,
+      "day_count": 42,
+      "zero_gap": false,
+      "day_gaps": [
+        {
+          "day": "2026-04-15",
+          "expected": 78,
+          "present": 77,
+          "gaps": [
+            [
+              1776279600000,
+              1776279600000
+            ]
+          ]
+        }
+      ],
       "reconcile_ok": false,
       "reconcile_mismatches": [
+        {
+          "date": "2026-04-15",
+          "field": "volume",
+          "base": 2179522,
+          "provider": 113810400,
+          "delta": -111630878
+        },
+        {
+          "date": "2026-04-23",
+          "field": "high",
+          "base": 385.33829,
+          "provider": 386,
+          "delta": -0.6617100000000278
+        },
         {
           "date": "2026-06-01",
           "field": "high",
@@ -173,37 +140,23 @@
         }
       ],
       "fidelity_ok": false
-    },
-    "XLE": {
-      "base5_ingested": 1880,
-      "daily_ingested": 490,
-      "expected": 780,
-      "present": 780,
-      "gap_buckets": 0,
-      "complete_days": 10,
-      "day_count": 10,
-      "zero_gap": true,
-      "day_gaps": [],
-      "reconcile_ok": true,
-      "reconcile_mismatches": [],
-      "fidelity_ok": true
     }
   },
   "totals": {
-    "expected": 7800,
-    "present": 7800,
-    "gap_buckets": 0,
-    "complete_days": 100,
-    "day_count": 100,
-    "reconcile_ok": 6,
-    "fidelity_ok": 6
+    "expected": 9828,
+    "present": 9826,
+    "gap_buckets": 2,
+    "complete_days": 124,
+    "day_count": 126,
+    "reconcile_ok": 0,
+    "fidelity_ok": 0
   },
   "summary": {
-    "coverage_pct": 100,
-    "zero_gap_all": true,
-    "complete_day_pct": 100,
-    "reconcile_ok_tickers": 6,
-    "fidelity_ok_tickers": 6,
-    "tickers": 10
+    "coverage_pct": 99.98,
+    "zero_gap_all": false,
+    "complete_day_pct": 98.41,
+    "reconcile_ok_tickers": 0,
+    "fidelity_ok_tickers": 0,
+    "tickers": 3
   }
 }

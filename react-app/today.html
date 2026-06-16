@@ -238,7 +238,7 @@
       /* Probabilistic Level Map — ticker | read | stacked level chips */
       .tt-cto-map-row {
         display: grid;
-        grid-template-columns: 52px minmax(88px, 132px) minmax(0, 1fr);
+        grid-template-columns: minmax(52px, 84px) minmax(88px, 132px) minmax(0, 1fr);
         gap: 8px 12px;
         align-items: start;
         padding: 10px 0;
@@ -251,6 +251,17 @@
         font-weight: 700;
         font-size: 12.5px;
         padding-top: 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .tt-cto-map-spot {
+        font-size: 9px;
+        font-weight: 500;
+        color: var(--tt-text-faint);
+        line-height: 1.25;
+        white-space: normal;
       }
       .tt-cto-map-read {
         min-width: 0;
@@ -3003,6 +3014,27 @@
         const levelStatus = window.TimedCTORead?.levelStatus || (() => null);
         const readStatusMeta = window.TimedCTORead?.readStatus || (() => null);
         const setupMoveMeta = window.TimedCTORead?.setupMove || (() => null);
+        const spotLabelFor = (it) => {
+          const live = Number(it?.live_price);
+          const anchor = Number(it?.anchor_price);
+          const px = Number.isFinite(live) && live > 0
+            ? live
+            : (Number.isFinite(anchor) && anchor > 0 ? anchor : null);
+          if (!Number.isFinite(px)) return null;
+          const asOfMs = Number(feed?.live_as_of_ms) || Number(it?.bar_as_of_ms);
+          const fmtBar = window.TimedCTORead?.formatBarAsOf;
+          const fmtDate = window.TimedCTORead?.formatAsOfDate;
+          const timeStr = fmtBar && asOfMs ? fmtBar(asOfMs) : null;
+          const compactTime = timeStr ? timeStr.replace(/, \d{4}/, "") : null;
+          const usingLive = Number.isFinite(live) && live > 0;
+          const anchorDate = it?.as_of_date ? fmtDate?.(it.as_of_date) : null;
+          return {
+            text: `$${px.toFixed(2)}${compactTime ? ` · ${compactTime}` : ""}`,
+            title: usingLive
+              ? `Distances use live spot $${live.toFixed(2)}${compactTime ? ` (${compactTime})` : ""}. Hit % is from daily history; levels anchor on the prior session close.`
+              : `Distances use daily close $${px.toFixed(2)}${anchorDate ? ` (${anchorDate})` : ""}.`,
+          };
+        };
         const probChip = (lvl, dir) => {
           if (!lvl) return h("span", { className: `tt-cto-map-prob tt-cto-map-prob--${dir}` }, "—");
           const dist = formatDist(lvl);
@@ -3066,19 +3098,25 @@
             }, move.label),
           );
         };
-        const row = (it) => h("div", {
-          key: it.ticker,
-          className: "tt-cto-map-row",
-          onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
-          title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined,
-        },
-          h("span", { className: "tt-cto-map-sym" }, it.ticker),
-          readChip(it) || h("span", { className: "tt-cto-map-read", style: { color: "var(--tt-text-faint)", fontSize: 10 } }, "—"),
-          h("div", { className: "tt-cto-map-levels" },
-            probChip(it.top_upside, "up"),
-            probChip(it.top_downside, "dn"),
-          ),
-        );
+        const row = (it) => {
+          const spot = spotLabelFor(it);
+          return h("div", {
+            key: it.ticker,
+            className: "tt-cto-map-row",
+            onClick: onSelectTicker ? () => onSelectTicker(it.ticker) : undefined,
+            title: [readMeta(it)?.blurb, it.narrative].filter(Boolean).join(" · ") || undefined,
+          },
+            h("span", { className: "tt-cto-map-sym" },
+              h("span", null, it.ticker),
+              spot && h("span", { className: "tt-cto-map-spot", title: spot.title }, spot.text),
+            ),
+            readChip(it) || h("span", { className: "tt-cto-map-read", style: { color: "var(--tt-text-faint)", fontSize: 10 } }, "—"),
+            h("div", { className: "tt-cto-map-levels" },
+              probChip(it.top_upside, "up"),
+              probChip(it.top_downside, "dn"),
+            ),
+          );
+        };
         const horizonBars = Number(feed.horizon_bars) > 0 ? Number(feed.horizon_bars) : 20;
         return h("section", { className: "tt-card tt-card-pad tt-cto-panel" },
           h("div", { className: "tt-sec-title", style: { flexShrink: 0, marginBottom: 2 } }, "PROBABILISTIC LEVEL MAP"),

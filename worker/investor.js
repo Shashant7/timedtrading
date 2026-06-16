@@ -750,6 +750,74 @@ export function applyInvestorTimingGate(stageResult, timing, ctx = {}) {
 }
 
 /**
+ * Minimum structural fields required before read-time revalidation may
+ * overwrite cached investor stage/score. Without these, computeInvestorScore
+ * can collapse 40+ pts and falsely demote names (e.g. COST accumulate → Avoid).
+ */
+export function hasInvestorStructuralData(tickerData) {
+  if (!tickerData || !(Number(tickerData.price) > 0)) return false;
+  const mb = tickerData.monthly_bundle;
+  const tfW = tickerData.tf_tech?.W;
+  return !!(mb && typeof mb === "object" && tfW && typeof tfW === "object");
+}
+
+/** Hoist legacy top-level rs1m/rs3m into nested rs for card chips. */
+export function normalizeInvestorRsFields(data) {
+  if (!data || typeof data !== "object") return data;
+  const rs1m = data.rs?.rs1m ?? data.rs1m;
+  const rs3m = data.rs?.rs3m ?? data.rs3m;
+  if (rs1m == null && rs3m == null) return data;
+  return {
+    ...data,
+    rs: {
+      ...(data.rs && typeof data.rs === "object" ? data.rs : {}),
+      rs1m: rs1m ?? data.rs?.rs1m ?? null,
+      rs3m: rs3m ?? data.rs?.rs3m ?? null,
+    },
+  };
+}
+
+/**
+ * Backfill missing rs.rs1m/rs.rs3m on investor score rows (batch SPY once).
+ * @param {object[]} entries - mutable score rows with ticker field
+ * @param {{ getSpyCandles: () => Promise<Array>, getTickerCandles: (sym:string)=>Promise<Array> }} io
+ */
+export async function backfillInvestorRelativeStrength(entries, io) {
+  if (!Array.isArray(entries) || !entries.length || !io?.getSpyCandles || !io?.getTickerCandles) {
+    return entries;
+  }
+  const needs = entries.filter((e) => {
+    const n = normalizeInvestorRsFields(e);
+    return n.rs?.rs1m == null || n.rs?.rs3m == null;
+  });
+  if (!needs.length) return entries;
+
+  const spyCandles = await io.getSpyCandles();
+  if (!spyCandles?.length) return entries;
+
+  for (const entry of needs) {
+    const sym = String(entry.ticker || "").toUpperCase();
+    if (!sym) continue;
+    try {
+      const tickerCandles = await io.getTickerCandles(sym);
+      const rs = computeRelativeStrength(tickerCandles, spyCandles);
+      entry.rs = {
+        ...(entry.rs && typeof entry.rs === "object" ? entry.rs : {}),
+        rs1m: rs.rs1m,
+        rs3m: rs.rs3m,
+        rs6m: rs.rs6m,
+        rsNewHigh3m: rs.rsNewHigh3m,
+        rsNewHigh6m: rs.rsNewHigh6m,
+      };
+    } catch (_) { /* RS backfill is best-effort */ }
+  }
+  return entries;
+}
+
+const _INVESTOR_RESEARCH_STAGES = new Set(["research_avoid", "research_low", "research_on_watch"]);
+const _INVESTOR_ACTIONABLE_STAGES = new Set(["accumulate", "watch", "core_hold", "reduce"]);
+
+/**
  * Read-time investor revalidation — applies fresh timing_overlay + stage gate
  * against timed:latest snapshot so GET /timed/investor/ticker is never stale
  * on timing_primary while KV scores await the next compute cron.
@@ -757,6 +825,9 @@ export function applyInvestorTimingGate(stageResult, timing, ctx = {}) {
 export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
   if (!cached || !latestTd || !(Number(latestTd.price) > 0)) {
     return { revalidated: false, data: cached };
+  }
+  if (!hasInvestorStructuralData(latestTd)) {
+    return { revalidated: false, data: cached, reason: "incomplete_structural_data" };
   }
 
   const {
@@ -832,6 +903,29 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     fresh._stage_changed_from_cache = {
       stage: cached.stage,
       stageReason: cached.stageReason,
+    };
+  }
+
+  // Read-time revalidation is for catalyst demotions (accumulate → watch on
+  // -12% gaps), not full lane resets. A cached Accumulate → Avoid jump on
+  // the 60s poll is operator-noise until the next /investor/compute cron.
+  const cachedStage = String(cached.stage || "");
+  const liveStage = String(stage.stage || "");
+  if (
+    _INVESTOR_ACTIONABLE_STAGES.has(cachedStage)
+    && _INVESTOR_RESEARCH_STAGES.has(liveStage)
+    && cachedStage !== liveStage
+  ) {
+    fresh.stage = cached.stage;
+    fresh.stageReason = cached.stageReason;
+    fresh.timing_primary = cached.timing_primary ?? fresh.timing_primary;
+    fresh.timing_playbook = cached.timing_playbook ?? fresh.timing_playbook;
+    fresh._live_stage_pending = {
+      stage: liveStage,
+      stageReason: stage.reason,
+      score,
+      components,
+      at: Date.now(),
     };
   }
 

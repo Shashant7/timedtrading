@@ -3,6 +3,9 @@ import {
   applyInvestorTimingGate,
   classifyInvestorStage,
   revalidateInvestorTickerAtRead,
+  normalizeInvestorRsFields,
+  backfillInvestorRelativeStrength,
+  hasInvestorStructuralData,
   DEFAULT_INVESTOR_CONFIG,
 } from "./investor.js";
 import { computeTimingOverlay } from "./timing-signals.js";
@@ -94,6 +97,65 @@ describe("revalidateInvestorTickerAtRead", () => {
     expect(data.timing_primary).toBe("TOP");
     expect(data._stage_changed_from_cache?.stage).toBe("accumulate");
     expect(computeTimingOverlay(latestTd).timing_primary).toBe("TOP");
+  });
+
+  it("skips revalidation when timed:latest lacks structural bundles", () => {
+    const cached = { ticker: "COST", score: 72, stage: "accumulate", rsRank: 60 };
+    const latestTd = { ticker: "COST", price: 950.12 };
+    const { revalidated, reason } = revalidateInvestorTickerAtRead(cached, latestTd, {
+      rsRank: 60,
+      marketHealth: 50,
+      cfg: DEFAULT_INVESTOR_CONFIG,
+    });
+    expect(revalidated).toBe(false);
+    expect(reason).toBe("incomplete_structural_data");
+    expect(hasInvestorStructuralData(latestTd)).toBe(false);
+  });
+
+  it("defers dramatic accumulate → research_avoid demotion on read path", () => {
+    const cached = {
+      ticker: "COST",
+      score: 72,
+      stage: "accumulate",
+      stageReason: "strong_score",
+      rsRank: 55,
+      position: { owned: false },
+    };
+    const latestTd = {
+      ticker: "COST",
+      price: 900,
+      monthly_bundle: { supertrend_dir: 1, ema_structure: -1, rsi: 35 },
+      tf_tech: { W: { atr: { xs: -1 } }, D: { atr: { xs: -1 } } },
+      regime: { weekly: "downtrend" },
+    };
+    const { revalidated, data } = revalidateInvestorTickerAtRead(cached, latestTd, {
+      rsRank: 55,
+      marketHealth: 50,
+      cfg: DEFAULT_INVESTOR_CONFIG,
+    });
+    expect(revalidated).toBe(true);
+    expect(data.stage).toBe("accumulate");
+    expect(data._live_stage_pending?.stage).toMatch(/^research_/);
+  });
+});
+
+describe("investor RS helpers", () => {
+  it("normalizeInvestorRsFields hoists legacy top-level rs3m", () => {
+    const out = normalizeInvestorRsFields({ ticker: "DKS", rs3m: 4.2, rs1m: 1.1 });
+    expect(out.rs.rs3m).toBe(4.2);
+    expect(out.rs.rs1m).toBe(1.1);
+  });
+
+  it("backfillInvestorRelativeStrength fills missing rs on rows", async () => {
+    const spy = Array.from({ length: 30 }, (_, i) => ({ ts: Date.UTC(2026, 0, i + 1), c: 500 + i }));
+    const dks = Array.from({ length: 30 }, (_, i) => ({ ts: Date.UTC(2026, 0, i + 1), c: 200 + i * 0.5 }));
+    const rows = [{ ticker: "DKS" }];
+    await backfillInvestorRelativeStrength(rows, {
+      getSpyCandles: async () => spy,
+      getTickerCandles: async () => dks,
+    });
+    expect(rows[0].rs?.rs1m).not.toBeNull();
+    expect(rows[0].rs?.rs3m).not.toBeNull();
   });
 });
 
