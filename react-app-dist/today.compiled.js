@@ -1415,6 +1415,11 @@ function OpenPositionsPreview({
               if (seen.has(key)) continue;
               seen.add(key);
               const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
+              let invPnlPct = Number(p?.unrealizedPnlPct);
+              if (!Number.isFinite(invPnlPct)) {
+                const cp = Number(p?.currentPrice);
+                invPnlPct = Number.isFinite(cp) && cp > 0 && avgEntry > 0 ? (cp - avgEntry) / avgEntry * 100 : NaN;
+              }
               all.push({
                 ticker: p.ticker,
                 direction: "LONG",
@@ -1423,6 +1428,9 @@ function OpenPositionsPreview({
                 entry_price: avgEntry,
                 shares: p.total_shares,
                 trade_id: p.id,
+                pnl_pct: Number.isFinite(invPnlPct) ? invPnlPct : undefined,
+                current_price: Number(p?.currentPrice) || undefined,
+                day_change_pct: Number(p?.dailyChangePct),
                 _mode: "investor"
               });
             }
@@ -5182,6 +5190,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781582413862:971874962
+// cache-bust:1781616141643:921132745
 
-// cache-bust:1781582413862:971874962
+// cache-bust:1781616141643:921132745

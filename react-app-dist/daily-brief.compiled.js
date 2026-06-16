@@ -2178,13 +2178,18 @@ function IntradayFlash({
 const BRIEF_MARKET_PULSE_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 function BriefBubbleMap({
   allData,
-  brief
+  brief,
+  openTickers
 }) {
   const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
   const [hovered, setHovered] = useState(null);
   const posSyms = useMemo(() => {
     const s = new Set();
+    for (const t of openTickers || []) {
+      const u = String(t || "").toUpperCase();
+      if (u) s.add(u);
+    }
     for (const slot of ["evening", "morning"]) {
       const info = brief?.[slot]?.infographic;
       if (!info) continue;
@@ -2198,7 +2203,7 @@ function BriefBubbleMap({
       }
     }
     return s;
-  }, [brief]);
+  }, [brief, openTickers]);
   const visible = useMemo(() => {
     if (!allData || typeof allData !== "object") return [];
     const symSet = new Set([...BRIEF_MARKET_PULSE_SYMBOLS, ...posSyms]);
@@ -2310,6 +2315,7 @@ function App({
   const [selectedArchiveData, setSelectedArchiveData] = useState(null);
   const [archiveDetailLoading, setArchiveDetailLoading] = useState(false);
   const [allData, setAllData] = useState(null);
+  const [openPosTickers, setOpenPosTickers] = useState([]);
   const fetchBrief = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/timed/daily-brief`, {
@@ -2337,6 +2343,33 @@ function App({
       if (d && typeof d === "object") setAllData(d);
     } catch (e) {
       console.error("Failed to fetch scores for bubble map:", e);
+    }
+  }, []);
+  const fetchOpenPositionTickers = useCallback(async () => {
+    try {
+      const [traderRes, invRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+        cache: "no-store",
+        credentials: "include"
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/positions`, {
+        cache: "no-store",
+        credentials: "include"
+      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const out = new Set();
+      const collect = payload => {
+        const arr = Array.isArray(payload) ? payload : payload?.trades || payload?.positions || payload?.data || [];
+        if (!Array.isArray(arr)) return;
+        for (const row of arr) {
+          const status = String(row?.status || "").toUpperCase();
+          if (status && status !== "OPEN") continue;
+          const t = String(row?.ticker || "").toUpperCase();
+          if (t) out.add(t);
+        }
+      };
+      collect(traderRes);
+      collect(invRes);
+      setOpenPosTickers([...out]);
+    } catch (e) {
+      console.error("Failed to fetch open positions for bubble map:", e);
     }
   }, []);
   const fetchIntraday = useCallback(async () => {
@@ -2420,6 +2453,7 @@ function App({
     fetchIntraday();
     fetchArchive();
     fetchAllScores();
+    fetchOpenPositionTickers();
     fetch(`${API_BASE}/timed/usage`, {
       method: "POST",
       credentials: "include",
@@ -2433,7 +2467,7 @@ function App({
     localStorage.setItem("tt_brief_seen", String(Date.now()));
     const intradayRefresh = setInterval(fetchIntraday, 5 * 60 * 1000);
     return () => clearInterval(intradayRefresh);
-  }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores]);
+  }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores, fetchOpenPositionTickers]);
   const etNow = useMemo(() => {
     const d = new Date();
     const et = d.toLocaleString("en-US", {
@@ -2716,7 +2750,8 @@ function App({
     type: "morning"
   }), React.createElement(BriefBubbleMap, {
     allData: allData,
-    brief: brief
+    brief: brief,
+    openTickers: openPosTickers
   })), selectedArchive && React.createElement("div", {
     className: "mt-6"
   }, React.createElement("div", {
@@ -2827,6 +2862,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781582413862:971874962
+// cache-bust:1781616141643:921132745
 
-// cache-bust:1781582413862:971874962
+// cache-bust:1781616141643:921132745

@@ -2616,6 +2616,15 @@
                   // Normalize to trade-like shape; pnl_pct will come
                   // from the worker scoring path or be derived below.
                   const avgEntry = Number(p?.avg_entry) || (Number(p?.cost_basis) / Number(p?.total_shares));
+                  // 2026-06-16 — carry the unrealized P&L % so investor tiles
+                  // show gain/loss like the trader tiles do. /timed/investor/
+                  // positions already computes unrealizedPnlPct (currentPrice vs
+                  // avg_entry); fall back to deriving it if absent.
+                  let invPnlPct = Number(p?.unrealizedPnlPct);
+                  if (!Number.isFinite(invPnlPct)) {
+                    const cp = Number(p?.currentPrice);
+                    invPnlPct = (Number.isFinite(cp) && cp > 0 && avgEntry > 0) ? ((cp - avgEntry) / avgEntry) * 100 : NaN;
+                  }
                   all.push({
                     ticker: p.ticker,
                     direction: "LONG",
@@ -2624,6 +2633,9 @@
                     entry_price: avgEntry,
                     shares: p.total_shares,
                     trade_id: p.id,
+                    pnl_pct: Number.isFinite(invPnlPct) ? invPnlPct : undefined,
+                    current_price: Number(p?.currentPrice) || undefined,
+                    day_change_pct: Number(p?.dailyChangePct),
                     _mode: "investor",
                   });
                 }

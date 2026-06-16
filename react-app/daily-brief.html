@@ -2260,13 +2260,16 @@
       // Today page uses (window.TimedBubbleChart). Needs /timed/all for the
       // ltf_score/htf_score axes (the brief payload only carries price/PnL), so
       // it renders for admins/Pro the same way the Today map does; empty → hidden.
-      function BriefBubbleMap({ allData, brief }) {
+      function BriefBubbleMap({ allData, brief, openTickers }) {
         const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
         const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
         const [hovered, setHovered] = useState(null);
 
         const posSyms = useMemo(() => {
           const s = new Set();
+          // Primary: directly-fetched open positions (reliable).
+          for (const t of (openTickers || [])) { const u = String(t || "").toUpperCase(); if (u) s.add(u); }
+          // Fallback: brief infographic position rows, if present.
           for (const slot of ["evening", "morning"]) {
             const info = brief?.[slot]?.infographic;
             if (!info) continue;
@@ -2274,7 +2277,7 @@
             for (const p of (info.investorHoldings || [])) { const t = String(p?.ticker || "").toUpperCase(); if (t) s.add(t); }
           }
           return s;
-        }, [brief]);
+        }, [brief, openTickers]);
 
         const visible = useMemo(() => {
           if (!allData || typeof allData !== "object") return [];
@@ -2360,6 +2363,7 @@
         const [selectedArchiveData, setSelectedArchiveData] = useState(null);
         const [archiveDetailLoading, setArchiveDetailLoading] = useState(false);
         const [allData, setAllData] = useState(null);
+        const [openPosTickers, setOpenPosTickers] = useState([]);
 
         // Fetch current brief
         const fetchBrief = useCallback(async () => {
@@ -2387,6 +2391,35 @@
             if (d && typeof d === "object") setAllData(d);
           } catch (e) {
             console.error("Failed to fetch scores for bubble map:", e);
+          }
+        }, []);
+
+        // Open positions for the bubble map — fetched DIRECTLY (the brief
+        // infographic's position rows are populated only at brief-generation
+        // time and are often empty on read). Mirrors the Today page sources:
+        // Active Trader positions + Investor holdings.
+        const fetchOpenPositionTickers = useCallback(async () => {
+          try {
+            const [traderRes, invRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store", credentials: "include" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+              fetch(`${API_BASE}/timed/investor/positions`, { cache: "no-store", credentials: "include" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+            ]);
+            const out = new Set();
+            const collect = (payload) => {
+              const arr = Array.isArray(payload) ? payload : (payload?.trades || payload?.positions || payload?.data || []);
+              if (!Array.isArray(arr)) return;
+              for (const row of arr) {
+                const status = String(row?.status || "").toUpperCase();
+                if (status && status !== "OPEN") continue;
+                const t = String(row?.ticker || "").toUpperCase();
+                if (t) out.add(t);
+              }
+            };
+            collect(traderRes);
+            collect(invRes);
+            setOpenPosTickers([...out]);
+          } catch (e) {
+            console.error("Failed to fetch open positions for bubble map:", e);
           }
         }, []);
 
@@ -2475,12 +2508,13 @@
           fetchIntraday();
           fetchArchive();
           fetchAllScores();
+          fetchOpenPositionTickers();
           fetch(`${API_BASE}/timed/usage`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ feature: "daily_brief_view" }) }).catch(() => {});
           localStorage.setItem("tt_brief_seen", String(Date.now()));
           // Auto-refresh intraday insights every 5 minutes during market hours
           const intradayRefresh = setInterval(fetchIntraday, 5 * 60 * 1000);
           return () => clearInterval(intradayRefresh);
-        }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores]);
+        }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores, fetchOpenPositionTickers]);
 
         // Determine current ET time for placeholder logic
         const etNow = useMemo(() => {
@@ -2595,7 +2629,7 @@
                   )}
 
                   {/* 4. Bubble map — market pulse + open positions (momentum × trend) */}
-                  <BriefBubbleMap allData={allData} brief={brief} />
+                  <BriefBubbleMap allData={allData} brief={brief} openTickers={openPosTickers} />
                 </div>
               )}
 
