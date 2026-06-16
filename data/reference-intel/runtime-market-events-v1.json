@@ -32397,16 +32397,16 @@
     "meta": {
       "served_by": "v3-prod",
       "served_by_region": "ENAM",
-      "served_by_colo": "MIA",
+      "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 37.7899
+        "sql_duration_ms": 41.9605
       },
-      "duration": 37.7899,
+      "duration": 41.9605,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 13025,
       "changed_db": false,
-      "size_after": 3995279360,
+      "size_after": 3902410752,
       "rows_read": 3599,
       "rows_written": 0,
       "total_attempts": 1
