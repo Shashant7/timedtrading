@@ -53,8 +53,14 @@ const KV_TICKER_PREFIX = "timed:cto:ticker:";
 const KV_TTL_SECONDS = CACHE_TTL_PRIORITY_SEC;
 const CTO_TABLE = "cto_level_snapshots";
 
-const HORIZON_BARS = 20;     // "within ~1 month" — matches the FSD-style
-                             // "intermediate" horizon
+// 2026-06-16 — Tuned from 20 → 10 sessions (~2 weeks). Operator feedback:
+// "a 20-day window is a lot whereas the levels themselves are pretty close."
+// Because the swing-derived magnets sit near price, a 20-session horizon made
+// almost every level read as "highly likely" (uninformative). A ~2-week
+// horizon differentiates the near-magnets and aligns PML with the Active
+// Trader's multi-day/few-week lane (between the Day Trader's 1-2 days and the
+// Investor's long haul). Tunable via env CTO_HORIZON_BARS.
+const HORIZON_BARS = 10;     // "within ~2 weeks" — the intermediate horizon
 const SWING_LOOKBACK = 60;   // daily bars for swing high/low detection
 const ATR_PERIOD = 14;
 const HIT_RATE_LOOKBACK_BARS = 504; // ~2 trading years for hit-rate stats
@@ -290,12 +296,17 @@ function regimeBiasMultiplier(bias, isUpside, horizonBars) {
 
 // ── Per-ticker compute ────────────────────────────────────────────────────────
 export async function computeCTOForTicker(env, ticker, {
-  horizon = HORIZON_BARS,
+  horizon,
   force = false,
   cacheTtlSeconds = KV_TTL_SECONDS,
   openPositions = null,
 } = {}) {
   await ensureCTOSchema(env);
+  // Horizon precedence: explicit arg > env CTO_HORIZON_BARS > module default.
+  const _envHorizon = Number(env?.CTO_HORIZON_BARS);
+  horizon = Number.isFinite(Number(horizon)) && Number(horizon) > 0
+    ? Number(horizon)
+    : (Number.isFinite(_envHorizon) && _envHorizon > 0 ? _envHorizon : HORIZON_BARS);
   const sym = String(ticker).toUpperCase();
   const ttlSec = Number(cacheTtlSeconds) > 0
     ? Number(cacheTtlSeconds)
@@ -682,8 +693,8 @@ export async function buildPublicCTOFeed(env, { limit = 30 } = {}) {
     ok: true,
     generated_at: rollup.computed_at || Date.now(),
     prediction_as_of_ms,
-    horizon_bars: HORIZON_BARS,
-    horizon_note: `Empirical hit rates ask whether price reaches each magnet within ~${HORIZON_BARS} trading sessions (~1 month).`,
+    horizon_bars: Number(env?.CTO_HORIZON_BARS) > 0 ? Number(env.CTO_HORIZON_BARS) : HORIZON_BARS,
+    horizon_note: `Empirical hit rates ask whether price reaches each magnet within ~${Number(env?.CTO_HORIZON_BARS) > 0 ? Number(env.CTO_HORIZON_BARS) : HORIZON_BARS} trading sessions (~2 weeks).`,
     tickers_processed: rollup.tickers_processed || 0,
     tickers_ok: rows.length,
     tickers_candidates: rows.length,
