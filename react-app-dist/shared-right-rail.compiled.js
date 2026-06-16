@@ -5260,12 +5260,15 @@
         }
         return out.length > 0 ? out : EMPTY_PRICE_LINES;
       }, [optionsTabData]);
+      const _lastLinesRef = useRef(EMPTY_PRICE_LINES);
       const subtleKeyLevelLines = useMemo(() => {
         const tab = String(railTab || "").toUpperCase();
-        if (tab === "INVESTOR") return investorPriceLines;
-        if (tab === "OPTIONS") return optionsPriceLines;
-        return tradeplanPriceLines;
-      }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines]);
+        let next;
+        if (tab === "INVESTOR") next = investorData ? investorPriceLines : null;else if (tab === "OPTIONS") next = optionsTabData ? optionsPriceLines : null;else next = tradeplanPriceLines;
+        if (next == null) return _lastLinesRef.current;
+        _lastLinesRef.current = next;
+        return next;
+      }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines, investorData, optionsTabData]);
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
       const [fundamentalsError, setFundamentalsError] = useState(null);
@@ -19914,4 +19917,4 @@
   };
 })();
 
-// cache-bust:1781629038957:729370068
+// cache-bust:1781631551128:576973963
