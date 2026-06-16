@@ -3921,14 +3921,29 @@
         }, [optionsTabData]);
 
         // Tab → priceLines selector. Chart annotations now follow tab focus.
+        // 2026-06-16 — Hold the previously-shown line set while the newly
+        // selected tab's source data is still loading. Switching Trader →
+        // Invest used to read investorPriceLines as EMPTY (investorData null
+        // for the first ~200ms of the fetch), so the chart flashed: trader
+        // lines OFF → empty → investor lines ON. Returning the prior set until
+        // the new tab's data arrives makes it a single graceful swap with no
+        // intermediate blank. (Candles never repaint here — same instance,
+        // stable `mapped`; only the price-line overlay set changes.)
+        const _lastLinesRef = useRef(EMPTY_PRICE_LINES);
         const subtleKeyLevelLines = useMemo(() => {
           const tab = String(railTab || "").toUpperCase();
-          if (tab === "INVESTOR") return investorPriceLines;
-          if (tab === "OPTIONS")  return optionsPriceLines;
+          let next;
+          if (tab === "INVESTOR") next = investorData ? investorPriceLines : null;
+          else if (tab === "OPTIONS") next = optionsTabData ? optionsPriceLines : null;
           // Snapshot / Setup (Trader) / Chart / Technicals / Catalysts / History / Fundamentals
           // all default to the trader plan — it's the primary view.
-          return tradeplanPriceLines;
-        }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines]);
+          else next = tradeplanPriceLines;
+          // next === null means the active tab's data hasn't loaded yet — keep
+          // the prior lines so we don't flash to empty mid-transition.
+          if (next == null) return _lastLinesRef.current;
+          _lastLinesRef.current = next;
+          return next;
+        }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines, investorData, optionsTabData]);
 
         // Fundamentals tab: per-ticker data from /timed/admin/fundamentals.
         // Cached client-side per ticker for 5min so flipping between Snapshot

@@ -1424,7 +1424,7 @@ function OpenPositionsPreview({
                 ticker: p.ticker,
                 direction: "LONG",
                 status: p.status,
-                kanban_stage: p.investor_stage,
+                kanban_stage: p.kanban_stage || p.investor_stage,
                 entry_price: avgEntry,
                 shares: p.total_shares,
                 trade_id: p.id,
@@ -5213,6 +5213,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781629038957:729370068
+// cache-bust:1781631551128:576973963
 
-// cache-bust:1781629038957:729370068
+// cache-bust:1781631551128:576973963

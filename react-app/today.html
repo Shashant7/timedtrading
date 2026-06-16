@@ -2640,7 +2640,7 @@
                     ticker: p.ticker,
                     direction: "LONG",
                     status: p.status,
-                    kanban_stage: p.investor_stage,
+                    kanban_stage: p.kanban_stage || p.investor_stage,
                     entry_price: avgEntry,
                     shares: p.total_shares,
                     trade_id: p.id,
