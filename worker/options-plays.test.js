@@ -475,6 +475,40 @@ describe("index ETF profile alignment", () => {
     })).toBeNull();
   });
 
+  it("buildDayTradePlay: a conviction day lean drives the 0DTE flavor over a WAIT confluence", () => {
+    // Intraday lean SHORT (medium) on a multi-day-WAIT day → put, not suppressed.
+    // This keeps the 0/1DTE index play consistent with the Today prediction.
+    const play = buildDayTradePlay({
+      ticker: "SPY",
+      price: 737.55,
+      direction: "LONG",                 // stale multi-day contract dir
+      dayLean: "SHORT",
+      dayLeanConviction: "medium",
+      atrPct: 0.012,
+      verdict: { mode: "WAIT", side: "LONG" },
+      profile: "speculator",
+      expiration: { iso: "2026-06-06", dte: 0, label: "0DTE" },
+    });
+    expect(play).not.toBeNull();
+    expect(play._day_trade_flavor).toBe("put");
+    expect(play._day_trade_flavor_source).toBe("day_lean");
+  });
+
+  it("buildDayTradePlay: a LOW-conviction lean does NOT override the confluence gate", () => {
+    // low conviction → falls back to old behavior → WAIT mismatch suppresses.
+    expect(buildDayTradePlay({
+      ticker: "SPY",
+      price: 737.55,
+      direction: "SHORT",
+      dayLean: "SHORT",
+      dayLeanConviction: "low",
+      atrPct: 0.012,
+      verdict: { mode: "WAIT", side: "LONG" },
+      profile: "speculator",
+      expiration: { iso: "2026-06-06", dte: 0, label: "0DTE" },
+    })).toBeNull();
+  });
+
   it("attachIndexDayTradeFallback skips WAIT mismatch", () => {
     const ladder = attachIndexDayTradeFallback(
       { ladder: [], primary: null },

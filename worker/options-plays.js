@@ -1851,9 +1851,24 @@ export function buildDayTradePlay(ctx) {
     timingOverlay: ctx?.verdict?.timing,
   });
 
+  // 2026-06-16 — Day lean drives the 0/1DTE flavor. These are SAME-DAY
+  // instruments, so the correct-horizon signal is the day-trade lean (the same
+  // source the Today Predictions + brief Index Playbook lead with), NOT the
+  // multi-day confluence gate. When the lean has conviction it sets the flavor
+  // directly so the option play agrees with the prediction the trader just
+  // read; otherwise we fall back to the confluence-gated behavior.
+  const dayLean = String(ctx?.dayLean || "").toUpperCase();
+  const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
+  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
+    && (dayLeanConv === "medium" || dayLeanConv === "high");
+
   // Decide flavor.
   let flavor;
-  if (!align.allow) {
+  let _flavorSource = "confluence";
+  if (leanActionable) {
+    flavor = dayLean === "SHORT" ? "put" : "call";
+    _flavorSource = "day_lean";
+  } else if (!align.allow) {
     // WAIT / misaligned: straddle only for conservative/moderate on high-vol days.
     if (verdictMode === "WAIT" && !wantsSingleLeg && atrPct >= 0.012) {
       flavor = "straddle";
@@ -1920,6 +1935,8 @@ export function buildDayTradePlay(ctx) {
       ],
       _day_trade: true,
       _day_trade_flavor: flavor,
+      _day_trade_flavor_source: _flavorSource,
+      _day_trade_lean: dayLean || null,
     };
   }
 
