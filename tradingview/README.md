@@ -6,8 +6,59 @@ This directory contains the Pine Script indicator for Timed Trading.
 
 - `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
 - `TimedTrading_Levels_Overlay.pine` - **Chart overlay** — TT universe, bias, stop, targets, S/R lines + table
+- `TimedTrading_Indicator_Parity_Export.pine` - **Benchmark exporter** for indicator parity fixtures (TradingView chart-data export)
 - `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
 - `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
+
+## Indicator parity export (Phase 1 hardening)
+
+Use `TimedTrading_Indicator_Parity_Export.pine` to create TradingView benchmark
+CSV exports for `data/indicator-fixtures/v1/`.
+
+### First fixture batch
+
+Run the exporter for:
+
+- Tickers: `SPY`, `QQQ`, `IWM`, `USO`, `XLE`, `NVDA`, `TSLA`, `UNH`, `MSTR`, `GLD`
+- Timeframes: `D`, `W`, `60`
+
+### Session settings
+
+Match the fixture policy exactly:
+
+- `D`, `W`, `M`: exchange-session bars.
+- `60`, `240`: RTH bars.
+- `5`, `10`, `15`, `30`: extended-hours bars for equities.
+- ORB columns are meaningful only on intraday RTH charts.
+
+### Export steps
+
+1. Open a TradingView chart for one ticker/timeframe.
+2. Add `TimedTrading_Indicator_Parity_Export.pine`.
+3. Ensure the chart session matches the policy above.
+4. Menu → **Export chart data**.
+5. Save as `<TICKER>_<TF>_<START>_<END>.csv`, for example:
+   `USO_D_2025-01-01_2026-06-15.csv`.
+6. Send the CSV export back for conversion into the fixture JSON contract.
+
+The script plots benchmark columns for EMA/RSI/ATR/SuperTrend/TD/Phase/Saty,
+PDZ, FVG, liquidity, ORB, VWAP, RVOL, squeeze, and RSI divergence.
+
+Code legends used by the CSV:
+
+- `phase_zone_code` / `saty_phase_zone_code`: `0=LOW`, `1=MEDIUM`,
+  `2=HIGH`, `3=EXTREME`
+- `pdz_zone_code`: `0=discount`, `1=discount_approach`, `2=equilibrium`,
+  `3=premium_approach`, `4=premium`
+- `td_tv_side_code`: `-1=bear`, `0=none`, `1=bull`
+- `supertrend_dir`: `-1=bullish support`, `+1=bearish resistance`
+- `orb_15m_direction`: `-1=breakdown`, `0=none`, `1=breakout`
+
+The conversion/fixture harness lives at:
+
+- `worker/foundation/indicator-parity.js`
+- `worker/foundation/indicator-parity.test.js`
+- `data/indicator-fixtures/v1/README.md`
 
 ## TimedTrading Levels Overlay (chart lines + bias table)
 

@@ -6,6 +6,9 @@ Active Trader information-hardening plan.
 Do **not** place live exports here until they have been reviewed as benchmark
 truth. The current implementation adds only the contract and test harness.
 
+Use `tradingview/TimedTrading_Indicator_Parity_Export.pine` to generate the
+first CSV exports from TradingView chart data.
+
 ## Fixture purpose
 
 Fixtures prove that worker indicators match accepted benchmark outputs before
@@ -102,4 +105,23 @@ npx vitest run worker/foundation/indicator-parity.test.js
 The harness validates fixture shape, enforces session-clip policy, computes
 the worker indicator row for each fixture timestamp, and reports numeric or
 exact-field mismatches.
+
+## First batch request
+
+Export one CSV per ticker/timeframe:
+
+- Tickers: `SPY`, `QQQ`, `IWM`, `USO`, `XLE`, `NVDA`, `TSLA`, `UNH`, `MSTR`, `GLD`
+- Timeframes: `D`, `W`, `60`
+
+Recommended file naming:
+
+```text
+USO_D_2025-01-01_2026-06-15.csv
+USO_W_2025-01-01_2026-06-15.csv
+USO_60_2025-01-01_2026-06-15.csv
+```
+
+Send the raw CSV exports back before committing fixture JSON. The first pass
+should inspect column names and session settings before treating any export as
+golden truth.
 
