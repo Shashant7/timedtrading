@@ -45,7 +45,7 @@ export const DEFAULT_NUMERIC_TOLERANCE = Object.freeze({
   vwap: 0.05,
   vwap_dist_pct: 0.02,
   rvol: 0.02,
-  pdz_position: 0.005,
+  pdz_position: 0.05,
   liq_nearest_ss_dist_atr: 0.05,
 });
 
