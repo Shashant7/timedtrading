@@ -284,6 +284,12 @@
           "\n",
         );
 
+        // Investor Portfolio — infographic open-book chips + email-style list elsewhere.
+        cleaned = cleaned.replace(
+          /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
+          "\n",
+        );
+
         // 2026-06-09 — Strip stale LLM Key Levels section; live copy renders
         // from brief.liveKeyLevels (refreshed from timed:prices on each read).
         cleaned = cleaned.replace(
