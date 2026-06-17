@@ -6004,6 +6004,15 @@
             }
             return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "fallback" };
           })();
+          const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
+          const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
+          const v2PostureStrength = String(v2TraderPosture?.strength || "");
+          // Posture-aware reference for structure/technicals display. Contract
+          // direction (v2Dir) can diverge when HTF state says LONG but posture
+          // is LEAN_SHORT (USO / PR #686).
+          const v2StructureDir = v2PostureDir || v2Dir;
+          const v2StructureLabel = v2PostureLabel
+            || (v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : "Neutral");
           const v2Price = Number(
             window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
             ?? resolveDisplayPrice(priceSrc)
@@ -6678,7 +6687,7 @@
                     /* Same chart construction as before — direction-aware
                        price lines, indicator toggles, TF chips, expand
                        button. Rendered once above all tabs now. */
-                    const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                    const _pcDirChart = String(v2StructureDir || "").toUpperCase();
                     const _isShortChart = _pcDirChart === "SHORT";
                     const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
                     const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
@@ -7330,14 +7339,21 @@
                                   fontSize: 18, fontWeight: 800, color: verdict.color,
                                   letterSpacing: "0.02em", lineHeight: 1,
                                 }}>{verdict.word}</span>
-                                {pcDir && (
-                                  <span style={{
-                                    fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                    color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-                                    background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
-                                    letterSpacing: "0.05em",
-                                  }}>{pcDir}</span>
-                                )}
+                                {(() => {
+                                  if (v2PostureStrength === "lean") return null;
+                                  const chipLabel = v2PostureStrength === "open"
+                                    ? (postureDir === "SHORT" ? "Open Short" : "Open Long")
+                                    : (postureLabel || (postureDir === "SHORT" ? "Bearish" : postureDir === "LONG" ? "Bullish" : ""));
+                                  if (!chipLabel || !postureDir) return null;
+                                  return (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                      color: postureDir === "SHORT" ? "#fb7185" : "#34d399",
+                                      background: postureDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                                      letterSpacing: "0.05em",
+                                    }}>{chipLabel}</span>
+                                  );
+                                })()}
                               </div>
                               {livePx && (
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
@@ -8372,8 +8388,8 @@
                           if (postureLabelUpper === "LEANING BULLISH" || postureLabelUpper === "LEANING BEARISH" || postureLabelUpper === "LEAN LONG" || postureLabelUpper === "LEAN SHORT") {
                             return `Trader posture is ${postureLabel}. This is directional context only until the entry gate confirms.`;
                           }
-                          if (pcDir === "LONG") return "Trader posture is Bullish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
-                          if (pcDir === "SHORT") return "Trader posture is Bearish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          if (postureDir === "LONG") return "Trader posture is Bullish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          if (postureDir === "SHORT") return "Trader posture is Bearish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
                           return null;
                         })();
 
@@ -8381,7 +8397,7 @@
                           <Panel title="Model Guidance" action={
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                               {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
-                              {(postureLabel || pcDir) && <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Trader posture for this ticker">{postureLabel || pcDir}</span>}
+                              {(postureLabel || v2StructureLabel) && <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Trader posture for this ticker">{postureLabel || v2StructureLabel}</span>}
                               {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
                             </div>
                           }>
@@ -8569,7 +8585,7 @@
                         const SpiderC = window.TickerSpiderChartFactory({ React });
                         return (
                           <div style={{ marginBottom: "var(--ds-space-3)" }}>
-                            <SpiderC ticker={ticker} direction={v2Dir} compact={true} size={240} showLegend={true} />
+                            <SpiderC ticker={ticker} direction={v2StructureDir || v2Dir} compact={true} size={240} showLegend={true} />
                           </div>
                         );
                       })()}
@@ -9816,7 +9832,7 @@
                         const all = predictionContract.levels;
                         const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
                         const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
-                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const pcDir = String(v2StructureDir || "").toUpperCase();
                         const isShort = pcDir === "SHORT";
                         const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
                         const belowLabel = isShort ? "Target Zones" : "Support";
@@ -10046,9 +10062,10 @@
                           Color: green (aligned) / amber (mixed) / red (conflict). */}
                       {(() => {
                         const tfm = ticker?.tf_tech || {};
-                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
-                        if (!pcDir) return null;
-                        const dirSign = pcDir === "LONG" ? 1 : -1;
+                        const structureDir = String(v2StructureDir || "").toUpperCase();
+                        if (!structureDir) return null;
+                        const dirSign = structureDir === "LONG" ? 1 : -1;
+                        const postureTag = v2StructureLabel;
                         let aligned = 0, opposed = 0, present = 0;
                         for (const k of ["15","30","1H","60","4H","240","D"]) {
                           const r = tfm[k];
@@ -10063,9 +10080,9 @@
                         const ratio = aligned / present;
                         const status = ratio >= 0.7 ? "aligned" : ratio <= 0.3 ? "conflict" : "mixed";
                         const meta = status === "aligned"
-                          ? { cls: "ds-chip--up", color: "var(--ds-up)", bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.30)", lead: "ALIGNED", txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.` }
+                          ? { cls: "ds-chip--up", color: "var(--ds-up)", bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.30)", lead: "ALIGNED", txt: `${aligned}/${present} timeframes confirm the ${postureTag} posture — read the call as well-supported.` }
                           : status === "conflict"
-                          ? { cls: "ds-chip--dn", color: "var(--ds-dn)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.30)", lead: "CONFLICT", txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.` }
+                          ? { cls: "ds-chip--dn", color: "var(--ds-dn)", bg: "rgba(244,63,94,0.06)", border: "rgba(244,63,94,0.30)", lead: "CONFLICT", txt: `${opposed}/${present} timeframes oppose the ${postureTag} posture — structure disagrees with the trader lean. Wait for confirmation before sizing in.` }
                           : { cls: "ds-chip--accent", color: "var(--ds-accent)", bg: "rgba(56,242,161,0.06)", border: "rgba(56,242,161,0.30)", lead: "MIXED", txt: `${aligned} aligned / ${opposed} opposed across ${present} timeframes — structure is split. Trade smaller and tighter.` };
                         return (
                           <div className="ds-glass" style={{
@@ -10075,8 +10092,8 @@
                             padding: "var(--ds-space-3)",
                           }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                              <span className={`ds-chip ds-chip--sm ${meta.cls}`} style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>BIAS · {meta.lead}</span>
-                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{pcDir}</span>
+                              <span className={`ds-chip ds-chip--sm ${meta.cls}`} style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>POSTURE · {meta.lead}</span>
+                              <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{postureTag}</span>
                             </div>
                             <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: meta.color, lineHeight: 1.5 }}>{meta.txt}</p>
                           </div>
@@ -10267,11 +10284,11 @@
                       {ticker?.tf_tech && (() => {
                         const tfm = ticker.tf_tech || {};
                         const sym = tickerSymbol;
-                        // Authoritative bias: prediction contract first.
-                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        // Authoritative posture for structure read (PR #686).
+                        const structureDir = String(v2StructureDir || "").toUpperCase();
                         const dirSign = (() => {
-                          if (pcDir === "LONG") return 1;
-                          if (pcDir === "SHORT") return -1;
+                          if (structureDir === "LONG") return 1;
+                          if (structureDir === "SHORT") return -1;
                           const s = String(ticker?.state || "").toUpperCase();
                           if (s.startsWith("HTF_BULL")) return 1;
                           if (s.startsWith("HTF_BEAR")) return -1;
@@ -10282,7 +10299,7 @@
                           return sum > 0 ? 1 : sum < 0 ? -1 : 0;
                         })();
                         const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-                        const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+                        const dirLabel = v2StructureLabel;
 
                         // Helper: classify an observation as ALIGNED / CONFLICTING / NEUTRAL
                         // relative to the authoritative bias.
@@ -10397,10 +10414,10 @@
                         return (
                           <Panel title={`Technical Analysis · ${sym}`} action={
                             <span className={`ds-chip ds-chip--sm ${dir === "bullish" ? "ds-chip--up" : dir === "bearish" ? "ds-chip--dn" : "ds-chip--solid"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                              {dirLabel} bias
+                              {dirLabel}
                             </span>
                           }>
-                            {pcDir && pcDir !== "" && dir !== "mixed" && (
+                            {structureDir && dir !== "mixed" && (
                               <p style={{
                                 margin: "0 0 var(--ds-space-2) 0",
                                 fontSize: "var(--ds-fs-caption)",
@@ -10408,7 +10425,7 @@
                                 fontStyle: "italic",
                                 lineHeight: 1.5,
                               }}>
-                                Read against the model's <strong style={{ color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)" }}>{dirLabel}</strong> bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers.
+                                Read against the trader posture <strong style={{ color: dirSign === -1 ? "var(--ds-dn)" : "var(--ds-up)" }}>{dirLabel}</strong>. Aligned signals support the call; conflicting signals are caveats / reversal triggers.
                               </p>
                             )}
                             <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
@@ -10416,7 +10433,7 @@
                                 <Bullet key={`al-${i}`} icon="✓" text={t} color="var(--ds-up)" />
                               ))}
                               {conflicting.map((t, i) => (
-                                <Bullet key={`cf-${i}`} icon="⚠" text={`Conflicts with ${dirLabel} bias: ${t}`} color="var(--ds-dn)" />
+                                <Bullet key={`cf-${i}`} icon="⚠" text={`Conflicts with ${dirLabel} posture: ${t}`} color="var(--ds-dn)" />
                               ))}
                               {neutral.map((t, i) => (
                                 <Bullet key={`nt-${i}`} icon="·" text={t} color="var(--ds-text-muted)" />
@@ -13608,7 +13625,7 @@
                         const all = predictionContract.levels;
                         const resistance = all.filter((l) => l.role === "resistance").sort((a, b) => a.price - b.price);
                         const support = all.filter((l) => l.role === "support").sort((a, b) => b.price - a.price);
-                        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+                        const pcDir = String(v2StructureDir || "").toUpperCase();
                         const isShort = pcDir === "SHORT";
                         const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
                         const belowLabel = isShort ? "Target Zones" : "Support";
@@ -13695,7 +13712,9 @@
                           <div style={{ marginBottom: "var(--ds-space-3)" }}>
                             <Panel title="Key Levels" action={
                               <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-faint)", letterSpacing: "0.10em" }}>
-                                {pcDir && <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Bias direction" style={{ fontSize: 9 }}>{pcDir}</span>}
+                                {v2StructureLabel && v2StructureDir && (
+                                  <span className={`ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`} title="Trader posture" style={{ fontSize: 9 }}>{v2StructureLabel}</span>
+                                )}
                                 <span>{resistance.length} above · {support.length} below</span>
                               </span>
                             }>
