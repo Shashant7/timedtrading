@@ -4855,7 +4855,15 @@
         return candidate;
       }, [trade, ledgerTrades, tickerSymbol]);
       const effectiveTraderTrade = useMemo(() => {
-        if (trade && trade._source_mode !== "investor") return trade;
+        const isOpen = tr => {
+          try {
+            return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
+          } catch (_) {
+            return false;
+          }
+        };
+        if (trade && trade._source_mode !== "investor" && isOpen(trade)) return trade;
+        if (ticker?._openTrade && isOpen(ticker._openTrade)) return ticker._openTrade;
         if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
         const symUp = tickerSymbol.toUpperCase();
         if (!symUp) return null;
@@ -4863,14 +4871,13 @@
         for (const t of ledgerTrades) {
           if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
           if (t?._source_mode === "investor") continue;
-          const st = String(t?.status || "").toUpperCase();
-          if (st === "WIN" || st === "LOSS") continue;
+          if (!isOpen(t)) continue;
           if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
             candidate = t;
           }
         }
         return candidate;
-      }, [trade, ledgerTrades, tickerSymbol]);
+      }, [trade, ticker?._openTrade, ledgerTrades, tickerSymbol]);
       const effectiveInvestorTrade = useMemo(() => {
         if (trade && trade._source_mode === "investor") return trade;
         if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
@@ -6959,6 +6966,26 @@
         })();
         const v2Dir = v2BiasDirection;
         const v2TraderPosture = (() => {
+          const isOpen = tr => {
+            try {
+              return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
+            } catch (_) {
+              return false;
+            }
+          };
+          const openTr = effectiveTraderTrade || ticker?._openTrade;
+          if (isOpen(openTr)) {
+            const odir = String(openTr.direction || "").toUpperCase();
+            if (odir === "LONG" || odir === "SHORT") {
+              return {
+                posture: odir === "LONG" ? "OPEN_LONG" : "OPEN_SHORT",
+                label: odir === "LONG" ? "Open Long" : "Open Short",
+                direction: odir,
+                strength: "open",
+                reason: "open_trade"
+              };
+            }
+          }
           if (predictionContract && railTab !== "INVESTOR") {
             const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
             const label = String(predictionContract.posture_label || "").trim();
@@ -7131,8 +7158,9 @@
           const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
           const _hdrTrade = effectiveTraderTrade;
-          const _hdrTradeStatus = String(_hdrTrade?.status || "").toUpperCase();
-          const _hdrTradeIsOpen = !!(_hdrTrade && (_hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" || !(_hdrTrade?.exit_ts ?? _hdrTrade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS"));
+          const _hdrTradeIsOpen = !!window.TimedPriceUtils?.isTradeOpen?.(_hdrTrade);
+          const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
+          const _hdrPosturePending = ledgerTradesLoading && !_hdrTradeIsOpen && (_mgmtStage || !!(ticker?._openTrade || ticker?.has_open_position || trade));
           const stageChip = (() => {
             if (stage === "trim") return {
               label: "TRIM",
@@ -7208,7 +7236,7 @@
               margin: 0,
               fontFamily: "var(--tt-font-mono)"
             }
-          }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && React.createElement("span", {
+          }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`,
             title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
           }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long" : v2TraderPosture?.label || v2Dir), (() => {
@@ -20060,4 +20088,4 @@
   };
 })();
 
-// cache-bust:1781698348600:261905892
+// cache-bust:1781700217349:479262851
