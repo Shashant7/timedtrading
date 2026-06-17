@@ -103,7 +103,8 @@
       ? t._live_stage_pending : null;
     const _dc = getDailyChange(t);
     const dayPct = Number.isFinite(_dc?.dayPct) ? Number(_dc.dayPct) : null;
-    const price = Number.isFinite(Number(t.price)) ? Number(t.price) : null;
+    const dayChg = Number.isFinite(_dc?.dayChg) ? Number(_dc.dayChg) : null;
+    const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price ?? t?.close) || null;
     const isSelected = selectedTicker === sym;
     const isSaved = !!(savedTickers && savedTickers.has && savedTickers.has(sym));
 
@@ -259,129 +260,14 @@
       ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)" } : {}),
     };
 
-    return React.createElement("button", {
-      onClick: () => onSelect && onSelect(sym),
-      onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
-      className: "ds-tickercard",
-      style: cardStyle,
-    },
-      React.createElement("div", { className: "ds-tickercard__head" },
-        React.createElement("div", {
-          className: "ds-tickercard__logo",
-          style: { width: 22, height: 22 },
-          ref: (el) => {
-            if (el && !el.dataset.dsInit && window.DS) {
-              el.dataset.dsInit = "1";
-              try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
-            }
-          },
-        }, sym.slice(0, 2)),
-        React.createElement("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
-        tierMeta && React.createElement("span", {
-          className: "ds-chip ds-chip--sm",
-          style: {
-            fontFamily: "var(--tt-font-mono)", marginLeft: 4,
-            color: tierMeta.color,
-            background: `${tierMeta.color}18`,
-            borderColor: `${tierMeta.color}55`,
-            fontWeight: 700,
-            letterSpacing: "0.04em",
-          },
-          title: tierMeta.title,
-        }, tierMeta.label),
-        // OWNED badge — system has an open investor position in this ticker
-        // (Phase 3.9l). Violet to match the Investor mode accent.
-        isOwned && React.createElement("span", {
-          className: "ds-chip ds-chip--sm",
-          style: {
-            fontFamily: "var(--tt-font-mono)", marginLeft: 4,
-            color: "rgb(196,181,253)",
-            background: "rgba(167,139,250,0.15)",
-            borderColor: "rgba(167,139,250,0.45)",
-          },
-          title: posShares > 0 && posAvg > 0
-            ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
-            : "Open investor position",
-        }, "OWNED"),
-        /* 2026-06-01 — JUST OPENED badge. When a position's first_entry_ts
-           is within the last 30 min, show a green pulse chip so the user
-           visually links the Discord entry alert to the kanban card. Two
-           prior complaints addressed: (a) "Discord says CRS LONG opened
-           but the card doesn't show OWNED" — now shows OWNED + JUST
-           OPENED, removing ambiguity. (b) "I can't tell which positions
-           are new vs old" — the 30-min window highlights the freshest
-           fills only. */
-        (() => {
-          const firstTs = isOwned ? Number(pos?.first_entry_ts) || 0 : 0;
-          if (!firstTs) return null;
-          const ageMs = Date.now() - firstTs;
-          if (ageMs < 0 || ageMs > 30 * 60 * 1000) return null;
-          const ageMin = Math.max(1, Math.floor(ageMs / 60000));
-          return React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)", marginLeft: 4,
-              color: "rgb(134,239,172)",
-              background: "rgba(34,197,94,0.18)",
-              borderColor: "rgba(34,197,94,0.55)",
-              animation: "tt-pulse 1.8s ease-in-out infinite",
-            },
-            title: `Position opened ${ageMin} min ago — matches the Discord entry alert`,
-          }, "JUST OPENED");
-        })(),
-        // RS HIGH badge — investor-specific signal, gold accent
-        t.rs?.rsNewHigh3m && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--accent",
-          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
-          title: "Relative strength made a new 3-month high",
-        }, "RS HI"),
-        // TT Selected dot
-        isTTSel && React.createElement("span", {
-          title: "TT Selected",
-          style: {
-            width: 6, height: 6, borderRadius: "50%",
-            background: "var(--ds-accent)",
-            boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
-            marginLeft: 4, flexShrink: 0,
-          },
-        }),
-        // Earnings badge
-        earnLabel && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--accent",
-          style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
-          title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
-        }, `EPS ${earnLabel}`),
-        // Save toggle
-        toggleSavedTicker && React.createElement("button", {
-          onClick: (e) => { e.preventDefault(); e.stopPropagation(); toggleSavedTicker(sym); },
-          className: "ds-chip ds-chip--sm",
-          style: {
-            marginLeft: "auto",
-            padding: "0 6px",
-            height: 18,
-            color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
-            background: isSaved ? "var(--ds-accent-dim)" : "transparent",
-            borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
-          },
-          title: isSaved ? "Saved \u2014 click to unsave" : "Save ticker",
-          "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
-        }, isSaved ? "\u2605" : "\u2606"),
-      ),
-      React.createElement("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
-        Number.isFinite(price) ? `$${price.toFixed(2)}` : "\u2014"),
-      dayPct != null && React.createElement("div", {
-        className: `ds-tickercard__change ds-tickercard__change--${dir}`,
-        style: { fontSize: 12 },
-      }, `${dir === "up" ? "\u25B2" : dir === "dn" ? "\u25BC" : "\u25C6"} ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`),
-      sparkSvg && React.createElement("div", { className: "ds-tickercard__spark", dangerouslySetInnerHTML: { __html: sparkSvg } }),
-      // Phase 3.9l — owned-position stat strip. Shares · avg entry · live PnL.
-      // Sits between sparkline and the signal row so it's visually adjacent
-      // to the live price (the user's eye reads down: live price → "vs my
-      // cost" → "open PnL"). Only renders when isOwned.
+    const LC = window.TTLaneCard;
+    const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
+
+    const midBody = React.createElement(React.Fragment, null,
       isOwned && React.createElement("div", {
         style: {
           display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
-          marginTop: "var(--ds-space-2)",
+          marginTop: "var(--ds-space-1)",
           padding: "4px 6px",
           borderRadius: "4px",
           background: "rgba(167,139,250,0.07)",
@@ -389,6 +275,8 @@
           fontFamily: "var(--tt-font-mono)",
           fontSize: 11,
           flexWrap: "wrap",
+          zIndex: 2,
+          position: "relative",
         },
         title: posShares > 0 && posAvg > 0 && livePnlPct != null
           ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} sh @ $${posAvg.toFixed(2)} → live $${(price ?? 0).toFixed(2)} (${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(2)}%)`
@@ -419,21 +307,8 @@
           },
         }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
       ),
-      // V15 P0.7.143/.144 — Last-action trace for owned positions.
-      //
-      // Two stacked lines when both apply:
-      //   Line 1: WATCHING — "Trim signal — monitoring for trigger"
-      //           (only when stage recommends action with no recent lot)
-      //   Line 2: LAST — actual most-recent lot ("Bought 17sh · 28d ago")
-      //
-      // The wording deliberately does NOT use "PENDING" or "Awaiting"
-      // (which the user read as "the model failed to act"). The model
-      // is doing exactly what it should: waiting for the trigger
-      // condition. The age-since-last-action stays on the LAST line, not
-      // the watching line, so it reads as factual context rather than
-      // an alarm clock.
       isOwned && (watchingLabel || lastActionAgoLabel) && React.createElement("div", {
-        style: { marginTop: 4, display: "flex", flexDirection: "column", gap: 2 },
+        style: { marginTop: 4, display: "flex", flexDirection: "column", gap: 2, zIndex: 2, position: "relative" },
       },
         watchingLabel && React.createElement("div", {
           style: {
@@ -472,10 +347,74 @@
           React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } }, lastActionAgoLabel),
         ),
       ),
-      // Bottom signal row — Score · RS · 1M · 3M
-      React.createElement("div", {
-        style: { display: "flex", alignItems: "center", gap: "var(--ds-space-1)", marginTop: "var(--ds-space-2)", flexWrap: "wrap", zIndex: 2, position: "relative" },
+    );
+
+    return LC.create({
+      sym,
+      button: {
+        onClick: () => onSelect && onSelect(sym),
+        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
+        style: cardStyle,
       },
+      isTTSel,
+      chipRow: [
+        tierMeta && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: tierMeta.color,
+            background: `${tierMeta.color}18`,
+            borderColor: `${tierMeta.color}55`,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+          },
+          title: tierMeta.title,
+        }, tierMeta.label),
+        isOwned && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: "rgb(196,181,253)",
+            background: "rgba(167,139,250,0.15)",
+            borderColor: "rgba(167,139,250,0.45)",
+          },
+          title: posShares > 0 && posAvg > 0
+            ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
+            : "Open investor position",
+        }, "OWNED"),
+        (() => {
+          const firstTs = isOwned ? Number(pos?.first_entry_ts) || 0 : 0;
+          if (!firstTs) return null;
+          const ageMs = Date.now() - firstTs;
+          if (ageMs < 0 || ageMs > 30 * 60 * 1000) return null;
+          const ageMin = Math.max(1, Math.floor(ageMs / 60000));
+          return React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              color: "rgb(134,239,172)",
+              background: "rgba(34,197,94,0.18)",
+              borderColor: "rgba(34,197,94,0.55)",
+              animation: "tt-pulse 1.8s ease-in-out infinite",
+            },
+            title: `Position opened ${ageMin} min ago — matches the Discord entry alert`,
+          }, "JUST OPENED");
+        })(),
+        t.rs?.rsNewHigh3m && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: "Relative strength made a new 3-month high",
+        }, "RS HI"),
+        earnLabel && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
+        }, `EPS ${earnLabel}`),
+      ],
+      quote: { price, dayPct, dayChg, dir, extLine },
+      midBody: (isOwned || (watchingLabel || lastActionAgoLabel)) ? midBody : null,
+      sparkSvg,
+      metrics: [
         Number.isFinite(score) && score > 0 && React.createElement("span", {
           className: `ds-chip ds-chip--sm ${score >= 70 ? "ds-chip--up" : score >= 50 ? "ds-chip--accent" : ""}`,
           style: { fontFamily: "var(--tt-font-mono)" },
@@ -510,8 +449,10 @@
             title: `Heads up: the latest live score (S${Math.round(Number(liveStagePending.score) || 0)}) reclassifies this as "${_label}". The lane shown is the last committed classification — it moves to ${_label} on the next investor refresh.`,
           }, `NEXT → ${_label.toUpperCase()}`);
         })(),
-      ),
-    );
+      ],
+      isSaved,
+      onToggleSaved: toggleSavedTicker,
+    });
   }
 
   function InvestorKanbanColumn({ laneKey, title, hint, action, actionColor, icon, color, count, items, renderCard, laneScrollRef }) {

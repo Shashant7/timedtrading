@@ -468,11 +468,9 @@ function ATCard({
       curX: xPct(price)
     };
   })();
-  const cardBiasLabel = (() => {
-    if (biasLabel === "Leaning bullish") return "Lean Bull";
-    if (biasLabel === "Leaning bearish") return "Lean Bear";
-    return biasLabel;
-  })();
+  const LC = window.TTLaneCard;
+  const cardBiasLabel = LC?.compactBiasLabel ? LC.compactBiasLabel(biasLabel) : biasLabel;
+  const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
   const cardStyle = {
     textAlign: "left",
     padding: "var(--ds-space-3)",
@@ -481,115 +479,7 @@ function ATCard({
       boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)"
     } : {})
   };
-  return h("button", {
-    onClick: () => onOpen(sym),
-    className: "ds-tickercard",
-    style: cardStyle,
-    title: `Open ${sym} in Active Trader detail`
-  }, h("div", {
-    className: "ds-tickercard__head at-card-head"
-  }, h("div", {
-    className: "at-card-head__row at-card-head__row--top"
-  }, h("div", {
-    className: "ds-tickercard__logo",
-    ref: el => {
-      if (el && !el.dataset.dsInit && window.DS) {
-        el.dataset.dsInit = "1";
-        try {
-          el.replaceWith(window.DS.tickerLogo(sym, {
-            size: 22
-          }));
-        } catch (_) {}
-      }
-    },
-    style: {
-      width: 22,
-      height: 22
-    }
-  }, sym.slice(0, 2)), h("span", {
-    className: "ds-tickercard__symbol",
-    style: {
-      fontSize: 13,
-      flexShrink: 0
-    }
-  }, sym), isTTSel && h("span", {
-    title: "TT Selected",
-    style: {
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "var(--ds-accent)",
-      boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
-      flexShrink: 0
-    }
-  }), h("div", {
-    className: "at-card-head__spacer"
-  }), onToggleSaved && h("button", {
-    onClick: e => {
-      e.preventDefault();
-      e.stopPropagation();
-      onToggleSaved(sym);
-    },
-    className: "ds-chip ds-chip--sm at-card-save",
-    style: {
-      padding: "0 6px",
-      height: 18,
-      color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
-      background: isSaved ? "var(--ds-accent-dim)" : "transparent",
-      borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)"
-    },
-    title: isSaved ? "Saved — click to unsave" : "Save ticker",
-    "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
-  }, isSaved ? "★" : "☆")), h("div", {
-    className: "at-card-head__row at-card-head__row--chips"
-  }, h("span", {
-    className: `ds-chip ds-chip--sm ${biasChipCls}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
-  }, cardBiasLabel), stageChip && h("span", {
-    className: `ds-chip ds-chip--sm ${stageChip.cls}`
-  }, stageChip.label))), h("div", {
-    className: "ds-tickercard__price",
-    style: {
-      fontSize: 18
-    }
-  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && h("div", {
-    className: `ds-tickercard__change ds-tickercard__change--${dir}`,
-    style: {
-      fontSize: 12
-    }
-  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`, Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
-    style: {
-      marginLeft: 4,
-      opacity: 0.7,
-      fontSize: 10
-    }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), (() => {
-    const ext = window.TimedPriceUtils?.getExtChange?.(t);
-    if (!ext) return null;
-    const extDir = ext.pct >= 0 ? "up" : "dn";
-    return h("div", {
-      className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
-      style: {
-        fontSize: 10.5,
-        opacity: 0.88,
-        marginTop: 2
-      }
-    }, h("span", {
-      style: {
-        fontSize: 8.5,
-        fontWeight: 700,
-        marginRight: 4,
-        padding: "0 3px",
-        borderRadius: 3,
-        background: "var(--tt-bg-elev)",
-        color: "var(--tt-text-dim)",
-        letterSpacing: "0.08em"
-      }
-    }, "EXT"), ext.price != null ? `$${ext.price.toFixed(2)} ` : "", `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`);
-  })(), progressBarData && (() => {
+  const progressMid = progressBarData && (() => {
     const {
       xPct,
       pnlPct,
@@ -602,11 +492,7 @@ function ATCard({
     const fillW = Math.abs(curX - epX);
     const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
     return h("div", {
-      style: {
-        marginTop: "var(--ds-space-2)",
-        zIndex: 2,
-        position: "relative"
-      }
+      className: "tt-lane-card__position"
     }, h("div", {
       style: {
         display: "flex",
@@ -703,52 +589,67 @@ function ATCard({
         cursor: "help"
       }
     }, tick.label))));
-  })(), sparkSvg && h("div", {
-    className: "ds-tickercard__spark",
-    dangerouslySetInnerHTML: {
-      __html: sparkSvg
-    }
-  }), h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: "var(--ds-space-1)",
-      marginTop: "var(--ds-space-2)",
-      flexWrap: "wrap",
-      zIndex: 2,
-      position: "relative"
-    }
-  }, rank != null && h("span", {
-    className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
+  })();
+  return LC.create({
+    sym,
+    button: {
+      onClick: () => onOpen(sym),
+      style: cardStyle,
+      title: `Open ${sym} in Active Trader detail`
     },
-    title: `Rank position: ${rank} of all eligible tickers.`
-  }, `R${rank}`), score != null && h("span", {
-    className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
+    isTTSel,
+    chipRow: [h("span", {
+      className: `ds-chip ds-chip--sm ${biasChipCls}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
+    }, cardBiasLabel), stageChip && h("span", {
+      className: `ds-chip ds-chip--sm ${stageChip.cls}`
+    }, stageChip.label)],
+    quote: {
+      price,
+      dayPct,
+      dayChg,
+      dir,
+      extLine
     },
-    title: `Score: ${Math.round(score)}`
-  }, `S${Math.round(score)}`), conv != null && h("span", {
-    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Conviction tier · focus score"
-  }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
-    className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Risk:Reward"
-  }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
-    className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
-  }, sqChipInfo.label)));
+    midBody: progressMid,
+    sparkSvg,
+    metrics: [rank != null && h("span", {
+      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Rank position: ${rank} of all eligible tickers.`
+    }, `R${rank}`), score != null && h("span", {
+      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Score: ${Math.round(score)}`
+    }, `S${Math.round(score)}`), conv != null && h("span", {
+      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Conviction tier · focus score"
+    }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
+      className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Risk:Reward"
+    }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
+      className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
+    }, sqChipInfo.label)],
+    isSaved,
+    onToggleSaved
+  });
 }
 function KanbanLane({
   id,
@@ -1718,6 +1619,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781731391140:233727429
+// cache-bust:1781732372106:900705841
 
-// cache-bust:1781731391140:233727429
+// cache-bust:1781732372106:900705841

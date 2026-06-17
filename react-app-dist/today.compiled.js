@@ -3726,6 +3726,8 @@ function ViewportCard({
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const cardBiasLabel = window.TTLaneCard?.compactBiasLabel ? window.TTLaneCard.compactBiasLabel(biasLabel) : biasLabel;
+  const extLine = window.TTLaneCard?.extLineFromTicker ? window.TTLaneCard.extLineFromTicker(t) : null;
   const cardStyle = {
     textAlign: "left",
     padding: "var(--ds-space-3)",
@@ -3734,158 +3736,64 @@ function ViewportCard({
       boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
     } : {})
   };
-  return h("button", {
-    onClick: () => onOpen(sym),
-    className: "ds-tickercard",
-    style: cardStyle,
-    title: `Open ${sym} in Active Trader`
-  }, h("div", {
-    className: "ds-tickercard__head"
-  }, h("div", {
-    className: "ds-tickercard__logo",
-    ref: el => {
-      if (el && !el.dataset.dsInit && window.DS) {
-        el.dataset.dsInit = "1";
-        try {
-          el.replaceWith(window.DS.tickerLogo(sym, {
-            size: 22
-          }));
-        } catch (_) {}
-      }
+  return window.TTLaneCard.create({
+    sym,
+    button: {
+      onClick: () => onOpen(sym),
+      style: cardStyle,
+      title: `Open ${sym} in Active Trader`
     },
-    style: {
-      width: 22,
-      height: 22
-    }
-  }, sym.slice(0, 2)), h("span", {
-    className: "ds-tickercard__symbol",
-    style: {
-      fontSize: 13
-    }
-  }, sym), h("span", {
-    className: `ds-chip ds-chip--sm ${biasChipCls}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      marginLeft: 4
-    },
-    title: "Bias"
-  }, biasLabel), isTTSel && h("span", {
-    title: "TT Selected",
-    style: {
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: "var(--ds-accent)",
-      boxShadow: "0 0 0 2px rgba(245,194,92,0.20)",
-      marginLeft: 4,
-      flexShrink: 0
-    }
-  }), stageChip && h("span", {
-    className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-    style: {
-      marginLeft: stageChip && onToggleSaved ? "auto" : "auto"
-    }
-  }, stageChip.label), onToggleSaved && h("button", {
-    onClick: e => {
-      e.preventDefault();
-      e.stopPropagation();
-      onToggleSaved(sym);
-    },
-    className: "ds-chip ds-chip--sm",
-    style: {
-      marginLeft: stageChip ? 4 : "auto",
-      padding: "0 6px",
-      height: 18,
-      color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
-      background: isSaved ? "var(--ds-accent-dim)" : "transparent",
-      borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)"
-    },
-    title: isSaved ? "Saved — click to unsave" : "Save ticker",
-    "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
-  }, isSaved ? "★" : "☆")), h("div", {
-    className: "ds-tickercard__price",
-    style: {
-      fontSize: 18
-    }
-  }, Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"), dayPct != null && h("div", {
-    className: `ds-tickercard__change ds-tickercard__change--${dir}`,
-    style: {
-      fontSize: 12
-    }
-  }, dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆", " ", `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`, Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
-    style: {
-      marginLeft: 4,
-      opacity: 0.7,
-      fontSize: 10
-    }
-  }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`)), (() => {
-    const ext = window.TimedPriceUtils?.getExtChange?.(t);
-    if (!ext) return null;
-    const extDir = ext.pct >= 0 ? "up" : "dn";
-    return h("div", {
-      className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
-      style: {
-        fontSize: 10.5,
-        opacity: 0.88,
-        marginTop: 2
-      }
-    }, h("span", {
-      style: {
-        fontSize: 8.5,
-        fontWeight: 700,
-        marginRight: 4,
-        padding: "0 3px",
-        borderRadius: 3,
-        background: "var(--tt-bg-elev)",
-        color: "var(--tt-text-dim)",
-        letterSpacing: "0.08em"
-      }
-    }, "EXT"), ext.price != null ? `$${ext.price.toFixed(2)} ` : "", `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`);
-  })(), sparkSvg && h("div", {
-    className: "ds-tickercard__spark",
-    dangerouslySetInnerHTML: {
-      __html: sparkSvg
-    }
-  }), h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: "var(--ds-space-1)",
-      marginTop: "var(--ds-space-2)",
-      flexWrap: "wrap",
-      zIndex: 2,
-      position: "relative"
-    }
-  }, rank != null && h("span", {
-    className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: `Rank position: ${rank} of all eligible tickers (1 = best).`
-  }, `R${rank}`), score != null && h("span", {
-    className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: `Score: ${Math.round(score)} (composite alignment, higher = better).`
-  }, `S${Math.round(score)}`), conv != null && h("span", {
-    className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)"
-    },
-    title: "Conviction tier · focus score"
-  }, `${tier || "C"}·${Math.round(conv)}`), (() => {
-    const tilt = Number(t?._theme_tilt);
-    if (!Number.isFinite(tilt) || tilt === 0) return null;
-    const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
-    return h("span", {
-      className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+    isTTSel,
+    chipRow: [h("span", {
+      className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`
-    }, `T${tilt > 0 ? "+" : ""}${tilt}`);
-  })()));
+      title: "Bias"
+    }, cardBiasLabel), stageChip && h("span", {
+      className: `ds-chip ds-chip--sm ${stageChip.cls}`
+    }, stageChip.label)],
+    quote: {
+      price,
+      dayPct,
+      dayChg,
+      dir,
+      extLine
+    },
+    sparkSvg,
+    metrics: [rank != null && h("span", {
+      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Rank position: ${rank} of all eligible tickers (1 = best).`
+    }, `R${rank}`), score != null && h("span", {
+      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: `Score: ${Math.round(score)} (composite alignment, higher = better).`
+    }, `S${Math.round(score)}`), conv != null && h("span", {
+      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Conviction tier · focus score"
+    }, `${tier || "C"}·${Math.round(conv)}`), (() => {
+      const tilt = Number(t?._theme_tilt);
+      if (!Number.isFinite(tilt) || tilt === 0) return null;
+      const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
+      return h("span", {
+        className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`
+      }, `T${tilt > 0 ? "+" : ""}${tilt}`);
+    })()],
+    isSaved,
+    onToggleSaved
+  });
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
@@ -5373,6 +5281,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781729332135:753996406
+// cache-bust:1781732372106:900705841
 
-// cache-bust:1781729332135:753996406
+// cache-bust:1781732372106:900705841
