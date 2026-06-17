@@ -54,6 +54,27 @@ describe("computeDayLean", () => {
     expect(withUnresolved.reasons).not.toContain("broke the opening range low");
   });
 
+  it("research desk posture tilts the lean and is surfaced, but never overrides the tape", () => {
+    // Strong intraday SHORT evidence; a constructive desk tilt should NOT flip
+    // it to long — it only nudges (bounded ±0.5).
+    const r = computeDayLean({
+      curPrice: 98, anchor: 100, dayAtr: 4,
+      overnightRange: { high: 101, low: 99 },
+      openingRange: { high: 99.5, low: 98.5, resolved: true },
+      trendBias: 0,
+      researchBias: 0.6, // desk constructive
+    });
+    expect(r.lean).toBe("SHORT");
+    expect(r.reasons).toContain("research desk constructive");
+    // A flat tape + a defensive desk read surfaces the reason without forcing a lean.
+    const flat = computeDayLean({
+      curPrice: 100.01, anchor: 100, dayAtr: 4,
+      overnightRange: { high: 100.4, low: 99.6 },
+      researchBias: -0.4,
+    });
+    expect(flat.reasons).toContain("research desk defensive");
+  });
+
   it("surfaces the lean on the built game plan (snake_case)", () => {
     const plan = buildOvernightDayTradeGamePlan({
       curPrice: 98, anchor: 100, dayAtr: 4,
