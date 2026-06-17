@@ -2,8 +2,22 @@
 // Used by Active Trader lanes, Today Viewport, and Investor kanban for visual parity.
 (function () {
   if (typeof window === "undefined") return;
-  const React = window.React;
-  if (!React) return;
+
+  function boot() {
+    const React = window.React;
+    if (!React) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", boot, { once: true });
+      } else {
+        setTimeout(boot, 0);
+      }
+      return;
+    }
+    if (window.TTLaneCard) return;
+    register(React);
+  }
+
+  function register(React) {
   const h = React.createElement;
 
   function compactBiasLabel(label) {
@@ -122,4 +136,7 @@
     quoteColumn,
     saveButton,
   };
+  }
+
+  boot();
 })();
