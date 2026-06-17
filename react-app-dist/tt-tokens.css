@@ -759,6 +759,131 @@ input, button, select, textarea {
 .ds-tickercard--hero .ds-tickercard__symbol { font-size: 18px; }
 .ds-tickercard--hero .ds-tickercard__price { font-size: 32px; }
 
+/* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
+.ds-tickercard.tt-lane-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 118px;
+  text-align: left;
+}
+.tt-lane-card__main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 2;
+  position: relative;
+}
+.tt-lane-card__meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tt-lane-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tt-lane-card__ttsel {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 2px rgba(56,242,161,0.20);
+  flex-shrink: 0;
+}
+.tt-lane-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tt-lane-card__chips .ds-chip {
+  flex: 0 1 auto;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tt-lane-card__quote {
+  flex: 0 0 auto;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  padding-top: 1px;
+}
+.tt-lane-card__price {
+  font-family: var(--tt-font-mono);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ds-text-display);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.tt-lane-card__change {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  font-family: var(--tt-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tt-lane-card__ext {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  font-family: var(--tt-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.88;
+  white-space: nowrap;
+}
+.tt-lane-card__ext-tag {
+  font-size: 8px;
+  font-weight: 700;
+  margin-right: 2px;
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--tt-bg-elev);
+  color: var(--tt-text-dim);
+  letter-spacing: 0.06em;
+}
+.tt-lane-card__foot {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  z-index: 2;
+  position: relative;
+  min-height: 20px;
+}
+.tt-lane-card__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tt-lane-card__save {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  height: 18px;
+  margin-left: auto;
+}
+.tt-lane-card__position {
+  z-index: 2;
+  position: relative;
+}
+
 /* ─── DsChip ───────────────────────────────────────────────────────── */
 
 .ds-chip {

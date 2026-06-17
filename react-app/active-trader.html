@@ -24,6 +24,7 @@
     <script src="tt-rail-bridge.js?v=20260528b" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="shared-lane-card.js?v=20260616a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -458,35 +459,6 @@
       .lane-cards .ds-tickercard {
         flex: 0 0 auto;
         width: 280px;
-      }
-      /* Card head — two rows so long bias chips don't shove the save star off-edge. */
-      .lane-cards .ds-tickercard .at-card-head {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 6px;
-      }
-      .at-card-head__row {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-        width: 100%;
-      }
-      .at-card-head__row--chips {
-        flex-wrap: wrap;
-        row-gap: 4px;
-      }
-      .at-card-head__spacer { flex: 1 1 auto; min-width: 4px; }
-      .at-card-save {
-        flex: 0 0 auto;
-        margin-left: 0 !important;
-      }
-      .at-card-head__row--chips .ds-chip {
-        flex: 0 1 auto;
-        max-width: 100%;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
       .lane-empty {
         font-size: 12px;
@@ -1007,11 +979,11 @@
           return { xPct, pnlPct, ticks, ep, curX: xPct(price) };
         })();
 
-        const cardBiasLabel = (() => {
-          if (biasLabel === "Leaning bullish") return "Lean Bull";
-          if (biasLabel === "Leaning bearish") return "Lean Bear";
-          return biasLabel;
-        })();
+        const LC = window.TTLaneCard;
+        const cardBiasLabel = LC?.compactBiasLabel
+          ? LC.compactBiasLabel(biasLabel)
+          : biasLabel;
+        const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
 
         const cardStyle = {
           textAlign: "left",
@@ -1021,195 +993,118 @@
             : {}),
         };
 
-        return h("button", {
-          onClick: () => onOpen(sym),
-          className: "ds-tickercard",
-          style: cardStyle,
-          title: `Open ${sym} in Active Trader detail`,
-        },
-          h("div", { className: "ds-tickercard__head at-card-head" },
-            h("div", { className: "at-card-head__row at-card-head__row--top" },
+        const progressMid = progressBarData && (() => {
+          const { xPct, pnlPct, ticks, ep, curX } = progressBarData;
+          const epX = xPct(ep);
+          const fillStart = Math.min(epX, curX);
+          const fillW = Math.abs(curX - epX);
+          const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
+          return h("div", { className: "tt-lane-card__position" },
+            h("div", {
+              style: {
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                fontSize: 9, color: "var(--ds-text-muted)", marginBottom: 4,
+                fontFamily: "var(--tt-font-mono)",
+              },
+            },
+              h("span", { style: { textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 } }, "Position"),
+              h("span", {
+                style: { color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight: 700 },
+              }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
+            ),
+            h("div", {
+              style: {
+                position: "relative", height: 6,
+                background: "var(--ds-bg-glass-hi, rgba(255,255,255,0.06))",
+                borderRadius: 3, overflow: "visible",
+              },
+            },
               h("div", {
-                className: "ds-tickercard__logo",
-                ref: (el) => {
-                  if (el && !el.dataset.dsInit && window.DS) {
-                    el.dataset.dsInit = "1";
-                    try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
-                  }
+                style: {
+                  position: "absolute",
+                  left: `${fillStart}%`,
+                  width: `${fillW}%`,
+                  top: 0, bottom: 0,
+                  background: fillBg,
+                  borderRadius: 3,
                 },
-                style: { width: 22, height: 22 },
-              }, sym.slice(0, 2)),
-              h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13, flexShrink: 0 } }, sym),
-              isTTSel && h("span", {
-                title: "TT Selected",
-                style: { width: 6, height: 6, borderRadius: "50%", background: "var(--ds-accent)", boxShadow: "0 0 0 2px rgba(56,242,161,0.20)", flexShrink: 0 },
               }),
-              h("div", { className: "at-card-head__spacer" }),
-              onToggleSaved && h("button", {
-                onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
-                className: "ds-chip ds-chip--sm at-card-save",
+              ...ticks.map((tick, i) => h("div", {
+                key: `tick-${i}`,
+                title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
                 style: {
-                  padding: "0 6px", height: 18,
-                  color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                  background: isSaved ? "var(--ds-accent-dim)" : "transparent",
-                  borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+                  position: "absolute",
+                  left: `${xPct(tick.px)}%`,
+                  top: -8, bottom: -8,
+                  width: 12,
+                  transform: "translateX(-6px)",
+                  cursor: "help",
+                  display: "flex", justifyContent: "center", alignItems: "center",
                 },
-                title: isSaved ? "Saved — click to unsave" : "Save ticker",
-                "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
-              }, isSaved ? "★" : "☆"),
+              },
+                h("div", { style: { width: 2, height: "calc(100% - 8px)", background: tick.color } }),
+              )),
+              h("div", {
+                title: `Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
+                style: {
+                  position: "absolute",
+                  left: `${curX}%`,
+                  top: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 10, height: 10,
+                  borderRadius: "50%",
+                  background: "var(--ds-accent)",
+                  boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(56,242,161,0.40))",
+                  cursor: "help",
+                },
+              }),
             ),
-            h("div", { className: "at-card-head__row at-card-head__row--chips" },
-              h("span", {
-                className: `ds-chip ds-chip--sm ${biasChipCls}`,
-                style: { fontFamily: "var(--tt-font-mono)" },
-                title: resolvedOpen ? "Trade direction" : (biasLabel !== cardBiasLabel ? biasLabel : "Bias"),
-              }, cardBiasLabel),
-              stageChip && h("span", {
-                className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-              }, stageChip.label),
+            h("div", {
+              style: {
+                position: "relative", height: 12, marginTop: 2,
+                fontFamily: "var(--tt-font-mono)", fontSize: 8,
+                color: "var(--ds-text-muted)",
+              },
+            },
+              ...ticks.map((tick, i) => h("span", {
+                key: `lbl-${i}`,
+                title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
+                style: {
+                  position: "absolute",
+                  left: `${xPct(tick.px)}%`,
+                  transform: "translateX(-50%)",
+                  color: tick.color,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  cursor: "help",
+                },
+              }, tick.label)),
             ),
-          ),
-          h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
-            Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",
-          ),
-          dayPct != null && h("div", {
-            className: `ds-tickercard__change ds-tickercard__change--${dir}`,
-            style: { fontSize: 12 },
+          );
+        })();
+
+        return LC.create({
+          sym,
+          button: {
+            onClick: () => onOpen(sym),
+            style: cardStyle,
+            title: `Open ${sym} in Active Trader detail`,
           },
-            dir === "up" ? "▲" : dir === "dn" ? "▼" : "◆",
-            " ",
-            `${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(2)}%`,
-            Number.isFinite(dayChg) && Math.abs(dayChg) > 0.001 && h("span", {
-              style: { marginLeft: 4, opacity: 0.7, fontSize: 10 },
-            }, ` (${dayChg >= 0 ? "+" : ""}$${Math.abs(dayChg).toFixed(2)})`),
-          ),
-          // EXT price/change — mirrors Market Pulse cards; getExtChange() owns rules.
-          (() => {
-            const ext = window.TimedPriceUtils?.getExtChange?.(t);
-            if (!ext) return null;
-            const extDir = ext.pct >= 0 ? "up" : "dn";
-            return h("div", {
-              className: `ds-tickercard__change ds-tickercard__change--${extDir}`,
-              style: { fontSize: 10.5, opacity: 0.88, marginTop: 2 },
-            },
-              h("span", {
-                style: {
-                  fontSize: 8.5, fontWeight: 700, marginRight: 4,
-                  padding: "0 3px", borderRadius: 3,
-                  background: "var(--tt-bg-elev)", color: "var(--tt-text-dim)",
-                  letterSpacing: "0.08em",
-                },
-              }, "EXT"),
-              ext.price != null ? `$${ext.price.toFixed(2)} ` : "",
-              `${ext.pct >= 0 ? "+" : ""}${ext.pct.toFixed(2)}%`,
-            );
-          })(),
-          // Position progress bar (only when there's an open trade).
-          progressBarData && (() => {
-            const { xPct, pnlPct, ticks, ep, curX } = progressBarData;
-            const epX = xPct(ep);
-            const fillStart = Math.min(epX, curX);
-            const fillW = Math.abs(curX - epX);
-            const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
-            return h("div", { style: { marginTop: "var(--ds-space-2)", zIndex: 2, position: "relative" } },
-              h("div", {
-                style: {
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  fontSize: 9, color: "var(--ds-text-muted)", marginBottom: 4,
-                  fontFamily: "var(--tt-font-mono)",
-                },
-              },
-                h("span", { style: { textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 } }, "Position"),
-                h("span", {
-                  style: { color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight: 700 },
-                }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
-              ),
-              // Track
-              h("div", {
-                style: {
-                  position: "relative", height: 6,
-                  background: "var(--ds-bg-glass-hi, rgba(255,255,255,0.06))",
-                  borderRadius: 3, overflow: "visible",
-                },
-              },
-                // Fill from entry to current
-                h("div", {
-                  style: {
-                    position: "absolute",
-                    left: `${fillStart}%`,
-                    width: `${fillW}%`,
-                    top: 0, bottom: 0,
-                    background: fillBg,
-                    borderRadius: 3,
-                  },
-                }),
-                // Tick marks
-                ...ticks.map((tick, i) => h("div", {
-                  key: `tick-${i}`,
-                  title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
-                  style: {
-                    position: "absolute",
-                    left: `${xPct(tick.px)}%`,
-                    top: -8, bottom: -8,
-                    width: 12,
-                    transform: "translateX(-6px)",
-                    cursor: "help",
-                    display: "flex", justifyContent: "center", alignItems: "center",
-                  },
-                },
-                  h("div", { style: { width: 2, height: "calc(100% - 8px)", background: tick.color } }),
-                )),
-                // Current-price dot
-                h("div", {
-                  title: `Current: $${Number(price).toFixed(2)} (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%)`,
-                  style: {
-                    position: "absolute",
-                    left: `${curX}%`,
-                    top: "50%",
-                    transform: "translate(-50%, -50%)",
-                    width: 10, height: 10,
-                    borderRadius: "50%",
-                    background: "var(--ds-accent)",
-                    boxShadow: "0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(56,242,161,0.40))",
-                    cursor: "help",
-                  },
-                }),
-              ),
-              // Labels under track
-              h("div", {
-                style: {
-                  position: "relative", height: 12, marginTop: 2,
-                  fontFamily: "var(--tt-font-mono)", fontSize: 8,
-                  color: "var(--ds-text-muted)",
-                },
-              },
-                ...ticks.map((tick, i) => h("span", {
-                  key: `lbl-${i}`,
-                  title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
-                  style: {
-                    position: "absolute",
-                    left: `${xPct(tick.px)}%`,
-                    transform: "translateX(-50%)",
-                    color: tick.color,
-                    fontWeight: 700,
-                    whiteSpace: "nowrap",
-                    cursor: "help",
-                  },
-                }, tick.label)),
-              ),
-            );
-          })(),
-          sparkSvg && h("div", {
-            className: "ds-tickercard__spark",
-            dangerouslySetInnerHTML: { __html: sparkSvg },
-          }),
-          h("div", {
-            style: {
-              display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
-              marginTop: "var(--ds-space-2)", flexWrap: "wrap",
-              zIndex: 2, position: "relative",
-            },
-          },
+          isTTSel,
+          chipRow: [
+            h("span", {
+              className: `ds-chip ds-chip--sm ${biasChipCls}`,
+              style: { fontFamily: "var(--tt-font-mono)" },
+              title: resolvedOpen ? "Trade direction" : (biasLabel !== cardBiasLabel ? biasLabel : "Bias"),
+            }, cardBiasLabel),
+            stageChip && h("span", {
+              className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+            }, stageChip.label),
+          ],
+          quote: { price, dayPct, dayChg, dir, extLine },
+          midBody: progressMid,
+          sparkSvg,
+          metrics: [
             rank != null && h("span", {
               className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
               style: { fontFamily: "var(--tt-font-mono)" },
@@ -1235,8 +1130,10 @@
               style: { fontFamily: "var(--tt-font-mono)" },
               title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`,
             }, sqChipInfo.label),
-          ),
-        );
+          ],
+          isSaved,
+          onToggleSaved,
+        });
       }
 
       // ── KanbanLane — one row of the board.
