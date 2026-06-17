@@ -44,6 +44,20 @@ Match the fixture policy exactly:
 The script plots benchmark columns for EMA/RSI/ATR/SuperTrend/TD/Phase/Saty,
 PDZ, FVG, liquidity, ORB, VWAP, RVOL, squeeze, and RSI divergence.
 
+### SuperTrend parameter note
+
+The worker's current default SuperTrend is `10,3` (ATR length 10, factor 3.0).
+If the TradingView reference indicator is set to `5,3`, either:
+
+1. Set this exporter's **SuperTrend ATR length** input to `5` before exporting,
+   or
+2. Leave the exporter at `10` and send the separate `5,3` reference columns;
+   the fixture conversion will mark them with
+   `indicator_params.supertrend = {"atr_len":5,"factor":3.0}`.
+
+Do not compare a `5,3` reference to the worker's `10,3` output without marking
+the parameters; that is a parameter mismatch, not a formula mismatch.
+
 Code legends used by the CSV:
 
 - `phase_zone_code` / `saty_phase_zone_code`: `0=LOW`, `1=MEDIUM`,

@@ -11,9 +11,15 @@
 import {
   computeTDSequential,
   computeTfBundle,
+  superTrendSeries,
 } from "../indicators.js";
 
 export const INDICATOR_PARITY_FIXTURE_VERSION = 1;
+
+export const DEFAULT_SUPERTREND_PARAMS = Object.freeze({
+  factor: 3.0,
+  atrLen: 10,
+});
 
 export const SESSION_CLIP_BY_TF = Object.freeze({
   "1": "extended",
@@ -129,6 +135,13 @@ export function validateParityFixture(fixture) {
     errors.push(`session_clip ${sessionClip} does not match expected ${expectedClip} for tf ${tf}`);
   }
   if (!fixture.source) errors.push("source required");
+  const stParams = fixture.indicator_params?.supertrend;
+  if (stParams) {
+    const factor = Number(stParams.factor);
+    const atrLen = Number(stParams.atr_len ?? stParams.atrLen);
+    if (!Number.isFinite(factor) || factor <= 0) errors.push("indicator_params.supertrend.factor must be > 0");
+    if (!Number.isInteger(atrLen) || atrLen < 1) errors.push("indicator_params.supertrend.atr_len must be an integer >= 1");
+  }
   if (!fixture.range || !fixture.range.start || !fixture.range.end) errors.push("range.start/range.end required");
   const candles = normalizeBars(fixture.candles);
   if (candles.length === 0) errors.push("candles[] required");
@@ -142,7 +155,7 @@ export function validateParityFixture(fixture) {
   return { ok: errors.length === 0, errors };
 }
 
-export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htfBull = true }) {
+export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htfBull = true, indicatorParams = null }) {
   const normalizedTf = normalizeTf(tf);
   const bars = normalizeBars(candles);
   if (bars.length === 0) {
@@ -165,6 +178,16 @@ export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htf
   const fvg = bundle.fvg || {};
   const liq = bundle.liq || {};
   const rsiDiv = bundle.rsiDiv || {};
+  const stParams = indicatorParams?.supertrend || {};
+  const stFactor = Number.isFinite(Number(stParams.factor)) ? Number(stParams.factor) : DEFAULT_SUPERTREND_PARAMS.factor;
+  const stAtrLen = Number.isInteger(Number(stParams.atr_len ?? stParams.atrLen))
+    ? Number(stParams.atr_len ?? stParams.atrLen)
+    : DEFAULT_SUPERTREND_PARAMS.atrLen;
+  const customSt = (stFactor === DEFAULT_SUPERTREND_PARAMS.factor && stAtrLen === DEFAULT_SUPERTREND_PARAMS.atrLen)
+    ? null
+    : superTrendSeries(window, stFactor, stAtrLen);
+  const stDir = customSt ? customSt.dir[customSt.dir.length - 1] : bundle.stDir;
+  const stLine = customSt ? customSt.line[customSt.line.length - 1] : bundle.stLine;
 
   return {
     ok: true,
@@ -177,8 +200,12 @@ export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htf
       ema200: round(bundle.e200, 4),
       rsi14: round(bundle.rsi, 4),
       atr14: round(bundle.atr14, 4),
-      supertrend_dir: Number.isFinite(Number(bundle.stDir)) ? Number(bundle.stDir) : null,
-      supertrend_line: round(bundle.stLine, 4),
+      supertrend_dir: Number.isFinite(Number(stDir)) ? Number(stDir) : null,
+      supertrend_line: round(stLine, 4),
+      supertrend_factor: stFactor,
+      supertrend_atr_len: stAtrLen,
+      worker_supertrend_dir: Number.isFinite(Number(bundle.stDir)) ? Number(bundle.stDir) : null,
+      worker_supertrend_line: round(bundle.stLine, 4),
       td9_bull: !!td.td9_bullish,
       td9_bear: !!td.td9_bearish,
       td13_bull: !!td.td13_bullish,
@@ -244,6 +271,7 @@ export function runParityFixture(fixture, opts = {}) {
       candles: fixture.candles,
       asOfTs: row.ts,
       htfBull: row.htf_bull !== false,
+      indicatorParams: fixture.indicator_params || null,
     });
     if (!computed.ok) return { ts: row.ts, ok: false, error: computed.error, mismatches: [] };
     const comparison = compareParityRows(computed.actual, row.expected, opts);

@@ -51,6 +51,9 @@ session clip is invalid even if all formulas match the export.
   "session_clip": "exchange",
   "range": {"start": "2025-01-01", "end": "2026-06-15"},
   "candles_source": "twelvedata|alpaca|tradingview",
+  "indicator_params": {
+    "supertrend": {"factor": 3.0, "atr_len": 10}
+  },
   "candles": [
     {"ts": 1781553600000, "o": 121.21, "h": 121.48, "l": 113.31, "c": 115.47, "v": 1000000}
   ],
@@ -105,6 +108,16 @@ npx vitest run worker/foundation/indicator-parity.test.js
 The harness validates fixture shape, enforces session-clip policy, computes
 the worker indicator row for each fixture timestamp, and reports numeric or
 exact-field mismatches.
+
+## SuperTrend parameters
+
+The live worker currently computes SuperTrend with factor `3.0` and ATR length
+`10` unless explicitly changed in code. If a TradingView reference export uses a
+different setting, such as `5,3` (`atr_len=5`, `factor=3.0`), record it in
+`indicator_params.supertrend` before running parity. The harness will then
+compare `supertrend_dir` / `supertrend_line` against that parameter set while
+also preserving `worker_supertrend_dir` / `worker_supertrend_line` for the
+current live default.
 
 ## First batch request
 

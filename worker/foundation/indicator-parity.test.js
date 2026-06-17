@@ -78,6 +78,17 @@ describe("indicator parity fixture contract", () => {
     expect(validation.errors).toEqual([]);
   });
 
+  it("validates alternate SuperTrend parameter metadata", () => {
+    const f = fixtureBase();
+    f.indicator_params = { supertrend: { factor: 3.0, atr_len: 5 } };
+    expect(validateParityFixture(f).ok).toBe(true);
+
+    f.indicator_params.supertrend.atr_len = 0;
+    const validation = validateParityFixture(f);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors).toContain("indicator_params.supertrend.atr_len must be an integer >= 1");
+  });
+
   it("computes a worker parity row with the expected signal fields", () => {
     const f = fixtureBase();
     const computed = computeWorkerParityRow({
@@ -93,6 +104,9 @@ describe("indicator parity fixture contract", () => {
       rsi14: expect.any(Number),
       atr14: expect.any(Number),
       supertrend_dir: expect.any(Number),
+      supertrend_factor: 3,
+      supertrend_atr_len: 10,
+      worker_supertrend_dir: expect.any(Number),
       td_bull_prep_count: expect.any(Number),
       td_bear_prep_count: expect.any(Number),
       phase_value: expect.any(Number),
@@ -102,6 +116,23 @@ describe("indicator parity fixture contract", () => {
       fvg_in_bull: expect.any(Boolean),
       fvg_in_bear: expect.any(Boolean),
     });
+  });
+
+  it("can compute SuperTrend using fixture-specified reference parameters", () => {
+    const f = fixtureBase();
+    const computed = computeWorkerParityRow({
+      ticker: f.ticker,
+      tf: f.tf,
+      candles: f.candles,
+      asOfTs: f.rows[0].ts,
+      indicatorParams: { supertrend: { factor: 3.0, atr_len: 5 } },
+    });
+
+    expect(computed.ok).toBe(true);
+    expect(computed.actual.supertrend_factor).toBe(3);
+    expect(computed.actual.supertrend_atr_len).toBe(5);
+    expect(computed.actual.worker_supertrend_dir).toEqual(expect.any(Number));
+    expect(computed.actual.supertrend_dir).toEqual(expect.any(Number));
   });
 
   it("reports numeric and exact mismatches clearly", () => {
