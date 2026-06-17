@@ -33,7 +33,7 @@ needs to diagnose the movie.
 | Layer | Contract | Failure mode if weak |
 |---|---|---|
 | **L0 Candle truth** | Fresh, gap-aware, chain-integrity-checked OHLCV across TFs | Correct formulas produce wrong indicators |
-| **L1 Indicator truth** | EMA/RSI/ATR/ST/TD/Phase match benchmark outputs | Model learns from bad derived features |
+| **L1 Signal truth** | EMA/RSI/ATR/ST/TD/Phase/FVG/Liquidity/ORB/PDZ match benchmark outputs or deterministic fixtures | Model learns from bad derived features |
 | **L2 Event truth** | Indicator changes are persisted as time-stamped events | Trigger appears/disappears as a one-bar ghost |
 | **L3 Sequence truth** | Ordered events become named setup journeys | Engine sees notes, not music |
 | **L4 Pattern truth** | Sequences are scored against ticker history and global cohorts | Generic rules ignore ticker personality |
@@ -126,13 +126,16 @@ Required parity tests:
 3. SuperTrend parity: worker output vs TradingView export.
 4. TD Sequential parity on Daily/Weekly.
 5. Phase Oscillator parity on Daily/Weekly/1H.
-6. Replay/live parity: same fixture bar produces same worker output in replay
+6. Structural detector parity for FVG, liquidity zones, ORB, PDZ, RSI
+   divergence/extremes, and support/resistance labeling.
+7. Replay/live parity: same fixture bar produces same worker output in replay
    and live compute paths.
 
 Acceptance:
 
 - Exact match for integer/event fields: TD counts, TD direction, phase zone,
-  ST direction.
+  ST direction, ORB direction/window count, FVG present/filled state,
+  liquidity sweep/zone labels.
 - Numeric tolerance for floating fields: EMA/RSI/ATR/phase values.
 - Any discrepancy must be classified as:
   - candle source mismatch,
@@ -202,6 +205,17 @@ Minimum event types:
 - `supertrend_flat_opposing`
 - `supertrend_flip`
 - `supertrend_breakthrough`
+- `fvg_created`
+- `fvg_filled`
+- `fvg_reclaimed`
+- `liquidity_swept`
+- `liquidity_reclaimed`
+- `orb_breakout`
+- `orb_failed_breakout`
+- `orb_reclaim`
+- `rsi_extreme_entered`
+- `rsi_extreme_left`
+- `rsi_divergence_confirmed`
 - `pdz_discount_entered`
 - `pdz_equilibrium_reached`
 - `pdz_premium_entered`
@@ -230,10 +244,10 @@ Example: `td_phase_mean_reversion_long`
 |---|---|---|
 | 1. Exhaustion forming | Daily or Weekly TD setup >= 7, phase extreme | The selloff is maturing |
 | 2. Exhaustion confirmed | Daily/Weekly TD9 or TD13 completes | Reversal window is open |
-| 3. Location valid | price in discount / near SSL / near EMA200 / near major support | Reversal has a place to start |
+| 3. Location valid | price in discount / near SSL / FVG / liquidity sweep / ORB failure / EMA200 / major support | Reversal has a place to start |
 | 4. Phase leaves zone | phase exits accumulation or stops worsening | Selling pressure is changing character |
 | 5. Mean reversion target reached | price returns to EMA21 / equilibrium / flat opposing ST | First objective is met |
-| 6. Breakthrough with momentum | close through EMA21/ST with volume/momentum | Reversal can become trend |
+| 6. Breakthrough with momentum | close through EMA21/ST/ORB/FVG boundary with volume/momentum and RSI recovery | Reversal can become trend |
 | 7. Pullback stabilizes | retest holds above reclaimed level | Active Trader entry window |
 | 8. Continuation fires | ST/EMA/squeeze confirmation | Open Long candidate |
 
@@ -288,8 +302,10 @@ The engine should reason like diagnosis:
 
 - **Cough:** one weak signal, e.g. phase extreme.
 - **Itch / mucus / inflammation:** ordered preconditions, e.g. TD count
-  progressing, phase worsening, price entering discount, RSI divergence.
-- **Throat infection:** confirmed sequence, e.g. TD9 + phase leaving + reclaim.
+  progressing, phase worsening, price entering discount, RSI divergence,
+  liquidity sweep, FVG reaction, or ORB failure/reclaim.
+- **Throat infection:** confirmed sequence, e.g. TD9 + phase leaving +
+  liquidity/FVG/ORB reclaim.
 - **Treatment plan:** Day Trader mean reversion, Active Trader pullback entry,
   Investor hold/reduce depending on horizon.
 
@@ -372,6 +388,8 @@ Minimum context dimensions:
 - Ticker personality: pullback player, volatile runner, slow grinder,
   mean reverter, trend follower.
 - Liquidity/volatility: ATR percentile, RVOL, gap behavior.
+- Structure context: FVG direction/fill state, liquidity sweep/reclaim,
+  ORB breakout/failure/reclaim, RSI extreme/divergence.
 
 ### 7.3 Bidirectional symmetry
 
@@ -381,6 +399,8 @@ For longs:
 
 - selling exhaustion,
 - discount / support location,
+- FVG / liquidity / ORB failure location,
+- RSI extreme or bullish divergence,
 - phase leaves accumulation,
 - reclaim or breakthrough,
 - pullback holds,
@@ -390,6 +410,8 @@ For shorts:
 
 - buying exhaustion,
 - premium / resistance location,
+- FVG / liquidity / ORB failure location,
+- RSI extreme or bearish divergence,
 - phase leaves distribution,
 - rejection or breakdown,
 - bounce fails,
@@ -453,6 +475,8 @@ Use:
 - intraday + daily exhaustion forming,
 - TD/phase compression/extension,
 - opening range / VWAP / liquidity sweeps,
+- FVG fill/reclaim behavior,
+- RSI extremes/divergence,
 - ticker-specific reaction history to the same sequence.
 
 Output:
@@ -473,7 +497,8 @@ Use:
 - expected onset/path forecast,
 - pullback stabilization after reclaim,
 - ST/EMA confirmation,
-- PDZ location,
+- PDZ/FVG/liquidity/ORB location,
+- RSI confirmation or divergence,
 - historical sequence outcome for this ticker/cohort.
 
 Output:
@@ -536,6 +561,9 @@ Do not recalibrate weights until L0/L1 parity is proven.
 3. What is the best confirmation after phase leaves extreme:
    - EMA21 reclaim,
    - ST breakthrough,
+   - FVG reclaim/fill rejection,
+   - liquidity sweep/reclaim,
+   - ORB reclaim / failed breakdown,
    - squeeze release,
    - RSI divergence confirmation,
    - VWAP reclaim?
@@ -554,13 +582,14 @@ Do not recalibrate weights until L0/L1 parity is proven.
 
 - Build TradingView export script.
 - Export fixture set.
-- Add parity tests for EMA/RSI/ATR/ST/TD/Phase.
+- Add parity tests for EMA/RSI/ATR/ST/TD/Phase plus deterministic
+  structural fixtures for FVG, liquidity, ORB, PDZ, and RSI divergence.
 - Document accepted tolerances.
 
 ### Phase 2 — Event ledger
 
-- Normalize existing `flags`, `triggers[]`, TD, Phase, EMA, ST, PDZ into
-  append-only `setup_events`.
+- Normalize existing `flags`, `triggers[]`, TD, Phase, EMA, ST, PDZ, FVG,
+  liquidity, ORB, and RSI events into append-only `setup_events`.
 - Backfill events from historical candles for the fixture universe.
 - Add event idempotency tests.
 
