@@ -74,6 +74,7 @@ columns included in the raw CSV exports.
 | Reference | Checked | Result | Caveat |
 |---|---:|---|---|
 | LuxAlgo Sequencer preparation counts | 1,200 sampled rows | **Matched** bullish and bearish prep counts exactly | Added `tradingview/LuxAlgo-Sequencer-Export.pine` so the next export can include lead-up/countdown columns. |
+| LuxAlgo Sequencer lead-up counts | 400 sampled rows from SPY/IWM/QQQ Lux companion exports | **Did not match** current worker lead-up semantics | Prep matched 400/400 rows, but lead-up mismatched 383/400 sampled side checks (`76` bull, `307` bear). This is the next TD hardening target. |
 | MTF Phase Oscillator `Phase (Chart TF)` | 1,200 sampled rows | **Matched** `saty_phase_value` exactly | Also matched leaving-accumulation and leaving-distribution markers. |
 | ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker-vs-ATR-level parity still needs anchor-TF mapping (D/W/60 charts may anchor to W/M/3M depending script auto mode). |
 
@@ -151,8 +152,10 @@ The remaining gaps are now narrow and explicit:
 
 1. **FVG:** one bearish in-gap edge mismatch should be inspected manually:
    `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
-2. **LuxAlgo lead-up:** prep counts match; lead-up parity needs the new
-   `LuxAlgo-Sequencer-Export.pine` columns.
+2. **LuxAlgo lead-up:** prep counts match; lead-up does not. LuxAlgo starts
+   lead-up at `1` on preparation completion and persists counts differently
+   from the current worker implementation. This should be fixed or explicitly
+   forked as a separate TD flavor before TD exhaustion is treated as hardened.
 3. **ATR Levels:** exported bands are internally consistent, but full
    worker-vs-reference parity needs anchor mapping:
    below 30m -> previous Daily close, 30m -> previous Weekly close, 60m ->
@@ -167,7 +170,9 @@ The remaining gaps are now narrow and explicit:
 
 1. Re-export with `TimedTrading_Indicator_Parity_Export.pine` to include
    rolling VWAP columns and TD lead-up columns.
-2. Export `LuxAlgo-Sequencer-Export.pine` columns for direct Lux lead-up parity.
+2. Decide TD lead-up semantics:
+   - align worker to LuxAlgo Sequencer, or
+   - keep current worker lead-up and name it as a different TD flavor.
 3. Inspect the single FVG mismatch:
    - `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
 4. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity.
