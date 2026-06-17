@@ -58,36 +58,33 @@ async function fetchAll() {
     ok: false
   };
 }
+function resolveOpenTrade(tr) {
+  if (!tr) return null;
+  try {
+    return window.TimedPriceUtils?.isTradeOpen?.(tr) ? tr : null;
+  } catch (_) {
+    return null;
+  }
+}
 function useOpenTrades(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
   const refresh = useCallback(async () => {
     try {
-      const [posRes, promRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
         cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=promoted`, {
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
       const m = new Map();
       const accept = tr => {
+        if (!resolveOpenTrade(tr)) return;
         const sym = String(tr?.ticker || "").toUpperCase();
         if (!sym) return;
-        const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
         const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
         const existing = m.get(sym);
-        if (!existing) {
-          m.set(sym, tr);
-          return;
-        }
-        const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
-        const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
-        const trOpen = !exitTs,
-          exOpen = !exExit;
-        if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+        if (!existing || entryTs > Number(existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0)) {
           m.set(sym, tr);
         }
       };
       if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
-      if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
       setTradeByTicker(m);
     } catch (_) {}
   }, []);
@@ -193,10 +190,11 @@ function useSparklineCache() {
 }
 function computeEffectiveStage(ticker, trade) {
   const rawStage = String(ticker?.kanban_stage || "").trim().toLowerCase();
-  if (!trade) return rawStage;
-  const tradeStatus = String(trade.status || "").toUpperCase();
-  const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
+  const openTr = resolveOpenTrade(trade);
+  if (!openTr) return rawStage;
+  const tradeStatus = String(openTr.status || "").toUpperCase();
+  const trimmedPct = Number(openTr?.trimmed_pct ?? openTr?.trimmedPct ?? 0);
+  const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTr?.exit_ts ?? openTr?.exitTs) || trimmedPct >= 0.9999;
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   if (!tradeIsOpen) return rawStage;
   if (rawStage === "exit") return "defend";
@@ -217,20 +215,12 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
     if (!t || t.kanban_stage === null) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
     const sym = String(t?.ticker || "").toUpperCase();
-    const trade = tradeByTicker?.get?.(sym) || null;
+    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
-    const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-    const isOpen = !isClosed && isOpenStatus;
+    const isOpen = !!trade;
     if (trade && isOpen) {
       if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
-    }
-    if (trade && isClosed) {
-      const exitMs = Number(trade.exit_ts ?? trade.exitTs ?? 0);
-      const scorerStage = String(t?.kanban_stage || "");
-      const newOpportunity = ["setup", "enter", "enter_now", "just_flipped"].includes(scorerStage);
-      if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) stage = "exit";
     }
     switch (stage) {
       case "setup":
@@ -330,8 +320,37 @@ function ATCard({
   const rr = Number(t?.rr) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-  const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
-  const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
+  const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
+  const postureTicker = (() => {
+    if (resolvedOpen) {
+      return {
+        ...t,
+        _openTrade: resolvedOpen,
+        has_open_position: true,
+        position_direction: resolvedOpen.direction || t?.position_direction || null
+      };
+    }
+    const stageLc = String(t?.kanban_stage || "").toLowerCase();
+    const isDiscovery = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "watch"].includes(stageLc);
+    if (!isDiscovery) return {
+      ...t,
+      _openTrade: null
+    };
+    const next = {
+      ...t,
+      _openTrade: null,
+      has_open_position: false
+    };
+    const raw = String(next.trader_posture || next.traderPosture || next.posture || "").toUpperCase().replace(/\s+/g, "_");
+    if (raw === "OPEN_LONG" || raw === "OPEN_SHORT") {
+      delete next.trader_posture;
+      delete next.traderPosture;
+      if (String(next.posture || "").toUpperCase().startsWith("OPEN_")) delete next.posture;
+    }
+    return next;
+  })();
+  const tradeDir = resolvedOpen ? String(resolvedOpen.direction || "").toUpperCase() : "";
+  const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(postureTicker) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
   const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
   const biasLabelLc = String(biasLabel).toLowerCase();
@@ -403,21 +422,21 @@ function ATCard({
     direction: dir,
     strokeWidth: 1.4
   }) : "";
-  const hasOpen = !!openTrade && !openTrade.exit_ts && !openTrade.exitTs;
+  const hasOpen = !!resolvedOpen;
   const progressBarData = (() => {
     if (!hasOpen) return null;
-    const ep = Number(openTrade.entry_price ?? openTrade.entryPrice) || null;
+    const ep = Number(resolvedOpen.entry_price ?? resolvedOpen.entryPrice) || null;
     if (!ep) return null;
     const isLong = tradeDir === "LONG";
     const tickerDir = String(t?.direction || t?.consensus_direction || "").toUpperCase();
     const tickerAgrees = tickerDir === tradeDir;
-    const sl = Number(openTrade.sl ?? openTrade.stop_loss) || (tickerAgrees ? Number(t?.sl) || null : null);
-    const tpArrRaw = Array.isArray(openTrade.tpArray) ? openTrade.tpArray : Array.isArray(openTrade.tp_array) ? openTrade.tp_array : null;
+    const sl = Number(resolvedOpen.sl ?? resolvedOpen.stop_loss) || (tickerAgrees ? Number(t?.sl) || null : null);
+    const tpArrRaw = Array.isArray(resolvedOpen.tpArray) ? resolvedOpen.tpArray : Array.isArray(resolvedOpen.tp_array) ? resolvedOpen.tp_array : null;
     const tps = (() => {
       if (tpArrRaw && tpArrRaw.length > 0) {
         return tpArrRaw.map(x => Number(x?.price ?? x)).filter(Number.isFinite);
       }
-      const single = Number(openTrade.tp) || Number(openTrade.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
+      const single = Number(resolvedOpen.tp) || Number(resolvedOpen.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
       return single ? [single] : [];
     })();
     const slValid = sl == null || (isLong ? sl < ep : sl > ep);
@@ -499,7 +518,7 @@ function ATCard({
       fontFamily: "var(--tt-font-mono)",
       marginLeft: 4
     },
-    title: openTrade ? "Trade direction" : "Bias"
+    title: resolvedOpen ? "Trade direction" : "Bias"
   }, biasLabel), isTTSel && h("span", {
     title: "TT Selected",
     style: {
@@ -765,7 +784,7 @@ function KanbanLane({
     isSaved: savedSet.has(String(t.ticker).toUpperCase()),
     onToggleSaved,
     onOpen,
-    openTrade: tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null
+    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null)
   })))));
 }
 function AccountStrip({
@@ -915,7 +934,7 @@ function ATBrief({
     lane
   }) => {
     const sym = String(t.ticker || "").toUpperCase();
-    const trade = tradeByTicker?.get?.(sym);
+    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
     const px = Number(t?.price ?? t?.close);
     const ep = Number(trade?.entry_price ?? trade?.entryPrice);
     const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
@@ -935,7 +954,7 @@ function ATBrief({
       plKnown = 0;
     for (const o of openLanes) {
       const sym = String(o.t.ticker || "").toUpperCase();
-      const trade = tradeByTicker?.get?.(sym);
+      const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
       const px = Number(o.t?.price ?? o.t?.close);
       const ep = Number(trade?.entry_price ?? trade?.entryPrice);
       if (!(Number.isFinite(px) && Number.isFinite(ep) && ep > 0)) continue;
@@ -1245,37 +1264,37 @@ function ActiveTraderApp() {
     });
     const mapped = raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
-      const trade = tradeByTicker.get(sym) || null;
+      const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
       const eff = computeEffectiveStage(t, trade);
       if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
       return {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
-        kanban_stage: eff
+        kanban_stage: eff,
+        ...(trade ? {
+          has_open_position: true,
+          position_direction: trade.direction || t.position_direction
+        } : {})
       };
     });
     const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
     const injected = [];
     tradeByTicker.forEach((trade, sym) => {
-      if (!sym || known.has(sym)) return;
-      const status = String(trade?.status || "").toUpperCase();
-      const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-      const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!(trade?.exit_ts ?? trade?.exitTs) || trimmedPct >= 0.9999;
-      const isOpen = !isClosed && (status === "OPEN" || status === "TP_HIT_TRIM" || !status);
-      if (!isOpen) return;
+      const openTr = resolveOpenTrade(trade);
+      if (!sym || !openTr || known.has(sym)) return;
       const stub = {
         ticker: sym,
         kanban_stage: "hold",
-        price: Number(trade?.mark_price ?? trade?.current_price ?? trade?.entry_price) || null,
+        price: Number(openTr?.mark_price ?? openTr?.current_price ?? openTr?.entry_price) || null,
         has_open_position: true,
-        position_direction: trade?.direction || null
+        position_direction: openTr?.direction || null
       };
-      const eff = computeEffectiveStage(stub, trade);
+      const eff = computeEffectiveStage(stub, openTr);
       injected.push({
         ...stub,
         kanban_stage: eff,
-        _openTrade: trade,
+        _openTrade: openTr,
         _effectiveKanbanStage: eff,
         _injectedOpenTrade: true
       });
@@ -1683,6 +1702,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781723672204:893609110
+// cache-bust:1781727385727:517669690
 
-// cache-bust:1781723672204:893609110
+// cache-bust:1781727385727:517669690
