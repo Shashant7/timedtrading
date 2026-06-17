@@ -115,6 +115,7 @@ export function buildOvernightDayTradeGamePlan({
   overnightRange = null,
   openingRange = null,
   trendBias = 0,
+  researchBias = 0,
   snakeCase = false,
 }) {
   const px = Number(curPrice);
@@ -122,7 +123,7 @@ export function buildOvernightDayTradeGamePlan({
   const atr = Number(dayAtr);
   if (!(px > 0 && anc > 0 && atr > 0)) return null;
 
-  const dayLean = computeDayLean({ curPrice: px, anchor: anc, dayAtr: atr, overnightRange, openingRange, trendBias });
+  const dayLean = computeDayLean({ curPrice: px, anchor: anc, dayAtr: atr, overnightRange, openingRange, trendBias, researchBias });
 
   const oHi = Number(overnightRange?.high) || px;
   const oLo = Number(overnightRange?.low) || px;
@@ -204,6 +205,7 @@ export function computeDayLean({
   overnightRange = null,
   openingRange = null,
   trendBias = 0,
+  researchBias = 0,
 } = {}) {
   const px = Number(curPrice);
   const anc = Number(anchor);
@@ -238,6 +240,17 @@ export function computeDayLean({
   const tb = Math.max(-1, Math.min(1, Number(trendBias) || 0));
   if (tb <= -0.34) { score += tb; reasons.push("daily structure is down"); }
   else if (tb >= 0.34) { score += tb; reasons.push("daily structure is up"); }
+
+  // Research desk posture (CRO/FSD structural view, e.g. STRATEGY_PHASE
+  // scenario weights). Tertiary, bounded weight: it tilts the lean and is
+  // always surfaced as a reason, but intraday price evidence (gap / overnight
+  // / OR break, up to ±3.5) dominates so a multi-month desk view never
+  // overrides the tape on a given day.
+  const rb = Math.max(-1, Math.min(1, Number(researchBias) || 0));
+  if (Math.abs(rb) >= 0.2) {
+    score += rb * 0.5;
+    reasons.push(rb > 0 ? "research desk constructive" : "research desk defensive");
+  }
 
   const lean = score <= -1.5 ? "SHORT" : score >= 1.5 ? "LONG" : "NEUTRAL";
   const mag = Math.abs(score);
