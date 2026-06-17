@@ -49,6 +49,8 @@ const FIELD_MAP = {
   td13_bear: { col: "td13_bear", type: "bool" },
   td_bull_prep_count: { col: "td_bull_prep_count", type: "int" },
   td_bear_prep_count: { col: "td_bear_prep_count", type: "int" },
+  td_bull_leadup_count: { col: "td_bull_leadup_count", type: "int" },
+  td_bear_leadup_count: { col: "td_bear_leadup_count", type: "int" },
   td_tv_count: { col: "td_tv_count", type: "int" },
   td_tv_side: { col: "td_tv_side_code", type: "side" },
   phase_value: { col: "phase_value", type: "num" },
@@ -59,8 +61,8 @@ const FIELD_MAP = {
   phase_leaving_distribution: { col: "phase_leaving_distribution", type: "bool" },
   sq_on: { col: "sq_on", type: "bool" },
   sq_release: { col: "sq_release", type: "bool" },
-  vwap: { col: "vwap", type: "num" },
-  vwap_dist_pct: { col: "vwap_dist_pct", type: "num" },
+  vwap: { col: "vwap_rolling20", type: "num" },
+  vwap_dist_pct: { col: "vwap_rolling20_dist_pct", type: "num" },
   rvol: { col: "rvol", type: "num" },
   pdz_position: { col: "pdz_position", type: "num" },
   pdz_zone: { col: "pdz_zone_code", type: "pdzZone" },
@@ -136,7 +138,12 @@ function num(v) {
 }
 
 function valueBy(headers, row, name, prefer = "last") {
-  const idx = headers[prefer].get(name);
+  const names = Array.isArray(name) ? name : [name];
+  let idx = null;
+  for (const candidate of names) {
+    idx = headers[prefer].get(candidate);
+    if (idx != null) break;
+  }
   return idx == null ? null : row[idx];
 }
 

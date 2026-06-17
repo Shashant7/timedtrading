@@ -9,6 +9,10 @@ truth. The current implementation adds only the contract and test harness.
 Use `tradingview/TimedTrading_Indicator_Parity_Export.pine` to generate the
 first CSV exports from TradingView chart data.
 
+Use `tradingview/LuxAlgo-Sequencer-Export.pine` when direct LuxAlgo lead-up
+count parity is needed; the original visual LuxAlgo script draws those values
+as labels rather than stable export columns.
+
 ## Fixture purpose
 
 Fixtures prove that worker indicators match accepted benchmark outputs before
@@ -118,6 +122,22 @@ different setting, such as `5,3` (`atr_len=5`, `factor=3.0`), record it in
 compare `supertrend_dir` / `supertrend_line` against that parameter set while
 also preserving `worker_supertrend_dir` / `worker_supertrend_line` for the
 current live default.
+
+## Saty ATR level anchors
+
+ATR Levels require timeframe-specific anchors:
+
+| Chart timeframe | ATR anchor |
+|---|---|
+| below 30m | previous Daily close |
+| 30m | previous Weekly close |
+| 60m | previous Monthly close |
+| 4H | previous Quarterly close |
+| Daily | previous Yearly close |
+| Weekly | Yearly can be used, but ATR Levels are less applicable |
+
+Do not classify ATR level mismatches until the fixture includes either the
+anchor timeframe candles or the exported ATR level columns for that chart.
 
 ## First batch request
 

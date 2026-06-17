@@ -57,6 +57,8 @@ export const DEFAULT_EXACT_FIELDS = Object.freeze([
   "td13_bear",
   "td_bull_prep_count",
   "td_bear_prep_count",
+  "td_bull_leadup_count",
+  "td_bear_leadup_count",
   "td_tv_count",
   "td_tv_side",
   "phase_zone",
@@ -83,6 +85,7 @@ function normalizeTf(tf) {
 }
 
 function finiteOrNull(v) {
+  if (v == null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -92,6 +95,36 @@ function round(v, places = 4) {
   if (n == null) return null;
   const p = 10 ** places;
   return Math.round(n * p) / p;
+}
+
+function computeLiquidityProxy(bars, atr, lookback = 50) {
+  if (!Array.isArray(bars) || bars.length < 2 || !(atr > 0)) {
+    return {
+      nearestBuysideDist: null,
+      nearestSellsideDist: null,
+      buysideSwept: false,
+      sellsideSwept: false,
+    };
+  }
+  const last = bars.length - 1;
+  const start = Math.max(0, last - lookback);
+  let priorHigh = -Infinity;
+  let priorLow = Infinity;
+  for (let i = start; i < last; i += 1) {
+    const h = Number(bars[i]?.h);
+    const l = Number(bars[i]?.l);
+    if (Number.isFinite(h) && h > priorHigh) priorHigh = h;
+    if (Number.isFinite(l) && l < priorLow) priorLow = l;
+  }
+  const close = Number(bars[last]?.c);
+  const high = Number(bars[last]?.h);
+  const low = Number(bars[last]?.l);
+  return {
+    nearestBuysideDist: Number.isFinite(priorHigh) && Number.isFinite(close) ? (priorHigh - close) / atr : null,
+    nearestSellsideDist: Number.isFinite(priorLow) && Number.isFinite(close) ? (close - priorLow) / atr : null,
+    buysideSwept: Number.isFinite(high) && Number.isFinite(priorHigh) && high > priorHigh,
+    sellsideSwept: Number.isFinite(low) && Number.isFinite(priorLow) && low < priorLow,
+  };
 }
 
 function barTs(bar) {
@@ -178,6 +211,7 @@ export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htf
   const fvg = bundle.fvg || {};
   const liq = bundle.liq || {};
   const rsiDiv = bundle.rsiDiv || {};
+  const liqProxy = computeLiquidityProxy(window, bundle.atr14, indicatorParams?.liquidity?.lookback || 50);
   const stParams = indicatorParams?.supertrend || {};
   const stFactor = Number.isFinite(Number(stParams.factor)) ? Number(stParams.factor) : DEFAULT_SUPERTREND_PARAMS.factor;
   const stAtrLen = Number.isInteger(Number(stParams.atr_len ?? stParams.atrLen))
@@ -212,6 +246,8 @@ export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htf
       td13_bear: !!td.td13_bearish,
       td_bull_prep_count: Number(td.bullish_prep_count) || 0,
       td_bear_prep_count: Number(td.bearish_prep_count) || 0,
+      td_bull_leadup_count: Number(td.bullish_leadup_count) || 0,
+      td_bear_leadup_count: Number(td.bearish_leadup_count) || 0,
       td_tv_count: Number(td.tv_count) || 0,
       td_tv_side: td.tv_count_side || null,
       phase_value: round(bundle.phaseOsc, 4),
@@ -222,14 +258,24 @@ export function computeWorkerParityRow({ ticker, tf, candles, asOfTs = null, htf
       phase_leaving_distribution: !!saty.leaving?.distrib,
       sq_on: !!bundle.sqOn,
       sq_release: !!bundle.sqRelease,
-      vwap: round(bundle.vwap, 4),
-      vwap_dist_pct: round(bundle.vwapDistPct, 4),
+      vwap: round(bundle.vwapRolling20, 4),
+      vwap_dist_pct: round(
+        Number.isFinite(Number(bundle.vwapRolling20)) && Number(bundle.vwapRolling20) > 0
+          ? ((Number(bundle.px) - Number(bundle.vwapRolling20)) / Number(bundle.vwapRolling20)) * 100
+          : null,
+        4,
+      ),
+      vwap_basis: "rolling20",
       rvol: round(bundle.volRatio, 4),
       pdz_zone: pdz.zone || null,
       pdz_position: round(pdz.pct, 4),
       fvg_in_bull: !!fvg.inBullGap,
       fvg_in_bear: !!fvg.inBearGap,
-      liq_nearest_ss_dist_atr: round(liq.nearestSellsideDist, 4),
+      liq_nearest_ss_dist_atr: round(liqProxy.nearestSellsideDist, 4),
+      liq_nearest_bs_dist_atr: round(liqProxy.nearestBuysideDist, 4),
+      liq_buyside_swept: !!liqProxy.buysideSwept,
+      liq_sellside_swept: !!liqProxy.sellsideSwept,
+      worker_liq_nearest_ss_dist_atr: round(liq.nearestSellsideDist, 4),
       rsi_bear_divergence: !!rsiDiv.bear?.active,
       rsi_bull_divergence: !!rsiDiv.bull?.active,
     },

@@ -167,6 +167,10 @@ cumPv = ta.cum(typ * (volume == 0 ? 1 : volume))
 cumV = ta.cum(volume == 0 ? 1 : volume)
 vwapCum = cumV > 0 ? cumPv / cumV : na
 vwapDistPct = vwapCum > 0 ? ((close - vwapCum) / vwapCum) * 100.0 : na
+rollingPv20 = ta.sma(typ * (volume == 0 ? 1 : volume), 20) * 20
+rollingV20 = ta.sma(volume == 0 ? 1 : volume, 20) * 20
+vwapRolling20 = rollingV20 > 0 ? rollingPv20 / rollingV20 : na
+vwapRolling20DistPct = vwapRolling20 > 0 ? ((close - vwapRolling20) / vwapRolling20) * 100.0 : na
 
 // FVG: recent active gap / current price in gap. Numeric proxy for fixture export.
 var int activeBullFvg = 0
@@ -259,6 +263,8 @@ plot(f_bool(td13Bull), "td13_bull")
 plot(f_bool(td13Bear), "td13_bear")
 plot(bullPrep, "td_bull_prep_count")
 plot(bearPrep, "td_bear_prep_count")
+plot(bullLead, "td_bull_leadup_count")
+plot(bearLead, "td_bear_leadup_count")
 plot(tvBull > 0 ? tvBull : tvBear > 0 ? tvBear : 0, "td_tv_count")
 plot(tdTvSideCode, "td_tv_side_code")
 plot(phaseValue, "phase_value")
@@ -271,6 +277,8 @@ plot(f_bool(sqOn), "sq_on")
 plot(f_bool(sqRelease), "sq_release")
 plot(vwapCum, "vwap")
 plot(vwapDistPct, "vwap_dist_pct")
+plot(vwapRolling20, "vwap_rolling20")
+plot(vwapRolling20DistPct, "vwap_rolling20_dist_pct")
 plot(rvol, "rvol")
 plot(pdzPosition, "pdz_position")
 plot(pdzZoneCode, "pdz_zone_code")

@@ -102,6 +102,7 @@ function analyzeFile(file, sampleRows) {
     source_file: path.relative(ROOT, file),
     sampled_rows: rows.length - sampleStart,
     lux_prep: { checked: 0, bull_mismatches: 0, bear_mismatches: 0, examples: [] },
+    lux_leadup_export: { checked: 0, bull_mismatches: 0, bear_mismatches: 0, examples: [] },
     mtf_phase: { checked: 0, value_mismatches: 0, leaving_accum_mismatches: 0, leaving_distribution_mismatches: 0, max_abs_diff: 0, examples: [] },
     atr_levels: { checked: 0, internal_formula_mismatches: 0, examples: [] },
   };
@@ -121,6 +122,25 @@ function analyzeFile(file, sampleRows) {
     if (bearExpected !== bearActual) {
       summary.lux_prep.bear_mismatches += 1;
       if (summary.lux_prep.examples.length < 5) summary.lux_prep.examples.push({ time, side: "bear", expected: bearExpected, actual: bearActual });
+    }
+
+    const luxBullLead = n(row.lux_bull_leadup_count);
+    const luxBearLead = n(row.lux_bear_leadup_count);
+    const ttBullLead = n(row.td_bull_leadup_count);
+    const ttBearLead = n(row.td_bear_leadup_count);
+    if (luxBullLead != null && ttBullLead != null) {
+      summary.lux_leadup_export.checked += 1;
+      if (Math.trunc(luxBullLead) !== Math.trunc(ttBullLead)) {
+        summary.lux_leadup_export.bull_mismatches += 1;
+        if (summary.lux_leadup_export.examples.length < 5) summary.lux_leadup_export.examples.push({ time, side: "bull", expected: luxBullLead, actual: ttBullLead });
+      }
+    }
+    if (luxBearLead != null && ttBearLead != null) {
+      if (luxBullLead == null || ttBullLead == null) summary.lux_leadup_export.checked += 1;
+      if (Math.trunc(luxBearLead) !== Math.trunc(ttBearLead)) {
+        summary.lux_leadup_export.bear_mismatches += 1;
+        if (summary.lux_leadup_export.examples.length < 5) summary.lux_leadup_export.examples.push({ time, side: "bear", expected: luxBearLead, actual: ttBearLead });
+      }
     }
 
     const phaseRef = n(row["Phase (Chart TF)"]);
@@ -168,6 +188,7 @@ function analyzeFile(file, sampleRows) {
 function sumReports(reports) {
   const out = {
     lux_prep: { checked: 0, bull_mismatches: 0, bear_mismatches: 0 },
+    lux_leadup_export: { checked: 0, bull_mismatches: 0, bear_mismatches: 0 },
     mtf_phase: { checked: 0, value_mismatches: 0, leaving_accum_mismatches: 0, leaving_distribution_mismatches: 0, max_abs_diff: 0 },
     atr_levels: { checked: 0, internal_formula_mismatches: 0 },
   };
@@ -175,6 +196,9 @@ function sumReports(reports) {
     out.lux_prep.checked += r.lux_prep.checked;
     out.lux_prep.bull_mismatches += r.lux_prep.bull_mismatches;
     out.lux_prep.bear_mismatches += r.lux_prep.bear_mismatches;
+    out.lux_leadup_export.checked += r.lux_leadup_export.checked;
+    out.lux_leadup_export.bull_mismatches += r.lux_leadup_export.bull_mismatches;
+    out.lux_leadup_export.bear_mismatches += r.lux_leadup_export.bear_mismatches;
     out.mtf_phase.checked += r.mtf_phase.checked;
     out.mtf_phase.value_mismatches += r.mtf_phase.value_mismatches;
     out.mtf_phase.leaving_accum_mismatches += r.mtf_phase.leaving_accum_mismatches;

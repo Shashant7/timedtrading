@@ -7,6 +7,7 @@ This directory contains the Pine Script indicator for Timed Trading.
 - `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
 - `TimedTrading_Levels_Overlay.pine` - **Chart overlay** — TT universe, bias, stop, targets, S/R lines + table
 - `TimedTrading_Indicator_Parity_Export.pine` - **Benchmark exporter** for indicator parity fixtures (TradingView chart-data export)
+- `LuxAlgo-Sequencer-Export.pine` - **Numeric export companion** for LuxAlgo Sequencer prep/lead-up parity
 - `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
 - `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
 
@@ -73,6 +74,44 @@ The conversion/fixture harness lives at:
 - `worker/foundation/indicator-parity.js`
 - `worker/foundation/indicator-parity.test.js`
 - `data/indicator-fixtures/v1/README.md`
+
+### LuxAlgo Sequencer lead-up export
+
+`LuxAlgo-Sequencer.pine` draws preparation/lead-up counts as labels, so those
+values do not reliably appear as numeric CSV columns. Use
+`LuxAlgo-Sequencer-Export.pine` when direct lead-up parity is needed.
+
+It plots:
+
+- `lux_bull_prep_count`
+- `lux_bear_prep_count`
+- `lux_bull_prep_complete`
+- `lux_bear_prep_complete`
+- `lux_bull_leadup_count`
+- `lux_bear_leadup_count`
+- `lux_bull_leadup_complete`
+- `lux_bear_leadup_complete`
+- `lux_bull_leadup_delete`
+- `lux_bear_leadup_delete`
+
+Use the same ticker/timeframe export workflow as the indicator parity exporter.
+
+### Saty ATR Levels anchor rules
+
+Per Saty's tutorial, ATR level anchors by chart timeframe:
+
+| Chart timeframe | ATR anchor |
+|---|---|
+| below 30m | previous Daily close |
+| 30m | previous Weekly close |
+| 60m | previous Monthly close |
+| 4H | previous Quarterly close |
+| Daily | previous Yearly close |
+| Weekly | Yearly can be used, but ATR Levels are less applicable |
+
+Fixture parity for ATR Levels must include the anchor timeframe data or the
+exported ATR level columns from `ATRLevels+More.pine`; otherwise we can only
+verify internal band consistency, not worker-vs-reference parity.
 
 ## TimedTrading Levels Overlay (chart lines + bias table)
 
