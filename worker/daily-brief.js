@@ -3675,6 +3675,7 @@ ${sections}
 - **When you reference cross-asset moves, explain WHY they matter to equity traders.** Don't say "XLK's relationship with crude and gold" — say "Technology stocks usually weaken when crude oil spikes (energy costs hit margins) and gold rallies (recession fear). Today both moved against tech."
 - **Translate jargon.** First time you use any of these, parenthetically define them: SMC, FVG, BSL/SSL, ATR, RSI, MACD, OPEX, VWAP, SuperTrend, EMA. Example: "Fair Value Gap (FVG — an unfilled price gap from a fast move that often gets revisited)".
 - **Lead with WHAT IT MEANS, then the data.** Bad: "SPY closed at $755.27, ATR 7.02, above the 50d EMA at $742." Good: "SPY held its rising 50-day average and closed near the high of the day — a bullish read for the next session."
+- **Per-index blocks inside "Index Outlook & …"** use ### SPY / ### QQQ / ### IWM sub-headings (ES optional). Each sub-block MUST include a line starting with **SPY Prediction**: (or QQQ/IWM/ES) so the card renderer extracts it, then the 4-line trigger block (Range · Bull · Bear · Lean) using Game Plan numbers verbatim.
 - **Per-index blocks inside "Index Outlook & …" MUST use the SAME schema for ES/SPY/QQQ/IWM** so they can be compared at a glance. For each index produce:
   - One narrative sentence (the prose)
   - Bull above $X → $Y target (+Z%)
@@ -4018,92 +4019,10 @@ ${(data.investorPositions || []).length > 0
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
 
-## Required Sections (IN THIS ORDER):
+OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly. Do NOT emit separate Market Context, Sector Themes, per-index Prediction, or Key Levels headings — those are merged into The Market Read and Index Outlook & Game Plan.
 
-1. **Market Context** (~150 words) — LEAD WITH THIS. Combine macro backdrop + cross-asset + VIX into one concise picture.
-   - Macro regime in one sentence ("Risk-off: selling stocks, buying safe havens").
-   - Today's key catalyst (CPI/FOMC/NFP/earnings) — what it means in plain English.
-   - VIX level and implication. Cross-asset moves (crude, gold, TLT) if notable (>1%).
-   - SPY/QQQ/IWM pre-market snapshot and multi-day trend.
-   - Breadth: sectors green vs red, broad or concentrated.
+Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matching label) plus the 4-line trigger block. Game Plan numbers MUST match verbatim.
 
-2. **Structure & Scenarios (SPY, QQQ, IWM)** (~100 words each) — Technical heart:
-   - Big picture: pullback, breakdown, or consolidation?
-   - Key support/resistance ZONES (use SMC levels from data, always state timeframe).
-   - Bull/Bear/Base case with specific levels.
-   - Futures equivalent (ES/NQ) in parentheses.
-
-3. **Key Levels & Game Plan** (~100 words) — Specific numbers for today WITH weekly undertone:
-   - For EACH index (SPY, QQQ, IWM), open with "current $X vs Day Gate $low–$high" using the LIVE current price from the Game Plan block — NOT yesterday's pivot as the current price.
-   - State where price sits RIGHT NOW relative to today's Day Gate (inside / above / below) and the weekly Golden Gate (day vs week tension is valuable — e.g. "day GG OPEN_UP but week GG OPEN_DOWN").
-   - Lead with SMC support/resistance levels (where price actually reacted). ATR Day Gate bounds are secondary but MUST match the Game Plan block verbatim.
-   - Game plan: bull/bear triggers and targets framed as TODAY's intraday rotation, with one clause on how the weekly GG colors the backdrop. ABSOLUTE RULE: bearish targets MUST be LOWER than triggers, bullish targets MUST be HIGHER.
-   - Note major data release timing.
-
-4. **Earnings Watch** (~60 words, only if material) — Key earnings today/this week with current price and daily change.
-
-5. **Sector & Themes** (~80 words) — Leading/lagging sectors, WHY (map to drivers), rotation signals, seasonal patterns, breadth.
-
-6. **Active Trader Book** (~80 words) — For each position: ticker, direction, grade, today's change%, P&L, thesis status, action (hold/trim/tighten). New entries and exits briefly noted.
-
-7. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities if any.
-
-End with FIVE clear sections (in this exact order):
-
-- **ES Prediction**: One specific, falsifiable prediction for ES. Include expected range.
-
-- **SPY Prediction**: TWO blocks — first a one-sentence day-trade narrative
-  (mirroring the ES Prediction style above), then the 4-line structured block.
-
-  Block A — prose sentence (≤ 45 words, MUST start with the literal label
-  "**SPY Prediction**:" so the extractor finds it). Describe the expected
-  intraday price action: ranges, trigger reclaims, fade/extension scenarios.
-  Use the same falsifiable specificity as the ES Prediction. Example shape:
-
-  "**SPY Prediction**: SPY stays inside the expected day range of \\$[dayLow]-\\$[dayHigh]
-   early, then resolves higher only if it reclaims \\$[bullTrigger]; otherwise
-   expect rotation around \\$[pivot] and a late fade toward \\$[bearTarget]."
-
-  Block B — the 4-line structured trigger block (kept for visual scanning):
-
-  "**SPY @ \\$[currentPrice]** · Range today \\$[dayLow]–\\$[dayHigh]
-   ▲ **Bull above \\$[bullTrigger] → \\$[bullTarget]**
-   ▼ **Bear below \\$[bearTrigger] → \\$[bearTarget]**
-   Lean: [BULL|BEAR|NEUTRAL] — [≤ 10 words explaining why]."
-
-  IMPORTANT: [currentPrice] MUST be the "current $X.XX" value from the
-  Game Plan block above (the LIVE / pre-market price), NOT the Saty
-  pivot. This is what the user is comparing against the triggers.
-  2026-05-27 (PR #320) fix — previously this template used the Saty
-  pivot (= prior daily close) which made the "@$X" anchor look like
-  yesterday's stale data in pre-market.
-
-  Rules:
-  - Block A FIRST, then Block B (blank line between).
-  - Keep the 4-line structure exactly. No extra prose AFTER the Lean line.
-  - The "Lean" line is a one-call directional read: BULL, BEAR, or NEUTRAL.
-  - The "why" must be ≤ 10 words and concrete (e.g. "VIX cooling + breadth firm",
-    "GG above, no overnight catalyst").
-
-- **QQQ Prediction**: Same two-block shape (prose sentence + 4-line structured),
-  QQQ numbers from the Game Plan block.
-
-- **IWM Prediction**: Same two-block shape (prose sentence + 4-line structured),
-  IWM numbers from the Game Plan block.
-
-- **Risk Factors**: 1–2 key risks, each ≤ 20 words. Plain English. No hedge words.
-
-CRITICAL on the per-ETF predictions:
-- The Game Plan card on screen shows the same mid / Range / Bull / Bear numbers.
-  The Prediction MUST cite IDENTICAL numbers with IDENTICAL labels.
-- Triggers and targets are specific prices, never vague phrases.
-- If bullTarget - bullTrigger is less than 0.4% of the price, the level math
-  is wrong upstream — flag it as "[level needs review]" rather than emitting
-  a meaningless tight pair. Same for the bear side.
-- Expected range MUST be a real low–high pair AND must equal the Day Gate bounds for that ETF.
-- Bullish targets MUST be ABOVE current price; bearish targets MUST be BELOW. No exceptions.
-- DO NOT invent SMC level names ("4-hour gap", "ORB high", "daily pivot") in the Prediction
-  sentence — those belong in the earlier SPY / QQQ structure section.
 ${buildRetailFriendlyOutputSpec("morning")}`;
 }
 
@@ -4299,38 +4218,10 @@ ${(data.investorPositions || []).length > 0
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
 
-## Required Sections (IN THIS ORDER — superseded by the Retail-Friendly output spec at the end, but keep tone/data fidelity):
+OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly. Do NOT emit separate Session Recap, Sector Themes, per-index Scorecard, or Key Levels headings — merged into The Market Read and Index Outlook & Scorecard.
 
-1. **Session Recap & Context** (~150 words) — LEAD WITH THIS. Combine macro drivers + cross-asset + VIX into one picture.
-   - What drove today: narrative theme in one sentence.
-   - Key data releases: actual vs consensus in plain English.
-   - VIX close and implication for tomorrow. Cross-asset moves if notable.
-   - SPY/QQQ/IWM: close vs open, character of the move, breadth.
+Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matching label) plus scorecard result (evening) and trigger levels.
 
-2. **ES Prediction Scorecard** (~30 words) — Grade morning prediction: HIT, PARTIAL, or MISS. One sentence.
-
-3. **Structural Update (SPY, QQQ, IWM)** (~100 words each) — Did today confirm or negate the thesis?
-   - Key levels tested (use SMC levels, state timeframe).
-   - Updated bull/bear thresholds for tomorrow.
-   - Futures equivalents in parentheses.
-
-4. **Session Review & Levels** (~60 words) — ATR performance, actual vs expected range. After-hours earnings if material.
-
-5. **CRO Research Desk** (~80 words) — REQUIRED when the CRO addendum above is present.
-   Summarize the daily note verdict, 1-2 early indicators, and any notable drifts vs the active playbook.
-   Tie today's session action back to the CRO read — corroboration or contradiction.
-
-6. **Sector & Themes** (~60 words) — Leading/lagging and WHY. Rotation signals, breadth verdict.
-
-7. **Looking Ahead** (~80 words) — Primary thesis for next 1-3 sessions with specific SPY/QQQ/IWM levels and time dimension.
-
-8. **Active Trader Report** (~80 words) — Each position: ticker, today's change%, P&L, thesis status, action. Entries/exits/trims briefly.
-
-9. **Investor Portfolio** (~80 words) — Each holding: ticker, today's change%, total return%, thesis status. DCA opportunities.
-
-End with TWO sections:
-- **Key Levels to Watch (SPY/QQQ/IWM)**: 3-5 most important levels across all three. Plain English.
-- **Risk Factors**: 1-2 key risks for tomorrow.
 ${buildRetailFriendlyOutputSpec("evening")}`;
 }
 
@@ -5078,6 +4969,54 @@ function ensureLeadSentenceCase(text) {
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
+/** Extract per-index prediction block from brief markdown (cards + scorecards). */
+export function extractPredictionLine(content, label) {
+  if (!content || typeof content !== "string" || !label) return null;
+  const sym = String(label).toUpperCase();
+
+  // 1) Heading style: `## SPY Prediction` or `### SPY Prediction` (no colon).
+  const reH = new RegExp(
+    `^#{1,6}\\s+${sym}\\s+Prediction\\s*$\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
+    "im",
+  );
+  const mH = content.match(reH);
+  if (mH?.[1]?.trim()) return mH[1].trim();
+
+  // 2) Index Outlook sub-heading: `### SPY` or `### SPY Outlook` (merged section).
+  const reSub = new RegExp(
+    `(?:^|\\n)#{3,6}\\s+${sym}(?:\\s+(?:Outlook|Prediction(?:\\s+Scorecard)?))?\\s*\\n+([\\s\\S]+?)(?=\\n#{3,6}\\s|\\n##\\s+|\\[CHART:|$)`,
+    "i",
+  );
+  const mSub = content.match(reSub);
+  if (mSub?.[1]?.trim()) return mSub[1].trim();
+
+  // 3) Bold + colon: `**SPY Prediction**: body`.
+  const re = new RegExp(
+    `(?:\\*\\*)?${sym}\\s+Prediction(?:\\*\\*)?\\s*:\\s*([\\s\\S]+?)(?:\\n\\s*\\n|\\n\\s*[#*\\-]|\\n\\s*\\*\\*[A-Z])`,
+    "i",
+  );
+  const m = content.match(re);
+  if (m?.[1]) return m[1].trim().replace(/\s+$/g, "");
+
+  // 4) Single-line bold + colon.
+  const re2 = new RegExp(
+    `(?:\\*\\*)?${sym}\\s+Prediction(?:\\*\\*)?\\s*:\\s*(.+?)(?:\\n|$)`,
+    "i",
+  );
+  const m2 = content.match(re2);
+  if (m2?.[1]) return m2[1].trim();
+
+  // 5) `**SPY Prediction**\n<body>` (bold heading, no colon).
+  const re3 = new RegExp(
+    `\\*\\*${sym}\\s+Prediction\\*\\*\\s*\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
+    "i",
+  );
+  const m3 = content.match(re3);
+  if (m3?.[1]) return m3[1].trim();
+
+  return null;
+}
+
 /** Market Context / Bigger Picture blurb for Today hero (~150 words). */
 function extractBriefLead(content) {
   if (!content || typeof content !== "string") return null;
@@ -5179,9 +5118,19 @@ async function dispatchDailyBriefNotifications(env, {
     } else {
       // 2026-06-10 — subjectHook rides as _subjectOverride so the email
       // subject is the model's hook instead of "Morning Brief — date".
+      let emailInfographic = infographic;
+      try {
+        if (infographic && env) {
+          emailInfographic = await refreshInfographicLivePositions(
+            { ...infographic },
+            env,
+          );
+        }
+      } catch (_) { /* use generation-time snapshot */ }
       const briefPayload = {
-        type, content, date: data.today, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic,
-        liveKeyLevels: buildLiveKeyLevelsEntries(infographic?.indices || []),
+        type, content, date: data.today, esPrediction, spyPrediction, qqqPrediction, iwmPrediction,
+        infographic: emailInfographic,
+        liveKeyLevels: buildLiveKeyLevelsEntries(emailInfographic?.indices || infographic?.indices || []),
         ...(subjectHook ? { _subjectOverride: `${subjectHook}` } : {}),
       };
       const results = await Promise.allSettled(
@@ -5302,79 +5251,11 @@ export async function generateDailyBrief(env, type, opts = {}) {
       return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
-    // 3. Extract per-instrument predictions (one specific actionable
-    //    sentence per ETF, parallel structure to the existing ES line).
-    //    P0.7.129 — added SPY/QQQ/IWM extraction so the in-app brief and
-    //    the Discord embed can surface a clean prediction for each ETF
-    //    instead of just the raw ATR fib levels.
-    //
-    //    The model is instructed (in buildMorningPrompt) to emit a
-    //    `**SPY Prediction**: …` / `**QQQ Prediction**: …` /
-    //    `**IWM Prediction**: …` line matching the ES one. We capture
-    //    each independently so we don't lose any if one is missing.
-    function extractPredictionLine(label) {
-      // 2026-05-26 — Prediction Scorecard MISS false-positive fix.
-      //
-      // The original two regexes both REQUIRED a colon after the label:
-      //     `**ES Prediction**:` OR `ES Prediction:`
-      //
-      // But the model frequently emits the prediction as a MARKDOWN HEADING
-      // with no colon:
-      //     `## ES Prediction\nES likely spends the morning above 7523.24…`
-      //
-      // The heading rendered fine on the page (markdown-rendered) but
-      // extractPredictionLine returned null. Morning brief stored
-      // es_prediction=NULL → evening Prediction Scorecard rendered
-      // "MISS — no morning ES prediction was provided" even though the
-      // prediction was live in the brief content.
-      //
-      // Fix: add a third regex that matches `## Label Prediction\n<body>`
-      // (heading-style, no colon) BEFORE falling back to the original
-      // bullet/bold patterns. Heading body is captured up to the next
-      // heading line or double newline.
-
-      // 1) Heading style: `## ES Prediction` or `### ES Prediction` (no colon),
-      //    followed by newline + body until the next heading/blank line.
-      const reH = new RegExp(
-        `^#{1,6}\\s+${label}\\s+Prediction\\s*$\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
-        "im",
-      );
-      const mH = content.match(reH);
-      if (mH && mH[1]) {
-        const body = mH[1].trim();
-        if (body) return body;
-      }
-
-      // 2) Bold + colon: `**Label Prediction**: body` (original primary).
-      const re = new RegExp(
-        `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*([\\s\\S]+?)(?:\\n\\s*\\n|\\n\\s*[#*\\-]|\\n\\s*\\*\\*[A-Z])`,
-        "i",
-      );
-      const m = content.match(re);
-      if (m && m[1]) return m[1].trim().replace(/\s+$/g, "");
-
-      // 3) Single-line bold + colon (fallback for tight inline output).
-      const re2 = new RegExp(
-        `(?:\\*\\*)?${label}\\s+Prediction(?:\\*\\*)?\\s*:\\s*(.+?)(?:\\n|$)`,
-        "i",
-      );
-      const m2 = content.match(re2);
-      if (m2 && m2[1]) return m2[1].trim();
-
-      // 4) Last-ditch: `**Label Prediction**\n<body>` (bold heading, no colon).
-      const re3 = new RegExp(
-        `\\*\\*${label}\\s+Prediction\\*\\*\\s*\\n+([\\s\\S]+?)(?=\\n\\s*\\n|\\n\\s*#{1,6}\\s|\\n\\s*\\*\\*[A-Z]|$)`,
-        "i",
-      );
-      const m3 = content.match(re3);
-      if (m3 && m3[1]) return m3[1].trim();
-
-      return null;
-    }
-    let esPrediction  = extractPredictionLine("ES");
-    let spyPrediction = extractPredictionLine("SPY");
-    let qqqPrediction = extractPredictionLine("QQQ");
-    let iwmPrediction = extractPredictionLine("IWM");
+    // 3. Extract per-instrument predictions from markdown.
+    let esPrediction  = extractPredictionLine(content, "ES");
+    let spyPrediction = extractPredictionLine(content, "SPY");
+    let qqqPrediction = extractPredictionLine(content, "QQQ");
+    let iwmPrediction = extractPredictionLine(content, "IWM");
 
     // 4. For evening brief, get ES close and score morning prediction
     let esClose = null;

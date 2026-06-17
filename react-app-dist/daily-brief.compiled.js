@@ -23,6 +23,7 @@ function renderMarkdown(md) {
   cleaned = cleaned.replace(/\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
   cleaned = cleaned.replace(/\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
   cleaned = cleaned.replace(/\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi, "\n");
   cleaned = cleaned.replace(/\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
   const _toHtml = typeof marked !== "undefined" && marked.parse ? marked.parse(cleaned, {
     breaks: true,
@@ -2877,6 +2878,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781702889248:803513174
+// cache-bust:1781723672204:893609110
 
-// cache-bust:1781702889248:803513174
+// cache-bust:1781723672204:893609110

@@ -1,0 +1,57 @@
+import { describe, it, expect } from "vitest";
+import { stripBriefMarkdownForEmail } from "../worker/email.js";
+import { extractPredictionLine } from "../worker/daily-brief.js";
+
+describe("extractPredictionLine", () => {
+  it("extracts from merged Index Outlook ### SPY sub-heading", () => {
+    const content = `## Index Outlook & Game Plan
+
+### SPY
+**SPY Prediction**: SPY holds above $580 early.
+**SPY @ $582** · Range today $575–$585
+▲ Bull above $584 → $590
+▼ Bear below $578 → $572
+Lean: BULL — breadth firm
+
+### QQQ
+**QQQ Prediction**: Tech leads if rates stay calm.`;
+    const spy = extractPredictionLine(content, "SPY");
+    expect(spy).toContain("SPY holds above");
+    expect(spy).toContain("Lean: BULL");
+    const qqq = extractPredictionLine(content, "QQQ");
+    expect(qqq).toContain("Tech leads");
+  });
+
+  it("still extracts legacy ## SPY Prediction heading", () => {
+    const content = `## SPY Prediction
+SPY stays inside the day range.`;
+    expect(extractPredictionLine(content, "SPY")).toContain("inside the day range");
+  });
+});
+
+describe("stripBriefMarkdownForEmail", () => {
+  it("removes legacy duplicate sections but keeps The Market Read", () => {
+    const md = `## The Market Read
+Tech sold off on hot CPI.
+
+## Market Context
+Duplicate macro copy.
+
+## Index Outlook & Game Plan
+### SPY
+Stale body.
+
+## Investor Portfolio
+AAPL and MSFT in one paragraph.
+
+## Risk Factors
+- Fed speak`;
+    const out = stripBriefMarkdownForEmail(md);
+    expect(out).toContain("The Market Read");
+    expect(out).toContain("hot CPI");
+    expect(out).not.toMatch(/Market Context/i);
+    expect(out).not.toMatch(/Index Outlook/i);
+    expect(out).not.toMatch(/Investor Portfolio/i);
+    expect(out).toContain("Risk Factors");
+  });
+});
