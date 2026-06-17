@@ -5997,7 +5997,14 @@
             }
             try {
               const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
-              if (helper) return helper(ticker);
+              if (helper) {
+                return helper({
+                  ...ticker,
+                  _openTrade: effectiveTraderTrade || ticker?._openTrade,
+                  has_open_position: !!(effectiveTraderTrade || ticker?.has_open_position),
+                  position_direction: effectiveTraderTrade?.direction || ticker?.position_direction,
+                });
+              }
             } catch (_) {}
             if (v2Dir === "LONG" || v2Dir === "SHORT") {
               return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
@@ -6123,10 +6130,11 @@
                   // (model says exit your position) with "exit watch" (you're not in
                   // a trade and the level is just a planning anchor). Resolve trade
                   // status here so we can pick the right phrase.
-                  const _hdrTradeStatus = String(trade?.status || "").toUpperCase();
-                  const _hdrTradeIsOpen = !!(trade && (
+                  const _hdrTrade = effectiveTraderTrade;
+                  const _hdrTradeStatus = String(_hdrTrade?.status || "").toUpperCase();
+                  const _hdrTradeIsOpen = !!(_hdrTrade && (
                     _hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" ||
-                    (!(trade?.exit_ts ?? trade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS")
+                    (!(_hdrTrade?.exit_ts ?? _hdrTrade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS")
                   ));
                   const stageChip = (() => {
                     if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
@@ -6165,7 +6173,9 @@
                                 ? "Active Trader posture: Neutral. No clean long/short edge yet."
                                 : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
                         >
-                          TRADER · {_hdrTradeIsOpen ? (v2Dir === "SHORT" ? "Open Short" : "Open Long") : (v2TraderPosture?.label || v2Dir)}
+                          TRADER · {_hdrTradeIsOpen
+                            ? (_hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long")
+                            : (v2TraderPosture?.label || v2Dir)}
                         </span>
                       )}
                       {/* 2026-05-29 — Investor mode bias chip alongside

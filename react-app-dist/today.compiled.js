@@ -1369,8 +1369,21 @@ function OptionsPlaysOfTheDay({
     }, p.confluence_score || 0, "/100"), disp?.fusion_label ? " · " + disp.fusion_label : "", " · ", p.setup_grade || "—", disp?.valid_play === false ? " · educational only" : ""));
   }))));
 }
+function computeOpenPositionPnlPct(tr, livePx) {
+  const entry = Number(tr?.entry_price ?? tr?.entryPrice ?? tr?.avg_entry ?? tr?.avgEntry);
+  const dir = String(tr?.direction || "LONG").toUpperCase();
+  let px = Number(livePx);
+  if (!(px > 0)) px = Number(tr?.current_price ?? tr?.price ?? tr?._live_price);
+  if (entry > 0 && px > 0) {
+    const pct = dir === "SHORT" ? (entry - px) / entry * 100 : (px - entry) / entry * 100;
+    return Math.round(pct * 100) / 100;
+  }
+  const stored = Number(tr?.pnl_pct ?? tr?.pnlPct);
+  return Number.isFinite(stored) ? stored : NaN;
+}
 function OpenPositionsPreview({
-  onSelectTicker
+  onSelectTicker,
+  allTickers
 }) {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1379,26 +1392,29 @@ function OpenPositionsPreview({
     const defer = setTimeout(() => {
       (async () => {
         try {
-          const [traderJ, investorJ] = await Promise.all([fetchJsonRetry(`${API_BASE}/timed/ledger/trades?status=open&limit=30`), fetchJsonRetry(`${API_BASE}/timed/investor/positions`)]);
+          const [traderPosJ, investorJ] = await Promise.all([fetchJsonRetry(`${API_BASE}/timed/trades?source=positions`), fetchJsonRetry(`${API_BASE}/timed/investor/positions`)]);
           if (cancelled) return;
           const all = [];
           const seen = new Set();
           let _liveTraderCount = 0;
-          if (traderJ?.ok) {
-            const j = traderJ;
-            if (j?.ok && Array.isArray(j.trades)) {
-              for (const t of j.trades) {
-                const sym = String(t?.ticker || "").toUpperCase();
-                const tid = String(t?.trade_id || t?.tradeId || t?.id || "").trim();
-                const key = tid ? `T:${tid}` : `T:${sym}:${Number(t?.entry_ts || t?.entryTs || 0)}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                all.push({
-                  ...t,
-                  _mode: "trader"
-                });
-                _liveTraderCount++;
-              }
+          if (traderPosJ?.ok && Array.isArray(traderPosJ.trades)) {
+            for (const t of traderPosJ.trades) {
+              const sym = String(t?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const st = String(t?.status || "").toUpperCase();
+              if (st === "WIN" || st === "LOSS" || st === "FLAT") continue;
+              const tid = String(t?.trade_id || t?.tradeId || t?.id || sym).trim();
+              const key = `T:${tid}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              all.push({
+                ...t,
+                ticker: sym,
+                direction: String(t?.direction || "LONG").toUpperCase(),
+                entry_price: Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry),
+                _mode: "trader"
+              });
+              _liveTraderCount++;
             }
           }
           try {
@@ -1448,7 +1464,31 @@ function OpenPositionsPreview({
   }, []);
   if (loading) return null;
   if (trades.length === 0) return null;
-  const sorted = [...trades].sort((a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0));
+  const tickerMeta = (() => {
+    const px = new Map();
+    const stages = new Map();
+    for (const row of allTickers || []) {
+      const sym = String(row?.ticker || "").toUpperCase();
+      if (!sym) continue;
+      const live = window.TimedPriceUtils?.getHeadlinePrice?.(row) ?? Number(row?.price);
+      if (live > 0) px.set(sym, live);
+      if (row?.kanban_stage) stages.set(sym, row.kanban_stage);
+    }
+    return {
+      px,
+      stages
+    };
+  })();
+  const enriched = trades.map(t => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    const livePx = tickerMeta.px.get(sym);
+    return {
+      ...t,
+      kanban_stage: t.kanban_stage || tickerMeta.stages.get(sym),
+      pnl_pct: computeOpenPositionPnlPct(t, livePx)
+    };
+  });
+  const sorted = [...enriched].sort((a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0));
   return h("section", {
     className: "tt-card tt-card-pad tt-row",
     style: {
@@ -3631,9 +3671,11 @@ function ViewportCard({
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
-  const biasLabel = _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const openTrade = t?._openTrade || null;
+  const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
+  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
   const biasLabelLc = String(biasLabel).toLowerCase();
-  const biasChipCls = biasLabelLc.includes("bullish") ? "ds-chip--up" : biasLabelLc.includes("bearish") ? "ds-chip--dn" : "ds-chip--solid";
+  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -4765,7 +4807,11 @@ function TodayApp() {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
-        kanban_stage: eff
+        kanban_stage: eff,
+        ...(trade ? {
+          has_open_position: true,
+          position_direction: trade.direction || t.position_direction
+        } : {})
       };
     });
   }, [data, tradeByTicker]);
@@ -4885,7 +4931,8 @@ function TodayApp() {
     earnings,
     onSelectTicker
   }), h(OpenPositionsPreview, {
-    onSelectTicker
+    onSelectTicker,
+    allTickers
   }), data ? h(MarketState, {
     data,
     onSelectTicker
@@ -4946,6 +4993,7 @@ function TodayApp() {
     onSelectTicker
   })), h(EndCTA, null)), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
+    trade: railTickerObj._openTrade || null,
     allLoadedData: data,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
@@ -5310,6 +5358,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781663317185:384274444
+// cache-bust:1781698348600:261905892
 
-// cache-bust:1781663317185:384274444
+// cache-bust:1781698348600:261905892
