@@ -304,7 +304,145 @@ This means every event should carry:
 
 ---
 
-## 7. Horizon-specific outputs
+## 7. Expected onset and path forecast
+
+Diagnosis answers **what condition is forming**. The next question is:
+
+> Given this diagnosis, what is the likely onset, path, and use of time?
+
+If a ticker is exhausted, the system should not stop at "reversal likely." It
+should estimate whether the next path is more likely to be:
+
+- sharp reversal,
+- slow drift / basing,
+- failed bounce then continuation,
+- violent squeeze,
+- multi-day pullback before entry,
+- thesis-changing breakdown / breakout.
+
+### 7.1 Path archetypes
+
+Every confirmed sequence should emit a path forecast:
+
+```json
+{
+  "path_forecast": {
+    "primary_path": "sharp_reversal|drift_base|failed_bounce|squeeze|pullback_then_continue|trend_continuation",
+    "direction": "LONG|SHORT|NEUTRAL",
+    "time_to_onset_bars": {"p25": 2, "median": 5, "p75": 9},
+    "time_to_target_bars": {"p25": 6, "median": 14, "p75": 24},
+    "expected_first_target": "ema21|equilibrium|supertrend|prior_low|prior_high|vwap",
+    "pullback_expected": true,
+    "confidence": 0.62,
+    "matched_cohort": "td9_phase_discount_high_vix_energy",
+    "sample_size": 41
+  }
+}
+```
+
+The forecast must include **time**, not just price:
+
+- time from exhaustion to first reversal attempt,
+- time from reversal attempt to mean-reversion target,
+- time from target to pullback/retest,
+- time window where the edge decays,
+- expected hold time by horizon.
+
+### 7.2 Macro and sector context
+
+The same pattern can have different expected paths under different context.
+
+Examples:
+
+| Pattern | Context | Likely path difference |
+|---|---|---|
+| Exhaustion + phase leaving | high VIX + risk-off tape | sharper reversal attempts but higher failure/whipsaw risk |
+| Exhaustion + phase leaving | low VIX + supportive sector | slower, cleaner drift/base and continuation |
+| Energy TD exhaustion | research desk calling Energy breakdown | bounce may be tactical only; mean-reversion target may be the exit, not a new long thesis |
+| Short exhaustion in high-beta growth | market risk-on + sector leadership | squeeze risk higher; shorts need faster invalidation |
+| Bearish setup in weak sector | high VIX + sector underweight | downside follow-through window can extend beyond first target |
+
+Minimum context dimensions:
+
+- VIX regime: low, elevated, high, panic.
+- Index posture: risk-on, balanced, risk-off.
+- Sector posture: leading, neutral, lagging, underweight.
+- Research desk alignment: supportive, neutral, opposed.
+- Breadth / rotation: broadening, narrowing, defensive.
+- Ticker personality: pullback player, volatile runner, slow grinder,
+  mean reverter, trend follower.
+- Liquidity/volatility: ATR percentile, RVOL, gap behavior.
+
+### 7.3 Bidirectional symmetry
+
+Patterns must work both ways.
+
+For longs:
+
+- selling exhaustion,
+- discount / support location,
+- phase leaves accumulation,
+- reclaim or breakthrough,
+- pullback holds,
+- continuation fires.
+
+For shorts:
+
+- buying exhaustion,
+- premium / resistance location,
+- phase leaves distribution,
+- rejection or breakdown,
+- bounce fails,
+- continuation lower fires.
+
+The short side is not just "inverse long." Context matters:
+
+- high VIX can accelerate downside but also create violent short-covering,
+- low VIX can make shorts drift slowly and require patience,
+- sector weakness can extend downside targets,
+- crowded bearish research can make first downside target a cover zone.
+
+### 7.4 Historical cohort matching
+
+For every active sequence, the engine should query historical analogs:
+
+```text
+same ticker first → same sector/personality → same market regime → global cohort
+```
+
+The cohort should answer:
+
+1. How often did this pattern reverse sharply?
+2. How often did it drift/base first?
+3. What was median time to first target?
+4. What was median time to invalidation?
+5. Did the move need a pullback/retest before continuation?
+6. Did high VIX / sector weakness / research opposition change the path?
+7. Did the pattern work differently for longs vs shorts?
+
+### 7.5 Horizon translation
+
+The same diagnosis/path forecast should translate differently by horizon:
+
+| Horizon | Uses path forecast to decide |
+|---|---|
+| **Day Trader** | likely next intraday move, time-to-onset, scalp target, no-chase warning |
+| **Active Trader** | whether to wait for pullback stabilization or enter on confirmation |
+| **Investor** | whether the move is tactical noise, add opportunity, or thesis warning |
+
+Example:
+
+```text
+Diagnosis: Daily TD9 + phase left accumulation near discount.
+Path forecast: 62% drift/base before continuation; median 5 bars to EMA21.
+Day Trader: prepare for mean-reversion bounce; do not chase if already at EMA21.
+Active Trader: wait for pullback hold after EMA21 reclaim.
+Investor: tactical only unless Weekly/Monthly thesis also turns.
+```
+
+---
+
+## 8. Horizon-specific outputs
 
 ### Day Trader
 
@@ -332,6 +470,7 @@ Question: **Is there a 1-5 day trade forming or ready?**
 Use:
 
 - Daily/4H/1H sequence state,
+- expected onset/path forecast,
 - pullback stabilization after reclaim,
 - ST/EMA confirmation,
 - PDZ location,
@@ -354,6 +493,7 @@ Use:
 - RS rank,
 - thesis invalidation,
 - research desk regime,
+- whether expected path is tactical or thesis-changing,
 - whether Trader reversal is tactical or thesis-changing.
 
 Output:
@@ -362,12 +502,12 @@ Output:
 
 ---
 
-## 8. Calibration exercise queue
+## 9. Calibration exercise queue
 
 Weights likely need a focused recalibration after data/indicator hardening.
 Do not recalibrate weights until L0/L1 parity is proven.
 
-### 8.1 Calibration inputs
+### 9.1 Calibration inputs
 
 - Closed Trader trades with entry/exit/MFE/MAE.
 - Missed moves from discovery.
@@ -376,17 +516,20 @@ Do not recalibrate weights until L0/L1 parity is proven.
 - Research desk regime tags.
 - Ticker personality profiles.
 
-### 8.2 Calibration outputs
+### 9.2 Calibration outputs
 
 - sequence hit rate,
 - average MFE before MAE,
 - time-to-target,
+- time-to-onset,
+- path archetype distribution,
+- edge half-life / decay window,
 - pullback-stabilization success rate,
 - false-positive rate by ticker personality,
 - best confirmation trigger per sequence,
 - revised posture thresholds.
 
-### 8.3 Questions to answer
+### 9.3 Questions to answer
 
 1. Which TD/phase sequences predict a tradable reversal vs a dead-cat bounce?
 2. Does Daily TD9 + Weekly TD7 behave differently than Daily TD9 alone?
@@ -399,10 +542,13 @@ Do not recalibrate weights until L0/L1 parity is proven.
 4. Which tickers reverse immediately vs require retest/pullback?
 5. How long does the edge survive after TD9/TD13 completion?
 6. Which research desk regimes amplify or suppress the sequence?
+7. Which macro/sector regimes change path shape from sharp reversal to drift?
+8. Which patterns are symmetrical for shorts, and which require different
+   confirmation/invalidation logic?
 
 ---
 
-## 9. Implementation phases
+## 10. Implementation phases
 
 ### Phase 1 — Indicator parity contract
 
@@ -426,13 +572,20 @@ Do not recalibrate weights until L0/L1 parity is proven.
 - Emit sequence status/stage into ticker payload.
 - Map sequence status to Trader posture.
 
-### Phase 4 — Historical mining
+### Phase 4 — Path forecast model
+
+- Attach macro/sector/research/ticker-personality context to active sequences.
+- Build historical cohorts and path archetype distributions.
+- Emit time-to-onset, time-to-target, edge-decay, and expected pullback/retest
+  fields into the sequence object.
+
+### Phase 5 — Historical mining
 
 - Replay event sequences across full backtest history.
 - Join to closed trades and missed moves.
 - Produce reliability tables by ticker, sector, personality, and regime.
 
-### Phase 5 — Calibration and promotion
+### Phase 6 — Calibration and promotion
 
 - Recalibrate weights after indicator/event parity.
 - Promote only sequences that pass replay/live parity and out-of-sample gates.
@@ -440,13 +593,15 @@ Do not recalibrate weights until L0/L1 parity is proven.
 
 ---
 
-## 10. Non-negotiables
+## 11. Non-negotiables
 
 1. **Indicator parity before weight calibration.**
 2. **Events before sequences.**
-3. **Sequences before model weights.**
-4. **Horizon separation:** Day Trader, Active Trader, Investor cannot share a
+3. **Sequences before path forecasts.**
+4. **Path forecasts before model weights.**
+5. **Horizon separation:** Day Trader, Active Trader, Investor cannot share a
    single posture without context.
-5. **Long/Short are position labels. Bullish/Bearish are bias labels.**
-6. **No production action from a new sequence until replay/live parity passes.**
+6. **Long/Short are position labels. Bullish/Bearish are bias labels.**
+7. **Patterns must be validated bidirectionally; shorts are first-class.**
+8. **No production action from a new sequence until replay/live parity passes.**
 
