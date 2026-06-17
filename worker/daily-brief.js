@@ -4402,152 +4402,127 @@ function sanitizeBriefContent(text) {
  * Build a structured Discord embed for the daily brief notification.
  * Uses embed fields for clean layout on mobile Discord.
  */
-function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic) {
+export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic) {
   const isMorning = type === "morning";
   const fields = [];
-  const m = data.market || {};
+  const info = infographic && typeof infographic === "object" ? infographic : {};
+  const hl = info.headline || {};
+  const _fit = (s) => String(s || "").slice(0, 1000);
 
-  // ── Helper: format a price/change pair ──────────────────────────────────
-  const fmtMkt = (sym, d) => {
-    if (!d) return null;
-    const px = d.price?.toFixed?.(2) ?? d.price ?? "—";
-    const chg = Number(d.dayChangePct);
-    const chgStr = Number.isFinite(chg) ? `${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%` : "";
-    return `${sym} ${px}${chgStr ? ` (${chgStr})` : ""}`;
-  };
-  const fmtFib = (fib, label) => {
-    if (!fib || !fib.levels) return null;
-    const lvl = fib.levels;
-    const fibStr = [
-      `38.2: ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"}`,
-      `50.0: ${lvl["-50%"] ?? "—"} / ${lvl["+50%"] ?? "—"}`,
-      `61.8: ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`,
-    ].join("  •  ");
-    const gate = fib.goldenGate === "OPEN_UP" ? "🟢 Open Up"
-      : fib.goldenGate === "OPEN_DOWN" ? "🔴 Open Down"
-      : "⚪ Neutral";
-    return { name: `${label}  (ATR ${fib.dayAtr?.toFixed?.(1) ?? "—"} · ${gate})`, value: fibStr, inline: false };
-  };
-  const fib = {
-    es:  data.esTechnical?.atrFibLevels,
-    spy: data.spyTechnical?.atrFibLevels,
-    nq:  data.nqTechnical?.atrFibLevels,
-    qqq: data.qqqTechnical?.atrFibLevels,
-    iwm: data.iwmTechnical?.atrFibLevels,
-  };
-
-  // ── Description: Today's Three + closing line ────────────────────────────
-  // These come from the AI content (extracted in generateDailyBrief) and
-  // give the reader the 3-sentence "why today matters" before the numbers.
+  // Description mirrors the Today hero / Daily Brief lead (leadSummary first).
   let description = "";
-  const topThree = infographic?.topThree;
-  if (Array.isArray(topThree) && topThree.length === 3) {
-    description = topThree.map(t => `**${t.n}.** ${t.label ? `**${t.label}:** ` : ""}${t.body}`).join("\n");
+  const lead = typeof info.leadSummary === "string" ? info.leadSummary.trim() : "";
+  if (lead) {
+    description = lead;
+  } else {
+    const topThree = info.topThree;
+    if (Array.isArray(topThree) && topThree.length > 0) {
+      description = topThree.map(t => `**${t.n}.** ${t.label ? `**${t.label}:** ` : ""}${t.body}`).join("\n");
+    }
   }
-  const closingLine = infographic?.closingLine;
+  const closingLine = info.closingLine;
   if (closingLine) {
     description += (description ? "\n\n" : "") + `_"${closingLine}"_`;
   }
 
-  // ── 1. Market Snapshot — ES / NQ / SPY / QQQ / IWM ─────────────────────
-  const mktParts = [
-    fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ),
-    fmtMkt("SPY", m.SPY), fmtMkt("QQQ", m.QQQ), fmtMkt("IWM", m.IWM),
-  ].filter(Boolean);
-  if (mktParts.length > 0) {
-    // Split across two lines for readability: futures first, ETFs second
-    const futuresPart = [fmtMkt("ES", m.ES), fmtMkt("NQ", m.NQ)].filter(Boolean).join(" | ");
-    const etfPart = [fmtMkt("SPY", m.SPY), fmtMkt("QQQ", m.QQQ), fmtMkt("IWM", m.IWM)].filter(Boolean).join(" | ");
-    const snapshotVal = [futuresPart, etfPart].filter(Boolean).join("\n");
-    if (snapshotVal) fields.push({ name: "Market Snapshot", value: snapshotVal, inline: false });
+  // Headline badges — same strip as BriefInfographic on the web brief.
+  const badgeParts = [];
+  if (hl.regime) badgeParts.push(`Regime: ${String(hl.regime).replace(/_/g, " ")}`);
+  if (hl.vix?.level != null) {
+    badgeParts.push(`VIX ${Number(hl.vix.level).toFixed(2)} (${hl.vix.bucket || "?"})`);
+  }
+  if (hl.breadth) {
+    badgeParts.push(`Breadth ${hl.breadth.green}/${hl.breadth.total} sectors green`);
+  }
+  if (hl.openTrades != null) badgeParts.push(`${hl.openTrades} open trades`);
+  if (badgeParts.length > 0) {
+    fields.push({
+      name: isMorning ? "Session Setup" : "Session Recap",
+      value: badgeParts.join("  ·  "),
+      inline: false,
+    });
   }
 
-  // ── 2. Index Outlook — compact direction chips per ETF ───────────────────
-  // Derived from the engine's golden-gate bias (reliable structured data)
-  // rather than AI text extraction. Always shows even if predictions fail.
-  const gateLabel = (g) => g === "OPEN_UP" ? "🟢 Open Up" : g === "OPEN_DOWN" ? "🔴 Open Down" : "⚪ Neutral";
-  const outlookParts = [
-    fib.spy?.goldenGate ? `SPY ${gateLabel(fib.spy.goldenGate)}` : null,
-    fib.qqq?.goldenGate ? `QQQ ${gateLabel(fib.qqq.goldenGate)}` : null,
-    fib.iwm?.goldenGate ? `IWM ${gateLabel(fib.iwm.goldenGate)}` : null,
-  ].filter(Boolean);
+  // Index Outlook & Game Plan — one merged block (parity with daily-brief.html).
+  const outlookParts = [];
+  if (esPrediction) outlookParts.push(`**ES**\n${_fit(esPrediction)}`);
+  if (spyPrediction) outlookParts.push(`**SPY**\n${_fit(spyPrediction)}`);
+  if (qqqPrediction) outlookParts.push(`**QQQ**\n${_fit(qqqPrediction)}`);
+  if (iwmPrediction) outlookParts.push(`**IWM**\n${_fit(iwmPrediction)}`);
+  const liveLevels = buildLiveKeyLevelsEntries(info.indices || []);
+  for (const entry of liveLevels) {
+    if (entry?.text) outlookParts.push(`**${entry.sym} Levels**\n${entry.text}`);
+  }
   if (outlookParts.length > 0) {
-    fields.push({ name: "Today's Outlook", value: outlookParts.join("  ·  "), inline: false });
+    fields.push({
+      name: "Index Outlook & Game Plan",
+      value: outlookParts.join("\n\n").slice(0, 1000),
+      inline: false,
+    });
   }
 
-  // ── 3. Predictions (ES / SPY / QQQ / IWM) ───────────────────────────────
-  // 2026-05-22 — Predictions now ship as the compact 4-line block from
-  // PR #262 ( **SPY @ $X** · Range $Y-$Z / ▲ Bull above ... / ▼ Bear
-  // below ... / Lean: ... ). Discord supports **bold** and Unicode
-  // arrows natively so the block renders exactly as intended. The
-  // 1024-char field limit is plenty for the new format (~120-180 chars
-  // each), so we drop the slice(0, 380) ceiling — truncating mid-line
-  // would break the structure.
-  const _fitField = (s) => String(s || "").slice(0, 1000);
-  if (esPrediction)   fields.push({ name: "📈 ES Prediction",  value: _fitField(esPrediction),  inline: false });
-  if (spyPrediction)  fields.push({ name: "📊 SPY Prediction", value: _fitField(spyPrediction), inline: false });
-  if (qqqPrediction)  fields.push({ name: "📊 QQQ Prediction", value: _fitField(qqqPrediction), inline: false });
-  if (iwmPrediction)  fields.push({ name: "📊 IWM Prediction", value: _fitField(iwmPrediction), inline: false });
+  // Index snapshot from infographic (session-aware — matches the web cards).
+  const indices = Array.isArray(info.indices) ? info.indices : [];
+  const idxSnap = indices.map((idx) => {
+    const sym = String(idx?.sym || "").toUpperCase();
+    const px = Number(idx?.price ?? idx?.levels?.currentPrice);
+    const chg = Number(idx?.chgPct);
+    if (!sym || !Number.isFinite(px)) return null;
+    const chgStr = Number.isFinite(chg) ? ` (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)` : "";
+    return `${sym} $${px.toFixed(2)}${chgStr}`;
+  }).filter(Boolean);
+  if (idxSnap.length > 0) {
+    fields.push({ name: "Index Snapshot", value: idxSnap.join("  |  "), inline: false });
+  }
 
-  // ── 4. Top Headlines (PR #264) ───────────────────────────────────────────
-  // Top broad-market headlines from Finnhub (Reuters / Bloomberg / WSJ
-  // etc.). Up to 4, each a single line. Hides when the headline feed
-  // is empty / missing (no FINNHUB_API_KEY etc.).
-  const _headlines = Array.isArray(infographic?.topHeadlines) ? infographic.topHeadlines : [];
+  // Macro strip (VIX-adjacent cues the infographic carries).
+  const macro = Array.isArray(info.macro) ? info.macro : [];
+  if (macro.length > 0) {
+    const macroStr = macro.map((m) => {
+      const chg = Number(m.chgPct);
+      const chgStr = Number.isFinite(chg) ? ` ${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%` : "";
+      const label = m.label || m.sym || "?";
+      return `${label}: ${m.value}${chgStr}`;
+    }).join("  |  ");
+    fields.push({ name: "Macro", value: macroStr.slice(0, 1000), inline: false });
+  }
+
+  const _headlines = Array.isArray(info.topHeadlines) ? info.topHeadlines : [];
   if (_headlines.length > 0) {
     const headlineStr = _headlines.slice(0, 4).map(h => {
       const t = String(h.title || "").slice(0, 110);
       const s = h.source ? ` _(${h.source})_` : "";
       return `• ${t}${s}`;
     }).join("\n");
-    fields.push({ name: "📰 Top Headlines", value: headlineStr.slice(0, 1000), inline: false });
+    fields.push({ name: "Top Headlines", value: headlineStr.slice(0, 1000), inline: false });
   }
 
-  // ── 5. ATR Reference Levels (compact) ────────────────────────────────────
-  // 2026-05-22 — Demoted to a single compact line per ETF. Predictions
-  // above already carry actionable bull/bear triggers + targets; the
-  // full 38.2/50/61.8 fib pair is reference-only — it doesn't deserve
-  // its own oversized block. Keep it for traders who want the Saty
-  // ladder, but make it scannable.
-  const fmtFibCompact = (fib, label) => {
-    if (!fib || !fib.levels) return null;
-    const lvl = fib.levels;
-    const gate = fib.goldenGate === "OPEN_UP" ? "🟢" : fib.goldenGate === "OPEN_DOWN" ? "🔴" : "⚪";
-    return `${gate} ${label}: ±38.2% ${lvl["-38.2%"] ?? "—"} / ${lvl["+38.2%"] ?? "—"} · ±61.8% ${lvl["-61.8%"] ?? "—"} / ${lvl["+61.8%"] ?? "—"}`;
-  };
-  const refLines = [
-    fmtFibCompact(fib.es,  "ES"),
-    fmtFibCompact(fib.spy, "SPY"),
-    fmtFibCompact(fib.nq,  "NQ"),
-    fmtFibCompact(fib.qqq, "QQQ"),
-    fmtFibCompact(fib.iwm, "IWM"),
-  ].filter(Boolean);
-  if (refLines.length > 0) {
-    fields.push({
-      name: "ATR Reference Levels",
-      value: refLines.join("\n").slice(0, 1000),
-      inline: false,
-    });
-  }
-
-  // ── 5. Economic Events ───────────────────────────────────────────────────
-  const econEvents = (data.todayEconomicEvents || []).slice(0, 3);
+  const econEvents = (Array.isArray(info.events) ? info.events : data.todayEconomicEvents || [])
+    .filter((e) => e?.kind !== "earnings")
+    .slice(0, 3);
   if (econEvents.length > 0) {
     const econStr = econEvents.map(e => {
-      const parts = [e.event];
-      if (e.actual   != null && e.actual   !== "") parts.push(`Act: ${e.actual}${e.unit || ""}`);
+      const parts = [e.title || e.event];
+      if (e.actual != null && e.actual !== "") parts.push(`Act: ${e.actual}${e.unit || ""}`);
       if (e.estimate != null && e.estimate !== "") parts.push(`Est: ${e.estimate}${e.unit || ""}`);
-      if (e.prev     != null && e.prev     !== "") parts.push(`Prev: ${e.prev}${e.unit || ""}`);
-      return parts.join(", ");
+      if (e.prev != null && e.prev !== "") parts.push(`Prev: ${e.prev}${e.unit || ""}`);
+      if (e.when) parts.push(`@ ${e.when}`);
+      return parts.filter(Boolean).join(", ");
     }).join("\n");
-    fields.push({ name: "Economic Data", value: econStr, inline: false });
+    fields.push({ name: "Economic Data", value: econStr.slice(0, 1000), inline: false });
   }
 
-  // ── 6. Open Positions ────────────────────────────────────────────────────
-  if (data.openTrades && data.openTrades.length > 0) {
-    const posStr = data.openTrades.slice(0, 5).map(t =>
-      `${t.ticker} ${t.direction}${t.pnlPct != null ? ` ${t.pnlPct >= 0 ? "+" : ""}${t.pnlPct.toFixed(1)}%` : ""}`
-    ).join(" | ");
+  const openRows = Array.isArray(info.traderPositions) && info.traderPositions.length > 0
+    ? info.traderPositions
+    : (data.openTrades || []);
+  if (openRows.length > 0) {
+    const posStr = openRows.slice(0, 5).map(t => {
+      const sym = String(t.ticker || t.sym || "").toUpperCase();
+      const dir = t.direction || t.dir || "";
+      const pnl = t.pnlPct ?? t.unrealPct;
+      const pnlStr = pnl != null ? ` ${Number(pnl) >= 0 ? "+" : ""}${Number(pnl).toFixed(1)}%` : "";
+      return `${sym} ${dir}${pnlStr}`;
+    }).join(" | ");
     fields.push({ name: "Open Positions", value: posStr, inline: false });
   }
 

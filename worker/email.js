@@ -927,10 +927,12 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
   const strippedContent = stripBriefMarkdownForEmail(content);
   const briefHtml = markdownToEmailHtml(strippedContent);
   const investorPortfolioHtml = buildEmailInvestorPortfolioBlock(infographic?.investorHoldings);
+  const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
 
-  // Index outlook cards — predictions + live key levels in one block (parity with web).
+  // Index outlook cards — predictions + live key levels (parity with daily-brief.html).
   const indexOutlookHtml = (() => {
     const preds = [
+      { label: "ES", body: esPrediction },
       { label: "SPY", body: spyPrediction },
       { label: "QQQ", body: qqqPrediction },
       { label: "IWM", body: iwmPrediction },
@@ -977,8 +979,6 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     }
   }
 
-  // Editorial masthead: small label + long-form serif date.
-  const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
   const longDate = (() => {
     try {
       return new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
@@ -988,9 +988,8 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
   const html = emailLayout(`
     <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${accentColor};font-family:${EMAIL_FONT_UI};margin:0 0 6px">${label}</div>
     <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
-    ${esPrediction ? `<div style="padding:12px 16px;background:rgba(245,158,11,0.08);border-left:3px solid ${BRAND.warning};border-radius:6px;margin:0 0 20px"><div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.warning};font-family:${EMAIL_FONT_UI};margin-bottom:6px">ES Prediction</div><p style="margin:0;font-family:${EMAIL_FONT_EDITORIAL};font-size:16px;font-style:italic;line-height:1.45;color:${BRAND.textPrimary}">&ldquo;${_esc(esPrediction)}&rdquo;</p></div>` : ""}
-    ${infographicHtml}
     ${indexOutlookHtml}
+    ${infographicHtml}
     ${eveningSummaryHtml}
     ${briefHtml}
     ${investorPortfolioHtml}
@@ -1001,7 +1000,8 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     </table>
   `, { unsubscribeUrl, preheader: esPrediction || `${label} for ${date}` });
 
-  const text = `${label} — ${date}\n\n${esPrediction ? `ES Prediction: ${esPrediction}\n\n` : ""}${content}\n\nView online: https://timed-trading.com/daily-brief.html`;
+  const textBody = strippedContent;
+  const text = `${label} — ${date}\n\n${textBody}\n\nView online: https://timed-trading.com/daily-brief.html`;
 
   const subject = brief?._subjectOverride || `${label} — ${date}`;
   const category = type === "retro" ? "weekly_recap" : "daily_brief";
