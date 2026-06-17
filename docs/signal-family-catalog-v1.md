@@ -9,6 +9,12 @@ This catalog is the companion to
 [`active-trader-information-hardening-plan.md`](active-trader-information-hardening-plan.md).
 It should be updated before any new event/sequence names are introduced.
 
+Shadow implementation modules:
+
+- `worker/foundation/setup-events.js` — pure setup-event atoms.
+- `worker/foundation/setup-sequences.js` — pure sequence detector consuming
+  setup-event atoms.
+
 ---
 
 ## Awareness modes

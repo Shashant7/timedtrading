@@ -672,6 +672,8 @@ Do not recalibrate weights until L0/L1 parity is proven.
 
 - Build TradingView export script.
 - Export fixture set.
+- Use the shadow harness in `worker/foundation/indicator-parity.js` and
+  fixture contract in `data/indicator-fixtures/v1/`.
 - Add parity tests for EMA/RSI/ATR/ST/TD/Phase plus deterministic
   structural fixtures for FVG, liquidity, ORB, PDZ, and RSI divergence.
 - Encode session-clip policy in every fixture manifest.
@@ -685,6 +687,8 @@ Do not recalibrate weights until L0/L1 parity is proven.
 
 - Normalize existing `flags`, `triggers[]`, TD, Phase, EMA, ST, PDZ, FVG,
   liquidity, ORB, and RSI events into append-only `setup_events`.
+- Use the shadow event abstraction in `worker/foundation/setup-events.js` for
+  mock data and fixture-driven development before adding any D1 writes.
 - Publish a signal inventory doc: family -> worker function -> payload path ->
   existing flag/trigger name -> consumers.
 - Dedupe against `setup_snapshot` keys already captured in `rank_trace_json`.
@@ -696,6 +700,9 @@ Do not recalibrate weights until L0/L1 parity is proven.
 - Implement first two sequence families:
   - `td_phase_mean_reversion_long`
   - `td_phase_mean_reversion_short`
+- Use the shadow detector in `worker/foundation/setup-sequences.js` to prove
+  event-stream flow-through with mock events before wiring real indicator
+  events.
 - Emit sequence status/stage into ticker payload.
 - Map sequence status to Trader posture.
 

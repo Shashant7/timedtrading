@@ -1,0 +1,183 @@
+# Indicator Parity Initial Run — 2026-06-17
+
+**Status:** first pass from TradingView CSV exports  
+**Scope:** Phase 1 signal truth hardening  
+**Raw data location:** local gitignored export cache (`TV Exports/indicator-parity/`)  
+**Committed fixtures:** none yet; raw/generated files are not benchmark truth yet.
+
+---
+
+## Inputs received
+
+TradingView ZIP exports were found for all requested tickers:
+
+```text
+GLD, IWM, MSTR, NVDA, QQQ, SPY, TSLA, UNH, USO, XLE
+```
+
+Each ticker included:
+
+```text
+1D, 1W, 60
+```
+
+Total CSVs inspected: **30**.
+
+All 30 CSVs contained the expected parity columns from
+`tradingview/TimedTrading_Indicator_Parity_Export.pine`.
+
+---
+
+## Tooling added / used
+
+- `scripts/build-indicator-fixtures.mjs`
+- `worker/foundation/indicator-parity.js`
+- `worker/foundation/indicator-parity.test.js`
+- `data/indicator-fixtures/v1/README.md`
+
+The converter writes generated fixture JSON and reports into the local
+gitignored export cache by default. This avoids committing large or unreviewed
+benchmark files.
+
+Commands run:
+
+```bash
+node scripts/build-indicator-fixtures.mjs \
+  --input="TV Exports/indicator-parity/extracted" \
+  --out="TV Exports/indicator-parity/generated-fixtures-st10" \
+  --report="TV Exports/indicator-parity/parity-report-st10.json" \
+  --sample-rows=40 \
+  --supertrend=10,3
+
+node scripts/build-indicator-fixtures.mjs \
+  --input="TV Exports/indicator-parity/extracted" \
+  --out="TV Exports/indicator-parity/generated-fixtures-st5" \
+  --report="TV Exports/indicator-parity/parity-report-st5.json" \
+  --sample-rows=40 \
+  --supertrend=5,3
+
+node scripts/analyze-tv-reference-exports.mjs \
+  --input="TV Exports/indicator-parity/extracted" \
+  --report="TV Exports/indicator-parity/reference-analysis-report.json" \
+  --sample-rows=40
+```
+
+---
+
+## Initial result summary
+
+### Direct reference-indicator checks
+
+Additional comparisons were run against the independent TradingView indicator
+columns included in the raw CSV exports.
+
+| Reference | Checked | Result | Caveat |
+|---|---:|---|---|
+| LuxAlgo Sequencer preparation counts | 1,200 sampled rows | **Matched** bullish and bearish prep counts exactly | Added `tradingview/LuxAlgo-Sequencer-Export.pine` so the next export can include lead-up/countdown columns. |
+| LuxAlgo Sequencer lead-up counts | 400 sampled rows from SPY/IWM/QQQ Lux companion exports | **Did not match** current worker lead-up semantics | Prep matched 400/400 rows, but lead-up mismatched 383/400 sampled side checks (`76` bull, `307` bear). This is the next TD hardening target. |
+| MTF Phase Oscillator `Phase (Chart TF)` | 1,200 sampled rows | **Matched** `saty_phase_value` exactly | Also matched leaving-accumulation and leaving-distribution markers. |
+| ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker-vs-ATR-level parity still needs anchor-TF mapping (D/W/60 charts may anchor to W/M/3M depending script auto mode). |
+
+### SuperTrend 10,3 baseline
+
+Clean aggregate fields:
+
+```text
+close, ema21, ema200, rsi14, atr14,
+supertrend_dir,
+td9_bull, td9_bear, td13_bull, td13_bear,
+td_bull_prep_count, td_bear_prep_count, td_tv_count, td_tv_side,
+phase_value, phase_zone, saty_phase_value,
+phase_leaving_accum, phase_leaving_distribution,
+sq_on, sq_release, rvol,
+pdz_position, pdz_zone,
+fvg_in_bull,
+rsi_bull_divergence, rsi_bear_divergence
+```
+
+Mismatch fields:
+
+| Field | Count | Interpretation |
+|---|---:|---|
+| `fvg_in_bear` | 1 | Single structural edge case. |
+
+After switching liquidity parity to the requested high/low proxy and making
+rolling VWAP the future canonical export target, the 10,3 run is:
+
+```text
+29 / 30 files clean
+only mismatch field: fvg_in_bear = 1
+```
+
+VWAP is skipped for current exports because they do not yet include
+`vwap_rolling20` / `vwap_rolling20_dist_pct`. Re-export with the updated
+`TimedTrading_Indicator_Parity_Export.pine` when VWAP parity is ready to be
+accepted.
+
+### SuperTrend 5,3 comparison
+
+The 5,3 run added:
+
+| Field | Count |
+|---|---:|
+| `supertrend_dir` | 51 |
+
+This is expected because the parity export columns appear to have been
+generated from the exporter SuperTrend setting, while the separate chart
+reference was noted as 5,3. The harness now supports fixture-specific
+SuperTrend params, so the next pass can compare the correct reference once the
+CSV-to-fixture mapping is explicit.
+
+---
+
+## Important interpretation
+
+This first pass is encouraging:
+
+- Standard numeric indicators passed at aggregate level:
+  - EMA21 / EMA200
+  - RSI14
+  - ATR14
+  - RVOL
+- Exhaustion / reversal primitives passed at aggregate level:
+  - TD9 / TD13 booleans
+  - TD prep counts
+  - phase value / zone
+  - Saty phase value
+  - phase leaving accumulation/distribution
+  - squeeze on/release
+- Worker SuperTrend matches the exporter when using the same 10,3 settings.
+
+The remaining gaps are now narrow and explicit:
+
+1. **FVG:** one bearish in-gap edge mismatch should be inspected manually:
+   `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
+2. **LuxAlgo lead-up:** prep counts match; lead-up does not. LuxAlgo starts
+   lead-up at `1` on preparation completion and persists counts differently
+   from the current worker implementation. This should be fixed or explicitly
+   forked as a separate TD flavor before TD exhaustion is treated as hardened.
+3. **ATR Levels:** exported bands are internally consistent, but full
+   worker-vs-reference parity needs anchor mapping:
+   below 30m -> previous Daily close, 30m -> previous Weekly close, 60m ->
+   previous Monthly close, 4H -> previous Quarterly close, D/W -> previous
+   yearly anchor.
+4. **SuperTrend 5,3 vs 10,3:** now parameter-aware; do not classify as formula
+   mismatch.
+
+---
+
+## Next actions
+
+1. Re-export with `TimedTrading_Indicator_Parity_Export.pine` to include
+   rolling VWAP columns and TD lead-up columns.
+2. Decide TD lead-up semantics:
+   - align worker to LuxAlgo Sequencer, or
+   - keep current worker lead-up and name it as a different TD flavor.
+3. Inspect the single FVG mismatch:
+   - `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
+4. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity.
+5. Convert accepted CSV fields into committed fixture JSON only after the above
+   definitions are accepted.
+6. If SuperTrend 5,3 is the desired production signal, run a deliberate
+   change proposal; do not mix it into the current 10,3 worker parity silently.
+

@@ -6,8 +6,112 @@ This directory contains the Pine Script indicator for Timed Trading.
 
 - `TimedTrading_Unified.pine` - **Primary** indicator (ScoreEngine + Heartbeat, 5-min unified)
 - `TimedTrading_Levels_Overlay.pine` - **Chart overlay** — TT universe, bias, stop, targets, S/R lines + table
+- `TimedTrading_Indicator_Parity_Export.pine` - **Benchmark exporter** for indicator parity fixtures (TradingView chart-data export)
+- `LuxAlgo-Sequencer-Export.pine` - **Numeric export companion** for LuxAlgo Sequencer prep/lead-up parity
 - `TimedTrading_ScoreEngine.pine` - Original ScoreEngine (v1.1.0)
 - `TimedTrading_Heartbeat_Minimal.pine` - Lightweight 1m heartbeat (price + daily change only; KV, 2-day TTL; no D1)
+
+## Indicator parity export (Phase 1 hardening)
+
+Use `TimedTrading_Indicator_Parity_Export.pine` to create TradingView benchmark
+CSV exports for `data/indicator-fixtures/v1/`.
+
+### First fixture batch
+
+Run the exporter for:
+
+- Tickers: `SPY`, `QQQ`, `IWM`, `USO`, `XLE`, `NVDA`, `TSLA`, `UNH`, `MSTR`, `GLD`
+- Timeframes: `D`, `W`, `60`
+
+### Session settings
+
+Match the fixture policy exactly:
+
+- `D`, `W`, `M`: exchange-session bars.
+- `60`, `240`: RTH bars.
+- `5`, `10`, `15`, `30`: extended-hours bars for equities.
+- ORB columns are meaningful only on intraday RTH charts.
+
+### Export steps
+
+1. Open a TradingView chart for one ticker/timeframe.
+2. Add `TimedTrading_Indicator_Parity_Export.pine`.
+3. Ensure the chart session matches the policy above.
+4. Menu → **Export chart data**.
+5. Save as `<TICKER>_<TF>_<START>_<END>.csv`, for example:
+   `USO_D_2025-01-01_2026-06-15.csv`.
+6. Send the CSV export back for conversion into the fixture JSON contract.
+
+The script plots benchmark columns for EMA/RSI/ATR/SuperTrend/TD/Phase/Saty,
+PDZ, FVG, liquidity, ORB, VWAP, RVOL, squeeze, and RSI divergence.
+
+### SuperTrend parameter note
+
+The worker's current default SuperTrend is `10,3` (ATR length 10, factor 3.0).
+If the TradingView reference indicator is set to `5,3`, either:
+
+1. Set this exporter's **SuperTrend ATR length** input to `5` before exporting,
+   or
+2. Leave the exporter at `10` and send the separate `5,3` reference columns;
+   the fixture conversion will mark them with
+   `indicator_params.supertrend = {"atr_len":5,"factor":3.0}`.
+
+Do not compare a `5,3` reference to the worker's `10,3` output without marking
+the parameters; that is a parameter mismatch, not a formula mismatch.
+
+Code legends used by the CSV:
+
+- `phase_zone_code` / `saty_phase_zone_code`: `0=LOW`, `1=MEDIUM`,
+  `2=HIGH`, `3=EXTREME`
+- `pdz_zone_code`: `0=discount`, `1=discount_approach`, `2=equilibrium`,
+  `3=premium_approach`, `4=premium`
+- `td_tv_side_code`: `-1=bear`, `0=none`, `1=bull`
+- `supertrend_dir`: `-1=bullish support`, `+1=bearish resistance`
+- `orb_15m_direction`: `-1=breakdown`, `0=none`, `1=breakout`
+
+The conversion/fixture harness lives at:
+
+- `worker/foundation/indicator-parity.js`
+- `worker/foundation/indicator-parity.test.js`
+- `data/indicator-fixtures/v1/README.md`
+
+### LuxAlgo Sequencer lead-up export
+
+`LuxAlgo-Sequencer.pine` draws preparation/lead-up counts as labels, so those
+values do not reliably appear as numeric CSV columns. Use
+`LuxAlgo-Sequencer-Export.pine` when direct lead-up parity is needed.
+
+It plots:
+
+- `lux_bull_prep_count`
+- `lux_bear_prep_count`
+- `lux_bull_prep_complete`
+- `lux_bear_prep_complete`
+- `lux_bull_leadup_count`
+- `lux_bear_leadup_count`
+- `lux_bull_leadup_complete`
+- `lux_bear_leadup_complete`
+- `lux_bull_leadup_delete`
+- `lux_bear_leadup_delete`
+
+Use the same ticker/timeframe export workflow as the indicator parity exporter.
+
+### Saty ATR Levels anchor rules
+
+Per Saty's tutorial, ATR level anchors by chart timeframe:
+
+| Chart timeframe | ATR anchor |
+|---|---|
+| below 30m | previous Daily close |
+| 30m | previous Weekly close |
+| 60m | previous Monthly close |
+| 4H | previous Quarterly close |
+| Daily | previous Yearly close |
+| Weekly | Yearly can be used, but ATR Levels are less applicable |
+
+Fixture parity for ATR Levels must include the anchor timeframe data or the
+exported ATR level columns from `ATRLevels+More.pine`; otherwise we can only
+verify internal band consistency, not worker-vs-reference parity.
 
 ## TimedTrading Levels Overlay (chart lines + bias table)
 

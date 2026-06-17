@@ -1,0 +1,93 @@
+// Derived from "Sequencer [LuxAlgo]" (CC BY-NC-SA 4.0)
+// Original attribution: © LuxAlgo
+// Purpose: numeric export companion for indicator parity. This script plots the
+// Sequencer preparation and lead-up counters so TradingView chart-data export
+// can be compared to worker TD Sequential fields.
+
+//@version=5
+indicator("LuxAlgo Sequencer Export (TimedTrading)", "LuxAlgo Sequencer Export", overlay=false, max_labels_count=10)
+
+group1 = "Preparation Phase"
+preparationLen = input.int(9, "Preparation Phase Length", minval=2, group=group1)
+preparationComparison = input.int(4, "Comparison Period", minval=1, group=group1)
+preparationType = input.string("Standard", "Preparation Type", options=["Refined", "Standard"], group=group1)
+optimalSteps = input("", "Refined Preparation Steps", group=group1)
+bullishPreparation = input(true, "Bullish Preparation", group=group1)
+bearishPreparation = input(true, "Bearish Preparation", group=group1)
+
+group2 = "Lead-up Phase"
+leadupLen = input.int(13, "Lead-Up Phase Length", minval=2, group=group2)
+leadupComparison = input.int(2, "Comparison Period", minval=1, group=group2)
+suspension = input(false, "Suspension", group=group2)
+suspensionSteps = input("", "Suspension Steps", group=group2)
+applyCancellation = input(true, "Apply Cancellation", group=group2)
+bullishLeadupPhase = input(true, "Bullish Lead-Up", group=group2)
+bearishLeadupPhase = input(true, "Bearish Lead-Up", group=group2)
+
+f_bool(x) => x ? 1.0 : 0.0
+f_count(x) => na(x) ? na : float(x)
+
+var optimal_steps = str.split(optimalSteps, ",")
+var suspension_steps = str.split(suspensionSteps, ",")
+
+var int bullish_count = 0
+var int bearish_count = 0
+var float min_low = 0.0
+var float max_high = 0.0
+
+bullish_count := close < close[preparationComparison] and bullishPreparation ? bullish_count + 1 : 0
+bearish_count := close > close[preparationComparison] and bearishPreparation ? bearish_count + 1 : 0
+
+if preparationType == "Refined"
+    max_high := bearish_count == 1 ? na : array.includes(optimal_steps, str.tostring(bearish_count)) ? math.max(high, nz(max_high, high)) : max_high
+    min_low := bullish_count == 1 ? na : array.includes(optimal_steps, str.tostring(bullish_count)) ? math.min(low, nz(min_low, low)) : min_low
+
+complete_bullish_preparation = preparationType == "Refined"
+    ? low < min_low and bullish_count == preparationLen
+    : bullish_count == preparationLen
+complete_bearish_preparation = preparationType == "Refined"
+    ? high > max_high and bearish_count == preparationLen
+    : bearish_count == preparationLen
+
+var float bullish_leadup = 0.0
+var float bearish_leadup = 0.0
+var float min_close_suspension = na
+var float max_close_suspension = na
+
+if bullishLeadupPhase
+    bullish_leadup := applyCancellation and complete_bearish_preparation ? na
+      : complete_bullish_preparation ? 1
+      : close < low[leadupComparison] ? bullish_leadup + 1
+      : bullish_leadup
+
+if bearishLeadupPhase
+    bearish_leadup := applyCancellation and complete_bullish_preparation ? na
+      : complete_bearish_preparation ? 1
+      : close > high[leadupComparison] ? bearish_leadup + 1
+      : bearish_leadup
+
+if suspension
+    max_close_suspension := bearish_leadup == 1 ? na : array.includes(suspension_steps, str.tostring(bearish_leadup)) ? math.max(close, nz(max_close_suspension, close)) : max_close_suspension
+    min_close_suspension := bullish_leadup == 1 ? na : array.includes(suspension_steps, str.tostring(bullish_leadup)) ? math.min(close, nz(min_close_suspension, close)) : min_close_suspension
+
+complete_bullish_leadup = suspension ? bullish_leadup == leadupLen and low <= min_close_suspension : bullish_leadup == leadupLen
+complete_bearish_leadup = suspension ? bearish_leadup == leadupLen and high >= max_close_suspension : bearish_leadup == leadupLen
+
+delete_bullish_leadup = complete_bullish_preparation or (applyCancellation and complete_bearish_preparation) or (bullish_leadup == leadupLen and not complete_bullish_leadup)
+delete_bearish_leadup = complete_bearish_preparation or (applyCancellation and complete_bullish_preparation) or (bearish_leadup == leadupLen and not complete_bearish_leadup)
+
+if suspension and bullish_leadup == leadupLen and low <= min_close_suspension
+    bullish_leadup := na
+if suspension and bearish_leadup == leadupLen and high >= max_close_suspension
+    bearish_leadup := na
+
+plot(bullish_count, "lux_bull_prep_count")
+plot(bearish_count, "lux_bear_prep_count")
+plot(f_bool(complete_bullish_preparation), "lux_bull_prep_complete")
+plot(f_bool(complete_bearish_preparation), "lux_bear_prep_complete")
+plot(f_count(bullish_leadup), "lux_bull_leadup_count")
+plot(f_count(bearish_leadup), "lux_bear_leadup_count")
+plot(f_bool(complete_bullish_leadup), "lux_bull_leadup_complete")
+plot(f_bool(complete_bearish_leadup), "lux_bear_leadup_complete")
+plot(f_bool(delete_bullish_leadup), "lux_bull_leadup_delete")
+plot(f_bool(delete_bearish_leadup), "lux_bear_leadup_delete")
