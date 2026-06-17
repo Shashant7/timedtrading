@@ -32454,13 +32454,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 37.0269
+        "sql_duration_ms": 34.015
       },
-      "duration": 37.0269,
+      "duration": 34.015,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 13673,
       "changed_db": false,
-      "size_after": 3966111744,
+      "size_after": 3905409024,
       "rows_read": 3605,
       "rows_written": 0,
       "total_attempts": 1
