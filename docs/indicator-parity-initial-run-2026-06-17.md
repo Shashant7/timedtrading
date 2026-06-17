@@ -55,11 +55,27 @@ node scripts/build-indicator-fixtures.mjs \
   --report="TV Exports/indicator-parity/parity-report-st5.json" \
   --sample-rows=40 \
   --supertrend=5,3
+
+node scripts/analyze-tv-reference-exports.mjs \
+  --input="TV Exports/indicator-parity/extracted" \
+  --report="TV Exports/indicator-parity/reference-analysis-report.json" \
+  --sample-rows=40
 ```
 
 ---
 
 ## Initial result summary
+
+### Direct reference-indicator checks
+
+Additional comparisons were run against the independent TradingView indicator
+columns included in the raw CSV exports.
+
+| Reference | Checked | Result | Caveat |
+|---|---:|---|---|
+| LuxAlgo Sequencer preparation counts | 1,200 sampled rows | **Matched** bullish and bearish prep counts exactly | LuxAlgo lead-up labels are visual labels, not exported numeric columns; direct lead-up parity still needs a plotted/exported column. |
+| MTF Phase Oscillator `Phase (Chart TF)` | 1,200 sampled rows | **Matched** `saty_phase_value` exactly | Also matched leaving-accumulation and leaving-distribution markers. |
+| ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker-vs-ATR-level parity still needs anchor-TF mapping (D/W/60 charts may anchor to W/M/3M depending script auto mode). |
 
 ### SuperTrend 10,3 baseline
 
