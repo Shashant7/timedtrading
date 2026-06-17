@@ -28,6 +28,7 @@
 ## Architecture & core
 
 - [SCORING_ARCHITECTURE.md](SCORING_ARCHITECTURE.md) — scoring details + worker calculations
+- [active-trader-information-hardening-plan.md](active-trader-information-hardening-plan.md) — indicator parity, event ledger, and sequence-aware Trader diagnosis plan
 - [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) — server-side scoring + Kanban
 - [MODEL_PIPELINE.md](MODEL_PIPELINE.md) — model pipeline
 - [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) — D1 ledger + positions
