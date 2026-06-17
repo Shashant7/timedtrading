@@ -1,0 +1,52 @@
+//@version=5
+indicator("Ripster Multi Time Frame Clouds", shorttitle="Ripster MTF Clouds", overlay=true)
+
+// Input parameters for EMA 1
+ma_len1 = input.int(50, title="EMA 1 Short Length")
+ma_len2 = input.int(55, title="EMA 1 Long Length")
+
+// Input parameters for EMA 2
+ma_len3 = input.int(20, title="EMA 2 Short Length")
+ma_len4 = input.int(21, title="EMA 2 Long Length")
+
+// Input for resolution, source, offset, and leading period
+res = input.timeframe("D", title="Resolution")  // Default resolution set to 1 Day
+src = input.source(hl2, title="Source")  // Default source set to hl2
+ma_offset = input.int(0, title="Offset")
+emacloudleading = input.int(0, title="Leading Period For EMA Cloud")
+
+// Higher Time Frame EMAs for EMA 1
+htf_ma1 = request.security(syminfo.tickerid, res, ta.ema(src, ma_len1))
+htf_ma2 = request.security(syminfo.tickerid, res, ta.ema(src, ma_len2))
+
+// Higher Time Frame EMAs for EMA 2
+htf_ma3 = request.security(syminfo.tickerid, res, ta.ema(src, ma_len3))
+htf_ma4 = request.security(syminfo.tickerid, res, ta.ema(src, ma_len4))
+
+// Short and Long EMAs for EMA 1
+mashort1 = htf_ma1
+malong1 = htf_ma2
+
+// Short and Long EMAs for EMA 2
+mashort2 = htf_ma3
+malong2 = htf_ma4
+
+// Cloud color for EMA 1
+cloudcolour1 = mashort1 >= malong1 ? color.new(color.blue, 85) : color.new(color.blue, 85)
+
+// Cloud color for EMA 2 
+cloudcolour2 = mashort2 >= malong2 ? color.new(color.teal, 85) : color.new(color.teal, 85)
+
+// Plot EMAs with colors for EMA 1
+plot(mashort1, color=color.blue, offset=ma_offset, linewidth=1, title="EMA 1 Short")
+plot(malong1, color=color.blue, offset=ma_offset, linewidth=1, title="EMA 1 Long")
+
+// Plot EMAs with colors for EMA 2
+plot(mashort2, color=color.teal, offset=ma_offset, linewidth=1, title="EMA 2 Short")
+plot(malong2, color=color.teal, offset=ma_offset, linewidth=1, title="EMA 2 Long")
+
+// Fill the cloud between the EMAs for EMA 1
+fill(plot(mashort1, title="EMA 1 Short Line", display=display.none), plot(malong1, title="EMA 1 Long Line", display=display.none), color=cloudcolour1, title="EMA 1 Cloud")
+
+// Fill the cloud between the EMAs for EMA 2
+fill(plot(mashort2, title="EMA 2 Short Line", display=display.none), plot(malong2, title="EMA 2 Long Line", display=display.none), color=cloudcolour2, title="EMA 2 Cloud")

@@ -1,0 +1,1363 @@
+//Lunarcy7
+//@version=6
+indicator("ATR Levelsv3", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ──────────────────────────────────────────────────────────────
+// A) Inputs
+// ──────────────────────────────────────────────────────────────
+day_trading="Day", multiday_trading="Multiday", swing_trading="Swing", position_trading="Position", longterm_trading="Long-term"
+
+// ── Core / Anchor
+group_core = "Core Settings"
+auto_mode           = input.bool(true, "Auto Trading Type (by chart timeframe)", group=group_core)
+trading_type_manual = input.string(day_trading, "Trading Type (manual when Auto=off)", options=[day_trading, multiday_trading, swing_trading, position_trading, longterm_trading], group=group_core)
+
+use_options_labels  = input.bool(true, "Use Options Labels", group=group_core)
+atr_length          = input.int(14, "ATR Length", minval=1, group=group_core)
+trigger_percentage  = input.float(0.236, "Trigger Percentage", step=0.001, minval=0.0, maxval=5.0, group=group_core)
+use_current_close   = input.bool(false, "Use Current Close (vs prior)", group=group_core)
+
+// ── EMAs
+group_ema = "EMAs"
+fast_ema  = input.int(5,  "Fast EMA",  minval=1, group=group_ema)
+pivot_ema = input.int(21, "Pivot EMA", minval=1, group=group_ema)
+slow_ema  = input.int(48, "Slow EMA",  minval=1, group=group_ema)
+
+// ──────────────────────────────────────────────────────────────
+// Performance (Mobile stability) — MUST be defined before use
+// ──────────────────────────────────────────────────────────────
+group_perf = "Performance / Mobile"
+mobileMode          = input.bool(false, "Mobile Performance Mode (reduce churn)", group=group_perf)
+maxEventLabels      = input.int(200, "Max event labels (rolling cap)", minval=0, maxval=500, group=group_perf)
+tagsDisableOnMobile = input.bool(true, "Mobile Mode: disable right-edge tags", group=group_perf)
+extDisableOnMobile  = input.bool(true, "Mobile Mode: disable extensions", group=group_perf)
+
+// ── Level colors
+group_level_colors = "ATR Level Colors"
+previous_close_level_color      = input.color(color.new(color.black, 0), "Previous Close", group=group_level_colors)
+lower_trigger_level_color       = input.color(color.new(color.red, 0), "Lower Trigger",  group=group_level_colors)
+upper_trigger_level_color       = input.color(color.new(color.green, 0), "Upper Trigger",  group=group_level_colors)
+key_target_level_color          = input.color(color.new(color.blue, 0), "Key Targets",    group=group_level_colors)
+atr_target_level_color          = input.color(color.new(color.black, 0), "ATR Targets",    group=group_level_colors)
+intermediate_target_level_color = input.color(color.new(color.gray, 0), "Intermediate",   group=group_level_colors)
+
+// ── Level visuals
+group_levels = "ATR Level Visuals"
+show_atr_levels           = input.bool(true,  "Show ATR Levels", group=group_levels, tooltip="Turn off to hide ATR levels (useful for Weekly TF or higher)")
+show_all_fibonacci_levels = input.bool(true,  "Show All Fibonacci Levels (core tags)", group=group_levels)
+show_extensions_input     = input.bool(false, "Show Extension Levels (drawn as lines)", group=group_levels)
+level_size                = input.int(1, "Level Size", minval=1, maxval=6, group=group_levels)
+
+// ── Right-edge tags
+group_tags = "ATR Level Tags (Right Edge)"
+tags_enable_input   = input.bool(true, "Show ATR Level Tags", inline="TAG1", group=group_tags)
+tags_right_bars     = input.int (0, "Right Offset (bars)", minval=0, inline="TAG1", group=group_tags)
+tags_y_offset_ticks = input.int (0, "Y Offset (ticks)",   minval=0, inline="TAG1", group=group_tags)
+tags_point_left     = input.bool(true, "Flip label (point left)?", inline="TAG2", group=group_tags)
+tags_text_size      = input.string("normal", "Size", options=["tiny","small","normal"], inline="TAG2", group=group_tags)
+
+tags_bg_color       = input.color(color.new(color.white, 10), "Tag Background Color", group=group_tags)
+tags_bg_alpha       = input.int(70, "Tag Background Transparency (0-100)", minval=0, maxval=100, group=group_tags)
+tags_text_color_cfg = input.color(color.new(color.black, 0), "Tag Text Color", group=group_tags)
+
+// Tag toggles (ALL levels)
+tags_show_u300  = input.bool(true, " +300%", group=group_tags)
+tags_show_l300  = input.bool(true, " -300%", group=group_tags)
+tags_show_u2618 = input.bool(true, " +261.8%", group=group_tags)
+tags_show_l2618 = input.bool(true, " -261.8%", group=group_tags)
+tags_show_u2236 = input.bool(true, " +223.6%", group=group_tags)
+tags_show_l2236 = input.bool(true, " -223.6%", group=group_tags)
+tags_show_u200  = input.bool(true, " +200%", group=group_tags)
+tags_show_l200  = input.bool(true, " -200%", group=group_tags)
+tags_show_u1786 = input.bool(true, " +178.6%", group=group_tags)
+tags_show_l1786 = input.bool(true, " -178.6%", group=group_tags)
+tags_show_u1618 = input.bool(true, " +161.8%", group=group_tags)
+tags_show_l1618 = input.bool(true, " -161.8%", group=group_tags)
+tags_show_u1500 = input.bool(true, " +150.0%", group=group_tags)
+tags_show_l1500 = input.bool(true, " -150.0%", group=group_tags)
+tags_show_u1382 = input.bool(true, " +138.2%", group=group_tags)
+tags_show_l1382 = input.bool(true, " -138.2%", group=group_tags)
+tags_show_u1236 = input.bool(true, " +123.6%", group=group_tags)
+tags_show_l1236 = input.bool(true, " -123.6%", group=group_tags)
+tags_show_u100  = input.bool(true, " +100%", group=group_tags)
+tags_show_l100  = input.bool(true, " -100%", group=group_tags)
+tags_show_u786  = input.bool(true, " +78.6%", group=group_tags)
+tags_show_l786  = input.bool(true, " -78.6%", group=group_tags)
+tags_show_u618  = input.bool(true, " +61.8%", group=group_tags)
+tags_show_l618  = input.bool(true, " -61.8%", group=group_tags)
+tags_show_u500  = input.bool(true, " +50%", group=group_tags)
+tags_show_l500  = input.bool(true, " -50%", group=group_tags)
+tags_show_u382  = input.bool(true, " +38.2%", group=group_tags)
+tags_show_l382  = input.bool(true, " -38.2%", group=group_tags)
+tags_show_utrig = input.bool(true, " Upper Trigger", group=group_tags)
+tags_show_ltrig = input.bool(true, " Lower Trigger", group=group_tags)
+tags_show_pc    = input.bool(true, " Previous Close", group=group_tags)
+
+// ── Compression visuals
+group_comp = "Compression Visuals"
+showCompDots     = input.bool(false,  "Compression dots (up→bottom, down→top)", group=group_comp)
+showCompTint = input.bool(true, "Enable compression candle tint", group=group_comp)
+compTint_enable     = input.bool(true, "Directional candle tint during compression", group=group_comp)
+compTint_up_color   = input.color(color.new(color.fuchsia, 70), "Up Candle Tint",   group=group_comp)
+compTint_down_color = input.color(color.new(color.red, 50),     "Down Candle Tint", group=group_comp)
+
+
+
+// ──────────────────────────────────────────────────────────────
+// PO Dots — Plot Style (like Compression Dots)
+// ──────────────────────────────────────────────────────────────
+group_poDots = "PO Dots (Plot Style)"
+poDiv_show_on_price = input.bool(true, "Show PO divergence 🦬/🧸 on price", group=group_poDots)
+// Master toggles
+poDots_chart_enable = input.bool(true,  "Chart TF PO Dots", group=group_poDots)
+poDots_1m_enable    = input.bool(false,  "1m PO Dots",       group=group_poDots)
+poDots_3m_enable    = input.bool(false,  "3m PO Dots",       group=group_poDots)
+poDots_10m_enable   = input.bool(false,  "10m PO Dots",      group=group_poDots)
+poDots_30m_enable   = input.bool(false,  "30m PO Dots",      group=group_poDots)
+
+// Colors
+poDots_chart_color = input.color(color.black,  "Chart TF Color", group=group_poDots)
+poDots_1m_color    = input.color(color.gray,   "1m Color",       group=group_poDots)
+poDots_3m_color    = input.color(color.blue,  "3m Color",       group=group_poDots)
+poDots_10m_color   = input.color(color.orange, "10m Color",      group=group_poDots)
+poDots_30m_color   = input.color(color.red,    "30m Color",      group=group_poDots)
+
+// Widths (visual size)
+poDots_chart_w = input.int(6, "Chart TF Width", minval=1, maxval=6, group=group_poDots)
+poDots_1m_w    = input.int(6, "1m Width",       minval=1, maxval=6, group=group_poDots)
+poDots_3m_w    = input.int(6, "3m Width",       minval=1, maxval=6, group=group_poDots)
+poDots_10m_w   = input.int(6, "10m Width",      minval=1, maxval=6, group=group_poDots)
+poDots_30m_w   = input.int(6, "30m Width",      minval=1, maxval=6, group=group_poDots)
+
+// ── EMA Cross 🏴‍☠️
+group_emaX = "EMA Cross 🏴‍☠️"
+emaX_enable      = input.bool(true, "Show 🏴‍☠️ on Fast/Slow EMA cross", group=group_emaX)
+emaX_offsetTicks = input.int(4, "🏴‍☠️ vertical offset (ticks)", minval=0, maxval=200, group=group_emaX)
+emaX_textColor   = input.color(color.white, "🏴‍☠️ text color", group=group_emaX)
+emaX_bgColor     = input.color(color.new(color.white, 90), "🏴‍☠️ background", group=group_emaX)
+emaX_sizeOpt     = input.string("small", "🏴‍☠️ size", options=["tiny","small","normal","large","huge"], group=group_emaX)
+
+// ── RSI Divergence on Price (kept for price chart divergence, HUD removed)
+group_rsi_div = "RSI Divergence on Price"
+rsi_fast_len     = input.int(5,   "RSI Fast Length (RSI(5))",  minval=2, group=group_rsi_div)
+rsi_slow_len     = input.int(14,  "RSI Slow Length (RSI(14))", minval=2, group=group_rsi_div)
+rsiHud_show_rsi5_div = input.bool(true, "Show RSI(5) Divergence on Price", group=group_rsi_div)
+rsiDiv_offsetTicks = input.int(2, "RSI(5) Div Emoji vertical offset (ticks)", minval=0, maxval=200, group=group_rsi_div)
+
+// ── Sizes (used by HUD + labels)
+group_sizes = "Sizes — Emojis & Dots"
+rsiDiv_sizeOpt = input.string("small", "RSI(5) Div Emoji Size", options=["tiny","small","normal","large","huge"], group=group_sizes)
+rsiExt_sizeOpt = input.string("small", "RSI Extreme Label Size", options=["tiny","small","normal","large","huge"], group=group_sizes)
+poDiv_sizeOpt  = input.string("small",  "PO Divergence Emoji Size", options=["tiny","small","normal","large","huge"], group=group_sizes)
+poDiv_offsetTicks = input.int(2, "PO Divergence Emoji vertical offset (ticks)", minval=0, maxval=200, group=group_sizes)
+ggOpen_sizeOpt = input.string("small", "GG Open Emoji Size", options=["tiny","small","normal","large","huge"], group=group_sizes)
+ggOpen_offsetTicks = input.int(4, "GG Open Emoji vertical offset (ticks)", minval=0, maxval=200, group=group_sizes)
+ggClose_sizeOpt= input.string("small", "GG Close Label Size", options=["tiny","small","normal","large","huge"], group=group_sizes)
+
+// RSI extreme markers
+group_rsi_ext  = "RSI Extremes on Price"
+rsiExt_enable  = input.bool(true, "Show RSI 85/15 markers", group=group_rsi_ext)
+rsiExt_hi      = input.float(88.0, "Extreme Overbought (RSI)", group=group_rsi_ext)
+rsiExt_lo      = input.float(12.0, "Extreme Oversold (RSI)", group=group_rsi_ext)
+rsiExt_offsetTicks = input.int(2, "RSI Extreme label vertical offset (ticks)", minval=0, maxval=200, group=group_rsi_ext)
+
+// ── Sessions
+group_sess = "RTH Session for GG visuals"
+rth_tz   = input.string("America/New_York", "RTH Timezone", group=group_sess)
+rth_sess = input.session("0930-1600", "RTH Session", group=group_sess)
+
+// ── Golden Gate
+group_gg_min = "Golden Gate"
+gg_enable     = input.bool(true, "Enable GG visuals", group=group_gg_min)
+gg_open_mode  = input.string("Cross 38.2", "Open signal", options=["Cross 38.2","Touch 38.2"], group=group_gg_min)
+gg_close_mode = input.string("Cross 61.8", "Close signal", options=["Cross 61.8","Touch 61.8"], group=group_gg_min)
+gg_confirm_n  = input.int(1, "Close-confirm: N closes beyond 61.8", minval=0, group=group_gg_min)
+
+// ── SuperTrend (Risk B)
+group_st   = "SuperTrend (Risk B)"
+st_enable  = input.bool(true, "Enable SuperTrend Risk B", group=group_st)
+st_atr_len = input.int(10, "ATR Length", minval=1, group=group_st)
+st_factor  = input.float(3.0, "Factor", step=0.1, group=group_st)
+
+// ── MTF SuperTrend (lines only; fills not used)
+group_mtf_st = "MTF SuperTrend (1m / 3m / 5m / 10m / 30m)"
+
+// 1m
+mtfST_1m_show     = input.bool(false,  "Show 1m SuperTrend", group=group_mtf_st)
+mtfST_1m_atr_len  = input.int(10, "1m ATR", minval=1, group=group_mtf_st)
+mtfST_1m_factor   = input.float(3.0, "1m Factor", minval=0.01, step=0.01, group=group_mtf_st)
+mtfST_1m_up_color = input.color(color.new(color.blue, 30), "1m Up Color", group=group_mtf_st)
+mtfST_1m_dn_color = input.color(color.new(color.blue, 30), "1m Down Color", group=group_mtf_st)
+
+// 3m
+mtfST_3m_show     = input.bool(false, "Show 3m SuperTrend", group=group_mtf_st)
+mtfST_3m_atr_len  = input.int(10, "3m ATR", minval=1, group=group_mtf_st)
+mtfST_3m_factor   = input.float(3.0, "3m Factor", minval=0.01, step=0.01, group=group_mtf_st)
+mtfST_3m_up_color = input.color(color.new(color.teal, 0), "3m Up Color", group=group_mtf_st)
+mtfST_3m_dn_color = input.color(color.new(color.orange, 0), "3m Down Color", group=group_mtf_st)
+
+// 10m
+mtfST_10m_show     = input.bool(false, "Show 10m SuperTrend", group=group_mtf_st)
+mtfST_10m_atr_len  = input.int(10, "10m ATR", minval=1, group=group_mtf_st)
+mtfST_10m_factor   = input.float(3.0, "10m Factor", minval=0.01, step=0.01, group=group_mtf_st)
+mtfST_10m_up_color = input.color(color.new(color.orange, 0), "10m Up Color", group=group_mtf_st)
+mtfST_10m_dn_color = input.color(color.new(color.orange, 0), "10m Down Color", group=group_mtf_st)
+
+// 30m
+mtfST_30m_show     = input.bool(false, "Show 30m SuperTrend", group=group_mtf_st)
+mtfST_30m_atr_len  = input.int(10, "30m ATR", minval=1, group=group_mtf_st)
+mtfST_30m_factor   = input.float(3.0, "30m Factor", minval=0.01, step=0.01, group=group_mtf_st)
+mtfST_30m_up_color = input.color(color.new(color.red, 0), "30m Up Color", group=group_mtf_st)
+mtfST_30m_dn_color = input.color(color.new(color.red, 0), "30m Down Color", group=group_mtf_st)
+
+
+// ──────────────────────────────────────────────────────────────
+// B) Utils
+// ──────────────────────────────────────────────────────────────
+
+// Effective feature toggles (after inputs are defined)
+show_extensions = (mobileMode and extDisableOnMobile) ? false : show_extensions_input
+tags_enable     = (mobileMode and tagsDisableOnMobile) ? false : tags_enable_input
+
+
+// Rolling label buffer for any label.new() that can accumulate
+var label[] _eventLbls = array.new_label()
+
+f_push_lbl(label l) =>
+    if maxEventLabels <= 0
+        label.delete(l)
+    else
+        array.push(_eventLbls, l)
+        if array.size(_eventLbls) > maxEventLabels
+            label.delete(array.shift(_eventLbls))
+
+// Helper: “leaving” flags for a given PO series
+f_po_leave_flags(series float po) =>
+    bool leave_acc  = po[1] <= -61.8 and po > -61.8
+    bool leave_dn   = po[1] <= -100  and po > -100
+    bool leave_dist = po[1] >=  61.8 and po <  61.8
+    bool leave_up   = po[1] >=  100  and po <  100
+    [leave_acc, leave_dn, leave_dist, leave_up]
+
+toTicks(x)=>x/syminfo.mintick
+fromTicks(n)=>n*syminfo.mintick
+
+// Helper: detect if instrument is a stock
+// Futures typically have "!" in the ticker symbol, so if it doesn't have "!", assume it's a stock
+f_is_stock() =>
+    not str.contains(syminfo.ticker, "!")
+
+// Helper: get dynamic threshold based on instrument type
+// Futures: 12 ticks
+// Stocks: points based on price (1 pt if < $1000, up to 5 pts if >= $1000), capped at 0.5% of close
+f_get_proximity_threshold() =>
+    if f_is_stock()
+        // For stocks: use points based on price, but cap at 0.5% of close
+        float points_threshold = close >= 1000.0 ? 5.0 : 1.0
+        float points_ticks = points_threshold / syminfo.mintick
+        float percent_ticks = (close * 0.005) / syminfo.mintick
+        // Use the minimum to ensure 0.5% is the maximum cap
+        float threshold_ticks_float = math.min(math.max(points_ticks, 100.0), percent_ticks)
+        int(threshold_ticks_float)
+    else
+        // For futures: 12 ticks
+        12
+
+// Helper: check if price is within threshold of a level (dynamic based on instrument type)
+f_is_near_level(float level, int tickThreshold) =>
+    if na(level)
+        false
+    else
+        float tickDist = math.abs(close - level) / syminfo.mintick
+        tickDist <= tickThreshold
+
+// Map size option string → label size enum
+lbl_size(string opt) =>
+    opt == "tiny"   ? size.tiny  :    opt == "small"  ? size.small :    opt == "normal" ? size.normal:    opt == "large"  ? size.large :                      size.huge
+
+// Helper to bump one step (optional, used if you want later)
+f_bump_size(string opt) =>
+    opt == "tiny"   ? "small"  :    opt == "small"  ? "normal" :    opt == "normal" ? "large"  :    opt == "large"  ? "huge"   : "huge"
+
+// Concrete size enums used later in the script
+emaX_size   = lbl_size(emaX_sizeOpt)
+rsiDiv_size = lbl_size(rsiDiv_sizeOpt)
+rsiExt_size = lbl_size(rsiExt_sizeOpt)
+poDiv_size  = lbl_size(poDiv_sizeOpt)
+ggOpen_size = lbl_size(ggOpen_sizeOpt)
+ggClose_size= lbl_size(ggClose_sizeOpt)
+
+f_clamp(float x, float lo, float hi) =>
+    math.min(math.max(x, lo), hi)
+
+// Divergence helpers (separate state for RSI and PO)
+f_div_emoji_rsi(series float osc, int pivotLen) =>
+    var float pl1_price = na
+    var float pl2_price = na
+    var float pl1_osc   = na
+    var float pl2_osc   = na
+    var int   pl1_bar   = na
+    var int pl2_bar   = na
+
+    var float ph1_price = na
+    var float ph2_price = na
+    var float ph1_osc   = na
+    var float ph2_osc   = na
+    var int   ph1_bar   = na
+    var int ph2_bar   = na
+
+    var string lastSig_rsi  = ""
+
+    string sig = lastSig_rsi
+
+    float newPL = ta.pivotlow(low, pivotLen, pivotLen)
+    if not na(newPL)
+        pl2_price := pl1_price
+        pl2_osc   := pl1_osc
+        pl2_bar   := pl1_bar
+
+        pl1_price := newPL
+        pl1_osc   := osc[pivotLen]
+        pl1_bar   := bar_index - pivotLen
+
+        bool bull = not na(pl2_price) and not na(pl2_osc) and pl1_price < pl2_price and pl1_osc > pl2_osc
+        if bull
+            sig := "🐂"
+
+    float newPH = ta.pivothigh(high, pivotLen, pivotLen)
+    if not na(newPH)
+        ph2_price := ph1_price
+        ph2_osc   := ph1_osc
+        ph2_bar   := ph1_bar
+
+        ph1_price := newPH
+        ph1_osc   := osc[pivotLen]
+        ph1_bar   := bar_index - pivotLen
+
+        bool bear = not na(ph2_price) and not na(ph2_osc) and ph1_price > ph2_price and ph1_osc < ph2_osc
+        if bear
+            sig := "🐻"
+
+    lastSig_rsi := sig
+    sig
+
+f_div_emoji_rsi_slow(series float osc, int pivotLen) =>
+    var float pl1_price_s = na
+    var float pl2_price_s = na
+    var float pl1_osc_s   = na
+    var float pl2_osc_s   = na
+    var int   pl1_bar_s   = na
+    var int   pl2_bar_s   = na
+
+    var float ph1_price_s = na
+    var float ph2_price_s = na
+    var float ph1_osc_s   = na
+    var float ph2_osc_s   = na
+    var int   ph1_bar_s   = na
+    var int   ph2_bar_s   = na
+
+    var string lastSig_rsi_s  = ""
+    string sig = lastSig_rsi_s
+
+    float newPLs = ta.pivotlow(low, pivotLen, pivotLen)
+    if not na(newPLs)
+        pl2_price_s := pl1_price_s
+        pl2_osc_s   := pl1_osc_s
+        pl2_bar_s   := pl1_bar_s
+
+        pl1_price_s := newPLs
+        pl1_osc_s   := osc[pivotLen]
+        pl1_bar_s   := bar_index - pivotLen
+
+        bool bulls = not na(pl2_price_s) and not na(pl2_osc_s) and pl1_price_s < pl2_price_s and pl1_osc_s > pl2_osc_s
+        if bulls
+            sig := "🐂"
+
+    float newPHs = ta.pivothigh(high, pivotLen, pivotLen)
+    if not na(newPHs)
+        ph2_price_s := ph1_price_s
+        ph2_osc_s   := ph1_osc_s
+        ph2_bar_s   := ph1_bar_s
+
+        ph1_price_s := newPHs
+        ph1_osc_s   := osc[pivotLen]
+        ph1_bar_s   := bar_index - pivotLen
+
+        bool bears = not na(ph2_price_s) and not na(ph2_osc_s) and ph1_price_s > ph2_price_s and ph1_osc_s < ph2_osc_s
+        if bears
+            sig := "🐻"
+
+    lastSig_rsi_s := sig
+    sig
+
+f_resolve_trading_type() =>
+    if not auto_mode
+        trading_type_manual
+    else
+        secs=nz(timeframe.in_seconds(timeframe.period),60)
+        if timeframe.isintraday
+            secs<30*60?day_trading:secs<60*60?multiday_trading:secs<240*60?swing_trading:position_trading
+        else if timeframe.isdaily
+            position_trading
+        else if timeframe.isweekly
+            swing_trading
+        else if timeframe.ismonthly
+            longterm_trading
+        else
+            position_trading
+
+f_anchor_tf(tt)=>
+    tt==day_trading?"D":tt==multiday_trading?"W":tt==swing_trading?"M":tt==position_trading?"3M":"12M"
+
+// Core Saty compression test on the *current* TF (reusable)
+_saty_compressed_chart() =>
+    _p = ta.ema(close, 21)
+    _a = ta.atr(14)
+    _bbo = 2.0 * ta.stdev(close, 21)
+    _bup = _p + _bbo
+    _bdn = _p - _bbo
+    _ctUp = _p + 2.0 * _a
+    _ctDn = _p - 2.0 * _a
+    _exUp = _p + 1.854 * _a
+    _exDn = _p - 1.854 * _a
+    _above = close >= _p
+    _compression = _above ? (_bup - _ctUp) : (_ctDn - _bdn)
+    _inExp = _above ? (_bup - _exUp) : (_exDn - _bdn)
+    _expanding = nz(_compression[1]) <= _compression
+    not (_expanding and _inExp > 0) and _compression <= 0
+
+// ──────────────────────────────────────────────────────────────
+// Compression flag (Chart TF) — define ONCE, used everywhere
+// ──────────────────────────────────────────────────────────────
+bool isCompressed_chart = _saty_compressed_chart()
+
+// Exact Saty Phase Oscillator formula (v5 logic, ported to v6)
+po_pivot = ta.ema(close, 21)
+po_atr   = ta.atr(14)
+po_raw   = ((close - po_pivot) / (3.0 * po_atr)) * 100.0
+saty_po  = ta.ema(po_raw, 3)
+
+// ──────────────────────────────────────────────────────────────
+// Directional Compression Candle Tint (native candles)
+// ──────────────────────────────────────────────────────────────
+bool isUpBar = close >= open
+
+color compBarColor =
+     compTint_enable and showCompTint and isCompressed_chart
+     ? (isUpBar ? compTint_up_color : compTint_down_color)
+     : na
+
+barcolor(compBarColor)
+
+// Saty Phase Oscillator on an arbitrary timeframe (tf like "1", "10", "5", etc.)
+f_saty_po_tf(string tf) =>
+    request.security(
+         syminfo.tickerid,
+         tf,
+         ta.ema(
+             ((close - ta.ema(close, 21)) / (3.0 * ta.atr(14))) * 100.0,
+             3),
+         gaps      = barmerge.gaps_off,
+         lookahead = barmerge.lookahead_off)
+
+// Saty compression flag on an arbitrary timeframe using the same logic as _saty_compressed_chart
+f_saty_compressed_tf(string tf) =>
+    request.security(
+         syminfo.tickerid,
+         tf,
+         _saty_compressed_chart(),
+         gaps      = barmerge.gaps_off,
+         lookahead = barmerge.lookahead_off)
+
+inRTH()=>not na(time(timeframe.period, rth_sess, rth_tz))
+rthStart()=>inRTH() and not inRTH()[1]
+
+// SuperTrend core (used for MTF ST)
+// mode = 0 → return supertrend line, mode = 1 → return direction (+1 / -1)
+f_supertrend_val(float factor, int atrPeriod, int mode) =>
+    float _atr  = ta.atr(atrPeriod)
+    float _hl2  = (high + low) / 2.0
+    float _up   = _hl2 + factor * _atr
+    float _dn   = _hl2 - factor * _atr
+
+    var float _fUp = na
+    var float _fDn = na
+    var int   _dir = na
+
+    _fUp := na(_fUp[1]) ? _up :        (_up < _fUp[1] or close[1] > _fUp[1] ? _up : _fUp[1])
+
+    _fDn := na(_fDn[1]) ? _dn :        (_dn > _fDn[1] or close[1] < _fDn[1] ? _dn : _fDn[1])
+
+    _dir := na(_dir[1]) ? 1 :        _dir[1] == -1 and close > _fUp[1] ? 1 :        _dir[1] ==  1 and close < _fDn[1] ? -1 :        _dir[1]
+
+    float _st = _dir == 1 ? _fDn : _fUp
+    mode == 0 ? _st : _dir
+
+// Trend color (unchanged look)
+price=close
+fEMA=ta.ema(price,fast_ema)
+pEMA=ta.ema(price,pivot_ema)
+sEMA=ta.ema(price,slow_ema)
+bullish=price>=fEMA and fEMA>=pEMA and pEMA>=sEMA
+bearish=price<=fEMA and fEMA<=pEMA and pEMA<=sEMA
+trend_color=bullish?color.green:bearish?color.red:color.orange
+
+// ──────────────────────────────────────────────────────────────
+// 🏴‍☠️ Fast EMA crosses Slow EMA
+// ──────────────────────────────────────────────────────────────
+
+
+// Cross conditions
+bool emaX_up = ta.crossover(fEMA, sEMA)
+bool emaX_dn = ta.crossunder(fEMA, sEMA)
+
+// Y positions (above bar for up-cross, below bar for down-cross)
+float emaX_y_up = high + fromTicks(emaX_offsetTicks)
+float emaX_y_dn = low  - fromTicks(emaX_offsetTicks)
+
+if emaX_enable and emaX_up
+    f_push_lbl(label.new(
+         bar_index, emaX_y_up, "🏴‍☠️",
+         xloc=xloc.bar_index, yloc=yloc.price,
+         style=label.style_label_down,
+         size=emaX_size,
+         textcolor=emaX_textColor,
+         color=emaX_bgColor))
+
+if emaX_enable and emaX_dn
+    f_push_lbl(label.new(
+         bar_index, emaX_y_dn, "🏴‍☠️",
+         xloc=xloc.bar_index, yloc=yloc.price,
+         style=label.style_label_up,
+         size=emaX_size,
+         textcolor=emaX_textColor,
+         color=emaX_bgColor))
+// ──────────────────────────────────────────────────────────────
+// C) Anchor TF + ATR levels (same math as v1.5)
+// ──────────────────────────────────────────────────────────────
+trading_type=f_resolve_trading_type()
+anchor_tf=f_anchor_tf(trading_type)
+
+// Use extended session for anchor TF, just like Saty's v5
+var string anchorTicker = ticker.new(syminfo.prefix, syminfo.ticker, session = session.extended)
+
+period_index = use_current_close ? 0 : 1
+prev_close   = request.security(anchorTicker, anchor_tf, close[period_index], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+atr_val      = request.security(anchorTicker, anchor_tf, ta.atr(atr_length)[period_index], gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+per_high     = request.security(anchorTicker, anchor_tf, high, gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+per_low      = request.security(anchorTicker, anchor_tf, low,  gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_on)
+
+lower_trigger=prev_close-trigger_percentage*atr_val
+upper_trigger=prev_close+trigger_percentage*atr_val
+
+// Core levels (keep as plots)
+lower_0382=prev_close-atr_val*0.382, upper_0382=prev_close+atr_val*0.382
+lower_0500=prev_close-atr_val*0.5,   upper_0500=prev_close+atr_val*0.5
+lower_0618=prev_close-atr_val*0.618, upper_0618=prev_close+atr_val*0.618
+lower_0786=prev_close-atr_val*0.786, upper_0786=prev_close+atr_val*0.786
+lower_1000=prev_close-atr_val,       upper_1000=prev_close+atr_val
+
+// Extensions (drawn as line objects, not plots)
+lower_1236=lower_1000-atr_val*0.236, upper_1236=upper_1000+atr_val*0.236
+lower_1382=lower_1000-atr_val*0.382, upper_1382=upper_1000+atr_val*0.382
+lower_1500=lower_1000-atr_val*0.5,   upper_1500=upper_1000+atr_val*0.5
+lower_1618=lower_1000-atr_val*0.618, upper_1618=upper_1000+atr_val*0.618
+lower_1786=lower_1000-atr_val*0.786, upper_1786=upper_1000+atr_val*0.786
+lower_2000=lower_1000-atr_val,       upper_2000=upper_1000+atr_val
+lower_2236=lower_2000-atr_val*0.236, upper_2236=upper_2000+atr_val*0.236
+lower_2618=lower_2000-atr_val*0.618, upper_2618=upper_2000+atr_val*0.618
+lower_3000=lower_2000-atr_val,       upper_3000=upper_2000+atr_val
+
+// ──────────────────────────────────────────────────────────────
+// Price Scale Labels (LEAN set, color-matched) — saves plot budget
+// ──────────────────────────────────────────────────────────────
+group_ps  = "Price Scale Labels"
+ps_enable = input.bool(true, "Show Levels on Price Scale (Lean)", group=group_ps)
+
+// gates
+bool ps_on  = ps_enable and show_atr_levels
+bool ps_ext = ps_on and show_extensions  // respects mobileMode/extDisableOnMobile via show_extensions
+
+// colors (match your ATR palette)
+color c_pc    = color.new(previous_close_level_color, 40)
+color c_ltrig = color.new(lower_trigger_level_color, 40)
+color c_utrig = color.new(upper_trigger_level_color, 40)
+color c_key   = color.new(key_target_level_color, 40)
+color c_atr   = color.new(atr_target_level_color, 40)
+
+// ── Core essentials
+plot(ps_on ? prev_close    : na, title="ATR Prev Close",    color=c_pc,    linewidth=1, display=display.price_scale)
+plot(ps_on ? lower_trigger : na, title="ATR Lower Trigger", color=c_ltrig, linewidth=1, display=display.price_scale)
+plot(ps_on ? upper_trigger : na, title="ATR Upper Trigger", color=c_utrig, linewidth=1, display=display.price_scale)
+
+// ±100%
+plot(ps_on ? lower_1000    : na, title="ATR -100%",         color=c_atr,   linewidth=1, display=display.price_scale)
+plot(ps_on ? upper_1000    : na, title="ATR +100%",         color=c_atr,   linewidth=1, display=display.price_scale)
+
+// ±38.2%
+plot(ps_on ? lower_0382    : na, title="ATR -38.2%",        color=c_key,   linewidth=1, display=display.price_scale)
+plot(ps_on ? upper_0382    : na, title="ATR +38.2%",        color=c_key,   linewidth=1, display=display.price_scale)
+
+// ±61.8%
+plot(ps_on ? lower_0618    : na, title="ATR -61.8%",        color=c_key,   linewidth=1, display=display.price_scale)
+plot(ps_on ? upper_0618    : na, title="ATR +61.8%",        color=c_key,   linewidth=1, display=display.price_scale)
+
+// Key extensions (only when extensions are enabled)
+plot(ps_ext ? lower_1618   : na, title="ATR -161.8%",       color=c_key,   linewidth=1, display=display.price_scale)
+plot(ps_ext ? upper_1618   : na, title="ATR +161.8%",       color=c_key,   linewidth=1, display=display.price_scale)
+
+plot(ps_ext ? lower_2618   : na, title="ATR -261.8%",       color=c_key,   linewidth=1, display=display.price_scale)
+plot(ps_ext ? upper_2618   : na, title="ATR +261.8%",       color=c_key,   linewidth=1, display=display.price_scale)
+
+// ATR target extensions (200 / 300) - commented out to reduce plot count
+// plot(ps_ext ? lower_2000   : na, title="ATR -200%",         color=c_atr,   linewidth=1, display=display.price_scale)
+// plot(ps_ext ? upper_2000   : na, title="ATR +200%",         color=c_atr,   linewidth=1, display=display.price_scale)
+// plot(ps_ext ? lower_3000   : na, title="ATR -300%",         color=c_atr,   linewidth=1, display=display.price_scale)
+// plot(ps_ext ? upper_3000   : na, title="ATR +300%",         color=c_atr,   linewidth=1, display=display.price_scale)
+
+// Calculate dynamic proximity threshold based on instrument type
+int proximity_threshold = f_get_proximity_threshold()
+
+// ──────────────────────────────────────────────────────────────
+// Compression Dots — Chart TF (DOTS ONLY)
+// ──────────────────────────────────────────────────────────────
+float dotOffset = 0.5 * syminfo.mintick
+
+
+float compDotY =
+     showCompDots and isCompressed_chart
+     ? (isUpBar ? (low - dotOffset) : (high + dotOffset))
+     : na
+
+plot(
+     compDotY,
+     title     = "Compression Dot (Chart TF)",
+     style     = plot.style_circles,
+     color     = color.fuchsia,
+     linewidth = 3,
+     display   = display.all - display.price_scale)
+
+// ──────────────────────────────────────────────────────────────
+// PO Dots — Plot Style Logic
+// ──────────────────────────────────────────────────────────────
+
+// Chart TF PO
+po_chart = saty_po
+[chart_acc, chart_dn, chart_dist, chart_up] = f_po_leave_flags(po_chart)
+bool hasChart = (chart_acc or chart_dn or chart_dist or chart_up) and poDots_chart_enable
+float poDot_chart =
+     hasChart
+     ? (chart_acc or chart_dn ? (low - dotOffset) :
+        chart_dist or chart_up ? (high + dotOffset) : na)
+     : na
+plot(
+     poDot_chart,
+     title     = "PO Dot Chart TF",
+     style     = plot.style_circles,
+     linewidth = poDots_chart_w,
+     color     = poDots_chart_color,
+     display   = display.all - display.price_scale)
+
+// ──────────────────────────────────────────────────────────────
+// PO Dots — Priority: 30m > 10m > 3m > 1m
+// ──────────────────────────────────────────────────────────────
+
+// 30m (only if no Chart TF dot this bar)
+po_30m = f_saty_po_tf("30")
+[acc30, dn30, dist30, up30] = f_po_leave_flags(po_30m)
+bool has30_raw = (acc30 or dn30 or dist30 or up30) and poDots_30m_enable
+bool has30 = has30_raw and not hasChart
+
+float poDot_30m =
+     has30
+     ? (acc30 or dn30 ? (low - dotOffset) :
+        dist30 or up30 ? (high + dotOffset) : na)
+     : na
+
+// plot(poDot_30m, title="PO Dot 30m", style=plot.style_circles, linewidth=poDots_30m_w, color=poDots_30m_color, display=display.all - display.price_scale)
+
+
+// 10m (only if no Chart TF or 30m dot this bar)
+po_10m = f_saty_po_tf("10")
+[acc10, dn10, dist10, up10] = f_po_leave_flags(po_10m)
+bool has10_raw = (acc10 or dn10 or dist10 or up10) and poDots_10m_enable
+bool has10 = has10_raw and not hasChart and not has30
+
+float poDot_10m =
+     has10
+     ? (acc10 or dn10 ? (low - dotOffset) :
+        dist10 or up10 ? (high + dotOffset) : na)
+     : na
+
+// plot(poDot_10m, title="PO Dot 10m", style=plot.style_circles, linewidth=poDots_10m_w, color=poDots_10m_color, display=display.all - display.price_scale)
+
+
+// 3m (only if no Chart TF dot this bar)
+po_3m = f_saty_po_tf("3")
+[acc3, dn3, dist3, up3] = f_po_leave_flags(po_3m)
+bool has3_raw = (acc3 or dn3 or dist3 or up3) and poDots_3m_enable
+bool has3 = has3_raw and not hasChart
+
+float poDot_3m =
+     has3
+     ? (acc3 or dn3 ? (low - dotOffset) :
+        dist3 or up3 ? (high + dotOffset) : na)
+     : na
+
+plot(poDot_3m, title="PO Dot 3m", style=plot.style_circles, linewidth=poDots_3m_w, color=poDots_3m_color, display=display.all - display.price_scale)
+
+
+// 1m (only if no Chart TF or 3m dot this bar)
+po_1m = f_saty_po_tf("1")
+[acc1, dn1, dist1, up1] = f_po_leave_flags(po_1m)
+bool has1_raw = (acc1 or dn1 or dist1 or up1) and poDots_1m_enable
+bool has1 = has1_raw and not hasChart and not has3
+
+float poDot_1m =
+     has1
+     ? (acc1 or dn1 ? (low - dotOffset) :
+        dist1 or up1 ? (high + dotOffset) : na)
+     : na
+
+plot(poDot_1m, title="PO Dot 1m", style=plot.style_circles, linewidth=poDots_1m_w, color=poDots_1m_color, display=display.all - display.price_scale)
+// ──────────────────────────────────────────────────────────────
+// RSI(5/14) + Saty Phase Oscillator HUD
+// ──────────────────────────────────────────────────────────────
+
+// RSI values
+rsi_fast = ta.rsi(close, rsi_fast_len)
+rsi_slow = ta.rsi(close, rsi_slow_len)
+
+// ──────────────────────────────────────────────────────────────
+// RSI(5) price/RSI divergence (same semantics as RSI indicator)
+// ──────────────────────────────────────────────────────────────
+int   rsi5_lookbackRight = 5
+int   rsi5_lookbackLeft  = 5
+int   rsi5_rangeUpper    = 60
+int   rsi5_rangeLower    = 5
+
+rsi5_inRange(bool cond) =>
+    bars = ta.barssince(cond)
+    rsi5_rangeLower <= bars and bars <= rsi5_rangeUpper
+
+// These mirror the RSI script's divergence vars, but scoped to RSI(5)
+bool  rsi5_plFound   = false
+bool  rsi5_phFound   = false
+bool  rsi5_bullCond  = false
+bool  rsi5_bearCond  = false
+
+float rsi5_rsiLBR = rsi_fast[rsi5_lookbackRight]
+
+if rsiHud_show_rsi5_div
+    // Regular Bullish: price LL, RSI HL
+    rsi5_plFound := not na(ta.pivotlow(rsi_fast, rsi5_lookbackLeft, rsi5_lookbackRight))
+    float lowLBR = low[rsi5_lookbackRight]
+    bool rsi5_inRangePL = rsi5_inRange(rsi5_plFound[1])
+    bool rsi5_HL        = rsi5_rsiLBR > ta.valuewhen(rsi5_plFound, rsi5_rsiLBR, 1) and rsi5_inRangePL
+    bool priceLL        = lowLBR < ta.valuewhen(rsi5_plFound, lowLBR, 1)
+    rsi5_bullCond       := priceLL and rsi5_HL and rsi5_plFound
+
+    // Regular Bearish: price HH, RSI LH
+    rsi5_phFound := not na(ta.pivothigh(rsi_fast, rsi5_lookbackLeft, rsi5_lookbackRight))
+    float highLBR = high[rsi5_lookbackRight]
+    bool rsi5_inRangePH = rsi5_inRange(rsi5_phFound[1])
+    bool rsi5_LH        = rsi5_rsiLBR < ta.valuewhen(rsi5_phFound, rsi5_rsiLBR, 1) and rsi5_inRangePH
+    bool priceHH        = highLBR > ta.valuewhen(rsi5_phFound, highLBR, 1)
+    rsi5_bearCond       := priceHH and rsi5_LH and rsi5_phFound
+
+    // Place emojis on the actual pivot bar (bar_index - lookbackRight)
+    if rsi5_bullCond
+        f_push_lbl(label.new(
+             bar_index - rsi5_lookbackRight, low[rsi5_lookbackRight] - fromTicks(rsiDiv_offsetTicks), "🐂",
+             xloc = xloc.bar_index, yloc = yloc.price,
+             style = label.style_label_up,
+             size  = rsiDiv_size,
+             textcolor = color.new(color.green, 0),
+             color     = color.new(color.white, 95)))
+
+    if rsi5_bearCond
+        f_push_lbl(label.new(
+             bar_index - rsi5_lookbackRight, high[rsi5_lookbackRight] + fromTicks(rsiDiv_offsetTicks), "🐻",
+             xloc = xloc.bar_index, yloc = yloc.price,
+             style = label.style_label_down,
+             size  = rsiDiv_size,
+             textcolor = color.new(color.red, 0),
+             color     = color.new(color.white, 95)))
+
+
+// ──────────────────────────────────────────────────────────────
+// Phase Oscillator Divergence (mirror of MTF Phase Oscillator)
+// ──────────────────────────────────────────────────────────────
+// Match PO panel defaults: Chart TF, divLeft=2, divRight=2, min gap = 5
+const int poDiv_left   = 2
+const int poDiv_right  = 2
+const int poDiv_minGap = 5
+
+// State for last confirmed pivots (price + osc)
+var float po_prevLowPx   = na
+var float po_prevLowOsc  = na
+var int   po_prevLowIdx  = na
+
+var float po_prevHighPx  = na
+var float po_prevHighOsc = na
+var int   po_prevHighIdx = na
+
+// Per-bar triggers + emoji series we can feed into HUD
+var string po_lastEmoji      = ""
+string     po_emoji_this_bar = ""
+
+// Source osc for divergence (chart-TF saty_po → matches osc_c when divOnWhich=\"Chart TF\")
+oscForDiv_po = saty_po
+
+// --- New LOW pivot (potential bullish divergence)
+float po_newLow = ta.pivotlow(low, poDiv_left, poDiv_right)
+if not na(po_newLow)
+    int   idxL  = bar_index - poDiv_right
+    float pxL   = low[poDiv_right]
+    float oscL  = oscForDiv_po[poDiv_right]
+
+    if not na(po_prevLowIdx) and (idxL - po_prevLowIdx) >= poDiv_minGap
+        bool bullDiv = (pxL < po_prevLowPx) and (oscL > po_prevLowOsc)
+        if bullDiv
+            if poDiv_show_on_price
+                f_push_lbl(label.new(
+                     idxL, pxL - fromTicks(poDiv_offsetTicks), "🦬",
+                     xloc = xloc.bar_index, yloc = yloc.price,
+                     style = label.style_label_up,
+                     size  = poDiv_size,
+                     textcolor = color.new(color.green, 0),
+                     color     = color.new(color.white, 95)))
+
+    po_prevLowIdx := idxL
+    po_prevLowPx  := pxL
+    po_prevLowOsc := oscL
+
+// --- New HIGH pivot (potential bearish divergence)
+float po_newHigh = ta.pivothigh(high, poDiv_left, poDiv_right)
+if not na(po_newHigh)
+    int   idxH  = bar_index - poDiv_right
+    float pxH   = high[poDiv_right]
+    float oscH  = oscForDiv_po[poDiv_right]
+
+    if not na(po_prevHighIdx) and (idxH - po_prevHighIdx) >= poDiv_minGap
+        bool bearDiv = (pxH > po_prevHighPx) and (oscH < po_prevHighOsc)
+        if bearDiv
+            if poDiv_show_on_price
+                f_push_lbl(label.new(
+                     idxH, pxH + fromTicks(poDiv_offsetTicks), "🧸",
+                     xloc = xloc.bar_index, yloc = yloc.price,
+                     style = label.style_label_down,
+                     size  = poDiv_size,
+                     textcolor = color.new(color.red, 0),
+                     color     = color.new(color.white, 95)))
+
+    po_prevHighIdx := idxH
+    po_prevHighPx  := pxH
+    po_prevHighOsc := oscH
+
+// RSI extreme labels on price (RSI(5) > 85 or < 15)
+if rsiExt_enable
+    bool rsi_hi = rsi_fast > rsiExt_hi
+    bool rsi_lo = rsi_fast < rsiExt_lo
+
+    if rsi_hi
+        f_push_lbl(label.new(
+             bar_index, high + fromTicks(rsiExt_offsetTicks), "🚨",
+             xloc = xloc.bar_index, yloc = yloc.price,
+             style = label.style_label_down,
+             size  = rsiExt_size,
+             textcolor = color.black,
+             color     = color.new(color.white, 95)))
+
+    if rsi_lo
+        f_push_lbl(label.new(
+             bar_index, low - fromTicks(rsiExt_offsetTicks), "🚨",
+             xloc = xloc.bar_index, yloc = yloc.price,
+             style = label.style_label_up,
+             size  = rsiExt_size,
+             textcolor = color.black,
+             color     = color.new(color.white, 95)))
+
+// ──────────────────────────────────────────────────────────────
+// F) Core Level Lines (steplines using line objects for dynamic width)
+// ──────────────────────────────────────────────────────────────
+var line[]  coreStep  = array.new_line(13)
+var float[] corePrevY = array.new_float(13)
+
+// Core levels array: [level, color, show_condition]
+updateCoreStep(int idx, bool show, float y, color col, bool isHighlighted) =>
+    ln = array.get(coreStep, idx)
+    py = array.get(corePrevY, idx)
+    int lineWidth = isHighlighted ? 4 : level_size
+    if not show or na(y)
+        if not na(ln)
+            line.delete(ln)
+            ln := na
+        array.set(coreStep, idx, ln)
+        array.set(corePrevY, idx, na)
+    else
+        if na(ln) or na(py) or (y != py)
+            if not na(ln)
+                line.delete(ln)
+            ln := line.new(bar_index - 1, y, bar_index, y, xloc=xloc.bar_index, extend=extend.none, color=col, width=lineWidth)
+        else
+            line.set_xy2(ln, bar_index, y)
+            line.set_width(ln, lineWidth)
+        array.set(coreStep, idx, ln)
+        array.set(corePrevY, idx, y)
+
+// Update core levels
+updateCoreStep(0,  show_atr_levels, lower_1000, color.new(atr_target_level_color,40), f_is_near_level(lower_1000, proximity_threshold))
+updateCoreStep(1,  show_atr_levels, lower_0786, color.new(intermediate_target_level_color,40), f_is_near_level(lower_0786, proximity_threshold))
+updateCoreStep(2,  show_atr_levels, lower_0618, color.new(key_target_level_color,40), f_is_near_level(lower_0618, proximity_threshold))
+updateCoreStep(3,  show_atr_levels, lower_0500, color.new(intermediate_target_level_color,40), f_is_near_level(lower_0500, proximity_threshold))
+updateCoreStep(4,  show_atr_levels, lower_0382, color.new(intermediate_target_level_color,40), f_is_near_level(lower_0382, proximity_threshold))
+updateCoreStep(5,  show_atr_levels, lower_trigger, color.new(lower_trigger_level_color,40), f_is_near_level(lower_trigger, proximity_threshold))
+updateCoreStep(6,  show_atr_levels, prev_close, color.new(previous_close_level_color,40), f_is_near_level(prev_close, proximity_threshold))
+updateCoreStep(7,  show_atr_levels, upper_trigger, color.new(upper_trigger_level_color,40), f_is_near_level(upper_trigger, proximity_threshold))
+updateCoreStep(8,  show_atr_levels, upper_0382, color.new(intermediate_target_level_color,40), f_is_near_level(upper_0382, proximity_threshold))
+updateCoreStep(9,  show_atr_levels, upper_0500, color.new(intermediate_target_level_color,40), f_is_near_level(upper_0500, proximity_threshold))
+updateCoreStep(10, show_atr_levels, upper_0618, color.new(key_target_level_color,40), f_is_near_level(upper_0618, proximity_threshold))
+updateCoreStep(11, show_atr_levels, upper_0786, color.new(intermediate_target_level_color,40), f_is_near_level(upper_0786, proximity_threshold))
+updateCoreStep(12, show_atr_levels, upper_1000, color.new(atr_target_level_color,40), f_is_near_level(upper_1000, proximity_threshold))
+
+// ──────────────────────────────────────────────────────────────
+// G) Extension Levels as STEPLINES using line objects (not plots)
+// ──────────────────────────────────────────────────────────────
+var line[]  extStep  = array.new_line(18)
+var float[] extPrevY = array.new_float(18)
+
+newStep(y, col, w) =>
+    line.new(bar_index - 1, y, bar_index, y,        xloc=xloc.bar_index, extend=extend.none, color=col, width=w)
+
+updateStep(int idx, bool show, float y, color col, bool isHighlighted) =>
+    ln = array.get(extStep, idx)
+    py = array.get(extPrevY, idx)
+    int lineWidth = isHighlighted ? 4 : level_size
+    if not show or na(y)
+        if not na(ln)
+            line.delete(ln)
+            ln := na
+        array.set(extStep, idx, ln)
+        array.set(extPrevY, idx, na)
+    else
+        if na(ln) or na(py) or (y != py)
+            if not na(ln)
+                line.delete(ln)
+            ln := newStep(y, col, lineWidth)
+        else
+            line.set_xy2(ln, bar_index, y)
+            line.set_width(ln, lineWidth)
+        array.set(extStep, idx, ln)
+        array.set(extPrevY, idx, y)
+
+// Map levels
+updateStep(0,  show_atr_levels and show_extensions,                          upper_1236, key_target_level_color, f_is_near_level(upper_1236, proximity_threshold))
+updateStep(1,  show_atr_levels and show_extensions and show_all_fibonacci_levels, upper_1382, intermediate_target_level_color, f_is_near_level(upper_1382, proximity_threshold))
+updateStep(2,  show_atr_levels and show_extensions and show_all_fibonacci_levels, upper_1500, intermediate_target_level_color, f_is_near_level(upper_1500, proximity_threshold))
+updateStep(3,  show_atr_levels and show_extensions,                          upper_1618, key_target_level_color, f_is_near_level(upper_1618, proximity_threshold))
+updateStep(4,  show_atr_levels and show_extensions and show_all_fibonacci_levels, upper_1786, intermediate_target_level_color, f_is_near_level(upper_1786, proximity_threshold))
+updateStep(5,  show_atr_levels and show_extensions,                          upper_2000, atr_target_level_color, f_is_near_level(upper_2000, proximity_threshold))
+updateStep(6,  show_atr_levels and show_extensions,                          upper_2236, key_target_level_color, f_is_near_level(upper_2236, proximity_threshold))
+updateStep(7,  show_atr_levels and show_extensions,                          upper_2618, key_target_level_color, f_is_near_level(upper_2618, proximity_threshold))
+updateStep(8,  show_atr_levels and show_extensions,                          upper_3000, atr_target_level_color, f_is_near_level(upper_3000, proximity_threshold))
+updateStep(9,  show_atr_levels and show_extensions,                          lower_1236, key_target_level_color, f_is_near_level(lower_1236, proximity_threshold))
+updateStep(10, show_atr_levels and show_extensions and show_all_fibonacci_levels, lower_1382, intermediate_target_level_color, f_is_near_level(lower_1382, proximity_threshold))
+updateStep(11, show_atr_levels and show_extensions and show_all_fibonacci_levels, lower_1500, intermediate_target_level_color, f_is_near_level(lower_1500, proximity_threshold))
+updateStep(12, show_atr_levels and show_extensions,                          lower_1618, key_target_level_color, f_is_near_level(lower_1618, proximity_threshold))
+updateStep(13, show_atr_levels and show_extensions and show_all_fibonacci_levels, lower_1786, intermediate_target_level_color, f_is_near_level(lower_1786, proximity_threshold))
+updateStep(14, show_atr_levels and show_extensions,                          lower_2000, atr_target_level_color, f_is_near_level(lower_2000, proximity_threshold))
+updateStep(15, show_atr_levels and show_extensions,                          lower_2236, key_target_level_color, f_is_near_level(lower_2236, proximity_threshold))
+updateStep(16, show_atr_levels and show_extensions,                          lower_2618, key_target_level_color, f_is_near_level(lower_2618, proximity_threshold))
+updateStep(17, show_atr_levels and show_extensions,                          lower_3000, atr_target_level_color, f_is_near_level(lower_3000, proximity_threshold))
+
+// ──────────────────────────────────────────────────────────────
+// H) Right-edge tags — ALL levels (REUSE labels; mobile-safe)
+// ──────────────────────────────────────────────────────────────
+
+// Helper: create/update one label (no delete/recreate churn)
+f_tag_upd(label lb, bool on, float y, string txt, bool isHighlighted) =>
+    // Always return a LABEL-typed value
+    label out = lb
+
+    if not tags_enable or not on or na(y)
+        if not na(out)
+            label.delete(out)
+        out := na
+    else
+        int   x_  = bar_index + tags_right_bars
+        float y_  = y + fromTicks(tags_y_offset_ticks)
+        
+        // Tags show only the level name (price shown separately on price scale)
+        string displayText = txt
+        
+        // Dynamic colors based on highlight state
+        color bgColor = isHighlighted ? color.black : color.new(tags_bg_color, tags_bg_alpha)
+        color txtColor = isHighlighted ? color.white : tags_text_color_cfg
+
+        if na(out)
+            out := label.new(
+                 x_, y_, displayText,
+                 xloc=xloc.bar_index, yloc=yloc.price,
+                 style=(tags_point_left ? label.style_label_left : label.style_label_right),
+                 size=lbl_size(tags_text_size),
+                 color=bgColor,
+                 textcolor=txtColor)
+        else
+            label.set_x(out, x_)
+            label.set_y(out, y_)
+            label.set_text(out, displayText)
+            label.set_style(out, (tags_point_left ? label.style_label_left : label.style_label_right))
+            label.set_size(out, lbl_size(tags_text_size))
+            label.set_color(out, bgColor)
+            label.set_textcolor(out, txtColor)
+
+    out
+
+// One var label per tag (only created if enabled)
+var label t_u100  = na
+var label t_u786  = na
+var label t_u618  = na
+var label t_u500  = na
+var label t_u382  = na
+var label t_utrig = na
+var label t_pc    = na
+
+var label t_u1236 = na
+var label t_u1382 = na
+var label t_u1500 = na
+var label t_u1618 = na
+var label t_u1786 = na
+var label t_u200  = na
+var label t_u2236 = na
+var label t_u2618 = na
+var label t_u300  = na
+
+var label t_l100  = na
+var label t_l786  = na
+var label t_l618  = na
+var label t_l500  = na
+var label t_l382  = na
+var label t_ltrig = na
+
+var label t_l1236 = na
+var label t_l1382 = na
+var label t_l1500 = na
+var label t_l1618 = na
+var label t_l1786 = na
+var label t_l200  = na
+var label t_l2236 = na
+var label t_l2618 = na
+var label t_l300  = na
+
+if barstate.islast and show_atr_levels
+    // Upper core - Tags (on chart)
+    t_u100  := f_tag_upd(t_u100,  tags_show_u100,  upper_1000, "+100%", f_is_near_level(upper_1000, proximity_threshold))
+    t_u786  := f_tag_upd(t_u786,  tags_show_u786 and show_all_fibonacci_levels, upper_0786, "78.6%", f_is_near_level(upper_0786, proximity_threshold))
+    t_u618  := f_tag_upd(t_u618,  tags_show_u618,  upper_0618, "61.8%", f_is_near_level(upper_0618, proximity_threshold))
+    t_u500  := f_tag_upd(t_u500,  tags_show_u500 and show_all_fibonacci_levels, upper_0500, "50%", f_is_near_level(upper_0500, proximity_threshold))
+    t_u382  := f_tag_upd(t_u382,  tags_show_u382 and show_all_fibonacci_levels, upper_0382, "38.2%", f_is_near_level(upper_0382, proximity_threshold))
+    t_utrig := f_tag_upd(t_utrig, tags_show_utrig, upper_trigger, "Upper Trig", f_is_near_level(upper_trigger, proximity_threshold))
+    t_pc    := f_tag_upd(t_pc,    tags_show_pc,    prev_close, "Prev Close", f_is_near_level(prev_close, proximity_threshold))
+
+    // Upper extensions - Tags
+    t_u1236 := f_tag_upd(t_u1236, tags_show_u1236 and show_extensions, upper_1236, "123.6%", f_is_near_level(upper_1236, proximity_threshold))
+    t_u1382 := f_tag_upd(t_u1382, tags_show_u1382 and show_all_fibonacci_levels and show_extensions, upper_1382, "138.2%", f_is_near_level(upper_1382, proximity_threshold))
+    t_u1500 := f_tag_upd(t_u1500, tags_show_u1500 and show_all_fibonacci_levels and show_extensions, upper_1500, "150.0%", f_is_near_level(upper_1500, proximity_threshold))
+    t_u1618 := f_tag_upd(t_u1618, tags_show_u1618 and show_extensions, upper_1618, "161.8%", f_is_near_level(upper_1618, proximity_threshold))
+    t_u1786 := f_tag_upd(t_u1786, tags_show_u1786 and show_all_fibonacci_levels and show_extensions, upper_1786, "178.6%", f_is_near_level(upper_1786, proximity_threshold))
+    t_u200  := f_tag_upd(t_u200,  tags_show_u200  and show_extensions, upper_2000, "+200%", f_is_near_level(upper_2000, proximity_threshold))
+    t_u2236 := f_tag_upd(t_u2236, tags_show_u2236 and show_extensions, upper_2236, "223.6%", f_is_near_level(upper_2236, proximity_threshold))
+    t_u2618 := f_tag_upd(t_u2618, tags_show_u2618 and show_extensions, upper_2618, "261.8%", f_is_near_level(upper_2618, proximity_threshold))
+    t_u300  := f_tag_upd(t_u300,  tags_show_u300  and show_extensions, upper_3000, "+300%", f_is_near_level(upper_3000, proximity_threshold))
+
+    // Lower core - Tags
+    t_l100  := f_tag_upd(t_l100,  tags_show_l100,  lower_1000, "-100%", f_is_near_level(lower_1000, proximity_threshold))
+    t_l786  := f_tag_upd(t_l786,  tags_show_l786 and show_all_fibonacci_levels, lower_0786, "-78.6%", f_is_near_level(lower_0786, proximity_threshold))
+    t_l618  := f_tag_upd(t_l618,  tags_show_l618,  lower_0618, "-61.8%", f_is_near_level(lower_0618, proximity_threshold))
+    t_l500  := f_tag_upd(t_l500,  tags_show_l500 and show_all_fibonacci_levels, lower_0500, "-50%", f_is_near_level(lower_0500, proximity_threshold))
+    t_l382  := f_tag_upd(t_l382,  tags_show_l382 and show_all_fibonacci_levels, lower_0382, "-38.2%", f_is_near_level(lower_0382, proximity_threshold))
+    t_ltrig := f_tag_upd(t_ltrig, tags_show_ltrig, lower_trigger, "Lower Trig", f_is_near_level(lower_trigger, proximity_threshold))
+
+    // Lower extensions - Tags
+    t_l1236 := f_tag_upd(t_l1236, tags_show_l1236 and show_extensions, lower_1236, "-123.6%", f_is_near_level(lower_1236, proximity_threshold))
+    t_l1382 := f_tag_upd(t_l1382, tags_show_l1382 and show_all_fibonacci_levels and show_extensions, lower_1382, "-138.2%", f_is_near_level(lower_1382, proximity_threshold))
+    t_l1500 := f_tag_upd(t_l1500, tags_show_l1500 and show_all_fibonacci_levels and show_extensions, lower_1500, "-150.0%", f_is_near_level(lower_1500, proximity_threshold))
+    t_l1618 := f_tag_upd(t_l1618, tags_show_l1618 and show_extensions, lower_1618, "-161.8%", f_is_near_level(lower_1618, proximity_threshold))
+    t_l1786 := f_tag_upd(t_l1786, tags_show_l1786 and show_all_fibonacci_levels and show_extensions, lower_1786, "-178.6%", f_is_near_level(lower_1786, proximity_threshold))
+    t_l200  := f_tag_upd(t_l200,  tags_show_l200  and show_extensions, lower_2000, "-200%", f_is_near_level(lower_2000, proximity_threshold))
+    t_l2236 := f_tag_upd(t_l2236, tags_show_l2236 and show_extensions, lower_2236, "-223.6%", f_is_near_level(lower_2236, proximity_threshold))
+    t_l2618 := f_tag_upd(t_l2618, tags_show_l2618 and show_extensions, lower_2618, "-261.8%", f_is_near_level(lower_2618, proximity_threshold))
+    t_l300  := f_tag_upd(t_l300,  tags_show_l300  and show_extensions, lower_3000, "-300%", f_is_near_level(lower_3000, proximity_threshold))
+// ──────────────────────────────────────────────────────────────
+// MTF SuperTrend Visuals (1m / 3m / 10m)
+// ──────────────────────────────────────────────────────────────
+
+// Helper to fetch ST line + direction on a given TF
+f_mtf_st_pair(string tf, float factor, int atrLen) =>
+    request.security(
+         syminfo.tickerid,
+         tf,
+         array.from(f_supertrend_val(factor, atrLen, 0), f_supertrend_val(factor, atrLen, 1)),
+         barmerge.gaps_off,
+         barmerge.lookahead_off)
+
+// 1m SuperTrend (values)
+float st1_line = na
+float st1_dir  = na
+if mtfST_1m_show
+    float[] _st1 = f_mtf_st_pair("1", mtfST_1m_factor, mtfST_1m_atr_len)
+    st1_line := array.get(_st1, 0)
+    st1_dir  := array.get(_st1, 1)
+st1_line := barstate.isfirst ? na : st1_line
+
+st1_up   = plot(
+     mtfST_1m_show and st1_dir < 0  ? st1_line : na,
+     title = "ST 1m Up Trend",
+     color = mtfST_1m_up_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale)
+
+
+st1_down = plot(
+     mtfST_1m_show and st1_dir >= 0 ? st1_line : na,
+     title = "ST 1m Down Trend",
+     color = mtfST_1m_dn_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale)
+
+
+// 3m SuperTrend (values)
+float st3_line = na
+float st3_dir  = na
+if mtfST_3m_show
+    float[] _st3 = f_mtf_st_pair("3", mtfST_3m_factor, mtfST_3m_atr_len)
+    st3_line := array.get(_st3, 0)
+    st3_dir  := array.get(_st3, 1)
+st3_line := barstate.isfirst ? na : st3_line
+
+st3_up   = plot(
+     mtfST_3m_show and st3_dir < 0  ? st3_line : na,
+     title = "ST 3m Up Trend",
+     color = mtfST_3m_up_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale)
+
+
+st3_down = plot(
+     mtfST_3m_show and st3_dir >= 0 ? st3_line : na,
+     title = "ST 3m Down Trend",
+     color = mtfST_3m_dn_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale)
+
+
+// 10m SuperTrend (values)
+float st10_line = na
+float st10_dir  = na
+if mtfST_10m_show
+    float[] _st10 = f_mtf_st_pair("10", mtfST_10m_factor, mtfST_10m_atr_len)
+    st10_line := array.get(_st10, 0)
+    st10_dir  := array.get(_st10, 1)
+st10_line := barstate.isfirst ? na : st10_line
+
+st10_up   = plot(
+     mtfST_10m_show and st10_dir < 0  ? st10_line : na,
+     title = "ST 10m Up Trend",
+     color = mtfST_10m_up_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale) 
+
+st10_down = plot(
+     mtfST_10m_show and st10_dir >= 0 ? st10_line : na,
+     title = "ST 10m Down Trend",
+     color = mtfST_10m_dn_color,
+     style = plot.style_linebr,
+     linewidth = 2,
+     display=display.all - display.price_scale)
+
+
+// 30m SuperTrend (values) - commented out to reduce plot count
+// float st30_line = na
+// float st30_dir  = na
+// if mtfST_30m_show
+//     float[] _st30 = f_mtf_st_pair("30", mtfST_30m_factor, mtfST_30m_atr_len)
+//     st30_line := array.get(_st30, 0)
+//     st30_dir  := array.get(_st30, 1)
+// st30_line := barstate.isfirst ? na : st30_line
+
+// st30_up   = plot(
+//      mtfST_30m_show and st30_dir < 0  ? st30_line : na,
+//      title = "ST 30m Up Trend",
+//      color = mtfST_30m_up_color,
+//      style = plot.style_linebr,
+//      linewidth = 2,
+//      display=display.all - display.price_scale)
+
+// st30_down = plot(     mtfST_30m_show and st30_dir >= 0 ? st30_line : na,     title = "ST 30m Down Trend",     color = mtfST_30m_dn_color,     style = plot.style_linebr,     linewidth = 2,     display=display.all - display.price_scale)
+
+
+// ──────────────────────────────────────────────────────────────
+// I) Golden Gate classic + one-time RTH visuals
+// ──────────────────────────────────────────────────────────────
+openUpSignal = gg_open_mode=="Cross 38.2" ? ta.crossover(high, upper_0382) : (high >= upper_0382)
+openDnSignal = gg_open_mode=="Cross 38.2" ? ta.crossunder(low,  lower_0382) : (low  <= lower_0382)
+closeUpSignal = gg_close_mode=="Cross 61.8" ? ta.crossover(high, upper_0618) : (high >= upper_0618)
+closeDnSignal = gg_close_mode=="Cross 61.8" ? ta.crossunder(low,  lower_0618) : (low  <= lower_0618)
+
+// Gate (one per side per anchor period)
+anchorTime  = request.security(syminfo.tickerid, anchor_tf, time, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_off)
+newPeriod   = ta.change(anchorTime) != 0
+var bool upOpenedThisPeriod=false, dnOpenedThisPeriod=false
+if newPeriod
+    upOpenedThisPeriod:=false
+    dnOpenedThisPeriod:=false
+
+canOpenUp = gg_enable and openUpSignal and (not upOpenedThisPeriod)
+canOpenDn = gg_enable and openDnSignal and (not dnOpenedThisPeriod)
+
+// Daily gating for GG visuals (once per direction per day)
+// Use the start-time of the daily bar as a "day key" (same for all bars in that calendar day)
+var int gg_lastOpenUpDay   = na
+var int gg_lastOpenDnDay   = na
+var int gg_lastCloseUpDay  = na
+var int gg_lastCloseDnDay  = na
+
+int gg_curDay = int(time("D"))  // daily-session key; changes once per calendar day
+
+// RTH-only GG visuals — once per direction per *day*
+var bool rth_open_plotted_up=false, rth_open_plotted_dn=false
+var bool rth_close_plotted_up=false, rth_close_plotted_dn=false
+
+if rthStart()
+    rth_open_plotted_up  := false
+    rth_open_plotted_dn  := false
+    rth_close_plotted_up := false
+    rth_close_plotted_dn := false
+
+// Raw RTH conditions (per-session) — pure cross semantics
+bool rawOpenUp  = inRTH() and openUpSignal
+bool rawOpenDn  = inRTH() and openDnSignal
+bool rawCloseUp = inRTH() and closeUpSignal
+bool rawCloseDn = inRTH() and closeDnSignal
+
+// Daily gating (once per direction per calendar day)
+showOpenUp  = rawOpenUp  and (na(gg_lastOpenUpDay)  or gg_lastOpenUpDay  != gg_curDay)
+showOpenDn  = rawOpenDn  and (na(gg_lastOpenDnDay)  or gg_lastOpenDnDay  != gg_curDay)
+showCloseUp = rawCloseUp and (na(gg_lastCloseUpDay) or gg_lastCloseUpDay != gg_curDay)
+showCloseDn = rawCloseDn and (na(gg_lastCloseDnDay) or gg_lastCloseDnDay != gg_curDay)
+
+// GG label Y-levels (offset from bar highs/lows)
+float ggUpY  = high + fromTicks(ggOpen_offsetTicks)
+float ggDnY  = low  - fromTicks(ggOpen_offsetTicks)
+
+// GG Open markers (🚧, black background) — offset by gg_emoji_offset_ticks
+// GG Open markers (🚧, black background) — offset by gg_emoji_offset_ticks
+if showOpenUp
+    f_push_lbl(label.new(
+         bar_index, ggUpY, "🚧",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style = label.style_label_down,
+         size  = ggOpen_size,
+         textcolor = color.white,
+         color     = color.new(color.white, 90)))
+
+if showOpenDn
+    f_push_lbl(label.new(
+         bar_index, ggDnY, "🚧",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style = label.style_label_up,
+         size  = ggOpen_size,
+         textcolor = color.white,
+         color     = color.new(color.white, 90)))
+
+
+// GG Close markers (also 🚧 + black background, with text)
+if showCloseUp
+    f_push_lbl(label.new(
+         bar_index, ggUpY, "🚪",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style = label.style_label_down,
+         size  = ggClose_size,
+         textcolor = color.white,
+         color     = color.new(color.white, 90)))
+
+if showCloseDn
+    f_push_lbl(label.new(
+         bar_index, ggDnY, "🚪",
+         xloc = xloc.bar_index, yloc = yloc.price,
+         style = label.style_label_up,
+         size  = ggClose_size,
+         textcolor = color.white,
+         color     = color.new(color.white, 90)))
+
+// Update “seen today” registry
+if showOpenUp
+    gg_lastOpenUpDay := gg_curDay
+if showOpenDn
+    gg_lastOpenDnDay := gg_curDay
+if showCloseUp
+    gg_lastCloseUpDay := gg_curDay
+if showCloseDn
+    gg_lastCloseDnDay := gg_curDay
+// ──────────────────────────────────────────────────────────────
+// J) Scan alerts (Daily / Weekly / Monthly / Quarterly)
+// ──────────────────────────────────────────────────────────────
+
+// Base scan signals on this chart's TF vs ±38.2 levels
+openUpSignalScan = ta.crossover(high, upper_0382)
+openDnSignalScan = ta.crossunder(low,  lower_0382)
+
+// Timeframe helpers (based on your auto trading mode)
+is30m = timeframe.isminutes and timeframe.multiplier == 30
+is1h  = timeframe.isminutes and timeframe.multiplier == 60
+is4h  = timeframe.isminutes and timeframe.multiplier == 240
+
+isDay      = f_resolve_trading_type() == day_trading
+isMultiday = f_resolve_trading_type() == multiday_trading
+isSwing    = f_resolve_trading_type() == swing_trading
+isPosition = f_resolve_trading_type() == position_trading
+
+// DAILY scan: intraday <= 15m, anchored to D (day_trading → anchor_tf = "D")
+isDailyScan       = timeframe.isminutes and timeframe.multiplier <= 15 and isDay
+gg_open_up_daily  = isDailyScan and openUpSignalScan
+gg_open_dn_daily  = isDailyScan and openDnSignalScan
+
+// WEEKLY scan: 30m + Multiday (anchor_tf = "W")
+gg_open_up_weekly = is30m and isMultiday and openUpSignalScan
+gg_open_dn_weekly = is30m and isMultiday and openDnSignalScan
+
+// MONTHLY scan: 1h + Swing (anchor_tf = "M")
+gg_open_up_monthly = is1h and isSwing and openUpSignalScan
+gg_open_dn_monthly = is1h and isSwing and openDnSignalScan
+
+// QUARTERLY scan: 4h + Position (anchor_tf = "3M")
+gg_open_up_quarter = is4h and isPosition and openUpSignalScan
+gg_open_dn_quarter = is4h and isPosition and openDnSignalScan
+
+// ── Per-frame / per-direction alertconditions with CONST messages ──
+
+// DAILY (anchor D)
+alertcondition(     gg_open_up_daily,     title   = "GG OPEN Daily UP",     message = "GG OPEN Daily UP | {{ticker}} | Anchor=D | Crossed +38.2% upper ATR band")
+
+alertcondition(     gg_open_dn_daily,     title   = "GG OPEN Daily DOWN",     message = "GG OPEN Daily DOWN | {{ticker}} | Anchor=D | Crossed -38.2% lower ATR band")
+
+// WEEKLY (anchor W)
+alertcondition(     gg_open_up_weekly,     title   = "GG OPEN Weekly UP",     message = "GG OPEN Weekly UP | {{ticker}} | Anchor=W | Crossed +38.2% upper ATR band")
+
+alertcondition(     gg_open_dn_weekly,     title   = "GG OPEN Weekly DOWN",     message = "GG OPEN Weekly DOWN | {{ticker}} | Anchor=W | Crossed -38.2% lower ATR band")
+
+// MONTHLY (anchor M)
+alertcondition(     gg_open_up_monthly,     title   = "GG OPEN Monthly UP",     message = "GG OPEN Monthly UP | {{ticker}} | Anchor=M | Crossed +38.2% upper ATR band")
+
+alertcondition(     gg_open_dn_monthly,     title   = "GG OPEN Monthly DOWN",     message = "GG OPEN Monthly DOWN | {{ticker}} | Anchor=M | Crossed -38.2% lower ATR band")
+
+// QUARTERLY (anchor 3M)
+alertcondition(     gg_open_up_quarter,     title   = "GG OPEN Quarterly UP",     message = "GG OPEN Quarterly UP | {{ticker}} | Anchor=3M | Crossed +38.2% upper ATR band")
+
+alertcondition(     gg_open_dn_quarter,     title   = "GG OPEN Quarterly DOWN",     message = "GG OPEN Quarterly DOWN | {{ticker}} | Anchor=3M | Crossed -38.2% lower ATR band")

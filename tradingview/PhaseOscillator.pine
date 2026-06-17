@@ -1,0 +1,432 @@
+// Saty Phase Oscillator — MTF Lines (1m/3m/10m) + Compression Banner + Zero Line + Divergence
+// + Background options + Any-TF compression coloring + zone lines react to compression (per-bar)
+// © 2025 Lunarcy7 — research use only.
+//@version=6
+indicator("MTF Phase Oscillator (1m/3m/10m)", overlay=false, max_labels_count=500, max_lines_count=500)
+
+// ──────────────────────────────────────────────────────────────
+// Palette
+// ──────────────────────────────────────────────────────────────
+green      = color.black
+red        = color.black
+magenta    = color.rgb(255,0,255)
+light_gray = color.rgb(200,200,200)
+gray       = color.rgb(150,150,150)
+dark_gray  = color.rgb(100,100,100)
+yellow     = color.black
+
+// ──────────────────────────────────────────────────────────────
+// Chart-TF oscillator + compression replica (Saty semantics)
+// ──────────────────────────────────────────────────────────────
+pivot_c     = ta.ema(close, 21)
+bband_off_c = 2.0 * ta.stdev(close, 21)
+bband_up_c  = pivot_c + bband_off_c
+bband_dn_c  = pivot_c - bband_off_c
+ct_up_c     = pivot_c + (2.0 * ta.atr(14))
+ct_dn_c     = pivot_c - (2.0 * ta.atr(14))
+ex_up_c     = pivot_c + (1.854 * ta.atr(14))
+ex_dn_c     = pivot_c - (1.854 * ta.atr(14))
+above_c     = close >= pivot_c
+compression_c  = above_c ? (bband_up_c - ct_up_c) : (ct_dn_c - bband_dn_c)
+in_expansion_c = above_c ? (bband_up_c - ex_up_c) : (ex_dn_c - bband_dn_c)
+expanding_c    = compression_c[1] <= compression_c
+var bool comp_trk_c = false
+comp_trk_c := expanding_c and in_expansion_c > 0 ? false : compression_c <= 0
+
+raw_c = ((close - ta.ema(close,21)) / (3.0 * ta.atr(14))) * 100.0
+osc_c = ta.ema(raw_c, 3)
+
+// ──────────────────────────────────────────────────────────────
+// Inputs — TF visibility & styling
+// ──────────────────────────────────────────────────────────────
+groupLines = "Phase Lines"
+showChart   = input.bool(true,  "Show Chart-TF line", group=groupLines)
+chartDynClr = input.bool(true,  "Chart-TF uses dynamic phase colors", group=groupLines)
+chartCol    = input.color(color.new(color.silver, 0), "Chart-TF fixed color (if above OFF)", group=groupLines)
+chartW      = input.int(3, "Chart-TF width", minval=1, maxval=5, group=groupLines)
+chartStyle  = input.string("line", "Chart-TF style", options=["line","stepline","histogram"], group=groupLines)
+
+// MTF style mimic
+mtfMatchChartStyle = input.bool(true, "MTF lines use Chart-TF style/width", group=groupLines)
+
+// 1m
+show1m      = input.bool(false,  "Show 1-minute line", group=groupLines)
+dyn1m       = input.bool(true,  "1m uses dynamic phase colors", group=groupLines)
+col1m_fixed = input.color(color.new(color.blue, 0), "1m fixed color (if above OFF)", group=groupLines)
+w1m         = input.int(2, "1m width", minval=1, maxval=5, group=groupLines)
+style1m     = input.string("line", "1m style", options=["line","stepline","histogram"], group=groupLines)
+
+// 3m
+show3m      = input.bool(false,  "Show 3-minute line", group=groupLines)
+dyn3m       = input.bool(true,  "3m uses dynamic phase colors", group=groupLines)
+col3m_fixed = input.color(color.new(color.aqua, 0), "3m fixed color (if above OFF)", group=groupLines)
+w3m         = input.int(2, "3m width", minval=1, maxval=5, group=groupLines)
+style3m     = input.string("line", "3m style", options=["line","stepline","histogram"], group=groupLines)
+
+// 10m
+show10m      = input.bool(false,  "Show 10-minute line", group=groupLines)
+dyn10m       = input.bool(true,  "10m uses dynamic phase colors", group=groupLines)
+col10m_fixed = input.color(color.new(color.orange, 0), "10m fixed color (if above OFF)", group=groupLines)
+w10m         = input.int(2, "10m width", minval=1, maxval=5, group=groupLines)
+style10m     = input.string("line", "10m style", options=["line","stepline","histogram"], group=groupLines)
+
+// Cross Dots (optional)
+groupDots = "Cross Dots"
+show_zone_crosses    = input.bool(true,  "Show Zone Crosses", group=groupDots)
+show_extreme_crosses = input.bool(true,  "Show Extreme Crosses", group=groupDots)
+emitZoneAlerts       = input.bool(true,  "Enable zone transition alerts (alertcondition)", group=groupDots)
+
+// Alerts — Dynamic
+groupImm     = "Alerts — Dynamic (Any alert() function call)"
+emitImmediate= input.bool(true,  "Enable dynamic alerts via alert()", group=groupImm)
+alertMode    = input.string("Once per bar close", "alert() frequency",
+                 options=["Once per bar close","Once per bar","All"], group=groupImm)
+alertPrefix  = input.string("Phase", "Message prefix", group=groupImm)
+
+// Compression banner options
+groupComp = "Compression Banner"
+showCompLabel   = input.bool(true,  "Show Compression Banner (magenta) if ANY selected lines compressed", group=groupComp)
+compLabelCorner = input.string("Top Right", "Banner Anchor", options=["Top Right","Top Left","Top Center"], group=groupComp)
+
+// Background options
+groupBg = "Background"
+showBg        = input.bool(true, "Show background", group=groupBg)
+bgMode        = input.string("Static", "Background mode", options=["Static","Compression (Any TF)","Zone Heatmap (Chart TF)"], group=groupBg)
+bgTransp      = input.int(86, "Background transparency (0–100)", minval=0, maxval=100, group=groupBg)
+bgStaticColor = input.color(color.rgb(245,245,245), "Static background color", group=groupBg)
+zoneNeutral   = input.color(color.rgb(200,200,200), "Zone color (neutral band)", group=groupBg)
+zoneExtreme   = input.color(color.rgb(150,150,150), "Zone color (outer)", group=groupBg)
+zoneNeutralUp = input.color(color.rgb(173,216,230), "Zone color (neutral band +)", group=groupBg)
+zoneNeutralDn = input.color(color.rgb(255,182,182), "Zone color (neutral band -)", group=groupBg)
+zoneOuterBand = input.color(color.rgb(255,255,180), "Zone color (outer band)", group=groupBg)
+
+// Global compression coloring
+groupCompAny = "Compression Coloring"
+compAnyAffectsAll = input.bool(true, "If ANY selected TF is compressed, color ALL lines magenta for that bar", group=groupCompAny)
+
+// Zero-Line compression (which TFs drive the 0-line color)
+groupZero = "Zero-Line Compression"
+zeroUseChart = input.bool(true,  "Use Chart TF", group=groupZero)
+zeroUse1m    = input.bool(false, "Use 1m",       group=groupZero)
+zeroUse3m    = input.bool(false, "Use 3m",       group=groupZero)
+zeroUse10m   = input.bool(false, "Use 10m",      group=groupZero)
+
+// Zone Line Styling
+groupZoneStyle = "Zone Line Styling"
+zoneLineColorOuter    = input.color(color.new(color.gray, 0), "Outer zone lines (+/- 100, +/- 61.8) color", group=groupZoneStyle)
+zoneLineColorMid      = input.color(color.new(color.gray, 0), "Mid zone lines (+/- 23.6) color", group=groupZoneStyle)
+zeroLineColor         = input.color(color.new(color.lime, 0), "Zero line color (when not compressed)", group=groupZoneStyle)
+zeroLineColorCompressed = input.color(color.rgb(255,0,255), "Zero line color (when compressed)", group=groupZoneStyle)
+
+// Divergence options
+groupDiv = "Divergence"
+showDiv          = input.bool(true,  "Show regular bullish/bearish divergence", group=groupDiv)
+divOnWhich       = input.string("Chart TF", "Divergence on", options=["Chart TF","1m","3m","10m"], group=groupDiv)
+divLeft          = input.int(2, "Pivot Left", minval=1, maxval=20, group=groupDiv)
+divRight         = input.int(2, "Pivot Right", minval=1, maxval=20, group=groupDiv)
+divMinGapBars    = input.int(5, "Min bars between pivots", minval=1, maxval=500, group=groupDiv)
+divDrawLines     = input.bool(true, "Draw connector lines", group=groupDiv)
+divEmitAlerts    = input.bool(true, "Enable divergence alerts (alertcondition)", group=groupDiv)
+divLabelSizeOpt  = input.string("tiny", "Divergence label size", options=["tiny","small","normal","large","huge"], group=groupDiv)
+
+// TF Tags
+groupTags = "TF Tag Labels"
+showTfTags        = input.bool(true,  "Show TF tags", group=groupTags)
+tagSizeOpt        = input.string("tiny","Tag size", options=["tiny","small","normal"], group=groupTags)
+tagBaseOffset     = input.float(6.0,   "Baseline vertical offset (osc units)", minval=0.0, step=0.5, group=groupTags)
+tagStackGap       = input.float(3.0,   "Stack gap between tags (osc units)",  minval=0.0, step=0.5, group=groupTags)
+tagAutoFlipBySign = input.bool(true, "Auto-flip above/below by line sign", group=groupTags)
+tagAlternateSides = input.bool(true, "Alternate left/right label sides",   group=groupTags)
+tagXStaggerBars   = input.int(0,     "Horizontal stagger (bars per tag)",  minval=0, maxval=10, group=groupTags)
+tagRightBars      = input.int(2,     "Right offset (bars to right)",       minval=0, maxval=50, group=groupTags)
+tagBgTransp       = input.int(0,     "Tag background transparency",        minval=0, maxval=100, group=groupTags)
+
+// ──────────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────────
+tag_size_from(opt)=> opt=="tiny"?size.tiny : opt=="small"?size.small : size.normal
+
+div_size_from(opt) =>
+    opt=="tiny"   ? size.tiny   : opt=="small"  ? size.small  : opt=="normal" ? size.normal : opt=="large"  ? size.large  : size.huge
+
+var label tagChart = na
+var label tag1m = na
+var label tag3m = na
+var label tag10m = na
+
+makeTag(_x, _y, _txt, _col, _side, _size, _isCompressed) =>
+    _textColor = _isCompressed ? color.black : color.white
+    label.new(_x, _y, _txt, xloc=xloc.bar_index, yloc=yloc.price, style=_side, size=_size,
+      textcolor=_textColor, color=color.new(_col, tagBgTransp))
+
+tagSideFor(i)=> tagAlternateSides ? (i % 2 == 0 ? label.style_label_left : label.style_label_right) : label.style_label_left
+tagDyFor(val, idx)=> (tagAutoFlipBySign ? (val >= 0 ? 1.0 : -1.0) : 1.0) * (tagBaseOffset + idx * tagStackGap)
+tagXFor(idx)=> bar_index + tagRightBars + (tagXStaggerBars * idx)
+styleFrom(s) => s=="stepline" ? plot.style_stepline : s=="histogram" ? plot.style_histogram : plot.style_line
+
+// Oscillator at arbitrary TF (1 request.security per TF)
+phaseOscTF(tf) =>
+    request.security(syminfo.tickerid, tf,
+      ta.ema(((close - ta.ema(close, 21)) / (3.0 * ta.atr(14))) * 100.0, 3),
+      barmerge.gaps_off, barmerge.lookahead_off)
+
+// Compression at arbitrary TF (1 request.security total per TF via tuple return)
+compTF(tf) =>
+    [ _p, _sd, _atr, _cl ] = request.security(syminfo.tickerid, tf,
+        [ ta.ema(close, 21), ta.stdev(close, 21), ta.atr(14), close ],
+        barmerge.gaps_off, barmerge.lookahead_off)
+
+    _bbo = 2.0 * _sd
+    _up  = _p + _bbo
+    _dn  = _p - _bbo
+    _ctU = _p + 2.0 * _atr
+    _ctD = _p - 2.0 * _atr
+    _exU = _p + 1.854 * _atr
+    _exD = _p - 1.854 * _atr
+    _abv = _cl >= _p
+    _cmp = _abv ? (_up - _ctU) : (_ctD - _dn)
+    _iex = _abv ? (_up - _exU) : (_exD - _dn)
+    _exp = _cmp[1] <= _cmp
+    not (_exp and _iex > 0) and _cmp <= 0
+
+phaseColor(_osc, _useComp) => _useComp ? magenta : (_osc >= 0 ? green : red)
+
+// ──────────────────────────────────────────────────────────────
+// Compute TFs (ONLY 1m/3m/10m)
+// ──────────────────────────────────────────────────────────────
+osc_1m  = phaseOscTF("1")
+osc_3m  = phaseOscTF("3")
+osc_10m = phaseOscTF("10")
+
+cmp_1m  = compTF("1")
+cmp_3m  = compTF("3")
+cmp_10m = compTF("10")
+
+// ──────────────────────────────────────────────────────────────
+// ANY-TF compression (selected) — drives optional global magenta
+// ──────────────────────────────────────────────────────────────
+cmp_any =
+     (showChart and comp_trk_c) or
+     (show1m   and cmp_1m)     or
+     (show3m   and cmp_3m)     or
+     (show10m  and cmp_10m)
+
+cmp_zero =
+     (zeroUseChart and showChart and comp_trk_c) or
+     (zeroUse1m    and show1m   and cmp_1m)     or
+     (zeroUse3m    and show3m   and cmp_3m)     or
+     (zeroUse10m   and show10m  and cmp_10m)
+
+// ──────────────────────────────────────────────────────────────
+// Backgrounds (optional)
+// ──────────────────────────────────────────────────────────────
+bgColor = not showBg ? na : bgMode == "Static" ? color.new(bgStaticColor, bgTransp) : bgMode == "Compression (Any TF)" ? (cmp_any ? color.new(magenta, bgTransp) : na) : osc_c >= 61.8  ? color.new(zoneOuterBand, bgTransp) : osc_c >= 23.6  ? color.new(zoneNeutralUp, bgTransp) : osc_c >  -23.6 ? color.new(color.white, 100) : osc_c >  -61.8 ? color.new(zoneNeutralDn, bgTransp) : color.new(zoneOuterBand, bgTransp)
+
+bgcolor(bgColor)
+
+// ──────────────────────────────────────────────────────────────
+// Zone horizontal guides — REACTIVE to ANY-TF compression per bar
+// Only sandwich zone lines (bounding current phase) are compressed
+// ──────────────────────────────────────────────────────────────
+col_100   = (compAnyAffectsAll and cmp_any and osc_c > 61.8) ? magenta : zoneLineColorOuter
+col_618   = (compAnyAffectsAll and cmp_any and (23.6 < osc_c and osc_c < 100)) ? magenta : zoneLineColorOuter
+col_236   = (compAnyAffectsAll and cmp_any and (0 < osc_c and osc_c < 61.8)) ? magenta : zoneLineColorMid
+zoneColZero = cmp_zero ? zeroLineColorCompressed : ((compAnyAffectsAll and cmp_any and (-23.6 < osc_c and osc_c < 23.6)) ? magenta : zeroLineColor)
+col_neg236 = (compAnyAffectsAll and cmp_any and (-61.8 < osc_c and osc_c < 0)) ? magenta : zoneLineColorMid
+col_neg618 = (compAnyAffectsAll and cmp_any and (-100 < osc_c and osc_c < -23.6)) ? magenta : zoneLineColorOuter
+col_neg100 = (compAnyAffectsAll and cmp_any and osc_c < -61.8) ? magenta : zoneLineColorOuter
+
+plot(100.0,  color=col_100, linewidth=2, display=display.all - display.price_scale, title="Zone +100")
+plot(61.8,   color=col_618, linewidth=1, display=display.all - display.price_scale, title="Zone +61.8")
+plot(23.6,   color=col_236, linewidth=1, display=display.all - display.price_scale, title="Zone +23.6")
+plot(0.0,    color=zoneColZero, linewidth=2, display=display.all - display.price_scale, title="Zero Line")
+plot(-23.6,  color=col_neg236, linewidth=1, display=display.all - display.price_scale, title="Zone -23.6")
+plot(-61.8,  color=col_neg618, linewidth=1, display=display.all - display.price_scale, title="Zone -61.8")
+plot(-100.0, color=col_neg100, linewidth=2, display=display.all - display.price_scale, title="Zone -100")
+
+// ──────────────────────────────────────────────────────────────
+// Plot lines — optionally override each TF’s own compression with ANY-TF
+// ──────────────────────────────────────────────────────────────
+colBy(_osc, _cmpLocal) => phaseColor(_osc, compAnyAffectsAll ? cmp_any : _cmpLocal)
+
+styleChart = styleFrom(chartStyle)
+colChart   = chartDynClr ? colBy(osc_c, comp_trk_c) : chartCol
+plot(showChart ? osc_c : na, title="Phase (Chart TF)", color=colChart, linewidth=chartW, style=styleChart)
+
+// 1m
+style_1m  = mtfMatchChartStyle ? styleChart : styleFrom(style1m)
+width_1m  = mtfMatchChartStyle ? chartW : w1m
+col_1m    = dyn1m ? colBy(osc_1m, cmp_1m) : col1m_fixed
+plot(show1m ? osc_1m : na, title="Phase (1m)", color=col_1m, linewidth=width_1m, style=style_1m)
+
+// 3m
+style_3m  = mtfMatchChartStyle ? styleChart : styleFrom(style3m)
+width_3m  = mtfMatchChartStyle ? chartW : w3m
+col_3m    = dyn3m ? colBy(osc_3m, cmp_3m) : col3m_fixed
+plot(show3m ? osc_3m : na, title="Phase (3m)", color=col_3m, linewidth=width_3m, style=style_3m)
+
+// 10m
+style_10m = mtfMatchChartStyle ? styleChart : styleFrom(style10m)
+width_10m = mtfMatchChartStyle ? chartW : w10m
+col_10m   = dyn10m ? colBy(osc_10m, cmp_10m) : col10m_fixed
+plot(show10m ? osc_10m : na, title="Phase (10m)", color=col_10m, linewidth=width_10m, style=style_10m)
+
+// ──────────────────────────────────────────────────────────────
+// TF tags
+// ──────────────────────────────────────────────────────────────
+if barstate.islast and showTfTags
+    for t in array.from(tagChart, tag1m, tag3m, tag10m)
+        if not na(t)
+            label.delete(t)
+
+    int idx = 0
+    tagSize = tag_size_from(tagSizeOpt)
+
+    if showChart
+        tagChart := makeTag(tagXFor(idx), osc_c + tagDyFor(osc_c, idx), timeframe.period, colChart, tagSideFor(idx), tagSize, comp_trk_c), idx += 1
+    if show1m
+        tag1m := makeTag(tagXFor(idx), osc_1m + tagDyFor(osc_1m, idx), "1m", col_1m, tagSideFor(idx), tagSize, cmp_1m), idx += 1
+    if show3m
+        tag3m := makeTag(tagXFor(idx), osc_3m + tagDyFor(osc_3m, idx), "3m", col_3m, tagSideFor(idx), tagSize, cmp_3m), idx += 1
+    if show10m
+        tag10m := makeTag(tagXFor(idx), osc_10m + tagDyFor(osc_10m, idx), "10m", col_10m, tagSideFor(idx), tagSize, cmp_10m)
+
+// ──────────────────────────────────────────────────────────────
+// Compression banner
+// ──────────────────────────────────────────────────────────────
+var table compTbl = table.new(
+     compLabelCorner=="Top Right" ? position.top_right :
+     compLabelCorner=="Top Left"  ? position.top_left  : position.top_center,
+     1, 1)
+
+buildCompList() =>
+    string s = ""
+    if showChart and comp_trk_c
+        s += (str.length(s)>0?", ":"") + timeframe.period
+    if show1m and cmp_1m
+        s += (str.length(s)>0?", ":"") + "1m"
+    if show3m and cmp_3m
+        s += (str.length(s)>0?", ":"") + "3m"
+    if show10m and cmp_10m
+        s += (str.length(s)>0?", ":"") + "10m"
+    s
+
+if barstate.islast and showCompLabel
+    if cmp_any
+        table.cell(compTbl, 0, 0, "Compression: " + buildCompList(), bgcolor=magenta, text_color=color.white)
+    else
+        table.clear(compTbl, 0, 0, 0, 0)
+
+// ──────────────────────────────────────────────────────────────
+// Zone cross dots / alerts (Chart-TF semantics preserved)
+// ──────────────────────────────────────────────────────────────
+leaving_accum = osc_c[1] <= -61.8 and osc_c > -61.8
+leaving_ext_dn= osc_c[1] <= -100  and osc_c > -100
+leaving_distr = osc_c[1] >=  61.8 and osc_c <  61.8
+leaving_ext_up= osc_c[1] >=  100  and osc_c <  100
+
+plot(show_zone_crosses    and leaving_accum ? (osc_c[1] - 30) : na, title="Leaving Accumulation",
+     style=plot.style_circles, color=yellow, linewidth=4, display=display.all - display.price_scale)
+plot(show_extreme_crosses and leaving_ext_dn ? (osc_c[1] - 30) : na, title="Leaving Extreme Down",
+     style=plot.style_circles, color=yellow, linewidth=4, display=display.all - display.price_scale)
+plot(show_zone_crosses    and leaving_distr ? (osc_c[1] + 30) : na, title="Leaving Distribution",
+     style=plot.style_circles, color=yellow, linewidth=4, display=display.all - display.price_scale)
+plot(show_extreme_crosses and leaving_ext_up ? (osc_c[1] + 30) : na, title="Leaving Extreme Up",
+     style=plot.style_circles, color=yellow, linewidth=4, display=display.all - display.price_scale)
+
+alertcondition(emitZoneAlerts and leaving_ext_up, "Phase: Leave +100",  "Phase left +100 extreme")
+alertcondition(emitZoneAlerts and leaving_ext_dn, "Phase: Leave -100",  "Phase left -100 extreme")
+alertcondition(emitZoneAlerts and leaving_distr,  "Phase: Leave +61.8", "Phase left +61.8 zone")
+alertcondition(emitZoneAlerts and leaving_accum,  "Phase: Leave -61.8", "Phase left -61.8 zone")
+
+// ──────────────────────────────────────────────────────────────
+// Divergence (selectable source)
+// ──────────────────────────────────────────────────────────────
+oscForDiv =
+     divOnWhich=="1m"   ? osc_1m  :
+     divOnWhich=="3m"   ? osc_3m  :
+     divOnWhich=="10m"  ? osc_10m :
+     osc_c
+
+divLabelSize = div_size_from(divLabelSizeOpt)
+
+var bool divBullTrig = false
+var bool divBearTrig = false
+divBullTrig := false
+divBearTrig := false
+
+var float prevLowPx   = na
+var float prevLowOsc  = na
+var float prevHighPx  = na
+var float prevHighOsc = na
+var int   prevLowIdx  = na
+var int   prevHighIdx = na
+
+newLow  = ta.pivotlow(low,  divLeft, divRight)
+newHigh = ta.pivothigh(high, divLeft, divRight)
+
+if showDiv
+    if not na(newLow)
+        idxL  = bar_index - divRight
+        pxL   = low[divRight]
+        oscL  = oscForDiv[divRight]
+        if not na(prevLowIdx) and (idxL - prevLowIdx) >= divMinGapBars
+            bull = (pxL < prevLowPx) and (oscL > prevLowOsc)
+            if bull
+                label.new(idxL, oscL, "▲ Bull Div", xloc=xloc.bar_index, yloc=yloc.price,
+                          style=label.style_label_up, color=color.new(color.lime,0),
+                          textcolor=color.black, size=divLabelSize)
+                if divDrawLines
+                    line.new(prevLowIdx, prevLowOsc, idxL, oscL, xloc=xloc.bar_index, extend=extend.none,
+                             color=color.new(color.lime,0), width=2)
+                divBullTrig := true
+        prevLowIdx := idxL, prevLowPx := pxL, prevLowOsc := oscL
+
+    if not na(newHigh)
+        idxH  = bar_index - divRight
+        pxH   = high[divRight]
+        oscH  = oscForDiv[divRight]
+        if not na(prevHighIdx) and (idxH - prevHighIdx) >= divMinGapBars
+            bear = (pxH > prevHighPx) and (oscH < prevHighOsc)
+            if bear
+                label.new(idxH, oscH, "▼ Bear Div", xloc=xloc.bar_index, yloc=yloc.price,
+                          style=label.style_label_down, color=color.new(color.red,0),
+                          textcolor=color.white, size=divLabelSize)
+                if divDrawLines
+                    line.new(prevHighIdx, prevHighOsc, idxH, oscH, xloc=xloc.bar_index, extend=extend.none,
+                             color=color.new(color.red,0), width=2)
+                divBearTrig := true
+        prevHighIdx := idxH, prevHighPx := pxH, prevHighOsc := oscH
+
+alertcondition(divEmitAlerts and divBullTrig, "Phase: Bullish Divergence", "Bullish divergence detected")
+alertcondition(divEmitAlerts and divBearTrig, "Phase: Bearish Divergence", "Bearish divergence detected")
+
+// ──────────────────────────────────────────────────────────────
+// Dynamic alert() messages — single message per bar
+// ──────────────────────────────────────────────────────────────
+freq = alertMode=="All" ? alert.freq_all :
+       alertMode=="Once per bar" ? alert.freq_once_per_bar : alert.freq_once_per_bar_close
+
+appendMsg(_m, _t) => str.length(_m) > 0 ? (_m + "; " + _t) : _t
+buildMsg() =>
+    _m = ""
+    if divBullTrig
+        _m := appendMsg(_m, "Bullish Divergence")
+    if divBearTrig
+        _m := appendMsg(_m, "Bearish Divergence")
+    if leaving_ext_up
+        _m := appendMsg(_m, "Leaving +100")
+    if leaving_ext_dn
+        _m := appendMsg(_m, "Leaving -100")
+    if leaving_distr
+        _m := appendMsg(_m, "Leaving +61.8")
+    if leaving_accum
+        _m := appendMsg(_m, "Leaving -61.8")
+    _m
+
+if emitImmediate
+    body = buildMsg()
+    if str.length(body) > 0
+        alert(alertPrefix + ": " + body + " — " + syminfo.ticker + " " + timeframe.period, freq)
+
+// END
