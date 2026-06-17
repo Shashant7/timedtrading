@@ -19,6 +19,10 @@ function renderMarkdown(md) {
     }
   }
   cleaned = cleaned.replace(/\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*Index\s+Outlook\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
+  cleaned = cleaned.replace(/\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
   cleaned = cleaned.replace(/\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
   const _toHtml = typeof marked !== "undefined" && marked.parse ? marked.parse(cleaned, {
     breaks: true,
@@ -36,7 +40,8 @@ function renderMarkdown(md) {
 }
 function LiveKeyLevelsPanel({
   entries,
-  refreshedAt
+  refreshedAt,
+  embedded
 }) {
   if (!entries || entries.length === 0) return null;
   const ts = refreshedAt ? new Date(refreshedAt).toLocaleTimeString("en-US", {
@@ -46,8 +51,8 @@ function LiveKeyLevelsPanel({
     hour12: true
   }) : null;
   return React.createElement("div", {
-    className: "mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"
-  }, React.createElement("div", {
+    className: embedded ? "" : "mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"
+  }, !embedded && React.createElement("div", {
     className: "flex items-baseline justify-between gap-3 mb-3"
   }, React.createElement("h3", {
     className: "tt-editorial m-0 text-[18px]",
@@ -56,7 +61,9 @@ function LiveKeyLevelsPanel({
     }
   }, "Key Levels & Game Plan"), ts && React.createElement("span", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D]"
-  }, "Live refresh ", ts, " ET")), React.createElement("div", {
+  }, "Live refresh ", ts, " ET")), embedded && ts && React.createElement("div", {
+    className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-2"
+  }, "Live levels \xB7 refreshed ", ts, " ET"), React.createElement("div", {
     className: "space-y-3"
   }, entries.map(e => React.createElement("p", {
     key: e.sym,
@@ -701,8 +708,15 @@ function BriefCard({
       color: "var(--tt-text-0)",
       letterSpacing: "-0.01em"
     }
-  }, dateStr)), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
-    className: "mb-4 grid grid-cols-1 md:grid-cols-2 gap-2"
+  }, dateStr)), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction || brief.liveKeyLevels?.length > 0) && React.createElement("div", {
+    className: "mb-4"
+  }, React.createElement("h3", {
+    className: "tt-editorial m-0 mb-3 text-[18px]",
+    style: {
+      color: "var(--tt-text-0)"
+    }
+  }, "Index Outlook & Game Plan"), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-3"
   }, [{
     label: "SPY Prediction",
     body: brief.spyPrediction
@@ -733,7 +747,11 @@ function BriefCard({
     dangerouslySetInnerHTML: {
       __html: String(p.body || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>').replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>').replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>')
     }
-  })))), React.createElement("hr", {
+  })))), brief.liveKeyLevels?.length > 0 && React.createElement(LiveKeyLevelsPanel, {
+    entries: brief.liveKeyLevels,
+    refreshedAt: brief.liveKeyLevelsAt,
+    embedded: true
+  })), React.createElement("hr", {
     className: "tt-divider",
     style: {
       margin: "0 0 18px",
@@ -741,9 +759,6 @@ function BriefCard({
     }
   }), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
-  }), brief.liveKeyLevels?.length > 0 && React.createElement(LiveKeyLevelsPanel, {
-    entries: brief.liveKeyLevels,
-    refreshedAt: brief.liveKeyLevelsAt
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
@@ -2862,6 +2877,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781700217349:479262851
+// cache-bust:1781702889248:803513174
 
-// cache-bust:1781700217349:479262851
+// cache-bust:1781702889248:803513174
