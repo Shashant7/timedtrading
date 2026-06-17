@@ -459,6 +459,35 @@
         flex: 0 0 auto;
         width: 280px;
       }
+      /* Card head — two rows so long bias chips don't shove the save star off-edge. */
+      .lane-cards .ds-tickercard .at-card-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+      }
+      .at-card-head__row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        width: 100%;
+      }
+      .at-card-head__row--chips {
+        flex-wrap: wrap;
+        row-gap: 4px;
+      }
+      .at-card-head__spacer { flex: 1 1 auto; min-width: 4px; }
+      .at-card-save {
+        flex: 0 0 auto;
+        margin-left: 0 !important;
+      }
+      .at-card-head__row--chips .ds-chip {
+        flex: 0 1 auto;
+        max-width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .lane-empty {
         font-size: 12px;
         color: var(--tt-text-faint);
@@ -978,6 +1007,12 @@
           return { xPct, pnlPct, ticks, ep, curX: xPct(price) };
         })();
 
+        const cardBiasLabel = (() => {
+          if (biasLabel === "Leaning bullish") return "Lean Bull";
+          if (biasLabel === "Leaning bearish") return "Lean Bear";
+          return biasLabel;
+        })();
+
         const cardStyle = {
           textAlign: "left",
           padding: "var(--ds-space-3)",
@@ -992,44 +1027,47 @@
           style: cardStyle,
           title: `Open ${sym} in Active Trader detail`,
         },
-          h("div", { className: "ds-tickercard__head" },
-            h("div", {
-              className: "ds-tickercard__logo",
-              ref: (el) => {
-                if (el && !el.dataset.dsInit && window.DS) {
-                  el.dataset.dsInit = "1";
-                  try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
-                }
-              },
-              style: { width: 22, height: 22 },
-            }, sym.slice(0, 2)),
-            h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13 } }, sym),
-            h("span", {
-              className: `ds-chip ds-chip--sm ${biasChipCls}`,
-              style: { fontFamily: "var(--tt-font-mono)", marginLeft: 4 },
-              title: resolvedOpen ? "Trade direction" : "Bias",
-            }, biasLabel),
-            isTTSel && h("span", {
-              title: "TT Selected",
-              style: { width: 6, height: 6, borderRadius: "50%", background: "var(--ds-accent)", boxShadow: "0 0 0 2px rgba(56,242,161,0.20)", marginLeft: 4, flexShrink: 0 },
-            }),
-            stageChip && h("span", {
-              className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-              style: { marginLeft: "auto" },
-            }, stageChip.label),
-            onToggleSaved && h("button", {
-              onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
-              className: "ds-chip ds-chip--sm",
-              style: {
-                marginLeft: stageChip ? 4 : "auto",
-                padding: "0 6px", height: 18,
-                color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
-                background: isSaved ? "var(--ds-accent-dim)" : "transparent",
-                borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
-              },
-              title: isSaved ? "Saved — click to unsave" : "Save ticker",
-              "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
-            }, isSaved ? "★" : "☆"),
+          h("div", { className: "ds-tickercard__head at-card-head" },
+            h("div", { className: "at-card-head__row at-card-head__row--top" },
+              h("div", {
+                className: "ds-tickercard__logo",
+                ref: (el) => {
+                  if (el && !el.dataset.dsInit && window.DS) {
+                    el.dataset.dsInit = "1";
+                    try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                  }
+                },
+                style: { width: 22, height: 22 },
+              }, sym.slice(0, 2)),
+              h("span", { className: "ds-tickercard__symbol", style: { fontSize: 13, flexShrink: 0 } }, sym),
+              isTTSel && h("span", {
+                title: "TT Selected",
+                style: { width: 6, height: 6, borderRadius: "50%", background: "var(--ds-accent)", boxShadow: "0 0 0 2px rgba(56,242,161,0.20)", flexShrink: 0 },
+              }),
+              h("div", { className: "at-card-head__spacer" }),
+              onToggleSaved && h("button", {
+                onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
+                className: "ds-chip ds-chip--sm at-card-save",
+                style: {
+                  padding: "0 6px", height: 18,
+                  color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
+                  background: isSaved ? "var(--ds-accent-dim)" : "transparent",
+                  borderColor: isSaved ? "var(--ds-accent)" : "var(--ds-stroke)",
+                },
+                title: isSaved ? "Saved — click to unsave" : "Save ticker",
+                "aria-label": isSaved ? "Unsave ticker" : "Save ticker",
+              }, isSaved ? "★" : "☆"),
+            ),
+            h("div", { className: "at-card-head__row at-card-head__row--chips" },
+              h("span", {
+                className: `ds-chip ds-chip--sm ${biasChipCls}`,
+                style: { fontFamily: "var(--tt-font-mono)" },
+                title: resolvedOpen ? "Trade direction" : (biasLabel !== cardBiasLabel ? biasLabel : "Bias"),
+              }, cardBiasLabel),
+              stageChip && h("span", {
+                className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+              }, stageChip.label),
+            ),
           ),
           h("div", { className: "ds-tickercard__price", style: { fontSize: 18 } },
             Number.isFinite(price) ? `$${price.toFixed(2)}` : "—",

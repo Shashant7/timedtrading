@@ -468,6 +468,11 @@ function ATCard({
       curX: xPct(price)
     };
   })();
+  const cardBiasLabel = (() => {
+    if (biasLabel === "Leaning bullish") return "Lean Bull";
+    if (biasLabel === "Leaning bearish") return "Lean Bear";
+    return biasLabel;
+  })();
   const cardStyle = {
     textAlign: "left",
     padding: "var(--ds-space-3)",
@@ -482,7 +487,9 @@ function ATCard({
     style: cardStyle,
     title: `Open ${sym} in Active Trader detail`
   }, h("div", {
-    className: "ds-tickercard__head"
+    className: "ds-tickercard__head at-card-head"
+  }, h("div", {
+    className: "at-card-head__row at-card-head__row--top"
   }, h("div", {
     className: "ds-tickercard__logo",
     ref: el => {
@@ -502,16 +509,10 @@ function ATCard({
   }, sym.slice(0, 2)), h("span", {
     className: "ds-tickercard__symbol",
     style: {
-      fontSize: 13
+      fontSize: 13,
+      flexShrink: 0
     }
-  }, sym), h("span", {
-    className: `ds-chip ds-chip--sm ${biasChipCls}`,
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      marginLeft: 4
-    },
-    title: resolvedOpen ? "Trade direction" : "Bias"
-  }, biasLabel), isTTSel && h("span", {
+  }, sym), isTTSel && h("span", {
     title: "TT Selected",
     style: {
       width: 6,
@@ -519,23 +520,18 @@ function ATCard({
       borderRadius: "50%",
       background: "var(--ds-accent)",
       boxShadow: "0 0 0 2px rgba(56,242,161,0.20)",
-      marginLeft: 4,
       flexShrink: 0
     }
-  }), stageChip && h("span", {
-    className: `ds-chip ds-chip--sm ${stageChip.cls}`,
-    style: {
-      marginLeft: "auto"
-    }
-  }, stageChip.label), onToggleSaved && h("button", {
+  }), h("div", {
+    className: "at-card-head__spacer"
+  }), onToggleSaved && h("button", {
     onClick: e => {
       e.preventDefault();
       e.stopPropagation();
       onToggleSaved(sym);
     },
-    className: "ds-chip ds-chip--sm",
+    className: "ds-chip ds-chip--sm at-card-save",
     style: {
-      marginLeft: stageChip ? 4 : "auto",
       padding: "0 6px",
       height: 18,
       color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
@@ -545,6 +541,16 @@ function ATCard({
     title: isSaved ? "Saved — click to unsave" : "Save ticker",
     "aria-label": isSaved ? "Unsave ticker" : "Save ticker"
   }, isSaved ? "★" : "☆")), h("div", {
+    className: "at-card-head__row at-card-head__row--chips"
+  }, h("span", {
+    className: `ds-chip ds-chip--sm ${biasChipCls}`,
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
+  }, cardBiasLabel), stageChip && h("span", {
+    className: `ds-chip ds-chip--sm ${stageChip.cls}`
+  }, stageChip.label))), h("div", {
     className: "ds-tickercard__price",
     style: {
       fontSize: 18
@@ -1712,6 +1718,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781729332135:753996406
+// cache-bust:1781731391140:233727429
 
-// cache-bust:1781729332135:753996406
+// cache-bust:1781731391140:233727429
