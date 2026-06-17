@@ -107,6 +107,11 @@ function makePathForecast({ direction, stage, matchedEvents, context = {} }) {
   };
 }
 
+function firstStageEventAfter(events, eventTypes, minTs) {
+  const matches = filterSetupEvents(events, { eventTypes });
+  return matches.find((ev) => Number(ev.event_ts) >= Number(minTs || -Infinity)) || null;
+}
+
 function invalidationEventTypes(direction) {
   return direction === "SHORT"
     ? ["ema21_reclaim", "ema200_reclaim"]
@@ -126,14 +131,17 @@ export function detectTdPhaseMeanReversionSequence(eventsInput = [], opts = {}) 
   const stages = stageDefsFor(direction);
   const matched = [];
   let stage = 0;
+  let cursorTs = Number(opts.fromTs);
+  if (!Number.isFinite(cursorTs)) cursorTs = -Infinity;
   const stage_results = [];
 
   for (const def of stages) {
-    const ev = latestSetupEvent(scoped, { eventTypes: def.events });
+    const ev = firstStageEventAfter(scoped, def.events, cursorTs);
     const ok = !!ev && (stage === def.stage - 1 || def.stage === 1 || opts.allowSkippedStages === true);
     if (ok) {
       stage = Math.max(stage, def.stage);
       matched.push(ev);
+      cursorTs = Number(ev.event_ts);
     }
     stage_results.push({
       stage: def.stage,

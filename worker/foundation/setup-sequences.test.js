@@ -52,6 +52,18 @@ describe("setup sequence shadow detector", () => {
     expect(seq.path_forecast.pullback_expected).toBe(true);
   });
 
+  it("does not advance stages when events arrive out of order", () => {
+    const seq = detectTdPhaseMeanReversionSequence([
+      ev("td9_complete", 1),
+      ev("td_setup_progress", 2),
+      ev("pdz_discount_entered", 3),
+    ], { ticker: "USO", direction: "LONG" });
+
+    expect(seq.stage).toBe(1);
+    expect(seq.status).toBe("forming");
+    expect(seq.stage_results[1]).toMatchObject({ stage: 2, matched: false });
+  });
+
   it("detects an entry-ready short sequence and keeps shorts first-class", () => {
     const seq = detectTdPhaseMeanReversionSequence([
       ev("td_setup_progress", 1, "SHORT"),
