@@ -54,7 +54,72 @@
     return ready;
   }
 
-  // ── usePriceFeed ─────────────────────────────────────────────────────
+  function readMarketOpen() {
+    try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+    catch (_) { return true; }
+  }
+
+  /** Merge fresh /timed/all rows into prev while preserving live-price + EXT overlays. */
+  function mergeTimedAllRefresh(prev, incoming) {
+    if (!incoming || typeof incoming !== "object") return prev;
+    if (!prev || typeof prev !== "object") return incoming;
+    const next = { ...prev };
+    let changed = false;
+    const marketOpen = readMarketOpen();
+
+    for (const [sym, row] of Object.entries(incoming)) {
+      if (!row || typeof row !== "object") continue;
+      const key = String(sym).toUpperCase();
+      const existing = next[key];
+      if (existing
+          && existing.ts === row.ts
+          && existing.kanban_stage === row.kanban_stage
+          && existing.htf_score === row.htf_score
+          && existing.ltf_score === row.ltf_score
+          && existing.rank === row.rank
+          && existing.sl === row.sl
+          && existing.tp === row.tp) {
+        continue;
+      }
+      const merged = { ...row };
+      if (existing) {
+        const overlayKeys = [
+          "_live_price", "_live_prev_close", "_price_updated_at",
+          "_ah_price", "_ah_change", "_ah_change_pct",
+          "extended_price", "extended_percent_change", "extended_change",
+        ];
+        for (const k of overlayKeys) {
+          if (existing[k] !== undefined) merged[k] = existing[k];
+        }
+        if (existing._price_updated_at && existing._price_updated_at > (row.ts || 0)) {
+          if (existing._live_price !== undefined) {
+            merged._live_price = existing._live_price;
+            merged.price = existing._live_price;
+          }
+          if (!marketOpen) {
+            if (existing.close !== undefined) merged.close = existing.close;
+            else if (existing._live_price !== undefined) merged.close = existing._live_price;
+          }
+          if (existing.day_change !== undefined) merged.day_change = existing.day_change;
+          if (existing.day_change_pct !== undefined) merged.day_change_pct = existing.day_change_pct;
+          if (existing.change !== undefined) merged.change = existing.change;
+          if (existing.change_pct !== undefined) merged.change_pct = existing.change_pct;
+        } else if (!marketOpen && existing._ah_price !== undefined) {
+          // Keep RTH headline separate from extended print after snapshot refresh.
+          const rth = existing.close ?? existing._live_price ?? existing.price;
+          if (rth > 0) {
+            merged.price = rth;
+            merged.close = rth;
+            if (existing._live_price !== undefined) merged._live_price = existing._live_price;
+          }
+        }
+      }
+      next[key] = merged;
+      changed = true;
+    }
+    return changed ? next : prev;
+  }
+
   function usePriceFeed(data, setData, opts) {
     const intervalMs = Number(opts?.intervalMs) || 30000;
     const ready = useDataReady(data);
@@ -173,60 +238,9 @@
 
         setter((prev) => {
           if (!prev || typeof prev !== "object") return incoming;
-          const next = { ...prev };
-          let changed = false;
-          for (const [sym, row] of Object.entries(incoming)) {
-            if (!row || typeof row !== "object") continue;
-            const key = String(sym).toUpperCase();
-            const existing = next[key];
-            // Cheap identity check — skip when nothing material changed
-            if (existing
-                && existing.ts === row.ts
-                && existing.kanban_stage === row.kanban_stage
-                && existing.htf_score === row.htf_score
-                && existing.ltf_score === row.ltf_score
-                && existing.rank === row.rank
-                && existing.sl === row.sl
-                && existing.tp === row.tp) {
-              continue;
-            }
-            // Merge: replace scoring fields with the fresh ones but keep
-            // ephemeral live-price overlays from usePriceFeed.
-            const merged = { ...row };
-            if (existing) {
-              if (existing._live_price !== undefined) merged._live_price = existing._live_price;
-              if (existing._live_prev_close !== undefined) merged._live_prev_close = existing._live_prev_close;
-              if (existing._price_updated_at !== undefined) merged._price_updated_at = existing._price_updated_at;
-              if (existing._ah_price !== undefined) merged._ah_price = existing._ah_price;
-              if (existing._ah_change !== undefined) merged._ah_change = existing._ah_change;
-              if (existing._ah_change_pct !== undefined) merged._ah_change_pct = existing._ah_change_pct;
-              // If the live-price overlay is newer than the snapshot it overrides
-              // the snapshot's stale price + dollar/pct change. The merge above
-              // already wrote row.price; if usePriceFeed has a more-recent
-              // value we restore it.
-              if (existing._price_updated_at && existing._price_updated_at > (row.ts || 0)) {
-                const marketOpen = (() => {
-                  try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
-                  catch (_) { return true; }
-                })();
-                if (existing._live_price !== undefined) {
-                  merged._live_price = existing._live_price;
-                  merged.price = existing._live_price;
-                }
-                if (!marketOpen && existing.close !== undefined) {
-                  merged.close = existing.close;
-                }
-                if (existing.day_change !== undefined) merged.day_change = existing.day_change;
-                if (existing.day_change_pct !== undefined) merged.day_change_pct = existing.day_change_pct;
-                if (existing.change !== undefined) merged.change = existing.change;
-                if (existing.change_pct !== undefined) merged.change_pct = existing.change_pct;
-              }
-            }
-            next[key] = merged;
-            changed = true;
-          }
-          if (changed) setLastTickerRefresh(Date.now());
-          return changed ? next : prev;
+          const next = mergeTimedAllRefresh(prev, incoming);
+          if (next !== prev) setLastTickerRefresh(Date.now());
+          return next;
         });
       } catch (_) {
         // Background poll — never throw
@@ -242,5 +256,5 @@
     return { lastTickerRefresh };
   }
 
-  window.TimedLiveData = { usePriceFeed, useTickerRefresh };
+  window.TimedLiveData = { usePriceFeed, useTickerRefresh, mergeTimedAllRefresh };
 })();
