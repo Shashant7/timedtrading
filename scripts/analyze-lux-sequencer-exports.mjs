@@ -60,17 +60,17 @@ function computeWorkerTd(rows) {
       const bullComplete = bullPrep === 9;
       const bearComplete = bearPrep === 9;
       if (bearComplete) bullLead = 0;
-      if (bullComplete) bearLead = 0;
-      if (i >= 2) {
+      else if (bullComplete) bullLead = 1;
+      else if (i >= 2) {
         const low2 = n(rows[i - 2].low);
-        const high2 = n(rows[i - 2].high);
-        if (bullComplete && low2 != null && c < low2) bullLead += 1;
-        else if (bullLead > 0 && low2 != null && c < low2) bullLead += 1;
-        else if (bullLead > 0 && low2 != null && c >= low2) bullLead = 0;
+        if (bullLead > 0 && low2 != null && c < low2) bullLead += 1;
+      }
 
-        if (bearComplete && high2 != null && c > high2) bearLead += 1;
-        else if (bearLead > 0 && high2 != null && c > high2) bearLead += 1;
-        else if (bearLead > 0 && high2 != null && c <= high2) bearLead = 0;
+      if (bullComplete) bearLead = 0;
+      else if (bearComplete) bearLead = 1;
+      else if (i >= 2) {
+        const high2 = n(rows[i - 2].high);
+        if (bearLead > 0 && high2 != null && c > high2) bearLead += 1;
       }
     }
     out.push({ bullPrep, bearPrep, bullLead, bearLead });

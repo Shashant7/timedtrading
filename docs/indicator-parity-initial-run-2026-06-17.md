@@ -74,7 +74,7 @@ columns included in the raw CSV exports.
 | Reference | Checked | Result | Caveat |
 |---|---:|---|---|
 | LuxAlgo Sequencer preparation counts | 1,200 sampled rows | **Matched** bullish and bearish prep counts exactly | Added `tradingview/LuxAlgo-Sequencer-Export.pine` so the next export can include lead-up/countdown columns. |
-| LuxAlgo Sequencer lead-up counts | 400 sampled rows from SPY/IWM/QQQ Lux companion exports | **Did not match** current worker lead-up semantics | Prep matched 400/400 rows, but lead-up mismatched 383/400 sampled side checks (`76` bull, `307` bear). This is the next TD hardening target. |
+| LuxAlgo Sequencer lead-up counts | 400 sampled rows from SPY/IWM/QQQ Lux companion exports | **Matched after worker alignment** | Worker TD lead-up now starts at `1` on preparation completion and persists/increments LuxAlgo-style. Re-export `TimedTrading_Indicator_Parity_Export.pine` before accepting `td13_*` fixture columns generated before this alignment. |
 | MTF Phase Oscillator `Phase (Chart TF)` | 1,200 sampled rows | **Matched** `saty_phase_value` exactly | Also matched leaving-accumulation and leaving-distribution markers. |
 | ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker-vs-ATR-level parity still needs anchor-TF mapping (D/W/60 charts may anchor to W/M/3M depending script auto mode). |
 
@@ -140,8 +140,9 @@ This first pass is encouraging:
   - ATR14
   - RVOL
 - Exhaustion / reversal primitives passed at aggregate level:
-  - TD9 / TD13 booleans
+  - TD9 booleans
   - TD prep counts
+  - LuxAlgo lead-up after worker alignment (companion export)
   - phase value / zone
   - Saty phase value
   - phase leaving accumulation/distribution
@@ -152,10 +153,9 @@ The remaining gaps are now narrow and explicit:
 
 1. **FVG:** one bearish in-gap edge mismatch should be inspected manually:
    `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
-2. **LuxAlgo lead-up:** prep counts match; lead-up does not. LuxAlgo starts
-   lead-up at `1` on preparation completion and persists counts differently
-   from the current worker implementation. This should be fixed or explicitly
-   forked as a separate TD flavor before TD exhaustion is treated as hardened.
+2. **LuxAlgo lead-up:** fixed. Prep and lead-up now match the Lux companion
+   export on the sampled SPY/IWM/QQQ rows. The original parity CSV `td13_*`
+   columns predate this alignment and should be re-exported before acceptance.
 3. **ATR Levels:** exported bands are internally consistent, but full
    worker-vs-reference parity needs anchor mapping:
    below 30m -> previous Daily close, 30m -> previous Weekly close, 60m ->
@@ -169,15 +169,12 @@ The remaining gaps are now narrow and explicit:
 ## Next actions
 
 1. Re-export with `TimedTrading_Indicator_Parity_Export.pine` to include
-   rolling VWAP columns and TD lead-up columns.
-2. Decide TD lead-up semantics:
-   - align worker to LuxAlgo Sequencer, or
-   - keep current worker lead-up and name it as a different TD flavor.
-3. Inspect the single FVG mismatch:
+   rolling VWAP columns and Lux-aligned TD lead-up / TD13 columns.
+2. Inspect the single FVG mismatch:
    - `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
-4. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity.
-5. Convert accepted CSV fields into committed fixture JSON only after the above
+3. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity.
+4. Convert accepted CSV fields into committed fixture JSON only after the above
    definitions are accepted.
-6. If SuperTrend 5,3 is the desired production signal, run a deliberate
+5. If SuperTrend 5,3 is the desired production signal, run a deliberate
    change proposal; do not mix it into the current 10,3 worker parity silently.
 

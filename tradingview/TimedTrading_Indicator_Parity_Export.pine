@@ -132,21 +132,19 @@ if bar_index >= 4
     bearPrepComplete = bearPrep == 9
     if bearPrepComplete
         bullLead := 0
+    else if bullPrepComplete
+        bullLead := 1
+    else if bar_index >= 2
+        if bullLead > 0 and close < low[2]
+            bullLead += 1
+
     if bullPrepComplete
         bearLead := 0
-    if bar_index >= 2
-        if bullPrepComplete and close < low[2]
-            bullLead += 1
-        else if bullLead > 0 and close < low[2]
-            bullLead += 1
-        else if bullLead > 0 and close >= low[2]
-            bullLead := 0
-        if bearPrepComplete and close > high[2]
+    else if bearPrepComplete
+        bearLead := 1
+    else if bar_index >= 2
+        if bearLead > 0 and close > high[2]
             bearLead += 1
-        else if bearLead > 0 and close > high[2]
-            bearLead += 1
-        else if bearLead > 0 and close <= high[2]
-            bearLead := 0
 
 td9Bull = bullPrep == 9
 td9Bear = bearPrep == 9

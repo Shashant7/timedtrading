@@ -3567,6 +3567,17 @@ export function computeATRLevels(prevClose, atr, currentPrice, horizonLabel, per
   };
 }
 
+function withAtrAnchorMeta(levels, meta = {}) {
+  if (!levels || typeof levels !== "object") return levels;
+  return {
+    ...levels,
+    anchor_tf: meta.anchor_tf || null,
+    intended_chart_tf: meta.intended_chart_tf || null,
+    saty_anchor_rule: meta.saty_anchor_rule || null,
+    anchor_status: meta.anchor_status || "exact",
+  };
+}
+
 /**
  * Build ATR level maps for all 5 horizons from bundles.
  * Uses the second-to-last candle's close as the previous-period close.
@@ -3582,41 +3593,86 @@ export function buildATRLevelMaps(bundles, currentPrice) {
 
   const maps = {};
 
-  // Day mode (15m anchor): previous daily close + Daily ATR(14)
+  // Saty rule: below 30m charts use previous Daily close + Daily ATR.
   if (bD && Number.isFinite(bD.atr14)) {
     const pc = Number.isFinite(bD.pxPrev) ? bD.pxPrev : bD.px;
-    maps.day = computeATRLevels(pc, bD.atr14, currentPrice, "day", bD.barHigh, bD.barLow);
+    maps.day = withAtrAnchorMeta(
+      computeATRLevels(pc, bD.atr14, currentPrice, "day", bD.barHigh, bD.barLow),
+      { anchor_tf: "D", intended_chart_tf: "<30", saty_anchor_rule: "below_30m_uses_previous_daily_close", anchor_status: "exact" },
+    );
   }
 
-  // Multiday mode (30m anchor): previous weekly close + Weekly ATR(14)
+  // Saty rule: 30m chart uses previous Weekly close + Weekly ATR.
   if (bW && Number.isFinite(bW.atr14)) {
     const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
-    maps.week = computeATRLevels(pc, bW.atr14, currentPrice, "week", bW.barHigh, bW.barLow);
+    maps.week = withAtrAnchorMeta(
+      computeATRLevels(pc, bW.atr14, currentPrice, "week", bW.barHigh, bW.barLow),
+      { anchor_tf: "W", intended_chart_tf: "30", saty_anchor_rule: "30m_uses_previous_weekly_close", anchor_status: "exact" },
+    );
   }
 
-  // Swing mode (1H anchor): Monthly close + Monthly ATR
+  // Saty rule: 60m chart uses previous Monthly close + Monthly ATR.
   if (bM && Number.isFinite(bM.atr14)) {
     const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
-    maps.month = computeATRLevels(pc, bM.atr14, currentPrice, "month", bM.barHigh, bM.barLow);
+    maps.month = withAtrAnchorMeta(
+      computeATRLevels(pc, bM.atr14, currentPrice, "month", bM.barHigh, bM.barLow),
+      { anchor_tf: "M", intended_chart_tf: "60", saty_anchor_rule: "60m_uses_previous_monthly_close", anchor_status: "exact" },
+    );
   } else if (bW && Number.isFinite(bW.atr14)) {
     const monthlyATR = bW.atr14 * Math.sqrt(4.33);
     const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
-    maps.month = computeATRLevels(pc, monthlyATR, currentPrice, "month");
+    maps.month = withAtrAnchorMeta(
+      computeATRLevels(pc, monthlyATR, currentPrice, "month"),
+      { anchor_tf: "M", intended_chart_tf: "60", saty_anchor_rule: "60m_uses_previous_monthly_close", anchor_status: "approx_from_weekly" },
+    );
   }
 
-  // Position mode (4H anchor): Quarterly ≈ sqrt(13) × Weekly ATR
-  if (bW && Number.isFinite(bW.atr14)) {
+  // Saty rule: 4H chart uses previous Quarterly close + Quarterly ATR.
+  // True Q bundles are not available in the current scoring bundle, so this is
+  // explicitly marked approximate until quarterly candles are added.
+  if (bM && Number.isFinite(bM.atr14)) {
+    const quarterlyATR = bM.atr14 * Math.sqrt(3);
+    const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
+    maps.quarter = withAtrAnchorMeta(
+      computeATRLevels(pc, quarterlyATR, currentPrice, "quarter"),
+      { anchor_tf: "3M", intended_chart_tf: "240", saty_anchor_rule: "4h_uses_previous_quarterly_close", anchor_status: "approx_from_monthly" },
+    );
+  } else if (bW && Number.isFinite(bW.atr14)) {
     const quarterlyATR = bW.atr14 * Math.sqrt(13);
     const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
-    maps.quarter = computeATRLevels(pc, quarterlyATR, currentPrice, "quarter");
+    maps.quarter = withAtrAnchorMeta(
+      computeATRLevels(pc, quarterlyATR, currentPrice, "quarter"),
+      { anchor_tf: "3M", intended_chart_tf: "240", saty_anchor_rule: "4h_uses_previous_quarterly_close", anchor_status: "approx_from_weekly" },
+    );
   }
 
-  // Long-term mode (D/W anchor): Yearly ≈ sqrt(52) × Weekly ATR
-  if (bW && Number.isFinite(bW.atr14)) {
+  // Saty rule: Daily chart uses previous Yearly close + Yearly ATR. Weekly can
+  // use yearly as context, but ATR levels are less applicable there.
+  // True Y bundles are not available in the current scoring bundle.
+  if (bM && Number.isFinite(bM.atr14)) {
+    const yearlyATR = bM.atr14 * Math.sqrt(12);
+    const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
+    maps.longterm = withAtrAnchorMeta(
+      computeATRLevels(pc, yearlyATR, currentPrice, "longterm"),
+      { anchor_tf: "12M", intended_chart_tf: "D/W", saty_anchor_rule: "daily_uses_previous_yearly_close", anchor_status: "approx_from_monthly" },
+    );
+  } else if (bW && Number.isFinite(bW.atr14)) {
     const yearlyATR = bW.atr14 * Math.sqrt(52);
     const pc = Number.isFinite(bW.pxPrev) ? bW.pxPrev : bW.px;
-    maps.longterm = computeATRLevels(pc, yearlyATR, currentPrice, "longterm");
+    maps.longterm = withAtrAnchorMeta(
+      computeATRLevels(pc, yearlyATR, currentPrice, "longterm"),
+      { anchor_tf: "12M", intended_chart_tf: "D/W", saty_anchor_rule: "daily_uses_previous_yearly_close", anchor_status: "approx_from_weekly" },
+    );
   }
+
+  maps.by_chart_tf = {
+    lt_30: "day",
+    "30": "week",
+    "60": "month",
+    "240": "quarter",
+    D: "longterm",
+    W: "longterm",
+  };
 
   return maps;
 }
@@ -5292,30 +5348,29 @@ export function computeTDSequential(candles, tf, opts = {}) {
     const bullPrepComplete = bullPrepCount === PREP_LEN;
     const bearPrepComplete = bearPrepCount === PREP_LEN;
 
-    // ── Lead-up Phase ──
-    // Reset lead-up on opposite prep completion (cancellation)
-    if (bearPrepComplete) bullLeadupCount = 0;
-    if (bullPrepComplete) bearLeadupCount = 0;
-
-    // Bullish lead-up: close < low[2]
+    // ── Lead-up Phase (LuxAlgo Sequencer parity) ──
+    // LuxAlgo starts lead-up at 1 on the preparation-completion bar, then
+    // persists and increments while the lead-up comparison continues. It does
+    // NOT reset to zero on every non-qualifying bar. Opposite preparation
+    // completion cancels the in-flight lead-up.
     if (i >= LEADUP_COMP) {
       const lowComp = candles[i - LEADUP_COMP].l;
       const highComp = candles[i - LEADUP_COMP].h;
 
-      if (bullPrepComplete && c < lowComp) {
-        bullLeadupCount += 1;
+      if (bearPrepComplete) {
+        bullLeadupCount = 0;
+      } else if (bullPrepComplete) {
+        bullLeadupCount = 1;
       } else if (bullLeadupCount > 0 && c < lowComp) {
         bullLeadupCount += 1;
-      } else if (bullLeadupCount > 0 && c >= lowComp) {
-        bullLeadupCount = 0; // Reset if condition breaks
       }
 
-      if (bearPrepComplete && c > highComp) {
-        bearLeadupCount += 1;
+      if (bullPrepComplete) {
+        bearLeadupCount = 0;
+      } else if (bearPrepComplete) {
+        bearLeadupCount = 1;
       } else if (bearLeadupCount > 0 && c > highComp) {
         bearLeadupCount += 1;
-      } else if (bearLeadupCount > 0 && c <= highComp) {
-        bearLeadupCount = 0; // Reset if condition breaks
       }
     }
   }
