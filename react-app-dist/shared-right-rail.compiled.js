@@ -7028,6 +7028,11 @@
             reason: "fallback"
           };
         })();
+        const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
+        const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
+        const v2PostureStrength = String(v2TraderPosture?.strength || "");
+        const v2StructureDir = v2PostureDir || v2Dir;
+        const v2StructureLabel = v2PostureLabel || (v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : "Neutral");
         const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
         const v2DayChange = (() => {
           const src = priceSrc;
@@ -7658,7 +7663,7 @@
         })(), React.createElement("div", {
           className: "tt-rail-area-left-pane"
         }, chartCandles && chartCandles.length >= 2 && !(v2RailTab === "CHART" && !_isWorkspace) && (() => {
-          const _pcDirChart = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const _pcDirChart = String(v2StructureDir || "").toUpperCase();
           const _isShortChart = _pcDirChart === "SHORT";
           const _pcSlChart = Number(predictionContract?.risk?.stop_loss);
           const _curPxChart = Number(v2Price) || Number(ticker?.price) || 0;
@@ -8431,17 +8436,22 @@
               letterSpacing: "0.02em",
               lineHeight: 1
             }
-          }, verdict.word), pcDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-              background: pcDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
-              letterSpacing: "0.05em"
-            }
-          }, pcDir)), livePx && React.createElement("span", {
+          }, verdict.word), (() => {
+            if (v2PostureStrength === "lean") return null;
+            const chipLabel = v2PostureStrength === "open" ? postureDir === "SHORT" ? "Open Short" : "Open Long" : postureLabel || (postureDir === "SHORT" ? "Bearish" : postureDir === "LONG" ? "Bullish" : "");
+            if (!chipLabel || !postureDir) return null;
+            return React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 7px",
+                borderRadius: 4,
+                color: postureDir === "SHORT" ? "#fb7185" : "#34d399",
+                background: postureDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                letterSpacing: "0.05em"
+              }
+            }, chipLabel);
+          })()), livePx && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: 13,
@@ -9750,8 +9760,8 @@
             if (postureLabelUpper === "LEANING BULLISH" || postureLabelUpper === "LEANING BEARISH" || postureLabelUpper === "LEAN LONG" || postureLabelUpper === "LEAN SHORT") {
               return `Trader posture is ${postureLabel}. This is directional context only until the entry gate confirms.`;
             }
-            if (pcDir === "LONG") return "Trader posture is Bullish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
-            if (pcDir === "SHORT") return "Trader posture is Bearish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+            if (postureDir === "LONG") return "Trader posture is Bullish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+            if (postureDir === "SHORT") return "Trader posture is Bearish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
             return null;
           })();
           return React.createElement(Panel, {
@@ -9768,10 +9778,10 @@
                 fontFamily: "var(--tt-font-mono)"
               },
               title: "Rank vs all eligible tickers"
-            }, "R", v2Rank), (postureLabel || pcDir) && React.createElement("span", {
+            }, "R", v2Rank), (postureLabel || v2StructureLabel) && React.createElement("span", {
               className: `ds-chip ds-chip--sm ${postureChipCls}`,
               title: "Trader posture for this ticker"
-            }, postureLabel || pcDir), predictionContract?.action_label && React.createElement("span", {
+            }, postureLabel || v2StructureLabel), predictionContract?.action_label && React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--accent"
             }, String(predictionContract.action_label).toUpperCase()))
           }, biasLine && React.createElement("p", {
@@ -10062,7 +10072,7 @@
             }
           }, React.createElement(SpiderC, {
             ticker: ticker,
-            direction: v2Dir,
+            direction: v2StructureDir || v2Dir,
             compact: true,
             size: 240,
             showLegend: true
@@ -11572,7 +11582,7 @@
           const all = predictionContract.levels;
           const resistance = all.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price);
           const support = all.filter(l => l.role === "support").sort((a, b) => b.price - a.price);
-          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const pcDir = String(v2StructureDir || "").toUpperCase();
           const isShort = pcDir === "SHORT";
           const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
           const belowLabel = isShort ? "Target Zones" : "Support";
@@ -11930,9 +11940,10 @@
           style: railTabBodyWrapStyle
         }, (() => {
           const tfm = ticker?.tf_tech || {};
-          const pcDir = String(predictionContract?.direction || "").toUpperCase();
-          if (!pcDir) return null;
-          const dirSign = pcDir === "LONG" ? 1 : -1;
+          const structureDir = String(v2StructureDir || "").toUpperCase();
+          if (!structureDir) return null;
+          const dirSign = structureDir === "LONG" ? 1 : -1;
+          const postureTag = v2StructureLabel;
           let aligned = 0,
             opposed = 0,
             present = 0;
@@ -11953,14 +11964,14 @@
             bg: "rgba(34,197,94,0.06)",
             border: "rgba(34,197,94,0.30)",
             lead: "ALIGNED",
-            txt: `${aligned}/${present} timeframes confirm the ${pcDir} bias — read the call as well-supported.`
+            txt: `${aligned}/${present} timeframes confirm the ${postureTag} posture — read the call as well-supported.`
           } : status === "conflict" ? {
             cls: "ds-chip--dn",
             color: "var(--ds-dn)",
             bg: "rgba(244,63,94,0.06)",
             border: "rgba(244,63,94,0.30)",
             lead: "CONFLICT",
-            txt: `${opposed}/${present} timeframes oppose the ${pcDir} bias — the model is taking a counter-trend / reversal stance. Wait for confirmation before sizing in.`
+            txt: `${opposed}/${present} timeframes oppose the ${postureTag} posture — structure disagrees with the trader lean. Wait for confirmation before sizing in.`
           } : {
             cls: "ds-chip--accent",
             color: "var(--ds-accent)",
@@ -11990,13 +12001,13 @@
               fontFamily: "var(--tt-font-mono)",
               letterSpacing: "0.10em"
             }
-          }, "BIAS \xB7 ", meta.lead), React.createElement("span", {
+          }, "POSTURE \xB7 ", meta.lead), React.createElement("span", {
             style: {
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-text-muted)",
               fontFamily: "var(--tt-font-mono)"
             }
-          }, pcDir)), React.createElement("p", {
+          }, postureTag)), React.createElement("p", {
             style: {
               margin: 0,
               fontSize: "var(--ds-fs-caption)",
@@ -12386,10 +12397,10 @@
         }, tickerSymbol), " haven't loaded yet. This usually clears within a few minutes after the next ingest cycle. If it persists, the ticker may be missing intraday candle coverage (worker-side issue).")), ticker?.tf_tech && (() => {
           const tfm = ticker.tf_tech || {};
           const sym = tickerSymbol;
-          const pcDir = String(predictionContract?.direction || "").toUpperCase();
+          const structureDir = String(v2StructureDir || "").toUpperCase();
           const dirSign = (() => {
-            if (pcDir === "LONG") return 1;
-            if (pcDir === "SHORT") return -1;
+            if (structureDir === "LONG") return 1;
+            if (structureDir === "SHORT") return -1;
             const s = String(ticker?.state || "").toUpperCase();
             if (s.startsWith("HTF_BULL")) return 1;
             if (s.startsWith("HTF_BEAR")) return -1;
@@ -12400,7 +12411,7 @@
             return sum > 0 ? 1 : sum < 0 ? -1 : 0;
           })();
           const dir = dirSign === 1 ? "bullish" : dirSign === -1 ? "bearish" : "mixed";
-          const dirLabel = dirSign === 1 ? "LONG" : dirSign === -1 ? "SHORT" : "MIX";
+          const dirLabel = v2StructureLabel;
           const classify = obsSign => {
             if (dirSign === 0 || obsSign === 0) return "neutral";
             return obsSign === dirSign ? "aligned" : "conflicting";
@@ -12509,8 +12520,8 @@
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, dirLabel, " bias")
-          }, pcDir && pcDir !== "" && dir !== "mixed" && React.createElement("p", {
+            }, dirLabel)
+          }, structureDir && dir !== "mixed" && React.createElement("p", {
             style: {
               margin: "0 0 var(--ds-space-2) 0",
               fontSize: "var(--ds-fs-caption)",
@@ -12518,11 +12529,11 @@
               fontStyle: "italic",
               lineHeight: 1.5
             }
-          }, "Read against the model's ", React.createElement("strong", {
+          }, "Read against the trader posture ", React.createElement("strong", {
             style: {
-              color: dirLabel === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)"
+              color: dirSign === -1 ? "var(--ds-dn)" : "var(--ds-up)"
             }
-          }, dirLabel), " bias. Aligned signals support the call; conflicting signals are caveats / reversal triggers."), React.createElement("ul", {
+          }, dirLabel), ". Aligned signals support the call; conflicting signals are caveats / reversal triggers."), React.createElement("ul", {
             style: {
               listStyle: "none",
               padding: 0,
@@ -12536,7 +12547,7 @@
           })), conflicting.map((t, i) => React.createElement(Bullet, {
             key: `cf-${i}`,
             icon: "\u26A0",
-            text: `Conflicts with ${dirLabel} bias: ${t}`,
+            text: `Conflicts with ${dirLabel} posture: ${t}`,
             color: "var(--ds-dn)"
           })), neutral.map((t, i) => React.createElement(Bullet, {
             key: `nt-${i}`,
@@ -16728,7 +16739,7 @@
         const all = predictionContract.levels;
         const resistance = all.filter(l => l.role === "resistance").sort((a, b) => a.price - b.price);
         const support = all.filter(l => l.role === "support").sort((a, b) => b.price - a.price);
-        const pcDir = String(predictionContract?.direction || "").toUpperCase();
+        const pcDir = String(v2StructureDir || "").toUpperCase();
         const isShort = pcDir === "SHORT";
         const aboveLabel = isShort ? "Invalidation Zone" : "Resistance";
         const belowLabel = isShort ? "Target Zones" : "Support";
@@ -16870,13 +16881,13 @@
               color: "var(--ds-text-faint)",
               letterSpacing: "0.10em"
             }
-          }, pcDir && React.createElement("span", {
+          }, v2StructureLabel && v2StructureDir && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${isShort ? "ds-chip--dn" : "ds-chip--up"}`,
-            title: "Bias direction",
+            title: "Trader posture",
             style: {
               fontSize: 9
             }
-          }, pcDir), React.createElement("span", null, resistance.length, " above \xB7 ", support.length, " below"))
+          }, v2StructureLabel), React.createElement("span", null, resistance.length, " above \xB7 ", support.length, " below"))
         }, React.createElement("div", {
           style: {
             display: "flex",
@@ -20041,4 +20052,4 @@
   };
 })();
 
-// cache-bust:1781660893921:52095165
+// cache-bust:1781663317185:384274444
