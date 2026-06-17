@@ -817,6 +817,70 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
 // Daily Brief Email
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Strip markdown sections duplicated by infographic / structured blocks. */
+export function stripBriefMarkdownForEmail(md) {
+  if (!md || typeof md !== "string") return "";
+  let cleaned = md
+    .replace(/ (#{2,4}) /g, "\n\n$1 ")
+    .replace(/ - \*\*/g, "\n- **")
+    .replace(/ - ([A-Z])/g, "\n- $1");
+  cleaned = cleaned.replace(
+    /\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi,
+    "\n",
+  );
+  cleaned = cleaned.replace(
+    /\n#{1,3}\s*(?:Key Levels|Index Outlook)[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
+    "\n",
+  );
+  // Legacy headings the model may still emit — merged into The Market Read.
+  cleaned = cleaned.replace(
+    /\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+    "\n",
+  );
+  cleaned = cleaned.replace(
+    /\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+    "\n",
+  );
+  cleaned = cleaned.replace(
+    /\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+    "\n",
+  );
+  // Investor Portfolio — rendered as structured line-by-line block from infographic.
+  cleaned = cleaned.replace(
+    /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
+    "\n",
+  );
+  return cleaned.trim();
+}
+
+/** One row per investor holding for brief emails. */
+export function buildEmailInvestorPortfolioBlock(holdings = []) {
+  const rows = (Array.isArray(holdings) ? holdings : []).filter((p) => p?.ticker);
+  if (!rows.length) return "";
+  const fmtPct = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+  };
+  const lis = rows.map((p) => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const day = fmtPct(p.dayPct);
+    const ret = fmtPct(p.unrealPct);
+    const stage = p.stage ? String(p.stage).replace(/_/g, " ") : "";
+    const bits = [
+      `<strong style="color:white">${_esc(sym)}</strong>`,
+      `today ${day}`,
+      `return ${ret}`,
+      stage ? _esc(stage) : null,
+    ].filter(Boolean).join(" · ");
+    return `<tr><td style="padding:5px 0;font-size:13px;line-height:1.45;color:${BRAND.textSecondary};border-bottom:1px solid ${BRAND.border}">${bits}</td></tr>`;
+  }).join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+    <tr><td style="padding:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Investor Portfolio</td></tr>
+    ${lis}
+  </table>`;
+}
+
 function markdownToEmailHtml(md) {
   if (!md) return "";
   // Extract blockquotes first (pull-quote editorial treatment).
@@ -842,7 +906,7 @@ function markdownToEmailHtml(md) {
 }
 
 export async function sendDailyBriefEmail(env, userEmail, brief) {
-  const { type, content, date, esPrediction, stats, infographic } = brief;
+  const { type, content, date, esPrediction, stats, infographic, spyPrediction, qqqPrediction, iwmPrediction, liveKeyLevels } = brief;
   // 2026-05-21 — support label / subject overrides for non-brief reuses of
   // this template (e.g. the Weekly Recap path in /timed/admin/weekly-retrospective).
   // Default labels: morning → "Morning Brief", anything else → "Evening Brief".
@@ -860,7 +924,33 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     ? await buildUnsubscribeUrl(baseUrl, userEmail, _prefForUnsub, env.EMAIL_HMAC_SECRET)
     : null;
 
-  const briefHtml = markdownToEmailHtml(content);
+  const strippedContent = stripBriefMarkdownForEmail(content);
+  const briefHtml = markdownToEmailHtml(strippedContent);
+  const investorPortfolioHtml = buildEmailInvestorPortfolioBlock(infographic?.investorHoldings);
+
+  // Index outlook cards — predictions + live key levels in one block (parity with web).
+  const indexOutlookHtml = (() => {
+    const preds = [
+      { label: "SPY", body: spyPrediction },
+      { label: "QQQ", body: qqqPrediction },
+      { label: "IWM", body: iwmPrediction },
+    ].filter((p) => p.body);
+    const lvls = Array.isArray(liveKeyLevels) ? liveKeyLevels : [];
+    if (!preds.length && !lvls.length) return "";
+    const predRows = preds.map((p) => `
+      <div style="margin:0 0 10px;padding:10px 12px;background:rgba(255,255,255,0.03);border-left:3px solid ${accentColor};border-radius:6px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accentColor};margin-bottom:4px">${_esc(p.label)} Outlook</div>
+        <div style="font-size:13px;line-height:1.5;color:${BRAND.textSecondary};white-space:pre-line">${_esc(String(p.body || ""))}</div>
+      </div>`).join("");
+    const lvlRows = lvls.map((e) => `
+      <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:${BRAND.textSecondary}">
+        <strong style="color:white">${_esc(e.sym)}</strong> ${_esc(e.text || "")}
+      </p>`).join("");
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+      <tr><td style="padding:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Index Outlook &amp; Game Plan</td></tr>
+      <tr><td>${predRows}${lvlRows}</td></tr>
+    </table>`;
+  })();
   // Cross-client-safe infographic — matches the web BriefInfographic treatment.
   // Renders "Today's Three" TOC, headline badges, index cards, macro strip,
   // events, risks/opportunities, closing line. Empty string if no data.
@@ -900,8 +990,10 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
     ${esPrediction ? `<div style="padding:12px 16px;background:rgba(245,158,11,0.08);border-left:3px solid ${BRAND.warning};border-radius:6px;margin:0 0 20px"><div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.warning};font-family:${EMAIL_FONT_UI};margin-bottom:6px">ES Prediction</div><p style="margin:0;font-family:${EMAIL_FONT_EDITORIAL};font-size:16px;font-style:italic;line-height:1.45;color:${BRAND.textPrimary}">&ldquo;${_esc(esPrediction)}&rdquo;</p></div>` : ""}
     ${infographicHtml}
+    ${indexOutlookHtml}
     ${eveningSummaryHtml}
     ${briefHtml}
+    ${investorPortfolioHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
         <a href="https://timed-trading.com/daily-brief.html" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View Full Brief</a>
@@ -2057,6 +2149,60 @@ export async function sendInvestorRebalanceDigest(env, summary) {
     }
   }
   console.log(`[INVESTOR REBALANCE DIGEST] sent=${sent}/${opted.length} (trims=${trims.length} added=${added.length} opened=${opened.length})`);
+  return { ok: true, sent, recipients: opted.length };
+}
+
+/** Batched investor scoring alerts (accumulate / reduce signal / RS) — one email per cron tick. */
+export async function sendInvestorSignalsDigest(env, alerts) {
+  const list = Array.isArray(alerts) ? alerts.filter((a) => a?.type && a?.data?.ticker) : [];
+  if (!list.length) return { ok: true, sent: 0, recipients: 0, reason: "no_alerts" };
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
+
+  const { deriveInvestorAlertAction } = await import("./alerts.js");
+  const nowLabel = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const rows = list.map((alert) => {
+    const sym = String(alert.data.ticker || "").toUpperCase();
+    const action = deriveInvestorAlertAction(alert.type, alert.data);
+    return `<tr>
+      <td style="padding:8px 0;border-bottom:1px solid ${BRAND.border};vertical-align:top">
+        <div style="font-size:14px;font-weight:700;color:white;margin-bottom:2px">${_esc(sym)}</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:${action.color};text-transform:uppercase;margin-bottom:4px">${_esc(action.verb)}</div>
+        <div style="font-size:12px;line-height:1.45;color:${BRAND.textSecondary}">${_esc(action.one_liner)}</div>
+      </td>
+    </tr>`;
+  }).join("");
+
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Investor Signals — ${_esc(nowLabel)} ET</h2>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} portfolio signal${list.length === 1 ? "" : "s"} from the scoring pass — grouped in one summary (not one email per ticker).</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+    <p style="margin:16px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
+  `;
+
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  let sent = 0;
+  for (const user of opted) {
+    try {
+      const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
+        ? await buildUnsubscribeUrl(baseUrl, user.email, "investor_alerts", env.EMAIL_HMAC_SECRET)
+        : null;
+      const html = emailLayout(bodyHtml, {
+        unsubscribeUrl,
+        preheader: `Investor signals — ${list.length} name${list.length === 1 ? "" : "s"}.`,
+      });
+      const r = await sendEmail(env, {
+        to: user.email,
+        subject: `[INVESTOR] Portfolio signals — ${list.length} update${list.length === 1 ? "" : "s"}`,
+        html,
+        category: "investor_signals_digest",
+      });
+      if (r?.ok !== false) sent++;
+    } catch (e) {
+      console.warn(`[INVESTOR SIGNALS DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
+    }
+  }
+  console.log(`[INVESTOR SIGNALS DIGEST] sent=${sent}/${opted.length} alerts=${list.length}`);
   return { ok: true, sent, recipients: opted.length };
 }
 

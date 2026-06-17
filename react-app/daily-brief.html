@@ -264,6 +264,26 @@
           "\n",
         );
 
+        // Merged Index Outlook section — cards + live levels render above.
+        cleaned = cleaned.replace(
+          /\n#{1,3}\s*Index\s+Outlook\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
+          "\n",
+        );
+
+        // Legacy headings merged into The Market Read.
+        cleaned = cleaned.replace(
+          /\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+          "\n",
+        );
+        cleaned = cleaned.replace(
+          /\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+          "\n",
+        );
+        cleaned = cleaned.replace(
+          /\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi,
+          "\n",
+        );
+
         // 2026-06-09 — Strip stale LLM Key Levels section; live copy renders
         // from brief.liveKeyLevels (refreshed from timed:prices on each read).
         cleaned = cleaned.replace(
@@ -288,21 +308,28 @@
       }
 
       // ── Live Key Levels & Game Plan (refreshed from timed:prices) ─────────
-      function LiveKeyLevelsPanel({ entries, refreshedAt }) {
+      function LiveKeyLevelsPanel({ entries, refreshedAt, embedded }) {
         if (!entries || entries.length === 0) return null;
         const ts = refreshedAt
           ? new Date(refreshedAt).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true })
           : null;
         return (
-          <div className="mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
-            <div className="flex items-baseline justify-between gap-3 mb-3">
-              <h3 className="tt-editorial m-0 text-[18px]" style={{ color: "var(--tt-text-0)" }}>Key Levels &amp; Game Plan</h3>
-              {ts && (
-                <span className="text-[9px] uppercase tracking-wider text-[#6E867D]">
-                  Live refresh {ts} ET
-                </span>
-              )}
-            </div>
+          <div className={embedded ? "" : "mb-5 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"}>
+            {!embedded && (
+              <div className="flex items-baseline justify-between gap-3 mb-3">
+                <h3 className="tt-editorial m-0 text-[18px]" style={{ color: "var(--tt-text-0)" }}>Key Levels &amp; Game Plan</h3>
+                {ts && (
+                  <span className="text-[9px] uppercase tracking-wider text-[#6E867D]">
+                    Live refresh {ts} ET
+                  </span>
+                )}
+              </div>
+            )}
+            {embedded && ts && (
+              <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-2">
+                Live levels · refreshed {ts} ET
+              </div>
+            )}
             <div className="space-y-3">
               {entries.map((e) => (
                 <p key={e.sym} className="text-[13px] leading-relaxed m-0" style={{ color: "var(--tt-text-1)" }}>
@@ -926,42 +953,42 @@
             {/* P0.7.129 — render all four predictions (ES + SPY + QQQ + IWM)
                 up top, in parallel format. ES leads (broad-market futures
                 anchor), then the three ETFs the user actually trades. */}
-            {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
-              <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {/* 2026-06-05 — ES dropped: it's the futures proxy for SPY, so
-                    its prediction duplicates SPY and tends to read stale vs the
-                    live index. SPY/QQQ/IWM are the tradeable ETFs users act on. */}
-                {[
-                  { label: "SPY Prediction", body: brief.spyPrediction },
-                  { label: "QQQ Prediction", body: brief.qqqPrediction },
-                  { label: "IWM Prediction", body: brief.iwmPrediction },
-                ].filter(p => p.body).map(p => (
-                  <div key={p.label} className="p-3 rounded-lg"
-                       style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
-                    <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
-                         style={{ color: accentColor }}>{p.label}</div>
-                    {/* 2026-05-22 — Predictions now ship as a 4-line compact
-                        block (Mid · Range · Bull · Bear · Lean). Render
-                        bold + line breaks instead of stripping them so the
-                        ▲ / ▼ stack reads as intended. */}
-                    <div className="text-[13px] leading-relaxed"
-                         style={{ color: "var(--tt-text-1)", whiteSpace: "pre-line" }}
-                         dangerouslySetInnerHTML={{
-                           __html: String(p.body || "")
-                             .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                             .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>')
-                             .replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>')
-                             .replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>'),
-                         }} />
+            {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction || brief.liveKeyLevels?.length > 0) && (
+              <div className="mb-4">
+                <h3 className="tt-editorial m-0 mb-3 text-[18px]" style={{ color: "var(--tt-text-0)" }}>
+                  Index Outlook &amp; Game Plan
+                </h3>
+                {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                    {[
+                      { label: "SPY Prediction", body: brief.spyPrediction },
+                      { label: "QQQ Prediction", body: brief.qqqPrediction },
+                      { label: "IWM Prediction", body: brief.iwmPrediction },
+                    ].filter(p => p.body).map(p => (
+                      <div key={p.label} className="p-3 rounded-lg"
+                           style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
+                        <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
+                             style={{ color: accentColor }}>{p.label}</div>
+                        <div className="text-[13px] leading-relaxed"
+                             style={{ color: "var(--tt-text-1)", whiteSpace: "pre-line" }}
+                             dangerouslySetInnerHTML={{
+                               __html: String(p.body || "")
+                                 .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                                 .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>')
+                                 .replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>')
+                                 .replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>'),
+                             }} />
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+                {brief.liveKeyLevels?.length > 0 && (
+                  <LiveKeyLevelsPanel entries={brief.liveKeyLevels} refreshedAt={brief.liveKeyLevelsAt} embedded />
+                )}
               </div>
             )}
             <hr className="tt-divider" style={{ margin: "0 0 18px", borderColor: bgDim }} />
             {brief.infographic && <BriefInfographic data={brief.infographic} />}
-            {brief.liveKeyLevels?.length > 0 && (
-              <LiveKeyLevelsPanel entries={brief.liveKeyLevels} refreshedAt={brief.liveKeyLevelsAt} />
-            )}
             <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
           </div>
         );
