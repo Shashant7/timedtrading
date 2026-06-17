@@ -144,4 +144,15 @@ describe("inferTraderPosture", () => {
     expect(utils.inferTraderPosture({ trader_posture: "OPEN_LONG" }).label).toBe("Open Long");
     expect(utils.inferTraderPosture({ trader_posture: "OPEN_SHORT" }).label).toBe("Open Short");
   });
+
+  it("prefers Open Long when _openTrade is attached (MU trim lane)", () => {
+    const posture = utils.inferTraderPosture({
+      ticker: "MU",
+      kanban_stage: "trim",
+      swing_consensus: { direction: "LONG", avg_bias: 0.44 },
+      _openTrade: { direction: "LONG", status: "OPEN", entry_price: 770 },
+    });
+    expect(posture.label).toBe("Open Long");
+    expect(posture.strength).toBe("open");
+  });
 });

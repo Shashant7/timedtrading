@@ -7009,7 +7009,14 @@
           }
           try {
             const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
-            if (helper) return helper(ticker);
+            if (helper) {
+              return helper({
+                ...ticker,
+                _openTrade: effectiveTraderTrade || ticker?._openTrade,
+                has_open_position: !!(effectiveTraderTrade || ticker?.has_open_position),
+                position_direction: effectiveTraderTrade?.direction || ticker?.position_direction
+              });
+            }
           } catch (_) {}
           if (v2Dir === "LONG" || v2Dir === "SHORT") {
             return {
@@ -7123,8 +7130,9 @@
           const earnDays = earnings && Number.isFinite(earnings._daysAway) ? earnings._daysAway : null;
           const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
-          const _hdrTradeStatus = String(trade?.status || "").toUpperCase();
-          const _hdrTradeIsOpen = !!(trade && (_hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS"));
+          const _hdrTrade = effectiveTraderTrade;
+          const _hdrTradeStatus = String(_hdrTrade?.status || "").toUpperCase();
+          const _hdrTradeIsOpen = !!(_hdrTrade && (_hdrTradeStatus === "OPEN" || _hdrTradeStatus === "TP_HIT_TRIM" || !(_hdrTrade?.exit_ts ?? _hdrTrade?.exitTs) && _hdrTradeStatus !== "WIN" && _hdrTradeStatus !== "LOSS"));
           const stageChip = (() => {
             if (stage === "trim") return {
               label: "TRIM",
@@ -7203,7 +7211,7 @@
           }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`,
             title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
-          }, "TRADER \xB7 ", _hdrTradeIsOpen ? v2Dir === "SHORT" ? "Open Short" : "Open Long" : v2TraderPosture?.label || v2Dir), (() => {
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long" : v2TraderPosture?.label || v2Dir), (() => {
             const invSym = String(tickerSymbol || "").trim().toUpperCase();
             const liveInvStage = investorData?.ticker === invSym ? investorData?.stage : null;
             const invStage = String(liveInvStage || ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
@@ -20052,4 +20060,4 @@
   };
 })();
 
-// cache-bust:1781663317185:384274444
+// cache-bust:1781698348600:261905892

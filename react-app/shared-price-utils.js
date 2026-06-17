@@ -564,8 +564,35 @@
       if (rawPosture === "SHORT") {
         return { posture: "SHORT", label: "Bearish", direction: "SHORT", strength: "confirmed", reason: "server" };
       }
-      if (rawPosture === "NEUTRAL" || rawPosture === "WAIT") {
-        return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "server" };
+    if (rawPosture === "NEUTRAL" || rawPosture === "WAIT") {
+      return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "server" };
+    }
+    }
+
+    // Open position wins over Bullish/Bearish lean (MU trim lane, GS hold).
+    var openTr = t._openTrade;
+    if (openTr && typeof openTr === "object" && !(openTr.exit_ts || openTr.exitTs)) {
+      var odir = String(openTr.direction || "").toUpperCase();
+      if (odir === "LONG" || odir === "SHORT") {
+        return {
+          posture: odir === "LONG" ? "OPEN_LONG" : "OPEN_SHORT",
+          label: odir === "LONG" ? "Open Long" : "Open Short",
+          direction: odir,
+          strength: "open",
+          reason: "open_trade",
+        };
+      }
+    }
+    if (t.has_open_position) {
+      var pdir = String(t.position_direction || "").toUpperCase();
+      if (pdir === "LONG" || pdir === "SHORT") {
+        return {
+          posture: pdir === "LONG" ? "OPEN_LONG" : "OPEN_SHORT",
+          label: pdir === "LONG" ? "Open Long" : "Open Short",
+          direction: pdir,
+          strength: "open",
+          reason: "has_open_position",
+        };
       }
     }
 
@@ -595,6 +622,15 @@
     if (isActionableStage || isManagementStage) {
       var confirmedDir = cd === "LONG" || cd === "SHORT" ? cd : modelDir;
       if (confirmedDir === "LONG" || confirmedDir === "SHORT") {
+        if (isManagementStage && (openTr || t.has_open_position)) {
+          return {
+            posture: confirmedDir === "LONG" ? "OPEN_LONG" : "OPEN_SHORT",
+            label: confirmedDir === "LONG" ? "Open Long" : "Open Short",
+            direction: confirmedDir,
+            strength: "open",
+            reason: "management_stage",
+          };
+        }
         return { posture: confirmedDir, label: confirmedDir === "LONG" ? "Bullish" : "Bearish", direction: confirmedDir, strength: "confirmed", reason: "actionable_stage" };
       }
     }
