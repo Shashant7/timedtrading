@@ -672,6 +672,8 @@ Do not recalibrate weights until L0/L1 parity is proven.
 
 - Build TradingView export script.
 - Export fixture set.
+- Use the shadow harness in `worker/foundation/indicator-parity.js` and
+  fixture contract in `data/indicator-fixtures/v1/`.
 - Add parity tests for EMA/RSI/ATR/ST/TD/Phase plus deterministic
   structural fixtures for FVG, liquidity, ORB, PDZ, and RSI divergence.
 - Encode session-clip policy in every fixture manifest.
