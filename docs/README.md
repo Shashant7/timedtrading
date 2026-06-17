@@ -28,7 +28,8 @@
 ## Architecture & core
 
 - [SCORING_ARCHITECTURE.md](SCORING_ARCHITECTURE.md) — scoring details + worker calculations
-- [active-trader-information-hardening-plan.md](active-trader-information-hardening-plan.md) — indicator parity, event ledger, and sequence-aware Trader diagnosis plan
+- [active-trader-information-hardening-plan.md](active-trader-information-hardening-plan.md) — signal parity, event ledger, path forecast, and sequence-aware Trader diagnosis plan
+- [signal-family-catalog-v1.md](signal-family-catalog-v1.md) — signal-family map: code paths, payload fields, consumers, and awareness mode
 - [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) — server-side scoring + Kanban
 - [MODEL_PIPELINE.md](MODEL_PIPELINE.md) — model pipeline
 - [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) — D1 ledger + positions
