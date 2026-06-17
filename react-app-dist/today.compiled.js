@@ -3631,8 +3631,9 @@ function ViewportCard({
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
-  const biasLabel = _posture?.posture === "LEAN_LONG" ? "LEAN BULL" : _posture?.posture === "LEAN_SHORT" ? "LEAN BEAR" : _posture?.posture === "NEUTRAL" ? "NEUTRAL" : _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
-  const biasChipCls = biasLabel.includes("BULL") ? "ds-chip--up" : biasLabel.includes("BEAR") ? "ds-chip--dn" : "ds-chip--solid";
+  const biasLabel = _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const biasLabelLc = String(biasLabel).toLowerCase();
+  const biasChipCls = biasLabelLc.includes("bullish") ? "ds-chip--up" : biasLabelLc.includes("bearish") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -5309,6 +5310,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781660129915:146137758
+// cache-bust:1781660893921:52095165
 
-// cache-bust:1781660129915:146137758
+// cache-bust:1781660893921:52095165

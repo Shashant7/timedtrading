@@ -667,7 +667,7 @@
       color: var(--text-secondary);
     }
     /* 2026-05-30 (P7) — Wider visual column for rows that pack a dual
-       chip set (e.g. TRADER · LONG + INVESTOR · CORE HOLD on the Right
+       chip set (e.g. TRADER · Bullish + INVESTOR · CORE HOLD on the Right
        Rail header row). The default 64px column was too narrow for
        two chips side-by-side and they bled into the description column.
        Apply via class="anno-row anno-row--wide" — fallback layout for
@@ -1346,26 +1346,26 @@
                 <div class="anno-text"><strong>Logo + ticker</strong> &mdash; brand logo and stock symbol. Click anywhere on the card to open the right rail with full detail.</div>
               </div>
               <div class="anno-row">
-                <div class="anno-visual"><span class="v-chip up">LONG</span></div>
-                <div class="anno-text"><strong>Direction chip</strong> &mdash; <em>LONG</em> = buying shares, <em>SHORT</em> = selling short. When no trade is open this shows the bias (<em>BULL</em>/<em>BEAR</em>).</div>
+                <div class="anno-visual"><span class="v-chip up">Bullish</span></div>
+                <div class="anno-text"><strong>Trader posture chip</strong> &mdash; <em>Bullish</em>/<em>Bearish</em> describe price bias. <em>Open Long</em>/<em>Open Short</em> appear only when a Trader position is actually open.</div>
               </div>
               <div class="anno-row anno-row--wide">
                 <div class="anno-visual">
-                  <span class="v-chip up">TRADER &middot; LONG</span>
+                  <span class="v-chip up">TRADER &middot; Bullish</span>
                   <span class="v-chip" style="background:rgba(96,165,250,0.12);color:#60a5fa;border-color:rgba(96,165,250,0.30)">INVESTOR &middot; CORE HOLD</span>
                 </div>
                 <div class="anno-text">
-                  <strong>Dual bias chip (Right Rail header) &mdash; 2026-05-29</strong> &mdash;
+                  <strong>Dual posture chip (Right Rail header)</strong> &mdash;
                   Active Trader and Investor mode classify a ticker on different horizons and
                   occasionally disagree. The rail header now shows BOTH:
                   <ul style="margin:6px 0 0 1.2em;padding:0;font-size:0.95em">
-                    <li><strong>TRADER &middot; LONG / SHORT</strong> &mdash; intraday-to-multi-day call.
-                      Drives the model's entry/exit decisions in Active Trader mode.</li>
+                    <li><strong>TRADER</strong> &mdash; Neutral, Leaning bullish, Leaning bearish,
+                      Bullish, Bearish, Open Long, or Open Short on the intraday-to-multi-day horizon.</li>
                     <li><strong>INVESTOR &middot; ACCUMULATE / CORE HOLD / WATCH / REDUCE / RESEARCH / AVOID</strong>
                       &mdash; multi-week-to-multi-month classification. Maps directly to the Investor
                       Kanban lanes.</li>
                   </ul>
-                  When the two agree, conviction is highest. When they disagree (e.g. TRADER:SHORT
+                  When the two agree, conviction is highest. When they disagree (e.g. TRADER:Bearish
                   +  INVESTOR:ACCUMULATE on a counter-trend setup against a long-term uptrend),
                   the divergence itself is the signal &mdash; treat the trader call as a tactical
                   trade, not an investor thesis change.

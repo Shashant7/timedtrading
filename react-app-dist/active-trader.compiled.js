@@ -333,8 +333,9 @@ function ATCard({
   const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
-  const biasLabel = tradeDir === "LONG" ? "LONG" : tradeDir === "SHORT" ? "SHORT" : _posture?.posture === "LEAN_LONG" ? "LEAN LONG" : _posture?.posture === "LEAN_SHORT" ? "LEAN SHORT" : _posture?.posture === "NEUTRAL" ? "NEUTRAL" : _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
-  const biasChipCls = biasLabel.includes("BULL") || biasLabel.includes("LONG") ? "ds-chip--up" : biasLabel.includes("BEAR") || biasLabel.includes("SHORT") ? "ds-chip--dn" : "ds-chip--solid";
+  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const biasLabelLc = String(biasLabel).toLowerCase();
+  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -1682,6 +1683,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781660129915:146137758
+// cache-bust:1781660893921:52095165
 
-// cache-bust:1781660129915:146137758
+// cache-bust:1781660893921:52095165

@@ -5985,21 +5985,24 @@
           const v2TraderPosture = (() => {
             if (predictionContract && railTab !== "INVESTOR") {
               const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
-              const label = String(predictionContract.posture_label || "").toUpperCase();
+              const label = String(predictionContract.posture_label || "").trim();
+              const labelUpper = label.toUpperCase();
               const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
-              if (raw === "NEUTRAL") return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: predictionContract.posture_reason || "contract" };
-              if (raw === "LEAN_LONG" || label === "LEAN LONG") return { posture: "LEAN_LONG", label: "LEAN LONG", direction: "LONG", strength: "lean", reason: predictionContract.posture_reason || "contract" };
-              if (raw === "LEAN_SHORT" || label === "LEAN SHORT") return { posture: "LEAN_SHORT", label: "LEAN SHORT", direction: "SHORT", strength: "lean", reason: predictionContract.posture_reason || "contract" };
-              if (dir === "LONG" || dir === "SHORT") return { posture: dir, label: dir, direction: dir, strength: "confirmed", reason: "contract" };
+              if (raw === "OPEN_LONG" || labelUpper === "OPEN LONG") return { posture: "OPEN_LONG", label: "Open Long", direction: "LONG", strength: "open", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "OPEN_SHORT" || labelUpper === "OPEN SHORT") return { posture: "OPEN_SHORT", label: "Open Short", direction: "SHORT", strength: "open", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "NEUTRAL" || labelUpper === "NEUTRAL") return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_LONG" || labelUpper === "LEANING BULLISH" || labelUpper === "LEAN LONG") return { posture: "LEAN_LONG", label: "Leaning bullish", direction: "LONG", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_SHORT" || labelUpper === "LEANING BEARISH" || labelUpper === "LEAN SHORT") return { posture: "LEAN_SHORT", label: "Leaning bearish", direction: "SHORT", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (dir === "LONG" || dir === "SHORT") return { posture: dir, label: dir === "LONG" ? "Bullish" : "Bearish", direction: dir, strength: "confirmed", reason: "contract" };
             }
             try {
               const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
               if (helper) return helper(ticker);
             } catch (_) {}
             if (v2Dir === "LONG" || v2Dir === "SHORT") {
-              return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "LEAN LONG" : "LEAN SHORT", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
+              return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
             }
-            return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "fallback" };
+            return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "fallback" };
           })();
           const v2Price = Number(
             window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
@@ -6150,10 +6153,10 @@
                             : v2TraderPosture?.strength === "lean"
                               ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.`
                               : v2TraderPosture?.posture === "NEUTRAL"
-                                ? "Active Trader posture: NEUTRAL. No clean long/short edge yet."
+                                ? "Active Trader posture: Neutral. No clean long/short edge yet."
                                 : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
                         >
-                          TRADER · {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : (v2TraderPosture?.label || v2Dir)}
+                          TRADER · {_hdrTradeIsOpen ? (v2Dir === "SHORT" ? "Open Short" : "Open Long") : (v2TraderPosture?.label || v2Dir)}
                         </span>
                       )}
                       {/* 2026-05-29 — Investor mode bias chip alongside
@@ -7147,7 +7150,8 @@
                         // ── Resolve the verdict + verb ─────────────────────
                         const stage = String(ticker?.kanban_stage || "").toLowerCase();
                         const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
-                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").trim();
+                        const postureLabelUpper = postureLabel.toUpperCase();
                         const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
                         const postureRaw = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
                         const pcAction = String(predictionContract?.action_label || "").toUpperCase();
@@ -7186,16 +7190,20 @@
                             return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
                           }
                           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
-                            if (postureRaw === "NEUTRAL" || postureLabel === "NEUTRAL") {
-                              return { word: "NEUTRAL", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No clean long/short edge from the Trader model yet. Wait for a confirmed entry gate.", urgency: "none" };
+                            if (postureRaw === "NEUTRAL" || postureLabelUpper === "NEUTRAL") {
+                              return { word: "Neutral", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No clean long/short edge from the Trader model yet. Wait for a confirmed entry gate.", urgency: "none" };
                             }
-                            if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
-                              return { word: postureLabel, color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${postureLabel} is directional context only; the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            if (postureLabelUpper === "LEANING BULLISH" || postureLabelUpper === "LEANING BEARISH" || postureLabelUpper === "LEAN LONG" || postureLabelUpper === "LEAN SHORT") {
+                              return { word: postureLabelUpper.startsWith("LEAN ") ? (isShort ? "Leaning bearish" : "Leaning bullish") : postureLabel, color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${postureLabelUpper.startsWith("LEAN ") ? (isShort ? "Leaning bearish" : "Leaning bullish") : postureLabel} is directional context only; the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
                             }
-                            return { word: "WATCH", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", line: `The model is leaning ${displayDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            if (displayDir) {
+                              const fallbackLabel = displayDir === "SHORT" ? "Leaning bearish" : "Leaning bullish";
+                              return { word: fallbackLabel, color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${fallbackLabel} is directional context only; the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            }
+                            return { word: "Neutral", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No clean long/short edge from the Trader model yet. Wait for a confirmed entry gate.", urgency: "none" };
                           }
                           if (displayDir) {
-                            const label = postureLabel || (displayDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG");
+                            const label = postureLabel || (displayDir === "SHORT" ? "Leaning bearish" : "Leaning bullish");
                             return { word: label, color: displayDir === "SHORT" ? "#fb7185" : "#34d399", bg: displayDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${label} is directional context, not an entry.`, urgency: "context" };
                           }
                           return { word: "NO TRADE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
@@ -8326,7 +8334,8 @@
                         //     promotion as a positive.
                         const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
                         const pcDir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null;
-                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").trim();
+                        const postureLabelUpper = postureLabel.toUpperCase();
                         const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
                         const posture = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
                         const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
@@ -8357,14 +8366,14 @@
 
                         // Plain-English bias line (one short sentence).
                         const biasLine = (() => {
-                          if (posture === "NEUTRAL" || postureLabel === "NEUTRAL") {
-                            return "Trader posture is NEUTRAL. No clean long/short edge yet; levels below are context only.";
+                          if (posture === "NEUTRAL" || postureLabelUpper === "NEUTRAL") {
+                            return "Trader posture is Neutral. No clean long/short edge yet; levels below are context only.";
                           }
-                          if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
+                          if (postureLabelUpper === "LEANING BULLISH" || postureLabelUpper === "LEANING BEARISH" || postureLabelUpper === "LEAN LONG" || postureLabelUpper === "LEAN SHORT") {
                             return `Trader posture is ${postureLabel}. This is directional context only until the entry gate confirms.`;
                           }
-                          if (pcDir === "LONG") return "The model is LONG. Snapshot, Setup, Technicals and Levels all read against this direction below.";
-                          if (pcDir === "SHORT") return "The model is SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          if (pcDir === "LONG") return "Trader posture is Bullish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          if (pcDir === "SHORT") return "Trader posture is Bearish. Snapshot, Setup, Technicals and Levels all read against this direction below.";
                           return null;
                         })();
 
@@ -8875,7 +8884,7 @@
                           || predictionContract?.direction
                           || optionsTabData?.contract?.direction
                           || ""
-                        ).toUpperCase();
+                        ).trim();
                         const traderPostureDir = String(
                           predictionContract?.posture_direction
                           || v2TraderPosture?.direction

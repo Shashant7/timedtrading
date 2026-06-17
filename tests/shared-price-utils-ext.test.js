@@ -119,11 +119,11 @@ describe("inferTraderPosture", () => {
     });
 
     expect(posture.posture).toBe("LEAN_SHORT");
-    expect(posture.label).toBe("LEAN SHORT");
+    expect(posture.label).toBe("Leaning bearish");
     expect(posture.direction).toBe("SHORT");
   });
 
-  it("keeps actionable enter stages as confirmed Long or Short", () => {
+  it("keeps actionable enter stages as confirmed bullish or bearish posture", () => {
     const posture = utils.inferTraderPosture({
       state: "HTF_BULL_LTF_BULL",
       kanban_stage: "enter",
@@ -136,6 +136,12 @@ describe("inferTraderPosture", () => {
     });
 
     expect(posture.posture).toBe("LONG");
+    expect(posture.label).toBe("Bullish");
     expect(posture.strength).toBe("confirmed");
+  });
+
+  it("supports explicit open-position labels separately from price bias", () => {
+    expect(utils.inferTraderPosture({ trader_posture: "OPEN_LONG" }).label).toBe("Open Long");
+    expect(utils.inferTraderPosture({ trader_posture: "OPEN_SHORT" }).label).toBe("Open Short");
   });
 });

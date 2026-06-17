@@ -546,17 +546,26 @@
     var rawPosture = String(t.trader_posture || t.traderPosture || t.posture || "").toUpperCase();
     if (rawPosture) {
       rawPosture = rawPosture.replace(/\s+/g, "_");
+      if (rawPosture === "OPEN_LONG") {
+        return { posture: "OPEN_LONG", label: "Open Long", direction: "LONG", strength: "open", reason: "server" };
+      }
+      if (rawPosture === "OPEN_SHORT") {
+        return { posture: "OPEN_SHORT", label: "Open Short", direction: "SHORT", strength: "open", reason: "server" };
+      }
       if (rawPosture === "LEAN_LONG" || rawPosture === "LONG_LEAN") {
-        return { posture: "LEAN_LONG", label: "LEAN LONG", direction: "LONG", strength: "lean", reason: "server" };
+        return { posture: "LEAN_LONG", label: "Leaning bullish", direction: "LONG", strength: "lean", reason: "server" };
       }
       if (rawPosture === "LEAN_SHORT" || rawPosture === "SHORT_LEAN") {
-        return { posture: "LEAN_SHORT", label: "LEAN SHORT", direction: "SHORT", strength: "lean", reason: "server" };
+        return { posture: "LEAN_SHORT", label: "Leaning bearish", direction: "SHORT", strength: "lean", reason: "server" };
       }
-      if (rawPosture === "LONG" || rawPosture === "SHORT") {
-        return { posture: rawPosture, label: rawPosture, direction: rawPosture, strength: "confirmed", reason: "server" };
+      if (rawPosture === "LONG") {
+        return { posture: "LONG", label: "Bullish", direction: "LONG", strength: "confirmed", reason: "server" };
+      }
+      if (rawPosture === "SHORT") {
+        return { posture: "SHORT", label: "Bearish", direction: "SHORT", strength: "confirmed", reason: "server" };
       }
       if (rawPosture === "NEUTRAL" || rawPosture === "WAIT") {
-        return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "server" };
+        return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "server" };
       }
     }
 
@@ -586,14 +595,14 @@
     if (isActionableStage || isManagementStage) {
       var confirmedDir = cd === "LONG" || cd === "SHORT" ? cd : modelDir;
       if (confirmedDir === "LONG" || confirmedDir === "SHORT") {
-        return { posture: confirmedDir, label: confirmedDir, direction: confirmedDir, strength: "confirmed", reason: "actionable_stage" };
+        return { posture: confirmedDir, label: confirmedDir === "LONG" ? "Bullish" : "Bearish", direction: confirmedDir, strength: "confirmed", reason: "actionable_stage" };
       }
     }
 
     if (biasDir && absBias >= 0.3 && (!cd || cd !== biasDir)) {
       return {
         posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
-        label: biasDir === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+        label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
         direction: biasDir,
         strength: "lean",
         reason: "swing_consensus"
@@ -604,32 +613,32 @@
       if (biasDir && absBias >= 0.15) {
         return {
           posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
-          label: biasDir === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+          label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
           direction: biasDir,
           strength: "lean",
           reason: rootWait ? "root_wait" : "low_conviction"
         };
       }
-      return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: rootWait ? "root_wait" : "low_conviction" };
+      return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: rootWait ? "root_wait" : "low_conviction" };
     }
 
     if (cd === "LONG" || cd === "SHORT") {
       if (stage === "watch" || stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
         return {
           posture: cd === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
-          label: cd === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+          label: cd === "LONG" ? "Leaning bullish" : "Leaning bearish",
           direction: cd,
           strength: "lean",
           reason: "watch_stage"
         };
       }
-      return { posture: cd, label: cd, direction: cd, strength: "confirmed", reason: "consensus_direction" };
+      return { posture: cd, label: cd === "LONG" ? "Bullish" : "Bearish", direction: cd, strength: "confirmed", reason: "consensus_direction" };
     }
 
     if (biasDir) {
       return {
         posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
-        label: biasDir === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+        label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
         direction: biasDir,
         strength: "lean",
         reason: "weak_consensus"
@@ -639,18 +648,18 @@
     if (modelDir === "LONG" || modelDir === "SHORT") {
       var conflict = Number.isFinite(htf) && Number.isFinite(ltf) && Math.sign(htf) !== Math.sign(ltf);
       if (conflict || bullishCount + bearishCount === 0) {
-        return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: conflict ? "htf_ltf_conflict" : "no_consensus" };
+        return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: conflict ? "htf_ltf_conflict" : "no_consensus" };
       }
       return {
         posture: modelDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
-        label: modelDir === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+        label: modelDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
         direction: modelDir,
         strength: "lean",
         reason: "state_fallback"
       };
     }
 
-    return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "balanced" };
+    return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "balanced" };
   }
 
   // Expose on window for consumption by all pages

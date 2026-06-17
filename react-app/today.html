@@ -4555,14 +4555,13 @@
         const _modelDir = _posture?.direction || ((window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
           ? window.TimedPriceUtils.inferModelDirection(t)
           : "");
-        const biasLabel = _posture?.posture === "LEAN_LONG"  ? "LEAN BULL"
-                       : _posture?.posture === "LEAN_SHORT" ? "LEAN BEAR"
-                       : _posture?.posture === "NEUTRAL"    ? "NEUTRAL"
-                       : _modelDir === "LONG"  ? "BULL"
-                       : _modelDir === "SHORT" ? "BEAR"
-                       : "NEUTRAL";
-        const biasChipCls = biasLabel.includes("BULL") ? "ds-chip--up"
-                         : biasLabel.includes("BEAR") ? "ds-chip--dn"
+        const biasLabel = _posture?.label ? _posture.label
+                       : _modelDir === "LONG"  ? "Bullish"
+                       : _modelDir === "SHORT" ? "Bearish"
+                       : "Neutral";
+        const biasLabelLc = String(biasLabel).toLowerCase();
+        const biasChipCls = biasLabelLc.includes("bullish") ? "ds-chip--up"
+                         : biasLabelLc.includes("bearish") ? "ds-chip--dn"
                          : "ds-chip--solid";
 
         // Stage chip — reads kanban_stage AFTER TodayApp has rewritten it
