@@ -90,3 +90,58 @@ describe("getExtChange", () => {
     expect(ext.chg).toBeCloseTo(-7.4, 1);
   });
 });
+
+describe("inferTraderPosture", () => {
+  let utils;
+
+  beforeAll(() => {
+    utils = loadPriceUtils();
+  });
+
+  it("shows LEAN SHORT when swing consensus is bearish but state fallback is HTF bull", () => {
+    const posture = utils.inferTraderPosture({
+      ticker: "USO",
+      state: "HTF_BULL_LTF_PULLBACK",
+      htf_score: 0.9,
+      ltf_score: -15,
+      kanban_stage: "watch",
+      __focus_conviction_score: 38,
+      swing_consensus: {
+        direction: null,
+        bullish_count: 0,
+        bearish_count: 5,
+        avg_bias: -0.585,
+      },
+      confluence_verdict: {
+        mode: "WAIT",
+        side: "NEUTRAL",
+      },
+    });
+
+    expect(posture.posture).toBe("LEAN_SHORT");
+    expect(posture.label).toBe("Leaning bearish");
+    expect(posture.direction).toBe("SHORT");
+  });
+
+  it("keeps actionable enter stages as confirmed bullish or bearish posture", () => {
+    const posture = utils.inferTraderPosture({
+      state: "HTF_BULL_LTF_BULL",
+      kanban_stage: "enter",
+      swing_consensus: {
+        direction: "LONG",
+        bullish_count: 4,
+        bearish_count: 1,
+        avg_bias: 0.44,
+      },
+    });
+
+    expect(posture.posture).toBe("LONG");
+    expect(posture.label).toBe("Bullish");
+    expect(posture.strength).toBe("confirmed");
+  });
+
+  it("supports explicit open-position labels separately from price bias", () => {
+    expect(utils.inferTraderPosture({ trader_posture: "OPEN_LONG" }).label).toBe("Open Long");
+    expect(utils.inferTraderPosture({ trader_posture: "OPEN_SHORT" }).label).toBe("Open Short");
+  });
+});

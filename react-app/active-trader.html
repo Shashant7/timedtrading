@@ -875,16 +875,21 @@
         // with the right rail's bias chip on first paint instead of
         // disagreeing with the prediction-contract direction.
         const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
-        const _modelDir = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+        const _posture = (window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture)
+          ? window.TimedPriceUtils.inferTraderPosture(t)
+          : null;
+        const _modelDir = _posture?.direction || ((window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
           ? window.TimedPriceUtils.inferModelDirection(t)
-          : "";
-        const biasLabel = tradeDir === "LONG"  ? "LONG"
-                       : tradeDir === "SHORT" ? "SHORT"
-                       : _modelDir === "LONG"  ? "BULL"
-                       : _modelDir === "SHORT" ? "BEAR"
-                       : "NEUTRAL";
-        const biasChipCls = biasLabel === "BULL" || biasLabel === "LONG" ? "ds-chip--up"
-                         : biasLabel === "BEAR" || biasLabel === "SHORT" ? "ds-chip--dn"
+          : "");
+        const biasLabel = tradeDir === "LONG"  ? "Open Long"
+                       : tradeDir === "SHORT" ? "Open Short"
+                       : _posture?.label     ? _posture.label
+                       : _modelDir === "LONG"  ? "Bullish"
+                       : _modelDir === "SHORT" ? "Bearish"
+                       : "Neutral";
+        const biasLabelLc = String(biasLabel).toLowerCase();
+        const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up"
+                         : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn"
                          : "ds-chip--solid";
 
         const stage = String(t?.kanban_stage || "").toLowerCase();

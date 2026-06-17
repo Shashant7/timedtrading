@@ -533,6 +533,135 @@
     return "";
   }
 
+  function _num(v) {
+    var n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function inferTraderPosture(t) {
+    if (!t || typeof t !== "object") {
+      return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "no_data" };
+    }
+
+    var rawPosture = String(t.trader_posture || t.traderPosture || t.posture || "").toUpperCase();
+    if (rawPosture) {
+      rawPosture = rawPosture.replace(/\s+/g, "_");
+      if (rawPosture === "OPEN_LONG") {
+        return { posture: "OPEN_LONG", label: "Open Long", direction: "LONG", strength: "open", reason: "server" };
+      }
+      if (rawPosture === "OPEN_SHORT") {
+        return { posture: "OPEN_SHORT", label: "Open Short", direction: "SHORT", strength: "open", reason: "server" };
+      }
+      if (rawPosture === "LEAN_LONG" || rawPosture === "LONG_LEAN") {
+        return { posture: "LEAN_LONG", label: "Leaning bullish", direction: "LONG", strength: "lean", reason: "server" };
+      }
+      if (rawPosture === "LEAN_SHORT" || rawPosture === "SHORT_LEAN") {
+        return { posture: "LEAN_SHORT", label: "Leaning bearish", direction: "SHORT", strength: "lean", reason: "server" };
+      }
+      if (rawPosture === "LONG") {
+        return { posture: "LONG", label: "Bullish", direction: "LONG", strength: "confirmed", reason: "server" };
+      }
+      if (rawPosture === "SHORT") {
+        return { posture: "SHORT", label: "Bearish", direction: "SHORT", strength: "confirmed", reason: "server" };
+      }
+      if (rawPosture === "NEUTRAL" || rawPosture === "WAIT") {
+        return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "server" };
+      }
+    }
+
+    var stage = String(t.kanban_stage || t.stage || "").toLowerCase();
+    var isActionableStage = stage === "enter" || stage === "enter_now" || stage === "just_flipped" || stage === "in_review";
+    var isManagementStage = stage === "hold" || stage === "active" || stage === "just_entered" || stage === "trim" || stage === "defend";
+    var modelDir = inferModelDirection(t);
+    var consensus = t.swing_consensus || {};
+    var cd = String(consensus.direction || "").toUpperCase();
+    if (cd === "BULLISH") cd = "LONG";
+    if (cd === "BEARISH") cd = "SHORT";
+    var avgBias = _num(consensus.avg_bias != null ? consensus.avg_bias : consensus.avgBias);
+    var bullishCount = _num(consensus.bullish_count != null ? consensus.bullish_count : consensus.bullishCount) || 0;
+    var bearishCount = _num(consensus.bearish_count != null ? consensus.bearish_count : consensus.bearishCount) || 0;
+    var htf = _num(t.htf_score);
+    var ltf = _num(t.ltf_score);
+    var absBias = avgBias == null ? 0 : Math.abs(avgBias);
+    var biasDir = avgBias == null || Math.abs(avgBias) < 0.15 ? "" : avgBias > 0 ? "LONG" : "SHORT";
+
+    var conf = t.confluence_verdict || {};
+    var confMode = String(conf.mode || "").toUpperCase();
+    var confSide = String(conf.side || "").toUpperCase();
+    var rootWait = confMode === "WAIT" || confSide === "NEUTRAL";
+    var weakConviction = Number(t.focus_conviction_score ?? t.__focus_conviction_score ?? 0) > 0
+      && Number(t.focus_conviction_score ?? t.__focus_conviction_score ?? 0) < 50;
+
+    if (isActionableStage || isManagementStage) {
+      var confirmedDir = cd === "LONG" || cd === "SHORT" ? cd : modelDir;
+      if (confirmedDir === "LONG" || confirmedDir === "SHORT") {
+        return { posture: confirmedDir, label: confirmedDir === "LONG" ? "Bullish" : "Bearish", direction: confirmedDir, strength: "confirmed", reason: "actionable_stage" };
+      }
+    }
+
+    if (biasDir && absBias >= 0.3 && (!cd || cd !== biasDir)) {
+      return {
+        posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+        label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+        direction: biasDir,
+        strength: "lean",
+        reason: "swing_consensus"
+      };
+    }
+
+    if ((rootWait || weakConviction) && !cd) {
+      if (biasDir && absBias >= 0.15) {
+        return {
+          posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+          label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+          direction: biasDir,
+          strength: "lean",
+          reason: rootWait ? "root_wait" : "low_conviction"
+        };
+      }
+      return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: rootWait ? "root_wait" : "low_conviction" };
+    }
+
+    if (cd === "LONG" || cd === "SHORT") {
+      if (stage === "watch" || stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
+        return {
+          posture: cd === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+          label: cd === "LONG" ? "Leaning bullish" : "Leaning bearish",
+          direction: cd,
+          strength: "lean",
+          reason: "watch_stage"
+        };
+      }
+      return { posture: cd, label: cd === "LONG" ? "Bullish" : "Bearish", direction: cd, strength: "confirmed", reason: "consensus_direction" };
+    }
+
+    if (biasDir) {
+      return {
+        posture: biasDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+        label: biasDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+        direction: biasDir,
+        strength: "lean",
+        reason: "weak_consensus"
+      };
+    }
+
+    if (modelDir === "LONG" || modelDir === "SHORT") {
+      var conflict = Number.isFinite(htf) && Number.isFinite(ltf) && Math.sign(htf) !== Math.sign(ltf);
+      if (conflict || bullishCount + bearishCount === 0) {
+        return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: conflict ? "htf_ltf_conflict" : "no_consensus" };
+      }
+      return {
+        posture: modelDir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+        label: modelDir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+        direction: modelDir,
+        strength: "lean",
+        reason: "state_fallback"
+      };
+    }
+
+    return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "balanced" };
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -545,6 +674,7 @@
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
+    inferTraderPosture: inferTraderPosture,
     TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,
