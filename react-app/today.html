@@ -4549,14 +4549,20 @@
         // → right rail flipped to SHORT, card stayed BULL). Now both
         // surfaces compute the same direction from the cached snapshot
         // before any network call.
-        const _modelDir = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+        const _posture = (window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture)
+          ? window.TimedPriceUtils.inferTraderPosture(t)
+          : null;
+        const _modelDir = _posture?.direction || ((window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
           ? window.TimedPriceUtils.inferModelDirection(t)
-          : "";
-        const biasLabel = _modelDir === "LONG"  ? "BULL"
+          : "");
+        const biasLabel = _posture?.posture === "LEAN_LONG"  ? "LEAN BULL"
+                       : _posture?.posture === "LEAN_SHORT" ? "LEAN BEAR"
+                       : _posture?.posture === "NEUTRAL"    ? "NEUTRAL"
+                       : _modelDir === "LONG"  ? "BULL"
                        : _modelDir === "SHORT" ? "BEAR"
                        : "NEUTRAL";
-        const biasChipCls = biasLabel === "BULL" ? "ds-chip--up"
-                         : biasLabel === "BEAR" ? "ds-chip--dn"
+        const biasChipCls = biasLabel.includes("BULL") ? "ds-chip--up"
+                         : biasLabel.includes("BEAR") ? "ds-chip--dn"
                          : "ds-chip--solid";
 
         // Stage chip — reads kanban_stage AFTER TodayApp has rewritten it

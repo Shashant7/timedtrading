@@ -6958,6 +6958,61 @@
           return "";
         })();
         const v2Dir = v2BiasDirection;
+        const v2TraderPosture = (() => {
+          if (predictionContract && railTab !== "INVESTOR") {
+            const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
+            const label = String(predictionContract.posture_label || "").toUpperCase();
+            const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
+            if (raw === "NEUTRAL") return {
+              posture: "NEUTRAL",
+              label: "NEUTRAL",
+              direction: "",
+              strength: "neutral",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_LONG" || label === "LEAN LONG") return {
+              posture: "LEAN_LONG",
+              label: "LEAN LONG",
+              direction: "LONG",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_SHORT" || label === "LEAN SHORT") return {
+              posture: "LEAN_SHORT",
+              label: "LEAN SHORT",
+              direction: "SHORT",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (dir === "LONG" || dir === "SHORT") return {
+              posture: dir,
+              label: dir,
+              direction: dir,
+              strength: "confirmed",
+              reason: "contract"
+            };
+          }
+          try {
+            const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
+            if (helper) return helper(ticker);
+          } catch (_) {}
+          if (v2Dir === "LONG" || v2Dir === "SHORT") {
+            return {
+              posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+              label: v2Dir === "LONG" ? "LEAN LONG" : "LEAN SHORT",
+              direction: v2Dir,
+              strength: "lean",
+              reason: "direction_fallback"
+            };
+          }
+          return {
+            posture: "NEUTRAL",
+            label: "NEUTRAL",
+            direction: "",
+            strength: "neutral",
+            reason: "fallback"
+          };
+        })();
         const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
         const v2DayChange = (() => {
           const src = priceSrc;
@@ -6976,6 +7031,7 @@
           return [pc, v2Price];
         })();
         const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+        const v2TraderChipCls = v2TraderPosture.direction === "LONG" ? "ds-chip--up" : v2TraderPosture.direction === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
         const v2RailTab = ["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "CATALYSTS", "INVESTOR", "OPTIONS"].includes(railTab) ? railTab : "SNAPSHOT";
         const Metric = ({
           label,
@@ -7124,10 +7180,10 @@
               margin: 0,
               fontFamily: "var(--tt-font-mono)"
             }
-          }, tickerSymbol), v2Dir && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${v2DirChip}`,
-            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`
-          }, "TRADER \xB7 ", _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir), (() => {
+          }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`,
+            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: NEUTRAL. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2TraderPosture?.label || v2Dir), (() => {
             const invSym = String(tickerSymbol || "").trim().toUpperCase();
             const liveInvStage = investorData?.ticker === invSym ? investorData?.stage : null;
             const invStage = String(liveInvStage || ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
@@ -8111,9 +8167,13 @@
           };
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
           const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+          const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+          const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
+          const postureRaw = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
           const pcAction = String(predictionContract?.action_label || "").toUpperCase();
-          const isLong = pcDir === "LONG";
-          const isShort = pcDir === "SHORT";
+          const displayDir = postureDir || pcDir;
+          const isLong = displayDir === "LONG";
+          const isShort = displayDir === "SHORT";
           const traderTrade = effectiveTraderTrade;
           const tradeOpen = !!(traderTrade && (() => {
             const s = String(traderTrade?.status || "").toUpperCase();
@@ -8160,20 +8220,39 @@
               };
             }
             if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
+              if (postureRaw === "NEUTRAL" || postureLabel === "NEUTRAL") {
+                return {
+                  word: "NEUTRAL",
+                  color: "#8AA39A",
+                  bg: "rgba(255,255,255,0.04)",
+                  line: "No clean long/short edge from the Trader model yet. Wait for a confirmed entry gate.",
+                  urgency: "none"
+                };
+              }
+              if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
+                return {
+                  word: postureLabel,
+                  color: isShort ? "#fb7185" : "#34d399",
+                  bg: isShort ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
+                  line: `${postureLabel} is directional context only; the entry trigger has not fired. Wait — do not chase.`,
+                  urgency: "watch"
+                };
+              }
               return {
                 word: "WATCH",
                 color: "#38F2A1",
                 bg: "rgba(56,242,161,0.10)",
-                line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
+                line: `The model is leaning ${displayDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`,
                 urgency: "watch"
               };
             }
-            if (pcDir) {
+            if (displayDir) {
+              const label = postureLabel || (displayDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG");
               return {
-                word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG",
-                color: pcDir === "SHORT" ? "#fb7185" : "#34d399",
-                bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
-                line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`,
+                word: label,
+                color: displayDir === "SHORT" ? "#fb7185" : "#34d399",
+                bg: displayDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)",
+                line: `${label} is directional context, not an entry.`,
                 urgency: "context"
               };
             }
@@ -8216,7 +8295,7 @@
               const side = isLong ? "Hold above" : "Hold below";
               triggers.push({
                 tone: "go",
-                text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)`
+                text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${String(displayDir || pcDir).toLowerCase()} setup is intact (stop / invalidation level)`
               });
             }
             if (tp1 && livePx) {
@@ -9610,7 +9689,10 @@
         })(), predictionContract && (() => {
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
           const pcDir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
-          const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+          const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+          const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
+          const posture = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
+          const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
           const supportingArr = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
           const DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only)/i;
           const QUALITY_RE = /(quality|score|rank)\s*(\d+)/i;
@@ -9634,7 +9716,17 @@
             _strengths.push(txt);
           }
           const invalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
-          const biasLine = pcDir ? pcDir === "LONG" ? "The model is leaning LONG. Snapshot, Setup, Technicals and Levels all read against this direction below." : "The model is leaning SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below." : null;
+          const biasLine = (() => {
+            if (posture === "NEUTRAL" || postureLabel === "NEUTRAL") {
+              return "Trader posture is NEUTRAL. No clean long/short edge yet; levels below are context only.";
+            }
+            if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
+              return `Trader posture is ${postureLabel}. This is directional context only until the entry gate confirms.`;
+            }
+            if (pcDir === "LONG") return "The model is LONG. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+            if (pcDir === "SHORT") return "The model is SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+            return null;
+          })();
           return React.createElement(Panel, {
             title: "Model Guidance",
             action: React.createElement("div", {
@@ -9649,17 +9741,17 @@
                 fontFamily: "var(--tt-font-mono)"
               },
               title: "Rank vs all eligible tickers"
-            }, "R", v2Rank), pcDir && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${dirChipCls}`,
-              title: "Authoritative bias for this ticker"
-            }, pcDir), predictionContract?.action_label && React.createElement("span", {
+            }, "R", v2Rank), (postureLabel || pcDir) && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${postureChipCls}`,
+              title: "Trader posture for this ticker"
+            }, postureLabel || pcDir), predictionContract?.action_label && React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--accent"
             }, String(predictionContract.action_label).toUpperCase()))
           }, biasLine && React.createElement("p", {
             style: {
               margin: "0 0 var(--ds-space-2) 0",
               fontSize: "var(--ds-fs-caption)",
-              color: pcDir === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)",
+              color: postureDir === "SHORT" ? "var(--ds-dn)" : postureDir === "LONG" ? "var(--ds-up)" : "var(--ds-text-muted)",
               fontFamily: "var(--tt-font-mono)",
               letterSpacing: "0.04em",
               fontWeight: 700,
@@ -10268,13 +10360,14 @@
             (() => {
               const conf = optionsTabData?.confluence_verdict || null;
               if (!conf || !conf.mode) return null;
-              const traderCall = String(predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+              const traderCall = String(predictionContract?.posture_label || v2TraderPosture?.label || predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+              const traderPostureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
               const layerLean = String(conf.side || "").toUpperCase();
-              const traderCallIsShort = traderCall === "SHORT";
+              const traderCallIsShort = traderPostureDir === "SHORT";
               const layerLeanIsShort = layerLean === "SHORT";
-              const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#8AA39A";
+              const callColor = traderCallIsShort ? "#fb7185" : traderPostureDir === "LONG" ? "#34d399" : "#8AA39A";
               const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
-              const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT") && (layerLean === "LONG" || layerLean === "SHORT") && traderCall !== layerLean;
+              const callVsLeanConflict = (traderPostureDir === "LONG" || traderPostureDir === "SHORT") && (layerLean === "LONG" || layerLean === "SHORT") && traderPostureDir !== layerLean;
               const longLayers = Number(conf.long_agree);
               const shortLayers = Number(conf.short_agree);
               const layerSplitLabel = Number.isFinite(longLayers) && Number.isFinite(shortLayers) ? `${longLayers}L · ${shortLayers}S` : "—";
@@ -10386,7 +10479,7 @@
                   letterSpacing: "0.05em",
                   marginBottom: 4
                 }
-              }, "SIGNAL SPLIT \u2014 NOT STALE"), "Trader call is ", React.createElement("strong", {
+              }, "SIGNAL SPLIT \u2014 NOT STALE"), "Trader posture is ", React.createElement("strong", {
                 style: {
                   color: callColor
                 }
@@ -10465,8 +10558,8 @@
               }, "Fusion leans ", layerLean || "—")), React.createElement("div", {
                 style: {
                   padding: "var(--ds-space-2)",
-                  background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
                   borderRadius: "var(--ds-radius-md)"
                 }
               }, React.createElement("div", {
@@ -10476,7 +10569,7 @@
                   color: "var(--ds-text-faint)",
                   letterSpacing: "0.05em"
                 }
-              }, "TRADER CALL"), React.createElement("div", {
+              }, "TRADER POSTURE"), React.createElement("div", {
                 style: {
                   fontFamily: "var(--tt-font-mono)",
                   fontWeight: 700,
@@ -19921,4 +20014,4 @@
   };
 })();
 
-// cache-bust:1781651636430:114969903
+// cache-bust:1781660129915:146137758

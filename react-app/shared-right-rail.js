@@ -5982,6 +5982,25 @@
             return "";
           })();
           const v2Dir = v2BiasDirection;
+          const v2TraderPosture = (() => {
+            if (predictionContract && railTab !== "INVESTOR") {
+              const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
+              const label = String(predictionContract.posture_label || "").toUpperCase();
+              const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
+              if (raw === "NEUTRAL") return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_LONG" || label === "LEAN LONG") return { posture: "LEAN_LONG", label: "LEAN LONG", direction: "LONG", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_SHORT" || label === "LEAN SHORT") return { posture: "LEAN_SHORT", label: "LEAN SHORT", direction: "SHORT", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (dir === "LONG" || dir === "SHORT") return { posture: dir, label: dir, direction: dir, strength: "confirmed", reason: "contract" };
+            }
+            try {
+              const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
+              if (helper) return helper(ticker);
+            } catch (_) {}
+            if (v2Dir === "LONG" || v2Dir === "SHORT") {
+              return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "LEAN LONG" : "LEAN SHORT", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
+            }
+            return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "fallback" };
+          })();
           const v2Price = Number(
             window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
             ?? resolveDisplayPrice(priceSrc)
@@ -5999,6 +6018,11 @@
             return [pc, v2Price];
           })();
           const v2DirChip = v2Dir === "LONG" ? "ds-chip--up" : v2Dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+          const v2TraderChipCls = v2TraderPosture.direction === "LONG"
+            ? "ds-chip--up"
+            : v2TraderPosture.direction === "SHORT"
+              ? "ds-chip--dn"
+              : "ds-chip--solid";
           // 2026-05-29 — added INVESTOR. Was previously absent from this
           // whitelist so tapping the Investor tab silently fell back to
           // SNAPSHOT (the body content of the existing INVESTOR branch
@@ -6118,14 +6142,18 @@
                         }
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
-                      {v2Dir && (
+                      {(v2Dir || v2TraderPosture?.label) && (
                         <span
-                          className={`ds-chip ds-chip--sm ${v2DirChip}`}
+                          className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`}
                           title={_hdrTradeIsOpen
                             ? `Active ${v2Dir} trade — currently in position (Active Trader mode)`
-                            : `Active Trader bias: ${v2Dir}. Intraday-to-multi-day call.`}
+                            : v2TraderPosture?.strength === "lean"
+                              ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.`
+                              : v2TraderPosture?.posture === "NEUTRAL"
+                                ? "Active Trader posture: NEUTRAL. No clean long/short edge yet."
+                                : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
                         >
-                          TRADER · {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : v2Dir}
+                          TRADER · {_hdrTradeIsOpen ? `${v2Dir} · ACTIVE` : (v2TraderPosture?.label || v2Dir)}
                         </span>
                       )}
                       {/* 2026-05-29 — Investor mode bias chip alongside
@@ -7119,9 +7147,13 @@
                         // ── Resolve the verdict + verb ─────────────────────
                         const stage = String(ticker?.kanban_stage || "").toLowerCase();
                         const pcDir = String(predictionContract?.direction || v2Dir || "").toUpperCase();
+                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+                        const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
+                        const postureRaw = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
                         const pcAction = String(predictionContract?.action_label || "").toUpperCase();
-                        const isLong = pcDir === "LONG";
-                        const isShort = pcDir === "SHORT";
+                        const displayDir = postureDir || pcDir;
+                        const isLong = displayDir === "LONG";
+                        const isShort = displayDir === "SHORT";
                         // 2026-06-03 — Use TRADER trade only. Investor holdings
                         // get their own card above this one; mixing them
                         // produced the "HOLDING [SHORT]" nonsense the
@@ -7154,10 +7186,17 @@
                             return { word: isShort ? "SHORT NOW" : "BUY NOW", color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)", line: `Entry signal active. Model recommends opening a ${pcDir.toLowerCase()} now.`, urgency: "now" };
                           }
                           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch" || stage === "watch") {
-                            return { word: "WATCH", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", line: `The model is leaning ${pcDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            if (postureRaw === "NEUTRAL" || postureLabel === "NEUTRAL") {
+                              return { word: "NEUTRAL", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No clean long/short edge from the Trader model yet. Wait for a confirmed entry gate.", urgency: "none" };
+                            }
+                            if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
+                              return { word: postureLabel, color: isShort ? "#fb7185" : "#34d399", bg: isShort ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${postureLabel} is directional context only; the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
+                            }
+                            return { word: "WATCH", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", line: `The model is leaning ${displayDir || "directional"} but the entry trigger has not fired. Wait — do not chase.`, urgency: "watch" };
                           }
-                          if (pcDir) {
-                            return { word: pcDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG", color: pcDir === "SHORT" ? "#fb7185" : "#34d399", bg: pcDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `Bias is ${pcDir.toLowerCase()} but no active stage. Use as directional context, not an entry.`, urgency: "context" };
+                          if (displayDir) {
+                            const label = postureLabel || (displayDir === "SHORT" ? "LEAN SHORT" : "LEAN LONG");
+                            return { word: label, color: displayDir === "SHORT" ? "#fb7185" : "#34d399", bg: displayDir === "SHORT" ? "rgba(244,63,94,0.06)" : "rgba(52,211,153,0.06)", line: `${label} is directional context, not an entry.`, urgency: "context" };
                           }
                           return { word: "NO TRADE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
                         })();
@@ -7205,7 +7244,7 @@
                           }
                           if (stopPx && livePx) {
                             const side = isLong ? "Hold above" : "Hold below";
-                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${pcDir.toLowerCase()} setup is intact (stop / invalidation level)` });
+                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${String(displayDir || pcDir).toLowerCase()} setup is intact (stop / invalidation level)` });
                           }
                           // Also surface the trade plan as a separate row so
                           // the user knows what they'd be aiming for IF the
@@ -8287,7 +8326,10 @@
                         //     promotion as a positive.
                         const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
                         const pcDir = (pcDirRaw === "LONG" || pcDirRaw === "SHORT") ? pcDirRaw : null;
-                        const dirChipCls = pcDir === "LONG" ? "ds-chip--up" : pcDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+                        const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").toUpperCase();
+                        const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
+                        const posture = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
+                        const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
 
                         // Classify supporting bullets. Worker emits a flat string list;
                         // some entries are conviction-deflators ("Profile Choppy Selective"
@@ -8314,17 +8356,23 @@
                         const invalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
 
                         // Plain-English bias line (one short sentence).
-                        const biasLine = pcDir
-                          ? (pcDir === "LONG"
-                              ? "The model is leaning LONG. Snapshot, Setup, Technicals and Levels all read against this direction below."
-                              : "The model is leaning SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.")
-                          : null;
+                        const biasLine = (() => {
+                          if (posture === "NEUTRAL" || postureLabel === "NEUTRAL") {
+                            return "Trader posture is NEUTRAL. No clean long/short edge yet; levels below are context only.";
+                          }
+                          if (postureLabel === "LEAN LONG" || postureLabel === "LEAN SHORT") {
+                            return `Trader posture is ${postureLabel}. This is directional context only until the entry gate confirms.`;
+                          }
+                          if (pcDir === "LONG") return "The model is LONG. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          if (pcDir === "SHORT") return "The model is SHORT. Snapshot, Setup, Technicals and Levels all read against this direction below.";
+                          return null;
+                        })();
 
                         return (
                           <Panel title="Model Guidance" action={
                             <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                               {v2Rank != null && <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Rank vs all eligible tickers">R{v2Rank}</span>}
-                              {pcDir && <span className={`ds-chip ds-chip--sm ${dirChipCls}`} title="Authoritative bias for this ticker">{pcDir}</span>}
+                              {(postureLabel || pcDir) && <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Trader posture for this ticker">{postureLabel || pcDir}</span>}
                               {predictionContract?.action_label && <span className="ds-chip ds-chip--sm ds-chip--accent">{String(predictionContract.action_label).toUpperCase()}</span>}
                             </div>
                           }>
@@ -8332,7 +8380,7 @@
                               <p style={{
                                 margin: "0 0 var(--ds-space-2) 0",
                                 fontSize: "var(--ds-fs-caption)",
-                                color: pcDir === "SHORT" ? "var(--ds-dn)" : "var(--ds-up)",
+                                color: postureDir === "SHORT" ? "var(--ds-dn)" : postureDir === "LONG" ? "var(--ds-up)" : "var(--ds-text-muted)",
                                 fontFamily: "var(--tt-font-mono)",
                                 letterSpacing: "0.04em",
                                 fontWeight: 700,
@@ -8818,18 +8866,31 @@
                       {(() => {
                         const conf = optionsTabData?.confluence_verdict || null;
                         if (!conf || !conf.mode) return null;
-                        // Header chip uses predictionContract.direction (trader call).
+                        // Header chip uses Trader posture (confirmed / lean / neutral).
                         // conf.side is the 8-layer fusion lean — can diverge (e.g.
                         // contract SHORT + 4L/1S layer split). Show BOTH honestly.
-                        const traderCall = String(predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+                        const traderCall = String(
+                          predictionContract?.posture_label
+                          || v2TraderPosture?.label
+                          || predictionContract?.direction
+                          || optionsTabData?.contract?.direction
+                          || ""
+                        ).toUpperCase();
+                        const traderPostureDir = String(
+                          predictionContract?.posture_direction
+                          || v2TraderPosture?.direction
+                          || predictionContract?.direction
+                          || optionsTabData?.contract?.direction
+                          || ""
+                        ).toUpperCase();
                         const layerLean = String(conf.side || "").toUpperCase();
-                        const traderCallIsShort = traderCall === "SHORT";
+                        const traderCallIsShort = traderPostureDir === "SHORT";
                         const layerLeanIsShort = layerLean === "SHORT";
-                        const callColor = traderCallIsShort ? "#fb7185" : traderCall === "LONG" ? "#34d399" : "#8AA39A";
+                        const callColor = traderCallIsShort ? "#fb7185" : traderPostureDir === "LONG" ? "#34d399" : "#8AA39A";
                         const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
-                        const callVsLeanConflict = (traderCall === "LONG" || traderCall === "SHORT")
+                        const callVsLeanConflict = (traderPostureDir === "LONG" || traderPostureDir === "SHORT")
                           && (layerLean === "LONG" || layerLean === "SHORT")
-                          && traderCall !== layerLean;
+                          && traderPostureDir !== layerLean;
                         const longLayers = Number(conf.long_agree);
                         const shortLayers = Number(conf.short_agree);
                         const layerSplitLabel = (Number.isFinite(longLayers) && Number.isFinite(shortLayers))
@@ -8896,7 +8957,7 @@
                                 lineHeight: 1.45,
                               }}>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.05em", marginBottom: 4 }}>SIGNAL SPLIT — NOT STALE</div>
-                                Trader call is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
+                                Trader posture is <strong style={{ color: callColor }}>{traderCall}</strong> (header chip) but the 8-layer fusion leans <strong style={{ color: leanColor }}>{layerLean}</strong> ({layerSplitLabel}). Until these align, treat the trader contract as the lane call and the layer lean as context — not a reason to flip direction.
                               </div>
                             )}
                             {/* Metric grid: Confluence / Layer split / Trader call (header-aligned) */}
@@ -8916,8 +8977,8 @@
                                   Fusion leans {layerLean || "—"}
                                 </div>
                               </div>
-                              <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderCall === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderCall === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER CALL</div>
+                              <div style={{ padding: "var(--ds-space-2)", background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TRADER POSTURE</div>
                                 <div style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: callColor }}>{traderCall || "—"}</div>
                               </div>
                             </div>

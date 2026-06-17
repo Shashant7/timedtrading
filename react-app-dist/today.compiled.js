@@ -3629,9 +3629,10 @@ function ViewportCard({
   const rank = Number(t?.rank_position ?? t?.rp) || null;
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-  const _modelDir = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
-  const biasLabel = _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
-  const biasChipCls = biasLabel === "BULL" ? "ds-chip--up" : biasLabel === "BEAR" ? "ds-chip--dn" : "ds-chip--solid";
+  const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
+  const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
+  const biasLabel = _posture?.posture === "LEAN_LONG" ? "LEAN BULL" : _posture?.posture === "LEAN_SHORT" ? "LEAN BEAR" : _posture?.posture === "NEUTRAL" ? "NEUTRAL" : _modelDir === "LONG" ? "BULL" : _modelDir === "SHORT" ? "BEAR" : "NEUTRAL";
+  const biasChipCls = biasLabel.includes("BULL") ? "ds-chip--up" : biasLabel.includes("BEAR") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -5308,6 +5309,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781651636430:114969903
+// cache-bust:1781660129915:146137758
 
-// cache-bust:1781651636430:114969903
+// cache-bust:1781660129915:146137758
