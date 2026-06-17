@@ -64,6 +64,25 @@ import {
   computeOpeningRangeFromM5,
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
+import { STRATEGY_PHASE } from "./strategy-context.js";
+
+/**
+ * Research-desk directional posture as a bounded ±1 tilt for the day lean.
+ * Sourced from the active playbook's probability-weighted scenario view
+ * (STRATEGY_PHASE.scenario_weights) — the CRO/FSD structural read. Modest by
+ * design: it nudges the lean and is surfaced as a reason, never overriding the
+ * intraday tape.
+ */
+function researchBiasForIndexLean() {
+  try {
+    const sw = STRATEGY_PHASE?.scenario_weights || {};
+    const up = Number(sw.grind_higher_to_target) || 0;
+    const dn = Number(sw.bear_case_retest_lows) || 0;
+    return Math.max(-1, Math.min(1, up - dn));
+  } catch (_) {
+    return 0;
+  }
+}
 
 const SCENARIO_VERSION = "ticker-scenario.v2";
 
@@ -340,6 +359,7 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
       overnightRange,
       openingRange,
       trendBias: _trendBias,
+      researchBias: researchBiasForIndexLean(),
       snakeCase: true,
     });
   }
