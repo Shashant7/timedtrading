@@ -68,6 +68,7 @@ function resolveOpenTrade(tr) {
 }
 function useOpenTrades(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const [tradesLoaded, setTradesLoaded] = useState(false);
   const refresh = useCallback(async () => {
     try {
       const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
@@ -86,7 +87,9 @@ function useOpenTrades(enabled) {
       };
       if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
       setTradeByTicker(m);
-    } catch (_) {}
+    } catch (_) {} finally {
+      setTradesLoaded(true);
+    }
   }, []);
   useEffect(() => {
     if (!enabled) return undefined;
@@ -94,7 +97,10 @@ function useOpenTrades(enabled) {
     const id = setInterval(refresh, 180000);
     return () => clearInterval(id);
   }, [enabled, refresh]);
-  return tradeByTicker;
+  return {
+    tradeByTicker,
+    tradesLoaded
+  };
 }
 function useSavedTickers() {
   const [saved, setSaved] = useState(() => {
@@ -284,7 +290,8 @@ function ATCard({
   sparkSrc,
   isSaved,
   onToggleSaved,
-  openTrade
+  openTrade,
+  tradesLoaded
 }) {
   const sym = String(t?.ticker || "").toUpperCase();
   useEffect(() => {
@@ -321,38 +328,23 @@ function ATCard({
   const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
-  const postureTicker = (() => {
-    if (resolvedOpen) {
-      return {
-        ...t,
-        _openTrade: resolvedOpen,
-        has_open_position: true,
-        position_direction: resolvedOpen.direction || t?.position_direction || null
-      };
-    }
-    const stageLc = String(t?.kanban_stage || "").toLowerCase();
-    const isDiscovery = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "watch"].includes(stageLc);
-    if (!isDiscovery) return {
-      ...t,
-      _openTrade: null
-    };
-    const next = {
-      ...t,
-      _openTrade: null,
-      has_open_position: false
-    };
-    const raw = String(next.trader_posture || next.traderPosture || next.posture || "").toUpperCase().replace(/\s+/g, "_");
-    if (raw === "OPEN_LONG" || raw === "OPEN_SHORT") {
-      delete next.trader_posture;
-      delete next.traderPosture;
-      if (String(next.posture || "").toUpperCase().startsWith("OPEN_")) delete next.posture;
-    }
-    return next;
-  })();
-  const tradeDir = resolvedOpen ? String(resolvedOpen.direction || "").toUpperCase() : "";
+  const sanitize = window.TimedPriceUtils?.sanitizeTickerOpenPosture;
+  const postureTicker = sanitize ? sanitize(t, resolvedOpen) : resolvedOpen ? {
+    ...t,
+    _openTrade: resolvedOpen,
+    has_open_position: true
+  } : t;
+  const stageLc = String(t?.kanban_stage || "").toLowerCase();
+  const isDiscovery = window.TimedPriceUtils?.isDiscoveryKanbanStage ? window.TimedPriceUtils.isDiscoveryKanbanStage(stageLc) : ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "watch"].includes(stageLc);
+  const showOpenLabel = !!resolvedOpen && (!isDiscovery || tradesLoaded);
+  const tradeDir = showOpenLabel ? String(resolvedOpen.direction || "").toUpperCase() : "";
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(postureTicker) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
-  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : (() => {
+    const lbl = _posture?.label || "";
+    if (/^open\s/i.test(lbl) && !showOpenLabel) return null;
+    return lbl;
+  })() || (_modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral");
   const biasLabelLc = String(biasLabel).toLowerCase();
   const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
@@ -761,7 +753,8 @@ function KanbanLane({
   savedSet,
   onToggleSaved,
   onOpen,
-  tradeByTicker
+  tradeByTicker,
+  tradesLoaded
 }) {
   return h("div", {
     className: `lane ${accentClass}`
@@ -784,7 +777,8 @@ function KanbanLane({
     isSaved: savedSet.has(String(t.ticker).toUpperCase()),
     onToggleSaved,
     onOpen,
-    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null)
+    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null),
+    tradesLoaded
   })))));
 }
 function AccountStrip({
@@ -1243,11 +1237,20 @@ function ActiveTraderApp() {
         if (alive) setError(String(err?.message || err));
       }
     })();
+    const mergeRefresh = window.TimedLiveData?.mergeTimedAllRefresh;
+    const unsub = CACHE?.subscribe?.(`${API_BASE}/timed/all`, body => {
+      if (!alive || !body?.ok || !body.data) return;
+      setData(prev => mergeRefresh ? mergeRefresh(prev, body.data) : body.data);
+    });
     return () => {
       alive = false;
+      unsub?.();
     };
   }, []);
-  const tradeByTicker = useOpenTrades(!!data);
+  const {
+    tradeByTicker,
+    tradesLoaded
+  } = useOpenTrades(!!data);
   const {
     saved,
     toggle: toggleSaved
@@ -1266,8 +1269,7 @@ function ActiveTraderApp() {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
       const eff = computeEffectiveStage(t, trade);
-      if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
-      return {
+      const base = eff === String(t?.kanban_stage || "").toLowerCase() && !trade ? t : {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
@@ -1277,6 +1279,7 @@ function ActiveTraderApp() {
           position_direction: trade.direction || t.position_direction
         } : {})
       };
+      return window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
     });
     const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
     const injected = [];
@@ -1613,7 +1616,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "review",
     id: "review",
@@ -1624,7 +1628,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "initiated",
     id: "initiated",
@@ -1635,7 +1640,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "hold",
     id: "hold",
@@ -1646,7 +1652,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "defend",
     id: "defend",
@@ -1657,7 +1664,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "trim",
     id: "trim",
@@ -1668,7 +1676,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   }), h(KanbanLane, {
     key: "exit",
     id: "exit",
@@ -1679,7 +1688,8 @@ function ActiveTraderApp() {
     savedSet: saved,
     onToggleSaved: toggleSaved,
     onOpen,
-    tradeByTicker
+    tradeByTicker,
+    tradesLoaded
   })], !loading && h(ATBubbleMap, {
     lanes: displayLanes,
     allTickers,
@@ -1702,6 +1712,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781727385727:517669690
+// cache-bust:1781729332135:753996406
 
-// cache-bust:1781727385727:517669690
+// cache-bust:1781729332135:753996406

@@ -159,6 +159,7 @@ describe("inferTraderPosture", () => {
   it("does not treat closed ledger rows as open (INTC setup lane)", () => {
     expect(utils.isTradeOpen({ ticker: "INTC", status: "WIN", direction: "LONG" })).toBe(false);
     expect(utils.isTradeOpen({ ticker: "INTC", status: "OPEN", direction: "LONG", exit_ts: 1 })).toBe(false);
+    expect(utils.isTradeOpen({ ticker: "BRK-B", direction: "LONG" })).toBe(false);
     const posture = utils.inferTraderPosture({
       ticker: "INTC",
       kanban_stage: "setup",
@@ -167,5 +168,18 @@ describe("inferTraderPosture", () => {
     });
     expect(posture.label).not.toBe("Open Long");
     expect(posture.strength).not.toBe("open");
+  });
+
+  it("sanitizeTickerOpenPosture strips ghost OPEN labels on setup lane", () => {
+    const clean = utils.sanitizeTickerOpenPosture({
+      ticker: "BRK-B",
+      kanban_stage: "setup",
+      trader_posture: "OPEN_LONG",
+      has_open_position: true,
+      position_direction: "LONG",
+    }, null);
+    const posture = utils.inferTraderPosture(clean);
+    expect(posture.label).not.toBe("Open Long");
+    expect(clean.has_open_position).toBe(false);
   });
 });

@@ -17,13 +17,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="tt-fetch-cache.js?v=20260517a"></script>
-    <script src="tt-live-data.js?v=20260526a"></script>
+    <script src="tt-live-data.js?v=20260615a"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script src="tt-rail-bridge.js?v=20260528b" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
-    <script src="shared-price-utils.js?v=20260521a"></script>
+    <script src="shared-price-utils.js?v=20260615a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -642,6 +642,7 @@
       // ── useOpenTrades — live positions book only (source=positions).
       function useOpenTrades(enabled) {
         const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+        const [tradesLoaded, setTradesLoaded] = useState(false);
         const refresh = useCallback(async () => {
           try {
             const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" })
@@ -661,6 +662,7 @@
             if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
             setTradeByTicker(m);
           } catch (_) {}
+          finally { setTradesLoaded(true); }
         }, []);
         useEffect(() => {
           if (!enabled) return undefined;
@@ -668,7 +670,7 @@
           const id = setInterval(refresh, 180000);
           return () => clearInterval(id);
         }, [enabled, refresh]);
-        return tradeByTicker;
+        return { tradeByTicker, tradesLoaded };
       }
 
       // ── useSavedTickers — port from today.html ─────────────────
@@ -828,7 +830,7 @@
       }
 
       // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
-      function ATCard({ t, onOpen, sparkSrc, isSaved, onToggleSaved, openTrade }) {
+      function ATCard({ t, onOpen, sparkSrc, isSaved, onToggleSaved, openTrade, tradesLoaded }) {
         const sym = String(t?.ticker || "").toUpperCase();
         // Match index-react DsCompactCard: request sparkline on render so
         // Setup-lane cards beyond the prefetch head still populate.
@@ -861,30 +863,18 @@
         const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
 
         // Bias chip — verified open trade only; discovery lanes must not
-        // inherit ghost OPEN_* posture from KV snapshot or promoted rows.
+        // flash OPEN_* from stale snapshot until the positions book loads.
         const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
-        const postureTicker = (() => {
-          if (resolvedOpen) {
-            return {
-              ...t,
-              _openTrade: resolvedOpen,
-              has_open_position: true,
-              position_direction: resolvedOpen.direction || t?.position_direction || null,
-            };
-          }
-          const stageLc = String(t?.kanban_stage || "").toLowerCase();
-          const isDiscovery = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "watch"].includes(stageLc);
-          if (!isDiscovery) return { ...t, _openTrade: null };
-          const next = { ...t, _openTrade: null, has_open_position: false };
-          const raw = String(next.trader_posture || next.traderPosture || next.posture || "").toUpperCase().replace(/\s+/g, "_");
-          if (raw === "OPEN_LONG" || raw === "OPEN_SHORT") {
-            delete next.trader_posture;
-            delete next.traderPosture;
-            if (String(next.posture || "").toUpperCase().startsWith("OPEN_")) delete next.posture;
-          }
-          return next;
-        })();
-        const tradeDir = resolvedOpen ? String(resolvedOpen.direction || "").toUpperCase() : "";
+        const sanitize = window.TimedPriceUtils?.sanitizeTickerOpenPosture;
+        const postureTicker = sanitize
+          ? sanitize(t, resolvedOpen)
+          : (resolvedOpen ? { ...t, _openTrade: resolvedOpen, has_open_position: true } : t);
+        const stageLc = String(t?.kanban_stage || "").toLowerCase();
+        const isDiscovery = (window.TimedPriceUtils?.isDiscoveryKanbanStage)
+          ? window.TimedPriceUtils.isDiscoveryKanbanStage(stageLc)
+          : ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "watch"].includes(stageLc);
+        const showOpenLabel = !!resolvedOpen && (!isDiscovery || tradesLoaded);
+        const tradeDir = showOpenLabel ? String(resolvedOpen.direction || "").toUpperCase() : "";
         const _posture = (window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture)
           ? window.TimedPriceUtils.inferTraderPosture(postureTicker)
           : null;
@@ -893,10 +883,14 @@
           : "");
         const biasLabel = tradeDir === "LONG"  ? "Open Long"
                        : tradeDir === "SHORT" ? "Open Short"
-                       : _posture?.label     ? _posture.label
-                       : _modelDir === "LONG"  ? "Bullish"
+                       : (() => {
+                           const lbl = _posture?.label || "";
+                           if (/^open\s/i.test(lbl) && !showOpenLabel) return null;
+                           return lbl;
+                         })()
+                       || (_modelDir === "LONG"  ? "Bullish"
                        : _modelDir === "SHORT" ? "Bearish"
-                       : "Neutral";
+                       : "Neutral");
         const biasLabelLc = String(biasLabel).toLowerCase();
         const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up"
                          : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn"
@@ -1208,7 +1202,7 @@
       }
 
       // ── KanbanLane — one row of the board.
-      function KanbanLane({ id, title, accentClass, tickers, sparkCache, savedSet, onToggleSaved, onOpen, tradeByTicker }) {
+      function KanbanLane({ id, title, accentClass, tickers, sparkCache, savedSet, onToggleSaved, onOpen, tradeByTicker, tradesLoaded }) {
         return h("div", { className: `lane ${accentClass}` },
           h("div", { className: "lane-head" },
             h("div", { className: "lane-name" }, title),
@@ -1226,6 +1220,7 @@
                     onToggleSaved,
                     onOpen,
                     openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null),
+                    tradesLoaded,
                   })),
                 ),
           ),
@@ -1629,10 +1624,15 @@
               else setError("Failed to load /timed/all");
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
-          return () => { alive = false; };
+          const mergeRefresh = window.TimedLiveData?.mergeTimedAllRefresh;
+          const unsub = CACHE?.subscribe?.(`${API_BASE}/timed/all`, (body) => {
+            if (!alive || !body?.ok || !body.data) return;
+            setData((prev) => (mergeRefresh ? mergeRefresh(prev, body.data) : body.data));
+          });
+          return () => { alive = false; unsub?.(); };
         }, []);
 
-        const tradeByTicker = useOpenTrades(!!data);
+        const { tradeByTicker, tradesLoaded } = useOpenTrades(!!data);
         const { saved, toggle: toggleSaved } = useSavedTickers();
         const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
 
@@ -1649,14 +1649,18 @@
             const sym = String(t.ticker || "").toUpperCase();
             const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
             const eff = computeEffectiveStage(t, trade);
-            if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
-            return {
-              ...t,
-              _openTrade: trade,
-              _effectiveKanbanStage: eff,
-              kanban_stage: eff,
-              ...(trade ? { has_open_position: true, position_direction: trade.direction || t.position_direction } : {}),
-            };
+            const base = eff === String(t?.kanban_stage || "").toLowerCase() && !trade
+              ? t
+              : {
+                  ...t,
+                  _openTrade: trade,
+                  _effectiveKanbanStage: eff,
+                  kanban_stage: eff,
+                  ...(trade ? { has_open_position: true, position_direction: trade.direction || t.position_direction } : {}),
+                };
+            return window.TimedPriceUtils?.sanitizeTickerOpenPosture
+              ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade)
+              : base;
           });
           const known = new Set(mapped.map((t) => String(t?.ticker || "").toUpperCase()));
           const injected = [];
@@ -1927,13 +1931,13 @@
                   ),
                 )
               : [
-                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: displayLanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: displayLanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: displayLanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: displayLanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: displayLanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: displayLanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
-                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: displayLanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker }),
+                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: displayLanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: displayLanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: displayLanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: displayLanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: displayLanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: displayLanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: displayLanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
                 ],
             // Bubble map of the AT board's tickers ONLY (the union of
             // all 7 kanban lanes — Setup → In Review → Position

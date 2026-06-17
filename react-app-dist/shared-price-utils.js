@@ -544,10 +544,45 @@
     var status = String(tr.status || "").toUpperCase();
     var exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
     var trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
-    if (status === "WIN" || status === "LOSS" || status === "FLAT" || status === "ARCHIVED") return false;
+    if (status === "WIN" || status === "LOSS" || status === "FLAT" || status === "ARCHIVED" || status === "CLOSED" || status === "CANCELED") return false;
     if (exitTs) return false;
     if (trimmedPct >= 0.9999) return false;
-    return status === "OPEN" || status === "TP_HIT_TRIM" || !status;
+    // Require explicit open status — empty status lets promoted ledger ghosts through.
+    return status === "OPEN" || status === "TP_HIT_TRIM";
+  }
+
+  function isDiscoveryKanbanStage(stage) {
+    var s = String(stage || "").toLowerCase();
+    return s === "setup" || s === "setup_watch" || s === "flip_watch" || s === "in_review"
+      || s === "enter" || s === "enter_now" || s === "just_flipped" || s === "watch";
+  }
+
+  /** Strip ghost OPEN_* posture from discovery-lane tickers unless a live trade is verified. */
+  function sanitizeTickerOpenPosture(t, openTrade) {
+    if (!t || typeof t !== "object") return t;
+    var openTr = isTradeOpen(openTrade) ? openTrade : (isTradeOpen(t._openTrade) ? t._openTrade : null);
+    if (openTr) {
+      return Object.assign({}, t, {
+        _openTrade: openTr,
+        has_open_position: true,
+        position_direction: openTr.direction || t.position_direction || null,
+      });
+    }
+    var stage = String(t.kanban_stage || t._effectiveKanbanStage || "").toLowerCase();
+    if (!isDiscoveryKanbanStage(stage)) {
+      return Object.assign({}, t, { _openTrade: null });
+    }
+    var next = Object.assign({}, t, { _openTrade: null, has_open_position: false });
+    var raw = String(next.trader_posture || next.traderPosture || next.posture || "").toUpperCase().replace(/\s+/g, "_");
+    if (raw === "OPEN_LONG" || raw === "OPEN_SHORT") {
+      delete next.trader_posture;
+      delete next.traderPosture;
+      if (String(next.posture || "").toUpperCase().indexOf("OPEN_") === 0) delete next.posture;
+    }
+    if (next.posture_label && /open\s+(long|short)/i.test(String(next.posture_label))) {
+      delete next.posture_label;
+    }
+    return next;
   }
 
   function inferTraderPosture(t) {
@@ -724,6 +759,8 @@
     inferModelDirection: inferModelDirection,
     inferTraderPosture: inferTraderPosture,
     isTradeOpen: isTradeOpen,
+    isDiscoveryKanbanStage: isDiscoveryKanbanStage,
+    sanitizeTickerOpenPosture: sanitizeTickerOpenPosture,
     TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,
@@ -733,4 +770,4 @@
   };
 })();
 
-// cache-bust:1781723672204:893609110
+// cache-bust:1781729332135:753996406
