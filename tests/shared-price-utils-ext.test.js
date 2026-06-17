@@ -155,4 +155,17 @@ describe("inferTraderPosture", () => {
     expect(posture.label).toBe("Open Long");
     expect(posture.strength).toBe("open");
   });
+
+  it("does not treat closed ledger rows as open (INTC setup lane)", () => {
+    expect(utils.isTradeOpen({ ticker: "INTC", status: "WIN", direction: "LONG" })).toBe(false);
+    expect(utils.isTradeOpen({ ticker: "INTC", status: "OPEN", direction: "LONG", exit_ts: 1 })).toBe(false);
+    const posture = utils.inferTraderPosture({
+      ticker: "INTC",
+      kanban_stage: "setup",
+      swing_consensus: { direction: "LONG", avg_bias: 0.44 },
+      _openTrade: { direction: "LONG", status: "WIN", entry_price: 22 },
+    });
+    expect(posture.label).not.toBe("Open Long");
+    expect(posture.strength).not.toBe("open");
+  });
 });

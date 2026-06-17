@@ -1488,7 +1488,10 @@ function OpenPositionsPreview({
       pnl_pct: computeOpenPositionPnlPct(t, livePx)
     };
   });
-  const sorted = [...enriched].sort((a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0));
+  const byPnlMag = (a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0);
+  const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlMag);
+  const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
+  const sorted = [...traderSorted, ...investorSorted];
   return h("section", {
     className: "tt-card tt-card-pad tt-row",
     style: {
@@ -1614,7 +1617,14 @@ function OpenPositionsPreview({
         border: `1px solid ${stageMeta.color}40`,
         marginLeft: "auto"
       }
-    }, stageDisplay)), t?._mode === "investor" && h("span", {
+    }, stageDisplay)), t?._mode === "trader" && h("span", {
+      style: {
+        fontSize: 8,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.1em",
+        alignSelf: "flex-start"
+      }
+    }, "TRADER"), t?._mode === "investor" && h("span", {
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
@@ -3414,34 +3424,30 @@ function useSavedTickers() {
 }
 function useOpenTrades(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const isOpen = tr => {
+    try {
+      return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
+    } catch (_) {
+      return false;
+    }
+  };
   const refresh = useCallback(async () => {
     try {
-      const [posRes, promRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
         cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=promoted`, {
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
       const m = new Map();
       const accept = tr => {
+        if (!isOpen(tr)) return;
         const sym = String(tr?.ticker || "").toUpperCase();
         if (!sym) return;
-        const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
         const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
         const existing = m.get(sym);
-        if (!existing) {
-          m.set(sym, tr);
-          return;
-        }
-        const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
-        const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
-        const trOpen = !exitTs,
-          exOpen = !exExit;
-        if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+        if (!existing || entryTs > Number(existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0)) {
           m.set(sym, tr);
         }
       };
       if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
-      if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
       setTradeByTicker(m);
     } catch (_) {}
   }, []);
@@ -3671,7 +3677,15 @@ function ViewportCard({
   const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
-  const openTrade = t?._openTrade || null;
+  const openTrade = (() => {
+    const tr = t?._openTrade || null;
+    if (!tr) return null;
+    try {
+      return window.TimedPriceUtils?.isTradeOpen?.(tr) ? tr : null;
+    } catch (_) {
+      return null;
+    }
+  })();
   const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
   const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
   const biasLabelLc = String(biasLabel).toLowerCase();
@@ -4800,7 +4814,8 @@ function TodayApp() {
     });
     return raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
-      const trade = tradeByTicker.get(sym) || null;
+      const rawTrade = tradeByTicker.get(sym) || null;
+      const trade = rawTrade && window.TimedPriceUtils?.isTradeOpen?.(rawTrade) ? rawTrade : null;
       const eff = computeEffectiveStage(t, trade);
       if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
       return {
@@ -5358,6 +5373,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781698348600:261905892
+// cache-bust:1781700217349:479262851
 
-// cache-bust:1781698348600:261905892
+// cache-bust:1781700217349:479262851

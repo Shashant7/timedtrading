@@ -2758,8 +2758,12 @@
           };
         });
 
-        // Sort by largest P&L magnitude so the most-actionable are first.
-        const sorted = [...enriched].sort((a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0));
+        // Sort trader positions first (by |pnl|), then investor — keeps GS
+        // with MU instead of trailing at the end when investor PnL is larger.
+        const byPnlMag = (a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0);
+        const traderSorted = enriched.filter((t) => t._mode === "trader").sort(byPnlMag);
+        const investorSorted = enriched.filter((t) => t._mode === "investor").sort(byPnlMag);
+        const sorted = [...traderSorted, ...investorSorted];
 
         return h("section", {
           className: "tt-card tt-card-pad tt-row",
@@ -2850,6 +2854,9 @@
                     },
                   }, stageDisplay),
                 ),
+                t?._mode === "trader" && h("span", {
+                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em", alignSelf: "flex-start" },
+                }, "TRADER"),
                 t?._mode === "investor" && h("span", {
                   style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em", alignSelf: "flex-start" },
                 }, "INVESTOR"),
@@ -4298,36 +4305,34 @@
         return { saved, toggle };
       }
 
-      // ── useOpenTrades — fetches live positions + promoted trades and
-      //   builds a tradeByTicker map. Mirrors Active Trader's `useTrades`
-      //   (index-react.source.html line 2238) so the open-position stage
-      //   override is computed the same way on both pages.
+      // ── useOpenTrades — live positions book only (source=positions).
+      //   Promoted/backtest ledger rows must NOT attach as _openTrade —
+      //   they poison Setup-lane tickers (INTC) with false "Open Long".
       function useOpenTrades(enabled) {
         const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+        const isOpen = (tr) => {
+          try {
+            return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
+          } catch (_) { return false; }
+        };
 
         const refresh = useCallback(async () => {
           try {
-            const [posRes, promRes] = await Promise.all([
-              fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
-              fetch(`${API_BASE}/timed/trades?source=promoted`,  { cache: "no-store" }).then(r => r.ok ? r.json() : null).catch(() => null),
-            ]);
+            const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null);
             const m = new Map();
             const accept = (tr) => {
+              if (!isOpen(tr)) return;
               const sym = String(tr?.ticker || "").toUpperCase();
               if (!sym) return;
-              const exitTs = tr?.exit_ts ?? tr?.exitTs ?? 0;
               const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
               const existing = m.get(sym);
-              if (!existing) { m.set(sym, tr); return; }
-              const exExit = existing?.exit_ts ?? existing?.exitTs ?? 0;
-              const exEntry = existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0;
-              const trOpen = !exitTs, exOpen = !exExit;
-              if ((trOpen && !exOpen) || (trOpen && exOpen && entryTs > exEntry) || (!trOpen && !exOpen && exitTs > exExit)) {
+              if (!existing || entryTs > Number(existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0)) {
                 m.set(sym, tr);
               }
             };
-            if (posRes?.ok && Array.isArray(posRes.trades))  posRes.trades.forEach(accept);
-            if (promRes?.ok && Array.isArray(promRes.trades)) promRes.trades.forEach(accept);
+            if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
             setTradeByTicker(m);
           } catch (_) { /* leave previous map */ }
         }, []);
@@ -4590,7 +4595,13 @@
         const _modelDir = _posture?.direction || ((window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
           ? window.TimedPriceUtils.inferModelDirection(t)
           : "");
-        const openTrade = t?._openTrade || null;
+        const openTrade = (() => {
+          const tr = t?._openTrade || null;
+          if (!tr) return null;
+          try {
+            return window.TimedPriceUtils?.isTradeOpen?.(tr) ? tr : null;
+          } catch (_) { return null; }
+        })();
         const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
         const biasLabel = tradeDir === "LONG"  ? "Open Long"
                        : tradeDir === "SHORT" ? "Open Short"
@@ -5482,7 +5493,8 @@
             .map(([k, v]) => v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) });
           return raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
-            const trade = tradeByTicker.get(sym) || null;
+            const rawTrade = tradeByTicker.get(sym) || null;
+            const trade = (rawTrade && window.TimedPriceUtils?.isTradeOpen?.(rawTrade)) ? rawTrade : null;
             const eff = computeEffectiveStage(t, trade);
             if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
             return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff,

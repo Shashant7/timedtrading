@@ -538,6 +538,18 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  /** Live book only — positions table rows, not promoted/backtest ledger ghosts. */
+  function isTradeOpen(tr) {
+    if (!tr || typeof tr !== "object") return false;
+    var status = String(tr.status || "").toUpperCase();
+    var exitTs = tr.exit_ts ?? tr.exitTs ?? 0;
+    var trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
+    if (status === "WIN" || status === "LOSS" || status === "FLAT" || status === "ARCHIVED") return false;
+    if (exitTs) return false;
+    if (trimmedPct >= 0.9999) return false;
+    return status === "OPEN" || status === "TP_HIT_TRIM" || !status;
+  }
+
   function inferTraderPosture(t) {
     if (!t || typeof t !== "object") {
       return { posture: "NEUTRAL", label: "NEUTRAL", direction: "", strength: "neutral", reason: "no_data" };
@@ -571,7 +583,7 @@
 
     // Open position wins over Bullish/Bearish lean (MU trim lane, GS hold).
     var openTr = t._openTrade;
-    if (openTr && typeof openTr === "object" && !(openTr.exit_ts || openTr.exitTs)) {
+    if (isTradeOpen(openTr)) {
       var odir = String(openTr.direction || "").toUpperCase();
       if (odir === "LONG" || odir === "SHORT") {
         return {
@@ -622,7 +634,7 @@
     if (isActionableStage || isManagementStage) {
       var confirmedDir = cd === "LONG" || cd === "SHORT" ? cd : modelDir;
       if (confirmedDir === "LONG" || confirmedDir === "SHORT") {
-        if (isManagementStage && (openTr || t.has_open_position)) {
+        if (isManagementStage && isTradeOpen(openTr)) {
           return {
             posture: confirmedDir === "LONG" ? "OPEN_LONG" : "OPEN_SHORT",
             label: confirmedDir === "LONG" ? "Open Long" : "Open Short",
@@ -711,6 +723,7 @@
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
     inferTraderPosture: inferTraderPosture,
+    isTradeOpen: isTradeOpen,
     TYPICAL_DAILY_RANGE: TYPICAL_DAILY_RANGE,
     TICKER_TYPE_MAP: TICKER_TYPE_MAP,
     resolveTickerType: resolveTickerType,
@@ -720,4 +733,4 @@
   };
 })();
 
-// cache-bust:1781698348600:261905892
+// cache-bust:1781700217349:479262851
