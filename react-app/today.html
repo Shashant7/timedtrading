@@ -18,7 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="tt-fetch-cache.js?v=20260606a"></script>
-    <script src="tt-live-data.js?v=20260526a"></script>
+    <script src="tt-live-data.js?v=20260618a"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
@@ -5345,6 +5345,9 @@
         // overlay fields written by the 30s price poll.
         const _liveHooks = window.TimedLiveData;
         if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+        // 2026-06-18 — sub-second live ticks via WS, additive to the 30s poll
+        // above (poll stays as the fallback if the WS can't connect). See AT.
+        if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
         if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
 
         useEffect(() => {
