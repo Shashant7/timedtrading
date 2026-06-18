@@ -133,9 +133,11 @@ export class PriceStream {
         if (data.dailyHigh > 0) existing.dayHigh = data.dailyHigh;
         if (data.dailyLow > 0) existing.dayLow = data.dailyLow;
         if (data.dailyVolume > 0) existing.dayVol = data.dailyVolume;
-        if (data.trade_ts > (existing.lastTs || 0) && data.price > 0) {
+        const nextTs = Number(data.trade_ts) || 0;
+        const priceChanged = data.price > 0 && Math.abs(data.price - (existing.last || 0)) > 0.0001;
+        if (data.price > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
           existing.last = data.price;
-          existing.lastTs = data.trade_ts;
+          existing.lastTs = priceChanged ? Math.max(nextTs, Date.now()) : nextTs;
         }
         existing.dirty = true;
       } else {
@@ -564,13 +566,16 @@ export class PriceStream {
       const sym = fromTdSymbol(tdSym);
       const price = Number(msg.price);
       if (!sym || !Number.isFinite(price) || price <= 0) return;
-      const ts = msg.timestamp ? Number(msg.timestamp) * 1000 : Date.now();
 
       const existing = this.symState[sym];
+      const eventTs = msg.timestamp ? Number(msg.timestamp) * 1000 : 0;
+      // Bar timestamps from TD WS can lag; during live sessions prefer wall clock
+      // when the event timestamp is more than 2 minutes stale.
+      const ts = (eventTs > 0 && (Date.now() - eventTs) < 120000) ? eventTs : Date.now();
       if (existing) {
-        if (ts >= (existing.lastTs || 0)) {
+        if (ts >= (existing.lastTs || 0) || Math.abs(price - (existing.last || 0)) > 0.0001) {
           existing.last = price;
-          existing.lastTs = ts;
+          existing.lastTs = Math.max(ts, existing.lastTs || 0);
           if (price > (existing.dayHigh || 0)) existing.dayHigh = price;
           if (existing.dayLow <= 0 || price < existing.dayLow) existing.dayLow = price;
           existing.dirty = true;
