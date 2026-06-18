@@ -34,6 +34,7 @@
 // hourly cron and the on-demand endpoint.
 
 import { detectExhaustionWarnings } from "./investor.js";
+import { notifyDiscord } from "./alerts.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -752,9 +753,9 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
       return sweep;
     }
 
-    // Send the Discord alert (best-effort).
-    const webhook = env?.DISCORD_WEBHOOK_URL || env?.OPERATOR_WEBHOOK_URL;
-    if (webhook && (failing.length > 0 || warning.length >= 3)) {
+    // Send the Discord alert (best-effort) — system lane (#system-alerts).
+    // Previously posted directly to DISCORD_WEBHOOK_URL (#trade-signals).
+    if (failing.length > 0 || warning.length >= 3) {
       const lines = [];
       for (const c of failing) {
         lines.push(`⛔ **${c.label}** (${c.id})`);
@@ -765,21 +766,17 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
       }
       for (const c of warning.slice(0, 5)) {
         lines.push(`⚠️ **${c.label}** (${c.id}) — ${c.anomalies?.length || 0} anomalies`);
+        for (const a of (c.anomalies || []).slice(0, 2)) {
+          lines.push(`   • ${a.detail || ""}`);
+        }
       }
-      await fetch(webhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: `**Sanity Sweep Alert** · ${failing.length} fails · ${warning.length} warns`,
-          embeds: [{
-            title: "Hourly Sanity Sweep",
-            description: lines.slice(0, 30).join("\n"),
-            color: failing.length > 0 ? 0xf43f5e : 0xf59e0b,
-            timestamp: new Date().toISOString(),
-            footer: { text: `Sweep took ${sweep.elapsed_ms}ms · /timed/admin/sanity-sweep` },
-          }],
-        }),
-      }).catch(e => console.warn("[SANITY_SWEEP] webhook send failed:", String(e?.message || e).slice(0, 120)));
+      await notifyDiscord(env, {
+        title: `Sanity Sweep Alert · ${failing.length} fails · ${warning.length} warns`,
+        description: lines.slice(0, 30).join("\n"),
+        color: failing.length > 0 ? 0xf43f5e : 0xf59e0b,
+        timestamp: new Date().toISOString(),
+        footer: { text: `Sweep took ${sweep.elapsed_ms}ms · /timed/admin/sanity-sweep` },
+      }, "system").catch(e => console.warn("[SANITY_SWEEP] discord send failed:", String(e?.message || e).slice(0, 120)));
       await env.KV_TIMED.put("sanity_sweep:last_alert_fingerprint", fingerprint, { expirationTtl: 24 * 3600 });
     }
 
