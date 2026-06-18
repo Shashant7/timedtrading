@@ -2,6 +2,7 @@
 
 **Status:** planning contract  
 **Created:** 2026-06-17  
+**Progress snapshot:** [active-trader-hardening-progress-2026-06-18.md](active-trader-hardening-progress-2026-06-18.md)  
 **Scope:** Active Trader, Day Trader, indicator parity, signal events,
 sequence-aware diagnosis, calibration queue.
 

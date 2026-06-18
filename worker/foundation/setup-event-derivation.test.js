@@ -225,4 +225,42 @@ describe("deriveSetupEvents", () => {
     expect(result.event_history.length).toBeGreaterThan(priorEvents.length);
     expect(result.sequences.find((s) => s.direction === "LONG")?.stage).toBeGreaterThanOrEqual(4);
   });
+
+  it("accepts rank_trace setup_snapshot TD field aliases", () => {
+    const prev = {
+      ticker: "USO",
+      ts: 1000,
+      price: 95,
+      setup_snapshot: {
+        td_seq: { D: { bull_prep: 8, td9_bull: false } },
+        pdz: { D: "neutral" },
+      },
+    };
+    const cur = {
+      ticker: "USO",
+      ts: 2000,
+      price: 96,
+      setup_snapshot: {
+        td_seq: { D: { bull_prep: 9, td9_bull: true } },
+        pdz: { D: "discount" },
+      },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -70, l: {} }, rsi: { r5: 28 }, fvg: {}, sq: {}, stDir: 1 } },
+    };
+
+    const events = deriveSetupEvents(prev, cur, { tdTfs: ["D"], signalTfs: ["D"] });
+    const types = events.map((e) => e.event_type);
+    expect(types).toEqual(expect.arrayContaining(["td_setup_progress", "td9_complete", "pdz_discount_entered"]));
+  });
+
+  it("is idempotent when the same snapshot pair is diffed twice", () => {
+    const prev = ticker();
+    const cur = ticker({
+      ts: 2000,
+      td_sequential: { per_tf: { D: { bullish_prep_count: 9, td9_bullish: true } } },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -50, l: { accum: true } }, rsi: { r5: 32 }, pdz: { zone: "discount" }, fvg: { ib: 1 }, sq: { r: 1 }, stDir: -1, vwapAbove: true } },
+    });
+    const a = deriveSetupEvents(prev, cur, { tdTfs: ["D"], signalTfs: ["D"] });
+    const b = deriveSetupEvents(prev, cur, { tdTfs: ["D"], signalTfs: ["D"] });
+    expect(a.map((e) => e.event_id)).toEqual(b.map((e) => e.event_id));
+  });
 });

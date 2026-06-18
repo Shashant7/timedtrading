@@ -1,0 +1,287 @@
+{
+  "generated_at": "2026-06-18T02:53:58.812Z",
+  "shadow": true,
+  "meta": {
+    "api_base": "https://timed-trading-ingest-preprod.shashant.workers.dev",
+    "live": false,
+    "run_id": null,
+    "tickers": "JCI,EXPE,DCI,KWEB,AXON,STRL",
+    "limit": 6,
+    "pre_entry_hours": 72,
+    "trades_source": "trade-autopsy-api",
+    "trail_source": "wrangler-d1:preprod"
+  },
+  "reliability": {
+    "total_trades": 6,
+    "with_sequence": 0,
+    "with_diagnostics": 5,
+    "by_sequence": [
+      {
+        "key": "none:NA:0_none",
+        "n": 6,
+        "wins": 2,
+        "losses": 4,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": 6.735281591252239,
+        "pnl_n": 6,
+        "win_rate": 0.333,
+        "avg_pnl_pct": 1.12
+      }
+    ],
+    "by_stage_bucket": [
+      {
+        "key": "0_none",
+        "n": 6,
+        "wins": 2,
+        "losses": 4,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": 6.735281591252239,
+        "pnl_n": 6,
+        "win_rate": 0.333,
+        "avg_pnl_pct": 1.12
+      }
+    ],
+    "by_ticker": [
+      {
+        "key": "AXON",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": -0.34126595146037014,
+        "pnl_n": 1,
+        "win_rate": 0,
+        "avg_pnl_pct": -0.34
+      },
+      {
+        "key": "DCI",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": 4.731575273459975,
+        "pnl_n": 1,
+        "win_rate": 1,
+        "avg_pnl_pct": 4.73
+      },
+      {
+        "key": "EXPE",
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": 5.365856611350611,
+        "pnl_n": 1,
+        "win_rate": 1,
+        "avg_pnl_pct": 5.37
+      },
+      {
+        "key": "JCI",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": -0.790322818234327,
+        "pnl_n": 1,
+        "win_rate": 0,
+        "avg_pnl_pct": -0.79
+      },
+      {
+        "key": "KWEB",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": -1.5884581754590548,
+        "pnl_n": 1,
+        "win_rate": 0,
+        "avg_pnl_pct": -1.59
+      },
+      {
+        "key": "STRL",
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": -0.642103348404595,
+        "pnl_n": 1,
+        "win_rate": 0,
+        "avg_pnl_pct": -0.64
+      }
+    ],
+    "by_path_archetype": [
+      {
+        "key": "none",
+        "n": 6,
+        "wins": 2,
+        "losses": 4,
+        "flat": 0,
+        "unknown": 0,
+        "pnl_sum": 6.735281591252239,
+        "pnl_n": 6,
+        "win_rate": 0.333,
+        "avg_pnl_pct": 1.12
+      }
+    ]
+  },
+  "trades": [
+    {
+      "trade_id": "STRL-1753285200000",
+      "ticker": "STRL",
+      "direction": "LONG",
+      "entry_ts": 1753285200000,
+      "exit_ts": 1753290300000,
+      "entry_path": "TT Tt Gap Reversal Long",
+      "pnl_pct": -0.642103348404595,
+      "outcome": "loss",
+      "mfe_pct": null,
+      "mae_pct": null,
+      "diagnostics_ok": false,
+      "diagnostics_reason": "no_snapshots_before_entry",
+      "snapshot_count": 0,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 0
+    },
+    {
+      "trade_id": "JCI-1751381700000",
+      "ticker": "JCI",
+      "direction": "LONG",
+      "entry_ts": 1751381700000,
+      "exit_ts": 1751383800000,
+      "entry_path": "TT Tt N Test Support",
+      "pnl_pct": -0.790322818234327,
+      "outcome": "loss",
+      "mfe_pct": null,
+      "mae_pct": null,
+      "diagnostics_ok": true,
+      "diagnostics_reason": null,
+      "snapshot_count": 18,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 2
+    },
+    {
+      "trade_id": "EXPE-1751380200000",
+      "ticker": "EXPE",
+      "direction": "LONG",
+      "entry_ts": 1751380200000,
+      "exit_ts": 1753992000000,
+      "entry_path": "TT Tt Gap Reversal Long",
+      "pnl_pct": 5.365856611350611,
+      "outcome": "win",
+      "mfe_pct": null,
+      "mae_pct": null,
+      "diagnostics_ok": true,
+      "diagnostics_reason": null,
+      "snapshot_count": 13,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 2
+    },
+    {
+      "trade_id": "DCI-1751378400000",
+      "ticker": "DCI",
+      "direction": "LONG",
+      "entry_ts": 1751378400000,
+      "exit_ts": 1753992000000,
+      "entry_path": "tt_gap_reversal_long",
+      "pnl_pct": 4.731575273459975,
+      "outcome": "win",
+      "mfe_pct": 3.8284,
+      "mae_pct": null,
+      "diagnostics_ok": true,
+      "diagnostics_reason": null,
+      "snapshot_count": 7,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 2
+    },
+    {
+      "trade_id": "KWEB-1751378400000",
+      "ticker": "KWEB",
+      "direction": "LONG",
+      "entry_ts": 1751378400000,
+      "exit_ts": 1751463000000,
+      "entry_path": "tt_n_test_support",
+      "pnl_pct": -1.5884581754590548,
+      "outcome": "loss",
+      "mfe_pct": 0.4663,
+      "mae_pct": -1.5885,
+      "diagnostics_ok": true,
+      "diagnostics_reason": null,
+      "snapshot_count": 7,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 2
+    },
+    {
+      "trade_id": "AXON-1751377800000",
+      "ticker": "AXON",
+      "direction": "LONG",
+      "entry_ts": 1751377800000,
+      "exit_ts": 1751379000000,
+      "entry_path": "TT Tt N Test Support",
+      "pnl_pct": -0.34126595146037014,
+      "outcome": "loss",
+      "mfe_pct": null,
+      "mae_pct": null,
+      "diagnostics_ok": true,
+      "diagnostics_reason": null,
+      "snapshot_count": 5,
+      "sequence": null,
+      "trader_posture": {
+        "posture": "Neutral",
+        "direction": "NEUTRAL",
+        "sequence_type": null,
+        "stage": 0,
+        "status": "none",
+        "path_forecast": null
+      },
+      "event_count": 2
+    }
+  ]
+}
