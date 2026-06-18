@@ -164,18 +164,19 @@ const CHUNK_DAYS_5MIN = 64;   // ~5000 bars of 5min per chunk
 const CHUNK_DAYS_15MIN = 192; // ~5000 bars of 15min per chunk (26 bars/day)
 const CHUNK_DAYS_30MIN = 225; // 2 chunks for 450 days
 
-async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays) {
+async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays, opts = {}) {
   const allBars = {};
   const targetEnd = end ? new Date(end).getTime() : Date.now() + 86400000;
   let chunkStart = new Date(start).getTime();
   const chunkMs = chunkDays * 24 * 60 * 60 * 1000;
+  const interChunkDelayMs = Math.max(0, Number(opts.interChunkDelayMs ?? opts.batchDelayMs ?? 8000));
 
   while (chunkStart < targetEnd) {
     const chunkEnd = Math.min(chunkStart + chunkMs, targetEnd);
     const chunkStartISO = new Date(chunkStart).toISOString();
     const chunkEndISO = new Date(chunkEnd).toISOString();
 
-    const raw = await tdFetchTimeSeries(env, symbols, interval, chunkStartISO, chunkEndISO, TD_PAGE_SIZE);
+    const raw = await tdFetchTimeSeries(env, symbols, interval, chunkStartISO, chunkEndISO, TD_PAGE_SIZE, opts);
     if (raw.error) return raw;
 
     for (const [sym, barArr] of Object.entries(raw.bars || {})) {
@@ -183,7 +184,9 @@ async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays
       allBars[sym].push(...barArr);
     }
     chunkStart = chunkEnd;
-    await new Promise((r) => setTimeout(r, 8000));
+    if (chunkStart < targetEnd && interChunkDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, interChunkDelayMs));
+    }
   }
   return { bars: allBars };
 }
@@ -193,7 +196,7 @@ async function _tdFetchBars(env, symbols, tfKey, start, end, limit, opts = {}) {
 
   // 10min: fetch 5min bars in chunks (start+end per chunk) and aggregate
   if (tfKey === "10") {
-    const raw = await _tdFetchBarsChunked(env, symbols, "5min", start, end, CHUNK_DAYS_5MIN);
+    const raw = await _tdFetchBarsChunked(env, symbols, "5min", start, end, CHUNK_DAYS_5MIN, opts);
     if (raw.error) return raw;
     const bars = {};
     for (const [sym, barArr] of Object.entries(raw.bars || {})) {
@@ -204,12 +207,12 @@ async function _tdFetchBars(env, symbols, tfKey, start, end, limit, opts = {}) {
 
   // 15min: chunked fetch (for 15m vs 10m leading_ltf experiment)
   if (tfKey === "15") {
-    return _tdFetchBarsChunked(env, symbols, "15min", start, end, CHUNK_DAYS_15MIN);
+    return _tdFetchBarsChunked(env, symbols, "15min", start, end, CHUNK_DAYS_15MIN, opts);
   }
 
   // 30min: chunked fetch
   if (tfKey === "30") {
-    return _tdFetchBarsChunked(env, symbols, "30min", start, end, CHUNK_DAYS_30MIN);
+    return _tdFetchBarsChunked(env, symbols, "30min", start, end, CHUNK_DAYS_30MIN, opts);
   }
 
   if (!tdInterval) {
@@ -586,9 +589,16 @@ export async function cronFetchLatest(env, allTickers) {
   //    ~33 batches + 2 intraday TFs) under ~5 minutes so it completes
   //    within the invocation.
   //
+  // 2026-06-18 — 10/15/30 use _tdFetchBarsChunked which previously ignored
+  // batchDelayMs and hard-coded 8s inter-chunk sleeps. Full-universe 10m
+  // refresh (~33 symbol batches × 8s ≈ 4.4 min of sleeps alone) routinely
+  // exceeded the */5 bar-cron budget → 10m bars stuck ~80 min stale mid-RTH
+  // → investor_compute_stale_candles (250+/257 quarantined). Chunked paths
+  // now honor batchDelayMs/interChunkDelayMs from _fastPace.
+  //
   // The redundant tier keeps the 8s pacing and runs last: if it gets cut
   // off, the stream covers those TFs anyway.
-  const _fastPace = { batchDelayMs: 2500 };
+  const _fastPace = { batchDelayMs: 2500, interChunkDelayMs: 2500 };
   await runTfBatch(aggregatedTfs, allTickers, _fastPace);
   await runTfBatch(streamUncoveredIntradayTfs, uncoveredIntradayTickers, _fastPace);
   await runTfBatch(criticalIntradayTfs, allTickers, _fastPace);
