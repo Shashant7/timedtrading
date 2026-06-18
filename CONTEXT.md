@@ -234,7 +234,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - API key goes in `X-API-Key` headers, never `?key=` URLs. Self-fetch
   pattern: `headers: { "X-API-Key": env.TIMED_API_KEY }`. Operator flips
   `ALLOW_QUERY_API_KEY=false` after rotation.
-- `_ttIsAdmin`/`_ttIsPro` gate Pro features in the UI; live **prices** use `_ttIsAuthenticated` + server `canAccessLivePrices()`. Proprietary endpoints ALSO gate server-side via `computeUserDataTier` + `redactTickerMapForTier` (worker/api.js). Cache keys include the tier bucket. Low tiers get structured 200s, not 4xx.
+- Live **prices + proprietary scores** go to **Pro/VIP/Admin only** — server `canAccessLivePrices()` (tier ∈ {pro,admin}; VIP→pro) + `redactTickerMapForTier`; UI gate `window._ttIsPro` (= Pro/VIP/Admin). **Members** (signed-in, never paid → code tier `free`) + anon get neither. User types: Pro (paying), VIP (invited, free), Member (signed-in, unpaid), Admin; there is no real "free" user. Cache keys include the tier bucket. Low tiers get structured 200s, not 4xx.
 - `/timed/ws` needs a ticket from `GET /timed/ws-ticket` (browsers can't
   send headers on WS upgrades).
 - LLM HTML: DOMPurify after marked, or escape-first inline formatting.

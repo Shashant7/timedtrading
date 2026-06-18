@@ -33,6 +33,7 @@ alwaysApply: true
 - **Market closed**: EXT row shows last-known data, persists overnight/weekends/holidays.
 - Crypto tickers (BTCUSD, ETHUSD) are excluded from the EXT row (24/7 markets, no session distinction).
 
-## Admin Gating & Attribution
-- Live price/change data is gated behind **sign-in** server-side (`canAccessLivePrices` in `worker/api.js`) and `window._ttIsAuthenticated` on the frontend. Anonymous visitors do not see prices; authenticated free/pro/admin users do. Proprietary scores/SL/TP remain Pro-gated via `redactTickerMapForTier`.
+## Entitlement Gating & Attribution
+- Live price/change data **and** proprietary scores/SL/TP go to **Pro, VIP, and Admin only**. Server-side: `canAccessLivePrices()` in `worker/api.js` (tier ∈ {`pro`, `admin`}; `computeUserDataTier` collapses VIP → `pro`) + `redactTickerMapForTier()`. Frontend display gate: `window._ttIsPro` (= Pro/VIP/Admin).
+- **Members** (signed in, never passed the Stripe paywall → code tier `free`) and **anonymous** visitors get NEITHER prices nor scores (snapshot fields stripped; `/timed/prices` + `/timed/ws-ticket` return a structured empty/403). There is no real "free" user — the code's `free` tier == a Member.
 - Footer MUST include "Market data powered by Twelve Data" for licensing compliance.

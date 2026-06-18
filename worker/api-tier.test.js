@@ -6,13 +6,13 @@ import {
 } from "./api.js";
 
 describe("canAccessLivePrices", () => {
-  it("allows authenticated tiers", () => {
+  it("allows Pro/VIP (collapsed to 'pro' by computeUserDataTier) and Admin", () => {
     expect(canAccessLivePrices("admin")).toBe(true);
-    expect(canAccessLivePrices("pro")).toBe(true);
-    expect(canAccessLivePrices("free")).toBe(true);
+    expect(canAccessLivePrices("pro")).toBe(true); // pro + vip both map to "pro"
   });
 
-  it("blocks anonymous callers", () => {
+  it("blocks Members ('free') and anonymous callers", () => {
+    expect(canAccessLivePrices("free")).toBe(false); // 'free' tier == a Member
     expect(canAccessLivePrices("anon")).toBe(false);
     expect(canAccessLivePrices(undefined)).toBe(false);
   });
@@ -28,18 +28,19 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
     kanban_stage: "enter",
   };
 
-  it("passes through pro/admin untouched", () => {
+  it("passes through pro/admin (incl VIP) untouched", () => {
     expect(redactTickerSnapshot(sample, "pro")).toBe(sample);
     expect(redactTickerSnapshot(sample, "admin")).toBe(sample);
   });
 
-  it("keeps prices but strips model fields for free tier", () => {
+  it("strips BOTH prices and model fields for Members ('free')", () => {
     const out = redactTickerSnapshot(sample, "free");
-    expect(out.price).toBe(440.12);
-    expect(out.day_change_pct).toBe(1.2);
+    expect(out.price).toBeUndefined();
+    expect(out.day_change_pct).toBeUndefined();
     expect(out.score).toBeUndefined();
     expect(out.sl).toBeUndefined();
     expect(out.kanban_stage).toBeUndefined();
+    expect(out.ticker).toBe("QQQ"); // identity survives for skeleton render
     expect(out._redacted).toBe(true);
   });
 
@@ -53,15 +54,21 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
 });
 
 describe("redactTickerMapForTier", () => {
-  it("applies per-symbol tier redaction", () => {
+  it("strips prices + model for Members ('free')", () => {
     const map = {
       QQQ: { ticker: "QQQ", price: 1, score: 2 },
       SPY: { ticker: "SPY", price: 3, score: 4 },
     };
     const out = redactTickerMapForTier(map, "free");
-    expect(out.QQQ.price).toBe(1);
+    expect(out.QQQ.price).toBeUndefined();
     expect(out.QQQ.score).toBeUndefined();
-    expect(out.SPY.price).toBe(3);
+    expect(out.SPY.price).toBeUndefined();
     expect(out.SPY.score).toBeUndefined();
+  });
+
+  it("passes Pro/VIP/Admin through untouched", () => {
+    const map = { QQQ: { ticker: "QQQ", price: 1, score: 2 } };
+    expect(redactTickerMapForTier(map, "pro")).toBe(map);
+    expect(redactTickerMapForTier(map, "admin")).toBe(map);
   });
 });

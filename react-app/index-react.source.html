@@ -12799,7 +12799,7 @@
                   {(() => { const _g = openTrade?.setupGrade || openTrade?.setup_grade || t?.setup_grade || t?.setupGrade; if (!_g) return null; const cls = _g === "Prime" ? "bg-amber-500/25 text-amber-200 border-amber-400/40" : _g === "Confirmed" ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/40" : "bg-blue-500/25 text-blue-200 border-blue-400/40"; return <span className={`px-1 py-px rounded text-[8px] font-bold border shrink-0 ${cls}`}>TT {_g}</span>; })()}
                   {badgesText && <span className="text-[10px] shrink-0">{badgesText}</span>}
                 </div>
-                {window._ttIsAuthenticated && (
+                {window._ttIsPro && (
                   <div className="flex flex-col items-end shrink-0 ml-1">
                     <span className="text-white font-bold text-[13px] tabular-nums leading-tight" style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
                       {Number.isFinite(price) ? `$${price.toFixed(2)}` : "—"}
@@ -14663,13 +14663,13 @@
                     </th>
                     <th className="px-2 py-2 text-left text-[11px] font-medium text-gray-400">Name</th>
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400">Bias</th>
-                    {window._ttIsAuthenticated && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                       Price{sortArrow("price")}
                     </th>}
-                    {window._ttIsAuthenticated && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
                       Day %{sortArrow("change")}
                     </th>}
-                    {window._ttIsAuthenticated && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
+                    {window._ttIsPro && <th className="px-1 py-2 text-right text-[11px] font-medium text-gray-400">Day $</th>}
                     <th className="px-2 py-2 text-center text-[11px] font-medium text-gray-400" title="SL/EP/TP Progress">Trade</th>
                     <th className="px-1 py-2 text-center text-[11px] font-medium text-gray-400 cursor-pointer hover:text-white select-none" onClick={() => handleSort("score")}>
                       Score{sortArrow("score")}
@@ -14762,17 +14762,17 @@
                         <td className="px-2 py-1.5 text-center">
                           <span className={`text-[11px] font-bold ${dirColor}`}>{dir === "L" ? (hasOpen ? "LONG" : "BULL") : (hasOpen ? "SHORT" : "BEAR")}</span>
                         </td>
-                        {window._ttIsAuthenticated && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] text-white font-medium tabular-nums">
                           {price > 0 ? `$${price.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>}
-                        {window._ttIsAuthenticated && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayPct !== null ? (
                             <span style={{ color: dayPct > 0 ? "#00e676" : dayPct < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayPct > 0 ? "+" : ""}{dayPct.toFixed(2)}%
                             </span>
                           ) : <span className="text-gray-600">—</span>}
                         </td>}
-                        {window._ttIsAuthenticated && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
+                        {window._ttIsPro && <td className="px-1 py-1 text-right text-[11px] tabular-nums">
                           {dayChg !== null ? (
                             <span style={{ color: dayChg > 0 ? "#00e676" : dayChg < 0 ? "#ef4444" : "#9ca3af" }}>
                               {dayChg > 0 ? "+" : ""}{dayChg.toFixed(2)}
