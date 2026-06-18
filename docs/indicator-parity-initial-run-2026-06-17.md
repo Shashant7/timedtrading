@@ -66,6 +66,32 @@ node scripts/analyze-tv-reference-exports.mjs \
 
 ## Initial result summary
 
+### Updated SPY/IWM/QQQ parity-export rerun
+
+After re-exporting SPY/IWM/QQQ with the updated
+`TimedTrading_Indicator_Parity_Export.pine`, the 10,3 parity run across the
+updated subset was:
+
+```text
+9 files checked (SPY/IWM/QQQ x D/W/60)
+6 / 9 files clean
+only mismatch fields: fvg_in_bull = 3, fvg_in_bear = 1
+```
+
+The updated export includes Lux-aligned TD lead-up columns and rolling VWAP
+columns. No aggregate mismatches appeared for TD, Phase, SuperTrend 10,3,
+rolling VWAP, liquidity high/low proxy, RSI, ATR, EMA, squeeze, PDZ, or RSI
+divergence in this subset.
+
+Remaining edge cases:
+
+| Ticker | TF | Field | Timestamp |
+|---|---|---|---:|
+| IWM | D | `fvg_in_bull` | 1774877400000 |
+| IWM | D | `fvg_in_bear` | 1776173400000 |
+| QQQ | 60 | `fvg_in_bull` | 1780687800000 |
+| SPY | 60 | `fvg_in_bull` | 1780687800000 |
+
 ### Direct reference-indicator checks
 
 Additional comparisons were run against the independent TradingView indicator
