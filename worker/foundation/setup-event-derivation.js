@@ -269,8 +269,42 @@ export function deriveSetupEvents(prevTicker = null, currentTicker = null, opts 
       if (out.crossedDown(pPrice, cPrice, pe, ce)) out.emit(tf, reject, "SHORT", { ema: emaKey, level: ce });
     }
 
+    const ema21 = emaValue(currentTicker, tf, "ema21");
+    const atr = num(row.atr ?? row.atr14 ?? tfRow(currentTicker, tf)?.atr);
+    if (cPrice != null && ema21 != null && ema21 > 0) {
+      const distPct = Math.abs((cPrice - ema21) / ema21) * 100;
+      const distAtr = atr != null && atr > 0 ? Math.abs(cPrice - ema21) / atr : null;
+      const stretched = distPct >= 2.5 || (distAtr != null && distAtr >= 2.0);
+      const prevEma21 = emaValue(prevTicker, tf, "ema21");
+      const prevPrice = priceOf(prevTicker);
+      let prevStretched = false;
+      if (prevPrice != null && prevEma21 != null && prevEma21 > 0) {
+        const prevDistPct = Math.abs((prevPrice - prevEma21) / prevEma21) * 100;
+        const prevDistAtr = atr != null && atr > 0 ? Math.abs(prevPrice - prevEma21) / atr : null;
+        prevStretched = prevDistPct >= 2.5 || (prevDistAtr != null && prevDistAtr >= 2.0);
+      }
+      if (stretched && (opts.bootstrap || !prevStretched)) {
+        const direction = cPrice > ema21 ? "SHORT" : "LONG";
+        out.emit(tf, "ema21_stretched", direction, {
+          dist_pct: Math.round(distPct * 100) / 100,
+          dist_atr: distAtr != null ? Math.round(distAtr * 100) / 100 : null,
+          ema21,
+          price: cPrice,
+        });
+      }
+    }
+
     const pst = stDir(prevTicker, tf);
     const cst = stDir(currentTicker, tf);
+    const prevSlope = num(prevRow.stSlope);
+    const curSlope = num(row.stSlope);
+    const flatThreshold = 0.08;
+    const isFlat = curSlope != null && Math.abs(curSlope) <= flatThreshold;
+    const wasFlat = prevSlope != null && Math.abs(prevSlope) <= flatThreshold;
+    if (isFlat && cst != null && (opts.bootstrap || !wasFlat)) {
+      const direction = cst < 0 ? "LONG" : "SHORT";
+      out.emit(tf, "supertrend_flat_opposing", direction, { stDir: cst, stSlope: curSlope });
+    }
     if (cst != null && (opts.bootstrap || (pst != null && pst !== cst))) {
       if (cst < 0) out.emit(tf, "supertrend_flip", "LONG", { stDir: cst });
       if (cst > 0) out.emit(tf, "supertrend_flip", "SHORT", { stDir: cst });

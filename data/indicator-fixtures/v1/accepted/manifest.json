@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-06-18T12:54:21.755Z",
+  "note": "Worker self-consistent baselines. Replace expected rows after TradingView re-export.",
+  "fixtures": [
+    {
+      "file": "spy-d-baseline.json",
+      "ticker": "SPY",
+      "tf": "D"
+    },
+    {
+      "file": "iwm-d-baseline.json",
+      "ticker": "IWM",
+      "tf": "D"
+    },
+    {
+      "file": "qqq-d-baseline.json",
+      "ticker": "QQQ",
+      "tf": "D"
+    },
+    {
+      "file": "spy-60-baseline.json",
+      "ticker": "SPY",
+      "tf": "60"
+    },
+    {
+      "file": "iwm-60-baseline.json",
+      "ticker": "IWM",
+      "tf": "60"
+    },
+    {
+      "file": "qqq-60-baseline.json",
+      "ticker": "QQQ",
+      "tf": "60"
+    }
+  ]
+}

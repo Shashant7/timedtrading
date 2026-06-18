@@ -1,5 +1,7 @@
 // Storage module — KV and D1 helpers for Timed Trading Worker
 
+import { serializeSequenceTrailSnapshot } from "./foundation/sequence-snapshot.js";
+
 /** Read JSON from KV. Returns null if missing or invalid. */
 export async function kvGetJSON(KV, key) {
   const t = await KV.get(key);
@@ -293,7 +295,7 @@ export async function d1InsertTrailPoint(env, ticker, payload) {
         point?.trigger_reason != null ? String(point.trigger_reason) : null,
         point?.trigger_dir != null ? String(point.trigger_dir) : null,
         point?.kanban_stage != null ? String(point.kanban_stage) : null,
-        null,
+        serializeSequenceTrailSnapshot(payload, env),
       )
       .run();
 

@@ -152,8 +152,8 @@ export function snapshotFrom5mFactRow(row, ticker) {
       D: {
         pdz: { zone: pdzD },
         fvg: {
-          ib: flags.fvg_in_bull_D ? 1 : 0,
-          ibr: flags.fvg_in_bear_D ? 1 : 0,
+          ib: (flags.fvg_in_bull_D || flags.fvg_bull_D || Number(row.fvg_bull_count) > 0) ? 1 : 0,
+          ibr: (flags.fvg_in_bear_D || flags.fvg_bear_D || Number(row.fvg_bear_count) > 0) ? 1 : 0,
         },
       },
     },
@@ -192,8 +192,8 @@ export function snapshotFromTrailScalars(row, ticker) {
       D: {
         pdz: { zone: pdzD },
         fvg: {
-          ib: flags.fvg_in_bull_D ? 1 : 0,
-          ibr: flags.fvg_in_bear_D ? 1 : 0,
+          ib: (flags.fvg_in_bull_D || flags.fvg_bull_D || Number(row.fvg_bull_count) > 0) ? 1 : 0,
+          ibr: (flags.fvg_in_bear_D || flags.fvg_bear_D || Number(row.fvg_bear_count) > 0) ? 1 : 0,
         },
       },
       "4H": { pdz: { zone: pdz4h } },

@@ -22,7 +22,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { deriveSetupEventsFromWindow } from "../worker/foundation/setup-event-derivation.js";
 import { parseTrailSnapshotRow } from "../worker/foundation/setup-diagnostics-route.js";
-import { setupEventToDbBind } from "../worker/foundation/setup-events-store.js";
+import { filterMissedDiscoveryMoves } from "../worker/foundation/discovery-move-utils.js";
 
 const API_BASE = process.env.TIMED_API_BASE
   || process.env.API_BASE
@@ -107,8 +107,7 @@ function loadDiscoveryMissed() {
   if (!DISCOVERY_FILE) return [];
   const raw = JSON.parse(fs.readFileSync(DISCOVERY_FILE, "utf8"));
   const moves = Array.isArray(raw?.moves) ? raw.moves : [];
-  return moves
-    .filter((m) => String(m.capture || "").toUpperCase() === "MISSED")
+  return filterMissedDiscoveryMoves(moves)
     .sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
 }
 
@@ -156,7 +155,8 @@ async function main() {
       process.exit(1);
     }
     for (const m of moves) {
-      const start = Number(m.start_ts ?? m.startTs);
+      const start = Number(m.start_ts);
+      if (!Number.isFinite(start)) continue;
       jobs.push({
         ticker: m.ticker,
         since: start - preMs,
