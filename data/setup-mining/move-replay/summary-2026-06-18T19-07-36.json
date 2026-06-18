@@ -1,0 +1,228 @@
+{
+  "summary": {
+    "generated_at": "2026-06-18T19:07:19.733Z",
+    "discovery_file": "data/move-discovery-live.json",
+    "limit": 1,
+    "pre_entry_days": 5,
+    "wrangler_d1": "production",
+    "replay_only": false,
+    "skip_replay": true,
+    "moves_processed": 1,
+    "total_trail_rows": 2911,
+    "total_events_derived": 1288,
+    "total_events_persisted": 0,
+    "items": [
+      {
+        "move_id": "SOXL:1776781800000",
+        "ticker": "SOXL",
+        "move_atr": 18.24,
+        "move_pct": 86.09,
+        "start_date": "2026-04-21",
+        "end_date": "2026-06-05",
+        "replay": null,
+        "trail_rows": 2911,
+        "snapshots": 2911,
+        "events_derived": 1288,
+        "events_persisted": 0,
+        "sequences": 2,
+        "mining": {
+          "cohort": "discovery_missed",
+          "move_id": "SOXL:1776781800000",
+          "ticker": "SOXL",
+          "direction": "LONG",
+          "capture": "MISSED",
+          "start_ts": 1776781800000,
+          "end_ts": 1780689600000,
+          "move_pct": 86.09,
+          "move_atr": 18.24,
+          "move_alignment": {
+            "outcome": "opposed",
+            "move_dir": "UP",
+            "move_pct": 86.09,
+            "move_atr": 18.24
+          },
+          "outcome": "opposed",
+          "analysis_mode": "sequence_trail_replay",
+          "promotion_safe": false,
+          "diagnostics_ok": true,
+          "diagnostics_reason": null,
+          "snapshot_count": 238,
+          "sequence": {
+            "sequence_type": "td_phase_mean_reversion_long",
+            "direction": "LONG",
+            "stage": 1,
+            "stage_bucket": "1_4_forming",
+            "status": "forming",
+            "confidence": 0.387
+          },
+          "event_count": 97
+        }
+      }
+    ],
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 1,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "td_phase_mean_reversion_long:LONG:1_4_forming",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "1_4_forming",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "SOXL",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ]
+    }
+  },
+  "report": {
+    "generated_at": "2026-06-18T19:07:36.120Z",
+    "shadow": true,
+    "meta": {
+      "cohort": "discovery_replay",
+      "analysis_mode": "sequence_trail_replay",
+      "discovery_file": "data/move-discovery-live.json"
+    },
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 1,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "td_phase_mean_reversion_long:LONG:1_4_forming",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "1_4_forming",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "SOXL",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 1,
+          "flat": 0,
+          "unknown": 0,
+          "pnl_sum": 86.09,
+          "pnl_n": 1,
+          "win_rate": 0,
+          "avg_pnl_pct": 86.09
+        }
+      ]
+    },
+    "trades": [
+      {
+        "cohort": "discovery_missed",
+        "move_id": "SOXL:1776781800000",
+        "ticker": "SOXL",
+        "direction": "LONG",
+        "capture": "MISSED",
+        "start_ts": 1776781800000,
+        "end_ts": 1780689600000,
+        "move_pct": 86.09,
+        "move_atr": 18.24,
+        "move_alignment": {
+          "outcome": "opposed",
+          "move_dir": "UP",
+          "move_pct": 86.09,
+          "move_atr": 18.24
+        },
+        "outcome": "opposed",
+        "analysis_mode": "sequence_trail_replay",
+        "promotion_safe": false,
+        "diagnostics_ok": true,
+        "diagnostics_reason": null,
+        "snapshot_count": 238,
+        "sequence": {
+          "sequence_type": "td_phase_mean_reversion_long",
+          "direction": "LONG",
+          "stage": 1,
+          "stage_bucket": "1_4_forming",
+          "status": "forming",
+          "confidence": 0.387
+        },
+        "event_count": 97
+      }
+    ]
+  }
+}

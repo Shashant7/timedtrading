@@ -90,8 +90,10 @@ function fetchD1Rows(wranglerEnv, sql) {
     cwd: path.join(process.cwd(), "worker"),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: 128 * 1024 * 1024,
   });
-  return JSON.parse(out)[0]?.results || [];
+  const parsed = JSON.parse(out);
+  return parsed[0]?.results || [];
 }
 
 function loadMoves() {
@@ -155,8 +157,18 @@ async function postCandleReplay(ticker, date) {
 
 function fetchSequenceTrailRows(ticker, since, until, wranglerEnv) {
   const sym = String(ticker).toUpperCase().replace(/[^A-Z0-9._-]/g, "");
-  const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND payload_json IS NOT NULL AND ts >= ${Number(since)} AND ts <= ${Number(until)} ORDER BY ts ASC LIMIT 5000`;
-  return fetchD1Rows(wranglerEnv, sql);
+  const pageSize = 400;
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND payload_json IS NOT NULL AND ts >= ${Number(since)} AND ts <= ${Number(until)} ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
+    const batch = fetchD1Rows(wranglerEnv, sql);
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+    offset += pageSize;
+    if (offset >= 5000) break;
+  }
+  return all;
 }
 
 function deriveEventsFromTrailRows(ticker, rows) {
@@ -262,7 +274,12 @@ async function processMove(move) {
     item.events_derived = derived.events.length;
     item.sequences = derived.sequences;
     if (!DRY_RUN && derived.events.length) {
-      item.events_persisted = persistEventsViaD1(WRANGLER_D1, derived.events);
+      if (API_KEY) {
+        const apiResult = await postBackfillApi(ticker, since, until);
+        item.events_persisted = apiResult.persist?.written ?? apiResult.events_derived ?? 0;
+      } else {
+        item.events_persisted = persistEventsViaD1(WRANGLER_D1, derived.events);
+      }
     }
     item.mining = joinMissedMoveWithTrailDiagnostics(move, rows, {
       preEntryMs: PRE_ENTRY_MS,
