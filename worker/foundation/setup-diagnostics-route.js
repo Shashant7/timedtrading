@@ -5,6 +5,7 @@
 // -----------------------------------------------------------------------------
 
 import { deriveSetupEventsFromWindow } from "./setup-event-derivation.js";
+import { kvGetJSON } from "../storage.js";
 
 const DEFAULT_LIMIT = 240;
 const MAX_LIMIT = 2000;
@@ -20,7 +21,8 @@ export function vixRegimeFromValue(vix) {
 }
 
 export function buildDiagnosticsContext(snapshot = {}, env = {}) {
-  const vix = Number(snapshot._vix ?? snapshot.market_internals?.vix?.price);
+  const vix = Number(snapshot._vix ?? snapshot.market_internals?.vix?.price
+    ?? snapshot.setup_snapshot?.market_internals?.vix_price);
   const sectorRegime = snapshot._env?._sectorRegime
     || env._sectorRegimeCache?.[snapshot.sector || snapshot._sector]
     || null;
@@ -30,6 +32,7 @@ export function buildDiagnosticsContext(snapshot = {}, env = {}) {
     || sectorRegime?.state
     || snapshot.sector_posture
     || snapshot._sector_posture
+    || snapshot.setup_snapshot?.market_internals?.sector_rotation
     || "",
   ).trim().toLowerCase() || null;
 
@@ -45,14 +48,75 @@ export function buildDiagnosticsContext(snapshot = {}, env = {}) {
     researchAlignment = n > 0.05 ? "supportive" : n < -0.05 ? "opposed" : "neutral";
   }
 
+  const regimeForecast = snapshot.regime_forecast || null;
+  const indexPosture = String(
+    snapshot.market_internals?.overall
+    || snapshot.setup_snapshot?.market_internals?.overall
+    || snapshot.swing_consensus?.regime_combined
+    || snapshot.regime_class
+    || "",
+  ).trim().toLowerCase() || null;
+
   return {
     vix_regime: vixRegimeFromValue(vix),
     sector_posture: sectorPosture,
     research_alignment: researchAlignment,
     ticker_personality: snapshot.ticker_personality
       || snapshot.execution_profile?.personality
+      || snapshot.setup_snapshot?.ticker_personality
       || snapshot._ticker_profile?.behavior_type
       || null,
+    index_posture: indexPosture,
+    regime_forecast_state: regimeForecast?.state || null,
+    regime_forecast_confidence: Number.isFinite(Number(regimeForecast?.confidence))
+      ? Number(regimeForecast.confidence)
+      : null,
+  };
+}
+
+export function summarizeTraderPosture(sequences = [], opts = {}) {
+  const openPosition = opts.openPosition === true;
+  const active = (Array.isArray(sequences) ? sequences : [])
+    .filter((s) => s.stage > 0 && s.status !== "invalidated");
+
+  if (!active.length) {
+    if (openPosition) {
+      const dir = String(opts.openDirection || "LONG").toUpperCase();
+      return {
+        posture: dir === "SHORT" ? "Open Short" : "Open Long",
+        direction: dir,
+        sequence_type: null,
+        stage: null,
+        status: "open_position",
+        path_forecast: null,
+      };
+    }
+    return {
+      posture: "Neutral",
+      direction: "NEUTRAL",
+      sequence_type: null,
+      stage: 0,
+      status: "none",
+      path_forecast: null,
+    };
+  }
+
+  const ranked = [...active].sort((a, b) => (
+    (b.stage - a.stage)
+    || (String(b.status).length - String(a.status).length)
+    || (Number(b.confidence) - Number(a.confidence))
+  ));
+  const best = ranked[0];
+  return {
+    posture: openPosition
+      ? (best.direction === "SHORT" ? "Open Short" : "Open Long")
+      : best.posture,
+    direction: best.direction,
+    sequence_type: best.sequence_type,
+    stage: best.stage,
+    status: best.status,
+    path_forecast: best.path_forecast,
+    sequence_id: best.sequence_id,
   };
 }
 
@@ -113,6 +177,34 @@ export async function loadTrailSnapshots(db, ticker, opts = {}) {
   return snapshots;
 }
 
+export async function loadLatestKvSnapshot(kv, ticker) {
+  if (!kv) return null;
+  const latest = await kvGetJSON(kv, `timed:latest:${String(ticker || "").toUpperCase()}`);
+  if (!latest || typeof latest !== "object") return null;
+  const ts = Number(latest.ts ?? latest.computedAt ?? latest.updated_at ?? Date.now());
+  return {
+    ...latest,
+    ticker: String(latest.ticker || ticker).toUpperCase(),
+    ts,
+    event_ts: ts,
+  };
+}
+
+export async function loadDiagnosticSnapshots(db, kv, ticker, opts = {}) {
+  const trail = await loadTrailSnapshots(db, ticker, opts);
+  if (trail.length > 0) {
+    return { snapshots: trail, source: "timed_trail" };
+  }
+  if (opts.allowLatestFallback === false) {
+    return { snapshots: [], source: "none" };
+  }
+  const latest = await loadLatestKvSnapshot(kv, ticker);
+  if (latest) {
+    return { snapshots: [latest], source: "timed_latest" };
+  }
+  return { snapshots: [], source: "none" };
+}
+
 export function runSetupDiagnostics(snapshots = [], opts = {}) {
   const result = deriveSetupEventsFromWindow(snapshots, {
     ...opts,
@@ -129,6 +221,7 @@ export function runSetupDiagnostics(snapshots = [], opts = {}) {
     posture: s.posture,
     path_forecast: s.path_forecast,
   }));
+  const traderPosture = summarizeTraderPosture(result.sequences, opts.postureOpts || {});
 
   const latest = result.latest || snapshots[snapshots.length - 1] || null;
   const windowTs = snapshots.map((s) => Number(s.ts)).filter(Number.isFinite);
@@ -147,6 +240,7 @@ export function runSetupDiagnostics(snapshots = [], opts = {}) {
     sequences: result.sequences,
     path_forecasts: pathForecasts,
     active_sequences: activeSequences,
+    trader_posture: traderPosture,
     latest_summary: latest ? {
       ts: latest.ts ?? latest.event_ts,
       price: latest.price,
@@ -183,30 +277,35 @@ export async function handleSetupDiagnosticsRoute({
     const untilRaw = url.searchParams.get("until");
     const limitRaw = url.searchParams.get("limit");
     const lookbackRaw = url.searchParams.get("lookbackHours");
-    const bootstrapFirst = url.searchParams.get("bootstrapFirst") === "1";
+    const bootstrapParam = url.searchParams.get("bootstrapFirst");
     const includeEmpty = url.searchParams.get("includeEmpty") === "1";
+    const allowLatestFallback = url.searchParams.get("allowLatestFallback") !== "0";
+    const kv = env.KV_TIMED || env.KV;
 
-    const snapshots = await loadTrailSnapshots(db, ticker, {
+    const loaded = await loadDiagnosticSnapshots(db, kv, ticker, {
       since: sinceRaw ? Number(sinceRaw) : null,
       until: untilRaw ? Number(untilRaw) : null,
       limit: limitRaw ? Number(limitRaw) : DEFAULT_LIMIT,
       lookbackHours: lookbackRaw ? Number(lookbackRaw) : DEFAULT_LOOKBACK_HOURS,
+      allowLatestFallback,
     });
 
-    if (snapshots.length === 0) {
+    if (loaded.snapshots.length === 0) {
       return sendJSON({
         ok: false,
-        error: "no_trail_snapshots",
+        error: "no_snapshots",
         ticker,
-        hint: "no timed_trail.payload_json rows in window — need fresh ingest or widen lookbackHours/since",
+        hint: "no timed_trail.payload_json rows in window and no timed:latest KV payload — need fresh ingest or widen lookbackHours/since",
       }, 404, corsHeaders(env, req));
     }
 
-    const latestSnapshot = snapshots[snapshots.length - 1];
+    const latestSnapshot = loaded.snapshots[loaded.snapshots.length - 1];
     const context = buildDiagnosticsContext(latestSnapshot, env);
-    const diagnostics = runSetupDiagnostics(snapshots, {
+    const effectiveBootstrap = bootstrapParam === "1"
+      || (bootstrapParam == null && loaded.source === "timed_latest" && loaded.snapshots.length === 1);
+    const diagnostics = runSetupDiagnostics(loaded.snapshots, {
       context,
-      bootstrapFirst,
+      bootstrapFirst: effectiveBootstrap,
       includeEmptySequences: includeEmpty,
       limit: limitRaw ? Number(limitRaw) : DEFAULT_LIMIT,
     });
@@ -214,6 +313,7 @@ export async function handleSetupDiagnosticsRoute({
     return sendJSON({
       ok: true,
       ticker,
+      snapshot_source: loaded.source,
       ...diagnostics,
     }, 200, corsHeaders(env, req));
   } catch (e) {

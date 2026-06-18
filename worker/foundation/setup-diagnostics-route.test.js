@@ -3,8 +3,11 @@ import {
   buildDiagnosticsContext,
   parseTrailSnapshotRow,
   runSetupDiagnostics,
+  summarizeTraderPosture,
   vixRegimeFromValue,
 } from "./setup-diagnostics-route.js";
+import { detectMeanReversionSequences } from "./setup-sequences.js";
+import { mockSetupEvent, normalizeSetupEvents } from "./setup-events.js";
 
 function ticker(overrides = {}) {
   return {
@@ -55,13 +58,32 @@ describe("setup diagnostics route helpers", () => {
       execution_profile: { personality: "pullback_player" },
       _env: { _sectorRegime: { posture: "leading" } },
       strategy_alignment: "supportive",
+      regime_forecast: { state: "HTF_BULL_LTF_PULLBACK", confidence: 0.72 },
+      market_internals: { overall: "risk_on" },
     });
-    expect(ctx).toEqual({
+    expect(ctx).toMatchObject({
       vix_regime: "high",
       sector_posture: "leading",
       research_alignment: "supportive",
       ticker_personality: "pullback_player",
+      index_posture: "risk_on",
+      regime_forecast_state: "HTF_BULL_LTF_PULLBACK",
+      regime_forecast_confidence: 0.72,
     });
+  });
+
+  it("summarizes trader posture from active sequences", () => {
+    const events = normalizeSetupEvents([
+      mockSetupEvent({ ticker: "USO", event_ts: 1, event_type: "td_setup_progress", direction: "LONG" }),
+      mockSetupEvent({ ticker: "USO", event_ts: 2, event_type: "td9_complete", direction: "LONG" }),
+      mockSetupEvent({ ticker: "USO", event_ts: 3, event_type: "pdz_discount_entered", direction: "LONG" }),
+      mockSetupEvent({ ticker: "USO", event_ts: 4, event_type: "phase_left_accumulation", direction: "LONG" }),
+      mockSetupEvent({ ticker: "USO", event_ts: 5, event_type: "ema21_reclaim", direction: "LONG" }),
+    ]).events;
+    const sequences = detectMeanReversionSequences(events, { ticker: "USO" });
+    const summary = summarizeTraderPosture(sequences);
+    expect(summary.posture).toBe("Bullish");
+    expect(summary.stage).toBeGreaterThanOrEqual(5);
   });
 
   it("parses timed_trail rows into snapshot objects", () => {

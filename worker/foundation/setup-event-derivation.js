@@ -44,6 +44,49 @@ function tfAliases(tf) {
   return [s];
 }
 
+/** Normalize TD row fields across live payload vs rank_trace setup_snapshot names. */
+export function normalizeTdRow(raw = {}) {
+  if (!raw || typeof raw !== "object") return {};
+  return {
+    ...raw,
+    bullish_prep_count: num(raw.bullish_prep_count ?? raw.bull_prep) ?? raw.bullish_prep_count,
+    bearish_prep_count: num(raw.bearish_prep_count ?? raw.bear_prep) ?? raw.bearish_prep_count,
+    td9_bullish: raw.td9_bullish ?? raw.td9_bull,
+    td9_bearish: raw.td9_bearish ?? raw.td9_bear,
+    td13_bullish: raw.td13_bullish ?? raw.td13_bull,
+    td13_bearish: raw.td13_bearish ?? raw.td13_bear,
+  };
+}
+
+function setupSnapshotTd(t, tf) {
+  const tdSeq = t?.setup_snapshot?.td_seq
+    || t?.__rank_trace?.setup_snapshot?.td_seq
+    || null;
+  if (!tdSeq || typeof tdSeq !== "object") return null;
+  for (const key of tfAliases(tf)) {
+    if (tdSeq[key]) return normalizeTdRow(tdSeq[key]);
+  }
+  return null;
+}
+
+function topLevelPdzZone(t, tf) {
+  const s = String(tf);
+  if (s === "D") return t?.pdz_zone_D || t?.pdz_D?.zone || null;
+  if (s === "240" || s === "4H") return t?.pdz_zone_4h || t?.pdz_4h?.zone || null;
+  if (s === "60" || s === "1H") return t?.pdz_zone_1h || t?.pdz_zone_h1 || null;
+  return t?.[`pdz_zone_${s}`] || null;
+}
+
+function setupSnapshotPdz(t, tf) {
+  const pdz = t?.setup_snapshot?.pdz || t?.__rank_trace?.setup_snapshot?.pdz || null;
+  if (!pdz || typeof pdz !== "object") return null;
+  const s = String(tf);
+  if (s === "D") return pdz.D || null;
+  if (s === "240" || s === "4H") return pdz.h4 || pdz["4h"] || pdz["240"] || null;
+  if (s === "60" || s === "1H") return pdz.h1 || pdz["1h"] || pdz["60"] || null;
+  return pdz[s] || null;
+}
+
 function tfRow(t, tf) {
   const tech = t?.tf_tech || {};
   for (const key of tfAliases(tf)) {
@@ -55,9 +98,11 @@ function tfRow(t, tf) {
 function tdRow(t, tf) {
   const td = t?.td_sequential || {};
   for (const key of tfAliases(tf)) {
-    if (td?.per_tf?.[key]) return td.per_tf[key];
+    if (td?.per_tf?.[key]) return normalizeTdRow(td.per_tf[key]);
   }
-  return tf === "D" ? td : null;
+  const fromSnapshot = setupSnapshotTd(t, tf);
+  if (fromSnapshot) return fromSnapshot;
+  return tf === "D" ? normalizeTdRow(td) : null;
 }
 
 function satyRow(t, tf) {
@@ -78,7 +123,11 @@ function stDir(t, tf) {
 }
 
 function pdzZone(t, tf) {
-  return String(tfRow(t, tf)?.pdz?.zone || t?.flags?.[`pdz_zone_${tf}`] || "").toLowerCase();
+  const fromTf = tfRow(t, tf)?.pdz?.zone;
+  const fromFlags = t?.flags?.[`pdz_zone_${tf}`];
+  const fromTop = topLevelPdzZone(t, tf);
+  const fromSnapshot = setupSnapshotPdz(t, tf);
+  return String(fromTf || fromTop || fromSnapshot || fromFlags || "").toLowerCase();
 }
 
 function fvgRow(t, tf) {
