@@ -818,40 +818,7 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Strip markdown sections duplicated by infographic / structured blocks. */
-export function stripBriefMarkdownForEmail(md) {
-  if (!md || typeof md !== "string") return "";
-  let cleaned = md
-    .replace(/ (#{2,4}) /g, "\n\n$1 ")
-    .replace(/ - \*\*/g, "\n- **")
-    .replace(/ - ([A-Z])/g, "\n- $1");
-  cleaned = cleaned.replace(
-    /\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi,
-    "\n",
-  );
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*(?:Key Levels|Index Outlook)[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
-    "\n",
-  );
-  // Legacy headings the model may still emit — merged into The Market Read.
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-    "\n",
-  );
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-    "\n",
-  );
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-    "\n",
-  );
-  // Investor Portfolio — rendered as structured line-by-line block from infographic.
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
-    "\n",
-  );
-  return cleaned.trim();
-}
+export { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail } from "./daily-brief-markdown.js";
 
 /** One row per investor holding for brief emails. */
 export function buildEmailInvestorPortfolioBlock(holdings = []) {
@@ -881,6 +848,26 @@ export function buildEmailInvestorPortfolioBlock(holdings = []) {
   </table>`;
 }
 
+/** Evening brief — structured CRO Desk card (parity with daily-brief.html). */
+export function buildEmailCRODeskBlock(croNote, accentColor) {
+  if (!croNote || (!croNote.verdict && !(croNote.observations?.length > 0))) return "";
+  const obs = (Array.isArray(croNote.observations) ? croNote.observations : []).slice(0, 4);
+  const obsHtml = obs.map((o) => `
+    <div style="margin:0 0 8px;padding:10px 12px;background:rgba(255,255,255,0.03);border:1px solid ${BRAND.border};border-radius:6px">
+      ${o.section ? `<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accentColor};margin-bottom:4px">${_esc(o.section)}</div>` : ""}
+      <div style="font-size:12px;line-height:1.5;color:${BRAND.textSecondary}">${_esc(o.text || "")}</div>
+    </div>`).join("");
+  const dateLine = croNote.asOfDate
+    ? `<div style="font-size:10px;color:${BRAND.textMuted};margin:0 0 8px">Desk note · ${_esc(croNote.asOfDate)}</div>`
+    : "";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+    <tr><td style="padding:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">CRO Research Desk — Day Wrap</td></tr>
+    <tr><td>${dateLine}${croNote.verdict ? `<p style="margin:0 0 10px;font-size:14px;line-height:1.55;color:${BRAND.textSecondary}">${_esc(croNote.verdict)}</p>` : ""}${obsHtml}
+      <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/research-desk.html" style="color:${accentColor};text-decoration:none;font-weight:600">Open full Research Desk →</a></p>
+    </td></tr>
+  </table>`;
+}
+
 function markdownToEmailHtml(md) {
   if (!md) return "";
   // Extract blockquotes first (pull-quote editorial treatment).
@@ -906,7 +893,7 @@ function markdownToEmailHtml(md) {
 }
 
 export async function sendDailyBriefEmail(env, userEmail, brief) {
-  const { type, content, date, esPrediction, stats, infographic, spyPrediction, qqqPrediction, iwmPrediction, liveKeyLevels } = brief;
+  const { type, content, date, esPrediction, stats, infographic, spyPrediction, qqqPrediction, iwmPrediction, liveKeyLevels, croNote } = brief;
   // 2026-05-21 — support label / subject overrides for non-brief reuses of
   // this template (e.g. the Weekly Recap path in /timed/admin/weekly-retrospective).
   // Default labels: morning → "Morning Brief", anything else → "Evening Brief".
@@ -931,14 +918,15 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
 
   // Index outlook cards — predictions + live key levels (parity with daily-brief.html).
   const indexOutlookHtml = (() => {
+    const lvls = Array.isArray(liveKeyLevels) ? liveKeyLevels : [];
     const preds = [
       { label: "ES", body: esPrediction },
       { label: "SPY", body: spyPrediction },
       { label: "QQQ", body: qqqPrediction },
       { label: "IWM", body: iwmPrediction },
     ].filter((p) => p.body);
-    const lvls = Array.isArray(liveKeyLevels) ? liveKeyLevels : [];
     if (!preds.length && !lvls.length) return "";
+    const outlookTitle = type === "evening" ? "Index Outlook &amp; Scorecard" : "Index Outlook &amp; Game Plan";
     const predRows = preds.map((p) => `
       <div style="margin:0 0 10px;padding:10px 12px;background:rgba(255,255,255,0.03);border-left:3px solid ${accentColor};border-radius:6px">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accentColor};margin-bottom:4px">${_esc(p.label)} Outlook</div>
@@ -949,10 +937,11 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
         <strong style="color:white">${_esc(e.sym)}</strong> ${_esc(e.text || "")}
       </p>`).join("");
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
-      <tr><td style="padding:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Index Outlook &amp; Game Plan</td></tr>
+      <tr><td style="padding:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">${outlookTitle}</td></tr>
       <tr><td>${predRows}${lvlRows}</td></tr>
     </table>`;
   })();
+  const croDeskHtml = type === "evening" ? buildEmailCRODeskBlock(croNote, accentColor) : "";
   // Cross-client-safe infographic — matches the web BriefInfographic treatment.
   // Renders "Today's Three" TOC, headline badges, index cards, macro strip,
   // events, risks/opportunities, closing line. Empty string if no data.
@@ -988,10 +977,11 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
   const html = emailLayout(`
     <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${accentColor};font-family:${EMAIL_FONT_UI};margin:0 0 6px">${label}</div>
     <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
-    ${indexOutlookHtml}
     ${infographicHtml}
     ${eveningSummaryHtml}
     ${briefHtml}
+    ${croDeskHtml}
+    ${indexOutlookHtml}
     ${investorPortfolioHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">

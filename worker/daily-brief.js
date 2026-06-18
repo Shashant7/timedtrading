@@ -10,6 +10,9 @@ import {
   getCROBriefAddendum,
   getFSDSynthesisAddendum,
   ensureCRONoteForBriefCadenceWithTimeout,
+  loadLatestCRONote,
+  formatCROBriefAddendumFromNote,
+  formatCRONoteForBriefUI,
 } from "./cro/cro-service.js";
 import { getCTOBriefAddendum } from "./cto/cto-service.js";
 import { scoreRootConfluence } from "./root-strategy.js";
@@ -2557,7 +2560,8 @@ export async function refreshInfographicLiveGamePlans(infographic, env, priceMap
 }
 
 /** Mechanical Key Levels & Game Plan copy from the live infographic (replaces stale LLM section). */
-export function buildLiveKeyLevelsEntries(indices) {
+export function buildLiveKeyLevelsEntries(indices, opts = {}) {
+  const includeGamePlan = opts.includeGamePlan !== false;
   const want = new Set(["SPY", "QQQ", "IWM"]);
   return (Array.isArray(indices) ? indices : [])
     .filter((idx) => want.has(String(idx?.sym || "").toUpperCase()))
@@ -2610,7 +2614,7 @@ export function buildLiveKeyLevelsEntries(indices) {
       return {
         sym,
         price: Number.isFinite(cp) ? Math.round(cp * 100) / 100 : null,
-        text: `${sym} — current $${_f(cp)}, ${posVsGate} (${rangeText}). Day GG is ${dayGg}.${weekClause}${gpClause}`,
+        text: `${sym} — current $${_f(cp)}, ${posVsGate} (${rangeText}). Day GG is ${dayGg}.${weekClause}${includeGamePlan ? gpClause : ""}`,
         refreshedAt: Date.now(),
       };
     });
@@ -3654,7 +3658,7 @@ function buildRetailFriendlyOutputSpec(type) {
   // the Daily Brief is the hook to get users to come back in to the
   // site and trust the model."
   const sections = isEvening
-    ? `1. **The Market Read** (~250 words — ONE section only. Merge the desk read, session recap, macro context, and sector themes. Open with what drove today in one causal sentence (CRO note + macro prints actual vs estimate + rotation/flows). Cover VIX close + cross-asset moves + breadth/sector leaders and laggards with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
+    ? `1. **The Market Read** (~250 words — ONE section only. Merge the CRO Desk day-end wrap, session recap, macro context, and sector themes. OPEN with how today's close validated or challenged the CRO Research Desk verdict — cite specific Desk observations when the tape corroborates or contradicts them. Then cover macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders/laggards with WHY. Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", or "Sector Themes" headings — the Desk synthesis lives here AND in the structured Desk card the app renders separately.)
 2. **Index Outlook & Scorecard** (~350 words — ONE section merging predictions + structural update + key levels. For ES then SPY, QQQ, IWM use ### sub-headings per index. Each sub-block: scorecard (call vs result for evening), narrative sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings.)
 3. **Looking Ahead** (~80 words — tomorrow's macro calendar entries BY NAME with time + consensus where provided)
 4. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — lane + WHY)
@@ -4042,7 +4046,7 @@ Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matc
 ${buildRetailFriendlyOutputSpec("morning")}`;
 }
 
-async function buildEveningPrompt(data, env) {
+async function buildEveningPrompt(data, env, { croNote = null } = {}) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
     ? "US equity markets were CLOSED today (holiday). Focus on futures/overnight and next trading day."
@@ -4051,12 +4055,15 @@ async function buildEveningPrompt(data, env) {
       : cal.isFriday
         ? "Today was Friday. Acknowledge week-in-review, weekend positioning, and any Monday outlook where relevant."
         : "";
+  const croAddendum = croNote
+    ? formatCROBriefAddendumFromNote(croNote, { slot: "evening" })
+    : await getCROBriefAddendum(env, { slot: "evening" });
   return `Generate the EVENING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 5:00 PM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
 
 ${await getStrategyBriefAsync(env)}
 
-${await getCROBriefAddendum(env)}
+${croAddendum}
 
 ${await getFSDSynthesisAddendum(env)}
 
@@ -4459,23 +4466,22 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
     });
   }
 
-  // Index Outlook & Game Plan — one merged block (parity with daily-brief.html).
+  // Index Outlook & Game Plan — appended last (after session context fields).
   const outlookParts = [];
   if (esPrediction) outlookParts.push(`**ES**\n${_fit(esPrediction)}`);
   if (spyPrediction) outlookParts.push(`**SPY**\n${_fit(spyPrediction)}`);
   if (qqqPrediction) outlookParts.push(`**QQQ**\n${_fit(qqqPrediction)}`);
   if (iwmPrediction) outlookParts.push(`**IWM**\n${_fit(iwmPrediction)}`);
-  const liveLevels = buildLiveKeyLevelsEntries(info.indices || []);
+  const hasEtfPreds = !!(spyPrediction || qqqPrediction || iwmPrediction);
+  const liveLevels = buildLiveKeyLevelsEntries(info.indices || [], { includeGamePlan: !hasEtfPreds });
   for (const entry of liveLevels) {
     if (entry?.text) outlookParts.push(`**${entry.sym} Levels**\n${entry.text}`);
   }
-  if (outlookParts.length > 0) {
-    fields.push({
-      name: "Index Outlook & Game Plan",
-      value: outlookParts.join("\n\n").slice(0, 1000),
-      inline: false,
-    });
-  }
+  const outlookField = outlookParts.length > 0 ? {
+    name: isMorning ? "Index Outlook & Game Plan" : "Index Outlook & Scorecard",
+    value: outlookParts.join("\n\n").slice(0, 1000),
+    inline: false,
+  } : null;
 
   // Index snapshot from infographic (session-aware — matches the web cards).
   const indices = Array.isArray(info.indices) ? info.indices : [];
@@ -4541,6 +4547,8 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
     }).join(" | ");
     fields.push({ name: "Open Positions", value: posStr, inline: false });
   }
+
+  if (outlookField) fields.push(outlookField);
 
   return {
     title: isMorning ? `☀️ Morning Brief — ${data.today}` : `🌙 Evening Brief — ${data.today}`,
@@ -5067,6 +5075,7 @@ async function dispatchDailyBriefNotifications(env, {
   qqqPrediction,
   iwmPrediction,
   infographic,
+  croNote = null,
   subjectHook = null,
   opts = {},
 }) {
@@ -5121,7 +5130,10 @@ async function dispatchDailyBriefNotifications(env, {
       const briefPayload = {
         type, content, date: data.today, esPrediction, spyPrediction, qqqPrediction, iwmPrediction,
         infographic: emailInfographic,
-        liveKeyLevels: buildLiveKeyLevelsEntries(emailInfographic?.indices || infographic?.indices || []),
+        croNote: type === "evening" ? croNote : null,
+        liveKeyLevels: buildLiveKeyLevelsEntries(emailInfographic?.indices || infographic?.indices || [], {
+          includeGamePlan: !(spyPrediction || qqqPrediction || iwmPrediction),
+        }),
         ...(subjectHook ? { _subjectOverride: `${subjectHook}` } : {}),
       };
       const results = await Promise.allSettled(
@@ -5200,7 +5212,10 @@ export async function generateDailyBrief(env, type, opts = {}) {
     if (data.error) return { ok: false, error: data.error };
 
     // 2. Build prompt and call AI
-    const prompt = type === "morning" ? await buildMorningPrompt(data, env) : await buildEveningPrompt(data, env);
+    const croNoteForBrief = await loadLatestCRONote(env).catch(() => null);
+    const prompt = type === "morning"
+      ? await buildMorningPrompt(data, env)
+      : await buildEveningPrompt(data, env, { croNote: croNoteForBrief });
     let content = await callOpenAI(env, ANALYST_SYSTEM_PROMPT, prompt, { type });
     // 2026-06-10 — SUBJECT hook extraction. The output spec requires the
     // model's first line to be "SUBJECT: <≤72-char email hook>". Strip
@@ -5309,6 +5324,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
       spyPrediction,
       qqqPrediction,
       iwmPrediction,
+      croNote: formatCRONoteForBriefUI(croNoteForBrief),
       publishedAt: now,
       infographic,
     };
@@ -5452,6 +5468,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
       qqqPrediction,
       iwmPrediction,
       infographic,
+      croNote: formatCRONoteForBriefUI(croNoteForBrief),
       subjectHook,
       opts,
     });
@@ -5548,8 +5565,14 @@ export async function handleGetBrief(env) {
         if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY);
         if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ);
         if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM);
-        slot.liveKeyLevels = buildLiveKeyLevelsEntries(slot.infographic.indices);
+        const hasPredCards = !!(slot.esPrediction || slot.spyPrediction || slot.qqqPrediction || slot.iwmPrediction);
+        slot.liveKeyLevels = buildLiveKeyLevelsEntries(slot.infographic.indices, { includeGamePlan: !hasPredCards });
         slot.liveKeyLevelsAt = Date.now();
+        if (type === "evening" && !slot.croNote) {
+          try {
+            slot.croNote = formatCRONoteForBriefUI(await loadLatestCRONote(env));
+          } catch (_) {}
+        }
       } catch (e) {
         console.warn("[DAILY BRIEF] live infographic refresh failed:", String(e?.message || e).slice(0, 120));
       }

@@ -19,6 +19,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
+    <script src="daily-brief-markdown.js?v=20260618"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
          the brief. Reuses the shared SVG plot from the Today page. -->
@@ -229,79 +230,15 @@
       // ── Markdown Renderer ──────────────────────────────────────────────────
       function renderMarkdown(md) {
         if (!md) return "";
-        // Pre-process: AI briefs arrive as one long line with headers like " ### "
-        // inline. Insert blank lines so marked renders them as real headings.
         let cleaned = md
-          .replace(/ (#{2,4}) /g, "\n\n$1 ")             // blank line before ## / ### / #### headers
-          .replace(/ - \*\*/g, "\n- **")                 // split inline bold-list items onto new lines
-          .replace(/ - ([A-Z])/g, "\n- $1")              // split inline dash-lists starting with uppercase
+          .replace(/ (#{2,4}) /g, "\n\n$1 ")
+          .replace(/ - \*\*/g, "\n- **")
+          .replace(/ - ([A-Z])/g, "\n- $1");
 
-        // V15 P0.7.62 (2026-05-05) — strip the "Today's Three" TOC out of the
-        // markdown body. The infographic at the top already renders these as
-        // a card; leaving them in the body produces a duplicate display where
-        // the same 3 numbered lines appear twice (once in the card, once at
-        // the start of the prose).
-        // Also strip a leading "Section 0" or "Today's Three" header if the
-        // model emits one. Conservative match: only strip if the first
-        // numbered line appears in the first ~600 chars of content.
-        const stripIdx = cleaned.search(/^\s*1\.\s+(?:\*\*?)?(?:SPY|QQQ|IWM|S&P|ES|NQ|Today)/im);
-        if (stripIdx >= 0 && stripIdx < 800) {
-          // Find the end of the third numbered line
-          const after = cleaned.slice(stripIdx);
-          const m = after.match(/^\s*1\.[\s\S]*?\n\s*2\.[\s\S]*?\n\s*3\.[^\n]*\n/);
-          if (m) {
-            cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
-          }
+        if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
+          cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
         }
 
-        // 2026-06-05 — Strip the per-index "## {SYM} Prediction" sections from
-        // the body. They duplicate the compact prediction cards rendered just
-        // above the markdown (and tend to read stale vs the live index). Match
-        // an h2-h4 "<SYM> Prediction" heading and everything up to the next
-        // heading of the same-or-higher level (or end of doc).
-        cleaned = cleaned.replace(
-          /\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi,
-          "\n",
-        );
-
-        // Merged Index Outlook section — cards + live levels render above.
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*Index\s+Outlook\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
-          "\n",
-        );
-
-        // Legacy headings merged into The Market Read.
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-          "\n",
-        );
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-          "\n",
-        );
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi,
-          "\n",
-        );
-
-        // Investor Portfolio — infographic open-book chips + email-style list elsewhere.
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
-          "\n",
-        );
-
-        // 2026-06-09 — Strip stale LLM Key Levels section; live copy renders
-        // from brief.liveKeyLevels (refreshed from timed:prices on each read).
-        cleaned = cleaned.replace(
-          /\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
-          "\n",
-        );
-
-        // 2026-06-09 (security) — sanitize before dangerouslySetInnerHTML.
-        // Brief content is LLM-generated from scraped/news inputs, so a
-        // prompt-injected <script>/onerror payload would otherwise become
-        // stored XSS for every reader. DOMPurify strips active content;
-        // if the CDN failed to load, fall back to escaping the raw text.
         const _toHtml = (typeof marked !== "undefined" && marked.parse)
           ? marked.parse(cleaned, { breaks: true, gfm: true })
           : cleaned.replace(/\n/g, "<br/>");
@@ -930,6 +867,114 @@
         );
       }
 
+      // ── CRO Desk day-end wrap (evening — between Market Read and outlook) ─
+      function CRODeskWrapPanel({ croNote, accentColor }) {
+        if (!croNote || (!croNote.verdict && !(croNote.observations?.length > 0))) return null;
+        const [expanded, setExpanded] = useState(false);
+        const obs = (croNote.observations || []).slice(0, 4);
+        const summary = String(croNote.summaryMd || "").trim();
+        const showSummary = summary && summary.length > (croNote.verdict || "").length + 40;
+        return (
+          <div className="mt-6 pt-5 border-t border-white/[0.06]">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+              <h3 className="tt-editorial m-0 text-[18px]" style={{ color: "var(--tt-text-0)" }}>
+                CRO Research Desk — Day Wrap
+              </h3>
+              {croNote.asOfDate && (
+                <span className="text-[10px] font-mono uppercase tracking-wider"
+                      style={{ color: "var(--tt-text-dim)" }}>
+                  Desk note · {croNote.asOfDate}
+                </span>
+              )}
+            </div>
+            {croNote.verdict && (
+              <p className="text-[14px] leading-relaxed m-0 mb-3"
+                 style={{ color: "var(--tt-text-1)" }}>
+                {croNote.verdict}
+              </p>
+            )}
+            {obs.length > 0 && (
+              <div className="flex flex-col gap-2 mb-3">
+                {obs.map((o, idx) => (
+                  <div key={idx} className="p-3 rounded-lg"
+                       style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    {o.section && (
+                      <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
+                           style={{ color: accentColor }}>{o.section}</div>
+                    )}
+                    <div className="text-[12px] leading-relaxed"
+                         style={{ color: "var(--tt-text-muted)" }}>{o.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {showSummary && (
+              <div className="mb-3">
+                <button type="button"
+                        className="text-[11px] font-semibold uppercase tracking-wider border-0 bg-transparent cursor-pointer p-0"
+                        style={{ color: accentColor }}
+                        onClick={() => setExpanded((v) => !v)}>
+                  {expanded ? "Hide desk note excerpt" : "Read desk note excerpt"}
+                </button>
+                {expanded && (
+                  <div className="brief-content mt-2 text-[13px]"
+                       dangerouslySetInnerHTML={{ __html: renderMarkdown(summary.slice(0, 2500)) }} />
+                )}
+              </div>
+            )}
+            <a href="/research-desk.html"
+               className="text-[11px] font-semibold no-underline"
+               style={{ color: accentColor }}>
+              Open full Research Desk →
+            </a>
+          </div>
+        );
+      }
+
+      // ── Index Outlook (predictions + live levels — after Market Read) ─────
+      function IndexOutlookSection({ brief, accentColor, bgDim, isMorning }) {
+        const hasOutlook = !!(brief?.esPrediction || brief?.spyPrediction || brief?.qqqPrediction
+          || brief?.iwmPrediction || brief?.liveKeyLevels?.length > 0);
+        if (!hasOutlook) return null;
+        const sectionTitle = isMorning ? "Index Outlook & Game Plan" : "Index Outlook & Scorecard";
+        const predCards = [
+          { label: "ES Outlook", body: brief.esPrediction },
+          { label: "SPY Prediction", body: brief.spyPrediction },
+          { label: "QQQ Prediction", body: brief.qqqPrediction },
+          { label: "IWM Prediction", body: brief.iwmPrediction },
+        ].filter((p) => p.body);
+        return (
+          <div className="mt-6 pt-5 border-t border-white/[0.06]">
+            <h3 className="tt-editorial m-0 mb-3 text-[18px]" style={{ color: "var(--tt-text-0)" }}>
+              {sectionTitle}
+            </h3>
+            {predCards.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+                {predCards.map((p) => (
+                  <div key={p.label} className="p-3 rounded-lg"
+                       style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
+                    <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
+                         style={{ color: accentColor }}>{p.label}</div>
+                    <div className="text-[13px] leading-relaxed"
+                         style={{ color: "var(--tt-text-1)", whiteSpace: "pre-line" }}
+                         dangerouslySetInnerHTML={{
+                           __html: String(p.body || "")
+                             .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                             .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>')
+                             .replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>')
+                             .replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>'),
+                         }} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {brief.liveKeyLevels?.length > 0 && (
+              <LiveKeyLevelsPanel entries={brief.liveKeyLevels} refreshedAt={brief.liveKeyLevelsAt} embedded />
+            )}
+          </div>
+        );
+      }
+
       // ── Brief Card Component ───────────────────────────────────────────────
       function BriefCard({ brief, type }) {
         if (!brief) return null;
@@ -956,46 +1001,12 @@
                 {dateStr}
               </h2>
             </div>
-            {/* P0.7.129 — render all four predictions (ES + SPY + QQQ + IWM)
-                up top, in parallel format. ES leads (broad-market futures
-                anchor), then the three ETFs the user actually trades. */}
-            {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction || brief.liveKeyLevels?.length > 0) && (
-              <div className="mb-4">
-                <h3 className="tt-editorial m-0 mb-3 text-[18px]" style={{ color: "var(--tt-text-0)" }}>
-                  Index Outlook &amp; Game Plan
-                </h3>
-                {(brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                    {[
-                      { label: "SPY Prediction", body: brief.spyPrediction },
-                      { label: "QQQ Prediction", body: brief.qqqPrediction },
-                      { label: "IWM Prediction", body: brief.iwmPrediction },
-                    ].filter(p => p.body).map(p => (
-                      <div key={p.label} className="p-3 rounded-lg"
-                           style={{ background: bgDim, borderLeft: `3px solid ${accentColor}` }}>
-                        <div className="text-[9px] font-bold uppercase tracking-widest mb-1"
-                             style={{ color: accentColor }}>{p.label}</div>
-                        <div className="text-[13px] leading-relaxed"
-                             style={{ color: "var(--tt-text-1)", whiteSpace: "pre-line" }}
-                             dangerouslySetInnerHTML={{
-                               __html: String(p.body || "")
-                                 .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                                 .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>')
-                                 .replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>')
-                                 .replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>'),
-                             }} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {brief.liveKeyLevels?.length > 0 && (
-                  <LiveKeyLevelsPanel entries={brief.liveKeyLevels} refreshedAt={brief.liveKeyLevelsAt} embedded />
-                )}
-              </div>
-            )}
-            <hr className="tt-divider" style={{ margin: "0 0 18px", borderColor: bgDim }} />
             {brief.infographic && <BriefInfographic data={brief.infographic} />}
             <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
+            {!isMorning && brief.croNote && (
+              <CRODeskWrapPanel croNote={brief.croNote} accentColor={accentColor} />
+            )}
+            <IndexOutlookSection brief={brief} accentColor={accentColor} bgDim={bgDim} isMorning={isMorning} />
           </div>
         );
       }
