@@ -66,6 +66,32 @@ node scripts/analyze-tv-reference-exports.mjs \
 
 ## Initial result summary
 
+### Updated SPY/IWM/QQQ parity-export rerun
+
+After re-exporting SPY/IWM/QQQ with the updated
+`TimedTrading_Indicator_Parity_Export.pine`, the 10,3 parity run across the
+updated subset was:
+
+```text
+9 files checked (SPY/IWM/QQQ x D/W/60)
+6 / 9 files clean
+only mismatch fields: fvg_in_bull = 3, fvg_in_bear = 1
+```
+
+The updated export includes Lux-aligned TD lead-up columns and rolling VWAP
+columns. No aggregate mismatches appeared for TD, Phase, SuperTrend 10,3,
+rolling VWAP, liquidity high/low proxy, RSI, ATR, EMA, squeeze, PDZ, or RSI
+divergence in this subset.
+
+Remaining edge cases:
+
+| Ticker | TF | Field | Timestamp |
+|---|---|---|---:|
+| IWM | D | `fvg_in_bull` | 1774877400000 |
+| IWM | D | `fvg_in_bear` | 1776173400000 |
+| QQQ | 60 | `fvg_in_bull` | 1780687800000 |
+| SPY | 60 | `fvg_in_bull` | 1780687800000 |
+
 ### Direct reference-indicator checks
 
 Additional comparisons were run against the independent TradingView indicator
@@ -76,7 +102,7 @@ columns included in the raw CSV exports.
 | LuxAlgo Sequencer preparation counts | 1,200 sampled rows | **Matched** bullish and bearish prep counts exactly | Added `tradingview/LuxAlgo-Sequencer-Export.pine` so the next export can include lead-up/countdown columns. |
 | LuxAlgo Sequencer lead-up counts | 400 sampled rows from SPY/IWM/QQQ Lux companion exports | **Matched after worker alignment** | Worker TD lead-up now starts at `1` on preparation completion and persists/increments LuxAlgo-style. Re-export `TimedTrading_Indicator_Parity_Export.pine` before accepting `td13_*` fixture columns generated before this alignment. |
 | MTF Phase Oscillator `Phase (Chart TF)` | 1,200 sampled rows | **Matched** `saty_phase_value` exactly | Also matched leaving-accumulation and leaving-distribution markers. |
-| ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker-vs-ATR-level parity still needs anchor-TF mapping (D/W/60 charts may anchor to W/M/3M depending script auto mode). |
+| ATR Levels plotted bands | 1,200 sampled rows | **Internally consistent** | Confirms exported ATR bands obey their own `prev_close ± ATR * fib` math. Worker now derives 3M/12M anchor bundles from monthly candles when enough history exists; full parity still needs anchor-TF fixtures/exports. |
 
 ### SuperTrend 10,3 baseline
 
@@ -156,11 +182,10 @@ The remaining gaps are now narrow and explicit:
 2. **LuxAlgo lead-up:** fixed. Prep and lead-up now match the Lux companion
    export on the sampled SPY/IWM/QQQ rows. The original parity CSV `td13_*`
    columns predate this alignment and should be re-exported before acceptance.
-3. **ATR Levels:** exported bands are internally consistent, but full
-   worker-vs-reference parity needs anchor mapping:
-   below 30m -> previous Daily close, 30m -> previous Weekly close, 60m ->
-   previous Monthly close, 4H -> previous Quarterly close, D/W -> previous
-   yearly anchor.
+3. **ATR Levels:** exported bands are internally consistent. Worker anchor
+   mapping now follows Saty rules, including derived 3M/12M anchor bundles from
+   monthly candles when enough history exists. Full worker-vs-reference parity
+   still needs anchor-TF fixtures/exports.
 4. **SuperTrend 5,3 vs 10,3:** now parameter-aware; do not classify as formula
    mismatch.
 
@@ -172,7 +197,8 @@ The remaining gaps are now narrow and explicit:
    rolling VWAP columns and Lux-aligned TD lead-up / TD13 columns.
 2. Inspect the single FVG mismatch:
    - `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
-3. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity.
+3. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity,
+   especially Monthly/Quarterly/Yearly anchors.
 4. Convert accepted CSV fields into committed fixture JSON only after the above
    definitions are accepted.
 5. If SuperTrend 5,3 is the desired production signal, run a deliberate

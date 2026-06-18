@@ -3590,6 +3590,8 @@ export function buildATRLevelMaps(bundles, currentPrice) {
   const bD = bundles?.D;
   const bW = bundles?.W;
   const bM = bundles?.M;
+  const bQ = bundles?.["3M"] || bundles?.Q;
+  const bY = bundles?.["12M"] || bundles?.Y;
 
   const maps = {};
 
@@ -3630,7 +3632,13 @@ export function buildATRLevelMaps(bundles, currentPrice) {
   // Saty rule: 4H chart uses previous Quarterly close + Quarterly ATR.
   // True Q bundles are not available in the current scoring bundle, so this is
   // explicitly marked approximate until quarterly candles are added.
-  if (bM && Number.isFinite(bM.atr14)) {
+  if (bQ && Number.isFinite(bQ.atr14)) {
+    const pc = Number.isFinite(bQ.pxPrev) ? bQ.pxPrev : bQ.px;
+    maps.quarter = withAtrAnchorMeta(
+      computeATRLevels(pc, bQ.atr14, currentPrice, "quarter", bQ.barHigh, bQ.barLow),
+      { anchor_tf: "3M", intended_chart_tf: "240", saty_anchor_rule: "4h_uses_previous_quarterly_close", anchor_status: "exact" },
+    );
+  } else if (bM && Number.isFinite(bM.atr14)) {
     const quarterlyATR = bM.atr14 * Math.sqrt(3);
     const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
     maps.quarter = withAtrAnchorMeta(
@@ -3649,7 +3657,13 @@ export function buildATRLevelMaps(bundles, currentPrice) {
   // Saty rule: Daily chart uses previous Yearly close + Yearly ATR. Weekly can
   // use yearly as context, but ATR levels are less applicable there.
   // True Y bundles are not available in the current scoring bundle.
-  if (bM && Number.isFinite(bM.atr14)) {
+  if (bY && Number.isFinite(bY.atr14)) {
+    const pc = Number.isFinite(bY.pxPrev) ? bY.pxPrev : bY.px;
+    maps.longterm = withAtrAnchorMeta(
+      computeATRLevels(pc, bY.atr14, currentPrice, "longterm", bY.barHigh, bY.barLow),
+      { anchor_tf: "12M", intended_chart_tf: "D/W", saty_anchor_rule: "daily_uses_previous_yearly_close", anchor_status: "exact" },
+    );
+  } else if (bM && Number.isFinite(bM.atr14)) {
     const yearlyATR = bM.atr14 * Math.sqrt(12);
     const pc = Number.isFinite(bM.pxPrev) ? bM.pxPrev : bM.px;
     maps.longterm = withAtrAnchorMeta(
@@ -5608,6 +5622,56 @@ export function deduplicateCandles(candles, tf) {
   return [...byTs.values()].sort((a, b) => a.ts - b.ts);
 }
 
+function aggregateBars(bars, bucketTs) {
+  if (!Array.isArray(bars) || bars.length === 0) return null;
+  const sorted = [...bars].sort((a, b) => Number(a.ts) - Number(b.ts));
+  let h = -Infinity;
+  let l = Infinity;
+  let v = 0;
+  for (const b of sorted) {
+    const bh = Number(b.h);
+    const bl = Number(b.l);
+    if (Number.isFinite(bh) && bh > h) h = bh;
+    if (Number.isFinite(bl) && bl < l) l = bl;
+    v += Number(b.v) || 0;
+  }
+  return {
+    ts: bucketTs,
+    o: Number(sorted[0].o),
+    h,
+    l,
+    c: Number(sorted[sorted.length - 1].c),
+    v,
+  };
+}
+
+export function resampleMonthlyCandles(candles, monthsPerBar = 3) {
+  const months = Number(monthsPerBar);
+  if (!Array.isArray(candles) || !Number.isInteger(months) || months < 1) return [];
+  const sorted = deduplicateCandles(candles, "M") || [];
+  const buckets = new Map();
+  for (const c of sorted) {
+    const d = new Date(Number(c.ts));
+    if (!Number.isFinite(d.getTime())) continue;
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth(); // 0-based
+    const bucketMonth = Math.floor(month / months) * months;
+    const key = `${year}-${String(bucketMonth + 1).padStart(2, "0")}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(c);
+  }
+  const out = [];
+  for (const key of [...buckets.keys()].sort()) {
+    const grp = buckets.get(key);
+    const firstTs = Math.min(...grp.map((b) => Number(b.ts)).filter(Number.isFinite));
+    const agg = aggregateBars(grp, firstTs);
+    if (agg && Number.isFinite(agg.o) && Number.isFinite(agg.h) && Number.isFinite(agg.l) && Number.isFinite(agg.c)) {
+      out.push(agg);
+    }
+  }
+  return out.sort((a, b) => a.ts - b.ts);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // ALPACA API CLIENT
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6602,6 +6666,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // 50-bar bundle minimum) so missing/thin TFs surface as freshness gaps.
   const tfNewestTs = {};
   for (const tf of scoringTfs) tfNewestTs[tf] = 0;
+  let monthlyAnchorCandles = null;
 
   for (const { tf, result } of tfResults) {
     if (result?.ok && result.candles && result.candles.length > 0) {
@@ -6628,6 +6693,9 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
         bundles[tf] = computeTfBundle(bundleInput);
         if (bundles[tf]) hasData = true;
       }
+      if (tf === "M" && bundleInput.length >= 3) {
+        monthlyAnchorCandles = bundleInput;
+      }
       // TD Sequential candles (need 14+ for minimal computation)
       if (TD_SEQ_TFS.includes(tf) && deduped.length >= 14) {
         tdSeqCandles[tf] = deduped;
@@ -6641,9 +6709,22 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
 
   if (!hasData) return null;
 
+  if (monthlyAnchorCandles && monthlyAnchorCandles.length >= 3) {
+    try {
+      const qBars = resampleMonthlyCandles(monthlyAnchorCandles, 3);
+      if (qBars.length >= 15) bundles["3M"] = computeTfBundle(qBars);
+      const yBars = resampleMonthlyCandles(monthlyAnchorCandles, 12);
+      if (yBars.length >= 15) bundles["12M"] = computeTfBundle(yBars);
+    } catch (e) {
+      console.warn(`[ATR_ANCHOR] ${ticker} Q/Y derivation failed:`, String(e?.message || e).slice(0, 120));
+    }
+  }
+
   // Map to the key format used by assembleTickerData
   const bundleMap = {
     M: bundles.M || null,
+    "3M": bundles["3M"] || null,
+    "12M": bundles["12M"] || null,
     W: bundles.W || null,
     D: bundles.D || null,
     "240": bundles["240"] || null,

@@ -160,7 +160,8 @@ function convertValue(raw, type) {
 
 function tfFromFile(file) {
   const name = path.basename(file, ".csv");
-  const raw = name.includes(",") ? name.split(",").pop().trim() : name.split("_").pop();
+  const match = name.match(/,\s*(1D|1W|1M|60|240|30|15|10|5|1)(?:_|$)/i);
+  const raw = match ? match[1] : name.includes(",") ? name.split(",").pop().trim() : name.split("_").pop();
   if (raw === "1D") return "D";
   if (raw === "1W") return "W";
   if (raw === "1M") return "M";
@@ -169,8 +170,10 @@ function tfFromFile(file) {
 
 function tickerFromFile(file) {
   const parent = path.basename(path.dirname(file));
-  if (parent && parent !== "extracted") return parent.toUpperCase();
   const name = path.basename(file, ".csv").split(",")[0];
+  const match = name.match(/(?:BATS_|NASDAQ_|NYSE_|AMEX_|ARCA_)([A-Z0-9.-]+)/i);
+  if (match) return match[1].toUpperCase();
+  if (parent && parent !== "extracted" && parent !== "updated-parity" && parent !== "lux-sequencer") return parent.toUpperCase();
   return name.replace(/^.*[_:]/, "").toUpperCase();
 }
 

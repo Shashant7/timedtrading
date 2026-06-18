@@ -674,6 +674,8 @@ Do not recalibrate weights until L0/L1 parity is proven.
 - Export fixture set.
 - Use the shadow harness in `worker/foundation/indicator-parity.js` and
   fixture contract in `data/indicator-fixtures/v1/`.
+- ATR anchor levels now derive 3M/12M bundles from monthly candles when enough
+  history exists; fixture parity still needs the corresponding anchor exports.
 - Add parity tests for EMA/RSI/ATR/ST/TD/Phase plus deterministic
   structural fixtures for FVG, liquidity, ORB, PDZ, and RSI divergence.
 - Encode session-clip policy in every fixture manifest.
