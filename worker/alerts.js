@@ -262,13 +262,14 @@ export async function recordCronFailure(env, opts) {
   const ts = Date.now();
 
   // 1. KV tombstone (with auto-incrementing count per op)
+  let count = 1;
+  let prev = null;
   try {
     const KV = env?.KV_TIMED;
     if (KV) {
       const key = `timed:cron:failure:${op}`;
-      let prev = null;
       try { prev = await KV.get(key, "json"); } catch {}
-      const count = (Number(prev?.count) || 0) + 1;
+      count = (Number(prev?.count) || 0) + 1;
       const tombstone = { op, error, ts, caller, count, last_ok_ts: prev?.last_ok_ts || null };
       try {
         await KV.put(key, JSON.stringify(tombstone), { expirationTtl: 7 * 86400 });
@@ -279,8 +280,12 @@ export async function recordCronFailure(env, opts) {
   // 2. Discord alert (best-effort) — system lane
   // Cron failures are ops noise, not trader-actionable. Route to the
   // system-alerts channel so the trade channel stays clean.
+  // Dedup: only page on the first failure or when the error signature changes.
+  // Repeat failures with the same message increment the tombstone count but
+  // do not spam #system-alerts (operator-reported noise on 2026-06-17).
   try {
-    if (!opts?.skipDiscord) {
+    const errorChanged = !prev?.error || String(prev.error) !== error;
+    if (!opts?.skipDiscord && (count === 1 || errorChanged)) {
       await notifyDiscord(env, {
         title: `⚠️ Cron Failure: ${op}`,
         description: `\`${error}\``,
