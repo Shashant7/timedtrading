@@ -299,7 +299,12 @@ export async function tdFetchQuote(env, symbols) {
 
 function parseTdQuote(q) {
   const price = Number(q.close) || 0;
-  const ts = q.timestamp ? Number(q.timestamp) * 1000 : Date.now();
+  // TwelveData `timestamp` is often the minute-bar open (stale during RTH).
+  // `last_quote_at` is when the quote actually updated — use the fresher one
+  // so REST snapshot refresh + timed:prices don't freeze (QQQ-class bug 2026-06-18).
+  const barTs = q.timestamp ? Number(q.timestamp) * 1000 : 0;
+  const quoteAt = q.last_quote_at ? Number(q.last_quote_at) * 1000 : 0;
+  const ts = quoteAt > barTs ? quoteAt : (barTs > 0 ? barTs : Date.now());
   return {
     price,
     trade_ts: ts,
@@ -518,6 +523,7 @@ export {
   isCrypto,
   aggregate5mTo10m,
   tdBarToAlpacaBar,
+  parseTdQuote,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
