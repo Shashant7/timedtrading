@@ -15,6 +15,8 @@
  *   --discovery-file PATH   move-discovery JSON export (required)
  *   --limit N               max moves to process (default 5)
  *   --ticker SYM            single ticker filter
+ *   --exclude-ticker SYM    skip tickers (comma-separated; e.g. SOXL)
+ *   --one-per-ticker        keep highest move_atr move per ticker only
  *   --min-atr N             minimum move_atr filter (default 0)
  *   --pre-entry-days N      calendar days before move start_date (default 5)
  *   --api-base URL          worker base URL
@@ -64,6 +66,8 @@ function hasFlag(name) {
 const DISCOVERY_FILE = argValue("--discovery-file", "");
 const LIMIT = Math.max(1, Number(argValue("--limit", "5")) || 5);
 const TICKER_FILTER = String(argValue("--ticker", "") || "").toUpperCase();
+const EXCLUDE_TICKERS_RAW = argValue("--exclude-ticker", "") || argValue("--exclude-tickers", "");
+const ONE_PER_TICKER = hasFlag("--one-per-ticker");
 const MIN_ATR = Number(argValue("--min-atr", "0")) || 0;
 const PRE_ENTRY_DAYS = Number(argValue("--pre-entry-days", "5")) || 5;
 const API_BASE_ARG = argValue("--api-base", API_BASE);
@@ -108,6 +112,21 @@ function loadMoves() {
     .sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
   if (TICKER_FILTER) {
     filtered = filtered.filter((m) => String(m.ticker || "").toUpperCase() === TICKER_FILTER);
+  }
+  if (EXCLUDE_TICKERS_RAW) {
+    const ex = new Set(
+      EXCLUDE_TICKERS_RAW.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean),
+    );
+    filtered = filtered.filter((m) => !ex.has(String(m.ticker || "").toUpperCase()));
+  }
+  if (ONE_PER_TICKER) {
+    const best = new Map();
+    for (const m of filtered) {
+      const tk = String(m.ticker || "").toUpperCase();
+      const prev = best.get(tk);
+      if (!prev || Number(m.move_atr || 0) > Number(prev.move_atr || 0)) best.set(tk, m);
+    }
+    filtered = [...best.values()].sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
   }
   return filtered.slice(0, LIMIT);
 }
