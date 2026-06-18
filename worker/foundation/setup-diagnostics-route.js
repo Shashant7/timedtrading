@@ -120,31 +120,78 @@ export function summarizeTraderPosture(sequences = [], opts = {}) {
   };
 }
 
-export function parseTrailSnapshotRow(row, ticker) {
-  const payloadRaw = row?.payload_json ?? row?.payload;
-  if (!payloadRaw) return null;
-  let payload;
-  try {
-    payload = typeof payloadRaw === "string"
-      ? JSON.parse(payloadRaw)
-      : payloadRaw;
-  } catch {
-    return null;
-  }
-  if (!payload || typeof payload !== "object") return null;
-
-  const ts = Number(row.ts ?? payload.ts ?? payload.event_ts ?? payload.computedAt);
+export function snapshotFromTrailScalars(row, ticker) {
+  const ts = Number(row.ts);
   if (!Number.isFinite(ts)) return null;
 
+  let flags = {};
+  try {
+    const raw = row.flags_json ?? row.flags;
+    if (raw) flags = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    flags = {};
+  }
+
+  const sym = String(ticker || row.ticker || "").toUpperCase();
+  const pdzD = flags.pdz_zone_D || null;
+  const pdz4h = flags.pdz_zone_4h || flags.pdz_zone_h4 || null;
+  const pdz1h = flags.pdz_zone_1h || flags.pdz_zone_h1 || pdz4h;
+
   return {
-    ...payload,
-    ticker: String(payload.ticker || ticker || row.ticker || "").toUpperCase(),
+    ticker: sym,
     ts,
     event_ts: ts,
-    price: Number(row.price ?? payload.price ?? payload.close ?? payload._live_price) || payload.price,
-    state: row.state ?? payload.state,
-    kanban_stage: row.kanban_stage ?? payload.kanban_stage,
+    price: Number(row.price) || null,
+    state: row.state || null,
+    kanban_stage: row.kanban_stage || null,
+    flags,
+    pdz_zone_D: pdzD,
+    pdz_zone_4h: pdz4h,
+    tf_tech: {
+      D: {
+        pdz: { zone: pdzD },
+        fvg: {
+          ib: flags.fvg_in_bull_D ? 1 : 0,
+          ibr: flags.fvg_in_bear_D ? 1 : 0,
+        },
+      },
+      "4H": { pdz: { zone: pdz4h } },
+      240: { pdz: { zone: pdz4h } },
+      60: { pdz: { zone: pdz1h } },
+      "1H": { pdz: { zone: pdz1h } },
+    },
+    _snapshot_source: "trail_scalars",
   };
+}
+
+export function parseTrailSnapshotRow(row, ticker) {
+  const payloadRaw = row?.payload_json ?? row?.payload;
+  let payload = null;
+  if (payloadRaw) {
+    try {
+      payload = typeof payloadRaw === "string" ? JSON.parse(payloadRaw) : payloadRaw;
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (payload && typeof payload === "object") {
+    const ts = Number(row.ts ?? payload.ts ?? payload.event_ts ?? payload.computedAt);
+    if (!Number.isFinite(ts)) return null;
+
+    return {
+      ...payload,
+      ticker: String(payload.ticker || ticker || row.ticker || "").toUpperCase(),
+      ts,
+      event_ts: ts,
+      price: Number(row.price ?? payload.price ?? payload.close ?? payload._live_price) || payload.price,
+      state: row.state ?? payload.state,
+      kanban_stage: row.kanban_stage ?? payload.kanban_stage,
+      _snapshot_source: "payload_json",
+    };
+  }
+
+  return snapshotFromTrailScalars(row, ticker);
 }
 
 export async function loadTrailSnapshots(db, ticker, opts = {}) {

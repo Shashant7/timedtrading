@@ -52,6 +52,19 @@ describe("setup replay mining", () => {
     expect(snaps[0].ticker).toBe("USO");
   });
 
+  it("builds snapshots from trail scalar columns when payload is missing", () => {
+    const snaps = snapshotsFromTrailRows([
+      {
+        ts: 2000,
+        price: 101,
+        flags_json: JSON.stringify({ pdz_zone_D: "discount", pdz_zone_4h: "discount_approach" }),
+      },
+    ], "USO");
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]._snapshot_source).toBe("trail_scalars");
+    expect(snaps[0].tf_tech.D.pdz.zone).toBe("discount");
+  });
+
   it("filters snapshots to the pre-entry window", () => {
     const snaps = [
       { ts: 1000, price: 95 },

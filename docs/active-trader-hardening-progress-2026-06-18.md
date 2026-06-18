@@ -60,7 +60,7 @@ This is an operator/agent status page. It does not change runtime behavior.
 
 - [x] Read-only replay mining module (`setup-replay-mining.js`)
 - [x] CLI: `scripts/mine-setup-sequences.mjs` (trades + trail -> reliability tables)
-- [ ] Run mining on live/pre-prod closed trades and review tables
+- [x] Run mining on live/pre-prod closed trades and review tables — see [setup-mining-preprod-run-2026-06-18.md](setup-mining-preprod-run-2026-06-18.md) (scalar trail only; 0 sequences until payload backfill)
 - [ ] Calibration queue (blocked on Phase 1 fixture acceptance)
 
 ---

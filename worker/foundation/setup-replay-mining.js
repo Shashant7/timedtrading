@@ -80,6 +80,10 @@ export function diagnosticsForEntryWindow(snapshots = [], entryTs, opts = {}) {
 }
 
 export function classifyTradeOutcome(trade = {}) {
+  const status = String(trade.status || "").toUpperCase();
+  if (status === "WIN") return { outcome: "win", pnl_pct: Number(trade.pnl_pct ?? trade.pnlPct) || null };
+  if (status === "LOSS") return { outcome: "loss", pnl_pct: Number(trade.pnl_pct ?? trade.pnlPct) || null };
+
   const pnlPct = Number(trade.pnl_pct ?? trade.pnlPct);
   if (Number.isFinite(pnlPct)) {
     return {

@@ -3,6 +3,7 @@ import {
   buildDiagnosticsContext,
   parseTrailSnapshotRow,
   runSetupDiagnostics,
+  snapshotFromTrailScalars,
   summarizeTraderPosture,
   vixRegimeFromValue,
 } from "./setup-diagnostics-route.js";
@@ -106,6 +107,17 @@ describe("setup diagnostics route helpers", () => {
     }, "USO");
     expect(fromApi.ts).toBe(6000);
     expect(fromApi.price).toBe(102);
+  });
+
+  it("builds snapshots from trail scalar columns when payload is missing", () => {
+    const snap = snapshotFromTrailScalars({
+      ts: 2000,
+      price: 101,
+      state: "HTF_BEAR_LTF_BEAR",
+      flags_json: JSON.stringify({ pdz_zone_D: "discount", pdz_zone_4h: "discount_approach" }),
+    }, "USO");
+    expect(snap._snapshot_source).toBe("trail_scalars");
+    expect(snap.tf_tech.D.pdz.zone).toBe("discount");
   });
 
   it("runs shadow diagnostics over a snapshot window", () => {

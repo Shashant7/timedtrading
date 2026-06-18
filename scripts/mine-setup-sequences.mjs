@@ -24,6 +24,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   buildReliabilityReport,
   formatReliabilityMarkdown,
@@ -56,6 +57,26 @@ const OUT_DIR = argValue("--out-dir", "");
 const TRADES_FILE = argValue("--trades-file", "");
 const TRAIL_FILE = argValue("--trail-file", "");
 const API_BASE_ARG = argValue("--api-base", API_BASE);
+const WRANGLER_D1 = argValue("--wrangler-d1", "");
+
+function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "preprod") {
+  const sym = String(ticker || "").toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  if (!sym) return [];
+  const dbName = wranglerEnv === "preprod" ? "timed-trading-ledger-preprod" : "timed-trading-ledger";
+  const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(sinceTs)} AND ts <= ${Number(untilTs)} ORDER BY ts ASC LIMIT 2000`;
+  const out = execFileSync(path.join(process.cwd(), "node_modules/.bin/wrangler"), [
+    "d1", "execute", dbName,
+    "--env", wranglerEnv,
+    "--remote", "--json",
+    "--command", sql,
+  ], {
+    cwd: path.join(process.cwd(), "worker"),
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const parsed = JSON.parse(out);
+  return parsed[0]?.results || [];
+}
 
 async function fetchJson(url) {
   const resp = await fetch(url, { headers: { "User-Agent": "mine-setup-sequences/1.0" } });
@@ -80,7 +101,7 @@ function normalizeTrades(payload) {
 function closedTradesOnly(trades) {
   return trades.filter((t) => {
     const status = String(t.status || "").toUpperCase();
-    if (status && status !== "CLOSED") return false;
+    if (status === "OPEN") return false;
     const exitTs = Number(t.exit_ts ?? t.exitTs);
     const entryTs = Number(t.entry_ts ?? t.entryTs);
     return Number.isFinite(entryTs) && Number.isFinite(exitTs);
@@ -106,6 +127,9 @@ async function fetchTrailRows(ticker, sinceTs, untilTs) {
     const payload = loadJsonFile(TRAIL_FILE);
     const rows = Array.isArray(payload) ? payload : (payload.rows || []);
     return rows;
+  }
+  if (WRANGLER_D1) {
+    return fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, WRANGLER_D1);
   }
   const params = new URLSearchParams({
     key: API_KEY,
@@ -179,7 +203,7 @@ async function main() {
     limit: LIMIT,
     pre_entry_hours: PRE_ENTRY_HOURS,
     trades_source: TRADES_FILE || "trade-autopsy-api",
-    trail_source: TRAIL_FILE || "trail-payload-api",
+    trail_source: TRAIL_FILE || (WRANGLER_D1 ? `wrangler-d1:${WRANGLER_D1}` : "trail-payload-api"),
   });
 
   const markdown = formatReliabilityMarkdown(report);
