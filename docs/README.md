@@ -33,6 +33,7 @@
 - [setup-event-name-map-v1.md](setup-event-name-map-v1.md) — shadow event_type -> payload field -> derivation map
 - [active-trader-hardening-progress-2026-06-18.md](active-trader-hardening-progress-2026-06-18.md) — phase status snapshot for information hardening
 - [indicator-parity-initial-run-2026-06-17.md](indicator-parity-initial-run-2026-06-17.md) — first TradingView export parity run summary and mismatch classification
+- [`../scripts/mine-setup-sequences.mjs`](../scripts/mine-setup-sequences.mjs) — read-only setup sequence replay mining CLI
 - [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) — server-side scoring + Kanban
 - [MODEL_PIPELINE.md](MODEL_PIPELINE.md) — model pipeline
 - [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) — D1 ledger + positions

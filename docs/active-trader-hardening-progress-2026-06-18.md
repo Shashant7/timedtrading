@@ -58,7 +58,10 @@ This is an operator/agent status page. It does not change runtime behavior.
 
 ### Phase 5–6 — Mining + calibration
 
-Not started. Blocked on Phase 1 fixture acceptance and Phase 2 replay parity.
+- [x] Read-only replay mining module (`setup-replay-mining.js`)
+- [x] CLI: `scripts/mine-setup-sequences.mjs` (trades + trail -> reliability tables)
+- [ ] Run mining on live/pre-prod closed trades and review tables
+- [ ] Calibration queue (blocked on Phase 1 fixture acceptance)
 
 ---
 
@@ -73,6 +76,6 @@ Not started. Blocked on Phase 1 fixture acceptance and Phase 2 replay parity.
 ## Next recommended actions
 
 1. Re-export full 10-ticker TradingView parity set; commit accepted fixtures only.
-2. Run setup diagnostics on 5 fixture tickers in pre-prod; compare event stream to manual chart read.
-3. Build replay mining script: `timed_trail` window -> events -> join closed trades (read-only).
+2. Run `node scripts/mine-setup-sequences.mjs --live --limit 25` in pre-prod; review reliability tables.
+3. Run setup diagnostics on 5 fixture tickers in pre-prod; compare event stream to manual chart read.
 4. Documentation: mark `SCORING_ARCHITECTURE.md` historical; add Day Trader architecture note.
