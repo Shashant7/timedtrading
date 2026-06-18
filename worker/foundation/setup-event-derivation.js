@@ -104,6 +104,17 @@ function inferDirection(t) {
   return "NEUTRAL";
 }
 
+function sortSnapshots(snapshots = []) {
+  const byTs = new Map();
+  for (const s of Array.isArray(snapshots) ? snapshots : []) {
+    if (!s || typeof s !== "object") continue;
+    byTs.set(tsOf(s), s);
+  }
+  return [...byTs.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, s]) => s);
+}
+
 function emitFactory(prevTicker, currentTicker, opts) {
   const events = [];
   const ticker = tickerOf(currentTicker);
@@ -269,5 +280,146 @@ export function deriveSetupDiagnostics(prevTicker = null, currentTicker = null, 
     events: derived,
     event_history: history,
     sequences,
+  };
+}
+
+function hasPriorEvent(events, latestTs, eventTypes, direction) {
+  const types = new Set(eventTypes);
+  return events.some((ev) => (
+    types.has(ev.event_type)
+    && ev.direction === direction
+    && Number(ev.event_ts) < latestTs
+  ));
+}
+
+function snapshotsAfterEvent(snapshots, eventTs) {
+  return snapshots.filter((s) => tsOf(s) >= Number(eventTs));
+}
+
+function latestEvent(events, eventTypes, direction, beforeTs = Infinity) {
+  const types = new Set(eventTypes);
+  const matches = events.filter((ev) => (
+    types.has(ev.event_type)
+    && ev.direction === direction
+    && Number(ev.event_ts) <= beforeTs
+  ));
+  return matches.length ? matches[matches.length - 1] : null;
+}
+
+function windowEvent(latest, tf, event_type, direction, payload = {}, opts = {}) {
+  return createSetupEvent({
+    ticker: tickerOf(latest),
+    tf,
+    event_ts: tsOf(latest),
+    event_type,
+    direction,
+    price: priceOf(latest),
+    source: opts.source || "shadow_window_derivation",
+    payload,
+  });
+}
+
+function deriveWindowLevelEvents(snapshots, eventHistory, opts = {}) {
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return [];
+  const latest = snapshots[snapshots.length - 1];
+  const latestTs = tsOf(latest);
+  const tfs = opts.signalTfs || DEFAULT_SIGNAL_TFS;
+  const events = [];
+  const minHold = Number(opts.pullbackHoldSnapshots) || 2;
+  const tolerancePct = Number.isFinite(Number(opts.pullbackTolerancePct))
+    ? Number(opts.pullbackTolerancePct)
+    : 0.003;
+
+  for (const tf of tfs) {
+    const curPrice = priceOf(latest);
+    const ema21 = emaValue(latest, tf, "ema21");
+    if (curPrice == null || ema21 == null) continue;
+
+    const longExhaustion = hasPriorEvent(eventHistory, latestTs, [
+      "td_setup_progress",
+      "td9_complete",
+      "td13_complete",
+      "phase_entered_extreme",
+      "phase_left_accumulation",
+      "phase_left_extreme",
+    ], "LONG");
+    const shortExhaustion = hasPriorEvent(eventHistory, latestTs, [
+      "td_setup_progress",
+      "td9_complete",
+      "td13_complete",
+      "phase_entered_extreme",
+      "phase_left_distribution",
+      "phase_left_extreme",
+    ], "SHORT");
+
+    if (longExhaustion && curPrice >= ema21) {
+      events.push(windowEvent(latest, tf, "mean_reversion_target_reached", "LONG", { target: "ema21", level: ema21 }, opts));
+    }
+    if (shortExhaustion && curPrice <= ema21) {
+      events.push(windowEvent(latest, tf, "mean_reversion_target_reached", "SHORT", { target: "ema21", level: ema21 }, opts));
+    }
+
+    const reclaim = latestEvent(eventHistory, ["ema21_reclaim", "mean_reversion_target_reached"], "LONG", latestTs);
+    if (reclaim) {
+      const after = snapshotsAfterEvent(snapshots, reclaim.event_ts).slice(-minHold);
+      const held = after.length >= minHold && after.every((s) => {
+        const p = priceOf(s);
+        const e = emaValue(s, tf, "ema21");
+        return p != null && e != null && p >= e * (1 - tolerancePct);
+      });
+      if (held) {
+        events.push(windowEvent(latest, tf, "pullback_stabilized", "LONG", { basis: "ema21", minHold, tolerancePct }, opts));
+      }
+    }
+
+    const reject = latestEvent(eventHistory, ["ema21_reject", "mean_reversion_target_reached"], "SHORT", latestTs);
+    if (reject) {
+      const after = snapshotsAfterEvent(snapshots, reject.event_ts).slice(-minHold);
+      const held = after.length >= minHold && after.every((s) => {
+        const p = priceOf(s);
+        const e = emaValue(s, tf, "ema21");
+        return p != null && e != null && p <= e * (1 + tolerancePct);
+      });
+      if (held) {
+        events.push(windowEvent(latest, tf, "pullback_stabilized", "SHORT", { basis: "ema21", minHold, tolerancePct }, opts));
+      }
+    }
+  }
+
+  return normalizeSetupEvents(events).events;
+}
+
+export function deriveSetupEventsFromWindow(snapshots = [], opts = {}) {
+  const sorted = sortSnapshots(snapshots);
+  if (sorted.length === 0) {
+    return { events: [], event_history: normalizeSetupEvents(opts.priorEvents || []).events, sequences: [], latest: null };
+  }
+
+  const pairEvents = [];
+  if (opts.bootstrapFirst === true) {
+    pairEvents.push(...deriveSetupEvents(null, sorted[0], { ...opts, bootstrap: true }));
+  }
+  for (let i = 1; i < sorted.length; i += 1) {
+    pairEvents.push(...deriveSetupEvents(sorted[i - 1], sorted[i], { ...opts, bootstrap: false }));
+  }
+
+  const withPrior = normalizeSetupEvents([...(opts.priorEvents || []), ...pairEvents]).events;
+  const windowEvents = opts.deriveWindowEvents === false
+    ? []
+    : deriveWindowLevelEvents(sorted, withPrior, opts);
+  const derived = normalizeSetupEvents([...pairEvents, ...windowEvents]).events;
+  const history = normalizeSetupEvents([...(opts.priorEvents || []), ...derived]).events;
+  const latest = sorted[sorted.length - 1];
+  const sequences = detectMeanReversionSequences(history, {
+    ticker: tickerOf(latest),
+    context: opts.context || {},
+    includeEmpty: opts.includeEmptySequences === true,
+  });
+
+  return {
+    events: derived,
+    event_history: history,
+    sequences,
+    latest,
   };
 }

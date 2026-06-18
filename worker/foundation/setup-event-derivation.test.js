@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveSetupDiagnostics,
   deriveSetupEvents,
+  deriveSetupEventsFromWindow,
 } from "./setup-event-derivation.js";
 
 function ticker(overrides = {}) {
@@ -144,5 +145,84 @@ describe("deriveSetupEvents", () => {
     expect(longSeq.stage).toBeGreaterThanOrEqual(4);
     expect(longSeq.posture).toMatch(/Leaning bullish|Bullish/);
     expect(longSeq.path_forecast.context_used.sector_posture).toBe("leading");
+  });
+
+  it("derives events across an unordered snapshot window and advances sequence stages", () => {
+    const s1 = ticker({ ts: 3000, price: 98, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -80, l: {} }, rsi: { r5: 24 }, pdz: { zone: "neutral" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } } });
+    const s2 = ticker({
+      ts: 1000,
+      price: 95,
+      td_sequential: { per_tf: { D: { bullish_prep_count: 8, td9_bullish: false } } },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -70, l: {} }, rsi: { r5: 25 }, pdz: { zone: "neutral" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } },
+    });
+    const s3 = ticker({
+      ts: 2000,
+      price: 96,
+      td_sequential: { per_tf: { D: { bullish_prep_count: 9, td9_bullish: true } } },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -72, l: {} }, rsi: { r5: 25 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } },
+    });
+    const s4 = ticker({ ts: 4000, price: 101, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -50, l: { accum: true } }, rsi: { r5: 32 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: -1, vwapAbove: true } } });
+
+    const result = deriveSetupEventsFromWindow([s4, s2, s1, s3], {
+      tdTfs: ["D"],
+      signalTfs: ["D"],
+      context: { sector_posture: "leading" },
+    });
+
+    const types = result.events.map((e) => e.event_type);
+    expect(types).toEqual(expect.arrayContaining([
+      "td_setup_progress",
+      "td9_complete",
+      "pdz_discount_entered",
+      "phase_left_accumulation",
+      "mean_reversion_target_reached",
+    ]));
+    const seq = result.sequences.find((s) => s.direction === "LONG");
+    expect(seq.stage).toBeGreaterThanOrEqual(5);
+    expect(seq.posture).toBe("Bullish");
+  });
+
+  it("emits pullback_stabilized after reclaim holds across the window", () => {
+    const s1 = ticker({ ts: 1000, price: 95, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -80, l: {} }, rsi: { r5: 24 }, pdz: { zone: "neutral" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } } });
+    const s2 = ticker({
+      ts: 2000,
+      price: 96,
+      td_sequential: { per_tf: { D: { bullish_prep_count: 9, td9_bullish: true } } },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -80, l: {} }, rsi: { r5: 25 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } },
+    });
+    const s3 = ticker({ ts: 3000, price: 99, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -50, l: { accum: true } }, rsi: { r5: 32 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } } });
+    const s4 = ticker({ ts: 4000, price: 101, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -45, l: {} }, rsi: { r5: 38 }, pdz: { zone: "equilibrium" }, fvg: {}, sq: { r: 1 }, stDir: -1, vwapAbove: true } } });
+    const s5 = ticker({ ts: 5000, price: 100.2, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -42, l: {} }, rsi: { r5: 39 }, pdz: { zone: "equilibrium" }, fvg: {}, sq: {}, stDir: -1, vwapAbove: true } } });
+    const s6 = ticker({ ts: 6000, price: 100.4, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -40, l: {} }, rsi: { r5: 40 }, pdz: { zone: "equilibrium" }, fvg: {}, sq: {}, stDir: -1, vwapAbove: true } } });
+
+    const result = deriveSetupEventsFromWindow([s1, s2, s3, s4, s5, s6], {
+      tdTfs: ["D"],
+      signalTfs: ["D"],
+      pullbackHoldSnapshots: 2,
+    });
+
+    expect(result.events.map((e) => e.event_type)).toContain("pullback_stabilized");
+    const seq = result.sequences.find((s) => s.direction === "LONG");
+    expect(seq.stage).toBeGreaterThanOrEqual(7);
+  });
+
+  it("can include prior event history when a window starts mid-sequence", () => {
+    const priorEvents = deriveSetupEvents(null, ticker({
+      ts: 1000,
+      price: 95,
+      td_sequential: { per_tf: { D: { bullish_prep_count: 9, td9_bullish: true } } },
+      tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -80, l: {} }, rsi: { r5: 25 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: 1, vwapAbove: false } },
+    }), { tdTfs: ["D"], signalTfs: ["D"], bootstrap: true });
+    const cur = ticker({ ts: 2000, price: 101, tf_tech: { D: { ema: { ema21: 100 }, saty: { v: -50, l: { accum: true } }, rsi: { r5: 32 }, pdz: { zone: "discount" }, fvg: {}, sq: {}, stDir: -1, vwapAbove: true } } });
+
+    const result = deriveSetupEventsFromWindow([cur], {
+      priorEvents,
+      tdTfs: ["D"],
+      signalTfs: ["D"],
+      bootstrapFirst: true,
+    });
+
+    expect(result.event_history.length).toBeGreaterThan(priorEvents.length);
+    expect(result.sequences.find((s) => s.direction === "LONG")?.stage).toBeGreaterThanOrEqual(4);
   });
 });
