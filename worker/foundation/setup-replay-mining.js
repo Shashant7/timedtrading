@@ -11,6 +11,7 @@ import {
   summarizeTraderPosture,
 } from "./setup-diagnostics-route.js";
 import { deriveLegacyEntryDiagnostics, LEGACY_ANALYSIS_MODE } from "./setup-entry-snapshot.js";
+import { discoveryMoveAnchorTs } from "./discovery-move-utils.js";
 import { detectMeanReversionSequences } from "./setup-sequences.js";
 
 const DEFAULT_PRE_ENTRY_MS = 48 * 60 * 60 * 1000;
@@ -236,10 +237,11 @@ export function joinTradeWithEventLedger(trade = {}, events = [], opts = {}) {
 export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], opts = {}) {
   const ticker = String(move.ticker || "").toUpperCase();
   const direction = String(move.direction || (Number(move.move_pct) >= 0 ? "LONG" : "SHORT")).toUpperCase();
-  const anchorTs = Number(move.start_ts ?? move.startTs ?? move.entry_ts);
+  const anchorTs = discoveryMoveAnchorTs(move) ?? Number(move.start_ts ?? move.startTs ?? move.entry_ts);
   const snapshots = snapshotsFromTrailRows(trailRows, ticker);
   const diag = diagnosticsForEntryWindow(snapshots, anchorTs, opts);
   const seq = sequenceForDirection(diag.sequences || [], direction === "SHORT" ? "SHORT" : "LONG");
+  const moveAlignment = classifyMoveAlignment(move, seq);
 
   return {
     cohort: "discovery_missed",
@@ -251,6 +253,8 @@ export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], op
     end_ts: Number(move.end_ts ?? move.endTs) || null,
     move_pct: Number(move.move_pct) || null,
     move_atr: Number(move.move_atr) || null,
+    move_alignment: moveAlignment,
+    outcome: moveAlignment.outcome,
     analysis_mode: opts.analysis_mode || "trail_5m_facts",
     promotion_safe: false,
     diagnostics_ok: diag.ok === true,
@@ -313,14 +317,34 @@ function initBucket() {
   return { n: 0, wins: 0, losses: 0, flat: 0, unknown: 0, pnl_sum: 0, pnl_n: 0 };
 }
 
+export function classifyMoveAlignment(move = {}, sequence = null) {
+  const movePct = Number(move.move_pct ?? move.movePct);
+  const moveDir = String(move.direction || (movePct >= 0 ? "LONG" : "SHORT")).toUpperCase();
+  if (!Number.isFinite(movePct)) {
+    return { outcome: "unknown", move_dir: moveDir, move_pct: null, move_atr: Number(move.move_atr) || null };
+  }
+  if (!sequence?.direction) {
+    return { outcome: "none", move_dir: moveDir, move_pct: movePct, move_atr: Number(move.move_atr) || null };
+  }
+  const aligned = String(sequence.direction).toUpperCase() === moveDir;
+  return {
+    outcome: aligned ? "aligned" : "opposed",
+    move_dir: moveDir,
+    move_pct: movePct,
+    move_atr: Number(move.move_atr) || null,
+  };
+}
+
 function addToBucket(bucket, row) {
   bucket.n += 1;
-  if (row.outcome === "win") bucket.wins += 1;
-  else if (row.outcome === "loss") bucket.losses += 1;
-  else if (row.outcome === "flat") bucket.flat += 1;
+  const outcome = row.outcome || row.move_alignment?.outcome;
+  if (outcome === "win" || outcome === "aligned") bucket.wins += 1;
+  else if (outcome === "loss" || outcome === "opposed") bucket.losses += 1;
+  else if (outcome === "flat") bucket.flat += 1;
   else bucket.unknown += 1;
-  if (Number.isFinite(Number(row.pnl_pct))) {
-    bucket.pnl_sum += Number(row.pnl_pct);
+  const pnl = row.pnl_pct ?? row.move_alignment?.move_pct ?? row.move_pct;
+  if (Number.isFinite(Number(pnl))) {
+    bucket.pnl_sum += Number(pnl);
     bucket.pnl_n += 1;
   }
 }
@@ -398,6 +422,7 @@ export function formatReliabilityMarkdown(report = {}) {
     `- Total trades analyzed: ${rel.total_trades ?? 0}`,
     `- Trades with diagnostics window: ${rel.with_diagnostics ?? 0}`,
     `- Trades with active sequence at entry: ${rel.with_sequence ?? 0}`,
+    meta.cohort === "discovery" ? `- Moves with sequence aligned to move direction: ${rel.by_sequence?.find?.((r) => r.key !== "none:NA:0_none") ? "see tables" : "0"}` : "",
     meta.analysis_mode ? `- Analysis mode: ${meta.analysis_mode}` : "",
     meta.cohort ? `- Cohort: ${meta.cohort}` : "",
     "",

@@ -19,6 +19,7 @@ export const EVENT_TYPES = Object.freeze([
   "phase_left_distribution",
   "ema21_reclaim",
   "ema21_reject",
+  "ema21_stretched",
   "ema200_reclaim",
   "ema200_reject",
   "supertrend_flat_opposing",

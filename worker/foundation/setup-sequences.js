@@ -17,7 +17,7 @@ const LONG_SEQUENCE = "td_phase_mean_reversion_long";
 const SHORT_SEQUENCE = "td_phase_mean_reversion_short";
 
 const LONG_STAGES = [
-  { stage: 1, key: "exhaustion_forming", events: ["td_setup_progress", "phase_entered_extreme", "rsi_extreme_entered", "timing_compression_watch"] },
+  { stage: 1, key: "exhaustion_forming", events: ["td_setup_progress", "phase_entered_extreme", "rsi_extreme_entered", "timing_compression_watch", "ema21_stretched", "supertrend_flat_opposing"] },
   { stage: 2, key: "exhaustion_confirmed", events: ["td9_complete", "td13_complete"] },
   { stage: 3, key: "location_valid", events: ["pdz_discount_entered", "fvg_filled", "fvg_reclaimed", "liquidity_swept", "orb_failed_breakout", "ema200_reclaim", "saty_day_gate_test", "saty_week_gate_test"] },
   { stage: 4, key: "phase_left_zone", events: ["phase_left_accumulation", "phase_left_extreme", "rsi_extreme_left", "rsi_divergence_confirmed"] },
@@ -28,7 +28,7 @@ const LONG_STAGES = [
 ];
 
 const SHORT_STAGES = [
-  { stage: 1, key: "exhaustion_forming", events: ["td_setup_progress", "phase_entered_extreme", "rsi_extreme_entered", "timing_extension_watch"] },
+  { stage: 1, key: "exhaustion_forming", events: ["td_setup_progress", "phase_entered_extreme", "rsi_extreme_entered", "timing_extension_watch", "ema21_stretched", "supertrend_flat_opposing"] },
   { stage: 2, key: "exhaustion_confirmed", events: ["td9_complete", "td13_complete"] },
   { stage: 3, key: "location_valid", events: ["pdz_premium_entered", "fvg_filled", "fvg_reclaimed", "liquidity_swept", "orb_failed_breakout", "ema200_reject", "saty_day_gate_test", "saty_week_gate_test"] },
   { stage: 4, key: "phase_left_zone", events: ["phase_left_distribution", "phase_left_extreme", "rsi_extreme_left", "rsi_divergence_confirmed"] },

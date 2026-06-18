@@ -33,6 +33,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { filterMissedDiscoveryMoves } from "../worker/foundation/discovery-move-utils.js";
 import {
   buildReliabilityReport,
   formatReliabilityMarkdown,
@@ -100,6 +101,11 @@ function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "prep
     const sql = `SELECT bucket_ts, price_close, state, kanban_stage_end, phase_pct, pdz_zone, pdz_pct, fvg_bull_count, fvg_bear_count, ema_regime_D, had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite FROM trail_5m_facts WHERE ticker='${sym}' AND bucket_ts >= ${Number(sinceTs)} AND bucket_ts <= ${Number(untilTs)} ORDER BY bucket_ts ASC LIMIT 2000`;
     return fetchD1Rows(wranglerEnv, sql);
   }
+  if (TRAIL_SOURCE === "snap" || TRAIL_SOURCE === "payload") {
+    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND payload_json IS NOT NULL AND ts >= ${Number(sinceTs)} AND ts <= ${Number(untilTs)} ORDER BY ts ASC LIMIT 2000`;
+    const rows = fetchD1Rows(wranglerEnv, sql);
+    if (rows.length) return rows;
+  }
   const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(sinceTs)} AND ts <= ${Number(untilTs)} ORDER BY ts ASC LIMIT 2000`;
   return fetchD1Rows(wranglerEnv, sql);
 }
@@ -127,7 +133,7 @@ function loadDiscoveryMoves() {
   if (!DISCOVERY_FILE) return [];
   const payload = loadJsonFile(DISCOVERY_FILE);
   const moves = Array.isArray(payload?.moves) ? payload.moves : (Array.isArray(payload) ? payload : []);
-  return moves.filter((m) => String(m.capture || "").toUpperCase() === "MISSED");
+  return filterMissedDiscoveryMoves(moves);
 }
 
 async function fetchJson(url) {
