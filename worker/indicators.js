@@ -684,8 +684,12 @@ export function detectFVGs(bars, atr) {
   if (!bars || bars.length < 10) return DEFAULT;
 
   const fvgs = [];
-  // Scan last 100 bars for FVG formation (matching LuxAlgo's reasonable window)
-  const scanStart = Math.max(2, bars.length - 100);
+  // Scan the same formation window as the TradingView parity export:
+  // `for k = 0 to lookback - 3` over an 80-bar lookback. Because each FVG
+  // formation needs the current candle plus two prior candles, the oldest
+  // eligible formation candle is n - 78, not n - 80.
+  const FVG_SCAN_LOOKBACK = 80;
+  const scanStart = Math.max(2, bars.length - FVG_SCAN_LOOKBACK + 2);
 
   for (let i = scanStart; i < bars.length; i++) {
     const curr = bars[i];
@@ -733,11 +737,11 @@ export function detectFVGs(bars, atr) {
     }
     if (gap.type === "bull") {
       for (let k = formIdx + 1; k < bars.length; k++) {
-        if (bars[k].l < gap.bottom) { gap.mitigated = true; break; }
+        if (bars[k].l <= gap.bottom) { gap.mitigated = true; break; }
       }
     } else {
       for (let k = formIdx + 1; k < bars.length; k++) {
-        if (bars[k].h > gap.top) { gap.mitigated = true; break; }
+        if (bars[k].h >= gap.top) { gap.mitigated = true; break; }
       }
     }
   }

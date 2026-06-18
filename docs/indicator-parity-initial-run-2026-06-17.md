@@ -74,8 +74,8 @@ updated subset was:
 
 ```text
 9 files checked (SPY/IWM/QQQ x D/W/60)
-6 / 9 files clean
-only mismatch fields: fvg_in_bull = 3, fvg_in_bear = 1
+9 / 9 files clean
+no mismatch fields
 ```
 
 The updated export includes Lux-aligned TD lead-up columns and rolling VWAP
@@ -83,14 +83,13 @@ columns. No aggregate mismatches appeared for TD, Phase, SuperTrend 10,3,
 rolling VWAP, liquidity high/low proxy, RSI, ATR, EMA, squeeze, PDZ, or RSI
 divergence in this subset.
 
-Remaining edge cases:
+The final FVG edge cases were resolved by matching TradingView's FVG parity
+window and mitigation semantics:
 
-| Ticker | TF | Field | Timestamp |
-|---|---|---|---:|
-| IWM | D | `fvg_in_bull` | 1774877400000 |
-| IWM | D | `fvg_in_bear` | 1776173400000 |
-| QQQ | 60 | `fvg_in_bull` | 1780687800000 |
-| SPY | 60 | `fvg_in_bull` | 1780687800000 |
+- formation scan uses the same 80-bar source window (`lookback - 3` formation
+  positions),
+- exact boundary touches mitigate gaps (`low <= bull bottom`, `high >= bear
+  top`).
 
 ### Direct reference-indicator checks
 
@@ -177,8 +176,8 @@ This first pass is encouraging:
 
 The remaining gaps are now narrow and explicit:
 
-1. **FVG:** one bearish in-gap edge mismatch should be inspected manually:
-   `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
+1. **FVG:** fixed for the updated SPY/IWM/QQQ parity subset. Re-run the full
+   10-ticker export set after re-exporting with the latest parity script.
 2. **LuxAlgo lead-up:** fixed. Prep and lead-up now match the Lux companion
    export on the sampled SPY/IWM/QQQ rows. The original parity CSV `td13_*`
    columns predate this alignment and should be re-exported before acceptance.
@@ -195,12 +194,11 @@ The remaining gaps are now narrow and explicit:
 
 1. Re-export with `TimedTrading_Indicator_Parity_Export.pine` to include
    rolling VWAP columns and Lux-aligned TD lead-up / TD13 columns.
-2. Inspect the single FVG mismatch:
-   - `USO D`, timestamp `1778765400000`, `fvg_in_bear`.
-3. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity,
+2. Add ATR anchor exports / anchor TF fixtures for Saty ATR level parity,
    especially Monthly/Quarterly/Yearly anchors.
-4. Convert accepted CSV fields into committed fixture JSON only after the above
+3. Re-export the full 10-ticker set with the latest parity script and convert
+   accepted fields into committed fixture JSON only after the above
    definitions are accepted.
-5. If SuperTrend 5,3 is the desired production signal, run a deliberate
+4. If SuperTrend 5,3 is the desired production signal, run a deliberate
    change proposal; do not mix it into the current 10,3 worker parity silently.
 
