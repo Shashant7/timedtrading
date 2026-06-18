@@ -340,6 +340,8 @@ COO_SELF_HEAL = "true"
 COO_SCREENER_AUTO_PROMOTE = "true"
 COO_SCREENER_AUTO_SCORE = "70"
 COO_SCREENER_DAILY_MAX = "3"
+# Shadow setup_events ledger — append on */5 scoring tick (tt-engine) + admin backfill
+SETUP_EVENTS_WRITE = "1"
 # ── Broker Bridge (Phase 1, 2026-05-29) ──
 # The bridge worker (`worker-bridge/`) is deployed separately at this URL.
 # Mission Control proxies its /bridge/status, /bridge/audit, /bridge/recent
@@ -466,6 +468,8 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # disclaimer in any UI surface to make it impossible to confuse
 # pre-prod data for live.
 ENVIRONMENT_LABEL = "preprod"
+# Shadow setup_events ledger writes (admin backfill + rescore paths)
+SETUP_EVENTS_WRITE = "1"
 
 # Pre-prod has NO scheduled crons. Backtest replays drive all
 # activity. Empty crons array EXPLICITLY overrides the top-level
