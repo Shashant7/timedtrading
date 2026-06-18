@@ -711,35 +711,60 @@ export function computeUserDataTier(user, env) {
   return isPro ? "pro" : "free";
 }
 
-// Licensed market-data + proprietary-model fields stripped from ticker
-// snapshot payloads for anon/free callers. Twelve Data licensing forbids
-// redistributing live prices to unauthenticated visitors, and scores /
-// SL / TP / ranks are the product's IP. Pro + admin receive everything;
-// the frontend keeps its existing display-level gating on top.
-const RESTRICTED_SNAPSHOT_FIELDS = new Set([
-  // Live price + change (licensed)
+// Licensed live price fields. Twelve Data licensing forbids redistributing
+// live prices to unentitled visitors. Per operator policy (2026-06-18) live
+// prices go to Pro/VIP/Admin only — NOT Members (signed-in, never paid) and
+// NOT anon. Kept as a separate set from the proprietary model fields below
+// for clarity, though both are stripped together for the unentitled tiers.
+const LIVE_PRICE_SNAPSHOT_FIELDS = new Set([
   "price", "close", "open", "high", "low", "volume",
   "prev_close", "prevClose", "p", "pc", "dc", "dp", "dh", "dl", "dv",
   "day_change", "day_change_pct", "dailyChg", "dailyChgPct",
   "ahp", "ahdc", "ahdp", "_ah_change_pct", "extended_price",
-  "_live_prev_close", "vwap",
-  // Proprietary model outputs
+  "_live_prev_close", "_live_price", "_price_updated_at",
+  "vwap",
+]);
+
+// Proprietary model outputs — stripped for Member (free) AND anon.
+const PROPRIETARY_SNAPSHOT_FIELDS = new Set([
   "sl", "tp", "tp1", "tp2", "tp3", "targets", "stop_loss", "take_profit",
   "rank", "score", "dynamicScore", "entry_quality", "conviction",
   "regime_forecast", "kanban_stage", "trade_plan",
 ]);
 
+/** @deprecated internal alias — use tier-aware redactTickerSnapshot(obj, tier) */
+const RESTRICTED_SNAPSHOT_FIELDS = new Set([
+  ...LIVE_PRICE_SNAPSHOT_FIELDS,
+  ...PROPRIETARY_SNAPSHOT_FIELDS,
+]);
+
 /**
- * Redact a single ticker snapshot object for anon/free callers.
- * Returns a shallow copy with restricted fields removed; ticker
- * identity, sector, and timestamps survive so public UI skeletons
- * still render.
+ * Whether a computeUserDataTier() result may receive licensed live prices
+ * AND proprietary model outputs (scores, SL/TP, ranks).
+ *
+ * User-type policy (operator, 2026-06-18):
+ *   Pro (paying), VIP (invited, no fee), Admin → full access.
+ *   Member (signed in, never passed the Stripe paywall) + anon → neither.
+ * computeUserDataTier() collapses pro+vip → "pro" and "Member" → "free", so
+ * the gate is simply admin/pro. (There is no real "free" user type; the code's
+ * "free" tier == a "Member".)
  */
-export function redactTickerSnapshot(obj) {
+export function canAccessLivePrices(tier) {
+  return tier === "admin" || tier === "pro";
+}
+
+/**
+ * Redact a single ticker snapshot object for the caller tier.
+ * - admin/pro (incl VIP): untouched
+ * - free (Member) + anon: strip BOTH licensed live prices AND proprietary
+ *   model fields. (Members never passed the paywall; they get neither.)
+ */
+export function redactTickerSnapshot(obj, tier = "anon") {
   if (!obj || typeof obj !== "object") return obj;
+  if (canAccessLivePrices(tier)) return obj; // admin / pro / vip
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (RESTRICTED_SNAPSHOT_FIELDS.has(k)) continue;
+    if (LIVE_PRICE_SNAPSHOT_FIELDS.has(k) || PROPRIETARY_SNAPSHOT_FIELDS.has(k)) continue;
     out[k] = v;
   }
   out._redacted = true;
@@ -747,15 +772,15 @@ export function redactTickerSnapshot(obj) {
 }
 
 /**
- * Redact a { SYM: snapshot } map in place-safe copy form for anon/free
- * callers. "pro" and "admin" tiers pass through untouched.
+ * Redact a { SYM: snapshot } map in place-safe copy form.
+ * "pro" and "admin" tiers pass through untouched.
  */
 export function redactTickerMapForTier(dataMap, tier) {
   if (tier === "admin" || tier === "pro") return dataMap;
   if (!dataMap || typeof dataMap !== "object") return dataMap;
   const out = {};
   for (const [sym, payload] of Object.entries(dataMap)) {
-    out[sym] = redactTickerSnapshot(payload);
+    out[sym] = redactTickerSnapshot(payload, tier);
   }
   return out;
 }
