@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-06-18T17:59:32.688Z",
+  "source": "tradingview_export",
+  "parity": {
+    "files": 9,
+    "ok": 9,
+    "report": "TV Exports/indicator-parity/parity-report-jun18.json"
+  },
+  "lux_sequencer": {
+    "report": "TV Exports/indicator-parity/lux-sequencer-report-jun18.json",
+    "mismatches": 0
+  },
+  "fixtures": [
+    {
+      "file": "SPY_60_2024-03-27_2026-06-18-tv.json",
+      "ticker": "SPY",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "SPY_D_1993-01-29_2026-06-18-tv.json",
+      "ticker": "SPY",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "SPY_W_1993-01-25_2026-06-15-tv.json",
+      "ticker": "SPY",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "QQQ_60_2015-05-19_2026-06-18-tv.json",
+      "ticker": "QQQ",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "QQQ_D_2012-08-30_2026-06-18-tv.json",
+      "ticker": "QQQ",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "QQQ_W_1999-03-08_2026-06-15-tv.json",
+      "ticker": "QQQ",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "IWM_60_2015-10-02_2026-06-18-tv.json",
+      "ticker": "IWM",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "IWM_D_2000-05-26_2026-06-18-tv.json",
+      "ticker": "IWM",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "IWM_W_2000-05-22_2026-06-15-tv.json",
+      "ticker": "IWM",
+      "tf": "W",
+      "rows": 80
+    }
+  ]
+}
