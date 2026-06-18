@@ -24,6 +24,9 @@
  *   --trail-source SRC      trail table: raw (timed_trail) or 5m (trail_5m_facts); default 5m when --wrangler-d1 set
  *   --d1-trades             fetch closed trades from D1 instead of trade-autopsy API (requires --wrangler-d1)
  *   --trades-file PATH      local trades JSON ({ trades: [...] } or array)
+ *   --analysis-mode MODE    trail | legacy | events | combined (default combined when --wrangler-d1)
+ *   --discovery-file PATH   Discovery report JSON for missed-move cohort (--cohort discovery)
+ *   --cohort TYPE           trades (default) | discovery
  *   --trail-file PATH       local trail rows JSON for single-ticker offline runs
  */
 
@@ -33,6 +36,9 @@ import { execFileSync } from "node:child_process";
 import {
   buildReliabilityReport,
   formatReliabilityMarkdown,
+  joinMissedMoveWithTrailDiagnostics,
+  joinTradeWithEventLedger,
+  joinTradeWithLegacyEntrySnapshot,
   joinTradeWithSequenceDiagnostics,
 } from "../worker/foundation/setup-replay-mining.js";
 
@@ -65,6 +71,11 @@ const API_BASE_ARG = argValue("--api-base", API_BASE);
 const WRANGLER_D1 = argValue("--wrangler-d1", "");
 const D1_TRADES = hasFlag("--d1-trades") || Boolean(WRANGLER_D1);
 const TRAIL_SOURCE = argValue("--trail-source", WRANGLER_D1 ? "5m" : "raw");
+const ANALYSIS_MODE = argValue("--analysis-mode", WRANGLER_D1 ? "combined" : "trail");
+const COHORT = argValue("--cohort", "trades");
+const DISCOVERY_FILE = argValue("--discovery-file", "");
+
+const PARITY_FIXTURE_TICKERS = ["SPY", "QQQ", "IWM", "USO", "GLD", "XLE", "NVDA", "TSLA"];
 
 function fetchD1Rows(wranglerEnv, sql) {
   const dbName = wranglerEnv === "preprod" ? "timed-trading-ledger-preprod" : "timed-trading-ledger";
@@ -96,8 +107,27 @@ function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "prep
 function fetchTradesViaWrangler(wranglerEnv = "preprod") {
   const table = LIVE ? "trades" : "backtest_run_trades";
   const liveFilter = LIVE ? " AND run_id IS NULL" : "";
-  const sql = `SELECT trade_id, ticker, direction, entry_ts, exit_ts, pnl_pct, status, entry_path FROM ${table} WHERE status IN ('WIN','LOSS')${liveFilter} ORDER BY entry_ts DESC LIMIT ${Math.max(LIMIT * 4, 100)}`;
+  const rankCol = (ANALYSIS_MODE === "legacy" || ANALYSIS_MODE === "combined") ? ", rank_trace_json" : "";
+  const sql = `SELECT trade_id, ticker, direction, entry_ts, exit_ts, pnl_pct, status, entry_path${rankCol} FROM ${table} WHERE status IN ('WIN','LOSS')${liveFilter} ORDER BY entry_ts DESC LIMIT ${Math.max(LIMIT * 4, 100)}`;
   return fetchD1Rows(wranglerEnv, sql);
+}
+
+function fetchSetupEventsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "preprod") {
+  const sym = String(ticker || "").toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  if (!sym) return [];
+  const sql = `SELECT event_id, ticker, tf, event_ts, event_type, direction, price, source, confidence, payload_json FROM setup_events WHERE ticker='${sym}' AND event_ts >= ${Number(sinceTs)} AND event_ts <= ${Number(untilTs)} ORDER BY event_ts ASC LIMIT 2000`;
+  try {
+    return fetchD1Rows(wranglerEnv, sql);
+  } catch {
+    return [];
+  }
+}
+
+function loadDiscoveryMoves() {
+  if (!DISCOVERY_FILE) return [];
+  const payload = loadJsonFile(DISCOVERY_FILE);
+  const moves = Array.isArray(payload?.moves) ? payload.moves : (Array.isArray(payload) ? payload : []);
+  return moves.filter((m) => String(m.capture || "").toUpperCase() === "MISSED");
 }
 
 async function fetchJson(url) {
@@ -173,51 +203,135 @@ function filterTickers(trades) {
   return trades.filter((t) => set.has(String(t.ticker || "").toUpperCase()));
 }
 
-async function main() {
-  let trades = filterTickers(await fetchTrades());
-  trades = trades.slice(0, LIMIT);
+function hasSetupSnapshot(trade) {
+  const raw = trade.rank_trace_json ?? trade.rankTraceJson;
+  if (!raw) return false;
+  try {
+    const rt = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return !!(rt?.setup_snapshot && Object.keys(rt.setup_snapshot).length);
+  } catch {
+    return false;
+  }
+}
 
-  if (!trades.length) {
-    console.error("No closed trades found for mining.");
-    process.exit(1);
+async function joinOneTrade(trade, opts) {
+  const ticker = String(trade.ticker || "").toUpperCase();
+  const entryTs = Number(trade.entry_ts ?? trade.entryTs);
+  const exitTs = Number(trade.exit_ts ?? trade.exitTs);
+  const since = entryTs - opts.preEntryMs;
+  const until = exitTs || entryTs;
+  const mode = opts.analysisMode;
+
+  if (mode === "legacy" || (mode === "combined" && hasSetupSnapshot(trade))) {
+    return joinTradeWithLegacyEntrySnapshot(trade, opts);
   }
 
-  const preEntryMs = PRE_ENTRY_HOURS * 60 * 60 * 1000;
-  const joined = [];
-  const trailCache = new Map();
-
-  for (const trade of trades) {
-    const ticker = String(trade.ticker || "").toUpperCase();
-    const entryTs = Number(trade.entry_ts ?? trade.entryTs);
-    const exitTs = Number(trade.exit_ts ?? trade.exitTs);
-    const since = entryTs - preEntryMs;
-    const until = exitTs || entryTs;
-
-    let rows;
-    if (TRAIL_FILE) {
-      rows = await fetchTrailRows(ticker, since, until);
-    } else {
-      const cacheKey = `${ticker}:${since}:${until}`;
-      if (!trailCache.has(cacheKey)) {
-        try {
-          trailCache.set(cacheKey, await fetchTrailRows(ticker, since, until));
-        } catch (e) {
-          trailCache.set(cacheKey, []);
-          joined.push({
-            ...joinTradeWithSequenceDiagnostics(trade, [], { preEntryMs }),
-            diagnostics_ok: false,
-            diagnostics_reason: `trail_fetch_failed:${String(e.message || e).slice(0, 120)}`,
-          });
-          continue;
-        }
+  if (mode === "events" || mode === "combined") {
+    let events = [];
+    if (WRANGLER_D1) {
+      events = fetchSetupEventsViaWrangler(ticker, since, entryTs, WRANGLER_D1);
+    } else if (API_KEY) {
+      try {
+        const params = new URLSearchParams({
+          key: API_KEY,
+          ticker,
+          since: String(since),
+          until: String(entryTs),
+          limit: "2000",
+        });
+        const data = await fetchJson(`${API_BASE_ARG}/timed/admin/setup-events?${params}`);
+        events = (data.events || []).map((ev) => ({
+          ...ev,
+          payload: ev.payload || {},
+        }));
+      } catch {
+        events = [];
       }
-      rows = trailCache.get(cacheKey);
     }
+    if (events.length) {
+      return joinTradeWithEventLedger(trade, events, { preEntryMs: opts.preEntryMs, ticker });
+    }
+    if (mode === "events") {
+      return joinTradeWithEventLedger(trade, [], { preEntryMs: opts.preEntryMs, ticker });
+    }
+  }
 
-    joined.push(joinTradeWithSequenceDiagnostics(trade, rows, {
-      preEntryMs,
-      derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
-    }));
+  let rows = [];
+  if (TRAIL_FILE) {
+    rows = await fetchTrailRows(ticker, since, until);
+  } else {
+    const cacheKey = `${ticker}:${since}:${until}`;
+    if (!opts.trailCache.has(cacheKey)) {
+      try {
+        opts.trailCache.set(cacheKey, await fetchTrailRows(ticker, since, until));
+      } catch (e) {
+        opts.trailCache.set(cacheKey, []);
+        return {
+          ...joinTradeWithSequenceDiagnostics(trade, [], { preEntryMs: opts.preEntryMs }),
+          diagnostics_ok: false,
+          diagnostics_reason: `trail_fetch_failed:${String(e.message || e).slice(0, 120)}`,
+        };
+      }
+    }
+    rows = opts.trailCache.get(cacheKey);
+  }
+
+  return joinTradeWithSequenceDiagnostics(trade, rows, {
+    preEntryMs: opts.preEntryMs,
+    analysis_mode: "trail_window",
+    derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
+  });
+}
+
+async function joinOneMissedMove(move, opts) {
+  const ticker = String(move.ticker || "").toUpperCase();
+  const startTs = Number(move.start_ts ?? move.startTs);
+  const endTs = Number(move.end_ts ?? move.endTs) || startTs;
+  const since = startTs - opts.preEntryMs;
+  const cacheKey = `${ticker}:${since}:${endTs}`;
+  if (!opts.trailCache.has(cacheKey)) {
+    try {
+      opts.trailCache.set(cacheKey, await fetchTrailRows(ticker, since, endTs));
+    } catch {
+      opts.trailCache.set(cacheKey, []);
+    }
+  }
+  return joinMissedMoveWithTrailDiagnostics(move, opts.trailCache.get(cacheKey), {
+    preEntryMs: opts.preEntryMs,
+    analysis_mode: "discovery_missed_trail",
+  });
+}
+
+async function main() {
+  const preEntryMs = PRE_ENTRY_HOURS * 60 * 60 * 1000;
+  const trailCache = new Map();
+  const joinOpts = { preEntryMs, analysisMode: ANALYSIS_MODE, trailCache };
+  let joined = [];
+
+  if (COHORT === "discovery") {
+    let moves = loadDiscoveryMoves();
+    if (TICKERS_RAW) {
+      const set = new Set(TICKERS_RAW.split(/[\s,]+/).map((s) => s.trim().toUpperCase()).filter(Boolean));
+      moves = moves.filter((m) => set.has(String(m.ticker || "").toUpperCase()));
+    }
+    moves = moves.sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0)).slice(0, LIMIT);
+    if (!moves.length) {
+      console.error("No MISSED discovery moves found. Pass --discovery-file with timed:move-discovery export.");
+      process.exit(1);
+    }
+    for (const move of moves) {
+      joined.push(await joinOneMissedMove(move, joinOpts));
+    }
+  } else {
+    let trades = filterTickers(await fetchTrades());
+    trades = trades.slice(0, LIMIT);
+    if (!trades.length) {
+      console.error("No closed trades found for mining.");
+      process.exit(1);
+    }
+    for (const trade of trades) {
+      joined.push(await joinOneTrade(trade, joinOpts));
+    }
   }
 
   const report = buildReliabilityReport(joined, {
@@ -227,9 +341,13 @@ async function main() {
     tickers: TICKERS_RAW || null,
     limit: LIMIT,
     pre_entry_hours: PRE_ENTRY_HOURS,
+    cohort: COHORT,
+    analysis_mode: ANALYSIS_MODE,
+    parity_fixtures: PARITY_FIXTURE_TICKERS,
     trades_source: TRADES_FILE || (D1_TRADES && WRANGLER_D1 ? `wrangler-d1-trades:${WRANGLER_D1}` : "trade-autopsy-api"),
     trail_source: TRAIL_FILE || (WRANGLER_D1 ? `wrangler-d1:${WRANGLER_D1}:${TRAIL_SOURCE}` : "trail-payload-api"),
     trail_table: TRAIL_SOURCE === "5m" ? "trail_5m_facts" : "timed_trail",
+    discovery_file: DISCOVERY_FILE || null,
   });
 
   const markdown = formatReliabilityMarkdown(report);
@@ -240,6 +358,7 @@ async function main() {
     fs.writeFileSync(path.join(OUT_DIR, "summary.md"), markdown);
     console.log(`Wrote ${OUT_DIR}/summary.json and summary.md`);
     console.log(`Trades: ${report.reliability.total_trades}, with sequence: ${report.reliability.with_sequence}`);
+    console.log(`Cohort: ${COHORT}, analysis_mode: ${ANALYSIS_MODE}`);
   } else {
     console.log(markdown);
     console.log("\n--- JSON summary ---");

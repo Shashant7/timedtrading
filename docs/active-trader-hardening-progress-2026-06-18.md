@@ -62,6 +62,9 @@ This is an operator/agent status page. It does not change runtime behavior.
 - [x] CLI: `scripts/mine-setup-sequences.mjs` (trades + trail -> reliability tables)
 - [x] Run mining on live/pre-prod closed trades and review tables — preprod: [setup-mining-preprod-run-2026-06-18.md](setup-mining-preprod-run-2026-06-18.md); **prod:** [setup-mining-prod-run-2026-06-18.md](setup-mining-prod-run-2026-06-18.md) (50/50 join via `trail_5m_facts`; 0 sequences until TD/payload depth)
 - [x] CLI `--trail-source 5m` for `trail_5m_facts` + D1-direct trades fetch
+- [x] Tier 1 legacy `rank_trace` mining (`--analysis-mode legacy|combined`) — see [setup-events-combined-path-2026-06-18.md](setup-events-combined-path-2026-06-18.md)
+- [x] Tier 2B `setup_events` D1 ledger + cron hook (`SETUP_EVENTS_WRITE=1`) + admin routes
+- [x] Tier 3 backfill script (`scripts/backfill-setup-events.mjs`) — fixtures, trades, discovery cohorts
 - [ ] Calibration queue (blocked on Phase 1 fixture acceptance)
 
 ---
@@ -77,5 +80,5 @@ This is an operator/agent status page. It does not change runtime behavior.
 ## Next recommended actions
 
 1. Re-export full 10-ticker TradingView parity set; commit accepted fixtures only.
-2. Wire `rank_trace_json` (4,813 prod trades) into replay miner for richer pre-entry snapshots.
-3. Run setup diagnostics on 5 fixture tickers in pre-prod; compare event stream to manual chart read.
+2. Enable `SETUP_EVENTS_WRITE=1` on preprod; run fixture backfill + verify `GET /timed/admin/setup-events`.
+3. Export Discovery report JSON; run `--cohort discovery` backfill + mining on SHOULD_HAVE_ENTERED misses.

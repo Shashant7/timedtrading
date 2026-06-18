@@ -10,6 +10,8 @@ import {
   parseTrailSnapshotRow,
   summarizeTraderPosture,
 } from "./setup-diagnostics-route.js";
+import { deriveLegacyEntryDiagnostics, LEGACY_ANALYSIS_MODE } from "./setup-entry-snapshot.js";
+import { detectMeanReversionSequences } from "./setup-sequences.js";
 
 const DEFAULT_PRE_ENTRY_MS = 48 * 60 * 60 * 1000;
 
@@ -110,6 +112,162 @@ export function stageBucket(stage) {
   return "0_none";
 }
 
+export function diagnosticsForEventWindow(events = [], anchorTs, opts = {}) {
+  const anchor = Number(anchorTs);
+  const preMs = Number.isFinite(Number(opts.preEntryMs))
+    ? Number(opts.preEntryMs)
+    : DEFAULT_PRE_ENTRY_MS;
+  const since = Number.isFinite(anchor) ? anchor - preMs : null;
+  const windowEvents = (Array.isArray(events) ? events : []).filter((ev) => {
+    const ts = Number(ev.event_ts);
+    if (!Number.isFinite(ts)) return false;
+    if (Number.isFinite(anchor) && ts > anchor) return false;
+    if (since != null && ts < since) return false;
+    return true;
+  });
+  if (!windowEvents.length) {
+    return {
+      ok: false,
+      reason: "no_events_before_anchor",
+      snapshot_count: 0,
+      events: [],
+      sequences: [],
+      trader_posture: summarizeTraderPosture([]),
+    };
+  }
+  const latestTs = windowEvents[windowEvents.length - 1]?.event_ts;
+  const sequences = detectMeanReversionSequences(windowEvents, {
+    ticker: opts.ticker,
+    context: opts.context || {},
+    includeEmpty: opts.includeEmptySequences === true,
+  });
+  return {
+    ok: true,
+    snapshot_count: windowEvents.length,
+    window_since_ts: windowEvents[0]?.event_ts ?? null,
+    window_until_ts: latestTs ?? null,
+    events: windowEvents,
+    sequences,
+    trader_posture: summarizeTraderPosture(sequences),
+  };
+}
+
+export function joinTradeWithLegacyEntrySnapshot(trade = {}, opts = {}) {
+  const ticker = String(trade.ticker || "").toUpperCase();
+  const direction = String(trade.direction || "LONG").toUpperCase();
+  const entryTs = Number(trade.entry_ts ?? trade.entryTs);
+  const diag = deriveLegacyEntryDiagnostics(trade, null, opts);
+  const seq = diag.sequence || null;
+  const outcome = classifyTradeOutcome(trade);
+
+  return {
+    trade_id: trade.trade_id || trade.tradeId || null,
+    ticker,
+    direction,
+    entry_ts: Number.isFinite(entryTs) ? entryTs : null,
+    exit_ts: Number(trade.exit_ts ?? trade.exitTs) || null,
+    entry_path: trade.entry_path || trade.setup_name || null,
+    pnl_pct: outcome.pnl_pct,
+    outcome: outcome.outcome,
+    mfe_pct: Number(trade.max_favorable_excursion ?? trade.maxFavorableExcursion) || null,
+    mae_pct: Number(trade.max_adverse_excursion ?? trade.maxAdverseExcursion) || null,
+    analysis_mode: LEGACY_ANALYSIS_MODE,
+    promotion_safe: false,
+    diagnostics_ok: diag.ok === true,
+    diagnostics_reason: diag.reason || null,
+    snapshot_count: diag.snapshot_count || 0,
+    has_setup_snapshot: diag.has_setup_snapshot === true,
+    static_stage: diag.static_stage || null,
+    sequence: seq ? {
+      sequence_id: seq.sequence_id || null,
+      sequence_type: seq.sequence_type,
+      direction: seq.direction,
+      stage: seq.stage,
+      stage_bucket: stageBucket(seq.stage),
+      status: seq.status,
+      posture: seq.posture,
+      confidence: seq.confidence,
+      path_forecast: seq.path_forecast || null,
+      static_only: seq.static_only === true,
+    } : null,
+    trader_posture: diag.trader_posture,
+    event_count: diag.event_count || 0,
+  };
+}
+
+export function joinTradeWithEventLedger(trade = {}, events = [], opts = {}) {
+  const ticker = String(trade.ticker || "").toUpperCase();
+  const direction = String(trade.direction || "LONG").toUpperCase();
+  const entryTs = Number(trade.entry_ts ?? trade.entryTs);
+  const diag = diagnosticsForEventWindow(events, entryTs, { ...opts, ticker });
+  const seq = sequenceForDirection(diag.sequences || [], direction);
+  const outcome = classifyTradeOutcome(trade);
+
+  return {
+    trade_id: trade.trade_id || trade.tradeId || null,
+    ticker,
+    direction,
+    entry_ts: Number.isFinite(entryTs) ? entryTs : null,
+    exit_ts: Number(trade.exit_ts ?? trade.exitTs) || null,
+    entry_path: trade.entry_path || trade.setup_name || null,
+    pnl_pct: outcome.pnl_pct,
+    outcome: outcome.outcome,
+    analysis_mode: "setup_events_d1",
+    promotion_safe: true,
+    diagnostics_ok: diag.ok === true,
+    diagnostics_reason: diag.reason || null,
+    snapshot_count: diag.snapshot_count || 0,
+    sequence: seq ? {
+      sequence_id: seq.sequence_id,
+      sequence_type: seq.sequence_type,
+      direction: seq.direction,
+      stage: seq.stage,
+      stage_bucket: stageBucket(seq.stage),
+      status: seq.status,
+      posture: seq.posture,
+      confidence: seq.confidence,
+      path_forecast: seq.path_forecast,
+    } : null,
+    trader_posture: diag.trader_posture,
+    event_count: (diag.events || []).length,
+  };
+}
+
+export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], opts = {}) {
+  const ticker = String(move.ticker || "").toUpperCase();
+  const direction = String(move.direction || (Number(move.move_pct) >= 0 ? "LONG" : "SHORT")).toUpperCase();
+  const anchorTs = Number(move.start_ts ?? move.startTs ?? move.entry_ts);
+  const snapshots = snapshotsFromTrailRows(trailRows, ticker);
+  const diag = diagnosticsForEntryWindow(snapshots, anchorTs, opts);
+  const seq = sequenceForDirection(diag.sequences || [], direction === "SHORT" ? "SHORT" : "LONG");
+
+  return {
+    cohort: "discovery_missed",
+    move_id: move.move_id || `${ticker}:${anchorTs}`,
+    ticker,
+    direction: direction === "SHORT" ? "SHORT" : "LONG",
+    capture: move.capture || "MISSED",
+    start_ts: anchorTs,
+    end_ts: Number(move.end_ts ?? move.endTs) || null,
+    move_pct: Number(move.move_pct) || null,
+    move_atr: Number(move.move_atr) || null,
+    analysis_mode: opts.analysis_mode || "trail_5m_facts",
+    promotion_safe: false,
+    diagnostics_ok: diag.ok === true,
+    diagnostics_reason: diag.reason || null,
+    snapshot_count: diag.snapshot_count || 0,
+    sequence: seq ? {
+      sequence_type: seq.sequence_type,
+      direction: seq.direction,
+      stage: seq.stage,
+      stage_bucket: stageBucket(seq.stage),
+      status: seq.status,
+      confidence: seq.confidence,
+    } : null,
+    event_count: (diag.events || []).length,
+  };
+}
+
 export function joinTradeWithSequenceDiagnostics(trade = {}, trailRows = [], opts = {}) {
   const ticker = String(trade.ticker || "").toUpperCase();
   const direction = String(trade.direction || "LONG").toUpperCase();
@@ -133,6 +291,8 @@ export function joinTradeWithSequenceDiagnostics(trade = {}, trailRows = [], opt
     diagnostics_ok: diag.ok === true,
     diagnostics_reason: diag.reason || null,
     snapshot_count: diag.snapshot_count || 0,
+    analysis_mode: opts.analysis_mode || "trail_window",
+    promotion_safe: opts.promotion_safe === true,
     sequence: seq ? {
       sequence_id: seq.sequence_id,
       sequence_type: seq.sequence_type,
@@ -227,6 +387,7 @@ export function buildReliabilityReport(joinedRows = [], meta = {}) {
 
 export function formatReliabilityMarkdown(report = {}) {
   const rel = report.reliability || {};
+  const meta = report.meta || {};
   const lines = [
     "# Setup Sequence Reliability (shadow mining)",
     "",
@@ -237,6 +398,8 @@ export function formatReliabilityMarkdown(report = {}) {
     `- Total trades analyzed: ${rel.total_trades ?? 0}`,
     `- Trades with diagnostics window: ${rel.with_diagnostics ?? 0}`,
     `- Trades with active sequence at entry: ${rel.with_sequence ?? 0}`,
+    meta.analysis_mode ? `- Analysis mode: ${meta.analysis_mode}` : "",
+    meta.cohort ? `- Cohort: ${meta.cohort}` : "",
     "",
     "## By sequence (type:direction:stage_bucket)",
     "",
