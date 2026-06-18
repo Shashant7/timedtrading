@@ -7,6 +7,7 @@ import {
   selectTopN,
   loadPhaseCConfig,
 } from "./pipeline/entry-selector.js";
+import { serializeSequenceTrailSnapshot } from "./foundation/sequence-snapshot.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -72,6 +73,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
     debugTimeline,
     blockChainTrace,
     trailForensics,
+    sequenceSnapshot,
     marketOpenMs,
     REPLAY_TFS,
     candleCache,
@@ -1171,12 +1173,14 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           // payload when explicitly requested (trailForensics=1). Drops D1
           // growth per backtest from ~1.5-2 GB to ~50 MB. Slim fields below
           // still flow. See tasks/d1-storage-reduction-plan-2026-04-22.md
-          const payloadJson = trailForensics
-            ? (() => {
-                const obj = buildForensicsPayload(r);
-                return obj ? JSON.stringify(obj) : null;
-              })()
-            : null;
+          const payloadJson = sequenceSnapshot
+            ? serializeSequenceTrailSnapshot(r, env, 32768, { force: true })
+            : trailForensics
+              ? (() => {
+                  const obj = buildForensicsPayload(r);
+                  return obj ? JSON.stringify(obj) : null;
+                })()
+              : null;
           trailStmts.push(
             db.prepare(
               `INSERT OR REPLACE INTO timed_trail

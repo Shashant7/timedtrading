@@ -113,6 +113,10 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
   // See tasks/d1-storage-reduction-plan-2026-04-22.md
   const trailForensics = url.searchParams.get("trailForensics") === "1"
     || url.searchParams.get("skipPayloadJson") === "0";
+  // Setup-sequence replay: slim sequence_trail payload (~32KB) for event
+  // derivation. Preferred over trailForensics for move-window backfill.
+  const sequenceSnapshot = url.searchParams.get("sequenceSnapshot") === "1"
+    || url.searchParams.get("sequenceTrail") === "1";
   const skipInvestor = url.searchParams.get("skipInvestor") === "1" || url.searchParams.get("traderOnly") === "1";
   const skipPayload = url.searchParams.get("skipPayload") !== "0";
   const debugTimeline = url.searchParams.get("debugTimeline") === "1";
@@ -156,6 +160,7 @@ export function parseCandleReplayRequest({ url, tickerUniverse = [] } = {}) {
       batchTickers,
       hasMore,
       trailForensics,
+      sequenceSnapshot,
     },
   };
 }

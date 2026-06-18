@@ -41,4 +41,15 @@ describe("sequence trail snapshot", () => {
     expect(json).toBeTruthy();
     expect(JSON.parse(json).ticker).toBe("SPY");
   });
+
+  it("serializes with force even when env gate is off", () => {
+    const json = serializeSequenceTrailSnapshot(
+      { ticker: "SPY", ts: 1, price: 1, tf_tech: { D: { rsi: { r5: 50 } } } },
+      {},
+      32768,
+      { force: true },
+    );
+    expect(json).toBeTruthy();
+    expect(JSON.parse(json)._snapshot_kind).toBe("sequence_trail");
+  });
 });

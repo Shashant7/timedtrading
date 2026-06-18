@@ -141,8 +141,8 @@ export function sequenceTrailSnapshotEnabled(env) {
   return v === "1" || v === 1 || v === true || String(v || "").toLowerCase() === "true";
 }
 
-export function serializeSequenceTrailSnapshot(payload, env, maxBytes = 32768) {
-  if (!sequenceTrailSnapshotEnabled(env)) return null;
+export function serializeSequenceTrailSnapshot(payload, env, maxBytes = 32768, opts = {}) {
+  if (!opts.force && !sequenceTrailSnapshotEnabled(env)) return null;
   const snap = buildSequenceTrailSnapshot(payload);
   if (!snap) return null;
   let json = JSON.stringify(snap);
