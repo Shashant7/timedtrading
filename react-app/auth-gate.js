@@ -1034,6 +1034,7 @@
         // Expose globals for component-level gating
         Object.defineProperty(window, '_ttIsPro', { get() { return document.body.dataset.isPro === "true"; }, configurable: true });
         Object.defineProperty(window, '_ttIsAdmin', { get() { return document.body.dataset.isAdmin === "true"; }, configurable: true });
+        Object.defineProperty(window, '_ttIsAuthenticated', { get() { return document.body.dataset.isAuthenticated === "true"; }, configurable: true });
 
         // Let nav extras (badges + admin dropdown) re-run after auth.
         try {
@@ -1052,6 +1053,7 @@
         delete document.body.dataset.userTier;
         Object.defineProperty(window, '_ttIsPro', { get() { return false; }, configurable: true });
         Object.defineProperty(window, '_ttIsAdmin', { get() { return false; }, configurable: true });
+        Object.defineProperty(window, '_ttIsAuthenticated', { get() { return false; }, configurable: true });
         try {
           window.dispatchEvent(new CustomEvent("tt-auth-bootstrap-updated", {
             detail: { user: null, isAdmin: false, isPro: false, isAuthenticated: false },

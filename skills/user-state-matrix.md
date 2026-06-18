@@ -72,7 +72,7 @@ const isPro =
 
 - **Activity Strip** (`tt-activity-strip.js`) — gated on `_ttIsPro || _ttIsAdmin`. Free users: strip hidden entirely; no API polling.
 - **Notifications Bell** (`tt-nav-extras.js → injectRightWidgets → "alerts" slot`) — gated on `_ttIsPro || _ttIsAdmin`. Free users: bell not mounted; alerts API not polled.
-- **Right Rail live prices + scoring data** — gated server-side by `window._ttIsAdmin` (admin-only for now; pricing data licensing). Free users see ticker metadata only.
+- **Right Rail live prices** — server-side via `canAccessLivePrices()` + `redactTickerMapForTier()` (prices for any signed-in user; scores/SL/TP still Pro). Frontend cards/table use `window._ttIsAuthenticated`.
 - **Today / Active Trader / Investor / Portfolio / Insights pages** — `<AuthGate requiredTier="pro">`. Free users: PaywallScreen.
 
 ## Public-only surfaces (never gate; must work without any auth)

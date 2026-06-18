@@ -101,7 +101,7 @@ WRITE A NEW SKILL before exiting. Future you will thank you.
   "this account", or rephrase.
 - **Never inline daily change math** — always go through
   `getDailyChange(t)` in `react-app/shared-price-utils.js`.
-- **Admin-gate live prices** — non-admin users do not see live data.
+- **Admin-gate live prices for anonymous users only** — signed-in users see live data via `_ttIsAuthenticated` + server `canAccessLivePrices()`.
 - **`window._ttIsPro` for feature gating** — paid features.
 - **Footer must include** "Market data powered by Twelve Data" (licensing).
 

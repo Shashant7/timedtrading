@@ -34,5 +34,5 @@ alwaysApply: true
 - Crypto tickers (BTCUSD, ETHUSD) are excluded from the EXT row (24/7 markets, no session distinction).
 
 ## Admin Gating & Attribution
-- All live price/change data is gated behind `window._ttIsAdmin`. Non-admin users do not see prices.
+- Live price/change data is gated behind **sign-in** server-side (`canAccessLivePrices` in `worker/api.js`) and `window._ttIsAuthenticated` on the frontend. Anonymous visitors do not see prices; authenticated free/pro/admin users do. Proprietary scores/SL/TP remain Pro-gated via `redactTickerMapForTier`.
 - Footer MUST include "Market data powered by Twelve Data" for licensing compliance.
