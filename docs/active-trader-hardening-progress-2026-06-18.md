@@ -60,7 +60,8 @@ This is an operator/agent status page. It does not change runtime behavior.
 
 - [x] Read-only replay mining module (`setup-replay-mining.js`)
 - [x] CLI: `scripts/mine-setup-sequences.mjs` (trades + trail -> reliability tables)
-- [x] Run mining on live/pre-prod closed trades and review tables — see [setup-mining-preprod-run-2026-06-18.md](setup-mining-preprod-run-2026-06-18.md) (scalar trail only; 0 sequences until payload backfill)
+- [x] Run mining on live/pre-prod closed trades and review tables — preprod: [setup-mining-preprod-run-2026-06-18.md](setup-mining-preprod-run-2026-06-18.md); **prod:** [setup-mining-prod-run-2026-06-18.md](setup-mining-prod-run-2026-06-18.md) (50/50 join via `trail_5m_facts`; 0 sequences until TD/payload depth)
+- [x] CLI `--trail-source 5m` for `trail_5m_facts` + D1-direct trades fetch
 - [ ] Calibration queue (blocked on Phase 1 fixture acceptance)
 
 ---
@@ -76,6 +77,5 @@ This is an operator/agent status page. It does not change runtime behavior.
 ## Next recommended actions
 
 1. Re-export full 10-ticker TradingView parity set; commit accepted fixtures only.
-2. Run `node scripts/mine-setup-sequences.mjs --live --limit 25` in pre-prod; review reliability tables.
+2. Wire `rank_trace_json` (4,813 prod trades) into replay miner for richer pre-entry snapshots.
 3. Run setup diagnostics on 5 fixture tickers in pre-prod; compare event stream to manual chart read.
-4. Documentation: mark `SCORING_ARCHITECTURE.md` historical; add Day Trader architecture note.

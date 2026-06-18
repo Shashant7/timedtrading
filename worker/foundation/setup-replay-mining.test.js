@@ -65,6 +65,25 @@ describe("setup replay mining", () => {
     expect(snaps[0].tf_tech.D.pdz.zone).toBe("discount");
   });
 
+  it("builds snapshots from trail_5m_facts bucket rows", () => {
+    const snaps = snapshotsFromTrailRows([
+      {
+        bucket_ts: 2000,
+        price_close: 101,
+        state: "HTF_BULL_LTF_PULLBACK",
+        kanban_stage_end: "setup",
+        phase_pct: 0.35,
+        pdz_zone: "discount",
+        pdz_pct: 22,
+        had_squeeze_release: 1,
+      },
+    ], "SPY");
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]._snapshot_source).toBe("trail_5m_facts");
+    expect(snaps[0].kanban_stage).toBe("setup");
+    expect(snaps[0].tf_tech.D.pdz.zone).toBe("discount");
+  });
+
   it("filters snapshots to the pre-entry window", () => {
     const snaps = [
       { ts: 1000, price: 95 },

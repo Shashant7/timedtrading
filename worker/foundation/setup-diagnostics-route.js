@@ -120,8 +120,49 @@ export function summarizeTraderPosture(sequences = [], opts = {}) {
   };
 }
 
+export function snapshotFrom5mFactRow(row, ticker) {
+  const ts = Number(row.bucket_ts ?? row.ts);
+  if (!Number.isFinite(ts)) return null;
+
+  const sym = String(ticker || row.ticker || "").toUpperCase();
+  const pdzD = row.pdz_zone && row.pdz_zone !== "unknown" ? row.pdz_zone : null;
+  const flags = {
+    pdz_zone_D: pdzD,
+    pdz_pct_D: Number(row.pdz_pct) || null,
+    fvg_bull_D: Number(row.fvg_bull_count) || 0,
+    fvg_bear_D: Number(row.fvg_bear_count) || 0,
+    ema_regime_D: Number(row.ema_regime_D) || 0,
+  };
+  if (row.had_squeeze_release) flags.sq30_release = true;
+  if (row.had_ema_cross) flags.ema_cross = true;
+  if (row.had_st_flip) flags.st_flip = true;
+  if (row.had_momentum_elite) flags.momentum_elite = true;
+
+  return {
+    ticker: sym,
+    ts,
+    event_ts: ts,
+    price: Number(row.price_close ?? row.price) || null,
+    state: row.state || null,
+    kanban_stage: row.kanban_stage_end ?? row.kanban_stage ?? null,
+    phase_pct: Number(row.phase_pct) || null,
+    flags,
+    pdz_zone_D: pdzD,
+    tf_tech: {
+      D: {
+        pdz: { zone: pdzD },
+        fvg: {
+          ib: flags.fvg_in_bull_D ? 1 : 0,
+          ibr: flags.fvg_in_bear_D ? 1 : 0,
+        },
+      },
+    },
+    _snapshot_source: "trail_5m_facts",
+  };
+}
+
 export function snapshotFromTrailScalars(row, ticker) {
-  const ts = Number(row.ts);
+  const ts = Number(row.ts ?? row.bucket_ts);
   if (!Number.isFinite(ts)) return null;
 
   let flags = {};
@@ -165,6 +206,10 @@ export function snapshotFromTrailScalars(row, ticker) {
 }
 
 export function parseTrailSnapshotRow(row, ticker) {
+  if (row?.bucket_ts != null && row?.payload_json == null && row?.payload == null && !row?.flags_json) {
+    return snapshotFrom5mFactRow(row, ticker);
+  }
+
   const payloadRaw = row?.payload_json ?? row?.payload;
   let payload = null;
   if (payloadRaw) {

@@ -10,6 +10,8 @@
  *   TIMED_API_KEY=... node scripts/mine-setup-sequences.mjs --tickers USO,TSLA --limit 10
  *   node scripts/mine-setup-sequences.mjs --trades-file data/trade-autopsy-trades.json --trail-file data/uso-trail.json
  *
+ *   node scripts/mine-setup-sequences.mjs --wrangler-d1 production --trail-source 5m --limit 50
+ *
  * Options:
  *   --api-base URL          default TIMED_API_BASE or ingest worker URL
  *   --live                  fetch live closed trades (run_id IS NULL path)
@@ -18,6 +20,9 @@
  *   --limit N               max trades to analyze (default 25)
  *   --pre-entry-hours H     snapshot lookback before entry (default 48)
  *   --out-dir PATH          write summary.json + summary.md (default stdout only)
+ *   --wrangler-d1 ENV       read trail directly from D1 (preprod|production)
+ *   --trail-source SRC      trail table: raw (timed_trail) or 5m (trail_5m_facts); default 5m when --wrangler-d1 set
+ *   --d1-trades             fetch closed trades from D1 instead of trade-autopsy API (requires --wrangler-d1)
  *   --trades-file PATH      local trades JSON ({ trades: [...] } or array)
  *   --trail-file PATH       local trail rows JSON for single-ticker offline runs
  */
@@ -58,12 +63,11 @@ const TRADES_FILE = argValue("--trades-file", "");
 const TRAIL_FILE = argValue("--trail-file", "");
 const API_BASE_ARG = argValue("--api-base", API_BASE);
 const WRANGLER_D1 = argValue("--wrangler-d1", "");
+const D1_TRADES = hasFlag("--d1-trades") || Boolean(WRANGLER_D1);
+const TRAIL_SOURCE = argValue("--trail-source", WRANGLER_D1 ? "5m" : "raw");
 
-function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "preprod") {
-  const sym = String(ticker || "").toUpperCase().replace(/[^A-Z0-9._-]/g, "");
-  if (!sym) return [];
+function fetchD1Rows(wranglerEnv, sql) {
   const dbName = wranglerEnv === "preprod" ? "timed-trading-ledger-preprod" : "timed-trading-ledger";
-  const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(sinceTs)} AND ts <= ${Number(untilTs)} ORDER BY ts ASC LIMIT 2000`;
   const out = execFileSync(path.join(process.cwd(), "node_modules/.bin/wrangler"), [
     "d1", "execute", dbName,
     "--env", wranglerEnv,
@@ -76,6 +80,24 @@ function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "prep
   });
   const parsed = JSON.parse(out);
   return parsed[0]?.results || [];
+}
+
+function fetchTrailRowsViaWrangler(ticker, sinceTs, untilTs, wranglerEnv = "preprod") {
+  const sym = String(ticker || "").toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  if (!sym) return [];
+  if (TRAIL_SOURCE === "5m") {
+    const sql = `SELECT bucket_ts, price_close, state, kanban_stage_end, phase_pct, pdz_zone, pdz_pct, fvg_bull_count, fvg_bear_count, ema_regime_D, had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite FROM trail_5m_facts WHERE ticker='${sym}' AND bucket_ts >= ${Number(sinceTs)} AND bucket_ts <= ${Number(untilTs)} ORDER BY bucket_ts ASC LIMIT 2000`;
+    return fetchD1Rows(wranglerEnv, sql);
+  }
+  const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(sinceTs)} AND ts <= ${Number(untilTs)} ORDER BY ts ASC LIMIT 2000`;
+  return fetchD1Rows(wranglerEnv, sql);
+}
+
+function fetchTradesViaWrangler(wranglerEnv = "preprod") {
+  const table = LIVE ? "trades" : "backtest_run_trades";
+  const liveFilter = LIVE ? " AND run_id IS NULL" : "";
+  const sql = `SELECT trade_id, ticker, direction, entry_ts, exit_ts, pnl_pct, status, entry_path FROM ${table} WHERE status IN ('WIN','LOSS')${liveFilter} ORDER BY entry_ts DESC LIMIT ${Math.max(LIMIT * 4, 100)}`;
+  return fetchD1Rows(wranglerEnv, sql);
 }
 
 async function fetchJson(url) {
@@ -112,8 +134,11 @@ async function fetchTrades() {
   if (TRADES_FILE) {
     return closedTradesOnly(normalizeTrades(loadJsonFile(TRADES_FILE)));
   }
+  if (D1_TRADES && WRANGLER_D1) {
+    return closedTradesOnly(fetchTradesViaWrangler(WRANGLER_D1));
+  }
   if (!API_KEY) {
-    throw new Error("TIMED_API_KEY required unless --trades-file is provided");
+    throw new Error("TIMED_API_KEY required unless --trades-file or --wrangler-d1 is provided");
   }
   const params = new URLSearchParams({ key: API_KEY, limit: String(Math.max(LIMIT * 4, 100)) });
   if (LIVE) params.set("live", "1");
@@ -202,8 +227,9 @@ async function main() {
     tickers: TICKERS_RAW || null,
     limit: LIMIT,
     pre_entry_hours: PRE_ENTRY_HOURS,
-    trades_source: TRADES_FILE || "trade-autopsy-api",
-    trail_source: TRAIL_FILE || (WRANGLER_D1 ? `wrangler-d1:${WRANGLER_D1}` : "trail-payload-api"),
+    trades_source: TRADES_FILE || (D1_TRADES && WRANGLER_D1 ? `wrangler-d1-trades:${WRANGLER_D1}` : "trade-autopsy-api"),
+    trail_source: TRAIL_FILE || (WRANGLER_D1 ? `wrangler-d1:${WRANGLER_D1}:${TRAIL_SOURCE}` : "trail-payload-api"),
+    trail_table: TRAIL_SOURCE === "5m" ? "trail_5m_facts" : "timed_trail",
   });
 
   const markdown = formatReliabilityMarkdown(report);
