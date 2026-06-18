@@ -26,6 +26,7 @@ import {
   computeOpeningRangeFromM5,
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
+import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
 /** Live session spot from a timed:prices row — extended print when RTH is closed. */
 export function liveSpotFromPriceFeedRow(row, marketOpen = true) {
@@ -1048,15 +1049,27 @@ export async function fetchBriefInvestorPositionsFromD1(db) {
   }
 }
 
-function mapBriefInvestorPositionRow(p, investorProfileMap = {}) {
-  const learned = investorProfileMap[String(p.ticker || "").toUpperCase()] || {};
+/** Live investor lanes from timed:investor:scores (same source as /timed/investor/positions). */
+export async function fetchBriefLiveInvestorScores(env) {
+  if (!env?.KV_TIMED) return {};
+  try {
+    return (await kvGetJSON(env.KV_TIMED, "timed:investor:scores")) || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function mapBriefInvestorPositionRow(p, investorProfileMap = {}, liveScores = {}) {
+  const sym = String(p.ticker || "").toUpperCase();
+  const learned = investorProfileMap[sym] || {};
+  const stage = resolveOwnedInvestorKanbanStage(liveScores[sym], p.investor_stage);
   return {
     ticker: p.ticker,
     shares: p.total_shares,
     avgEntry: p.avg_entry,
     costBasis: p.cost_basis,
     thesis: p.thesis,
-    stage: p.investor_stage,
+    stage,
     archetype: learned.longArchetype || null,
     policy: learned.stance || null,
     addOn: learned.addOn || null,
@@ -1120,11 +1133,12 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
       pf = {};
     }
   }
-  const [openTrades, investorRaw] = await Promise.all([
+  const [openTrades, investorRaw, liveScores] = await Promise.all([
     fetchBriefOpenTradesFromD1(db),
     fetchBriefInvestorPositionsFromD1(db),
+    fetchBriefLiveInvestorScores(env),
   ]);
-  const investorPositions = investorRaw.map((p) => mapBriefInvestorPositionRow(p));
+  const investorPositions = investorRaw.map((p) => mapBriefInvestorPositionRow(p, {}, liveScores));
   let _refreshMktOpen = true;
   try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
   const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf, _refreshMktOpen);
@@ -1736,6 +1750,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   let todayTradeTrimsDefends = [];
   let investorPositions = [];
   const investorProfileMap = {};
+  let liveInvestorScores = {};
   if (db) {
     const todayStart = new Date(today + "T00:00:00Z").getTime();
     const todayEnd = todayStart + 86400000;
@@ -1754,6 +1769,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
         ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
         fetchBriefInvestorPositionsFromD1(db),
       ]);
+      liveInvestorScores = await fetchBriefLiveInvestorScores(env);
       todayTradeEntries = (entryRes?.results || []).slice(0, 10);
       todayTradeExits = (exitRes?.results || []).slice(0, 10);
       todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
@@ -1975,7 +1991,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       reason: e.reason,
     })),
     // Investor portfolio positions
-    investorPositions: investorPositions.map((p) => mapBriefInvestorPositionRow(p, investorProfileMap)),
+    investorPositions: investorPositions.map((p) => mapBriefInvestorPositionRow(p, investorProfileMap, liveInvestorScores)),
     econNews: (finnhubEconNews || []).slice(0, 10),
     // 2026-05-22 — Broad market headlines for the brief infographic.
     topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
