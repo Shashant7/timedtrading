@@ -256,7 +256,126 @@
     return { lastTickerRefresh };
   }
 
-  window.TimedLiveData = { usePriceFeed, useTickerRefresh, mergeTimedAllRefresh };
+  // ── usePriceWebSocket ────────────────────────────────────────────────
+  // Sub-second live price ticks via the Durable Object WebSocket (/timed/ws).
+  // ADDITIVE to usePriceFeed: the 30s poll remains the safety net, so if the
+  // WS can't connect (tier/network) prices still refresh on the poll. Restores
+  // the live-tick behavior the retired index-react monolith had — the journey
+  // pages (Today/AT/Investor) had regressed to poll-only, which read as a
+  // laggy/"stale" price during fast moves. Render-safe: all logic in effects.
+  function usePriceWebSocket(data, setData, opts) {
+    const enabled = opts?.enabled !== false;
+    const ready = useDataReady(data);
+    const setterRef = useRef(setData);
+    setterRef.current = setData;
+    const wsRef = useRef(null);
+    const reconnectTimer = useRef(null);
+    const reconnectDelay = useRef(1000);
+    const closedRef = useRef(false);
+    const [wsConnected, setWsConnected] = useState(false);
+
+    // Apply a batch of { sym, p:{p,pc,dc,dp,ahp,...} } ticks — same overlay
+    // shape usePriceFeed writes, so getHeadlinePrice/getDailyChange see live.
+    const applyTicks = useCallback((entries, wsTs) => {
+      const setter = setterRef.current;
+      if (typeof setter !== "function" || !entries || !entries.length) return;
+      const marketOpen = readMarketOpen();
+      setter((prev) => {
+        if (!prev || typeof prev !== "object") return prev;
+        let next = prev;
+        let changed = false;
+        for (const { sym, p } of entries) {
+          const key = String(sym).toUpperCase();
+          const existing = next[key];
+          const feedP = Number(p?.p);
+          if (!existing || !(feedP > 0)) continue;
+          if (existing._live_price === feedP) continue;
+          if (existing._price_updated_at && existing._price_updated_at > wsTs) continue;
+          if (!changed) { next = { ...prev }; changed = true; }
+          const feedPc = Number(p.pc);
+          const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0
+            && (Math.abs(feedPc - feedP) / feedP * 100) > 0.05;
+          const bestPc = feedPcUsable ? feedPc : (existing._live_prev_close || existing.prev_close || undefined);
+          const feedDc = Number(p.dc);
+          const feedDp = Number(p.dp);
+          const ahp = Number(p.ahp);
+          const ahdc = Number(p.ahdc);
+          const ahdp = Number(p.ahdp);
+          next[key] = {
+            ...existing,
+            ...(marketOpen
+              ? { price: feedP, _live_price: feedP }
+              : { price: feedP, close: feedP, _live_price: feedP }),
+            _price_updated_at: wsTs,
+            _market_open_at_feed: marketOpen,
+            ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
+            ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+            ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+            ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
+            ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
+            ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
+          };
+        }
+        return changed ? next : prev;
+      });
+    }, []);
+
+    useEffect(() => {
+      if (!enabled || !ready) return;
+      if (typeof WebSocket === "undefined") return;
+      closedRef.current = false;
+
+      const scheduleReconnect = () => {
+        if (closedRef.current) return;
+        const delay = reconnectDelay.current;
+        reconnectDelay.current = Math.min(delay * 2, 30000);
+        reconnectTimer.current = setTimeout(connect, delay);
+      };
+
+      const connect = async () => {
+        if (closedRef.current) return;
+        // Ticket via same-origin proxy (carries CF Access auth); CF Access
+        // blocks WS upgrades on the custom domain so we connect to workers.dev.
+        let ticket = null;
+        try {
+          const tRes = await fetch(`${API_BASE}/timed/ws-ticket`, { credentials: "include", cache: "no-store" });
+          const tJson = await tRes.json().catch(() => null);
+          if (tJson?.ok && tJson.ticket) ticket = tJson.ticket;
+        } catch (_) { /* fall through */ }
+        if (!ticket || closedRef.current) { scheduleReconnect(); return; }
+        let ws = null;
+        try {
+          ws = new WebSocket(`wss://timed-trading-ingest.shashant.workers.dev/timed/ws?ticket=${encodeURIComponent(ticket)}`);
+          wsRef.current = ws;
+        } catch (_) { scheduleReconnect(); return; }
+        ws.onopen = () => { setWsConnected(true); reconnectDelay.current = 1000; };
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "prices" && msg.data) {
+              applyTicks(Object.entries(msg.data).map(([sym, p]) => ({ sym, p })), readMs(msg.updated_at) || Date.now());
+            } else if (msg.type === "tick_batch" && Array.isArray(msg.updates)) {
+              applyTicks(msg.updates.map((u) => ({ sym: u.s, p: { p: u.last } })), readMs(msg.ts) || Date.now());
+            }
+          } catch (_) { /* ignore malformed frame */ }
+        };
+        ws.onclose = () => { setWsConnected(false); wsRef.current = null; scheduleReconnect(); };
+        ws.onerror = () => { /* onclose fires next → reconnect */ };
+      };
+
+      connect();
+      return () => {
+        closedRef.current = true;
+        clearTimeout(reconnectTimer.current);
+        try { wsRef.current?.close(); } catch (_) {}
+        wsRef.current = null;
+      };
+    }, [enabled, ready, applyTicks]);
+
+    return { wsConnected };
+  }
+
+  window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1781733566354:280680451
+// cache-bust:1781818077983:107534129
