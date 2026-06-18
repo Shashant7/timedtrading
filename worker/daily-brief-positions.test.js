@@ -4,6 +4,7 @@ import {
   mapBriefOpenTradeRow,
   buildInfographicPositionRows,
 } from "./daily-brief.js";
+import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
 describe("daily-brief open positions", () => {
   it("isBriefOpenTradeStatus matches ledger open filter", () => {
@@ -37,5 +38,12 @@ describe("daily-brief open positions", () => {
     expect(investorHoldings).toHaveLength(1);
     expect(investorHoldings[0].ticker).toBe("NVDA");
     expect(investorHoldings[0].unrealPct).toBeCloseTo(10, 1);
+  });
+
+  it("resolveOwnedInvestorKanbanStage prefers live scores over stale D1 column", () => {
+    expect(resolveOwnedInvestorKanbanStage({ stage: "reduce" }, "accumulate")).toBe("reduce");
+    expect(resolveOwnedInvestorKanbanStage({ stage: "accumulate", actionTier: "monitor" }, "accumulate")).toBe("watch");
+    expect(resolveOwnedInvestorKanbanStage({ stage: "accumulate", actionTier: "act_now" }, "accumulate")).toBe("accumulate");
+    expect(resolveOwnedInvestorKanbanStage(null, "accumulate")).toBe("accumulate");
   });
 });

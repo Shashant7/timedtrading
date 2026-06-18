@@ -932,6 +932,30 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
   return { revalidated: true, data: fresh };
 }
 
+/**
+ * Resolve the kanban lane for an owned position. The D1 investor_stage column
+ * is last written on lot/rebalance (often "accumulate" from entry) and goes
+ * stale; timed:investor:scores is the live source used by positions API + UI.
+ */
+export function resolveOwnedInvestorKanbanStage(liveScore, storedStage = "") {
+  let kstage = (liveScore && liveScore.stage)
+    ? String(liveScore.stage)
+    : String(storedStage || "");
+  if (kstage === "accumulate" && liveScore) {
+    let tier = liveScore.actionTier;
+    if (!tier) {
+      try {
+        tier = computeInvestorActionTier({
+          ...liveScore,
+          position: { ...(liveScore.position || {}), owned: true },
+        });
+      } catch (_) { /* best effort */ }
+    }
+    if (tier !== "act_now" && tier !== "ready") kstage = "watch";
+  }
+  return kstage || null;
+}
+
 export function computeInvestorActionTier(row) {
   const stage = String(row?.stage || "");
   if (stage !== "accumulate" && stage !== "reduce") return null;
