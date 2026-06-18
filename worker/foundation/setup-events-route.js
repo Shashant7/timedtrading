@@ -63,6 +63,7 @@ export async function handleSetupEventsBackfill(req, env, url, corsHeaders) {
   const since = Number(url.searchParams.get("since"));
   const until = Number(url.searchParams.get("until"));
   const trailSource = String(url.searchParams.get("trailSource") || "5m").toLowerCase();
+  const eventSource = String(url.searchParams.get("source") || "admin_backfill").slice(0, 64);
 
   if (!ticker || !Number.isFinite(since) || !Number.isFinite(until)) {
     return corsJson({ ok: false, error: "ticker_since_until_required" }, 400, corsHeaders);
@@ -78,6 +79,22 @@ export async function handleSetupEventsBackfill(req, env, url, corsHeaders) {
        ORDER BY bucket_ts ASC LIMIT 2000`,
     ).bind(ticker, since, until).all();
     rows = res?.results || [];
+  } else if (trailSource === "snap" || trailSource === "payload") {
+    const snapRes = await db.prepare(
+      `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
+       FROM timed_trail WHERE ticker = ?1 AND payload_json IS NOT NULL
+         AND ts >= ?2 AND ts <= ?3
+       ORDER BY ts ASC LIMIT 2000`,
+    ).bind(ticker, since, until).all();
+    rows = snapRes?.results || [];
+    if (!rows.length) {
+      const res = await db.prepare(
+        `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
+         FROM timed_trail WHERE ticker = ?1 AND ts >= ?2 AND ts <= ?3
+         ORDER BY ts ASC LIMIT 2000`,
+      ).bind(ticker, since, until).all();
+      rows = res?.results || [];
+    }
   } else {
     const res = await db.prepare(
       `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
@@ -95,7 +112,7 @@ export async function handleSetupEventsBackfill(req, env, url, corsHeaders) {
 
   const derived = deriveSetupEventsFromWindow(snapshots, {
     bootstrapFirst: true,
-    source: "admin_backfill",
+    source: eventSource,
     tdTfs: ["D", "W", "60"],
     signalTfs: ["D", "60", "30"],
   });

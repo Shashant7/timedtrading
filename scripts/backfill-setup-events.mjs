@@ -23,6 +23,7 @@ import { execFileSync } from "node:child_process";
 import { deriveSetupEventsFromWindow } from "../worker/foundation/setup-event-derivation.js";
 import { parseTrailSnapshotRow } from "../worker/foundation/setup-diagnostics-route.js";
 import { filterMissedDiscoveryMoves } from "../worker/foundation/discovery-move-utils.js";
+import { setupEventToDbBind } from "../worker/foundation/setup-events-store.js";
 
 const API_BASE = process.env.TIMED_API_BASE
   || process.env.API_BASE
