@@ -34,6 +34,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **"Various ticker lists" / unscored symbols clustering at (0,0) / add-remove a ticker / registry source of truth** | [ticker-registry.md](ticker-registry.md) |
 | Add/grade a published signal (options plays, desk calls, investor actions) | [signal-outcome-ledger.md](signal-outcome-ledger.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
+| **Tom Lee Macro Minute video content thin / ingest full transcript from YouTube** | [macro-minute-ingest.md](macro-minute-ingest.md) |
 
 ## When to ADD a new skill
 
