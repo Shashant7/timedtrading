@@ -16,6 +16,10 @@ Shadow implementation modules:
   setup-event atoms.
 - `worker/foundation/setup-event-derivation.js` — pure bridge from previous /
   current ticker snapshots into setup-event atoms and sequence diagnostics.
+- `worker/foundation/setup-diagnostics-route.js` — admin read path over
+  `timed_trail` / `timed:latest` snapshots.
+
+Event name mapping: [`setup-event-name-map-v1.md`](setup-event-name-map-v1.md)
 
 ---
 
