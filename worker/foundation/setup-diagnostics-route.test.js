@@ -98,6 +98,14 @@ describe("setup diagnostics route helpers", () => {
     expect(snap.ts).toBe(5000);
     expect(snap.price).toBe(101.5);
     expect(snap.state).toBe("BULL");
+
+    const fromApi = parseTrailSnapshotRow({
+      ts: 6000,
+      price: 102,
+      payload: { ticker: "USO", close: 102 },
+    }, "USO");
+    expect(fromApi.ts).toBe(6000);
+    expect(fromApi.price).toBe(102);
   });
 
   it("runs shadow diagnostics over a snapshot window", () => {

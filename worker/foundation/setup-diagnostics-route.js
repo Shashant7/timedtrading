@@ -121,12 +121,13 @@ export function summarizeTraderPosture(sequences = [], opts = {}) {
 }
 
 export function parseTrailSnapshotRow(row, ticker) {
-  if (!row?.payload_json) return null;
+  const payloadRaw = row?.payload_json ?? row?.payload;
+  if (!payloadRaw) return null;
   let payload;
   try {
-    payload = typeof row.payload_json === "string"
-      ? JSON.parse(row.payload_json)
-      : row.payload_json;
+    payload = typeof payloadRaw === "string"
+      ? JSON.parse(payloadRaw)
+      : payloadRaw;
   } catch {
     return null;
   }
