@@ -80,13 +80,19 @@ export async function handleSetupEventsBackfill(req, env, url, corsHeaders) {
     ).bind(ticker, since, until).all();
     rows = res?.results || [];
   } else if (trailSource === "snap" || trailSource === "payload") {
-    const snapRes = await db.prepare(
-      `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
-       FROM timed_trail WHERE ticker = ?1 AND payload_json IS NOT NULL
-         AND ts >= ?2 AND ts <= ?3
-       ORDER BY ts ASC LIMIT 2000`,
-    ).bind(ticker, since, until).all();
-    rows = snapRes?.results || [];
+    rows = [];
+    const pageSize = 1000;
+    for (let offset = 0; offset < 10000; offset += pageSize) {
+      const snapRes = await db.prepare(
+        `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
+         FROM timed_trail WHERE ticker = ?1 AND payload_json IS NOT NULL
+           AND ts >= ?2 AND ts <= ?3
+         ORDER BY ts ASC LIMIT ?4 OFFSET ?5`,
+      ).bind(ticker, since, until, pageSize, offset).all();
+      const batch = snapRes?.results || [];
+      rows.push(...batch);
+      if (batch.length < pageSize) break;
+    }
     if (!rows.length) {
       const res = await db.prepare(
         `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json
