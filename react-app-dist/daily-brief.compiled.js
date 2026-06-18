@@ -10,21 +10,9 @@ const API_BASE = "";
 function renderMarkdown(md) {
   if (!md) return "";
   let cleaned = md.replace(/ (#{2,4}) /g, "\n\n$1 ").replace(/ - \*\*/g, "\n- **").replace(/ - ([A-Z])/g, "\n- $1");
-  const stripIdx = cleaned.search(/^\s*1\.\s+(?:\*\*?)?(?:SPY|QQQ|IWM|S&P|ES|NQ|Today)/im);
-  if (stripIdx >= 0 && stripIdx < 800) {
-    const after = cleaned.slice(stripIdx);
-    const m = after.match(/^\s*1\.[\s\S]*?\n\s*2\.[\s\S]*?\n\s*3\.[^\n]*\n/);
-    if (m) {
-      cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
-    }
+  if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
+    cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
   }
-  cleaned = cleaned.replace(/\n#{2,4}\s*(?:ES|SPY|QQQ|IWM|NQ|DIA)\s+Prediction\b[\s\S]*?(?=\n#{2,4}\s|$)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*Index\s+Outlook\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*(?:The\s+)?Desk'?s?\s*Read\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*Sector\s*Themes?\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*Market\s*Context\b[\s\S]*?(?=\n#{1,3}\s)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi, "\n");
-  cleaned = cleaned.replace(/\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi, "\n");
   const _toHtml = typeof marked !== "undefined" && marked.parse ? marked.parse(cleaned, {
     breaks: true,
     gfm: true
@@ -665,6 +653,133 @@ function BriefInfographic({
     className: "pt-3 border-t border-white/[0.06] italic text-[#CFDED6] text-[12px] leading-relaxed"
   }, "\u201C", closingLine, "\u201D"));
 }
+function CRODeskWrapPanel({
+  croNote,
+  accentColor
+}) {
+  if (!croNote || !croNote.verdict && !(croNote.observations?.length > 0)) return null;
+  const [expanded, setExpanded] = useState(false);
+  const obs = (croNote.observations || []).slice(0, 4);
+  const summary = String(croNote.summaryMd || "").trim();
+  const showSummary = summary && summary.length > (croNote.verdict || "").length + 40;
+  return React.createElement("div", {
+    className: "mt-6 pt-5 border-t border-white/[0.06]"
+  }, React.createElement("div", {
+    className: "flex flex-wrap items-baseline justify-between gap-2 mb-3"
+  }, React.createElement("h3", {
+    className: "tt-editorial m-0 text-[18px]",
+    style: {
+      color: "var(--tt-text-0)"
+    }
+  }, "CRO Research Desk \u2014 Day Wrap"), croNote.asOfDate && React.createElement("span", {
+    className: "text-[10px] font-mono uppercase tracking-wider",
+    style: {
+      color: "var(--tt-text-dim)"
+    }
+  }, "Desk note \xB7 ", croNote.asOfDate)), croNote.verdict && React.createElement("p", {
+    className: "text-[14px] leading-relaxed m-0 mb-3",
+    style: {
+      color: "var(--tt-text-1)"
+    }
+  }, croNote.verdict), obs.length > 0 && React.createElement("div", {
+    className: "flex flex-col gap-2 mb-3"
+  }, obs.map((o, idx) => React.createElement("div", {
+    key: idx,
+    className: "p-3 rounded-lg",
+    style: {
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.06)"
+    }
+  }, o.section && React.createElement("div", {
+    className: "text-[9px] font-bold uppercase tracking-widest mb-1",
+    style: {
+      color: accentColor
+    }
+  }, o.section), React.createElement("div", {
+    className: "text-[12px] leading-relaxed",
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, o.text)))), showSummary && React.createElement("div", {
+    className: "mb-3"
+  }, React.createElement("button", {
+    type: "button",
+    className: "text-[11px] font-semibold uppercase tracking-wider border-0 bg-transparent cursor-pointer p-0",
+    style: {
+      color: accentColor
+    },
+    onClick: () => setExpanded(v => !v)
+  }, expanded ? "Hide desk note excerpt" : "Read desk note excerpt"), expanded && React.createElement("div", {
+    className: "brief-content mt-2 text-[13px]",
+    dangerouslySetInnerHTML: {
+      __html: renderMarkdown(summary.slice(0, 2500))
+    }
+  })), React.createElement("a", {
+    href: "/research-desk.html",
+    className: "text-[11px] font-semibold no-underline",
+    style: {
+      color: accentColor
+    }
+  }, "Open full Research Desk \u2192"));
+}
+function IndexOutlookSection({
+  brief,
+  accentColor,
+  bgDim,
+  isMorning
+}) {
+  const hasOutlook = !!(brief?.esPrediction || brief?.spyPrediction || brief?.qqqPrediction || brief?.iwmPrediction || brief?.liveKeyLevels?.length > 0);
+  if (!hasOutlook) return null;
+  const sectionTitle = isMorning ? "Index Outlook & Game Plan" : "Index Outlook & Scorecard";
+  const predCards = [{
+    label: "ES Outlook",
+    body: brief.esPrediction
+  }, {
+    label: "SPY Prediction",
+    body: brief.spyPrediction
+  }, {
+    label: "QQQ Prediction",
+    body: brief.qqqPrediction
+  }, {
+    label: "IWM Prediction",
+    body: brief.iwmPrediction
+  }].filter(p => p.body);
+  return React.createElement("div", {
+    className: "mt-6 pt-5 border-t border-white/[0.06]"
+  }, React.createElement("h3", {
+    className: "tt-editorial m-0 mb-3 text-[18px]",
+    style: {
+      color: "var(--tt-text-0)"
+    }
+  }, sectionTitle), predCards.length > 0 && React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-3"
+  }, predCards.map(p => React.createElement("div", {
+    key: p.label,
+    className: "p-3 rounded-lg",
+    style: {
+      background: bgDim,
+      borderLeft: `3px solid ${accentColor}`
+    }
+  }, React.createElement("div", {
+    className: "text-[9px] font-bold uppercase tracking-widest mb-1",
+    style: {
+      color: accentColor
+    }
+  }, p.label), React.createElement("div", {
+    className: "text-[13px] leading-relaxed",
+    style: {
+      color: "var(--tt-text-1)",
+      whiteSpace: "pre-line"
+    },
+    dangerouslySetInnerHTML: {
+      __html: String(p.body || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>').replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>').replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>')
+    }
+  })))), brief.liveKeyLevels?.length > 0 && React.createElement(LiveKeyLevelsPanel, {
+    entries: brief.liveKeyLevels,
+    refreshedAt: brief.liveKeyLevelsAt,
+    embedded: true
+  }));
+}
 function BriefCard({
   brief,
   type
@@ -709,62 +824,21 @@ function BriefCard({
       color: "var(--tt-text-0)",
       letterSpacing: "-0.01em"
     }
-  }, dateStr)), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction || brief.liveKeyLevels?.length > 0) && React.createElement("div", {
-    className: "mb-4"
-  }, React.createElement("h3", {
-    className: "tt-editorial m-0 mb-3 text-[18px]",
-    style: {
-      color: "var(--tt-text-0)"
-    }
-  }, "Index Outlook & Game Plan"), (brief.spyPrediction || brief.qqqPrediction || brief.iwmPrediction) && React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-2 gap-2 mb-3"
-  }, [{
-    label: "SPY Prediction",
-    body: brief.spyPrediction
-  }, {
-    label: "QQQ Prediction",
-    body: brief.qqqPrediction
-  }, {
-    label: "IWM Prediction",
-    body: brief.iwmPrediction
-  }].filter(p => p.body).map(p => React.createElement("div", {
-    key: p.label,
-    className: "p-3 rounded-lg",
-    style: {
-      background: bgDim,
-      borderLeft: `3px solid ${accentColor}`
-    }
-  }, React.createElement("div", {
-    className: "text-[9px] font-bold uppercase tracking-widest mb-1",
-    style: {
-      color: accentColor
-    }
-  }, p.label), React.createElement("div", {
-    className: "text-[13px] leading-relaxed",
-    style: {
-      color: "var(--tt-text-1)",
-      whiteSpace: "pre-line"
-    },
-    dangerouslySetInnerHTML: {
-      __html: String(p.body || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--tt-text-0)">$1</strong>').replace(/▲/g, '<span style="color:var(--tt-up,#34d399);font-weight:700">▲</span>').replace(/▼/g, '<span style="color:var(--tt-dn,#f87171);font-weight:700">▼</span>')
-    }
-  })))), brief.liveKeyLevels?.length > 0 && React.createElement(LiveKeyLevelsPanel, {
-    entries: brief.liveKeyLevels,
-    refreshedAt: brief.liveKeyLevelsAt,
-    embedded: true
-  })), React.createElement("hr", {
-    className: "tt-divider",
-    style: {
-      margin: "0 0 18px",
-      borderColor: bgDim
-    }
-  }), brief.infographic && React.createElement(BriefInfographic, {
+  }, dateStr)), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
       __html: renderMarkdown(brief.content)
     }
+  }), !isMorning && brief.croNote && React.createElement(CRODeskWrapPanel, {
+    croNote: brief.croNote,
+    accentColor: accentColor
+  }), React.createElement(IndexOutlookSection, {
+    brief: brief,
+    accentColor: accentColor,
+    bgDim: bgDim,
+    isMorning: isMorning
   }));
 }
 function BriefPlaceholder({
@@ -2878,6 +2952,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781733566354:280680451
+// cache-bust:1781817187143:733775959
 
-// cache-bust:1781733566354:280680451
+// cache-bust:1781817187143:733775959

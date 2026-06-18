@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripBriefMarkdownForEmail } from "../worker/email.js";
+import { stripBriefMarkdownForDisplay } from "../worker/daily-brief-markdown.js";
 import { extractPredictionLine } from "../worker/daily-brief.js";
 
 describe("extractPredictionLine", () => {
@@ -29,7 +29,7 @@ SPY stays inside the day range.`;
   });
 });
 
-describe("stripBriefMarkdownForEmail", () => {
+describe("stripBriefMarkdownForDisplay", () => {
   it("removes legacy duplicate sections but keeps The Market Read", () => {
     const md = `## The Market Read
 Tech sold off on hot CPI.
@@ -46,12 +46,40 @@ AAPL and MSFT in one paragraph.
 
 ## Risk Factors
 - Fed speak`;
-    const out = stripBriefMarkdownForEmail(md);
+    const out = stripBriefMarkdownForDisplay(md);
     expect(out).toContain("The Market Read");
     expect(out).toContain("hot CPI");
     expect(out).not.toMatch(/Market Context/i);
     expect(out).not.toMatch(/Index Outlook/i);
     expect(out).not.toMatch(/Investor Portfolio/i);
+    expect(out).toContain("Risk Factors");
+  });
+
+  it("drops a leading Index Outlook block before The Market Read", () => {
+    const md = `## Index Outlook & Scorecard
+### ES
+**ES Prediction**: Bull above $7630.
+
+## The Market Read
+Tech sold off on hot CPI.`;
+    const out = stripBriefMarkdownForDisplay(md);
+    expect(out).toMatch(/^## The Market Read/m);
+    expect(out).not.toMatch(/Index Outlook/i);
+    expect(out).toContain("hot CPI");
+  });
+
+  it("removes duplicate CRO Desk section from markdown body", () => {
+    const md = `## The Market Read
+Tech sold off on hot CPI.
+
+## CRO Research Desk
+Verdict duplicate.
+
+## Risk Factors
+- Fed speak`;
+    const out = stripBriefMarkdownForDisplay(md);
+    expect(out).toContain("The Market Read");
+    expect(out).not.toMatch(/CRO Research Desk/i);
     expect(out).toContain("Risk Factors");
   });
 });

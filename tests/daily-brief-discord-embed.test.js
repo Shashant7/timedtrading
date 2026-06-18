@@ -39,10 +39,11 @@ describe("buildDiscordBriefEmbed", () => {
     );
     expect(embed.description).toContain("SPY finished at $740.96");
     const names = embed.fields.map((f) => f.name);
-    expect(names).toContain("Index Outlook & Game Plan");
+    expect(names).toContain("Index Outlook & Scorecard");
     expect(names).toContain("Index Snapshot");
     expect(names).not.toContain("Market Snapshot");
     expect(names).not.toContain("ATR Reference Levels");
+    expect(names[names.length - 1]).toBe("Index Outlook & Scorecard");
     const snap = embed.fields.find((f) => f.name === "Index Snapshot");
     expect(snap.value).toContain("SPY $740.96 (-1.25%)");
     expect(snap.value).not.toContain("ES 7586");

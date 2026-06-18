@@ -611,28 +611,28 @@ export async function loadCRONoteByDate(env, dateStr) {
  * existing prompt budgets. Falls back to a single-line "no note yet" stub
  * when no daily note has been produced.
  */
-export async function getCROBriefAddendum(env) {
-  const note = await loadLatestCRONote(env);
+/** Compact prompt addendum from a CRO note row (or null). */
+export function formatCROBriefAddendumFromNote(note, opts = {}) {
+  const slot = opts.slot || "morning";
+  const maxNoteChars = Number(opts.maxNoteChars)
+    || (slot === "evening" ? 2800 : 1300);
   if (!note) {
     return "## CRO Research Desk (no fresh note today — relying on structural playbook + rotation snapshot).";
   }
   const lines = [
     `## CRO Research Desk — daily note ${note.as_of_date}`,
-    `Verdict: ${(note.verdict || "").slice(0, 300)}`,
+    `Verdict: ${(note.verdict || "").slice(0, slot === "evening" ? 500 : 300)}`,
   ];
-  // 2026-06-10 — the brief used to see ONLY this 300-char verdict while
-  // the Research Desk page rendered the full note — the operator read
-  // them as "two analysts that don't talk to one another". Inject the
-  // observations and the full note so the brief can carry the Desk's
-  // actual narrative (the WHY: rotations, IPO supply, macro repricing).
   if (Array.isArray(note.observations) && note.observations.length > 0) {
-    lines.push("Observations: " + note.observations.slice(0, 5)
-      .map((o) => `[${o.section || "?"}] ${(o.text || "").slice(0, 120)}`)
+    const obsLimit = slot === "evening" ? 8 : 5;
+    const obsChars = slot === "evening" ? 180 : 120;
+    lines.push("Observations: " + note.observations.slice(0, obsLimit)
+      .map((o) => `[${o.section || "?"}] ${(o.text || "").slice(0, obsChars)}`)
       .join(" | "));
   }
   if (note.full_note_md) {
     lines.push("", "Full Desk note (synthesize into the brief's own voice — do NOT quote verbatim):",
-      `"""${String(note.full_note_md).slice(0, 1300)}"""`);
+      `"""${String(note.full_note_md).slice(0, maxNoteChars)}"""`);
   }
   if (note.early_indicators?.length) {
     lines.push("Early indicators: " + note.early_indicators.slice(0, 3).map((e) => `${e.indicator} → ${e.implication}`).join(" | "));
@@ -643,7 +643,37 @@ export async function getCROBriefAddendum(env) {
   if (note.data_gaps?.length) {
     lines.push("Data gaps: " + note.data_gaps.slice(0, 3).join("; "));
   }
+  if (slot === "evening") {
+    lines.push("", "EVENING WRAP INSTRUCTION: In **The Market Read**, open by tying today's session close back to this Desk note — what corroborated the verdict, what surprised, and what rotation/theme carried through RTH. This is the day-end wrap, not a preview.");
+  }
   return lines.join("\n");
+}
+
+/** UI payload for the Research Desk card on the Daily Brief page. */
+export function formatCRONoteForBriefUI(note) {
+  if (!note) return null;
+  const observations = (Array.isArray(note.observations) ? note.observations : [])
+    .slice(0, 6)
+    .map((o) => ({
+      section: o.section || null,
+      text: String(o.text || "").trim(),
+    }))
+    .filter((o) => o.text);
+  const summary = String(note.full_note_md || note.verdict || "").trim();
+  if (!summary && observations.length === 0) return null;
+  return {
+    noteId: note.note_id || null,
+    asOfDate: note.as_of_date || null,
+    producedAt: Number(note.produced_at) || null,
+    verdict: String(note.verdict || "").trim() || null,
+    observations,
+    summaryMd: summary.slice(0, 4000),
+  };
+}
+
+export async function getCROBriefAddendum(env, opts = {}) {
+  const note = await loadLatestCRONote(env);
+  return formatCROBriefAddendumFromNote(note, opts);
 }
 
 // ── Fresh FSD synthesis addendum for the Daily Brief / Intraday Pulse ────────
