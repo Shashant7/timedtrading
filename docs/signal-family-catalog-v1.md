@@ -14,6 +14,8 @@ Shadow implementation modules:
 - `worker/foundation/setup-events.js` — pure setup-event atoms.
 - `worker/foundation/setup-sequences.js` — pure sequence detector consuming
   setup-event atoms.
+- `worker/foundation/setup-event-derivation.js` — pure bridge from previous /
+  current ticker snapshots into setup-event atoms and sequence diagnostics.
 
 ---
 

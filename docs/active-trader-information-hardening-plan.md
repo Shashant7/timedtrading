@@ -691,6 +691,9 @@ Do not recalibrate weights until L0/L1 parity is proven.
   liquidity, ORB, and RSI events into append-only `setup_events`.
 - Use the shadow event abstraction in `worker/foundation/setup-events.js` for
   mock data and fixture-driven development before adding any D1 writes.
+- Use `deriveSetupEvents(prevTicker, currentTicker)` in
+  `worker/foundation/setup-event-derivation.js` as the pure bridge from real
+  ticker snapshots to setup-event atoms.
 - Publish a signal inventory doc: family -> worker function -> payload path ->
   existing flag/trigger name -> consumers.
 - Dedupe against `setup_snapshot` keys already captured in `rank_trace_json`.
@@ -705,6 +708,8 @@ Do not recalibrate weights until L0/L1 parity is proven.
 - Use the shadow detector in `worker/foundation/setup-sequences.js` to prove
   event-stream flow-through with mock events before wiring real indicator
   events.
+- Use `deriveSetupDiagnostics(prevTicker, currentTicker)` to run derived events
+  through the existing sequence detector in shadow mode.
 - Emit sequence status/stage into ticker payload.
 - Map sequence status to Trader posture.
 
