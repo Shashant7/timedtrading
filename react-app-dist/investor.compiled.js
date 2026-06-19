@@ -542,6 +542,7 @@ function InvestorApp() {
   const [investorScores, setInvestorScores] = useState(null);
   const _liveHooks = window.TimedLiveData;
   if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+  if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
   if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
   useEffect(() => {
     let alive = true;
@@ -833,6 +834,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781818077983:107534129
+// cache-bust:1781826187517:450815551
 
-// cache-bust:1781818077983:107534129
+// cache-bust:1781826187517:450815551

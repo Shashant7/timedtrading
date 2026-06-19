@@ -20,6 +20,10 @@ Initial run was **19 / 21** — two isolated `fvg_in_bear` mismatches on USO D a
 Root cause: worker `detectFVGs()` filtered gaps smaller than 10% ATR; the Pine export script does not.
 Removed the ATR size filter so worker FVG detection matches the TV benchmark. Phase 1 re-run still **9 / 9**.
 
+### Supersedes zip fallback
+
+An earlier preliminary run against `tradingview/*.zip` extracts was **5 / 21** clean (missing lead-up/VWAP columns). Proper `Parity-BATS_*` uploads on `main` replaced that path; do not promote zip-sourced fixtures.
+
 ---
 
 ## Reproduce locally
@@ -38,6 +42,13 @@ node scripts/build-indicator-fixtures.mjs \
 
 node scripts/run-setup-parity-gate.mjs \
   --fixtures data/indicator-fixtures/v1/accepted/tv-phase2
+```
+
+Optional wrapper (same harness, adds zip fallback when Parity-BATS files are absent):
+
+```bash
+node scripts/process-tv-parity-phase2.mjs
+node scripts/process-tv-parity-phase2.mjs --promote   # only when ok_count == file_count
 ```
 
 ---

@@ -59,8 +59,8 @@ node scripts/analyze-lux-sequencer-exports.mjs \
 
 ---
 
-## Next exports (optional Phase 2)
+## Phase 2 (complete)
 
-~~USO, GLD, XLE, NVDA, TSLA, UNH, MSTR — same script, D + W + 60 each.~~
+USO, GLD, XLE, NVDA, TSLA, UNH, MSTR — D + W + 60 each.
 
 **Done** — see [indicator-parity-tv-export-phase2.md](indicator-parity-tv-export-phase2.md) (21/21 clean, `tv-phase2/` fixtures).
