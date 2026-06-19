@@ -7260,9 +7260,32 @@
         }, title), action), children);
         const renderSequenceShadowPanel = () => {
           if (typeof window === "undefined" || !window._ttIsAdmin) return null;
-          const labelSeqType = t => {
-            if (!t) return "—";
-            return String(t).replace(/^td_/, "TD ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          const humanizeKey = k => {
+            if (!k) return "";
+            return String(k).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          };
+          const sequenceArchetypeLabel = t => {
+            if (!t) return "Setup sequence";
+            const base = String(t).replace(/^td_/, "").replace(/_?(long|short)$/i, "").replace(/_/g, " ").trim();
+            if (!base) return "Setup sequence";
+            return `TD ${base.replace(/\b\w/g, c => c.toUpperCase())}`;
+          };
+          const sequenceHeadline = dir => {
+            const d = String(dir || "").toUpperCase();
+            if (d === "LONG") return "Long mean reversion";
+            if (d === "SHORT") return "Short mean reversion";
+            return "Mean reversion";
+          };
+          const currentStageMeta = seq => {
+            const stage = Number(seq?.stage) || 0;
+            const results = Array.isArray(seq?.stage_results) ? seq.stage_results : [];
+            const matched = results.filter(r => r?.matched);
+            const current = matched.length ? matched[matched.length - 1] : null;
+            return {
+              stage,
+              key: current?.key || null,
+              label: current?.key ? humanizeKey(current.key) : stage > 0 ? `Stage ${stage}` : ""
+            };
           };
           const tp = setupShadowDiag?.trader_posture || null;
           const active = Array.isArray(setupShadowDiag?.active_sequences) ? setupShadowDiag.active_sequences : Array.isArray(setupShadowDiag?.sequences) ? setupShadowDiag.sequences.filter(s => Number(s?.stage) > 0 && s?.status !== "invalidated") : [];
@@ -7270,6 +7293,17 @@
           const postureDir = String(tp?.direction || "").toUpperCase();
           const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
           const ctx = setupShadowDiag?.context_used || {};
+          const sharedArchetype = active.length ? sequenceArchetypeLabel(active[0]?.sequence_type) : null;
+          const primarySeqId = tp?.sequence_id ? String(tp.sequence_id) : null;
+          const sortedActive = [...active].sort((a, b) => {
+            const aId = a?.sequence_id ? String(a.sequence_id) : "";
+            const bId = b?.sequence_id ? String(b.sequence_id) : "";
+            const aPrimary = !!(primarySeqId && aId && primarySeqId === aId);
+            const bPrimary = !!(primarySeqId && bId && primarySeqId === bId);
+            if (aPrimary && !bPrimary) return -1;
+            if (!aPrimary && bPrimary) return 1;
+            return (Number(b.stage) || 0) - (Number(a.stage) || 0);
+          });
           return React.createElement(Panel, {
             title: "Sequence (shadow)",
             action: React.createElement("div", {
@@ -7282,7 +7316,10 @@
             }, React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--solid",
               title: "Shadow-only \u2014 does not affect live entry or kanban"
-            }, "SHADOW"), postureLabel && postureLabel !== "Neutral" && React.createElement("span", {
+            }, "SHADOW"), sharedArchetype && active.length > 0 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent",
+              title: "Shared setup archetype"
+            }, sharedArchetype), postureLabel && postureLabel !== "Neutral" && React.createElement("span", {
               className: `ds-chip ds-chip--sm ${postureChipCls}`,
               title: "Derived trader posture from setup sequences"
             }, postureLabel), Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && React.createElement("span", {
@@ -7347,17 +7384,21 @@
               flexDirection: "column",
               gap: "var(--ds-space-2)"
             }
-          }, active.slice(0, 3).map(seq => {
+          }, sortedActive.slice(0, 3).map(seq => {
             const dir = String(seq?.direction || "").toUpperCase();
             const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+            const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
             const pf = seq?.path_forecast;
+            const stageMeta = currentStageMeta(seq);
+            const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
+            const isPrimary = !!(primarySeqId && seqId && primarySeqId === seqId);
             return React.createElement("div", {
               key: seq.sequence_id || `${seq.sequence_type}-${seq.stage}`,
               style: {
                 padding: "var(--ds-space-2)",
                 borderRadius: 8,
-                border: "1px solid var(--ds-stroke)",
-                background: "rgba(255,255,255,0.02)"
+                border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
+                background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)"
               }
             }, React.createElement("div", {
               style: {
@@ -7370,13 +7411,36 @@
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${dirCls}`
             }, dir || "—"), React.createElement("span", {
-              className: "ds-chip ds-chip--sm ds-chip--accent"
-            }, labelSeqType(seq.sequence_type)), React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                fontWeight: 700,
+                color: headlineColor
+              }
+            }, sequenceHeadline(dir)), isPrimary && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent",
+              title: "Highest-stage active sequence drives trader posture"
+            }, "Primary"), !isPrimary && active.length > 1 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid",
+              title: "Alternate direction still forming in shadow"
+            }, "Alternate")), React.createElement("div", {
+              style: {
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--ds-space-1)",
+                alignItems: "center",
+                marginBottom: seq.posture ? 4 : 0
+              }
+            }, stageMeta.stage > 0 && React.createElement("span", {
               className: "ds-chip ds-chip--sm",
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, "Stage ", Number(seq.stage) || 0), seq.status && React.createElement("span", {
+            }, "Stage ", stageMeta.stage), stageMeta.label && React.createElement("span", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)"
+              }
+            }, stageMeta.label), seq.status && React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--solid"
             }, String(seq.status))), seq.posture && React.createElement("div", {
               style: {
@@ -7385,13 +7449,13 @@
                 fontWeight: 600,
                 marginBottom: 4
               }
-            }, seq.posture), pf?.archetype && React.createElement("div", {
+            }, seq.posture), pf?.primary_path && React.createElement("div", {
               style: {
                 fontSize: "var(--ds-fs-caption)",
                 color: "var(--ds-text-muted)",
                 lineHeight: 1.45
               }
-            }, "Path: ", String(pf.archetype).replace(/_/g, " "), pf.summary ? ` — ${pf.summary}` : ""));
+            }, "Path: ", humanizeKey(pf.primary_path), Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""));
           })) : React.createElement("p", {
             style: {
               margin: 0,
@@ -20371,4 +20435,4 @@
   };
 })();
 
-// cache-bust:1781882864529:302824185
+// cache-bust:1781883114358:33858885
