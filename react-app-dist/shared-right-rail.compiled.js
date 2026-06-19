@@ -5038,6 +5038,7 @@
       const [setupShadowDiag, setSetupShadowDiag] = useState(null);
       const [setupShadowLoading, setSetupShadowLoading] = useState(false);
       const [setupShadowError, setSetupShadowError] = useState(null);
+      const [shadowStageTipKey, setShadowStageTipKey] = useState(null);
       const setupShadowCacheRef = useRef({});
       const tradeplanPriceLines = useMemo(() => {
         const out = [];
@@ -7315,7 +7316,7 @@
             };
             return tips[stage] || "";
           };
-          const buildStageTooltip = ({
+          const buildStageTipLines = ({
             def,
             dir,
             r,
@@ -7340,8 +7341,47 @@
             } else {
               lines.push("Status: Ahead in the journey");
             }
-            return lines.join("\n");
+            return lines;
           };
+          const buildStageTooltip = opts => buildStageTipLines(opts).join("\n");
+          const shadowStageTipId = (seqId, stage) => `${seqId}::${stage}`;
+          const parseShadowStageTipId = key => {
+            if (!key) return {
+              seqId: null,
+              stage: null
+            };
+            const idx = key.lastIndexOf("::");
+            if (idx < 0) return {
+              seqId: null,
+              stage: null
+            };
+            return {
+              seqId: key.slice(0, idx),
+              stage: Number(key.slice(idx + 2))
+            };
+          };
+          const toggleShadowStageTip = (seqId, stage) => {
+            const k = shadowStageTipId(seqId, stage);
+            setShadowStageTipKey(prev => prev === k ? null : k);
+          };
+          const renderShadowStageTipCard = (lines, accentColor) => React.createElement("div", {
+            style: {
+              marginTop: 6,
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: `1px solid color-mix(in srgb, ${accentColor} 35%, var(--ds-stroke))`,
+              background: "rgba(255,255,255,0.04)",
+              fontSize: 10,
+              lineHeight: 1.45,
+              color: "var(--ds-text-muted)"
+            }
+          }, lines.map((line, i) => React.createElement("div", {
+            key: i,
+            style: {
+              fontWeight: i === 0 ? 600 : 400,
+              color: i === 0 ? "var(--ds-text-body)" : undefined
+            }
+          }, line)));
           const formatStageWhen = ts => {
             const n = Number(ts);
             if (!Number.isFinite(n) || n <= 0) return null;
@@ -7361,16 +7401,25 @@
             return `$${n.toFixed(2)}`;
           };
           const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+            const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
             const currentStage = Number(seq?.stage) || 0;
             const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
             if (currentStage <= 0) return null;
             const resultsByStage = new Map((Array.isArray(seq?.stage_results) ? seq.stage_results : []).map(r => [Number(r.stage), r]));
             const nextDef = SEQUENCE_STAGE_DEFS.find(d => d.stage === currentStage + 1);
+            const activeTip = parseShadowStageTipId(shadowStageTipKey);
+            const activeTipStage = activeTip.seqId === seqId ? activeTip.stage : null;
             return React.createElement("div", {
               style: {
                 marginTop: 8
               }
             }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                color: "var(--ds-text-faint)",
+                marginBottom: 4
+              }
+            }, "Tap any stage for details"), React.createElement("div", {
               style: {
                 display: "flex",
                 alignItems: "center",
@@ -7394,6 +7443,7 @@
                 isNext,
                 eventById
               });
+              const tipOpen = shadowStageTipKey === shadowStageTipId(seqId, def.stage);
               return React.createElement(React.Fragment, {
                 key: def.stage
               }, idx > 0 && React.createElement("div", {
@@ -7404,20 +7454,40 @@
                   background: connectorActive || def.stage <= currentStage ? accentColor : "var(--ds-stroke)",
                   opacity: def.stage <= currentStage ? 0.75 : 0.25
                 }
-              }), React.createElement("div", {
+              }), React.createElement("button", {
+                type: "button",
                 title: dotTip,
+                "aria-label": dotTip.replace(/\n/g, ". "),
+                "aria-expanded": tipOpen,
+                onClick: () => toggleShadowStageTip(seqId, def.stage),
                 style: {
-                  width: isCurrent ? 9 : 7,
-                  height: isCurrent ? 9 : 7,
+                  width: isCurrent ? 11 : 9,
+                  height: isCurrent ? 11 : 9,
+                  padding: 0,
                   borderRadius: "50%",
                   background: active ? accentColor : "transparent",
                   border: `2px solid ${dotColor}`,
                   boxShadow: isCurrent ? `0 0 0 2px color-mix(in srgb, ${accentColor} 25%, transparent)` : "none",
                   flexShrink: 0,
-                  cursor: "help"
+                  cursor: "pointer"
                 }
               }));
-            })), React.createElement("div", {
+            })), Number.isFinite(activeTipStage) && (() => {
+              const def = SEQUENCE_STAGE_DEFS.find(d => d.stage === activeTipStage);
+              if (!def) return null;
+              const r = resultsByStage.get(def.stage);
+              const matched = r?.matched === true;
+              const isCurrent = matched && def.stage === currentStage;
+              const isNext = def.stage === currentStage + 1;
+              return renderShadowStageTipCard(buildStageTipLines({
+                def,
+                dir,
+                r,
+                isCurrent,
+                isNext,
+                eventById
+              }), accentColor);
+            })(), React.createElement("div", {
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-faint)",
@@ -7448,9 +7518,15 @@
                 isNext: false,
                 eventById
               });
+              const rowTipOpen = shadowStageTipKey === shadowStageTipId(seqId, def.stage);
               return React.createElement("div", {
-                key: def.stage,
+                key: def.stage
+              }, React.createElement("button", {
+                type: "button",
                 title: rowTip,
+                "aria-label": rowTip.replace(/\n/g, ". "),
+                "aria-expanded": rowTipOpen,
+                onClick: () => toggleShadowStageTip(seqId, def.stage),
                 style: {
                   display: "grid",
                   gridTemplateColumns: "14px 1fr",
@@ -7458,7 +7534,12 @@
                   fontSize: "var(--ds-fs-caption)",
                   lineHeight: 1.35,
                   color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
-                  cursor: "help"
+                  cursor: "pointer",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: 0,
+                  border: "none",
+                  background: "transparent"
                 }
               }, React.createElement("span", {
                 style: {
@@ -7481,8 +7562,16 @@
                   fontSize: 10,
                   marginTop: 1
                 }
-              }, [when, px].filter(Boolean).join(" · "), trigger ? `${when || px ? " · " : ""}${trigger}` : "")));
-            }), nextDef && currentStage < maxStage && React.createElement("div", {
+              }, [when, px].filter(Boolean).join(" · "), trigger ? `${when || px ? " · " : ""}${trigger}` : ""))), rowTipOpen && renderShadowStageTipCard(buildStageTipLines({
+                def,
+                dir,
+                r,
+                isCurrent,
+                isNext: false,
+                eventById
+              }), accentColor));
+            }), nextDef && currentStage < maxStage && React.createElement("div", null, React.createElement("button", {
+              type: "button",
               title: buildStageTooltip({
                 def: nextDef,
                 dir,
@@ -7491,6 +7580,8 @@
                 isNext: true,
                 eventById
               }),
+              "aria-expanded": shadowStageTipKey === shadowStageTipId(seqId, nextDef.stage),
+              onClick: () => toggleShadowStageTip(seqId, nextDef.stage),
               style: {
                 display: "grid",
                 gridTemplateColumns: "14px 1fr",
@@ -7498,13 +7589,25 @@
                 fontSize: "var(--ds-fs-caption)",
                 color: "var(--ds-text-faint)",
                 fontStyle: "italic",
-                cursor: "help"
+                cursor: "pointer",
+                width: "100%",
+                textAlign: "left",
+                padding: 0,
+                border: "none",
+                background: "transparent"
               }
             }, React.createElement("span", {
               style: {
                 lineHeight: 1.35
               }
-            }, "\u25CB"), React.createElement("div", null, "Next: ", nextDef.stage, ". ", nextDef.label))));
+            }, "\u25CB"), React.createElement("div", null, "Next: ", nextDef.stage, ". ", nextDef.label)), shadowStageTipKey === shadowStageTipId(seqId, nextDef.stage) && renderShadowStageTipCard(buildStageTipLines({
+              def: nextDef,
+              dir,
+              r: resultsByStage.get(nextDef.stage),
+              isCurrent: false,
+              isNext: true,
+              eventById
+            }), accentColor))));
           };
           const tp = setupShadowDiag?.trader_posture || null;
           const active = Array.isArray(setupShadowDiag?.active_sequences) ? setupShadowDiag.active_sequences : Array.isArray(setupShadowDiag?.sequences) ? setupShadowDiag.sequences.filter(s => Number(s?.stage) > 0 && s?.status !== "invalidated") : [];
@@ -20644,4 +20747,4 @@
   };
 })();
 
-// cache-bust:1781888814062:494062715
+// cache-bust:1781889179821:415927748
