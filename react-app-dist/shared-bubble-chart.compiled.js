@@ -222,6 +222,39 @@
     if (state.includes("BEAR")) return "SHORT";
     return null;
   }
+  function resolveOpenTradeForBubble(ticker, openTradeOpt, tradeMap) {
+    if (openTradeOpt) return openTradeOpt;
+    const sym = String(ticker?.ticker || "").toUpperCase();
+    const fromProp = tradeMap?.get?.(sym) || null;
+    if (fromProp) return fromProp;
+    const fromTicker = ticker?._openTrade || null;
+    if (fromTicker) return fromTicker;
+    return typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym) || null;
+  }
+  function getPostureBiasForBubble(ticker, openTradeOpt, tradeMap) {
+    const TPU = typeof window !== "undefined" && window.TimedPriceUtils;
+    const openTr = resolveOpenTradeForBubble(ticker, openTradeOpt, tradeMap);
+    if (TPU?.resolveBubblePosture) {
+      const posture = TPU.resolveBubblePosture(ticker, openTr);
+      if (posture?.direction) return posture;
+      if (posture?.strength === "neutral") return posture;
+    }
+    const dir = getDirectionFromState(ticker);
+    return dir ? {
+      direction: dir,
+      strength: "lean",
+      label: dir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+      posture: dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT"
+    } : {
+      direction: "",
+      strength: "neutral",
+      label: "Neutral",
+      posture: "NEUTRAL"
+    };
+  }
+  function getPostureBiasDirection(ticker, openTradeOpt, tradeMap) {
+    return getPostureBiasForBubble(ticker, openTradeOpt, tradeMap).direction || null;
+  }
   function computeEntryRef(ticker) {
     const entryRef = numFromAny(ticker?.entry_ref);
     if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
@@ -265,7 +298,7 @@
     if (staleness && staleness !== "FRESH") return null;
     const baseEta = numFromAny(ticker?.eta_days_v2 ?? ticker?.eta_days);
     if (!Number.isFinite(baseEta) || baseEta <= 0) return null;
-    const dir = getDirectionFromState(ticker);
+    const dir = getPostureBiasDirection(ticker, ticker?._openTrade || null, null);
     const entry = computeEntryRef(ticker);
     const target = numFromAny(ticker?.tp ?? ticker?.tp_trim);
     const current = numFromAny(ticker?.price ?? ticker?.close ?? ticker?.c ?? ticker?.last);
@@ -909,7 +942,8 @@
     thesisMode = false,
     forwardReturns = null,
     activeInsightTickers = null,
-    layoutMode = "score"
+    layoutMode = "score",
+    tradeByTicker: tradeByTickerProp = null
   }) {
     const displayTickers = React.useMemo(() => {
       const list = Array.isArray(tickers) ? tickers : [];
@@ -1733,16 +1767,19 @@
             className: `text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`
           }, pos ? "+" : "", dc.dayPct.toFixed(2), "%", Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : "");
         })(), (() => {
-          const b = tooltip.bias_direction || getDirectionFromState(tooltip);
-          if (!b) return null;
-          const sym = String(tooltip?.ticker || "").toUpperCase();
-          const tr = typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym) || null;
-          const _trStatus = String(tr?.status || "").toUpperCase();
-          const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
+          const posture = getPostureBiasForBubble(tooltip, null, tradeByTickerProp);
+          const b = posture?.direction || null;
+          if (!b) {
+            return React.createElement("span", {
+              className: "px-1.5 py-0.5 rounded text-[9px] font-semibold bg-white/[0.04] text-[#6b7280]"
+            }, "NEUTRAL");
+          }
+          const hasOpenTrade = posture.strength === "open";
+          const isLean = posture.strength === "lean";
           const l = String(b).toUpperCase() === "LONG";
           const s = String(b).toUpperCase() === "SHORT";
-          const longLabel = hasOpenTrade ? "LONG" : "BULL";
-          const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
+          const longLabel = hasOpenTrade ? "LONG" : isLean ? "LEAN BULL" : "BULL";
+          const shortLabel = hasOpenTrade ? "SHORT" : isLean ? "LEAN BEAR" : "BEAR";
           return React.createElement("span", {
             className: `px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`
           }, l ? longLabel : s ? shortLabel : "NEUTRAL");
@@ -1942,7 +1979,7 @@
       const prime = isPrimeBubble(ticker);
       const winnerSig = isWinnerSignature(ticker);
       const move = getMoveStatusInfo(ticker);
-      const dir = getDirectionFromState(ticker);
+      const dir = getPostureBiasDirection(ticker, ticker?._openTrade || null, tradeByTickerProp);
       const flipWatch = !!flags.flip_watch;
       const isTopRanked = topRankedTicker === ticker.ticker;
       const isBubbleHovered = hoveredTickerRef.current === ticker.ticker;
@@ -2618,6 +2655,8 @@
     isWinnerSignature: isWinnerSignature,
     completionForSize: completionForSize,
     getDirectionFromState: getDirectionFromState,
+    getPostureBiasDirection: getPostureBiasDirection,
+    getPostureBiasForBubble: getPostureBiasForBubble,
     computeEntryRef: computeEntryRef,
     numFromAny: numFromAny,
     computeReturnPct: computeReturnPct,
@@ -2646,4 +2685,4 @@
   };
 })();
 
-// cache-bust:1781899148654:893099926
+// cache-bust:1781900064370:16250315
