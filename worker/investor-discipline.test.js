@@ -7,6 +7,7 @@ import {
   resolvePrimaryInvalidationBreach,
   resolveStickyPrimaryInvalidation,
   classifyInvestorStage,
+  isStructuralInvestorReduce,
 } from "./investor.js";
 
 describe("investor R6 discipline defaults", () => {
@@ -92,5 +93,10 @@ describe("primary invalidation breach", () => {
     );
     expect(stage.stage).toBe("reduce");
     expect(stage.reason).toBe("primary_invalidation_breach");
+  });
+
+  it("treats rs_rank_declining as structural reduce for execution bypass", () => {
+    expect(isStructuralInvestorReduce("rs_rank_declining")).toBe(true);
+    expect(isStructuralInvestorReduce("choppy_regime_losing")).toBe(false);
   });
 });

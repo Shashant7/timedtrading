@@ -90,43 +90,43 @@
     }
     const INVESTOR_STAGE_GUIDANCE = {
       accumulate: {
-        actionLine: "Accumulate — add to position on weakness.",
-        doNow: "Build in 2-3 tranches. Add on weakness inside the buy zone; do not chase extended moves.",
+        actionLine: "TT Model lane: Accumulate — model would add on weakness.",
+        doNow: "The model scales in over 2–3 tranches inside the buy zone; no chasing extended moves.",
         laneLabel: "Accumulate"
       },
       core_hold: {
-        actionLine: "Hold and DCA on dips — thesis intact.",
-        doNow: "Hold the core. Add only on meaningful pullbacks if the buy zone triggers again.",
+        actionLine: "TT Model lane: Core Hold — thesis intact in the model.",
+        doNow: "The model holds the core; adds only on meaningful pullbacks if the buy zone triggers again.",
         laneLabel: "Core Hold"
       },
       watch: {
-        actionLine: "Hold — no add, no trim. Monitor signals.",
-        doNow: "Do not add. Hold the position and tighten the invalidation trigger.",
+        actionLine: "TT Model lane: Watch — no add, no trim in the model.",
+        doNow: "The model holds flat and monitors signals; invalidation floor stays visible on the chart.",
         laneLabel: "Hold & Watch"
       },
       reduce: {
-        actionLine: "Reduce on strength — taking profits.",
-        doNow: "Trim 25-50% into strength now. Hold the remainder until invalidation confirms.",
+        actionLine: "TT Model lane: Reduce — model would trim on rebalance.",
+        doNow: "The model trims ~30% per reduce cycle (or exits fully on invalidation breach). Signals mirror auto-rebalance.",
         laneLabel: "Reduce"
       },
       research_on_watch: {
-        actionLine: "Monitor — on the radar, not actionable yet.",
-        doNow: "Research only — wait for Accumulate before sizing a position.",
+        actionLine: "TT Model lane: On Watch — research only.",
+        doNow: "The model tracks the name; no capital deployment until Accumulate lane.",
         laneLabel: "On Watch"
       },
       research_low: {
-        actionLine: "Pass — low conviction for now.",
-        doNow: "No position change — better setups elsewhere.",
+        actionLine: "TT Model lane: Low conviction — no action.",
+        doNow: "The model passes — better setups elsewhere in the universe.",
         laneLabel: "Low Conviction"
       },
       research_avoid: {
-        actionLine: "Avoid — investor lane sees no edge here.",
-        doNow: "Skip — multiple red flags. Do not initiate or add.",
+        actionLine: "TT Model lane: Avoid — no edge in the model.",
+        doNow: "The model skips — multiple red flags; no initiate or add.",
         laneLabel: "Avoid"
       },
       exited: {
-        actionLine: "Closed — monitor for re-entry conditions.",
-        doNow: "Position closed. Watch for a fresh Accumulate signal.",
+        actionLine: "TT Model lane: Exited — position closed in the model.",
+        doNow: "The model monitors for a fresh Accumulate signal before re-entry.",
         laneLabel: "Exited"
       }
     };
@@ -147,7 +147,7 @@
         price,
         label,
         tier: inv?.tier || null,
-        condition: inv?.condition || `Exit remainder if price closes below $${price.toFixed(2)} (${label})`,
+        condition: inv?.condition || `The model exits the remainder if price closes below $${price.toFixed(2)} (${label})`,
         distText,
         thesisLevel: thesis ? {
           price: thesis.price,
@@ -16272,32 +16272,32 @@
             color: "#34d399",
             bg: "rgba(52,211,153,0.10)",
             border: "#00c853",
-            action: "Buy in 2-3 tranches",
-            guidance: "Strong setup with a favorable entry zone. Build a starter position now, scale in over the next 2-4 weeks. Target full allocation if signals hold."
+            action: "Model would scale in",
+            guidance: "TT Model lane: Accumulate. Favorable entry zone — the model builds over 2–4 weeks if signals hold."
           },
           core_hold: {
             label: "CORE HOLD",
             color: "#60a5fa",
             bg: "rgba(96,165,250,0.10)",
             border: "#3b82f6",
-            action: "Hold and DCA on dips",
-            guidance: "Thesis intact. No action needed — let the position compound. Add on meaningful pullbacks if the buy-zone signal triggers."
+            action: "Model holds",
+            guidance: "TT Model lane: Core Hold. Thesis intact in the model — no rebalance action unless the lane shifts."
           },
           watch: {
             label: "WATCH",
             color: "#fbbf24",
             bg: "rgba(251,191,36,0.10)",
             border: "#f59e0b",
-            action: "Hold; monitor signals",
-            guidance: "Mixed signals. Don't add. If you don't own it yet, wait for the Accumulate stage. If you do, hold but tighten your invalidation trigger."
+            action: "Model holds flat",
+            guidance: "TT Model lane: Watch. Mixed signals — the model holds without adding; invalidation floor stays on the chart."
           },
           reduce: {
             label: "REDUCE",
             color: "#f87171",
             bg: "rgba(248,113,113,0.10)",
             border: "#ef4444",
-            action: "Trim into strength",
-            guidance: "Thesis weakening. Trim 25-50% into strength now, hold the remainder until invalidation. Free up capital for Accumulate-stage names."
+            action: "Model would trim",
+            guidance: "TT Model lane: Reduce. The model trims on auto-rebalance (~30% per cycle, or full exit on invalidation breach)."
           },
           research_on_watch: {
             label: "RESEARCH · ON WATCH",
@@ -20371,4 +20371,4 @@
   };
 })();
 
-// cache-bust:1781880937179:550374589
+// cache-bust:1781882743751:432901139
