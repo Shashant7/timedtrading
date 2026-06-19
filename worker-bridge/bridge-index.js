@@ -648,19 +648,30 @@ export default {
         const dryRun = body?.dry_run === true;
         const limit = Number(body?.limit) || 100;
         const targetUserId = body?.user_id ? String(body.user_id).toLowerCase() : null;
-        if (targetUserId) {
-          const u = await readUser(env, targetUserId);
-          if (!u) return json({ ok: false, error: "user_not_found" }, 404);
-          const adapter = brokerAdapterFor(u);
-          const stats = await reconcileUser(env, u, adapter, { limit, dryRun });
-          return json({ ok: true, single_user: true, stats, dry_run: dryRun });
-        }
-        const result = await reconcileAllUsers(
-          env,
-          () => listConnectedUsers(env, 100),
-          (u) => brokerAdapterFor(u),
-          { dryRun },
-        );
+        const runReconcile = async () => {
+          if (targetUserId) {
+            const u = await readUser(env, targetUserId);
+            if (!u) return json({ ok: false, error: "user_not_found" }, 404);
+            const adapter = brokerAdapterFor(u);
+            const stats = await reconcileUser(env, u, adapter, { limit, dryRun });
+            return json({ ok: true, single_user: true, stats, dry_run: dryRun });
+          }
+          return reconcileAllUsers(
+            env,
+            () => listConnectedUsers(env, 100),
+            (u) => brokerAdapterFor(u),
+            { dryRun },
+          );
+        };
+        const result = await runReconcile();
+        // Heartbeat for main-worker sanity sweep (shared KV_TIMED).
+        try {
+          const kv = env?.KV_TIMED || env?.BRIDGE_KV;
+          if (kv) {
+            await kv.put("bridge:reconciler:last_run", String(Date.now()), { expirationTtl: 24 * 3600 });
+          }
+        } catch (_) {}
+        if (result instanceof Response) return result;
         return json(result);
       }
 
