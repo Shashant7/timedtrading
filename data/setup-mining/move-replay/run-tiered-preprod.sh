@@ -62,7 +62,8 @@ run_phase() {
       fi
     fi
     set +e
-    out=$(node scripts/replay-move-windows.mjs \
+    batch_log="$OUT_DIR/.batch-${phase}-${batch}.log"
+    node scripts/replay-move-windows.mjs \
       --discovery-file data/move-discovery-live.json \
       --limit "$BATCH_SIZE" \
       --min-atr "$min_atr" \
@@ -71,14 +72,15 @@ run_phase() {
       --out-dir "$OUT_DIR" \
       --resume \
       "${extra[@]}" \
-      2>&1)
-    code=$?
+      2>&1 | tee "$batch_log"
+    code=${PIPESTATUS[0]}
     set -e
-    echo "$out"
-    if echo "$out" | grep -q '"done": true'; then
+    if grep -q '"done": true' "$batch_log"; then
+      rm -f "$batch_log"
       echo "========== $phase complete $(date -u -Iseconds) =========="
       return 0
     fi
+    rm -f "$batch_log"
     if [ "$code" -ne 0 ]; then
       echo "=== $phase batch $batch failed exit=$code — retry in 60s ==="
       sleep 60
