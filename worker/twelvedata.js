@@ -509,6 +509,17 @@ export async function tdFetchEarningsHistory(env, symbol, outputsize = 12) {
   return tdFetch(url, 15000);
 }
 
+/** Analyst revenue consensus — annual + quarterly forward sales estimates. */
+export async function tdFetchRevenueEstimate(env, symbol) {
+  const apiKey = getApiKey(env);
+  if (!apiKey) return { _error: "missing_credentials" };
+  const sym = toTdSymbol(String(symbol || "").toUpperCase());
+  if (SKIP_TICKERS.has(symbol)) return { _error: "non_equity" };
+  const params = new URLSearchParams({ symbol: sym, apikey: apiKey });
+  const url = `${TD_BASE}/revenue_estimate?${params}`;
+  return tdFetch(url, 15000);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Exports for data-provider layer
 // ═══════════════════════════════════════════════════════════════════════════════

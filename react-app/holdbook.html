@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Holdbook — Timed Trading</title>
+    <meta name="description" content="Portfolio-level compounding hold thesis — revenue path, quality grades, and dip-buy posture for Investor Mode names." />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
+    <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="shared-rail-helpers.js?v=20260610-verda3"></script>
+    <script src="shared-right-rail.compiled.js?v=20260610-verda3"></script>
+    <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-up: #22c55e;
+        --tt-dn: #f43f5e;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-font: "Inter", system-ui, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, monospace;
+      }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); min-height: 100vh; }
+      main { max-width: 1100px; margin: 0 auto; padding: 20px 20px 96px; }
+      .hb-hero { margin-bottom: 24px; }
+      .hb-hero h1 { font-size: 22px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.02em; }
+      .hb-hero p { margin: 0; color: var(--tt-text-muted); font-size: 14px; line-height: 1.5; max-width: 640px; }
+      .hb-link { color: var(--tt-accent); text-decoration: none; font-weight: 600; }
+      .hb-section { margin-bottom: 28px; }
+      .hb-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tt-text-muted); margin-bottom: 10px; }
+      .hb-grid { display: grid; gap: 12px; }
+      .hb-card {
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+        padding: 14px 16px;
+        cursor: pointer;
+        transition: border-color 0.15s;
+      }
+      .hb-card:hover { border-color: rgba(56,242,161,0.35); }
+      .hb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+      .hb-ticker { font-family: var(--tt-font-mono); font-weight: 700; font-size: 15px; }
+      .hb-name { font-size: 12px; color: var(--tt-text-muted); margin-top: 2px; }
+      .hb-chip {
+        font-family: var(--tt-font-mono);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(56,242,161,0.35);
+        color: var(--tt-accent);
+        white-space: nowrap;
+      }
+      .hb-meta { display: flex; flex-wrap: wrap; gap: 10px; font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-bottom: 10px; }
+      .hb-up { color: var(--tt-up); }
+      .hb-dn { color: var(--tt-dn); }
+      .hb-thesis { margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.45; color: var(--tt-text); }
+      .hb-thesis li { margin-bottom: 4px; }
+      .hb-empty { color: var(--tt-text-muted); font-size: 13px; padding: 20px; text-align: center; border: 1px dashed var(--tt-border); border-radius: 12px; }
+      .hb-loading { color: var(--tt-text-muted); font-size: 13px; padding: 40px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260611a"></script>
+    <main id="root"></main>
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+      const API_BASE = window.API_BASE || "";
+
+      function fmtPct(n) {
+        if (!Number.isFinite(Number(n))) return "—";
+        const v = Number(n);
+        return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+      }
+
+      function Section({ title, subtitle, rows, onOpen }) {
+        if (!rows?.length) return null;
+        return (
+          <section className="hb-section">
+            <div className="hb-sec-title">{title}</div>
+            {subtitle && <p style={{ fontSize: 12, color: "var(--tt-text-muted)", margin: "0 0 10px" }}>{subtitle}</p>}
+            <div className="hb-grid">
+              {rows.map((row) => (
+                <article key={row.ticker} className="hb-card" onClick={() => onOpen(row.ticker)} role="button" tabIndex={0}>
+                  <div className="hb-card-head">
+                    <div>
+                      <div className="hb-ticker">{row.ticker}</div>
+                      {row.companyName && <div className="hb-name">{row.companyName}</div>}
+                    </div>
+                    {row.tier_label && <span className="hb-chip">{row.tier_label}</span>}
+                  </div>
+                  <div className="hb-meta">
+                    <span>Score {row.score ?? "—"}</span>
+                    <span>RS {row.rsRank ?? "—"}</span>
+                    <span>{String(row.stage || "").replace(/_/g, " ")}</span>
+                    {row.price != null && <span>${Number(row.price).toFixed(2)}</span>}
+                    {row.dailyChgPct != null && (
+                      <span className={Number(row.dailyChgPct) >= 0 ? "hb-up" : "hb-dn"}>{fmtPct(row.dailyChgPct)}</span>
+                    )}
+                    {row.trajectory?.cagr_pct != null && <span>Runway {fmtPct(row.trajectory.cagr_pct)} CAGR</span>}
+                    {row.dip_buy && <span className="hb-up">Dip posture</span>}
+                  </div>
+                  {Array.isArray(row.hold_thesis) && row.hold_thesis.length > 0 && (
+                    <ul className="hb-thesis">
+                      {row.hold_thesis.slice(0, 4).map((b, i) => <li key={i}>{b}</li>)}
+                    </ul>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        );
+      }
+
+      function HoldbookApp() {
+        const [data, setData] = useState(null);
+        const [err, setErr] = useState(null);
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+          let cancelled = false;
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/investor/holdbook`, { credentials: "include", cache: "no-store" });
+              const j = await r.json();
+              if (!cancelled) {
+                if (!j.ok && j.error) setErr(j.error);
+                else setData(j);
+              }
+            } catch (e) {
+              if (!cancelled) setErr(String(e.message || e));
+            } finally {
+              if (!cancelled) setLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, []);
+
+        const openTicker = (sym) => {
+          if (window.TTRail?.open) window.TTRail.open(sym);
+          else if (window.openTickerRail) window.openTickerRail(sym);
+        };
+
+        if (loading) return <div className="hb-loading">Loading holdbook…</div>;
+        if (err) return <div className="hb-empty">Could not load holdbook: {err}</div>;
+        if (!data?.count) {
+          return (
+            <div>
+              <header className="hb-hero">
+                <h1>Holdbook</h1>
+                <p>Compounding names with a documented revenue path and hold thesis. Run Investor compute to populate this view.</p>
+              </header>
+              <div className="hb-empty">No compounders in book yet. Names need a growth profile plus Accumulate, Core Hold, or owned status.</div>
+            </div>
+          );
+        }
+
+        const g = data.groups || {};
+        return (
+          <div>
+            <header className="hb-hero">
+              <h1>Holdbook</h1>
+              <p>
+                Portfolio-level compounding thesis — revenue runway, quality grade, and dip posture.
+                Tap a name for fundamentals and charts. See also <a className="hb-link" href="/investor.html">Investor</a>.
+              </p>
+            </header>
+            <Section title="In Book" subtitle="Owned or Core Hold — established compounding positions." rows={g.in_book} onOpen={openTicker} />
+            <Section title="Building" subtitle="Accumulate lane — starter or add-band names." rows={g.building} onOpen={openTicker} />
+            <Section title="On Radar" subtitle="Watch with a compounding profile — add when dip signals align." rows={g.on_radar} onOpen={openTicker} />
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<HoldbookApp />);
+    </script>
+  </body>
+</html>
