@@ -2,6 +2,7 @@ import {
   computeTimingOverlay,
   detectExhaustionWarnings as _detectExhaustionWarningsFromTiming,
 } from "./timing-signals.js";
+import { detectCompounderDipBuy } from "./growth-compounder.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Intelligence Module
@@ -691,13 +692,28 @@ export function applyInvestorTimingGate(stageResult, timing, ctx = {}) {
     accumZone = null,
     marketHealth = 50,
     cfg = DEFAULT_INVESTOR_CONFIG,
+    compounder = null,
+    dipBuy = null,
   } = ctx;
 
   const stage = String(stageResult.stage || "");
   const owned = !!existingPosition;
+  const compounderDipLane = !owned && compounder?.eligible && dipBuy?.isDip
+    && (compounder.tier === "growth_elite" || compounder.tier === "growth_strong")
+    && investorScore >= cfg.watch_promising_score_min
+    && marketHealth >= cfg.accumulate_inzone_market_health_min;
 
   if (primary === "TOP") {
-    if (!owned && stage === "accumulate") {
+    // Growth compounder dip-buy: hold/add on pullbacks even when timing says TOP.
+    if (compounderDipLane && stage === "watch") {
+      return {
+        stage: "accumulate",
+        reason: `compounder_dip_at_top:${stageResult.reason}`,
+        timing_primary: "TOP",
+        timing_playbook: "TIME_TOP_COMPOUNDER_DIP",
+      };
+    }
+    if (!owned && stage === "accumulate" && !compounderDipLane) {
       return {
         stage: "watch",
         reason: `timing_top_block_new_entry:${stageResult.reason}`,
@@ -1007,10 +1023,18 @@ export function computeInvestorActionTier(row) {
 }
 
 export function classifyInvestorStage(tickerData, investorScore, existingPosition = null, opts = {}) {
-  const { rsRank = 50, marketHealth = 50, accumZone = null, cfg = DEFAULT_INVESTOR_CONFIG } = opts;
+  const {
+    rsRank = 50,
+    marketHealth = 50,
+    accumZone = null,
+    cfg = DEFAULT_INVESTOR_CONFIG,
+    compounder = null,
+    dipBuy: dipBuyOpt = null,
+  } = opts;
   const timing = resolveInvestorTimingOverlay(tickerData);
+  const dipBuy = dipBuyOpt || detectCompounderDipBuy(tickerData, timing, accumZone);
   const finalize = (result) => applyInvestorTimingGate(result, timing, {
-    existingPosition, investorScore, accumZone, marketHealth, cfg,
+    existingPosition, investorScore, accumZone, marketHealth, cfg, compounder, dipBuy,
   });
   const mb = tickerData.monthly_bundle;
   const wStDir = tickerData.tf_tech?.W?.atr?.xs;
@@ -1145,6 +1169,17 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
   // ── Without position ──
 
+  // Growth compounder dip-buy lane — quality compounders (Tenet-style
+  // revenue trajectory) can initiate on pullbacks despite extension.
+  if (!existingPosition && compounder?.eligible && dipBuy?.isDip
+    && investorScore >= cfg.watch_promising_score_min
+    && marketHealth >= cfg.accumulate_inzone_market_health_min) {
+    return finalize({
+      stage: "accumulate",
+      reason: `compounder_dip_buy:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
+    });
+  }
+
   // 2026-06-01 — Exhausted momentum-runner short-circuit.
   // detectAccumulationZone() flags `momentum_runner_exhausted` when 2+
   // exhaustion signals fire alongside an otherwise-passing trend
@@ -1156,7 +1191,18 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // a starter position). The exhaustionWarnings array surfaces in the
   // stageReason so the operator + thesis email can show WHY this isn't
   // an accumulate.
+  //
+  // Exception: growth_elite compounders on a confirmed dip — buy the
+  // pullback, don't chase extension (Tenet "why we hold" playbook).
   if (accumZone?.zoneType === "momentum_runner_exhausted") {
+    if (compounder?.tier === "growth_elite" && dipBuy?.isDip
+      && investorScore >= cfg.watch_promising_score_min
+      && marketHealth >= cfg.accumulate_inzone_market_health_min) {
+      return finalize({
+        stage: "accumulate",
+        reason: `compounder_dip_override_exhaustion:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
+      });
+    }
     return finalize({
       stage: "watch",
       reason: `exhaustion_detected:${(accumZone.exhaustionWarnings || []).slice(0, 4).join("|")}`,
@@ -1644,6 +1690,14 @@ export function generateThesis(tickerData, rsRank = 50) {
     }
   }
 
+  // Growth compounder "why we hold" bullets (Tenet-style revenue trajectory).
+  const _whyHold = tickerData?._compounder?.why_hold;
+  if (Array.isArray(_whyHold) && _whyHold.length > 0) {
+    for (const bullet of _whyHold.slice(0, 4)) {
+      if (bullet && !conditions.includes(bullet)) conditions.push(bullet);
+    }
+  }
+
   const thesis = conditions.length > 0
     ? `${ticker}: ${conditions.join(". ")}`
     : `${ticker}: Insufficient data for thesis`;
@@ -1651,6 +1705,7 @@ export function generateThesis(tickerData, rsRank = 50) {
   return {
     thesis,
     invalidation,
+    whyHold: Array.isArray(_whyHold) ? _whyHold.slice(0, 5) : [],
     criteria: {
       monthlyST: mb?.supertrend_dir === -1,    // Pine convention: -1 = bull
       weeklyAbove200: emaW?.structure > 0.5,
