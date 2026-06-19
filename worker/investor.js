@@ -82,6 +82,19 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   auto_dca_frequency: "monthly",                       // (d) tranche cadence
 });
 
+/** Reduce reasons where the model should execute without CIO / 2-day deferral. */
+export const STRUCTURAL_INVESTOR_REDUCE_REASONS = new Set([
+  "primary_invalidation_breach",
+  "monthly_supertrend_bearish",
+  "rs_rank_declining",
+  "investor_score_very_low",
+  "weekly_supertrend_bearish",
+]);
+
+export function isStructuralInvestorReduce(stageReason) {
+  return STRUCTURAL_INVESTOR_REDUCE_REASONS.has(String(stageReason || ""));
+}
+
 /**
  * Load runtime investor config with daCfg overrides. Mirror of
  * loadTrendHoldConfig in worker/trend-hold.js. Bounds-checked.
@@ -845,11 +858,20 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     marketHealth,
     cfg,
   });
+  const thesis = generateThesis(td, rsRank);
+  const _livePx = Number(td?._live_price || td?.price) || 0;
+  const primaryInvalidation = resolveStickyPrimaryInvalidation(
+    cached?.primaryInvalidation,
+    pickPrimaryInvalidationPrice(td, thesis.criteria, thesis.invalidation),
+    _livePx,
+    !!existingPosition,
+  );
   const stage = classifyInvestorStage(td, score, existingPosition, {
     rsRank,
     marketHealth,
     accumZone,
     cfg,
+    primaryInvalidation,
   });
   const timing = resolveInvestorTimingOverlay(td);
 
@@ -870,9 +892,6 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     accumZone,
     position: posMeta,
   });
-
-  const thesis = generateThesis(td, rsRank);
-  const primaryInvalidation = pickPrimaryInvalidationPrice(td, thesis.criteria, thesis.invalidation);
 
   const fresh = {
     ...cached,
@@ -1722,7 +1741,7 @@ export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalida
       distancePct: best.distancePct,
       tier: best.tier,
       thesisLevel,
-      condition: `Exit remainder if price closes below $${best.price.toFixed(2)} (${best.label}${estNote}${tacticalNote})`,
+      condition: `The model exits the remainder if price closes below $${best.price.toFixed(2)} (${best.label}${estNote}${tacticalNote})`,
       invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
     };
   }
@@ -1734,7 +1753,7 @@ export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalida
     distancePct: 12,
     tier: "fallback",
     thesisLevel,
-    condition: `Exit remainder if price closes below $${fallback.toFixed(2)} (12% from current — no nearer structural floor found)`,
+    condition: `The model exits the remainder if price closes below $${fallback.toFixed(2)} (12% from current — no nearer structural floor found)`,
     invalidationLines: Array.isArray(invalidationStrings) ? invalidationStrings.slice(0, 4) : [],
   };
 }

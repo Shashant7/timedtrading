@@ -741,76 +741,74 @@ export function createWeeklyDigestEmbed({
    user to translate "Momentum-Runner Zone Confirmed" into "ok so
    what do I do?". */
 export function deriveInvestorAlertAction(type, data = {}) {
+  const sym = String(data?.ticker || "ticker").toUpperCase();
   if (type === "thesis_invalidation") {
     return {
-      verb: "REDUCE / EXIT",
+      verb: "MODEL · REDUCE",
       color: "#ef4444",
       tone: "danger",
-      one_liner: "One or more conditions that supported the investment are no longer valid. Consider trimming or closing the position based on your risk tolerance.",
+      one_liner: `The TT Investor model moved ${sym} to Reduce — one or more supporting conditions no longer hold. The model portfolio would trim or exit on the next rebalance cycle. Informational only; not investment advice.`,
     };
   }
   if (type === "accumulation_zone") {
     const z = String(data?.zoneType || "").toLowerCase();
     const score = Number(data?.score) || 0;
     if (z === "momentum_runner") {
-      // Trend healthy + already extended. Operator wanted clarity: this
-      // is NOT a fresh-entry buy-the-dip signal.
       return {
-        verb: "ADD ON PULLBACK",
+        verb: "MODEL · WATCH",
         color: "#10b981",
         tone: "info",
-        one_liner: `Trend is healthy and intact. ${data?.ticker || "Ticker"} may already be extended from a low — only add on a 1-3% pullback toward the 21 EMA, not at the current price. If you don't own it, this is a WATCH, not a fresh-entry signal.`,
+        one_liner: `The TT model logged a momentum-runner zone on ${sym}. The model would add only on a pullback toward the 21 EMA — not at the current print. Not a fresh-entry buy-the-dip signal.`,
       };
     }
-    // Default: pullback-into-zone "buy the dip" entry
     if (score >= 70) {
       return {
-        verb: "ACCUMULATE",
+        verb: "MODEL · ACCUMULATE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `Entered an accumulation zone with a strong investor score (${score}/100). For new entries: scale in over 2-3 tranches. For existing positions: add to the core.`,
+        one_liner: `The TT model entered an accumulation zone on ${sym} (score ${score}/100). The model portfolio scales in over 2–3 tranches on weakness inside the buy zone.`,
       };
     }
     return {
-      verb: "WATCH",
+      verb: "MODEL · WATCH",
       color: "#f5c25c",
       tone: "watch",
-      one_liner: `Entered an accumulation zone but investor score is moderate (${score}/100). Worth tracking; wait for either a higher score read or stronger confirmation before adding.`,
+      one_liner: `The TT model logged an accumulation zone on ${sym} with a moderate score (${score}/100). Model lane stays Watch until confirmation strengthens.`,
     };
   }
   if (type === "rs_breakout") {
     return {
-      verb: "WATCH FOR ENTRY",
+      verb: "MODEL · WATCH",
       color: "#3b82f6",
       tone: "info",
-      one_liner: `Relative strength hit a new ${data?.period || "3-month"} high vs SPY. Often a precursor to a stronger trend move, but RS alone isn't an entry trigger — wait for an accumulation-zone or pullback setup before adding.`,
+      one_liner: `${sym} relative strength hit a new ${data?.period || "3-month"} high vs SPY in the TT model. RS alone is not an entry trigger — the model waits for an accumulation zone or pullback setup.`,
     };
   }
   if (type === "rebalancing") {
     return {
-      verb: "REVIEW PORTFOLIO",
+      verb: "MODEL · REVIEW",
       color: "#f59e0b",
       tone: "info",
-      one_liner: "Portfolio composition may benefit from rebalancing based on current conditions. Review the suggestions in the dashboard before acting.",
+      one_liner: "The TT Investor model portfolio composition drifted from its targets. Review the dashboard suggestions — informational context only.",
     };
   }
   if (type === "position_trim") {
     return {
-      verb: "TRIM / REDUCE",
+      verb: "MODEL · TRIMMED",
       color: "#f59e0b",
       tone: "warning",
-      one_liner: `The Investor portfolio trimmed ${data.shares ?? "?"} shares of ${data.ticker || "ticker"} at $${Number(data.price || 0).toFixed(2)}. Review the remaining position size and whether further reduction is warranted.`,
+      one_liner: `The TT Investor model portfolio trimmed ${data.shares ?? "?"} shares of ${sym} at $${Number(data.price || 0).toFixed(2)} — executed rebalance. Remaining size reflects the model's current lane.`,
     };
   }
   if (type === "position_close") {
     return {
-      verb: "REDUCE / EXIT",
+      verb: "MODEL · EXITED",
       color: "#ef4444",
       tone: "danger",
-      one_liner: `The Investor portfolio closed the ${data.ticker || "ticker"} position (${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}). Review whether the exit aligns with the current thesis and portfolio targets.`,
+      one_liner: `The TT Investor model portfolio closed ${sym} (${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}). Model lane is now Exited.`,
     };
   }
-  return { verb: "INFO", color: "#9ca3af", tone: "info", one_liner: "" };
+  return { verb: "MODEL · INFO", color: "#9ca3af", tone: "info", one_liner: "TT Investor model signal — informational only." };
 }
 
 /**
@@ -832,9 +830,9 @@ export function createInvestorAlertEmbed(type, data) {
     thesis_invalidation: {
       color: 0xef4444,
       emoji: "⚠️",
-      title: (d) => `${d.ticker}: Investment Thesis Invalidated`,
-      description: (d) => `One or more conditions that supported your investment in **${d.ticker}** are no longer valid.`,
-      fields: (d) => d.reasons.map(r => ({ name: "Invalidation", value: r, inline: false })),
+      title: (d) => `${d.ticker}: Model Thesis Shift`,
+      description: (d) => `The TT Investor model no longer sees valid supporting conditions for **${d.ticker}**.`,
+      fields: (d) => d.reasons.map(r => ({ name: "Model invalidation", value: r, inline: false })),
     },
     accumulation_zone: {
       color: 0x10b981,
@@ -857,7 +855,7 @@ export function createInvestorAlertEmbed(type, data) {
         if (d.zoneType === "momentum_runner") {
           return `**${d.ticker}** is in a confirmed *momentum-runner* zone — trend is healthy and intact, signals support adding on minor pullbacks. ⚠ Not a fresh-entry "buy the dip" signal; price may already be extended from a low.`;
         }
-        return `**${d.ticker}** has entered an accumulation zone — a potentially attractive pullback-entry point for long-term investors. Weekly oversold while monthly trend intact, or price near major support.`;
+        return `**${d.ticker}** has entered an accumulation zone in the TT model — pullback context with monthly trend intact, or price near major support. Informational only.`;
       },
       fields: (d) => [
         { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
@@ -866,7 +864,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Zone Type", value: String(d.zoneType || "—").replace(/_/g, " "), inline: true },
         { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
         // Make it clear this is informational, not an auto-executed order.
-        { name: "Note", value: "Informational signal. The trade simulator tracks it; live execution requires the Phase 1 share-mirror config (see Mission Control → Broker Bridge).", inline: false },
+        { name: "Note", value: "TT Investor model signal. The model portfolio tracks this in simulation; live broker mirroring requires Mission Control → Broker Bridge.", inline: false },
       ],
     },
     rs_breakout: {
@@ -884,7 +882,7 @@ export function createInvestorAlertEmbed(type, data) {
       color: 0xf59e0b,
       emoji: "⚖️",
       title: () => "Portfolio Rebalancing Alert",
-      description: () => "Your portfolio may benefit from rebalancing based on current conditions.",
+      description: () => "The TT Investor model portfolio composition drifted from its targets.",
       fields: (d) => (d.suggestions || []).map(s => ({
         name: s.type.replace(/_/g, " ").toUpperCase(),
         value: s.message,
@@ -942,7 +940,7 @@ export function createInvestorAlertEmbed(type, data) {
   // scrolling. Existing fields follow.
   const _fields = [
     {
-      name: `▶ What to do — ${_action.verb}`,
+      name: `▶ TT Model signal — ${_action.verb}`,
       value: _action.one_liner,
       inline: false,
     },

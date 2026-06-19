@@ -1824,7 +1824,7 @@ export async function sendInvestorAlertEmails(env, alert) {
       headline: data.zoneType === "momentum_runner" ? "Momentum-Runner Zone Confirmed" : "Entered Accumulation Zone",
       lede: data.zoneType === "momentum_runner"
         ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks.`
-        : `<strong>${data.ticker}</strong> has entered an accumulation zone — a potentially attractive pullback-entry point for long-term investors.`,
+        : `<strong>${data.ticker}</strong> entered an accumulation zone in the TT Investor model — pullback context with monthly trend intact.`,
     },
     rs_breakout: {
       subjectBase: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,
@@ -1832,9 +1832,9 @@ export async function sendInvestorAlertEmails(env, alert) {
       lede: `<strong>${data.ticker}</strong> relative-strength line hit a new ${data.period || "3-month"} high vs SPY. Outperforming ${data.rsRank || "?"}% of the universe.`,
     },
     thesis_invalidation: {
-      subjectBase: `${data.ticker} — Investment Thesis Invalidated`,
-      headline: `Investment Thesis Invalidated`,
-      lede: `One or more conditions that supported your investment in <strong>${data.ticker}</strong> are no longer valid: ${(data.reasons || []).join("; ")}.`,
+      subjectBase: `${data.ticker} — Model Thesis Shift`,
+      headline: `Model Thesis Shift`,
+      lede: `The TT Investor model no longer sees valid supporting conditions for <strong>${data.ticker}</strong>: ${(data.reasons || []).join("; ")}.`,
     },
     position_trim: {
       subjectBase: `${data.ticker} — Investor Position Trimmed`,
@@ -1893,7 +1893,7 @@ export async function sendInvestorAlertEmails(env, alert) {
 
 <!-- Action badge — the single most important thing in this email -->
 <div style="margin:0 0 14px;padding:14px 16px;border-radius:10px;background:${tone}1A;border:1px solid ${tone}55">
-  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:4px">▶ What to do</div>
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
   <div style="font-size:18px;font-weight:700;color:${tone};letter-spacing:0.02em;margin-bottom:6px">${action.verb}</div>
   <div style="font-size:13px;line-height:1.55;color:#e5e7eb">${action.one_liner}</div>
 </div>
@@ -1905,7 +1905,7 @@ ${chartImgHtml}
 <table cellspacing="0" cellpadding="0" style="margin:14px 0 18px">${factsHtml}</table>
 <a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
 <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
-Informational signal only. Not financial advice. The trade simulator tracks this; live execution requires the Phase 1 share-mirror config.<br>
+Informational model signal only — not investment advice. The TT Investor model portfolio tracks this in simulation; live broker mirroring requires the Phase 1 share-mirror config.<br>
 You're receiving this because Investor Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${tone};text-decoration:none">Manage preferences</a>.
 </div>
 </td></tr></table></td></tr></table></body></html>`;
@@ -1917,7 +1917,7 @@ You're receiving this because Investor Signal emails are enabled. <a href="https
         subject,
         html,
         text: `[INVESTOR · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
-              `What to do — ${action.verb}\n${action.one_liner}\n\n` +
+              `TT Model signal — ${action.verb}\n${action.one_liner}\n\n` +
               `${meta.lede.replace(/<[^>]+>/g, "")}\n\n` +
               `View: ${tickerUrl}\nChart: ${_chartImgUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
       });
