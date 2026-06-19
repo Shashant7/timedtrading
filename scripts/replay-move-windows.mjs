@@ -224,7 +224,7 @@ function fetchSequenceTrailRows(ticker, since, until, wranglerEnv) {
   const all = [];
   let offset = 0;
   while (true) {
-    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND payload_json IS NOT NULL AND ts >= ${Number(since)} AND ts <= ${Number(until)} ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
+    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(since)} AND ts <= ${Number(until)} AND (payload_json IS NOT NULL OR flags_json IS NOT NULL) ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
     const batch = fetchD1Rows(wranglerEnv, sql);
     all.push(...batch);
     if (batch.length < pageSize) break;
