@@ -22,12 +22,14 @@
 
 ### Active
 
-- [ ] **Investor schedule + candle heal (2026-06-15).** Primary rebalance
-      10:30 AM ET; score 4 AM–8 PM ET hourly; RTH portfolio actions every
-      hour (invalidation + event-risk + gated adds); extended candle heal.
-      Branch: `cursor/investor-schedule-rth-df0c`.
+- [x] **Investor compliance + model voice (2026-06-15, PR #733).** Model-voice
+      copy; structural reduce bypass; sticky invalidation. Merged + deployed.
 
-- [x] **Investor invalidation → auto-rebalance exit (2026-06-15).** Wire
+- [x] **Investor schedule + candle heal (2026-06-15, PR #735).** Primary
+      rebalance 10:30 AM ET; score 4 AM–8 PM ET hourly; RTH portfolio actions
+      every hour. Merged + deployed.
+
+- [x] **Investor invalidation → auto-rebalance exit (2026-06-15, PR #729).**
       primary invalidation price breach into live auto-rebalance (full exit,
       no CIO gate). Sticky invalidation for owned positions so floors don't
       ratchet down on a drop. Branch: `cursor/investor-invalidation-exit-df0c`.
