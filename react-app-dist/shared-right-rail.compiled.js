@@ -14070,7 +14070,11 @@
           }
           const epsChip = growthChip(grw.eps_growth_class);
           const revChip = growthChip(grw.rev_growth_class);
-          const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)" : val.fair_value_class === "premium" ? "var(--ds-dn)" : val.fair_value_class === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+          const compFv = F.compounder || {};
+          const fvPrice = val.fair_value_price ?? compFv.fair_value ?? null;
+          const fvClass = val.fair_value_class ?? compFv.fv_class ?? null;
+          const fvPremiumPct = val.fair_value_premium_pct ?? compFv.fv_premium_pct ?? null;
+          const fairColor = fvClass === "discount" ? "var(--ds-up)" : fvClass === "premium" ? "var(--ds-dn)" : fvClass === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
           const sortedHistory = (() => {
             const rows = Array.isArray(earn.history) ? [...earn.history] : [];
             const k = fundamentalsSortKey;
@@ -14181,16 +14185,16 @@
             value: fmtNum(pxs.beta, 2)
           }))), React.createElement(Panel, {
             title: "Valuation",
-            action: val.fair_value_class && React.createElement("span", {
+            action: fvClass && React.createElement("span", {
               className: "ds-chip ds-chip--sm",
               style: {
                 color: fairColor,
-                background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)" : val.fair_value_class === "premium" ? "rgba(244,63,94,0.12)" : "rgba(56,242,161,0.12)",
+                background: fvClass === "discount" ? "rgba(34,197,94,0.12)" : fvClass === "premium" ? "rgba(244,63,94,0.12)" : "rgba(56,242,161,0.12)",
                 border: `1px solid ${fairColor}`,
                 fontFamily: "var(--tt-font-mono)",
                 letterSpacing: "0.08em"
               }
-            }, String(val.fair_value_class || "").toUpperCase())
+            }, String(fvClass || "").toUpperCase())
           }, React.createElement("div", {
             style: {
               display: "grid",
@@ -14215,7 +14219,7 @@
           }), React.createElement(Metric, {
             label: "EV",
             value: fmtBigUsd(val.enterprise_value)
-          })), val.fair_value_price != null && React.createElement("div", {
+          })), fvPrice != null && React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-3)",
               padding: "var(--ds-space-3)",
@@ -14256,20 +14260,20 @@
               fontWeight: 700,
               color: fairColor
             }
-          }, "$", fmtNum(val.fair_value_price, 2)), val.current_price != null && React.createElement("span", {
+          }, "$", fmtNum(fvPrice, 2)), val.current_price != null && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: "var(--ds-fs-meta)",
               color: "var(--ds-text-muted)"
             }
-          }, "vs $", fmtNum(val.current_price, 2)), val.fair_value_premium_pct != null && React.createElement("span", {
+          }, "vs $", fmtNum(val.current_price, 2)), fvPremiumPct != null && React.createElement("span", {
             style: {
               color: fairColor,
               fontFamily: "var(--tt-font-mono)",
               fontSize: 10,
               fontWeight: 600
             }
-          }, val.fair_value_premium_pct >= 0 ? "+" : "", val.fair_value_premium_pct.toFixed(1), "%")), val.fair_value_methods && React.createElement("div", {
+          }, fvPremiumPct >= 0 ? "+" : "", fvPremiumPct.toFixed(1), "%")), val.fair_value_methods && React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-3)",
               display: "grid",
@@ -20858,4 +20862,4 @@
   };
 })();
 
-// cache-bust:1781908022111:769324445
+// cache-bust:1781909538367:467756431
