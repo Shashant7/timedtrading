@@ -4956,7 +4956,7 @@ function TodayApp() {
     };
   }, []);
   useEffect(() => {
-    if (loading) return;
+    if (!data) return;
     if (String(window.location.hash || "") !== "#opportunities") return;
     const scrollToOpp = () => document.getElementById("opportunities")?.scrollIntoView({
       behavior: "smooth",
@@ -4965,7 +4965,7 @@ function TodayApp() {
     scrollToOpp();
     const t = setTimeout(scrollToOpp, 600);
     return () => clearTimeout(t);
-  }, [loading]);
+  }, [data]);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
   const {
@@ -5555,6 +5555,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781911807407:484132943
+// cache-bust:1781912784939:529221598
 
-// cache-bust:1781911807407:484132943
+// cache-bust:1781912784939:529221598
