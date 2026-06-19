@@ -13,6 +13,71 @@ const FINNHUB_PROFILE_BASE = "https://finnhub.io/api/v1/stock/profile2";
 const REQUEST_TIMEOUT_MS = 8_000;
 const CONTEXT_TTL_SEC = 90 * 24 * 60 * 60;
 
+const SECTOR_ETF_INDUSTRY = {
+  XLE: "Energy Sector ETF", XLF: "Financial Sector ETF", XLK: "Technology Sector ETF",
+  XLV: "Health Care Sector ETF", XLI: "Industrial Sector ETF", XLY: "Consumer Discretionary Sector ETF",
+  XLP: "Consumer Staples Sector ETF", XLU: "Utilities Sector ETF", XLB: "Materials Sector ETF",
+  XLRE: "Real Estate Sector ETF", XLC: "Communication Services Sector ETF",
+};
+
+function inferMetadataFallback(sym, partial = {}) {
+  const t = String(sym || "").toUpperCase();
+  const name = String(partial.name || "");
+  const out = {};
+  if (/USD$/.test(t) && (t.includes("BTC") || t.includes("ETH"))) {
+    out.sector = "Crypto";
+    out.industry = t.includes("BTC") ? "Bitcoin" : "Ethereum";
+    if (!partial.name) out.name = t.includes("BTC") ? "Bitcoin USD" : "Ethereum USD";
+    return out;
+  }
+  if (/!\s*$/.test(t) || /[0-9]!$/.test(t)) {
+    out.sector = "Futures";
+    const futNames = {
+      "ES1!": "E-mini S&P 500", "NQ1!": "E-mini Nasdaq 100", "YM1!": "E-mini Dow",
+      "RTY1!": "E-mini Russell 2000", "CL1!": "Crude Oil", "GC1!": "Gold", "SI1!": "Silver",
+    };
+    out.industry = futNames[t] || "Index Future";
+    if (!partial.name) out.name = out.industry;
+    return out;
+  }
+  if (SECTOR_ETF_INDUSTRY[t]) {
+    out.sector = "ETF";
+    out.industry = SECTOR_ETF_INDUSTRY[t];
+    return out;
+  }
+  const indexEtfs = new Set(["SPY", "QQQ", "DIA", "IWM", "RSP", "RPG", "TNA", "SPHB"]);
+  if (indexEtfs.has(t)) {
+    out.sector = "ETF";
+    out.industry = "Index ETF";
+    return out;
+  }
+  const commodityEtfs = {
+    GLD: "Gold ETF", IAU: "Gold ETF", SLV: "Silver ETF", AGQ: "Silver ETF",
+    USO: "Oil ETF", UNG: "Natural Gas ETF", CPER: "Copper ETF", DBA: "Agriculture ETF",
+  };
+  if (commodityEtfs[t]) {
+    out.sector = "Commodities";
+    out.industry = commodityEtfs[t];
+    return out;
+  }
+  const themed = {
+    KWEB: "China Internet ETF", IGV: "Software ETF", IBB: "Biotech ETF",
+    SOXL: "Semiconductor ETF", LIT: "Lithium ETF", XHB: "Homebuilders ETF",
+    INFL: "Inflation ETF", VIXY: "Volatility ETF", GRNY: "Growth ETF",
+    GRNI: "Growth ETF", GRNJ: "Growth ETF", ETHA: "Ethereum ETF",
+  };
+  if (themed[t]) {
+    out.sector = "ETF";
+    out.industry = themed[t];
+    return out;
+  }
+  if (/ETF|Trust|Fund/i.test(name)) {
+    out.sector = "ETF";
+    out.industry = name.replace(/\s+(ETF|Trust|Fund).*$/i, "").trim() || "Exchange Traded Fund";
+  }
+  return out;
+}
+
 async function kvPutJSON(KV, key, val, ttlSec) {
   if (!KV) return;
   try {
@@ -280,13 +345,23 @@ export async function hydrateTicker(env, ticker, opts = {}) {
       };
     }
   }
-  if (!profile && !stats) return null;
+  if (!profile && !stats) {
+    const fallbackOnly = inferMetadataFallback(t, {});
+    if (!fallbackOnly.name && !fallbackOnly.sector) return null;
+    profile = {
+      name: fallbackOnly.name || t,
+      sector: fallbackOnly.sector || null,
+      industry: fallbackOnly.industry || null,
+      source: "inferred",
+    };
+  }
 
+  const fallback = inferMetadataFallback(t, profile || {});
   const row = {
     ticker: t,
-    name: profile?.name || null,
-    sector: profile?.sector || null,
-    industry: profile?.industry || null,
+    name: profile?.name || fallback.name || null,
+    sector: profile?.sector || fallback.sector || null,
+    industry: profile?.industry || fallback.industry || null,
     country: profile?.country || null,
     currency: profile?.currency || "USD",
     exchange: profile?.exchange || null,
